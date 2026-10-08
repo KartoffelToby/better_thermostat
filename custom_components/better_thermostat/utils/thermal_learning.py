@@ -44,11 +44,11 @@ class HeatingCycle(TypedDict):
 
     start: str | None
     end: str | None
-    temp_start: float | None
-    temp_peak: float | None
+    start_temperature: float | None
+    peak_temperature: float | None
     delta_kelvin: float
     minutes: float
-    rate_c_min: float
+    rate_kelvin_per_min: float
     target: float | None
     outdoor: float | None
     norm_power: float | None
@@ -71,8 +71,8 @@ class LossCycle(TypedDict):
 
     start: str | None
     end: str | None
-    temp_start: float | None
-    temp_min: float | None
+    start_temperature: float | None
+    min_temperature: float | None
     rate: float
 
 
@@ -113,15 +113,15 @@ def clamp(value: float, lo: float, hi: float) -> float:
 def compute_weight_factor(
     heat_target_temperature: float | None, min_target: float, max_target: float
 ) -> float:
-    """Relative-position weight within the observed target-temp range.
+    """Relative-position weight within the observed target-temperature range.
 
     Returns a factor in ``[0.5, 1.5]``.
     """
-    temp_range = max(max_target - min_target, 0.1)
+    range_kelvin = max(max_target - min_target, 0.1)
     if heat_target_temperature is None:
         relative_pos = 0.5
     else:
-        relative_pos = (heat_target_temperature - min_target) / temp_range
+        relative_pos = (heat_target_temperature - min_target) / range_kelvin
     return clamp(0.5 + relative_pos, 0.5, 1.5)
 
 
@@ -178,9 +178,9 @@ class HeatingPowerTracker:
 
     heating_power: float = 0.01
     normalized_power: float | None = None
-    start_temp: float | None = None
+    start_temperature: float | None = None
     start_ts: datetime | None = None
-    end_temp: float | None = None  # peak temperature after heating stops
+    end_temperature: float | None = None  # peak temperature after heating stops
     end_ts: datetime | None = None
     _prev_action: HVACAction | None = None
     min_target: float = 18.0
@@ -211,29 +211,29 @@ class HeatingPowerTracker:
             current_action == HVACAction.HEATING
             and self._prev_action != HVACAction.HEATING
         ):
-            self.start_temp = room_temperature
+            self.start_temperature = room_temperature
             self.start_ts = now
-            self.end_temp = None
+            self.end_temperature = None
             self.end_ts = None
 
         # --- Transition: heating stops (candidate end) ---
         elif (
             current_action != HVACAction.HEATING
             and self._prev_action == HVACAction.HEATING
-            and self.start_temp is not None
-            and self.end_temp is None
+            and self.start_temperature is not None
+            and self.end_temperature is None
         ):
-            self.end_temp = room_temperature
+            self.end_temperature = room_temperature
             self.end_ts = now
 
-        # --- Peak tracking: temp still rising after heating stopped ---
+        # --- Peak tracking: temperature still rising after heating stopped ---
         elif (
             current_action != HVACAction.HEATING
-            and self.start_temp is not None
-            and self.end_temp is not None
-            and room_temperature > self.end_temp
+            and self.start_temperature is not None
+            and self.end_temperature is not None
+            and room_temperature > self.end_temperature
         ):
-            self.end_temp = room_temperature
+            self.end_temperature = room_temperature
             self.end_ts = now
 
         # --- Finalization criteria ---
@@ -275,9 +275,9 @@ class HeatingPowerTracker:
         finalize = False
 
         if (
-            self.start_temp is not None
-            and self.end_temp is not None
-            and room_temperature < self.end_temp
+            self.start_temperature is not None
+            and self.end_temperature is not None
+            and room_temperature < self.end_temperature
         ):
             finalize = True
         elif self.end_ts is not None and (now - self.end_ts) > timedelta(
@@ -290,17 +290,17 @@ class HeatingPowerTracker:
 
         power_changed = False
 
-        if self.end_temp is not None and self.start_temp is not None:
-            temp_diff = self.end_temp - self.start_temp
+        if self.end_temperature is not None and self.start_temperature is not None:
+            delta_kelvin = self.end_temperature - self.start_temperature
         else:
-            temp_diff = 0.0
+            delta_kelvin = 0.0
 
         if self.end_ts is not None and self.start_ts is not None:
-            duration_min = (self.end_ts - self.start_ts).total_seconds() / 60.0
+            duration_minutes = (self.end_ts - self.start_ts).total_seconds() / 60.0
         else:
-            duration_min = 0.0
+            duration_minutes = 0.0
 
-        if duration_min >= _MIN_CYCLE_DURATION and temp_diff > 0:
+        if duration_minutes >= _MIN_CYCLE_DURATION and delta_kelvin > 0:
             weight_factor = compute_weight_factor(
                 heat_target_temperature, self.min_target, self.max_target
             )
@@ -311,9 +311,11 @@ class HeatingPowerTracker:
             normalized_power: float | None = None
             if outdoor_temperature is not None and heat_target_temperature is not None:
                 delta_env = max(heat_target_temperature - outdoor_temperature, 0.1)
-                normalized_power = round((temp_diff / duration_min) / delta_env, 5)
+                normalized_power = round(
+                    (delta_kelvin / duration_minutes) / delta_env, 5
+                )
 
-            heating_rate = temp_diff / duration_min
+            heating_rate = delta_kelvin / duration_minutes
 
             alpha = clamp(
                 _BASE_ALPHA * weight_factor * env_factor, _ALPHA_MIN, _ALPHA_MAX
@@ -346,8 +348,8 @@ class HeatingPowerTracker:
             # Short stats history
             self.stats.append(
                 {
-                    "delta_kelvin": round(temp_diff, 2),
-                    "min": round(duration_min, 1),
+                    "delta_kelvin": round(delta_kelvin, 2),
+                    "min": round(duration_minutes, 1),
                     "rate": round(heating_rate, 4),
                     "alpha": round(alpha, 3),
                     "envf": round(env_factor, 3),
@@ -361,17 +363,19 @@ class HeatingPowerTracker:
                 {
                     "start": self.start_ts.isoformat() if self.start_ts else None,
                     "end": self.end_ts.isoformat() if self.end_ts else None,
-                    "temp_start": (
-                        round(self.start_temp, 2)
-                        if self.start_temp is not None
+                    "start_temperature": (
+                        round(self.start_temperature, 2)
+                        if self.start_temperature is not None
                         else None
                     ),
-                    "temp_peak": (
-                        round(self.end_temp, 2) if self.end_temp is not None else None
+                    "peak_temperature": (
+                        round(self.end_temperature, 2)
+                        if self.end_temperature is not None
+                        else None
                     ),
-                    "delta_kelvin": round(temp_diff, 3),
-                    "minutes": round(duration_min, 2),
-                    "rate_c_min": round(heating_rate, 4),
+                    "delta_kelvin": round(delta_kelvin, 3),
+                    "minutes": round(duration_minutes, 2),
+                    "rate_kelvin_per_min": round(heating_rate, 4),
                     "target": heat_target_temperature,
                     "outdoor": outdoor_temperature,
                     "norm_power": normalized_power,
@@ -381,8 +385,8 @@ class HeatingPowerTracker:
             _LOGGER.debug(
                 "better_thermostat: heating cycle evaluated: ΔT=%.3f°C, t=%.2fmin, "
                 "rate=%.4f°C/min, hp(old/new)=%.4f/%.4f, alpha=%.3f, env_factor=%.3f, norm=%s",
-                temp_diff,
-                duration_min,
+                delta_kelvin,
+                duration_minutes,
                 heating_rate,
                 old_power,
                 self.heating_power,
@@ -392,8 +396,8 @@ class HeatingPowerTracker:
             )
 
         # Reset for next cycle (even if discarded)
-        self.start_temp = None
-        self.end_temp = None
+        self.start_temperature = None
+        self.end_temperature = None
         self.start_ts = None
         self.end_ts = None
 
@@ -412,9 +416,9 @@ class HeatLossTracker:
     """
 
     heat_loss_rate: float = 0.01
-    start_temp: float | None = None
+    start_temperature: float | None = None
     start_ts: datetime | None = None
-    end_temp: float | None = None  # lowest observed temperature
+    end_temperature: float | None = None  # lowest observed temperature
     end_ts: datetime | None = None
     _prev_action: HVACAction | None = None
     _settle_until: datetime | None = None
@@ -445,9 +449,9 @@ class HeatLossTracker:
         # An open window or a running cooler drives the drop, so the stretch
         # it covers says nothing about passive heat loss: reset tracking.
         if window_open or current_action == HVACAction.COOLING:
-            self.start_temp = None
+            self.start_temperature = None
             self.start_ts = None
-            self.end_temp = None
+            self.end_temperature = None
             self.end_ts = None
             self._prev_action = current_action
             return HeatLossUpdate()
@@ -459,18 +463,20 @@ class HeatLossTracker:
 
         # Track idle cooling
         if current_action != HVACAction.HEATING:
-            if self.start_temp is None:
-                self.start_temp = room_temperature
+            if self.start_temperature is None:
+                self.start_temperature = room_temperature
                 self.start_ts = now
-                self.end_temp = room_temperature
+                self.end_temperature = room_temperature
                 self.end_ts = now
-            elif self.end_temp is None or room_temperature < self.end_temp:
-                self.end_temp = room_temperature
+            elif (
+                self.end_temperature is None or room_temperature < self.end_temperature
+            ):
+                self.end_temperature = room_temperature
                 self.end_ts = now
 
         # Finalize when heating restarts
         cycle_result: CycleResult | None = None
-        if current_action == HVACAction.HEATING and self.start_temp is not None:
+        if current_action == HVACAction.HEATING and self.start_temperature is not None:
             cycle_result = self._finalize()
 
         self._prev_action = current_action
@@ -482,17 +488,19 @@ class HeatLossTracker:
         """Evaluate the completed idle-cooling cycle."""
         loss_changed = False
 
-        if self.end_temp is not None and self.start_ts is not None:
-            temp_drop = (
-                self.start_temp - self.end_temp if self.start_temp is not None else 0.0
+        if self.end_temperature is not None and self.start_ts is not None:
+            drop_kelvin = (
+                self.start_temperature - self.end_temperature
+                if self.start_temperature is not None
+                else 0.0
             )
             if self.end_ts is not None and self.start_ts is not None:
-                duration_min = (self.end_ts - self.start_ts).total_seconds() / 60.0
+                duration_minutes = (self.end_ts - self.start_ts).total_seconds() / 60.0
             else:
-                duration_min = 0.0
+                duration_minutes = 0.0
 
-            if duration_min >= _MIN_CYCLE_DURATION and temp_drop > 0:
-                loss_rate = temp_drop / duration_min
+            if duration_minutes >= _MIN_CYCLE_DURATION and drop_kelvin > 0:
+                loss_rate = drop_kelvin / duration_minutes
 
                 # Adaptive smoothing (alpha is always base for heat loss)
                 alpha = clamp(_BASE_ALPHA, _ALPHA_MIN, _ALPHA_MAX)
@@ -521,8 +529,8 @@ class HeatLossTracker:
 
                 self.stats.append(
                     {
-                        "delta_kelvin": round(temp_drop, 2),
-                        "min": round(duration_min, 1),
+                        "delta_kelvin": round(drop_kelvin, 2),
+                        "min": round(duration_minutes, 1),
                         "rate": round(loss_rate, 5),
                         "alpha": round(alpha, 3),
                         "loss": round(self.heat_loss_rate, 5),
@@ -533,14 +541,14 @@ class HeatLossTracker:
                     {
                         "start": self.start_ts.isoformat() if self.start_ts else None,
                         "end": self.end_ts.isoformat() if self.end_ts else None,
-                        "temp_start": (
-                            round(self.start_temp, 2)
-                            if self.start_temp is not None
+                        "start_temperature": (
+                            round(self.start_temperature, 2)
+                            if self.start_temperature is not None
                             else None
                         ),
-                        "temp_min": (
-                            round(self.end_temp, 2)
-                            if self.end_temp is not None
+                        "min_temperature": (
+                            round(self.end_temperature, 2)
+                            if self.end_temperature is not None
                             else None
                         ),
                         "rate": round(loss_rate, 5),
@@ -548,9 +556,9 @@ class HeatLossTracker:
                 )
 
         # Reset after finalize
-        self.start_temp = None
+        self.start_temperature = None
         self.start_ts = None
-        self.end_temp = None
+        self.end_temperature = None
         self.end_ts = None
 
         return CycleResult(loss_changed=loss_changed)

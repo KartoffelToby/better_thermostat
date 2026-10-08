@@ -171,13 +171,13 @@ def test_contact_open_combines_window_and_door(bt, window_open, door_open, expec
     assert _prop("contact_open", bt) is expected
 
 
-# --- _get_outdoor_temp ------------------------------------------------------
+# --- _get_outdoor_temperature ------------------------------------------------------
 
 
 def test_outdoor_temp_none_without_sensor(bt):
     """Without a configured outdoor sensor there is nothing to read."""
     bt.outdoor_sensor_entity_id = None
-    assert BetterThermostat._get_outdoor_temp(bt) is None
+    assert BetterThermostat._get_outdoor_temperature(bt) is None
 
 
 def test_outdoor_temp_read_from_sensor_state(bt):
@@ -187,7 +187,7 @@ def test_outdoor_temp_read_from_sensor_state(bt):
     bt.hass.states.get.return_value = State(
         "sensor.outdoor", "7.5", attributes={"unit_of_measurement": "°C"}
     )
-    assert BetterThermostat._get_outdoor_temp(bt) == 7.5
+    assert BetterThermostat._get_outdoor_temperature(bt) == 7.5
 
 
 def test_outdoor_temp_missing_attribute_is_logged(bt, caplog):
@@ -195,7 +195,7 @@ def test_outdoor_temp_missing_attribute_is_logged(bt, caplog):
     bt.outdoor_sensor_entity_id = "sensor.outdoor"
     bt.hass = None
     with caplog.at_level(logging.DEBUG, logger=_CLIMATE_LOGGER):
-        assert BetterThermostat._get_outdoor_temp(bt) is None
+        assert BetterThermostat._get_outdoor_temperature(bt) is None
     assert "outdoor sensor sensor.outdoor could not be read" in caplog.text
 
 
@@ -205,4 +205,4 @@ def test_outdoor_temp_other_failure_propagates(bt):
     bt.hass = MagicMock()
     bt.hass.states.get.side_effect = RuntimeError("boom")
     with pytest.raises(RuntimeError):
-        BetterThermostat._get_outdoor_temp(bt)
+        BetterThermostat._get_outdoor_temperature(bt)

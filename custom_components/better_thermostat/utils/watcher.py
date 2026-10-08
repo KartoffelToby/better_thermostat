@@ -333,7 +333,7 @@ def get_critical_entities(self: BetterThermostat) -> list[str]:
     """Return list of critical entity IDs.
 
     Critical entities are TRVs - without them the thermostat cannot function.
-    The room temperature sensor is semi-critical (can fall back to TRV temp).
+    The room temperature sensor is semi-critical (can fall back to TRV temperature).
 
     Returns
     -------
@@ -698,7 +698,7 @@ async def check_and_update_degraded_mode(
     )
     # A stored reading only counts while its TRV is actually reachable;
     # otherwise a pre-outage value would keep HOLD unreachable forever.
-    trv_temp_ok = any(
+    trv_temperature_ok = any(
         reachable_trv_temperature(self, entity_id) is not None
         for entity_id in self.real_trvs
     )
@@ -707,7 +707,7 @@ async def check_and_update_degraded_mode(
         control_mode=control_mode_step_ladder(
             self.kernel_state.control_mode,
             room_sensor_ok=room_sensor_ok,
-            trv_temp_ok=trv_temp_ok,
+            trv_temperature_ok=trv_temperature_ok,
             now=self.clock.monotonic(),
             params=LadderParams(),
         ),

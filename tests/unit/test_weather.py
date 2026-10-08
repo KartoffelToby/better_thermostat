@@ -73,7 +73,7 @@ def make_bt(hass, **kw):
         weather_entity_id=None,
         outdoor_sensor_entity_id=None,
         off_temperature=10.0,
-        last_avg_outdoor_temp=None,
+        last_avg_outdoor_temperature=None,
         call_for_heat=True,
         clock=FakeClock(),
         weather_verdict_missing_since=None,
@@ -96,7 +96,7 @@ async def hanging_service_call(*_args, **_kwargs):
 def weather_state(
     features=int(WeatherEntityFeature.FORECAST_DAILY), temperature=20.0, unit="°C"
 ):
-    """Build a weather entity state advertising forecast support and a temp."""
+    """Build a weather entity state advertising forecast support and a temperature."""
     return make_state(
         state="cloudy",
         attrs={
@@ -255,7 +255,7 @@ class TestCheckWeatherPrediction:
         assert await check_weather_prediction(bt) is True
 
     async def test_warm_forecast_and_warm_now_no_heat(self):
-        """A warm forecast and warm current temp do not call for heat."""
+        """A warm forecast and warm current temperature do not call for heat."""
         states = {WEATHER_ID: weather_state(temperature=18.0)}
         hass = make_hass(states=states)
         hass.services.async_call = AsyncMock(
@@ -353,7 +353,7 @@ class TestCheckWeatherPrediction:
     async def test_forecast_temps_are_averaged(self):
         """Up to two forecast temps are averaged before the comparison.
 
-        Forecast = [15, 1] with off_temperature 10 and a warm current temp:
+        Forecast = [15, 1] with off_temperature 10 and a warm current temperature:
         the mean (8) is below the threshold, so heating is requested.
         """
         states = {WEATHER_ID: weather_state(temperature=15.0)}
@@ -491,7 +491,7 @@ class TestCheckAmbientAirTemperature:
         bt = make_bt(
             make_hass(states=states),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=None,
+            last_avg_outdoor_temperature=None,
             call_for_heat=False,
         )
         assert await check_ambient_air_temperature(bt) is None
@@ -503,7 +503,7 @@ class TestCheckAmbientAirTemperature:
         bt = make_bt(
             make_hass(states=states),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=8.0,
+            last_avg_outdoor_temperature=8.0,
             call_for_heat=False,
         )
         assert await check_ambient_air_temperature(bt) is None
@@ -516,7 +516,7 @@ class TestCheckAmbientAirTemperature:
         bt = make_bt(
             make_hass(states={}),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=None,
+            last_avg_outdoor_temperature=None,
             call_for_heat=False,
         )
         assert await check_ambient_air_temperature(bt) is None
@@ -534,7 +534,7 @@ class TestCheckAmbientAirTemperature:
         )
         await check_ambient_air_temperature(bt)
         assert bt.call_for_heat is True
-        assert bt.last_avg_outdoor_temp == 5.0
+        assert bt.last_avg_outdoor_temperature == 5.0
 
     async def test_no_recorder_uses_current_reading_warm(self):
         """Without recorder, a warm current reading stops heating."""
@@ -548,7 +548,7 @@ class TestCheckAmbientAirTemperature:
         )
         await check_ambient_air_temperature(bt)
         assert bt.call_for_heat is False
-        assert bt.last_avg_outdoor_temp == 18.0
+        assert bt.last_avg_outdoor_temperature == 18.0
 
     async def test_no_recorder_fahrenheit_current_reading(self):
         """A Fahrenheit current reading is converted before comparison."""
@@ -565,7 +565,7 @@ class TestCheckAmbientAirTemperature:
         )
         await check_ambient_air_temperature(bt)
         # 50 °F == 10 °C, above a 5 °C threshold -> no heat.
-        assert bt.last_avg_outdoor_temp == pytest.approx(10.0)
+        assert bt.last_avg_outdoor_temperature == pytest.approx(10.0)
         assert bt.call_for_heat is False
 
     def _hist_item(self, state, ts, unit="°C"):
@@ -595,7 +595,7 @@ class TestCheckAmbientAirTemperature:
             )
             await check_ambient_air_temperature(bt)
         # (15 + 30) / 2 = 22.5, above threshold -> no heat.
-        assert bt.last_avg_outdoor_temp == pytest.approx(22.5)
+        assert bt.last_avg_outdoor_temperature == pytest.approx(22.5)
         assert bt.call_for_heat is False
 
     async def test_recorder_history_filters_bad_states(self):
@@ -617,7 +617,7 @@ class TestCheckAmbientAirTemperature:
                 return_value={OUTDOOR_ID: items}
             )
             await check_ambient_air_temperature(bt)
-        assert bt.last_avg_outdoor_temp == pytest.approx(4.0)
+        assert bt.last_avg_outdoor_temperature == pytest.approx(4.0)
         assert bt.call_for_heat is True
 
     async def test_recorder_malformed_history_is_tolerated(self):
@@ -636,7 +636,7 @@ class TestCheckAmbientAirTemperature:
                 return_value=["not", "a", "dict"]
             )
             await check_ambient_air_temperature(bt)
-        assert bt.last_avg_outdoor_temp == pytest.approx(5.0)
+        assert bt.last_avg_outdoor_temperature == pytest.approx(5.0)
         assert bt.call_for_heat is True
 
     async def test_recorder_empty_history_falls_back_to_current_reading(self):
@@ -654,7 +654,7 @@ class TestCheckAmbientAirTemperature:
                 return_value={OUTDOOR_ID: []}
             )
             await check_ambient_air_temperature(bt)
-        assert bt.last_avg_outdoor_temp == pytest.approx(5.0)
+        assert bt.last_avg_outdoor_temperature == pytest.approx(5.0)
         assert bt.call_for_heat is True
 
     async def test_recorder_empty_history_above_threshold_disables_heat(self):
@@ -672,7 +672,7 @@ class TestCheckAmbientAirTemperature:
                 return_value={OUTDOOR_ID: []}
             )
             await check_ambient_air_temperature(bt)
-        assert bt.last_avg_outdoor_temp == pytest.approx(21.0)
+        assert bt.last_avg_outdoor_temperature == pytest.approx(21.0)
         assert bt.call_for_heat is False
 
     def _recorder_bt(self, reading="5.0", off_temperature=10.0):
@@ -700,7 +700,7 @@ class TestCheckAmbientAirTemperature:
             bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds() - 1)
             await check_ambient_air_temperature(bt)
         assert query.await_count == 1
-        assert bt.last_avg_outdoor_temp == pytest.approx(20.0)
+        assert bt.last_avg_outdoor_temperature == pytest.approx(20.0)
         assert bt.call_for_heat is False
 
     async def test_update_after_refresh_interval_reads_history_again(self):
@@ -715,7 +715,7 @@ class TestCheckAmbientAirTemperature:
             bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds())
             await check_ambient_air_temperature(bt)
         assert query.await_count == 2
-        assert bt.last_avg_outdoor_temp == pytest.approx(2.0)
+        assert bt.last_avg_outdoor_temperature == pytest.approx(2.0)
         assert bt.call_for_heat is True
 
     async def test_cached_empty_history_follows_the_current_reading(self):
@@ -733,7 +733,7 @@ class TestCheckAmbientAirTemperature:
             )
             await check_ambient_air_temperature(bt)
         assert query.await_count == 1
-        assert bt.last_avg_outdoor_temp == pytest.approx(18.0)
+        assert bt.last_avg_outdoor_temperature == pytest.approx(18.0)
         assert bt.call_for_heat is False
 
     async def test_history_query_failure_does_not_propagate(self, caplog):
@@ -754,7 +754,7 @@ class TestCheckAmbientAirTemperature:
                 bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds())
                 await check_ambient_air_temperature(bt)
         assert query.await_count == 2
-        assert bt.last_avg_outdoor_temp == pytest.approx(18.0)
+        assert bt.last_avg_outdoor_temperature == pytest.approx(18.0)
         assert bt.call_for_heat is False
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert len(warnings) == 1
@@ -775,7 +775,7 @@ class TestCheckAmbientAirTemperature:
             bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds())
             await check_ambient_air_temperature(bt)
         assert query.await_count == 2
-        assert bt.last_avg_outdoor_temp == pytest.approx(2.0)
+        assert bt.last_avg_outdoor_temperature == pytest.approx(2.0)
         assert bt.call_for_heat is True
 
     async def test_check_during_history_refresh_keeps_the_live_fallback(self):
@@ -816,7 +816,7 @@ class TestCheckAmbientAirTemperature:
             release_refresh.set()
             await asyncio.gather(refreshing, overlapping)
         assert bt.outdoor_history_mean is None
-        assert bt.last_avg_outdoor_temp == pytest.approx(20.0)
+        assert bt.last_avg_outdoor_temperature == pytest.approx(20.0)
         assert bt.call_for_heat is False
 
 
@@ -887,7 +887,7 @@ class TestCheckWeather:
         bt = make_bt(
             make_hass(states=states),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=None,
+            last_avg_outdoor_temperature=None,
             off_temperature=10.0,
         )
         bt.call_for_heat = False
@@ -899,7 +899,7 @@ class TestCheckWeather:
         bt = make_bt(
             make_hass(),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=2.0,
+            last_avg_outdoor_temperature=2.0,
             off_temperature=10.0,
         )
         await check_weather(bt)
@@ -910,7 +910,7 @@ class TestCheckWeather:
         bt = make_bt(
             make_hass(),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=18.0,
+            last_avg_outdoor_temperature=18.0,
             off_temperature=10.0,
         )
         await check_weather(bt)
@@ -922,7 +922,7 @@ class TestCheckWeather:
         bt = make_bt(
             make_hass(states=states),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=None,
+            last_avg_outdoor_temperature=None,
             off_temperature=10.0,
         )
         await check_weather(bt)
@@ -934,7 +934,7 @@ class TestCheckWeather:
             make_hass(),
             weather_entity_id=WEATHER_ID,
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=2.0,  # cold -> heat
+            last_avg_outdoor_temperature=2.0,  # cold -> heat
             off_temperature=10.0,
         )
         # Weather says "no heat" but it is discarded.
@@ -950,7 +950,7 @@ class TestCheckWeather:
             make_hass(),
             weather_entity_id=WEATHER_ID,
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=18.0,  # warm -> no heat
+            last_avg_outdoor_temperature=18.0,  # warm -> no heat
             off_temperature=10.0,
         )
         pred = AsyncMock(return_value=True)
@@ -1177,7 +1177,7 @@ class TestForecastOutage:
             make_hass(),
             weather_entity_id=WEATHER_ID,
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=outdoor_temperature,
+            last_avg_outdoor_temperature=outdoor_temperature,
             off_temperature=10.0,
         )
         with caplog.at_level(logging.INFO, logger=WEATHER_MOD):

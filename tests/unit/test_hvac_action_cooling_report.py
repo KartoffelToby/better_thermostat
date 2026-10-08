@@ -232,11 +232,11 @@ async def test_command_and_report_agree_across_a_temperature_sweep():
     rise = [21.5, 23.0, 24.0, 24.2, 24.4, 24.5, 24.6, 25.0]
     sweep = rise + list(reversed(rise))
     seen = {}
-    for temp in sweep:
-        bt.room_temperature = temp
+    for temperature in sweep:
+        bt.room_temperature = temperature
         snapshot = make_snapshot(
             hvac_mode=CoreHvacMode.HEAT_COOL,
-            room_temperature=temp,
+            room_temperature=temperature,
             heat_target_temperature=21.0,
             cool_target_temperature=24.0,
             tolerance=0.5,
@@ -245,8 +245,10 @@ async def test_command_and_report_agree_across_a_temperature_sweep():
         await control_cooler(bt, snapshot)
         commanded = bt._cooler_last_sent.get("hvac_mode_decided")
         reported = bt._compute_hvac_action_pure().action
-        assert (reported == HVACAction.COOLING) is (commanded == HVACMode.COOL), temp
-        seen[temp] = commanded
+        assert (reported == HVACAction.COOLING) is (commanded == HVACMode.COOL), (
+            temperature
+        )
+        seen[temperature] = commanded
 
     # The sweep has to reach the hold band, or agreement is trivial.
     assert seen[25.0] == HVACMode.COOL

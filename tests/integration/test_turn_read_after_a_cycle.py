@@ -62,7 +62,9 @@ async def test_a_head_turned_to_the_rooms_target_during_a_cycle_is_corrected(has
             await hold.wait_reached(hass)
             assert await poll_until(
                 hass,
-                lambda: first.target_temperature == 20.0 and trv.target_temp_received,
+                lambda: (
+                    first.target_temperature == 20.0 and trv.target_temperature_received
+                ),
             )
             first._attr_target_temperature = 23.0
             first.async_set_context(Context())

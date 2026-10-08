@@ -387,8 +387,8 @@ class TestRoundtripCompleteness:
             "min_temp": 6.0,
             "max_temp": 29.0,
             "valve_max_opening": 80.0,
-            "local_calibration_min": -4.0,
-            "local_calibration_max": 4.0,
+            "min_local_calibration": -4.0,
+            "max_local_calibration": 4.0,
         }
         assert set(trv_reported_kwargs) == {f.name for f in fields(TrvReported)}
 

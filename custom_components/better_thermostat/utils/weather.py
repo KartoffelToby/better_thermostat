@@ -92,24 +92,24 @@ async def check_weather(self: BetterThermostat) -> bool:
             _now = self.clock.monotonic()
             if self.weather_verdict_missing_since is None:
                 self.weather_verdict_missing_since = _now
-            _silent_s = _now - self.weather_verdict_missing_since
+            _silent_seconds = _now - self.weather_verdict_missing_since
             if (
                 not self.weather_fallback_active
-                and _silent_s >= WEATHER_VERDICT_HOLD.total_seconds()
+                and _silent_seconds >= WEATHER_VERDICT_HOLD.total_seconds()
             ):
                 _LOGGER.warning(
                     "better_thermostat %s: weather entity %s has given no forecast "
                     "for %.1f hours, resuming heating until it does",
                     self.device_name,
                     self.weather_entity_id,
-                    _silent_s / 3600.0,
+                    _silent_seconds / 3600.0,
                 )
                 self.weather_fallback_active = True
             if self.weather_fallback_active:
                 self.call_for_heat = True
 
     if self.outdoor_sensor_entity_id is not None:
-        if self.last_avg_outdoor_temp is None or self.off_temperature is None:
+        if self.last_avg_outdoor_temperature is None or self.off_temperature is None:
             # Check if sensor is currently unavailable (expected during startup)
             _outdoor_state = self.hass.states.get(self.outdoor_sensor_entity_id)
             _sensor_unavailable = _outdoor_state is None or _outdoor_state.state in (
@@ -132,7 +132,9 @@ async def check_weather(self: BetterThermostat) -> bool:
                 )
             _call_for_heat_outdoor = True
         else:
-            _call_for_heat_outdoor = self.last_avg_outdoor_temp < self.off_temperature
+            _call_for_heat_outdoor = (
+                self.last_avg_outdoor_temperature < self.off_temperature
+            )
 
         self.call_for_heat = _call_for_heat_outdoor
 
@@ -240,9 +242,9 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
             else None
         )
         if isinstance(forecast, list) and len(forecast) > 0:
-            # current outside temp from entity state (may be None)
+            # current outside temperature from entity state (may be None)
             cur_state = self.hass.states.get(self.weather_entity_id)
-            cur_outside_temp = convert_to_float_celsius(
+            current_outdoor_temperature = convert_to_float_celsius(
                 (
                     str(cur_state.attributes.get("temperature"))
                     if cur_state and cur_state.attributes
@@ -257,7 +259,7 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
                 ),
             )
             # average the sampled forecast temps over the two-day horizon
-            _entity_temp_unit = (
+            _entity_temperature_unit = (
                 cur_state.attributes.get("temperature_unit")
                 if cur_state and cur_state.attributes
                 else None
@@ -279,29 +281,29 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
                         unit_of_measurement=(
                             _entry_unit
                             if isinstance(_entry_unit, str)
-                            else _entity_temp_unit
+                            else _entity_temperature_unit
                         ),
                     )
                 )
             valid_temps: list[float] = [t for t in temps if isinstance(t, (int, float))]
-            avg_forecast_temp = None
+            avg_forecast_temperature = None
             if valid_temps:
-                avg_forecast_temp = sum(valid_temps) / float(len(valid_temps))
+                avg_forecast_temperature = sum(valid_temps) / float(len(valid_temps))
 
             # A forecast whose entries and current reading are all unusable
             # carries no temperature at all, so it gives no opinion rather
             # than the "warm" an empty comparison would read as.
-            if avg_forecast_temp is None and not isinstance(
-                cur_outside_temp, (int, float)
+            if avg_forecast_temperature is None and not isinstance(
+                current_outdoor_temperature, (int, float)
             ):
                 return None
             cond_cur = (
-                isinstance(cur_outside_temp, (int, float))
-                and cur_outside_temp < self.off_temperature
+                isinstance(current_outdoor_temperature, (int, float))
+                and current_outdoor_temperature < self.off_temperature
             )
             cond_fc = (
-                isinstance(avg_forecast_temp, (int, float))
-                and avg_forecast_temp < self.off_temperature
+                isinstance(avg_forecast_temperature, (int, float))
+                and avg_forecast_temperature < self.off_temperature
             )
             return bool(cond_cur or cond_fc)
         else:
@@ -380,11 +382,11 @@ async def _check_ambient_air_temperature(self: BetterThermostat) -> None:
             outdoor_sensor_entity_id,
         )
         # Keep last known value or default to heating enabled
-        if self.last_avg_outdoor_temp is None:
+        if self.last_avg_outdoor_temperature is None:
             self.call_for_heat = True
         return None
 
-    self.last_avg_outdoor_temp = convert_to_float_celsius(
+    self.last_avg_outdoor_temperature = convert_to_float_celsius(
         outdoor_state.state,
         self.device_name,
         "check_ambient_air_temperature()",
@@ -416,29 +418,29 @@ async def _check_ambient_air_temperature(self: BetterThermostat) -> None:
             else:
                 self.outdoor_history_failing = False
 
-        avg_temp = self.outdoor_history_mean
-        if avg_temp is None:
+        avg_temperature = self.outdoor_history_mean
+        if avg_temperature is None:
             # No usable recorder history (e.g. a freshly created helper or a
             # sensor the recorder does not retain). Fall back to the current
             # reading so the outdoor threshold still applies instead of
             # defaulting to "heat".
-            avg_temp = self.last_avg_outdoor_temp
+            avg_temperature = self.last_avg_outdoor_temperature
     else:
-        avg_temp = self.last_avg_outdoor_temp
+        avg_temperature = self.last_avg_outdoor_temperature
 
     _LOGGER.debug(
         "better_thermostat %s: avg outdoor temp: %s, threshold is %s",
         self.device_name,
-        avg_temp,
+        avg_temperature,
         self.off_temperature,
     )
 
-    if avg_temp is not None:
-        self.call_for_heat = avg_temp < self.off_temperature
+    if avg_temperature is not None:
+        self.call_for_heat = avg_temperature < self.off_temperature
     else:
         self.call_for_heat = True
 
-    self.last_avg_outdoor_temp = avg_temp
+    self.last_avg_outdoor_temperature = avg_temperature
 
 
 async def _read_outdoor_history_mean(
@@ -462,7 +464,7 @@ async def _read_outdoor_history_mean(
             mean of the per-day means, None if the history holds no usable
             reading
     """
-    _temp_history = DailyHistory(2)
+    _temperature_history = DailyHistory(2)
     start_date = dt_util.utcnow() - timedelta(days=2)
     _LOGGER.debug("Initializing values for %s from the database", entity_id)
     lower_entity_id = entity_id.lower()
@@ -483,7 +485,7 @@ async def _read_outdoor_history_mean(
         # only keep real values
         with suppress(ValueError):
             if item.state not in ("unknown", "unavailable"):
-                _temp_history.add_measurement(
+                _temperature_history.add_measurement(
                     convert_to_float_celsius(
                         item.state,
                         self.device_name,
@@ -496,7 +498,7 @@ async def _read_outdoor_history_mean(
                     datetime.fromtimestamp(item.last_updated.timestamp()),
                 )
     _LOGGER.debug("Initializing from database completed")
-    return _temp_history.min
+    return _temperature_history.min
 
 
 class DailyHistory:

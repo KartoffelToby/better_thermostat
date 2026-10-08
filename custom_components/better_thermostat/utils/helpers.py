@@ -922,9 +922,9 @@ def heating_power_valve_position(
     Returns ``None`` when the room temperature or the heating target is
     missing: without both there is no demand to size the valve from.
 
-    Examples (resulting valve_fraction for a given temp_diff and heating_power):
+    Examples (resulting valve_fraction for a given delta_kelvin and heating_power):
 
-    | temp_diff | hp=0.02 | hp=0.01 | hp=0.005 |
+    | delta_kelvin | hp=0.02 | hp=0.01 | hp=0.005 |
     |-----------|---------|---------|----------|
     | 0.1       | 0.0871  | 0.1678  | 0.3232   |
     | 0.2       | 0.1678  | 0.3232  | 0.6227   |
@@ -943,12 +943,12 @@ def heating_power_valve_position(
             target_temperature,
         )
         return None
-    _temp_diff = float(target_temperature) - float(room_temperature)
+    _delta_kelvin = float(target_temperature) - float(room_temperature)
 
-    # Guard against negative temp_diff (room warmer than target)
+    # Guard against negative delta_kelvin (room warmer than target)
     # This can occur in TRV override edge case when temperature rises
     # above target but TRV still reports heating (delayed update)
-    if _temp_diff <= 0:
+    if _delta_kelvin <= 0:
         _LOGGER.debug(
             f"better_thermostat {self.device_name}: {entity_id} "
             f"room temperature >= target ({room_temperature} >= {target_temperature}), "
@@ -965,18 +965,18 @@ def heating_power_valve_position(
     # Original formula with improved robustness
     a = 0.019
     b = 0.946
-    valve_fraction = a * (_temp_diff / heating_power) ** b
+    valve_fraction = a * (_delta_kelvin / heating_power) ** b
 
     # Apply minimum valve position when heating is actively needed
-    # If temp_diff > threshold, ensure minimum valve opening
+    # If delta_kelvin > threshold, ensure minimum valve opening
     # This prevents the system from getting stuck with too-low valve positions
-    if _temp_diff > VALVE_MIN_THRESHOLD_TEMP_DIFF:
+    if _delta_kelvin > VALVE_MIN_THRESHOLD_TEMP_DIFF:
         valve_fraction = max(VALVE_MIN_OPENING_LARGE_DIFF, valve_fraction)
-    elif _temp_diff >= VALVE_MIN_SMALL_DIFF_THRESHOLD:
+    elif _delta_kelvin >= VALVE_MIN_SMALL_DIFF_THRESHOLD:
         # For smaller differences, use a proportional minimum
         min_valve = (
             VALVE_MIN_BASE
-            + (_temp_diff - VALVE_MIN_SMALL_DIFF_THRESHOLD)
+            + (_delta_kelvin - VALVE_MIN_SMALL_DIFF_THRESHOLD)
             * VALVE_MIN_PROPORTIONAL_SLOPE
         )
         valve_fraction = max(min_valve, valve_fraction)
@@ -988,7 +988,7 @@ def heating_power_valve_position(
         "better_thermostat %s: %s / heating_power_valve_position - temp diff: %s - heating power: %s (bounded) - expected valve position: %s%%",
         self.device_name,
         entity_id,
-        round(_temp_diff, 1),
+        round(_delta_kelvin, 1),
         round(heating_power, 4),
         round(valve_fraction * 100),
     )

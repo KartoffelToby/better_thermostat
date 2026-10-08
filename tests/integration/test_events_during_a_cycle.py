@@ -118,7 +118,7 @@ async def _settle(hass, bt) -> None:
             not bt.ignore_states
             and all(
                 trv.system_mode_received
-                and trv.target_temp_received
+                and trv.target_temperature_received
                 and trv.calibration_received
                 for trv in bt.real_trvs.values()
             )
@@ -386,7 +386,9 @@ async def test_a_knob_turned_while_a_cycle_drives_another_head_is_adopted(hass):
         async with holding_next_write(held_head, "async_set_temperature") as held:
             await _command(hass, temperature=21.0)
             await held.wait_reached(hass)
-            assert await poll_until(hass, lambda: turned_trv.target_temp_received)
+            assert await poll_until(
+                hass, lambda: turned_trv.target_temperature_received
+            )
 
             _operate(turned, temperature=25.0)
             assert bt.ignore_states, "the turn has to land inside the cycle"
@@ -414,7 +416,9 @@ async def test_a_knob_turned_during_a_cycle_survives_the_next_cycle(hass):
         async with holding_next_write(held_head, "async_set_temperature") as held:
             await _command(hass, temperature=21.0)
             await held.wait_reached(hass)
-            assert await poll_until(hass, lambda: turned_trv.target_temp_received)
+            assert await poll_until(
+                hass, lambda: turned_trv.target_temperature_received
+            )
 
             _operate(turned, temperature=25.0)
             assert bt.ignore_states, "the turn has to land inside the cycle"
@@ -672,12 +676,14 @@ async def test_the_setpoint_watchdog_waits_while_the_device_reports_its_previous
             assert await poll_until(hass, lambda: deferred.apply is not None)
             written = deferred.keyword_arguments["temperature"]
             assert written != previous
-            await poll_until(hass, lambda: trv.target_temp_received, SETTLE_S)
+            await poll_until(hass, lambda: trv.target_temperature_received, SETTLE_S)
             assert fake_trv.target_temperature == previous
-            assert trv.target_temp_received is False
+            assert trv.target_temperature_received is False
 
             await deferred.land()
-            assert await poll_until(hass, lambda: trv.target_temp_received, PROMPTLY_S)
+            assert await poll_until(
+                hass, lambda: trv.target_temperature_received, PROMPTLY_S
+            )
 
     assert trv.confirmed_setpoint == pytest.approx(written)
 
@@ -705,7 +711,9 @@ async def test_the_setpoint_watchdog_ends_once_the_device_confirms_a_newer_write
             second = fake_trv.set_temperature_calls[-1]
             assert fake_trv.target_temperature == second
 
-            assert await poll_until(hass, lambda: trv.target_temp_received, PROMPTLY_S)
+            assert await poll_until(
+                hass, lambda: trv.target_temperature_received, PROMPTLY_S
+            )
             # The turn has to land after the cycle that wrote the second
             # setpoint: a turn inside a cycle is read when the cycle ends,
             # which is a case of its own.

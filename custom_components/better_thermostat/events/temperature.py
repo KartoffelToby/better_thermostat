@@ -43,7 +43,9 @@ _LOGGER = logging.getLogger(__name__)
 PLATEAU_ACCEPT_WINDOW = 120
 
 
-def _update_room_temperature_ema(self: BetterThermostat, temp_q: float) -> float:
+def _update_room_temperature_ema(
+    self: BetterThermostat, rounded_temperature: float
+) -> float:
     """Update and return EMA-filtered external temperature.
 
     Uses a time-based EMA so varying sensor update intervals behave sensibly.
@@ -52,28 +54,28 @@ def _update_room_temperature_ema(self: BetterThermostat, temp_q: float) -> float
     - `room_temperature_ema_tau_seconds` (float): time constant in seconds (e.g. 900=15min, 1800=30min)
     """
 
-    tau_s = float(self.room_temperature_ema_tau_seconds or 300.0)
-    if tau_s <= 0:
-        tau_s = 300.0
+    tau_seconds = float(self.room_temperature_ema_tau_seconds or 300.0)
+    if tau_seconds <= 0:
+        tau_seconds = 300.0
 
     now_m = monotonic()
     prev_ts = self._room_temperature_ema_monotonic
     prev_ema = self.room_temperature_ema
 
     if prev_ts is None or prev_ema is None:
-        ema = float(temp_q)
+        ema = float(rounded_temperature)
     else:
-        dt_s = max(0.0, float(now_m) - float(prev_ts))
+        dt_seconds = max(0.0, float(now_m) - float(prev_ts))
         # alpha = 1 - exp(-dt/tau)
-        alpha = 1.0 - math.exp(-dt_s / tau_s) if dt_s > 0 else 0.0
-        ema = float(prev_ema) + alpha * (float(temp_q) - float(prev_ema))
+        alpha = 1.0 - math.exp(-dt_seconds / tau_seconds) if dt_seconds > 0 else 0.0
+        ema = float(prev_ema) + alpha * (float(rounded_temperature) - float(prev_ema))
 
         _LOGGER.debug(
             "better_thermostat %s: EMA calc: prev=%.3f input=%.3f dt=%.1fs alpha=%.4f -> new=%.3f",
             self.device_name,
             float(prev_ema),
-            float(temp_q),
-            dt_s,
+            float(rounded_temperature),
+            dt_seconds,
             alpha,
             ema,
         )
@@ -135,7 +137,9 @@ def _room_sensor_returns(self: BetterThermostat, previous_state: State | None) -
     return room_sensor_reading(self, previous_state) is None
 
 
-async def _commit_temperature_update(self: BetterThermostat, new_temp: float) -> None:
+async def _commit_temperature_update(
+    self: BetterThermostat, new_temperature: float
+) -> None:
     """Apply the new external temperature and trigger updates.
 
     Callers hold the filter lock.
@@ -143,25 +147,25 @@ async def _commit_temperature_update(self: BetterThermostat, new_temp: float) ->
     _LOGGER.debug(
         "better_thermostat %s: _commit_temperature_update called with %.2f",
         self.device_name,
-        new_temp,
+        new_temperature,
     )
     _cur_q = None if self.room_temperature is None else round(self.room_temperature, 2)
-    new_temp_q = round(new_temp, 2)
+    new_temperature_rounded = round(new_temperature, 2)
 
     # Remember previous value as stable pre-measure before updating
-    if _cur_q is not None and _cur_q != new_temp_q:
-        self.prev_stable_temp = _cur_q
+    if _cur_q is not None and _cur_q != new_temperature_rounded:
+        self.prev_stable_temperature = _cur_q
     # Remember the direction (only on a real change)
     if _cur_q is not None:
-        if new_temp_q > _cur_q:
+        if new_temperature_rounded > _cur_q:
             self.last_change_direction = 1
-        elif new_temp_q < _cur_q:
+        elif new_temperature_rounded < _cur_q:
             self.last_change_direction = -1
-    self.room_temperature = new_temp_q
-    self.last_known_external_temp = new_temp_q
+    self.room_temperature = new_temperature_rounded
+    self.last_known_external_temperature = new_temperature_rounded
     # Update EMA (useful if called from timer after delay)
     try:
-        _update_room_temperature_ema(self, float(new_temp_q))
+        _update_room_temperature_ema(self, float(new_temperature_rounded))
     except (TypeError, ValueError) as exc:
         _LOGGER.debug(
             "better_thermostat %s: EMA update failed (non-critical): %s",
@@ -173,7 +177,7 @@ async def _commit_temperature_update(self: BetterThermostat, new_temp: float) ->
     # Reset accumulation & pending after accept
     self.accum_delta = 0.0
     self.accum_dir = 0
-    self.pending_temp = None
+    self.pending_temperature = None
     self.pending_since = None
     # Cancel any pending plateau timer
     if self.plateau_timer_cancel is not None:
@@ -185,7 +189,7 @@ async def _commit_temperature_update(self: BetterThermostat, new_temp: float) ->
             "better_thermostat %s: external_temperature filtered (ema_tau_s=%s) raw=%.2f ema=%.2f",
             self.device_name,
             self.room_temperature_ema_tau_seconds,
-            float(new_temp_q),
+            float(new_temperature_rounded),
             float(_ema),
         )
     # Write the value used by BT (self.room_temperature) to the TRV. The heads are
@@ -277,7 +281,7 @@ def _sensor_still_reads(self: BetterThermostat, value: float) -> bool:
     return reading is not None and round(reading, 2) == value
 
 
-def _commit_pending_after(self: BetterThermostat, delay_s: float) -> None:
+def _commit_pending_after(self: BetterThermostat, delay_seconds: float) -> None:
     """Apply the pending reading once the debounce interval has run out.
 
     A reading turned away only because it came too soon after the last one
@@ -289,7 +293,7 @@ def _commit_pending_after(self: BetterThermostat, delay_s: float) -> None:
     A sensor that has since stopped giving a usable reading, or that now
     reads a different value, has withdrawn the pending one.
     """
-    _value = self.pending_temp
+    _value = self.pending_temperature
     _since = self.pending_since
     if _value is None:
         return
@@ -300,7 +304,7 @@ def _commit_pending_after(self: BetterThermostat, delay_s: float) -> None:
         async with temperature_filter_lock(self):
             if self.is_removed:
                 return
-            if self.pending_temp != _value or self.pending_since != _since:
+            if self.pending_temperature != _value or self.pending_since != _since:
                 return
             if not _sensor_still_reads(self, _value):
                 return
@@ -317,7 +321,9 @@ def _commit_pending_after(self: BetterThermostat, delay_s: float) -> None:
         self.plateau_timer_cancel = None
         self._spawn_owned(_interval_cb(), name=f"bt_debounce_commit_{self.device_name}")
 
-    self.plateau_timer_cancel = async_call_later(self.hass, delay_s, _interval_due)
+    self.plateau_timer_cancel = async_call_later(
+        self.hass, delay_seconds, _interval_due
+    )
 
 
 async def trigger_temperature_change(
@@ -434,16 +440,16 @@ async def trigger_temperature_change(
                 self.accum_delta = _signed_delta
                 self.accum_dir = _acc_dir_now
             # Plateau tracking
-            if self.pending_temp != _incoming_temperature_q:
-                self.pending_temp = _incoming_temperature_q
+            if self.pending_temperature != _incoming_temperature_q:
+                self.pending_temperature = _incoming_temperature_q
                 self.pending_since = dt_util.now()
                 # Cancel existing timer if pending value changes
                 if self.plateau_timer_cancel is not None:
                     self.plateau_timer_cancel()
                     self.plateau_timer_cancel = None
         # no change (value back to current): reset pending/timer
-        elif self.pending_temp is not None:
-            self.pending_temp = None
+        elif self.pending_temperature is not None:
+            self.pending_temperature = None
             self.pending_since = None
             if self.plateau_timer_cancel is not None:
                 self.plateau_timer_cancel()
@@ -460,8 +466,8 @@ async def trigger_temperature_change(
     if (
         not _is_significant
         and _cur_q is not None
-        and self.pending_temp is not None
-        and self.pending_temp != _cur_q
+        and self.pending_temperature is not None
+        and self.pending_temperature != _cur_q
         and self.pending_since is not None
     ):
         _plateau_age = (dt_util.now() - self.pending_since).total_seconds()
@@ -470,7 +476,7 @@ async def trigger_temperature_change(
         # Schedule timer if not already scheduled
         if not _plateau_ok and self.plateau_timer_cancel is None:
             remaining = max(0.1, PLATEAU_ACCEPT_WINDOW - _plateau_age)
-            _plateau_value = self.pending_temp
+            _plateau_value = self.pending_temperature
             # A value that left and came back starts a new plateau with a
             # timer of its own; this one only applies the episode it was
             # started for.
@@ -488,8 +494,8 @@ async def trigger_temperature_change(
                     # has applied or replaced the value the timer was armed
                     # for; only that value, still pending, is applied.
                     if (
-                        self.pending_temp is None
-                        or self.pending_temp != _plateau_value
+                        self.pending_temperature is None
+                        or self.pending_temperature != _plateau_value
                         or self.pending_since != _plateau_since
                     ):
                         return
@@ -508,9 +514,9 @@ async def trigger_temperature_change(
                     _LOGGER.debug(
                         "better_thermostat %s: external_temperature plateau auto-accepted (value=%.2f)",
                         self.device_name,
-                        self.pending_temp,
+                        self.pending_temperature,
                     )
-                    await _commit_temperature_update(self, self.pending_temp)
+                    await _commit_temperature_update(self, self.pending_temperature)
 
             self.plateau_timer_cancel = async_call_later(
                 self.hass, remaining, _plateau_cb
@@ -555,7 +561,7 @@ async def trigger_temperature_change(
     else:
         if (
             not _interval_ok
-            and self.pending_temp is not None
+            and self.pending_temperature is not None
             and (_is_significant or abs(self.accum_delta) >= _sig_threshold_q)
         ):
             _commit_pending_after(self, max(0.1, _time_diff - _age))
@@ -573,8 +579,8 @@ async def trigger_temperature_change(
             (self.accum_delta if _cur_q is not None else 0.0),
             ("+" if self.accum_dir > 0 else ("-" if self.accum_dir < 0 else "0")),
             (
-                f"{self.pending_temp:.2f}"
-                if isinstance(self.pending_temp, (int, float))
+                f"{self.pending_temperature:.2f}"
+                if isinstance(self.pending_temperature, (int, float))
                 else None
             ),
             (

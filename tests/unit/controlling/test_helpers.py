@@ -315,14 +315,14 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temperature_received": False},
             )
         }
 
         result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
+        assert mock_self.real_trvs["climate.trv1"].target_temperature_received is True
 
     @pytest.mark.asyncio
     async def test_unknown_state_treated_as_done(self):
@@ -340,14 +340,14 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temperature_received": False},
             )
         }
 
         result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
+        assert mock_self.real_trvs["climate.trv1"].target_temperature_received is True
 
     @pytest.mark.asyncio
     async def test_a_model_reporting_unknown_while_driven_is_waited_for(self):
@@ -370,7 +370,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temperature_received": False},
             )
         }
         trv = mock_self.real_trvs["climate.trv1"]
@@ -425,7 +425,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"commanded_setpoint": written, "target_temp_received": False},
+                {"commanded_setpoint": written, "target_temperature_received": False},
             )
         }
 
@@ -434,7 +434,7 @@ class TestCheckTargetTemperature:
         )
 
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
+        assert mock_self.real_trvs["climate.trv1"].target_temperature_received is True
 
     @pytest.mark.asyncio
     async def test_range_mode_confirms_via_target_temp_low(self):
@@ -455,14 +455,14 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temperature_received": False},
             )
         }
 
         result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
+        assert mock_self.real_trvs["climate.trv1"].target_temperature_received is True
 
     @pytest.mark.asyncio
     async def test_temperature_is_none(self):
@@ -479,14 +479,14 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temperature_received": False},
             )
         }
 
         result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
+        assert mock_self.real_trvs["climate.trv1"].target_temperature_received is True
 
     @pytest.mark.asyncio
     async def test_temperature_matches_after_delay(self):
@@ -503,7 +503,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temperature_received": False},
             )
         }
 
@@ -518,7 +518,7 @@ class TestCheckTargetTemperature:
 
         await update_task
         assert result is True
-        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
+        assert mock_self.real_trvs["climate.trv1"].target_temperature_received is True
 
     @pytest.mark.asyncio
     async def test_timeout_after_360_seconds(self):
@@ -535,7 +535,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temperature_received": False},
             )
         }
 
@@ -560,7 +560,9 @@ class TestCheckTargetTemperature:
             result = await _watch_last_write(mock_self, "climate.trv1")
 
             assert result is True
-            assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
+            assert (
+                mock_self.real_trvs["climate.trv1"].target_temperature_received is True
+            )
         finally:
             controlling_module.asyncio.sleep = original_sleep_func
 
@@ -574,7 +576,8 @@ class TestCheckTargetTemperature:
         the watchdog of the newest write to release.
         """
         trv = Trv.from_legacy_dict(
-            "climate.trv1", {"commanded_setpoint": 23.0, "target_temp_received": False}
+            "climate.trv1",
+            {"commanded_setpoint": 23.0, "target_temperature_received": False},
         )
         watched = trv.remember_setpoint_written(23.0)
 
@@ -601,7 +604,7 @@ class TestCheckTargetTemperature:
         assert result is True
         assert trv.confirmed_setpoint == 23.0
         assert trv.echo_setpoint_values() == [24.0, 25.0]
-        assert trv.target_temp_received is False
+        assert trv.target_temperature_received is False
 
     @pytest.mark.asyncio
     async def test_a_superseded_watchdog_ends_without_waiting_for_its_write(self):
@@ -613,7 +616,8 @@ class TestCheckTargetTemperature:
         watchdog of the newer write.
         """
         trv = Trv.from_legacy_dict(
-            "climate.trv1", {"commanded_setpoint": 23.0, "target_temp_received": False}
+            "climate.trv1",
+            {"commanded_setpoint": 23.0, "target_temperature_received": False},
         )
         watched = trv.remember_setpoint_written(23.0)
         trv.remember_setpoint_written(24.0)
@@ -639,7 +643,7 @@ class TestCheckTargetTemperature:
         logger.warning.assert_not_called()
         assert trv.confirmed_setpoint is None
         assert trv.echo_setpoint_values() == [23.0, 24.0]
-        assert trv.target_temp_received is False
+        assert trv.target_temperature_received is False
 
     @pytest.mark.asyncio
     async def test_a_write_made_while_the_watchdog_waits_ends_that_wait(self):
@@ -651,7 +655,8 @@ class TestCheckTargetTemperature:
         without a warning and without releasing the channel.
         """
         trv = Trv.from_legacy_dict(
-            "climate.trv1", {"commanded_setpoint": 23.0, "target_temp_received": False}
+            "climate.trv1",
+            {"commanded_setpoint": 23.0, "target_temperature_received": False},
         )
         watched = trv.remember_setpoint_written(23.0)
 
@@ -685,13 +690,14 @@ class TestCheckTargetTemperature:
         logger.warning.assert_not_called()
         assert trv.confirmed_setpoint is None
         assert trv.echo_setpoint_values() == [23.0, 24.0]
-        assert trv.target_temp_received is False
+        assert trv.target_temperature_received is False
 
     @pytest.mark.asyncio
     async def test_the_watchdog_of_the_newest_write_releases_the_channel(self):
         """The newest write's watchdog confirms it and opens the channel again."""
         trv = Trv.from_legacy_dict(
-            "climate.trv1", {"commanded_setpoint": 24.0, "target_temp_received": False}
+            "climate.trv1",
+            {"commanded_setpoint": 24.0, "target_temperature_received": False},
         )
         trv.remember_setpoint_written(23.0)
         newest = trv.remember_setpoint_written(24.0)
@@ -715,7 +721,7 @@ class TestCheckTargetTemperature:
         assert result is True
         assert trv.confirmed_setpoint == 24.0
         assert trv.echo_setpoint_values() == []
-        assert trv.target_temp_received is True
+        assert trv.target_temperature_received is True
 
     @pytest.mark.asyncio
     async def test_a_maintenance_write_cannot_confirm_the_control_write(self):
@@ -730,7 +736,7 @@ class TestCheckTargetTemperature:
             {
                 "commanded_setpoint": 23.0,
                 **_seed_pending(23.0),
-                "target_temp_received": False,
+                "target_temperature_received": False,
             },
         )
 
@@ -778,7 +784,7 @@ class TestCheckTargetTemperature:
                 {
                     "commanded_setpoint": 25.0,
                     **_seed_pending(26.0, 25.0),
-                    "target_temp_received": False,
+                    "target_temperature_received": False,
                 },
             )
         }
@@ -792,7 +798,7 @@ class TestCheckTargetTemperature:
         assert trv.confirmed_setpoint == 25.0
         assert trv.echo_setpoint_values() == []
         assert trv.commanded_setpoint == 25.0
-        assert trv.target_temp_received is True
+        assert trv.target_temperature_received is True
 
     @pytest.mark.asyncio
     async def test_an_unreadable_setpoint_ends_the_wait_without_confirming(self):
@@ -816,7 +822,7 @@ class TestCheckTargetTemperature:
                 {
                     "commanded_setpoint": 22.0,
                     **_seed_pending(20.0, 22.0),
-                    "target_temp_received": False,
+                    "target_temperature_received": False,
                 },
             )
         }
@@ -827,7 +833,7 @@ class TestCheckTargetTemperature:
 
         trv = mock_self.real_trvs["climate.trv1"]
         assert result is True
-        assert trv.target_temp_received is True
+        assert trv.target_temperature_received is True
         assert trv.echo_setpoint_values() == [20.0, 22.0]
 
     @pytest.mark.asyncio
@@ -852,7 +858,7 @@ class TestCheckTargetTemperature:
                 {
                     "commanded_setpoint": 25.0,
                     **_seed_pending(26.0, 25.0),
-                    "target_temp_received": False,
+                    "target_temperature_received": False,
                 },
             )
         }
@@ -865,7 +871,7 @@ class TestCheckTargetTemperature:
         assert result is True
         assert trv.echo_setpoint_values() == [26.0, 25.0]
         assert trv.commanded_setpoint == 25.0
-        assert trv.target_temp_received is True
+        assert trv.target_temperature_received is True
         assert "did not confirm the target temperature" in caplog.text
 
     @pytest.mark.asyncio
@@ -883,7 +889,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temperature_received": False},
             )
         }
 
@@ -1609,7 +1615,7 @@ class TestWriteConfirmTimeout:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temperature_received": False},
             )
         }
         durations, sleep_patch = _sleep_recorder()

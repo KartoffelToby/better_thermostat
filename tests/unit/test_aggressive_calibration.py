@@ -92,8 +92,8 @@ def _make_bt(
                 "current_temperature": trv_temp,
                 "last_calibration": last_calibration,
                 "local_calibration_step": calibration_step,
-                "local_calibration_min": cal_min,
-                "local_calibration_max": cal_max,
+                "min_local_calibration": cal_min,
+                "max_local_calibration": cal_max,
                 "target_temp_step": target_temp_step,
                 "min_temp": min_temp,
                 "max_temp": max_temp,
@@ -293,7 +293,7 @@ class TestSetpointCalibration:
 # Real-world hysteresis scenario (issue #1790)
 # ---------------------------------------------------------------------------
 class TestHysteresisScenario:
-    """Scenario from issue #1790: temp drops below tolerance band while IDLE."""
+    """Scenario from issue #1790: temperature drops below tolerance band while IDLE."""
 
     def test_scenario_temperature_drops_below_tolerance(self):
         """Both DEFAULT and AGGRESSIVE produce the same base calibration.

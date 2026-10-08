@@ -323,7 +323,7 @@ async def test_a_room_sensor_that_returns_is_trusted_again_within_one_tick(
     """A sensor that comes back is believed at the next periodic evaluation.
 
     The ladder commits an upgrade only after the reading has been stable for
-    ``up_stability_s``, which takes a second evaluation once that window has
+    ``up_stability_seconds``, which takes a second evaluation once that window has
     passed. A room that has settled publishes no state change to supply one,
     so the evaluation has to come from the periodic tick.
 
@@ -344,7 +344,7 @@ async def test_a_room_sensor_that_returns_is_trusted_again_within_one_tick(
     clock = FakeClock()
     bt.clock = clock
     clock.advance(10_000)
-    stability_s = LadderParams().up_stability_s
+    stability_s = LadderParams().up_stability_seconds
 
     async def let_a_tick_fire(seconds):
         """Advance both clocks by ``seconds`` and run what falls due."""
@@ -419,12 +419,12 @@ async def test_a_silent_room_sensor_moves_the_ladder_one_tick_after_each_window(
 
     hass.states.async_set(SENSOR_ID, "unavailable")
     await hass.async_block_till_done()
-    await let_time_pass(params.down_debounce_s + LADDER_TICK_S)
+    await let_time_pass(params.down_debounce_seconds + LADDER_TICK_S)
     assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
 
     set_room_sensor(hass, 18.0)
     await hass.async_block_till_done()
-    await let_time_pass(params.up_stability_s + LADDER_TICK_S)
+    await let_time_pass(params.up_stability_seconds + LADDER_TICK_S)
     assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
 
 
@@ -479,7 +479,7 @@ async def test_a_returning_room_sensor_restarts_the_filtered_temperature(
         assert await wait_for(hass, lambda: bt.room_temperature == 22.0)
         assert bt.room_temperature_filtered == 22.0
 
-        await let_time_pass(LadderParams().up_stability_s + LADDER_TICK_S)
+        await let_time_pass(LadderParams().up_stability_seconds + LADDER_TICK_S)
         assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
         assert bt.room_temperature_filtered == 22.0
         assert bt.temperature_slope == 0.0
@@ -601,7 +601,7 @@ async def test_a_room_sensor_that_reports_after_a_fallback_start_takes_over(
     The room started on the TRV temperature, so from then on it is in the
     same place as a room whose sensor dropped out at runtime: the reading is
     taken at once, and the ladder climbs back to the sensor once it has been
-    stable for ``up_stability_s``.
+    stable for ``up_stability_seconds``.
     """
     bt = await start_without_room_sensor(hass, fake_trv, "unavailable")
     assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
@@ -609,7 +609,7 @@ async def test_a_room_sensor_that_reports_after_a_fallback_start_takes_over(
     clock = FakeClock()
     bt.clock = clock
     clock.advance(10_000)
-    stability_s = LadderParams().up_stability_s
+    stability_s = LadderParams().up_stability_seconds
 
     set_room_sensor(hass, 17.0)
     assert await wait_for(hass, lambda: bt.room_temperature == 17.0)
@@ -651,7 +651,7 @@ async def test_a_room_sensor_with_an_implausible_reading_at_boot_hands_the_room_
     # controlled one continues from where that one stands.
     clock = FakeClock(monotonic_value=bt.clock.monotonic())
     bt.clock = clock
-    stability_s = LadderParams().up_stability_s
+    stability_s = LadderParams().up_stability_seconds
     # The sensor keeps reporting nonsense for longer than the ladder takes
     # to trust a recovered sensor again.
     set_room_sensor(hass, 126.4)
@@ -734,7 +734,7 @@ async def test_a_room_sensor_that_reports_during_a_fallback_start_takes_over(
 
     clock = FakeClock(monotonic_value=bt.clock.monotonic())
     bt.clock = clock
-    stability_s = LadderParams().up_stability_s
+    stability_s = LadderParams().up_stability_seconds
     assert await tick_until(
         hass,
         clock,
@@ -765,7 +765,7 @@ async def test_a_room_sensor_that_drops_out_during_startup_hands_the_room_to_the
 
     clock = FakeClock(monotonic_value=bt.clock.monotonic())
     bt.clock = clock
-    down_s = LadderParams().down_debounce_s
+    down_s = LadderParams().down_debounce_seconds
     assert await tick_until(
         hass,
         clock,

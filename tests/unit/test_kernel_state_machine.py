@@ -363,7 +363,7 @@ class KernelMachine(RuleBasedStateMachine):
             if due is not None and due <= self.mono:
                 self._step_contact(kind, self.mono)
 
-    def _trv_temp_ok(self) -> bool:
+    def _trv_temperature_ok(self) -> bool:
         return any(
             trv.available
             and trv.current_temperature is not None
@@ -379,7 +379,7 @@ class KernelMachine(RuleBasedStateMachine):
         state = step_ladder(
             state,
             room_sensor_ok=self.room_available,
-            trv_temp_ok=self._trv_temp_ok(),
+            trv_temperature_ok=self._trv_temperature_ok(),
             now=self.mono,
             params=LADDER,
         )
@@ -389,7 +389,7 @@ class KernelMachine(RuleBasedStateMachine):
             ControlMode.OPTIMAL
             if self.room_available
             else ControlMode.SENSOR_FALLBACK
-            if self._trv_temp_ok()
+            if self._trv_temperature_ok()
             else ControlMode.HOLD
         )
         self.ladder.observe(observed, self.mono)
@@ -410,10 +410,10 @@ class KernelMachine(RuleBasedStateMachine):
         level = _depth(new)
         if _depth(new) > _depth(old):
             since = self.ladder.deeper_since.get(level)
-            window = LADDER.down_debounce_s
+            window = LADDER.down_debounce_seconds
         else:
             since = self.ladder.shallower_since.get(level)
-            window = LADDER.up_stability_s
+            window = LADDER.up_stability_seconds
         assert since is not None and self.mono - since >= window, (
             f"ladder committed {old} -> {new} at t={self.mono} although the "
             f"observations supported {new} only since {since} "
@@ -440,8 +440,8 @@ class KernelMachine(RuleBasedStateMachine):
                     min_temp=trv.min_temp,
                     max_temp=trv.max_temp,
                     valve_max_opening=trv.valve_max_opening,
-                    local_calibration_min=trv.calibration_min,
-                    local_calibration_max=trv.calibration_max,
+                    min_local_calibration=trv.calibration_min,
+                    max_local_calibration=trv.calibration_max,
                 )
                 for entity_id, trv in self.trvs.items()
             },
@@ -495,16 +495,16 @@ class KernelMachine(RuleBasedStateMachine):
         self.wall += timedelta(seconds=when - self.mono)
         self.mono = when
 
-    @rule(available=st.booleans(), temp=st.one_of(st.none(), temperatures))
-    def room_sensor(self, available: bool, temp: float | None) -> None:
+    @rule(available=st.booleans(), temperature=st.one_of(st.none(), temperatures))
+    def room_sensor(self, available: bool, temperature: float | None) -> None:
         """Room sensor drops out, returns, or reports a new temperature.
 
         The entity keeps its last known room temperature through an
         outage, so an unavailable sensor does not clear it.
         """
         self.room_available = available
-        if available and temp is not None:
-            self.room_temperature = temp
+        if available and temperature is not None:
+            self.room_temperature = temperature
         self._watch()
         self._control_cycle()
 
@@ -913,7 +913,8 @@ class KernelMachine(RuleBasedStateMachine):
         if not hasattr(self, "ladder"):
             return
         bound = 2 * (
-            max(LADDER.down_debounce_s, LADDER.up_stability_s) + CONTROL_TICK_S
+            max(LADDER.down_debounce_seconds, LADDER.up_stability_seconds)
+            + CONTROL_TICK_S
         )
         if self.mono - self.ladder.observed_since >= bound:
             assert self.kernel.control_mode.mode == self.ladder.observed, (

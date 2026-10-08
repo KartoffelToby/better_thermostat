@@ -181,7 +181,7 @@ def test_pid_balance_uses_trv_temperature_when_room_sensor_is_dead() -> None:
 
     assert percent is not None
     assert bt.real_trvs["climate.trv"].calibration_balance is not None
-    # error = |target - trv temp| = |22.0 - 21.0|
+    # error = |target - trv temperature| = |22.0 - 21.0|
     assert state_mgr.pid[build_pid_key(bt, "climate.trv")].last_abs_error == 1.0
 
 

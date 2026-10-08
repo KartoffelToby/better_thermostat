@@ -54,7 +54,7 @@ def test_setpoint_above_max_is_capped():
 
 @pytest.mark.parametrize("mode", list(HvacMode))
 def test_frost_floor_holds_for_any_intent(mode):
-    """The min-temp floor applies regardless of the intent's mode."""
+    """The min-temperature floor applies regardless of the intent's mode."""
     out = clamp(_desired(setpoint=1.0, mode=mode), _snapshot())
     assert out.trvs["climate.trv"].setpoint == 5.0
 
@@ -97,7 +97,7 @@ def test_non_finite_setpoint_is_withheld_without_reported_state():
 
 def test_non_finite_offset_is_withheld():
     """NaN/inf offsets are rejected with and without reported bounds."""
-    with_bounds = _snapshot(local_calibration_min=-7.0, local_calibration_max=7.0)
+    with_bounds = _snapshot(min_local_calibration=-7.0, max_local_calibration=7.0)
     without_trv = WorldSnapshot(
         now=datetime(2026, 1, 10, tzinfo=UTC), now_monotonic=0.0, trvs={}
     )
@@ -204,20 +204,20 @@ def test_device_bound_inverted_against_fallback_uses_pure_fallback_bounds():
 
 def test_offset_device_bound_inverted_against_fallback_uses_pure_fallback():
     """The offset channel applies the same distrust rule to mixed pairs."""
-    snapshot = _snapshot(local_calibration_min=15.0, local_calibration_max=None)
+    snapshot = _snapshot(min_local_calibration=15.0, max_local_calibration=None)
     out = clamp(_desired(calibration_offset=1.5), snapshot)
     assert out.trvs["climate.trv"].calibration_offset == 1.5
     out = clamp(_desired(calibration_offset=25.0), snapshot)
     assert out.trvs["climate.trv"].calibration_offset == 12.0
 
-    snapshot = _snapshot(local_calibration_min=None, local_calibration_max=-14.0)
+    snapshot = _snapshot(min_local_calibration=None, max_local_calibration=-14.0)
     out = clamp(_desired(calibration_offset=-1.5), snapshot)
     assert out.trvs["climate.trv"].calibration_offset == -1.5
 
 
 def test_inverted_device_calibration_range_is_normalized():
     """A genuinely inverted device calibration range is swapped, not dropped."""
-    snapshot = _snapshot(local_calibration_min=7.0, local_calibration_max=-7.0)
+    snapshot = _snapshot(min_local_calibration=7.0, max_local_calibration=-7.0)
     out = clamp(_desired(calibration_offset=-9.5), snapshot)
     assert out.trvs["climate.trv"].calibration_offset == -7.0
     out = clamp(_desired(calibration_offset=9.5), snapshot)
@@ -253,7 +253,7 @@ def test_none_values_stay_none():
 
 def test_offset_is_clamped_to_the_calibration_range():
     """Calibration offsets stay inside the device's local range."""
-    snapshot = _snapshot(local_calibration_min=-7.0, local_calibration_max=7.0)
+    snapshot = _snapshot(min_local_calibration=-7.0, max_local_calibration=7.0)
     desired = DesiredState(
         call_for_heat=True,
         trvs={
@@ -286,12 +286,12 @@ def test_offset_without_reported_state_falls_back_to_conservative_bounds():
 
 def test_offset_without_reported_calibration_range_falls_back():
     """A device without a usable calibration range gets the fallback bounds."""
-    snapshot = _snapshot(local_calibration_min=None, local_calibration_max=None)
+    snapshot = _snapshot(min_local_calibration=None, max_local_calibration=None)
     out = clamp(_desired(calibration_offset=25.0), snapshot)
     assert out.trvs["climate.trv"].calibration_offset == 12.0
 
     # A present bound keeps precedence; only the missing side falls back.
-    snapshot = _snapshot(local_calibration_min=-5.0, local_calibration_max=None)
+    snapshot = _snapshot(min_local_calibration=-5.0, max_local_calibration=None)
     out = clamp(_desired(calibration_offset=-9.0), snapshot)
     assert out.trvs["climate.trv"].calibration_offset == -5.0
     out = clamp(_desired(calibration_offset=25.0), snapshot)
@@ -300,7 +300,7 @@ def test_offset_without_reported_calibration_range_falls_back():
 
 def test_offset_inside_the_range_is_untouched():
     """Offsets inside the device range pass through identically."""
-    snapshot = _snapshot(local_calibration_min=-7.0, local_calibration_max=7.0)
+    snapshot = _snapshot(min_local_calibration=-7.0, max_local_calibration=7.0)
     desired = DesiredState(
         call_for_heat=True,
         trvs={

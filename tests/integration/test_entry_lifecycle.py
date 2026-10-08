@@ -350,7 +350,7 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
         # The entity waits out the confirmation the device never sends;
         # the tick after that finds the divergence and re-sends.
         trv = bt.real_trvs[fake_trv.entity_id]
-        assert await wait_for(hass, lambda: trv.target_temp_received)
+        assert await wait_for(hass, lambda: trv.target_temperature_received)
         resend_baseline = len(fake_trv.set_temperature_calls)
         async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=6))
         assert await wait_for(

@@ -48,7 +48,7 @@ from custom_components.better_thermostat.sensor import (
     _cleanup_stale_algorithm_entities,
     _debug_number,
     _get_active_algorithms,
-    _get_filtered_temp,
+    _get_filtered_temperature,
     _handle_dynamic_entity_update,
     _release_entry,
     _setup_algorithm_sensors,
@@ -166,7 +166,7 @@ class TestExternalTempSensor:
         assert sensor._attr_native_value == 21.5
 
     def test_fallback_to_room_temperature_ema(self):
-        """Fallback to external temp ema."""
+        """Fallback to external temperature ema."""
         bt = _make_bt_climate(room_temperature_filtered=None, room_temperature_ema=22.3)
         sensor = BetterThermostatExternalTempSensor(bt)
         sensor._update_state()
@@ -456,7 +456,7 @@ class TestMpcSensorState:
         }
 
     def test_virtual_temp_reads_from_debug(self):
-        """Virtual temp reads from debug."""
+        """Virtual temperature reads from debug."""
         bt = _make_bt_climate(
             real_trvs=self._make_trv_with_debug(mpc_virtual_temp=22.5)
         )
@@ -1895,27 +1895,27 @@ class TestBtSensorBase:
 
 
 class TestGetFilteredTemp:
-    """Tests for _get_filtered_temp helper."""
+    """Tests for _get_filtered_temperature helper."""
 
     def test_prefers_room_temperature_filtered(self):
         """Prefers the filtered room temperature."""
         bt = _make_bt_climate(room_temperature_filtered=21.5, room_temperature_ema=22.0)
-        assert _get_filtered_temp(bt) == 21.5
+        assert _get_filtered_temperature(bt) == 21.5
 
     def test_falls_back_to_room_temperature_ema(self):
-        """Falls back to external temp ema."""
+        """Falls back to external temperature ema."""
         bt = _make_bt_climate(room_temperature_filtered=None, room_temperature_ema=22.0)
-        assert _get_filtered_temp(bt) == 22.0
+        assert _get_filtered_temperature(bt) == 22.0
 
     def test_returns_none_when_both_missing(self):
         """Returns none when both missing."""
         bt = _make_bt_climate(room_temperature_filtered=None, room_temperature_ema=None)
-        assert _get_filtered_temp(bt) is None
+        assert _get_filtered_temperature(bt) is None
 
     def test_zero_value_not_treated_as_none(self):
         """Zero value not treated as none."""
         bt = _make_bt_climate(room_temperature_filtered=0.0, room_temperature_ema=22.0)
-        assert _get_filtered_temp(bt) == 0.0
+        assert _get_filtered_temperature(bt) == 0.0
 
 
 class TestBtSimpleAttributeSensor:

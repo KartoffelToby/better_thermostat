@@ -43,10 +43,10 @@ async def test_the_thermostat_loads_when_the_recorder_fails(hass, fake_trv):
 
     assert entry.state is ConfigEntryState.LOADED
     bt = await wait_for_startup(hass, entry)
-    assert await wait_for(hass, lambda: bt.last_avg_outdoor_temp == 2.0)
+    assert await wait_for(hass, lambda: bt.last_avg_outdoor_temperature == 2.0)
     assert bt.call_for_heat is True
 
     _publish_outdoor(hass, 8.0)
-    assert await wait_for(hass, lambda: bt.last_avg_outdoor_temp == 8.0)
+    assert await wait_for(hass, lambda: bt.last_avg_outdoor_temperature == 8.0)
     assert bt.call_for_heat is False
     assert "recorder" not in hass.config.components

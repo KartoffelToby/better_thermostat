@@ -121,8 +121,8 @@ class Trv:
     hvac_mode: str | None = None
     hvac_action: str | None = None
     local_temperature_calibration_entity: str | None = None
-    local_calibration_min: float = -7
-    local_calibration_max: float = 7
+    min_local_calibration: float = -7
+    max_local_calibration: float = 7
     local_calibration_step: float = 0.5
 
     # -- Lifecycle ---------------------------------------------------------
@@ -139,11 +139,11 @@ class Trv:
     # -- Write tracking ----------------------------------------------------
     ignore_trv_states: bool = False
     calibration_received: bool = True
-    target_temp_received: bool = True
+    target_temperature_received: bool = True
     system_mode_received: bool = True
     # One-shot flag: the next live internal reading after an outage must
     # bypass the debounce so it is not dropped as a stale duplicate.
-    accept_next_internal_temp: bool = False
+    accept_next_internal_temperature: bool = False
     # When this device's internal temperature was last accepted. The debounce
     # that guards it is a property of the device that reported it, so the
     # stamp belongs to that device: a reading taken from one valve says
@@ -271,8 +271,8 @@ class Trv:
         """Whether a follow-up control cycle is scheduled for a deferred write."""
         return self.budget_retry_due_at is not None
 
-    def consume_accept_next_internal_temp(self) -> bool:
-        """Return and clear the one-shot accept-next-internal-temp flag.
+    def consume_accept_next_internal_temperature(self) -> bool:
+        """Return and clear the one-shot accept-next-internal-temperature flag.
 
         Returns
         -------
@@ -280,8 +280,8 @@ class Trv:
             ``True`` if the next internal reading should bypass the
             debounce; the flag is reset to ``False`` as a side effect.
         """
-        accepted = self.accept_next_internal_temp
-        self.accept_next_internal_temp = False
+        accepted = self.accept_next_internal_temperature
+        self.accept_next_internal_temperature = False
         return accepted
 
     def remember_setpoint_written(self, value: float | None) -> int:
@@ -408,7 +408,7 @@ class Trv:
                 valve_entity or not declared.valve_needs_entity
             )
 
-        # An unreported mode list counts as no-off: BT then sends min temp
+        # An unreported mode list counts as no-off: BT then sends min temperature
         # instead of an OFF the device may not support. The cached list holds
         # the device's own spelling, so membership is decided on the normalized
         # list, like every other capability check.
