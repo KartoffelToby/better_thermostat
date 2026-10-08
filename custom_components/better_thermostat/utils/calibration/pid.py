@@ -125,13 +125,11 @@ def pid_gain(state: PIDState, gain: PidGain) -> float | None:
     float | None
         the gain, or None while the configured default applies
     """
-    match gain:
-        case "kp":
-            return state.pid_kp
-        case "ki":
-            return state.pid_ki
-        case "kd":
-            return state.pid_kd
+    if gain == "kp":
+        return state.pid_kp
+    if gain == "ki":
+        return state.pid_ki
+    return state.pid_kd
 
 
 def set_pid_gain(state: PIDState, gain: PidGain, value: float | None) -> None:
@@ -146,13 +144,12 @@ def set_pid_gain(state: PIDState, gain: PidGain, value: float | None) -> None:
     value : float | None
         the new gain
     """
-    match gain:
-        case "kp":
-            state.pid_kp = value
-        case "ki":
-            state.pid_ki = value
-        case "kd":
-            state.pid_kd = value
+    if gain == "kp":
+        state.pid_kp = value
+    elif gain == "ki":
+        state.pid_ki = value
+    else:
+        state.pid_kd = value
 
 
 @dataclass
