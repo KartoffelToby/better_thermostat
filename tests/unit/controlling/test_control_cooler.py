@@ -15,7 +15,6 @@ import pytest
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import (
     COOLER_FAILURE_BACKOFF_BASE_S,
     COOLER_FAILURE_BACKOFF_MAX_RUN,
@@ -29,7 +28,7 @@ from custom_components.better_thermostat.utils.helpers import (
     cooling_owns_dual_role_device,
     last_sent_cooler_temperature,
 )
-from tests.factories import ThermostatStandIn, make_snapshot
+from tests.factories import ThermostatStandIn, make_snapshot, trv_from_legacy_dict
 
 
 def _mock_cooler_state(state=HVACMode.COOL):
@@ -2521,7 +2520,7 @@ class TestControlCoolerOnADualRoleEntity:
         mock_self, mock_hass, cooler_state = _make_cooler_setup(**kwargs)
         mock_self.cooler_entity_id = cls.SHARED_ID
         mock_self.real_trvs = {
-            cls.SHARED_ID: Trv.from_legacy_dict(
+            cls.SHARED_ID: trv_from_legacy_dict(
                 cls.SHARED_ID,
                 {
                     "hvac_modes": [

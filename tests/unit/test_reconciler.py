@@ -18,7 +18,6 @@ from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
 from custom_components.better_thermostat.core.watchdog import WATCHDOG_MAX_AGE_S
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationOutput,
@@ -27,7 +26,12 @@ from custom_components.better_thermostat.utils.controlling import (
     control_trv,
     reconcile_tick,
 )
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_from_legacy_dict,
+)
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 
@@ -60,7 +64,7 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt.outdoor_sensor_entity_id = None
     bt.weather_entity_id = None
     bt.flight_recorder = FlightRecorder()
-    trv = Trv.from_legacy_dict(
+    trv = trv_from_legacy_dict(
         "climate.trv",
         {"commanded_setpoint": commanded, "min_temp": 5.0, "max_temp": 30.0},
     )

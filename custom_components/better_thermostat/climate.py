@@ -120,6 +120,7 @@ from .events.temperature import (
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import initial_tweak, load_model_quirks, lowest_setpoint
+from .model_fixes.types import ExternalTemperatureQuirk
 from .switch import restored_child_lock
 from .trv import Trv
 from .utils.advanced_flags import advanced_flag
@@ -1349,23 +1350,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 trv.get("trv"),
             )
             _model_quirks = await load_model_quirks(self, resolved_model, trv["trv"])
-            try:
-                mod_name = _model_quirks.__name__
-                _LOGGER.debug(
-                    "better_thermostat %s: loaded model quirks module '%s' for model '%s' (trv %s)",
-                    self.device_name,
-                    mod_name,
-                    resolved_model,
-                    trv.get("trv"),
-                )
-            except (AttributeError, TypeError) as e:
-                _LOGGER.debug(
-                    "better_thermostat %s: could not determine quirks module name for model '%s' (trv %s): %s",
-                    self.device_name,
-                    resolved_model,
-                    trv.get("trv"),
-                    e,
-                )
             self.real_trvs[trv["trv"]] = Trv(
                 entity_id=trv["trv"],
                 calibration=_calibration,
@@ -1642,8 +1626,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                         if _mq_trv is not None and _mq_trv.awaiting_initialization:
                             # Its first write goes out with its initialization.
                             continue
-                        quirks = _mq_trv.model_quirks if _mq_trv is not None else None
-                        if quirks and hasattr(quirks, "maybe_set_external_temperature"):
+                        quirks: object = (
+                            _mq_trv.model_quirks if _mq_trv is not None else None
+                        )
+                        if isinstance(quirks, ExternalTemperatureQuirk):
                             async with asyncio.timeout(
                                 EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S
                             ):

@@ -16,8 +16,14 @@ from homeassistant.core import State
 from homeassistant.helpers.importlib import async_import_module
 
 from custom_components.better_thermostat.model_fixes.types import (
+    InitialTweakQuirk,
+    LowestSetpointQuirk,
     ModelFixHost,
+    ModelQuirks,
     QuirkLoaderHost,
+    SetpointOffsetQuirk,
+    UnknownStateQuirk,
+    ValveQuirk,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,12 +55,43 @@ def get_model_quirks_name(model: str | None) -> str:
     return _QUIRK_MODULE_ALIASES.get(model_str, model_str)
 
 
+async def _import_quirks(self: QuirkLoaderHost, module_path: str) -> ModelQuirks:
+    """Import a quirk module and hold it to the :class:`ModelQuirks` surface.
+
+    Parameters
+    ----------
+    self : QuirkLoaderHost
+        Caller whose Home Assistant core runs the import.
+    module_path : str
+        Dotted path of the quirk module.
+
+    Returns
+    -------
+    ModelQuirks
+        The imported module.
+
+    Raises
+    ------
+    ImportError
+        When the module cannot be imported, or lacks part of the surface
+        every quirk module provides.
+    """
+    module: object = await async_import_module(self.hass, module_path)
+    if not isinstance(module, ModelQuirks):
+        raise ImportError(
+            f"quirks module '{module_path}' lacks part of the model quirk surface"
+        )
+    return module
+
+
 async def load_model_quirks(
     self: QuirkLoaderHost, model: str | None, entity_id: str
-) -> ModuleType:
+) -> ModelQuirks:
     """Load model quirks module for a given TRV model, falling back to default.
 
-    Emits debug logs for both the success and the fallback path.
+    A module that imports but lacks part of the :class:`ModelQuirks`
+    surface is passed over like one that does not import. Emits debug
+    logs for both the success and the fallback path.
     """
 
     # Normalize model to a safe module suffix
@@ -67,7 +104,7 @@ async def load_model_quirks(
     module_path = f"custom_components.better_thermostat.model_fixes.{model_sanitized}"
 
     try:
-        model_quirks = await async_import_module(self.hass, module_path)
+        model_quirks = await _import_quirks(self, module_path)
         _LOGGER.debug(
             "better_thermostat %s: using quirks module '%s' for model '%s' (trv %s)",
             self.device_name,
@@ -79,7 +116,7 @@ async def load_model_quirks(
         # Fallback to default and log the reason
         default_module = "custom_components.better_thermostat.model_fixes.default"
         try:
-            model_quirks = await async_import_module(self.hass, default_module)
+            model_quirks = await _import_quirks(self, default_module)
             _LOGGER.debug(
                 "better_thermostat %s: quirks module '%s' not available for model '%s' (trv %s): %s; using default",
                 self.device_name,
@@ -104,14 +141,14 @@ async def load_model_quirks(
     return model_quirks
 
 
-def _quirks(self: ModelFixHost, entity_id: str) -> ModuleType:
+def _quirks(self: ModelFixHost, entity_id: str) -> ModelQuirks:
     quirks = self.real_trvs[entity_id].model_quirks
     if quirks is None:
         raise AttributeError(f"no model quirks loaded for {entity_id}")
     return quirks
 
 
-def quirk_writes_valve(model_quirks: ModuleType | None) -> bool:
+def quirk_writes_valve(model_quirks: object) -> bool:
     """Answer whether a model's own quirk drives that model's valve.
 
     A quirk module carrying ``override_set_valve`` reaches the valve through
@@ -122,15 +159,15 @@ def quirk_writes_valve(model_quirks: ModuleType | None) -> bool:
 
     Parameters
     ----------
-    model_quirks : ModuleType | None
+    model_quirks : object
         Quirk module loaded for a TRV, or None where none is loaded.
 
     Returns
     -------
     bool
-        True when the module carries a callable ``override_set_valve``.
+        True when the module carries ``override_set_valve``.
     """
-    return callable(getattr(model_quirks, "override_set_valve", None))
+    return isinstance(model_quirks, ValveQuirk)
 
 
 def local_calibration_shifts_setpoint(self: ModelFixHost, entity_id: str) -> bool:
@@ -157,12 +194,12 @@ def local_calibration_shifts_setpoint(self: ModelFixHost, entity_id: str) -> boo
         its reading without it
     """
     trv = self.real_trvs.get(entity_id)
-    quirks = trv.model_quirks if trv is not None else None
+    quirks: object = trv.model_quirks if trv is not None else None
+    if not isinstance(quirks, SetpointOffsetQuirk):
+        return False
     if not isinstance(quirks, ModuleType):
         return False
-    if not hasattr(quirks, "local_calibration_shifts_setpoint"):
-        return False
-    return bool(quirks.local_calibration_shifts_setpoint(self, entity_id))
+    return quirks.local_calibration_shifts_setpoint(self, entity_id)
 
 
 def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
@@ -188,14 +225,14 @@ def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
         operating device
     """
     trv = self.real_trvs.get(entity_id)
-    quirks = trv.model_quirks if trv is not None else None
+    quirks: object = trv.model_quirks if trv is not None else None
+    if not isinstance(quirks, UnknownStateQuirk):
+        return False
     # The record holds the loaded quirk module, and only a loaded module can
     # answer; anything else is read the way an unquirked device is.
     if not isinstance(quirks, ModuleType):
         return False
-    if not hasattr(quirks, "trv_state_unknown_as_available"):
-        return False
-    return bool(quirks.trv_state_unknown_as_available(self, entity_id))
+    return quirks.trv_state_unknown_as_available(self, entity_id)
 
 
 def trv_report_is_unreadable(
@@ -308,8 +345,8 @@ async def override_set_temperature(
 
 async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
     """Run initial tweaks for the device."""
-    quirks = self.real_trvs[entity_id].model_quirks
-    if hasattr(quirks, "initial_tweak"):
+    quirks: object = self.real_trvs[entity_id].model_quirks
+    if isinstance(quirks, InitialTweakQuirk):
         await quirks.initial_tweak(self, entity_id)
 
 
@@ -333,8 +370,8 @@ def lowest_setpoint(self: ModelFixHost, entity_id: str, min_temp: float) -> floa
     float
         The lowest setpoint to write, in Celsius
     """
-    quirks = self.real_trvs[entity_id].model_quirks
-    if not hasattr(quirks, "lowest_setpoint"):
+    quirks: object = self.real_trvs[entity_id].model_quirks
+    if not isinstance(quirks, LowestSetpointQuirk):
         return min_temp
     lowest = quirks.lowest_setpoint(self, entity_id, min_temp)
     if lowest != min_temp:
