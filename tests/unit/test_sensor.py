@@ -31,6 +31,10 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatMpcGainSensor,
     BetterThermostatMpcKaSensor,
     BetterThermostatMpcLossSensor,
+    BetterThermostatMpcV2CouplingSensor,
+    BetterThermostatMpcV2DisturbanceSensor,
+    BetterThermostatMpcV2RoomTimeConstantSensor,
+    BetterThermostatMpcV2VirtualTempSensor,
     BetterThermostatPidErrorSensor,
     BetterThermostatPidKdSensor,
     BetterThermostatPidKiSensor,
@@ -540,6 +544,78 @@ class TestMpcSensorState:
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 23.0
+
+
+class TestMpcV2SensorState:
+    """The MPC v2 sensors read the payload MPC v2 publishes, and only that one."""
+
+    @staticmethod
+    def _trv(name, debug):
+        return Trv.from_legacy_dict(name, {"calibration_balance": {"debug": debug}})
+
+    @pytest.mark.parametrize(
+        ("sensor_class", "debug_key", "value"),
+        [
+            (BetterThermostatMpcV2VirtualTempSensor, "T_room_hat", 20.75),
+            (BetterThermostatMpcV2CouplingSensor, "coupling_rad_room", 0.42),
+            (BetterThermostatMpcV2DisturbanceSensor, "D_hat_K_per_min", -0.012),
+            (BetterThermostatMpcV2RoomTimeConstantSensor, "tau_room_min", 185.0),
+        ],
+    )
+    def test_each_sensor_shows_its_value_of_the_v2_payload(
+        self, sensor_class, debug_key, value
+    ):
+        bt = _make_bt_climate(
+            real_trvs={
+                "trv_1": self._trv(
+                    "trv_1", {"controller_version": "V2", debug_key: value}
+                )
+            }
+        )
+        sensor = sensor_class(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value == value
+
+    def test_a_payload_of_another_controller_is_not_read(self):
+        """An MPC v1 payload under the same key leaves the sensor empty."""
+        bt = _make_bt_climate(
+            real_trvs={
+                "trv_1": self._trv(
+                    "trv_1", {"controller_version": "v1", "T_room_hat": 21.0}
+                )
+            }
+        )
+        sensor = BetterThermostatMpcV2VirtualTempSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value is None
+
+    def test_the_first_head_with_a_v2_value_is_shown(self):
+        """Heads without the value, or on another controller, are passed over."""
+        bt = _make_bt_climate(
+            real_trvs={
+                "trv_1": Trv.from_legacy_dict("trv_1", {}),
+                "trv_2": self._trv(
+                    "trv_2", {"controller_version": "v1", "tau_room_min": 1.0}
+                ),
+                "trv_3": self._trv("trv_3", {"controller_version": "v2"}),
+                "trv_4": self._trv(
+                    "trv_4", {"controller_version": "v2", "tau_room_min": 90.0}
+                ),
+                "trv_5": self._trv(
+                    "trv_5", {"controller_version": "v2", "tau_room_min": 30.0}
+                ),
+            }
+        )
+        sensor = BetterThermostatMpcV2RoomTimeConstantSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value == 90.0
+
+    def test_no_heads_leave_the_sensor_empty(self):
+        bt = _make_bt_climate(real_trvs={})
+        sensor = BetterThermostatMpcV2CouplingSensor(bt)
+        sensor._attr_native_value = 0.5
+        sensor._update_state()
+        assert sensor._attr_native_value is None
 
 
 class TestPidSensorState:
