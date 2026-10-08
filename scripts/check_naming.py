@@ -19,7 +19,8 @@ rate and stays (`_kelvin_per_min`). Unit suffixes are the SI symbols the
 control-theory notation writes, so they are not judged under the
 `notation-paths` that `pyproject.toml` declares, and a name with one that the
 notation spells is not charged to the code that reads it elsewhere, such as a
-caller naming a keyword parameter there.
+caller naming a keyword parameter there. Code that declares such a name again
+outside those paths, a field or a variable of its own, is judged.
 
 Only identifiers are counted. Each file is parsed with :mod:`ast` and the names
 are taken from the tree, never from strings, comments or docstrings. A leading
@@ -29,9 +30,11 @@ zone B and moves only with a migration, not with a rename. Where a rejected
 alias is the correct name after all, ``[[exception]]`` in `glossary.toml`
 records it together with the reason.
 
-Under `tests` a rejected spelling counts only once production has stopped using
-it. A test names the attribute it asserts on, so the spelling it carries is the
-production one and not a naming decision of its own; charging both files for
+Under `tests` a rejected spelling a test reads counts only once production has
+stopped using it. A test names the attribute it asserts on, so the spelling it
+reads is the production one and not a naming decision of its own; a name the
+test binds itself, a variable, a parameter or a helper, is its own decision
+and counts at once; charging both files for
 one rename would make the backlog look larger than it is and would leave a new
 test file no room to name the field it covers. The coupling is what keeps the
 tests honest: the moment the last production site is renamed, every test still
@@ -221,39 +224,44 @@ def _spelled_parts(
     return [*_spelled_words(name, words), *([suffix] if suffix else [])]
 
 
-def _identifiers(tree: ast.AST) -> list[tuple[str, int]]:
+def _identifiers(tree: ast.AST) -> list[tuple[str, int, bool]]:
     """Return every identifier the code defines or reads, with its line.
 
     Bindings count wherever they are made, not only where a name is read: an
     import alias, an `except ... as` clause, a match capture, a `global` or
     `nonlocal` declaration and a type parameter all introduce a name that a
-    rename has to reach.
+    rename has to reach. The flag says whether the name is bound there: a
+    stored or deleted variable, a parameter, a definition, an import or a
+    capture. An attribute and a keyword argument name something defined
+    elsewhere, so they are reads, like a loaded variable.
     """
-    found: list[tuple[str, int]] = []
+    found: list[tuple[str, int, bool]] = []
     for node in ast.walk(tree):
         match node:
             case ast.Name():
-                found.append((node.id, node.lineno))
+                found.append((node.id, node.lineno, not isinstance(node.ctx, ast.Load)))
             case ast.Attribute():
-                found.append((node.attr, node.lineno))
+                found.append((node.attr, node.lineno, False))
             case ast.arg():
-                found.append((node.arg, node.lineno))
+                found.append((node.arg, node.lineno, True))
             case ast.keyword() if node.arg is not None:
-                found.append((node.arg, node.lineno))
+                found.append((node.arg, node.lineno, False))
             case ast.FunctionDef() | ast.AsyncFunctionDef() | ast.ClassDef():
-                found.append((node.name, node.lineno))
+                found.append((node.name, node.lineno, True))
             case ast.alias():
-                found.append((node.asname or node.name.split(".")[0], node.lineno))
+                found.append(
+                    (node.asname or node.name.split(".")[0], node.lineno, True)
+                )
             case ast.ExceptHandler() if node.name is not None:
-                found.append((node.name, node.lineno))
+                found.append((node.name, node.lineno, True))
             case ast.MatchAs() | ast.MatchStar() if node.name is not None:
-                found.append((node.name, node.lineno))
+                found.append((node.name, node.lineno, True))
             case ast.MatchMapping() if node.rest is not None:
-                found.append((node.rest, node.lineno))
+                found.append((node.rest, node.lineno, True))
             case ast.Global() | ast.Nonlocal():
-                found.extend((name, node.lineno) for name in node.names)
+                found.extend((name, node.lineno, True) for name in node.names)
             case ast.TypeVar() | ast.ParamSpec() | ast.TypeVarTuple():
-                found.append((node.name, node.lineno))
+                found.append((node.name, node.lineno, True))
     return found
 
 
@@ -297,7 +305,7 @@ def _production_spellings(glossary: Glossary) -> frozenset[str]:
     """
     spellings: set[str] = set()
     for path in sorted((REPO_ROOT / PRODUCTION_ROOT).rglob("*.py")):
-        for name, _ in _identifiers(_parse(path)):
+        for name, _, _ in _identifiers(_parse(path)):
             if (alias := _alias(name, glossary)) is not None:
                 spellings.add(alias)
             elif _spelled_parts(name, glossary.words, glossary.suffixes):
@@ -316,7 +324,7 @@ def _notation_spellings(glossary: Glossary) -> frozenset[str]:
         for path in sorted((REPO_ROOT / root).rglob("*.py")):
             if not _in_notation(path.relative_to(REPO_ROOT).as_posix(), glossary):
                 continue
-            for name, _ in _identifiers(_parse(path)):
+            for name, _, _ in _identifiers(_parse(path)):
                 if _spelled_suffix(name, glossary.suffixes):
                     spellings.add(name.lstrip("_"))
     return frozenset(spellings)
@@ -331,15 +339,16 @@ def _scan(
     """Return every rejected alias or word part used as an identifier in one file."""
     relative = path.relative_to(REPO_ROOT).as_posix()
     mirrors_production = relative.startswith(f"{TEST_ROOT}/")
+    writes_notation = _in_notation(relative, glossary)
 
     seen: set[tuple[str, int]] = set()
     findings = []
-    for name, line in _identifiers(_parse(path)):
+    for name, line, binds in _identifiers(_parse(path)):
         if (name, line) in seen:
             continue
         alias = _alias(name, glossary)
         if alias is not None:
-            if mirrors_production and alias in production:
+            if mirrors_production and alias in production and not binds:
                 continue
             if _excepted(relative, alias, glossary):
                 continue
@@ -349,13 +358,17 @@ def _scan(
         whole = name.lstrip("_")
         parts = _spelled_words(name, glossary.words)
         suffix = _spelled_suffix(name, glossary.suffixes)
-        # Every name with a suffix a notation path spells is in `notation`, so
-        # this also leaves the notation paths their SI unit symbols.
-        if suffix is not None and whole not in notation:
+        # A notation path writes SI unit symbols. Elsewhere a name the notation
+        # spells is free to read but not to declare again.
+        if (
+            suffix is not None
+            and not writes_notation
+            and (binds or whole not in notation)
+        ):
             parts.append(suffix)
         if not parts:
             continue
-        if mirrors_production and whole in production:
+        if mirrors_production and whole in production and not binds:
             continue
         if _excepted(relative, whole, glossary):
             continue

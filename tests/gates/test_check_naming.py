@@ -663,3 +663,43 @@ def test_a_modifier_rejecting_a_spelling_without_underscore_is_refused(checker):
     )
     with pytest.raises(SystemExit, match="which is no suffix"):
         checker._load_glossary()
+
+
+def test_a_test_binding_a_production_name_with_a_rejected_part_is_charged(checker):
+    """A variable, parameter or helper the test names itself is its own decision.
+
+    Only reading the production name is free; binding the same spelling in the
+    test counts while production still carries it.
+    """
+    _with_parts(checker)
+    _write(checker, "custom_components/trv.py", "trv_temp = 1\n")
+    _write(
+        checker,
+        "tests/test_trv.py",
+        "assert trv_temp\ntrv_temp = 2\n\n\ndef check(trv_temp):\n    return trv_temp\n",
+    )
+    assert [
+        (name, line)
+        for f in checker._findings(None, checker._load_glossary())
+        if f.path == "tests/test_trv.py"
+        for name, line in [(f.alias, f.line)]
+    ] == [("trv_temp", 2), ("trv_temp", 5)]
+
+
+def test_a_declaration_outside_the_notation_of_a_notation_suffix_is_charged(checker):
+    """Reading a notation name is free; declaring it again outside is a choice.
+
+    A field of its own named like a notation parameter is judged like any
+    other name outside the notation paths.
+    """
+    _with_parts(checker)
+    (checker.REPO_ROOT / "pyproject.toml").write_text(
+        NOTATION_PYPROJECT, encoding="utf-8"
+    )
+    _write(checker, "custom_components/calibration/reid.py", "tau_room_min = 1\n")
+    _write(
+        checker,
+        "custom_components/state.py",
+        "class Stored:\n    tau_room_min: float = 0.0\n\n\nprint(Stored().tau_room_min)\n",
+    )
+    assert _spelled(checker) == [("custom_components/state.py", "tau_room_min", "_min")]
