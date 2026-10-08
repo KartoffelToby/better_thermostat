@@ -1169,7 +1169,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self._control_task: asyncio.Task[None] | None = None
         self._window_task: asyncio.Task[None] | None = None
         self._door_task: asyncio.Task[None] | None = None
-        self._owned_tasks: set[asyncio.Task[Any]] = set()
+        self._owned_tasks: set[asyncio.Task[object]] = set()
         self._final_flush_task: asyncio.Task[None] | None = None
         # TRVs startup went ahead without whose initialisation is running now.
         self._trvs_initializing: set[str] = set()
@@ -1206,9 +1206,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self.pending_temp: float | None = None
         self.pending_since: datetime | None = None
 
-    def _spawn_owned(
-        self, coro: Coroutine[Any, Any, Any], *, name: str
-    ) -> asyncio.Task[Any] | None:
+    def _spawn_owned[T](
+        self, coro: Coroutine[Any, Any, T], *, name: str
+    ) -> asyncio.Task[T] | None:
         """Start a background task that ends when this entity is removed.
 
         Home Assistant cancels background tasks at core shutdown, not when a

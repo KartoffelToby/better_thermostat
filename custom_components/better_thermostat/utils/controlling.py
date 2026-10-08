@@ -728,13 +728,13 @@ class TaskManager:
 
     def __init__(self, hass: HomeAssistant | None = None) -> None:
         """Initialize the task manager with an empty task set."""
-        self.tasks: set[asyncio.Task[Any]] = set()
+        self.tasks: set[asyncio.Task[object]] = set()
         self.hass = hass
         self.closed = False
 
-    def create_task(
-        self, coro: Coroutine[Any, Any, Any], name: str | None = None
-    ) -> asyncio.Task[Any] | None:
+    def create_task[T](
+        self, coro: Coroutine[Any, Any, T], name: str | None = None
+    ) -> asyncio.Task[T] | None:
         """Create and track an asyncio task with automatic cleanup on completion.
 
         Parameters
@@ -762,7 +762,7 @@ class TaskManager:
         task.add_done_callback(self.tasks.discard)
         return task
 
-    def cancel_all(self) -> list[asyncio.Task[Any]]:
+    def cancel_all(self) -> list[asyncio.Task[object]]:
         """Cancel every tracked task and close the manager to new ones.
 
         Returns

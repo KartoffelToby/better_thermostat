@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 import logging
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -274,7 +274,7 @@ def _read_internal_temperature_later(
         trv.last_internal_sensor_change = dt_util.now()
         request_control_cycle(self)
 
-    def _release_unstarted(_task: asyncio.Task[Any]) -> None:
+    def _release_unstarted(_task: asyncio.Task[object]) -> None:
         if not started:
             trv.internal_reread_pending = False
 
