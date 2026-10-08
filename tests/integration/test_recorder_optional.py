@@ -49,7 +49,7 @@ async def test_the_thermostat_loads_when_the_recorder_fails(hass, fake_trv):
 
     # A warm reading enters the filter but has no weight yet.
     _publish_outdoor(hass, 8.0)
-    assert await wait_for(hass, lambda: bt.outdoor_damping.reading == 8.0)
+    assert await wait_for(hass, lambda: bt.outdoor_source.damping.reading == 8.0)
     assert bt.damped_outdoor_temperature == pytest.approx(2.0, abs=0.01)
     assert bt.call_for_heat is True
     assert "recorder" not in hass.config.components

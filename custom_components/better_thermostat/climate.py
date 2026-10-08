@@ -101,7 +101,6 @@ from .core.fsm.mode import (
     set_preset as mode_set_preset,
 )
 from .core.fsm.window import WindowPhase, WindowState
-from .core.outdoor import DampedOutdoorTemperature
 from .core.recorder import FlightRecorder
 from .core.watchdog import CONTROL_TICK_S
 from .device_binding import async_bind_trv_device, async_unbind_trv_device
@@ -274,7 +273,7 @@ from .utils.watcher import (
     is_trv_available,
     room_sensor_reading,
 )
-from .utils.weather import check_ambient_air_temperature, check_weather
+from .utils.weather import DampedSource, check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1124,10 +1123,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self._last_call_for_heat: bool | None = None
         self.weather_verdict_missing_since: float | None = None
         self.weather_fallback_active = False
-        self.outdoor_damping: DampedOutdoorTemperature | None = None
-        self.outdoor_history_damped = False
-        self.outdoor_history_read_at: float | None = None
-        self.outdoor_history_failing = False
+        self.outdoor_source = DampedSource()
+        self.weather_source = DampedSource()
+        self.damped_weather_temperature: float | None = None
+        self.forecast_temperature: float | None = None
         self._available = False
         self.context: Context | None = None
         self.attr_hvac_action: HVACAction | None = None
