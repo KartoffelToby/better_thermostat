@@ -76,10 +76,10 @@ def test_first_call_creates_controller_and_returns_percent() -> None:
 
 
 def test_max_opening_pct_is_honoured() -> None:
-    """The valve percent never exceeds the configured max_opening_pct."""
+    """The valve percent never exceeds the configured max_opening_percent."""
     params = MpcV2Params()
     out, _ = compute_mpc_v2(
-        _baseline_input(room_temperature=15.0, max_opening_pct=40.0), params, None
+        _baseline_input(room_temperature=15.0, max_opening_percent=40.0), params, None
     )
     assert out is not None
     assert out.valve_percent <= 40
@@ -134,7 +134,9 @@ def test_valve_percent_rounds_half_up(
 def test_fractional_max_opening_pct_is_never_exceeded(monkeypatch) -> None:
     """A cap of 55.9 % admits 55 %, never a rounded-up 56 %."""
     monkeypatch.setattr(MpcV2Controller, "step", _step_returning(1.0))
-    out, _ = compute_mpc_v2(_baseline_input(max_opening_pct=55.9), MpcV2Params(), None)
+    out, _ = compute_mpc_v2(
+        _baseline_input(max_opening_percent=55.9), MpcV2Params(), None
+    )
     assert out is not None
     assert out.valve_percent == 55
 
@@ -166,7 +168,7 @@ def test_confirmed_valve_input_replaces_optimistic_previous_command() -> None:
 
     state.controller.step = _capture_step  # type: ignore[method-assign]
     out, state = compute_mpc_v2(
-        _baseline_input(applied_valve_pct=20.0), MpcV2Params(), state, now=400.0
+        _baseline_input(applied_valve_percent=20.0), MpcV2Params(), state, now=400.0
     )
     assert out is not None
     assert seen_previous_input == [0.2]
@@ -458,7 +460,7 @@ def _cold_room_percents(state: MpcV2State, now: float, cycles: int) -> list[int]
             _baseline_input(
                 target_temperature=21.0,
                 room_temperature=17.0,
-                applied_valve_pct=state.last_percent,
+                applied_valve_percent=state.last_percent,
             ),
             MpcV2Params(),
             state,

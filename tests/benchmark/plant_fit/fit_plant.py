@@ -87,7 +87,7 @@ def _find_cooling_windows(
     min_drop_K: float = 0.3,
     min_window_h: int = 3,
 ) -> list[list[tuple[float, float, float]]]:
-    """Return contiguous windows of monotonically-decreasing room temp."""
+    """Return contiguous windows of monotonically-decreasing room temperature."""
     windows: list[list[tuple[float, float, float]]] = []
     cur: list[tuple[float, float, float]] = []
     for i in range(len(room)):
@@ -110,7 +110,7 @@ def _fit_tau_room(window: list[tuple[float, float, float]]) -> float | None:
     if len(window) < 3:
         return None
     t0_s, T0, _ = window[0]
-    # Use the window's mean outdoor temp during the cooling phase.
+    # Use the window's mean outdoor temperature during the cooling phase.
     T_out = sum(w[2] for w in window) / len(window)
     if abs(T0 - T_out) < 0.5:
         return None  # No driving gradient, can't fit
@@ -150,7 +150,7 @@ def _find_heating_windows(
     min_rise_K: float = 0.3,
     min_window_h: int = 2,
 ) -> list[list[tuple[float, float, float]]]:
-    """Return windows of monotonically-rising room temp."""
+    """Return windows of monotonically-rising room temperature."""
     windows: list[list[tuple[float, float, float]]] = []
     cur: list[tuple[float, float, float]] = []
     for i in range(len(room)):

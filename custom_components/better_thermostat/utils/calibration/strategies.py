@@ -177,12 +177,12 @@ class BalanceStrategy:
         """
         # Runtime import: calibration.py builds the strategy registry from
         # this module, so a module-level import would be circular.
-        from ...calibration import effective_room_temp  # noqa: PLC0415
+        from ...calibration import effective_room_temperature  # noqa: PLC0415
 
         trv = bt.real_trvs.get(entity_id)
         healthy = (
             trv is not None
-            and effective_room_temp(bt) is not None
+            and effective_room_temperature(bt) is not None
             and bt.heat_target_temperature is not None
             and trv.calibrator_health == CalibratorHealth.HEALTHY
         )
@@ -280,7 +280,7 @@ def _percent_of_mpc_v2(result: BalanceResult) -> float | None:
 
 
 def _percent_of_tpi(result: BalanceResult) -> float | None:
-    return result.duty_cycle_pct if isinstance(result, TpiOutput) else None
+    return result.duty_cycle_percent if isinstance(result, TpiOutput) else None
 
 
 def _percent_of_pid(result: BalanceResult) -> float | None:

@@ -93,7 +93,7 @@ class PidAdapter:
                 inp_target_temperature=ctx.target_temperature,
                 inp_room_temperature=ctx.room_temperature,
                 inp_trv_temperature=ctx.trv_temperature,
-                inp_temp_slope_K_per_min=slope,
+                inp_temperature_slope_K_per_min=slope,
                 key=self._key,
                 inp_room_temperature_filtered=ctx.room_temperature,
                 state=self._state,

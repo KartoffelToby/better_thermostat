@@ -26,8 +26,8 @@ _LOGGER = logging.getLogger(__name__)
 class TpiParams:
     """Parameters for the TPI controller."""
 
-    clamp_min_pct: float = 0.0
-    clamp_max_pct: float = 100.0
+    clamp_min_percent: float = 0.0
+    clamp_max_percent: float = 100.0
     # TPI coefficients like in versatile_thermostat
     coef_int: float = 0.6  # coef_int for internal delta
     coef_ext: float = 0.01  # coef_ext for external delta
@@ -54,7 +54,7 @@ class TpiInput:
 class TpiOutput:
     """Output result from TPI calibration calculation."""
 
-    duty_cycle_pct: float
+    duty_cycle_percent: float
     debug: dict[str, object] = field(default_factory=dict)
 
 
@@ -136,33 +136,33 @@ def compute_tpi(
     )
 
     if not inp.heating_allowed or inp.window_open:
-        duty_pct = 0.0
+        duty_percent = 0.0
         debug: dict[str, object] = {"reason": "blocked"}
-        return _finalize_output(inp, params, state, now, duty_pct, None, debug)
+        return _finalize_output(inp, params, state, now, duty_percent, None, debug)
 
     if inp.room_temperature is None or inp.target_temperature is None:
         # Reuse last percent if available
-        duty_pct = state.last_percent if state.last_percent is not None else 0.0
+        duty_percent = state.last_percent if state.last_percent is not None else 0.0
         debug = {"reason": "missing_temps"}
-        return _finalize_output(inp, params, state, now, duty_pct, None, debug)
+        return _finalize_output(inp, params, state, now, duty_percent, None, debug)
 
     # Error in Kelvin
     error_K = float(inp.target_temperature) - float(inp.room_temperature)
 
     # Simple TPI calculation like in versatile_thermostat
-    duty_pct = params.coef_int * error_K
+    duty_percent = params.coef_int * error_K
     if inp.outdoor_temperature is not None:
         delta_ext = float(inp.target_temperature) - float(inp.outdoor_temperature)
-        duty_pct += params.coef_ext * delta_ext
+        duty_percent += params.coef_ext * delta_ext
 
     # Convert to percentage (0-100)
-    duty_pct *= 100.0
+    duty_percent *= 100.0
 
     # Apply thresholds: if temperature overshoots (error negative and |error| > threshold_high), disable heating
     if params.threshold_high > 0.0 and error_K < -params.threshold_high:
-        duty_pct = 0.0
+        duty_percent = 0.0
         debug = {"reason": "threshold_high"}
-        return _finalize_output(inp, params, state, now, duty_pct, error_K, debug)
+        return _finalize_output(inp, params, state, now, duty_percent, error_K, debug)
 
     # If error < threshold_low, re-enable calculation (but since we already calculated, maybe no change)
 
@@ -170,10 +170,10 @@ def compute_tpi(
         "error_K": _round_dbg(error_K),
         "coef_int": _round_dbg(params.coef_int, 3),
         "coef_ext": _round_dbg(params.coef_ext, 3),
-        "raw_pct": _round_dbg(duty_pct, 2),
+        "raw_pct": _round_dbg(duty_percent, 2),
     }
 
-    return _finalize_output(inp, params, state, now, duty_pct, error_K, debug)
+    return _finalize_output(inp, params, state, now, duty_percent, error_K, debug)
 
 
 def _finalize_output(
@@ -181,19 +181,21 @@ def _finalize_output(
     params: TpiParams,
     state: _TpiState,
     now: float,
-    duty_pct_raw: float,
+    duty_percent_raw: float,
     error_K: float | None,
     debug: dict[str, object],
 ) -> tuple[TpiOutput, _TpiState]:
     # Clamp
-    duty_pct = max(params.clamp_min_pct, min(params.clamp_max_pct, duty_pct_raw))
+    duty_percent = max(
+        params.clamp_min_percent, min(params.clamp_max_percent, duty_percent_raw)
+    )
 
-    state.last_percent = duty_pct
+    state.last_percent = duty_percent
     state.last_update_ts = now
 
     debug.update(
         {
-            "duty_cycle_pct": _round_dbg(duty_pct, 2),
+            "duty_cycle_pct": _round_dbg(duty_percent, 2),
             "error_K": _round_dbg(error_K) if error_K is not None else None,
         }
     )
@@ -204,11 +206,11 @@ def _finalize_output(
         "better_thermostat %s: TPI output (%s) duty=%s%% debug=%s",
         name,
         entity,
-        _round_dbg(duty_pct, 2),
+        _round_dbg(duty_percent, 2),
         debug,
     )
 
-    return TpiOutput(duty_cycle_pct=duty_pct, debug=debug), state
+    return TpiOutput(duty_cycle_percent=duty_percent, debug=debug), state
 
 
 def build_tpi_key(bt: BetterThermostat, entity_id: str) -> str:

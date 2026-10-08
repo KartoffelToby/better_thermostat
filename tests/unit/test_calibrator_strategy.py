@@ -109,7 +109,7 @@ class TestStrategyRegistry:
             return MagicMock(spec=MpcV2Output, valve_percent=percent), use_valve
 
         def compute_tpi(bt, entity_id):
-            return MagicMock(spec=TpiOutput, duty_cycle_pct=percent), use_valve
+            return MagicMock(spec=TpiOutput, duty_cycle_percent=percent), use_valve
 
         def compute_pid(bt, entity_id):
             return percent, use_valve
@@ -189,7 +189,7 @@ class TestStrategyRegistry:
     def test_capability_healthy_under_sensor_fallback(self):
         """SENSOR_FALLBACK keeps the strategy healthy on the TRV mean.
 
-        The control law computes on ``effective_room_temp`` (TRV-internal
+        The control law computes on ``effective_room_temperature`` (TRV-internal
         mean) when the room sensor is dead; the capability report must
         judge the same input instead of flagging the calibrator unhealthy
         while it is actively controlling.
@@ -232,7 +232,7 @@ class TestBalanceCalibrator:
                 use_valve,
             ),
             lambda bt, e: (
-                MagicMock(spec=TpiOutput, duty_cycle_pct=percent),
+                MagicMock(spec=TpiOutput, duty_cycle_percent=percent),
                 use_valve,
             ),
             lambda bt, e: (percent, use_valve),

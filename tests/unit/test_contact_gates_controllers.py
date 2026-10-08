@@ -147,7 +147,7 @@ def _commanded_valve_percent(output: Any, balance: Any) -> float | None:
         return balance.get("valve_percent")
     if output is None:
         return None
-    for attribute in ("valve_percent", "duty_cycle_pct"):
+    for attribute in ("valve_percent", "duty_cycle_percent"):
         if hasattr(output, attribute):
             return getattr(output, attribute)
     return None

@@ -390,7 +390,7 @@ class MpcV2Controller:
     def set_applied_u(self, u: float) -> None:
         """Record the valve fraction actually applied to the TRV.
 
-        When the caller clamps the command (e.g. ``max_opening_pct``), the
+        When the caller clamps the command (e.g. ``max_opening_percent``), the
         Kalman observer, Smith predictor and rate limiter must see the applied
         value on the next cycle rather than the optimiser's uncapped request,
         otherwise their state drifts from the real plant input.

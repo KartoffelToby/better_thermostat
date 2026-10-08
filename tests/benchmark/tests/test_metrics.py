@@ -82,7 +82,7 @@ def test_valve_cycle_count():
 
 
 def test_integral_valve_pct_min():
-    """A 60-minute window at 50 percent yields 3000 pct·min by trapezoidal integration."""
+    """A 60-minute window at 50 percent yields 3000 percent·min by trapezoidal integration."""
     n = 61  # samples
     series = TimeSeries(
         t_s=[i * 60.0 for i in range(n)],

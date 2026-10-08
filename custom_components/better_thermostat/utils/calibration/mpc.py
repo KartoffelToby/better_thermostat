@@ -52,18 +52,20 @@ class MpcParams:
     mpc_solar_gain_max: float = 0.05
     mpc_adapt_alpha: float = 0.1
     mpc_adapt_window_block_s: float = 900.0
-    deadzone_threshold_pct: float = 20.0
-    deadzone_temp_delta_K: float = 0.1
+    deadzone_threshold_percent: float = 20.0
+    deadzone_delta_K: float = 0.1
     deadzone_time_s: float = 300.0
     deadzone_hits_required: int = 3
-    deadzone_raise_pct: float = 2.0
-    deadzone_decay_pct: float = 1.0
-    mpc_du_max_pct: float = 25.0
+    deadzone_raise_percent: float = 2.0
+    deadzone_decay_percent: float = 1.0
+    mpc_du_max_percent: float = 25.0
     min_percent_hold_time_s: float = 300.0  # minimum 5-minute hold time
-    big_change_force_open_pct: float = (
+    big_change_force_open_percent: float = (
         33.0  # >33% opening change may be applied immediately
     )
-    big_change_force_close_pct: float = 10.0  # >10% closing change may bypass hold-time
+    big_change_force_close_percent: float = (
+        10.0  # >10% closing change may bypass hold-time
+    )
 
     # Minimum effective opening / dead-zone learning.
     # If disabled, small commands are not clamped up and dead-zone raise/decay is skipped.
@@ -72,7 +74,7 @@ class MpcParams:
     # Virtual temperature behaviour.
     # When enabled, `virtual_temp` is used as the MPC state temperature and can be
     # forward-predicted between sensor updates via a Kalman filter.
-    use_virtual_temp: bool = True
+    use_virtual_temperature: bool = True
 
     # Kalman filter tuning for virtual temperature.
     # Q = process noise (model uncertainty), R = measurement noise (sensor noise).
@@ -82,7 +84,7 @@ class MpcParams:
 
     # TRV performance curve sampling (data collection only)
     perf_curve_min_window_s: float = 300.0
-    perf_curve_bin_pct: float = 2.0
+    perf_curve_bin_percent: float = 2.0
 
 
 @dataclass
@@ -95,7 +97,7 @@ class MpcInput:
     room_temperature_filtered: float | None = None
     trv_temperature: float | None = None
     tolerance_K: float = 0.0
-    temp_slope_K_per_min: float | None = None
+    temperature_slope_K_per_min: float | None = None
     window_open: bool = False
     heating_allowed: bool = True
     bt_name: str | None = None
@@ -104,7 +106,7 @@ class MpcInput:
     is_day: bool = True
     other_heat_power: float = 0.0
     solar_intensity: float = 0.0  # 0.0 to 1.0 (cloud coverage, etc.)
-    max_opening_pct: float | None = None
+    max_opening_percent: float | None = None
 
 
 @dataclass
@@ -189,12 +191,12 @@ def sanitize_mpc_state(state: _MpcState) -> tuple[_MpcState, CalibratorHealth]:
 MpcState = _MpcState
 
 
-def _curve_bin_label(percent: float, bin_pct: float) -> str:
-    bin_pct = max(1.0, float(bin_pct))
+def _curve_bin_label(percent: float, bin_percent: float) -> str:
+    bin_percent = max(1.0, float(bin_percent))
     p = max(0.0, min(100.0, float(percent)))
-    lo = math.floor(p / bin_pct) * bin_pct
-    hi = min(100.0, lo + bin_pct)
-    if bin_pct.is_integer():
+    lo = math.floor(p / bin_percent) * bin_percent
+    hi = min(100.0, lo + bin_percent)
+    if bin_percent.is_integer():
         return f"p{int(lo):02d}_{int(hi):02d}"
     return f"p{lo:.1f}_{hi:.1f}"
 
@@ -231,19 +233,21 @@ def _update_perf_curve(
     room_rate = room_delta / dt_min
 
     if state.time_integral > 0:
-        u_avg_pct = state.u_integral / state.time_integral
+        u_avg_percent = state.u_integral / state.time_integral
     else:
-        u_avg_pct = float(state.last_percent) if state.last_percent is not None else 0.0
+        u_avg_percent = (
+            float(state.last_percent) if state.last_percent is not None else 0.0
+        )
 
-    bin_pct = params.perf_curve_bin_pct
-    label = _curve_bin_label(u_avg_pct, bin_pct)
+    bin_percent = params.perf_curve_bin_percent
+    label = _curve_bin_label(u_avg_percent, bin_percent)
 
     trv_rate = None
     if inp.trv_temperature is not None and state.last_trv_temp is not None:
         trv_delta = float(inp.trv_temperature) - float(state.last_trv_temp)
         trv_rate = trv_delta / dt_min
 
-    temp_error = float(inp.target_temperature) - float(inp.room_temperature)
+    error_K = float(inp.target_temperature) - float(inp.room_temperature)
 
     stats = state.perf_curve.setdefault(
         label,
@@ -269,11 +273,11 @@ def _update_perf_curve(
         )
     stats["avg_percent"] = (
         stats.get("avg_percent", 0.0)
-        + (float(u_avg_pct) - stats.get("avg_percent", 0.0)) / count
+        + (float(u_avg_percent) - stats.get("avg_percent", 0.0)) / count
     )
     stats["avg_temp_error"] = (
         stats.get("avg_temp_error", 0.0)
-        + (temp_error - stats.get("avg_temp_error", 0.0)) / count
+        + (error_K - stats.get("avg_temp_error", 0.0)) / count
     )
 
     extra_debug["perf_curve_bin"] = label
@@ -292,7 +296,7 @@ def _split_mpc_key(key: str) -> tuple[str | None, str | None, str | None]:
 
 
 def _parse_bucket(bucket: str | None) -> float | None:
-    """Parse a target-temp bucket label (``t21.0``) back into a float."""
+    """Parse a target-temperature bucket label (``t21.0``) back into a float."""
     if not bucket or not bucket.startswith("t"):
         return None
     try:
@@ -437,15 +441,15 @@ DISTRIBUTE_COMPENSATION_PCT_PER_K: float = 8.0
 
 
 def distribute_valve_percent(
-    u_total_pct: float, trv_temps: dict[str, float | None]
+    u_total_percent: float, trv_temps: dict[str, float | None]
 ) -> dict[str, float]:
     """Distribute a group MPC valve command across TRVs based on internal temps.
 
     The **warmest TRV** is used as the reference and receives exactly
-    ``u_total_pct`` (the MPC output).  Every colder TRV gets a boost
+    ``u_total_percent`` (the MPC output).  Every colder TRV gets a boost
     proportional to how much colder it is than the warmest::
 
-        result[trv] = u_total_pct + (T_warmest - T_trv) * COMPENSATION_PCT_PER_K
+        result[trv] = u_total_percent + (T_warmest - T_trv) * COMPENSATION_PCT_PER_K
 
     This guarantees:
     * At least one TRV always receives the exact MPC-computed value.
@@ -455,11 +459,11 @@ def distribute_valve_percent(
       only *adds* to the baseline.
 
     If all TRVs have the same (or ``None``) temperature the function returns
-    ``u_total_pct`` for every TRV (uniform distribution).
+    ``u_total_percent`` for every TRV (uniform distribution).
 
     Parameters
     ----------
-    u_total_pct:
+    u_total_percent:
         The group-level MPC output in percent (0–100).  This is assigned
         to the warmest TRV unchanged.
     trv_temps:
@@ -477,33 +481,33 @@ def distribute_valve_percent(
         return {}
 
     # -- Fast path: single TRV or zero command --
-    if n == 1 or u_total_pct <= 0.0:
-        return {eid: max(0.0, min(100.0, u_total_pct)) for eid in trv_temps}
+    if n == 1 or u_total_percent <= 0.0:
+        return {eid: max(0.0, min(100.0, u_total_percent)) for eid in trv_temps}
 
     # -- Collect valid temperatures --
     valid_temps: dict[str, float] = {}
-    for eid, trv_temp in trv_temps.items():
-        if trv_temp is not None and isinstance(trv_temp, (int, float)):
-            valid_temps[eid] = float(trv_temp)
+    for eid, trv_temperature in trv_temps.items():
+        if trv_temperature is not None and isinstance(trv_temperature, (int, float)):
+            valid_temps[eid] = float(trv_temperature)
 
     if not valid_temps:
         # No valid TRV temperatures → uniform
-        return {eid: max(0.0, min(100.0, u_total_pct)) for eid in trv_temps}
+        return {eid: max(0.0, min(100.0, u_total_percent)) for eid in trv_temps}
 
     # -- Reference: warmest TRV --
-    warmest_temp = max(valid_temps.values())
+    warmest_temperature = max(valid_temps.values())
 
     compensation = float(DISTRIBUTE_COMPENSATION_PCT_PER_K)
 
     result: dict[str, float] = {}
     for eid in trv_temps:
         if eid in valid_temps:
-            deficit_K = warmest_temp - valid_temps[eid]
-            pct = u_total_pct + deficit_K * compensation
+            deficit_K = warmest_temperature - valid_temps[eid]
+            percent = u_total_percent + deficit_K * compensation
         else:
             # No temperature data → assign baseline (neutral)
-            pct = u_total_pct
-        result[eid] = max(0.0, min(100.0, pct))
+            percent = u_total_percent
+        result[eid] = max(0.0, min(100.0, percent))
 
     return result
 
@@ -660,7 +664,7 @@ def compute_mpc(
         _round_for_debug(inp.target_temperature, 3),
         _round_for_debug(inp.room_temperature, 3),
         _round_for_debug(inp.trv_temperature, 3),
-        _round_for_debug(inp.temp_slope_K_per_min, 4),
+        _round_for_debug(inp.temperature_slope_K_per_min, 4),
         inp.window_open,
         inp.heating_allowed,
         _round_for_debug(state.last_percent, 2),
@@ -708,7 +712,7 @@ def compute_mpc(
             _round_for_debug(percent, 2),
         )
     else:
-        use_virtual_temp = params.use_virtual_temp
+        use_virtual_temperature = params.use_virtual_temperature
 
         tolerance = max(0.0, float(inp.tolerance_K or 0.0))
         tolerance_hold_block = False
@@ -750,19 +754,19 @@ def compute_mpc(
         #
         # State: x = virtual_temp (scalar)
         # Model: x_k+1 = x_k + (gain*u - loss)*dt_min
-        # Measurement: z_k = sensor_temp (when it changes)
+        # Measurement: z_k = sensor_temperature (when it changes)
         #
         # NOTE: Even during tolerance hold we keep this observer running so
         # virtual temperature does not go stale before heating resumes.
-        if use_virtual_temp and inp.room_temperature is not None:
-            sensor_temp = float(inp.room_temperature)
+        if use_virtual_temperature and inp.room_temperature is not None:
+            sensor_temperature = float(inp.room_temperature)
             Q = max(1e-6, float(params.kalman_Q))  # process noise / sec
             R = max(1e-6, float(params.kalman_R))  # measurement noise
 
             # --- PREDICT step ---
             if state.virtual_temp is None:
                 # First call: initialise from sensor
-                state.virtual_temp = sensor_temp
+                state.virtual_temp = sensor_temperature
                 state.virtual_temp_ts = now
                 state.kalman_P = R  # initial uncertainty = measurement noise
                 extra_debug["kalman_phase"] = "init"
@@ -770,14 +774,14 @@ def compute_mpc(
                 dt_s = max(0.0, now - state.virtual_temp_ts)
                 if dt_s > 0.0:
                     dt_min = dt_s / 60.0
-                    u_cmd_pct = (
+                    u_cmd_percent = (
                         float(state.last_percent)
                         if state.last_percent is not None
                         else 0.0
                     )
                     if tolerance_hold_block:
-                        u_cmd_pct = 0.0
-                    u = max(0.0, min(100.0, u_cmd_pct)) / 100.0
+                        u_cmd_percent = 0.0
+                    u = max(0.0, min(100.0, u_cmd_percent)) / 100.0
 
                     gain_est = (
                         float(state.gain_est)
@@ -813,14 +817,15 @@ def compute_mpc(
             # --- UPDATE step (only when sensor actually changed) ---
             prev_sensor = state.last_sensor_temperature
             sensor_changed = (
-                prev_sensor is None or abs(sensor_temp - float(prev_sensor)) >= 0.001
+                prev_sensor is None
+                or abs(sensor_temperature - float(prev_sensor)) >= 0.001
             )
 
             if sensor_changed:
                 P = state.kalman_P
                 # Kalman gain: K = P / (P + R)
                 K = P / (P + R)
-                innovation = sensor_temp - float(state.virtual_temp)
+                innovation = sensor_temperature - float(state.virtual_temp)
                 state.virtual_temp = float(state.virtual_temp) + K * innovation
                 state.kalman_P = (1.0 - K) * P
 
@@ -830,10 +835,10 @@ def compute_mpc(
             else:
                 extra_debug["kalman_update"] = "skipped_sensor_unchanged"
 
-            state.last_sensor_temperature = sensor_temp
+            state.last_sensor_temperature = sensor_temperature
 
         # DELTA T USING VIRTUAL TEMPERATURE
-        if use_virtual_temp and state.virtual_temp is not None:
+        if use_virtual_temperature and state.virtual_temp is not None:
             delta_kelvin = inp.target_temperature - state.virtual_temp
         else:
             delta_kelvin = inp.target_temperature - inp.room_temperature
@@ -847,7 +852,7 @@ def compute_mpc(
                 now,
                 float(delta_kelvin) if delta_kelvin is not None else 0.0,
             )
-            # Keep any virtual-temp debug collected earlier and merge MPC debug on top.
+            # Keep any virtual-temperature debug collected earlier and merge MPC debug on top.
             extra_debug.update(mpc_debug)
 
         # --- FORCED LOSS CALIBRATION ---
@@ -974,17 +979,17 @@ def _compute_predictive_percent(
     # Determine which temperature to use for the cost function (Raw vs Filtered)
     # Default to filtered (EMA) for stability.
     cost_room_temperature = room_temperature
-    temp_cost_source = "raw"
+    cost_temperature_source = "raw"
 
     if inp.room_temperature_filtered is not None:
         try:
             cost_room_temperature = float(inp.room_temperature_filtered)
-            temp_cost_source = "filtered"
+            cost_temperature_source = "filtered"
         except TypeError, ValueError:
             cost_room_temperature = room_temperature
             inp.room_temperature_filtered = None
 
-    use_virtual_temp = params.use_virtual_temp
+    use_virtual_temperature = params.use_virtual_temperature
 
     # delta_kelvin is part of the call signature but not an input to this solver.
     _ = delta_kelvin
@@ -1024,7 +1029,7 @@ def _compute_predictive_percent(
             state.last_learn_temp = cost_room_temperature
             dt_last = 0.0
 
-    # Initialize ka_est if we have outdoor temp context
+    # Initialize ka_est if we have outdoor temperature context
     if (
         params.mpc_adapt
         and inp.outdoor_temperature is not None
@@ -1064,13 +1069,13 @@ def _compute_predictive_percent(
 
             # Use time-weighted average valve position for learning
             if state.time_integral > 0:
-                u_avg_pct = state.u_integral / state.time_integral
+                u_avg_percent = state.u_integral / state.time_integral
             else:
-                u_avg_pct = (
+                u_avg_percent = (
                     state.last_percent if state.last_percent is not None else 0.0
                 )
 
-            u_last = max(0.0, min(100.0, float(u_avg_pct))) / 100.0
+            u_last = max(0.0, min(100.0, float(u_avg_percent))) / 100.0
 
             dt_min = dt_last / 60.0
 
@@ -1088,7 +1093,7 @@ def _compute_predictive_percent(
             # This helps with quantised sensors where observed_delta_kelvin stays at 0 for long periods.
             # DISABLED: Slope often lags behind reality (EMA), causing wrong learning signals.
             # We rely on the actual observed_delta_kelvin over the interval.
-            # slope = inp.temp_slope_K_per_min
+            # slope = inp.temperature_slope_K_per_min
             # if slope is not None:
             #     try:
             #         observed_rate = float(slope)
@@ -1099,19 +1104,21 @@ def _compute_predictive_percent(
             implied_delta_kelvin = observed_rate * dt_min if dt_min > 0 else 0.0
 
             # Learn only when the sensor actually changed (quantised sensors).
-            temp_changed = abs(observed_delta_kelvin) >= MPC_TEMP_CHANGE_THRESHOLD_K
+            temperature_changed = (
+                abs(observed_delta_kelvin) >= MPC_TEMP_CHANGE_THRESHOLD_K
+            )
 
             # Slope logic disabled - we rely purely on actual temperature changes
             # to avoid learning from lagging EMA slopes.
             slope_rejected = False
 
-            learn_signal = temp_changed
+            learn_signal = temperature_changed
 
             # For quasi steady-state learning (loss residual, gain_ss), prefer the
             # delta-based rate unless we have an actual sensor change. This prevents
             # stale/quantised sensors with noisy slopes from biasing steady-state updates.
             observed_rate_ss = observed_rate
-            if not temp_changed:
+            if not temperature_changed:
                 observed_rate_ss = observed_rate_delta
 
             # sanity: avoid learning on extreme transients / sensor jumps
@@ -1211,7 +1218,7 @@ def _compute_predictive_percent(
 
             # --- LOSS learning (residual): works even when valves never close ---
             # Important: this must work even when observed_delta_kelvin == 0 (steady-state), so it
-            # must NOT depend on temp_changed. Instead, gate on quasi steady-state.
+            # must NOT depend on temperature_changed. Instead, gate on quasi steady-state.
             residual_ok = False
             residual_rate_limited = False
             residual_block_jump = False
@@ -1231,7 +1238,7 @@ def _compute_predictive_percent(
                     or dt_residual > residual_max_interval_s
                 ):
                     residual_rate_limited = True
-                if temp_changed:
+                if temperature_changed:
                     residual_block_jump = True
 
                 residual_ok = (
@@ -1359,7 +1366,7 @@ def _compute_predictive_percent(
 
                 if (
                     (not gain_ss_rate_limited)
-                    and (not temp_changed)
+                    and (not temperature_changed)
                     and e_now > 0.1
                     and abs(observed_rate_ss) <= 0.01
                 ):
@@ -1428,7 +1435,7 @@ def _compute_predictive_percent(
                 "id_dt_min": _round_for_debug(dt_min, 3),
                 "id_delta_T": _round_for_debug(observed_delta_kelvin, 3),
                 "id_implied_delta_T": _round_for_debug(implied_delta_kelvin, 3),
-                "id_temp_changed": temp_changed,
+                "id_temp_changed": temperature_changed,
                 "id_learn_signal": learn_signal,
                 "id_temp_change_threshold_C": _round_for_debug(
                     MPC_TEMP_CHANGE_THRESHOLD_K, 3
@@ -1459,7 +1466,7 @@ def _compute_predictive_percent(
             }
 
             # Reset main anchor only on significant changes or context switch
-            if temp_changed or target_changed:
+            if temperature_changed or target_changed:
                 state.last_learn_time = now
                 state.last_learn_temp = cost_room_temperature
                 state.u_integral = 0.0
@@ -1550,13 +1557,13 @@ def _compute_predictive_percent(
 
     T0 = (
         float(state.virtual_temp)
-        if use_virtual_temp and state.virtual_temp is not None
+        if use_virtual_temperature and state.virtual_temp is not None
         else cost_room_temperature
     )
 
     other_heat_step = float(inp.other_heat_power) * step_minutes
 
-    # For constant-loss model (no ka_est or no outdoor temp)
+    # For constant-loss model (no ka_est or no outdoor temperature)
     net_passive_step = other_heat_step - loss_step  # everything except gain*u
 
     e0 = target_temperature - T0  # initial error (positive = need heating)
@@ -1565,18 +1572,18 @@ def _compute_predictive_percent(
 
     def _evaluate_cost(u_frac: float) -> float:
         u_clamped = max(0.0, min(1.0, float(u_frac)))
-        temp_cost = 0.0
+        accumulated_cost = 0.0
         for k in range(1, horizon + 1):
             t_k = T0 + k * (a * u_clamped + net_passive_step)
             e_k = target_temperature - t_k
             if e_k >= 0.0:
-                temp_cost += e_k * e_k
+                accumulated_cost += e_k * e_k
             else:
-                temp_cost += (1.0 + overshoot_pen) * (e_k * e_k)
+                accumulated_cost += (1.0 + overshoot_pen) * (e_k * e_k)
 
         reg_cost = control_pen * ((u_clamped - u0_frac) ** 2)
         slew_cost = change_pen * ((u_clamped - u_last_frac) ** 2)
-        return temp_cost + reg_cost + slew_cost
+        return accumulated_cost + reg_cost + slew_cost
 
     # Build candidates: coarse global grid + fine local refinement.
     # Coarse only needs to localize the area; fine pass resolves integer-% output.
@@ -1621,7 +1628,7 @@ def _compute_predictive_percent(
     # store last estimates
     state.last_temp = (
         state.virtual_temp
-        if use_virtual_temp and state.virtual_temp is not None
+        if use_virtual_temperature and state.virtual_temp is not None
         else inp.room_temperature
     )
     state.last_time = now
@@ -1641,7 +1648,7 @@ def _compute_predictive_percent(
         "mpc_step_minutes": _round_for_debug(step_minutes, 3),
         "mpc_temp_cost_C": _round_for_debug(cost_room_temperature, 3),
         "mpc_sensor_temp_C": _round_for_debug(inp.room_temperature, 3),
-        "mpc_temp_cost_source": temp_cost_source,
+        "mpc_temp_cost_source": cost_temperature_source,
         "mpc_control_pen": _round_for_debug(control_pen, 4),
         "mpc_change_pen": _round_for_debug(change_pen, 4),
         "mpc_overshoot_pen": _round_for_debug(overshoot_pen, 4),
@@ -1666,21 +1673,21 @@ def _compute_predictive_percent(
 def _detect_trv_profile(
     state: _MpcState,
     percent_out: float,
-    temp_delta: float | None,
+    trv_delta_K: float | None,
     time_delta: float | None,
-    expected_temp_rise: float,
+    expected_rise_K: float,
     params: MpcParams,
 ) -> None:
-    if temp_delta is None or time_delta is None or time_delta <= 0:
+    if trv_delta_K is None or time_delta is None or time_delta <= 0:
         return
 
-    if percent_out <= 0 or expected_temp_rise <= 0:
+    if percent_out <= 0 or expected_rise_K <= 0:
         return
 
-    response_ratio = temp_delta / expected_temp_rise
+    response_ratio = trv_delta_K / expected_rise_K
     state.profile_samples += 1
 
-    is_small = percent_out <= params.deadzone_threshold_pct
+    is_small = percent_out <= params.deadzone_threshold_percent
     weak_response = response_ratio < 0.3
 
     threshold_evidence = 1.0 if (is_small and weak_response) else 0.0
@@ -1757,13 +1764,13 @@ def _room_rise_over(
 def _decay_min_effective_percent(
     state: _MpcState,
     params: MpcParams,
-    temp_delta: float | None,
+    trv_delta_K: float | None,
     name: str,
     entity: str,
 ) -> None:
     """Lower the learned minimum opening one step when the TRV responds.
 
-    *temp_delta* is how far the TRV warmed since the last evaluation, and
+    *trv_delta_K* is how far the TRV warmed since the last evaluation, and
     ``state.last_percent`` is the command that was in force over that
     time; this cycle's command has not acted yet. Only a TRV that warms
     while the valve is commanded open answers an opening. Behind a closed
@@ -1780,12 +1787,12 @@ def _decay_min_effective_percent(
         or state.last_percent is None
         or state.last_percent <= 0.0
         or state.last_percent
-        > state.min_effective_percent + max(params.deadzone_raise_pct, 0.0) + 0.5
-        or temp_delta is None
-        or temp_delta <= params.deadzone_temp_delta_K
+        > state.min_effective_percent + max(params.deadzone_raise_percent, 0.0) + 0.5
+        or trv_delta_K is None
+        or trv_delta_K <= params.deadzone_delta_K
     ):
         return
-    new_min = state.min_effective_percent - params.deadzone_decay_pct
+    new_min = state.min_effective_percent - params.deadzone_decay_percent
     state.min_effective_percent = new_min if new_min > 0.0 else None
     _LOGGER.debug(
         "better_thermostat %s: MPC dead-zone DECAY (%s) new_min=%s",
@@ -1812,7 +1819,7 @@ def _post_process_percent(
     smooth = raw_percent
     target_changed = False
 
-    # track target temp changes
+    # track target temperature changes
     if inp.target_temperature is not None:
         prev_target = state.last_target_temperature
         if prev_target is not None:
@@ -1851,7 +1858,7 @@ def _post_process_percent(
 
     # 3) DU_MAX LIMIT (MAX STEPPING)
     last_percent = state.last_percent
-    du_max = params.mpc_du_max_pct
+    du_max = params.mpc_du_max_percent
 
     if last_percent is not None and du_max is not None and du_max > 0:
         delta = smooth - last_percent
@@ -1899,7 +1906,7 @@ def _post_process_percent(
             percent_out = int(round(min_eff))
 
     # 6) DEAD-ZONE DETECTION (improved)
-    temp_delta: float | None = None
+    trv_delta_K: float | None = None
     time_delta: float | None = None
 
     if inp.trv_temperature is None:
@@ -1910,7 +1917,7 @@ def _post_process_percent(
         state.last_trv_temp = inp.trv_temperature
         state.last_trv_temp_ts = now
     else:
-        temp_delta = inp.trv_temperature - state.last_trv_temp
+        trv_delta_K = inp.trv_temperature - state.last_trv_temp
         time_delta = now - state.last_trv_temp_ts
         eval_after = max(params.deadzone_time_s, 1.0)
 
@@ -1919,33 +1926,32 @@ def _post_process_percent(
         if time_delta >= eval_after and state.trv_profile in ("unknown", "threshold"):
             tol = max(inp.tolerance_K, 0.0)
             needs_heat = delta_kelvin is not None and delta_kelvin > tol
-            small_command = 0 < percent_out <= params.deadzone_threshold_pct
+            small_command = 0 < percent_out <= params.deadzone_threshold_percent
             weak_response = (
-                temp_delta is None or temp_delta <= params.deadzone_temp_delta_K
+                trv_delta_K is None or trv_delta_K <= params.deadzone_delta_K
             )
 
             # --- Expected MPC effect vs real heating ---
             gain = state.gain_est or params.mpc_thermal_gain
-            expected_temp_rise = gain * (percent_out / 100.0) * (time_delta / 60.0)
+            expected_rise_K = gain * (percent_out / 100.0) * (time_delta / 60.0)
 
             # --- TRV Profile Detection ---
             _detect_trv_profile(
-                state, percent_out, temp_delta, time_delta, expected_temp_rise, params
+                state, percent_out, trv_delta_K, time_delta, expected_rise_K, params
             )
 
             if params.enable_min_effective_percent:
-                room_temp_delta = _room_rise_over(state, inp, now, time_delta)
+                room_delta_K = _room_rise_over(state, inp, now, time_delta)
 
                 measured_ok = (
-                    room_temp_delta is not None
-                    and room_temp_delta > expected_temp_rise * 0.2
+                    room_delta_K is not None and room_delta_K > expected_rise_K * 0.2
                 )
 
                 trv_self_heating = (
-                    temp_delta is not None
-                    and temp_delta > 0.0
-                    and room_temp_delta is not None
-                    and room_temp_delta <= 0.0
+                    trv_delta_K is not None
+                    and trv_delta_K > 0.0
+                    and room_delta_K is not None
+                    and room_delta_K <= 0.0
                 )
 
                 # --- DEADZONE HIT (improved logic) ---
@@ -1964,13 +1970,13 @@ def _post_process_percent(
                         entity,
                         state.dead_zone_hits,
                         params.deadzone_hits_required,
-                        _round_for_debug(temp_delta, 3),
+                        _round_for_debug(trv_delta_K, 3),
                         (
-                            _round_for_debug(room_temp_delta, 3)
-                            if room_temp_delta is not None
+                            _round_for_debug(room_delta_K, 3)
+                            if room_delta_K is not None
                             else None
                         ),
-                        _round_for_debug(expected_temp_rise, 3),
+                        _round_for_debug(expected_rise_K, 3),
                         percent_out,
                     )
 
@@ -1978,7 +1984,7 @@ def _post_process_percent(
                         params.deadzone_hits_required > 0
                         and state.dead_zone_hits >= params.deadzone_hits_required
                     ):
-                        proposed = percent_out + params.deadzone_raise_pct
+                        proposed = percent_out + params.deadzone_raise_percent
                         current_min = state.min_effective_percent or 0.0
                         state.min_effective_percent = min(
                             100.0, max(current_min, proposed)
@@ -1995,7 +2001,7 @@ def _post_process_percent(
                     # --- Reset / decay ---
                     prev_hits = state.dead_zone_hits
                     _decay_min_effective_percent(
-                        state, params, temp_delta, name, entity
+                        state, params, trv_delta_K, name, entity
                     )
                     state.dead_zone_hits = 0
                     if prev_hits:
@@ -2012,7 +2018,7 @@ def _post_process_percent(
             # A linear or exponential TRV counts no dead-zone hits, but a
             # minimum opening learned before it was classified still decays
             # while the TRV responds to it.
-            _decay_min_effective_percent(state, params, temp_delta, name, entity)
+            _decay_min_effective_percent(state, params, trv_delta_K, name, entity)
 
         state.last_trv_temp = inp.trv_temperature
         state.last_trv_temp_ts = now
@@ -2032,17 +2038,19 @@ def _post_process_percent(
         "trv_profile": state.trv_profile,
         "trv_profile_conf": _round_for_debug(state.profile_confidence, 3),
         "trv_profile_samples": state.profile_samples,
-        "trv_temp_delta": _round_for_debug(temp_delta, 3),
+        "trv_temp_delta": _round_for_debug(trv_delta_K, 3),
         "trv_time_delta_s": _round_for_debug(time_delta, 1),
         "mpc_created_ts": state.created_ts,
     }
 
     # slope EMA unchanged
-    if inp.temp_slope_K_per_min is not None:
+    if inp.temperature_slope_K_per_min is not None:
         if state.ema_slope is None:
-            state.ema_slope = inp.temp_slope_K_per_min
+            state.ema_slope = inp.temperature_slope_K_per_min
         else:
-            state.ema_slope = 0.6 * state.ema_slope + 0.4 * inp.temp_slope_K_per_min
+            state.ema_slope = (
+                0.6 * state.ema_slope + 0.4 * inp.temperature_slope_K_per_min
+            )
         debug["slope_ema"] = _round_for_debug(state.ema_slope, 4)
 
     # MINIMUM HOLD TIME – ANTI-CHATTERING
@@ -2056,8 +2064,8 @@ def _post_process_percent(
         if not target_changed:
             delta_cmd = smooth - state.last_percent
             # Exception: large change required (e.g. window event / fast overheat reduction)
-            big_open = delta_cmd >= params.big_change_force_open_pct
-            big_close = (-delta_cmd) >= params.big_change_force_close_pct
+            big_open = delta_cmd >= params.big_change_force_open_percent
+            big_close = (-delta_cmd) >= params.big_change_force_close_percent
             remaining = hold_time - time_since_update
 
             if (
@@ -2079,7 +2087,7 @@ def _post_process_percent(
                 )
 
     # 7b) MAX VALVE OPENING (USER CAP)
-    max_opening = inp.max_opening_pct
+    max_opening = inp.max_opening_percent
     if isinstance(max_opening, (int, float)):
         max_opening = max(0.0, min(100.0, float(max_opening)))
         if percent_out > max_opening:

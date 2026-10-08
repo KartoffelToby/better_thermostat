@@ -44,7 +44,7 @@ def test_cold_room_below_a_setpoint_beyond_the_water_still_commands_heat(
     plant_params = PlantParams(tau_room_min=720.0)
     opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
     target = target_temperature
-    assert opt.plant.steady_radiator_temp(target, -16.0) > plant_params.T_water
+    assert opt.plant.steady_radiator_temperature(target, -16.0) > plant_params.T_water
 
     u = opt.solve(np.array([target - 3.0, target - 3.0]), target, -16.0, u_last=0.0)
 
@@ -65,8 +65,8 @@ def test_warm_room_above_a_setpoint_beyond_the_water_backs_the_valve_off(
     plant_params = PlantParams(tau_room_min=720.0)
     opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
     target = target_temperature
-    hottest = opt.plant.hottest_radiator_temp(target)
-    assert opt.plant.steady_radiator_temp(target, -16.0) > plant_params.T_water
+    hottest = opt.plant.hottest_radiator_temperature(target)
+    assert opt.plant.steady_radiator_temperature(target, -16.0) > plant_params.T_water
 
     u = opt.solve(np.array([target + 2.0, hottest]), target, -16.0, u_last=0.5)
 

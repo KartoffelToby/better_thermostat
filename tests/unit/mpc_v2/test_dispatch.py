@@ -326,7 +326,7 @@ def test_setpoint_steered_trv_keeps_its_reported_opening_out_of_the_controller(
     _compute_mpc_v2_balance(bt, "climate.x")
 
     assert len(seen) == 1
-    assert seen[0].applied_valve_pct is None
+    assert seen[0].applied_valve_percent is None
 
 
 def test_setpoint_steered_trv_reported_opening_still_feeds_re_identification(
@@ -358,4 +358,4 @@ def test_direct_valve_trv_feeds_its_reported_opening_to_the_controller(
     _compute_mpc_v2_balance(bt, "climate.x")
 
     assert len(seen) == 1
-    assert seen[0].applied_valve_pct == 80.0
+    assert seen[0].applied_valve_percent == 80.0

@@ -31,7 +31,7 @@ def _make_bt(
     *,
     room_temperature: float | None = 18.0,
     heat_target_temperature: float | None = 21.0,
-    trv_temp: float | None = 20.0,
+    trv_temperature: float | None = 20.0,
     last_calibration: float = 1.5,
 ):
     """Return a heating thermostat with one TRV calibrated in ``mode``."""
@@ -60,7 +60,7 @@ def _make_bt(
             ENTITY_ID,
             {
                 "advanced": {"calibration_mode": mode, "protect_overheating": False},
-                "current_temperature": trv_temp,
+                "current_temperature": trv_temperature,
                 "last_calibration": last_calibration,
                 "local_calibration_step": 0.1,
                 "min_local_calibration": -5.0,
@@ -97,7 +97,7 @@ def test_the_setpoint_channel_without_a_target_sends_nothing():
 
 def test_the_local_channel_without_a_trv_reading_sends_nothing(caplog):
     """An offset is the gap between two readings; with one missing it is unknown."""
-    bt = _make_bt(trv_temp=None)
+    bt = _make_bt(trv_temperature=None)
 
     assert calculate_calibration_local(bt, ENTITY_ID) is None
     assert "Could not calculate local calibration" in caplog.text
@@ -127,7 +127,7 @@ def test_the_setpoint_channel_keeps_a_closed_valve_from_heating_on_its_own():
     The valve command alone does not stop a TRV that also regulates on its
     own setpoint; a target below what it reads keeps it from opening again.
     """
-    bt = _make_bt(CalibrationMode.TPI_CALIBRATION, trv_temp=20.0)
+    bt = _make_bt(CalibrationMode.TPI_CALIBRATION, trv_temperature=20.0)
 
     with _controller_reports(0.0, drives_the_valve=True):
         setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)

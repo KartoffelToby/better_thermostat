@@ -40,7 +40,7 @@ def _make_bt(
     room_temperature=20.0,
     heat_target_temperature=21.0,
     tolerance=0.3,
-    trv_temp=21.0,
+    trv_temperature=21.0,
     last_calibration=0.0,
 ):
     """Mock entity in HEATING_POWER mode, mirroring the calibration fixtures."""
@@ -72,7 +72,7 @@ def _make_bt(
                     "calibration_mode": CalibrationMode.HEATING_POWER_CALIBRATION,
                     "protect_overheating": False,
                 },
-                "current_temperature": trv_temp,
+                "current_temperature": trv_temperature,
                 "last_calibration": last_calibration,
                 "local_calibration_step": 0.1,
                 "min_local_calibration": -5.0,
@@ -149,7 +149,7 @@ class TestWithoutDirectValveControl:
     """Without valve support the legacy per-channel math applies."""
 
     def test_local_heating_uses_the_legacy_offset_math(self):
-        """Compute last_cal - ((cal_min + trv_temp) * valve_position)."""
+        """Compute last_cal - ((cal_min + trv_temperature) * valve_position)."""
         bt = _make_bt(HVACAction.HEATING)
         with (
             patch(f"{_CAL}._supports_direct_valve_control", return_value=False),
@@ -161,7 +161,7 @@ class TestWithoutDirectValveControl:
         assert bt.real_trvs[ENTITY_ID].calibration_balance is None
 
     def test_setpoint_heating_uses_the_legacy_setpoint_math(self):
-        """Compute trv_temp + ((max_temp - trv_temp) * valve_position)."""
+        """Compute trv_temperature + ((max_temp - trv_temperature) * valve_position)."""
         bt = _make_bt(HVACAction.HEATING)
         with (
             patch(f"{_CAL}._supports_direct_valve_control", return_value=False),
@@ -191,19 +191,19 @@ class TestWithoutDirectValveControl:
         assert bt.real_trvs[ENTITY_ID].calibration_balance is None
 
 
-def _make_sensor_fallback_bt(hvac_action, *, trv_temp):
+def _make_sensor_fallback_bt(hvac_action, *, trv_temperature):
     """HEATING_POWER entity whose room sensor is dead under SENSOR_FALLBACK.
 
     The effective room temperature is the reachable TRV's internal reading
     while ``room_temperature`` itself stays ``None``.
     """
-    bt = _make_bt(hvac_action, room_temperature=None, trv_temp=trv_temp)
+    bt = _make_bt(hvac_action, room_temperature=None, trv_temperature=trv_temperature)
     bt.heating_power = 0.02
     bt.kernel_state = make_state(
         control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
     )
     bt.hass.states.get.side_effect = lambda entity_id: (
-        State(entity_id, "heat", {"current_temperature": trv_temp})
+        State(entity_id, "heat", {"current_temperature": trv_temperature})
         if entity_id == ENTITY_ID
         else None
     )
@@ -219,7 +219,7 @@ class TestUnderSensorFallback:
     )
     def test_heating_sizes_the_valve_from_the_trv_reading(self, channel, held_value):
         """0.5 K below target at heating power 0.02 opens the valve to 40 %."""
-        bt = _make_sensor_fallback_bt(HVACAction.HEATING, trv_temp=20.5)
+        bt = _make_sensor_fallback_bt(HVACAction.HEATING, trv_temperature=20.5)
         with patch(f"{_CAL}._supports_direct_valve_control", return_value=True):
             result = _run(channel, bt)
         assert result == pytest.approx(held_value)
@@ -231,7 +231,7 @@ class TestUnderSensorFallback:
 
     def test_setpoint_without_valve_control_uses_the_trv_reading(self):
         """The legacy setpoint math runs on the valve sized from the TRV reading."""
-        bt = _make_sensor_fallback_bt(HVACAction.HEATING, trv_temp=20.5)
+        bt = _make_sensor_fallback_bt(HVACAction.HEATING, trv_temperature=20.5)
         with patch(f"{_CAL}._supports_direct_valve_control", return_value=False):
             result = calculate_calibration_setpoint(bt, ENTITY_ID)
         expected_fraction = heating_power_valve_position(bt, ENTITY_ID, 20.5)

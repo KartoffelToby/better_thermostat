@@ -152,7 +152,7 @@ def test_energy_score_low_oracle_penalises_gross_overuse():
     """A grossly over-heating candidate must not escape via the low-oracle path."""
     oracle = _zero_metrics(integral_valve_pct_min=20.0)
     candidate = _zero_metrics(integral_valve_pct_min=2000.0)
-    # Excess of ~1980 pct·min against the 100 floor → fully penalised.
+    # Excess of ~1980 percent·min against the 100 floor → fully penalised.
     assert energy_score(candidate, oracle) == pytest.approx(0.0)
 
 
@@ -160,7 +160,7 @@ def test_energy_score_low_oracle_penalises_underheating():
     """Under-heating in the low-oracle path is penalised symmetrically (not 1.0)."""
     oracle = _zero_metrics(integral_valve_pct_min=80.0)
     candidate = _zero_metrics(integral_valve_pct_min=0.0)
-    # Deviation of 80 pct·min against the 100 floor → score 0.2.
+    # Deviation of 80 percent·min against the 100 floor → score 0.2.
     assert energy_score(candidate, oracle) == pytest.approx(1.0 - 80.0 / 100.0)
 
 

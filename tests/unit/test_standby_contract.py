@@ -126,4 +126,4 @@ def test_tpi_emits_zero_during_an_open_window():
     )
     out, _ = compute_tpi(inp, TpiParams(), state=TpiState())
 
-    assert out is not None and out.duty_cycle_pct == 0.0
+    assert out is not None and out.duty_cycle_percent == 0.0

@@ -15,7 +15,7 @@ import pytest
 
 from custom_components.better_thermostat.calibration import (
     calculate_calibration_setpoint,
-    effective_room_temp,
+    effective_room_temperature,
 )
 from custom_components.better_thermostat.core.decide import (
     KernelState,
@@ -66,18 +66,18 @@ class TestSensorFallbackSubstitution:
 
     def test_optimal_uses_the_room_sensor(self):
         """On OPTIMAL the room sensor value is used unchanged."""
-        assert effective_room_temp(_bt(ControlMode.OPTIMAL)) == 20.0
+        assert effective_room_temperature(_bt(ControlMode.OPTIMAL)) == 20.0
 
     def test_fallback_uses_the_trv_mean(self):
         """On SENSOR_FALLBACK the mean of the TRV temperatures substitutes."""
-        assert effective_room_temp(_bt(ControlMode.SENSOR_FALLBACK)) == 22.0
+        assert effective_room_temperature(_bt(ControlMode.SENSOR_FALLBACK)) == 22.0
 
     def test_fallback_without_trv_temps_keeps_the_last_reading(self):
         """Without any TRV temperature the (stale) room reading remains."""
         bt = _bt(ControlMode.SENSOR_FALLBACK)
         for trv in bt.real_trvs.values():
             trv.current_temperature = None
-        assert effective_room_temp(bt) == 20.0
+        assert effective_room_temperature(bt) == 20.0
 
     def test_fallback_leaves_out_an_unreachable_trv(self):
         """Only TRVs that are reachable contribute to the substitute.
@@ -91,17 +91,17 @@ class TestSensorFallbackSubstitution:
             if entity_id == "climate.b"
             else State(entity_id, "heat", {"current_temperature": 21.0})
         )
-        assert effective_room_temp(bt) == 21.0
+        assert effective_room_temperature(bt) == 21.0
 
     def test_fallback_with_every_trv_unreachable_keeps_the_last_reading(self):
         """Stored readings of unreachable TRVs do not replace the room reading."""
         bt = _bt(ControlMode.SENSOR_FALLBACK)
         bt.hass.states.get.side_effect = lambda entity_id: None
-        assert effective_room_temp(bt) == 20.0
+        assert effective_room_temperature(bt) == 20.0
 
     def test_hold_does_not_substitute(self):
         """HOLD does not fabricate temperatures; the controller pauses."""
-        assert effective_room_temp(_bt(ControlMode.HOLD)) == 20.0
+        assert effective_room_temperature(_bt(ControlMode.HOLD)) == 20.0
 
     @pytest.mark.parametrize(
         "reported",
@@ -123,7 +123,7 @@ class TestSensorFallbackSubstitution:
         """
         bt = _bt(ControlMode.SENSOR_FALLBACK)
         _publish(bt, {"climate.a": 21.0, "climate.b": reported})
-        assert effective_room_temp(bt) == 21.0
+        assert effective_room_temperature(bt) == 21.0
 
 
 class TestFallbackSetpointChannel:

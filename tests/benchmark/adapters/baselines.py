@@ -72,8 +72,8 @@ class LinearPParams:
     """Gain and saturation for the proportional controller."""
 
     kp: float = 50.0  # percent per K of error
-    clamp_min_pct: float = 0.0
-    clamp_max_pct: float = 100.0
+    clamp_min_percent: float = 0.0
+    clamp_max_percent: float = 100.0
 
 
 class LinearPAdapter:
@@ -94,7 +94,7 @@ class LinearPAdapter:
         p = self._params
         error_K = ctx.target_temperature - ctx.room_temperature
         raw = p.kp * error_K
-        clamped = max(p.clamp_min_pct, min(p.clamp_max_pct, raw))
+        clamped = max(p.clamp_min_percent, min(p.clamp_max_percent, raw))
         return BenchmarkOutput(
             valve_percent=clamped,
             diagnostics={"error_K": round(error_K, 3), "raw_pct": round(raw, 2)},
@@ -172,7 +172,7 @@ class IdealOracleAdapter:
         T_rad_ss = sp + loss_ss / coupling
         denom = p.gain_heater * (p.T_water - T_rad_ss)
         if denom <= 0.0:
-            u_ff_pct = 100.0  # cannot reach setpoint with this water temp
+            u_ff_pct = 100.0  # cannot reach setpoint with this water temperature
         else:
             u_ff_pct = max(0.0, min(100.0, 100.0 * (T_rad_ss - sp) / denom))
 

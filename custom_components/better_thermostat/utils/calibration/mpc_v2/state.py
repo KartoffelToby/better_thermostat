@@ -28,7 +28,7 @@ class MpcV2State:
     # signature (e.g. user switched preset), the controller is rebuilt so
     # the new prior actually takes effect.
     plant_signature: tuple[float, ...] | None = None
-    # Latched once the controller falls back to a hardcoded outdoor temp;
+    # Latched once the controller falls back to a hardcoded outdoor temperature;
     # used to throttle the WARN to one line per controller instance.
     outdoor_fallback_logged: bool = False
 

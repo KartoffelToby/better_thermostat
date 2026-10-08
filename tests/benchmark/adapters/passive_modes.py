@@ -48,13 +48,15 @@ class PassiveModeParams:
     """Parameters shared across the offset-family adapters."""
 
     p_gain: float = _DEFAULT_TRV_P_GAIN
-    clamp_min_pct: float = 0.0
-    clamp_max_pct: float = 100.0
+    clamp_min_percent: float = 0.0
+    clamp_max_percent: float = 100.0
 
 
 def _proportional(error_K: float, params: PassiveModeParams) -> float:
     """Clamp ``p_gain · error_K`` to the saturation band."""
-    return max(params.clamp_min_pct, min(params.clamp_max_pct, params.p_gain * error_K))
+    return max(
+        params.clamp_min_percent, min(params.clamp_max_percent, params.p_gain * error_K)
+    )
 
 
 class DefaultCalibrationAdapter:
@@ -112,7 +114,7 @@ class AggressiveCalibrationAdapter:
         boost = self._params.p_gain * _AGGRESSIVE_BOOST_K if error_K > 0.0 else 0.0
         raw_pct = self._params.p_gain * error_K + boost
         valve = max(
-            self._params.clamp_min_pct, min(self._params.clamp_max_pct, raw_pct)
+            self._params.clamp_min_percent, min(self._params.clamp_max_percent, raw_pct)
         )
         return BenchmarkOutput(
             valve_percent=valve,

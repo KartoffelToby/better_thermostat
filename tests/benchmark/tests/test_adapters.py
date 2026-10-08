@@ -110,8 +110,8 @@ def test_benchmark_output_requires_exactly_one_family_field():
     with pytest.raises(ValueError):
         BenchmarkOutput(valve_percent=50.0, setpoint_offset_K=1.0)
     # The documented duty controllers' pairing stays allowed.
-    out = BenchmarkOutput(duty_cycle_pct=40.0, valve_percent=40.0)
-    assert out.duty_cycle_pct == 40.0
+    out = BenchmarkOutput(duty_cycle_percent=40.0, valve_percent=40.0)
+    assert out.duty_cycle_percent == 40.0
 
 
 def test_state_backed_adapters_use_unique_default_keys():
@@ -139,10 +139,10 @@ def test_oracle_feedback_uses_plant_truth():
 
 
 def test_benchmark_output_rejects_mismatched_duty_valve_mirror():
-    """duty_cycle_pct paired with a non-matching valve_percent is rejected."""
-    BenchmarkOutput(valve_percent=30.0, duty_cycle_pct=30.0)  # mirror OK
+    """duty_cycle_percent paired with a non-matching valve_percent is rejected."""
+    BenchmarkOutput(valve_percent=30.0, duty_cycle_percent=30.0)  # mirror OK
     with pytest.raises(ValueError):
-        BenchmarkOutput(valve_percent=50.0, duty_cycle_pct=30.0)
+        BenchmarkOutput(valve_percent=50.0, duty_cycle_percent=30.0)
 
 
 def _ctx_at(t: float, target: float = 21.0, current: float = 20.0) -> BenchmarkContext:

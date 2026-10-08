@@ -31,7 +31,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from custom_components.better_thermostat.calibration import effective_room_temp
+from custom_components.better_thermostat.calibration import effective_room_temperature
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.fsm.control_mode import (
@@ -473,7 +473,7 @@ async def test_a_returning_room_sensor_restarts_the_filtered_temperature(
         await hass.async_block_till_done()
         await let_time_pass(30 * 60)
         assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
-        assert effective_room_temp(bt) == 22.0
+        assert effective_room_temperature(bt) == 22.0
 
         set_room_sensor(hass, 22.0)
         assert await wait_for(hass, lambda: bt.room_temperature == 22.0)
@@ -548,7 +548,7 @@ async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv_temperature(
     assert hass.states.get(BT_ENTITY).state == "heat"
     assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
     assert bt.room_temperature == trv_temperature
-    assert effective_room_temp(bt) == trv_temperature
+    assert effective_room_temperature(bt) == trv_temperature
     assert hass.states.get(BT_ENTITY).attributes["current_temperature"] == (
         trv_temperature
     )
@@ -589,7 +589,7 @@ async def test_a_room_sensor_that_arrives_within_the_grace_window_starts_normall
     assert hass.states.get(BT_ENTITY).state == "heat"
     assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
     assert bt.room_temperature == 17.0
-    assert effective_room_temp(bt) == 17.0
+    assert effective_room_temperature(bt) == 17.0
     assert bt.unavailable_sensors == []
 
 
@@ -621,7 +621,7 @@ async def test_a_room_sensor_that_reports_after_a_fallback_start_takes_over(
     await hass.async_block_till_done()
 
     assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
-    assert effective_room_temp(bt) == 17.0
+    assert effective_room_temperature(bt) == 17.0
     assert await wait_for(hass, lambda: degraded_issue_sensors(hass, bt) is None)
     assert bt.unavailable_sensors == []
 
@@ -667,7 +667,7 @@ async def test_a_room_sensor_with_an_implausible_reading_at_boot_hands_the_room_
     fake_trv.async_set_context(Context())
     fake_trv.async_write_ha_state()
     assert await wait_for(
-        hass, lambda: effective_room_temp(bt) == trv_temperature + 2.0
+        hass, lambda: effective_room_temperature(bt) == trv_temperature + 2.0
     )
 
 
@@ -741,7 +741,7 @@ async def test_a_room_sensor_that_reports_during_a_fallback_start_takes_over(
         stability_s + 60,
         lambda: bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL,
     )
-    assert effective_room_temp(bt) == 17.0
+    assert effective_room_temperature(bt) == 17.0
 
 
 async def test_a_room_sensor_that_drops_out_during_startup_hands_the_room_to_the_trv(
@@ -772,7 +772,7 @@ async def test_a_room_sensor_that_drops_out_during_startup_hands_the_room_to_the
         down_s + 60,
         lambda: bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK,
     )
-    assert effective_room_temp(bt) == trv_temperature
+    assert effective_room_temperature(bt) == trv_temperature
 
 
 async def test_a_weather_service_that_never_answers_does_not_hold_up_startup(
