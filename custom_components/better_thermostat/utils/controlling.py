@@ -1680,9 +1680,9 @@ async def control_cooler(
         # first write of the next cooling period as a repeat of one the heating
         # channel has since replaced. The values stay, because they are what
         # tells a resend from a fresh command.
-        _sent_temp = last_sent.get("temperature")
-        if _sent_temp is not None and _sent_temp[1] is not None:
-            last_sent["temperature"] = (_sent_temp[0], None)
+        _sent_temperature = last_sent.get("temperature")
+        if _sent_temperature is not None and _sent_temperature[1] is not None:
+            last_sent["temperature"] = (_sent_temperature[0], None)
         _sent_mode = last_sent.get("hvac_mode")
         if _sent_mode is not None and _sent_mode[1] is not None:
             last_sent["hvac_mode"] = (_sent_mode[0], None)
