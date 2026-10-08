@@ -126,6 +126,8 @@ Auto-tuning is on by default.
 
 **Manual tuning:**
 
+Each TRV's *PID Kp (Proportional)*, *PID Ki (Integral)* and *PID Kd (Derivative)* numbers accept Kp from 0 to 1000, Ki from 0 to 100 and Kd from 0 to 10,000, and Better Thermostat keeps a value set there, including 0 (Kd 0 makes a PI controller). With auto-tuning on, a value you set is the starting point it adjusts from; turn off the *PID Auto Tune* switch to keep fixed values.
+
 If you want to tune PID parameters manually or understand what the auto-tuning is doing:
 
 1. **Kp (Proportional gain):** Controls immediate response to temperature error
