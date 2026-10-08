@@ -289,7 +289,7 @@ def test_unconvertible_child_step_is_logged_against_the_reader(bt, caplog):
     with caplog.at_level(logging.DEBUG, logger=HELPERS_LOGGER):
         BetterThermostat._resolve_temperature_range(bt, [_trv(step="abc")])
     assert bt.bt_target_temperature_step is None
-    assert "_target_temp_step_celsius" in caplog.text
+    assert "_target_temperature_step_celsius" in caplog.text
 
 
 def test_empty_states_yield_none(bt):

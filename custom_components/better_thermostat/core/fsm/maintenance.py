@@ -33,10 +33,12 @@ class MaintenanceState:
     next_due: datetime | None = None
     running_since: float | None = None
 
-    def is_blocking(self, now_monotonic: float, max_run_s: float = MAX_RUN_S) -> bool:
+    def is_blocking(
+        self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
+    ) -> bool:
         """Whether this region currently pre-empts control.
 
-        A RUNNING phase older than ``max_run_s`` is treated as dead and
+        A RUNNING phase older than ``max_run_seconds`` is treated as dead and
         stops blocking, bounding how long maintenance can pre-empt
         control. A RUNNING phase without a start timestamp (never
         produced by ``start_run``, but reachable through deserialized or
@@ -47,7 +49,7 @@ class MaintenanceState:
             return False
         if self.running_since is None:
             return False
-        return (now_monotonic - self.running_since) < max_run_s
+        return (now_monotonic - self.running_since) < max_run_seconds
 
 
 def evaluate_tick(

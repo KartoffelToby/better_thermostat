@@ -122,17 +122,17 @@ class HeatingPowerAdapter:
 
     def _compute_valve_percent(self, ctx: BenchmarkContext) -> float:
         """Heating-power → valve-position formula, mirroring ``utils/helpers.py``."""
-        temp_diff = ctx.target_temperature - ctx.room_temperature
-        if temp_diff <= 0.0:
+        delta_kelvin = ctx.target_temperature - ctx.room_temperature
+        if delta_kelvin <= 0.0:
             return 0.0
         hp = max(MIN_HEATING_POWER, min(MAX_HEATING_POWER, self.heating_power))
-        valve_fraction = 0.019 * (temp_diff / hp) ** 0.946
-        if temp_diff > VALVE_MIN_THRESHOLD_TEMP_DIFF:
+        valve_fraction = 0.019 * (delta_kelvin / hp) ** 0.946
+        if delta_kelvin > VALVE_MIN_THRESHOLD_TEMP_DIFF:
             valve_fraction = max(VALVE_MIN_OPENING_LARGE_DIFF, valve_fraction)
-        elif temp_diff >= VALVE_MIN_SMALL_DIFF_THRESHOLD:
+        elif delta_kelvin >= VALVE_MIN_SMALL_DIFF_THRESHOLD:
             min_v = (
                 VALVE_MIN_BASE
-                + (temp_diff - VALVE_MIN_SMALL_DIFF_THRESHOLD)
+                + (delta_kelvin - VALVE_MIN_SMALL_DIFF_THRESHOLD)
                 * VALVE_MIN_PROPORTIONAL_SLOPE
             )
             valve_fraction = max(min_v, valve_fraction)

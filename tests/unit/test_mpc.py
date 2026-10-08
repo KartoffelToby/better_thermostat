@@ -180,7 +180,7 @@ class TestMPCController:
         assert state.gain_est == 0.1
         assert state.loss_est == 0.02
 
-        # Simulate heating: assume valve opens to 50%, temp rises by 0.5K in 5 min
+        # Simulate heating: assume valve opens to 50%, temperature rises by 0.5K in 5 min
         # But since step_minutes=1 in test, adjust
         # For simplicity, simulate by calling again with reduced error
         inp2 = MpcInput(
@@ -811,7 +811,7 @@ class TestMPCController:
             )
 
             # Simulate temperature rise based on valve opening
-            # Simple model: temp increases by gain * percent / 100 per step
+            # Simple model: temperature increases by gain * percent / 100 per step
             step_minutes = 5  # Finer steps for more detail
             heating_effect = (
                 params.mpc_thermal_gain * (valve_percent / 100.0) * step_minutes
@@ -833,7 +833,7 @@ class TestMPCController:
         # behaviour in this simplified plant. Keep the bound a bit looser.
         assert abs(final_error) < 1.1  # Should be close to target
 
-        # Check that valve percent decreases as temp approaches target
+        # Check that valve percent decreases as temperature approaches target
         # Initial should be high, final should be lower
         initial_percent = results[0][1]
         final_percent = results[-1][1]

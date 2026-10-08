@@ -68,9 +68,9 @@ class TestActivate:
     """activate() switches presets, saves/restores user temperature, clamps to bounds."""
 
     def test_none_to_comfort_saves_and_returns_preset_temp(self, mgr: PresetManager):
-        """Going NONE→COMFORT saves the current temp and returns the preset value."""
+        """Going NONE→COMFORT saves the current temperature and returns the preset value."""
         result = mgr.activate(
-            PRESET_COMFORT, current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
         assert mgr.mode == PRESET_COMFORT
         assert mgr.saved_temperature == 20.0
@@ -79,10 +79,10 @@ class TestActivate:
     def test_comfort_to_none_restores_saved_temp(self, mgr: PresetManager):
         """Returning to NONE restores the previously saved user temperature."""
         mgr.activate(
-            PRESET_COMFORT, current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
         result = mgr.activate(
-            PRESET_NONE, current_target_temp=21.0, min_temp=5.0, max_temp=30.0
+            PRESET_NONE, current_target_temperature=21.0, min_temp=5.0, max_temp=30.0
         )
         assert result == 20.0
         assert mgr.saved_temperature is None
@@ -91,10 +91,10 @@ class TestActivate:
     def test_comfort_to_eco_keeps_saved_temp(self, mgr: PresetManager):
         """Preset→preset transitions preserve the originally saved temperature."""
         mgr.activate(
-            PRESET_COMFORT, current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
         result = mgr.activate(
-            PRESET_ECO, current_target_temp=21.0, min_temp=5.0, max_temp=30.0
+            PRESET_ECO, current_target_temperature=21.0, min_temp=5.0, max_temp=30.0
         )
         assert result == _DEFAULT_TEMPERATURES[PRESET_ECO]
         # saved_temperature should still hold the original value
@@ -104,7 +104,7 @@ class TestActivate:
         """Preset values below min_temp are clamped to min_temp."""
         mgr.temperatures[PRESET_AWAY] = 3.0
         result = mgr.activate(
-            PRESET_AWAY, current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            PRESET_AWAY, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
         assert result == 5.0
 
@@ -112,14 +112,14 @@ class TestActivate:
         """Preset values above max_temp are clamped to max_temp."""
         mgr.temperatures[PRESET_BOOST] = 50.0
         result = mgr.activate(
-            PRESET_BOOST, current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            PRESET_BOOST, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
         assert result == 30.0
 
     def test_invalid_preset_returns_none(self, mgr: PresetManager):
         """Activating an unknown preset name is a no-op returning None."""
         result = mgr.activate(
-            "nonexistent", current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            "nonexistent", current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
         assert result is None
         assert mgr.mode == PRESET_NONE
@@ -127,7 +127,7 @@ class TestActivate:
     def test_none_to_none_is_noop(self, mgr: PresetManager):
         """Activating NONE while already on NONE is a no-op (nothing to save)."""
         result = mgr.activate(
-            PRESET_NONE, current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            PRESET_NONE, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
         assert result is None
         assert mgr.saved_temperature is None
@@ -135,22 +135,24 @@ class TestActivate:
     def test_same_preset_is_idempotent(self, mgr: PresetManager):
         """Re-activating the current preset is idempotent and does not re-save."""
         mgr.activate(
-            PRESET_COMFORT, current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
         saved_before = mgr.saved_temperature
         result = mgr.activate(
-            PRESET_COMFORT, current_target_temp=21.0, min_temp=5.0, max_temp=30.0
+            PRESET_COMFORT, current_target_temperature=21.0, min_temp=5.0, max_temp=30.0
         )
         assert result == _DEFAULT_TEMPERATURES[PRESET_COMFORT]
         # saved_temperature must not be overwritten
         assert mgr.saved_temperature == saved_before
 
     def test_double_activate_does_not_overwrite_saved(self, mgr: PresetManager):
-        """Activating two presets in a row should keep original saved temp."""
+        """Activating two presets in a row should keep original saved temperature."""
         mgr.activate(
-            PRESET_COMFORT, current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
-        mgr.activate(PRESET_ECO, current_target_temp=21.0, min_temp=5.0, max_temp=30.0)
+        mgr.activate(
+            PRESET_ECO, current_target_temperature=21.0, min_temp=5.0, max_temp=30.0
+        )
         assert mgr.saved_temperature == 20.0
 
     def test_enabled_preset_missing_from_temperatures_falls_back(self):
@@ -163,7 +165,7 @@ class TestActivate:
             temperatures={PRESET_NONE: 19.5},  # COMFORT intentionally missing
         )
         result = mgr.activate(
-            PRESET_COMFORT, current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
         assert result == 19.5
         assert mgr.mode == PRESET_COMFORT
@@ -172,7 +174,10 @@ class TestActivate:
         """No preset value and no PRESET_NONE default → midpoint of min/max."""
         mgr = PresetManager(enabled_presets=[PRESET_COMFORT], temperatures={})
         result = mgr.activate(
-            PRESET_COMFORT, current_target_temp=20.0, min_temp=10.0, max_temp=30.0
+            PRESET_COMFORT,
+            current_target_temperature=20.0,
+            min_temp=10.0,
+            max_temp=30.0,
         )
         assert result == 20.0  # (10 + 30) / 2
 
@@ -188,7 +193,7 @@ class TestDeactivate:
     def test_deactivate_restores_temp(self, mgr: PresetManager):
         """deactivate() restores the saved temperature and clears state."""
         mgr.activate(
-            PRESET_COMFORT, current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
         result = mgr.deactivate()
         assert result == 20.0
@@ -235,7 +240,9 @@ class TestSavedTemperatureLifecycle:
 
     def test_save_on_activate_restore_on_deactivate(self, mgr: PresetManager):
         """Saved temperature is set on activation and cleared on deactivation."""
-        mgr.activate(PRESET_AWAY, current_target_temp=21.5, min_temp=5.0, max_temp=30.0)
+        mgr.activate(
+            PRESET_AWAY, current_target_temperature=21.5, min_temp=5.0, max_temp=30.0
+        )
         assert mgr.saved_temperature == 21.5
         restored = mgr.deactivate()
         assert restored == 21.5
@@ -244,19 +251,21 @@ class TestSavedTemperatureLifecycle:
     def test_preset_to_preset_keeps_saved(self, mgr: PresetManager):
         """Switching between presets preserves the originally saved temperature."""
         mgr.activate(
-            PRESET_COMFORT, current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
-        mgr.activate(PRESET_ECO, current_target_temp=21.0, min_temp=5.0, max_temp=30.0)
+        mgr.activate(
+            PRESET_ECO, current_target_temperature=21.0, min_temp=5.0, max_temp=30.0
+        )
         assert mgr.saved_temperature == 20.0
 
     def test_double_activate_from_none_does_not_overwrite(self, mgr: PresetManager):
         """Re-activating the same preset does not overwrite the saved temperature."""
         mgr.activate(
-            PRESET_COMFORT, current_target_temp=20.0, min_temp=5.0, max_temp=30.0
+            PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
         )
         # Simulate scenario: already in comfort, activate again
         mgr.activate(
-            PRESET_COMFORT, current_target_temp=25.0, min_temp=5.0, max_temp=30.0
+            PRESET_COMFORT, current_target_temperature=25.0, min_temp=5.0, max_temp=30.0
         )
         assert mgr.saved_temperature == 20.0
 
@@ -284,14 +293,14 @@ class TestRecordManualChange:
         assert mgr.temperatures[PRESET_NONE] == 21.0
 
     def test_specific_preset_is_not_overwritten(self, mgr: PresetManager):
-        """Outside PRESET_NONE the stored preset temp must not be touched."""
+        """Outside PRESET_NONE the stored preset temperature must not be touched."""
         mgr.mode = PRESET_COMFORT
         before = mgr.temperatures[PRESET_COMFORT]
         assert mgr.record_manual_change(99.0) is None
         assert mgr.temperatures[PRESET_COMFORT] == before
 
     def test_none_missing_from_temperatures_is_noop(self):
-        """If PRESET_NONE has no stored temp, nothing is recorded."""
+        """If PRESET_NONE has no stored temperature, nothing is recorded."""
         mgr = PresetManager(temperatures={PRESET_COMFORT: 21.0})
         mgr.mode = PRESET_NONE
         assert mgr.record_manual_change(23.0) is None

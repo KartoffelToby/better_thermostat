@@ -45,8 +45,12 @@ development line renames identifiers onto the terms of its `glossary.toml`
 and the maintenance line keeps the old spellings, so a marker spelling a
 rejected alias is also searched with the alias replaced by each term that
 lists it, one whole identifier at a time; a private name is matched
-without its leading underscores and keeps them. The glossary is read from
-the development tree, the one that did the renaming.
+without its leading underscores and keeps them. A name the glossary renames
+by its word parts is searched the same way: each `[[word]]` it rejects
+replaced wherever it stands, and a rejected unit suffix of a `[[modifier]]`
+replaced at the end of the name unless it follows `per`, as the naming gate
+reads them. The glossary is read from the development tree, the one that did
+the renaming.
 
 ``MARKER_MIN_LENGTH`` is 16 from measurement. Over the 801 candidate lines of
 eleven commits whose content was confirmed by hand to be absent from
@@ -94,6 +98,7 @@ from __future__ import annotations
 import argparse
 import ast
 from dataclasses import dataclass
+import io
 import itertools
 import json
 import math
@@ -101,7 +106,9 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tokenize
 import tomllib
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ACKNOWLEDGED_FILE = REPO_ROOT / ".forward-port-gaps.json"
@@ -142,6 +149,11 @@ VERSION_LINE = re.compile(r"""^["']?version["']?\s*[:=]""")
 HUNK_HEADER = re.compile(r"^@@ -\S+ \+(\d+)")
 CODE_PUNCTUATION = frozenset("=(){}[]:")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# The token types that carry string text: a whole string literal, and the
+# literal stretches of an f-string or t-string between its replacement fields.
+TEXT_TOKENS = frozenset(
+    {tokenize.STRING, tokenize.FSTRING_MIDDLE, tokenize.TSTRING_MIDDLE}
+)
 
 # A subject written under this repository's commit convention. The convention
 # is what separates the two groups here: work built as a pair follows it and
@@ -504,7 +516,27 @@ def markers_of(
     return chosen
 
 
-def _renames(ref: str) -> dict[str, tuple[str, ...]]:
+class Renames(dict[str, tuple[str, ...]]):
+    """The glossary's rejected aliases with the names replacing them.
+
+    It also carries the rejected word parts: each `[[word]]` spelling with the
+    word replacing it, and each rejected unit suffix of a `[[modifier]]`,
+    without its underscore, with the suffix replacing it.
+    """
+
+    def __init__(
+        self,
+        aliases: dict[str, tuple[str, ...]],
+        words: dict[str, str] | None = None,
+        suffixes: dict[str, str] | None = None,
+    ) -> None:
+        """Hold *aliases* as the mapping and the word parts beside it."""
+        super().__init__(aliases)
+        self.words = words or {}
+        self.suffixes = suffixes or {}
+
+
+def _renames(ref: str) -> Renames:
     """Return each rejected alias of the ref's glossary with the names replacing it.
 
     A term's name may be qualified (``trv.setpoint``); the identifier written
@@ -517,19 +549,36 @@ def _renames(ref: str) -> dict[str, tuple[str, ...]]:
         check=False,
     )
     if finished.returncode != 0:
-        return {}
+        return Renames({})
     try:
-        terms = tomllib.loads(finished.stdout).get("term", [])
+        glossary = tomllib.loads(finished.stdout)
     except tomllib.TOMLDecodeError as err:
         sys.exit(f"{ref}:{GLOSSARY_PATH} is not valid TOML: {err}")
     renames: dict[str, list[str]] = {}
-    for term in terms:
-        rejected = term.get("rejected", [])
-        if not isinstance(rejected, list):
-            sys.exit(f"{ref}:{GLOSSARY_PATH}: `rejected` of {term['name']} is no list")
-        for alias in rejected:
+    for term in glossary.get("term", []):
+        for alias in _rejected(term, ref):
             renames.setdefault(alias, []).append(term["name"].rpartition(".")[2])
-    return {alias: tuple(names) for alias, names in renames.items()}
+    words = {
+        spelling: entry["name"]
+        for entry in glossary.get("word", [])
+        for spelling in _rejected(entry, ref)
+    }
+    suffixes = {
+        spelling.removeprefix("_"): entry["name"].removeprefix("_")
+        for entry in glossary.get("modifier", [])
+        for spelling in _rejected(entry, ref)
+    }
+    return Renames(
+        {alias: tuple(names) for alias, names in renames.items()}, words, suffixes
+    )
+
+
+def _rejected(entry: dict[str, Any], ref: str) -> list[str]:
+    """Return a glossary entry's `rejected` spellings, exiting on a malformed one."""
+    rejected = entry.get("rejected", [])
+    if not isinstance(rejected, list):
+        sys.exit(f"{ref}:{GLOSSARY_PATH}: `rejected` of {entry['name']} is no list")
+    return rejected
 
 
 def _renamed(name: str, renames: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
@@ -542,7 +591,39 @@ def _renamed(name: str, renames: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
         return renames[name]
     stripped = name.lstrip("_")
     prefix = name[: len(name) - len(stripped)]
-    return tuple(prefix + term for term in renames.get(stripped, ()))
+    if stripped in renames:
+        return tuple(prefix + term for term in renames[stripped])
+    if not isinstance(renames, Renames):
+        return ()
+    tokens = stripped.split("_")
+    spelled = [renames.words.get(token, token) for token in tokens]
+    if len(tokens) > 1 and tokens[-1] in renames.suffixes and tokens[-2] != "per":
+        spelled[-1] = renames.suffixes[tokens[-1]]
+    return (prefix + "_".join(spelled),) if spelled != tokens else ()
+
+
+def _text_spans(marker: str) -> list[tuple[int, int]]:
+    """Return the spans of a marker that are string text rather than code.
+
+    The marker is read with Python's own tokenizer, so a string literal is
+    text as a whole, an f-string is text only between its replacement fields,
+    and a string inside a field, ``f"{config['delay_s']}"``, is text again. A
+    marker is one line of a larger statement and may stop mid-way; from where
+    the tokenizer gives up, the rest counts as text, which keeps it as written.
+    """
+    spans: list[tuple[int, int]] = []
+    readable_to = 0
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(marker).readline):
+            if token.start[0] != 1:
+                break
+            end = token.end[1] if token.end[0] == 1 else len(marker)
+            if token.type in TEXT_TOKENS:
+                spans.append((token.start[1], end))
+            readable_to = end
+    except tokenize.TokenError, SyntaxError:
+        spans.append((readable_to, len(marker)))
+    return spans
 
 
 def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
@@ -552,10 +633,20 @@ def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
     name replacing it, so one line can carry an alias renamed in one place
     and kept or renamed differently in another. Past ``SPELLINGS_PER_MARKER``
     combinations every occurrence of an alias takes the same spelling, and
-    no more than that many spellings are returned.
+    no more than that many spellings are returned; the spelling with every
+    alias renamed onto its first replacement comes right after the marker,
+    so the cap never cuts the rename a development line most often made.
+
+    Only code is renamed. A name inside a quoted string is text, a persisted
+    key or a message, which a rename leaves as it is, so spelling it the new
+    way could find a line the development line never wrote.
     """
+    quoted = _text_spans(marker)
     occurrences = [
-        match for match in IDENTIFIER.finditer(marker) if _renamed(match[0], renames)
+        match
+        for match in IDENTIFIER.finditer(marker)
+        if _renamed(match[0], renames)
+        and not any(start <= match.start() < end for start, end in quoted)
     ]
     options = [(match[0], *_renamed(match[0], renames)) for match in occurrences]
     if math.prod(len(choices) for choices in options) > SPELLINGS_PER_MARKER:
@@ -564,15 +655,22 @@ def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
         option_of = [aliases.index(match[0]) for match in occurrences]
     else:
         option_of = list(range(len(occurrences)))
-    spellings = [marker]
-    for choice in itertools.product(*options):
+
+    def spell(choice: tuple[str, ...]) -> str:
         pieces: list[str] = []
         end = 0
         for match, index in zip(occurrences, option_of, strict=True):
             pieces.extend((marker[end : match.start()], choice[index]))
             end = match.end()
-        renamed = "".join(pieces) + marker[end:]
-        if renamed != marker:
+        return "".join(pieces) + marker[end:]
+
+    spellings = [marker]
+    seen = {marker}
+    first_renames = tuple(choices[1] for choices in options)
+    for choice in itertools.chain([first_renames], itertools.product(*options)):
+        renamed = spell(choice)
+        if renamed not in seen:
+            seen.add(renamed)
             spellings.append(renamed)
         if len(spellings) >= SPELLINGS_PER_MARKER:
             break

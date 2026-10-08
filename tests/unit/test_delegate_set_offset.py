@@ -32,7 +32,7 @@ def bt():
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
     trv = Trv(
-        entity_id=ENTITY_ID, local_calibration_min=-3.0, local_calibration_max=3.0
+        entity_id=ENTITY_ID, min_local_calibration=-3.0, max_local_calibration=3.0
     )
     trv.adapter = MagicMock()
     trv.adapter.set_calibration_offset = AsyncMock(return_value=True)
@@ -127,7 +127,7 @@ async def test_clamped_write_keeps_the_pre_clamp_intent(bt):
     async def _clamping_set_calibration_offset(_self, entity_id, calibration_offset):
         trv = _self.real_trvs[entity_id]
         trv.last_calibration = max(
-            float(trv.local_calibration_min), float(calibration_offset)
+            float(trv.min_local_calibration), float(calibration_offset)
         )
         return True
 

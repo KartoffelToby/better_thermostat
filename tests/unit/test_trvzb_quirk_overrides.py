@@ -54,12 +54,12 @@ class TestOverrideSetHvacMode:
 ENTITY = "climate.trv1"
 
 
-def _make_valve_self(last_pct=40, *, in_maintenance=False):
+def _make_valve_self(last_percent=40, *, in_maintenance=False):
     """Create a mock BetterThermostat whose TRV records a commanded valve percent."""
     mock_self = _make_self()
     mock_self.in_maintenance = in_maintenance
     trv_state = Trv(entity_id=ENTITY)
-    trv_state.last_valve_percent = last_pct
+    trv_state.last_valve_percent = last_percent
     mock_self.real_trvs = {ENTITY: trv_state}
     mock_self.hass.async_create_background_task = lambda coro, name=None: (
         asyncio.ensure_future(coro)
@@ -100,7 +100,7 @@ class TestOverrideSetValve:
     @pytest.mark.asyncio
     async def test_a_close_bumps_open_and_defers_the_target(self, writes):
         """A close drives the valve open first and schedules the target."""
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         handled = await quirk.override_set_valve(mock_self, ENTITY, 30)
         task = trv_state.extra.get("_trvzb_valve_bump_task")
@@ -115,7 +115,7 @@ class TestOverrideSetValve:
     @pytest.mark.asyncio
     async def test_a_close_superseding_a_due_bump_writes_the_target(self, writes):
         """A close arriving before the deferred write lands goes out directly."""
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
         await quirk.override_set_valve(mock_self, ENTITY, 30)
         first_task = trv_state.extra["_trvzb_valve_bump_task"]
         trv_state.last_valve_percent = 30
@@ -136,7 +136,7 @@ class TestOverrideSetValve:
     ):
         """Closes faster than the delay still put the newest position on the wire."""
         monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 30.0)
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         for target in (38, 36, 34, 32):
             await quirk.override_set_valve(mock_self, ENTITY, target)
@@ -156,7 +156,7 @@ class TestOverrideSetValve:
     ):
         """Once the deferred write has run, the next close bumps again."""
         monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         await quirk.override_set_valve(mock_self, ENTITY, 30)
         await trv_state.extra["_trvzb_valve_bump_task"]
@@ -170,7 +170,7 @@ class TestOverrideSetValve:
     @pytest.mark.asyncio
     async def test_an_opening_command_writes_directly(self, writes):
         """Opening needs no de-sticking, so the position goes out unchanged."""
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         handled = await quirk.override_set_valve(mock_self, ENTITY, 60)
 
@@ -181,7 +181,7 @@ class TestOverrideSetValve:
     @pytest.mark.asyncio
     async def test_valve_maintenance_writes_directly(self, writes):
         """Maintenance drives the valve itself and takes no deferred steps."""
-        mock_self, trv_state = _make_valve_self(last_pct=40, in_maintenance=True)
+        mock_self, trv_state = _make_valve_self(last_percent=40, in_maintenance=True)
 
         handled = await quirk.override_set_valve(mock_self, ENTITY, 0)
 
@@ -192,7 +192,7 @@ class TestOverrideSetValve:
     @pytest.mark.asyncio
     async def test_an_unknown_last_position_writes_directly(self, writes):
         """With no recorded position there is nothing to close further from."""
-        mock_self, trv_state = _make_valve_self(last_pct=None)
+        mock_self, trv_state = _make_valve_self(last_percent=None)
 
         handled = await quirk.override_set_valve(mock_self, ENTITY, 30)
 
@@ -833,7 +833,7 @@ class TestOverrideSetValveEdges:
     @pytest.mark.asyncio
     async def test_a_trv_bt_does_not_hold_is_declined(self, writes):
         """Without the TRV's record there is no position to start from."""
-        mock_self, _ = _make_valve_self(last_pct=40)
+        mock_self, _ = _make_valve_self(last_percent=40)
         mock_self.real_trvs = {}
 
         assert await quirk.override_set_valve(mock_self, ENTITY, 30) is False
@@ -842,7 +842,7 @@ class TestOverrideSetValveEdges:
     @pytest.mark.asyncio
     async def test_a_position_that_is_no_number_is_declined(self, writes):
         """The adapter's own valve channel is left to handle it."""
-        mock_self, _ = _make_valve_self(last_pct=40)
+        mock_self, _ = _make_valve_self(last_percent=40)
 
         assert await quirk.override_set_valve(mock_self, ENTITY, "half") is False
         assert writes == []
@@ -857,7 +857,7 @@ class TestOverrideSetValveEdges:
             return percent != 50
 
         monkeypatch.setattr(quirk, "maybe_set_sonoff_valve_percent", _write)
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         assert await quirk.override_set_valve(mock_self, ENTITY, 30) is True
 
@@ -877,7 +877,7 @@ class TestOverrideSetValveEdges:
         stale = stale_loop.create_future()
         stale.add_done_callback(lambda _future: None)
         stale_loop.close()
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
         trv_state.extra["_trvzb_valve_bump_task"] = stale
 
         handled = await quirk.override_set_valve(mock_self, ENTITY, 30)
@@ -898,7 +898,7 @@ class TestTheDeferredValveWrite:
     async def test_it_lands_after_the_delay(self, writes, monkeypatch):
         """The baseline: the deferred target follows the bump."""
         monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         await quirk.override_set_valve(mock_self, ENTITY, 30)
         await trv_state.extra["_trvzb_valve_bump_task"]
@@ -909,7 +909,7 @@ class TestTheDeferredValveWrite:
     async def test_a_trv_removed_meanwhile_is_not_written(self, writes, monkeypatch):
         """A TRV that left the thermostat during the delay takes no write."""
         monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         await quirk.override_set_valve(mock_self, ENTITY, 30)
         mock_self.real_trvs = {}
@@ -921,7 +921,7 @@ class TestTheDeferredValveWrite:
     async def test_a_superseded_write_is_dropped(self, writes, monkeypatch):
         """A newer bump sequence owns the valve; the older target stays off it."""
         monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         await quirk.override_set_valve(mock_self, ENTITY, 30)
         trv_state.extra["_trvzb_valve_bump_seq"] += 1
@@ -935,7 +935,7 @@ class TestTheDeferredValveWrite:
     ):
         """Cancelling the waiting task drops the target it carried."""
         monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.01)
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         await quirk.override_set_valve(mock_self, ENTITY, 30)
         task = trv_state.extra["_trvzb_valve_bump_task"]
@@ -957,7 +957,7 @@ class TestTheDeferredValveWrite:
             return True
 
         monkeypatch.setattr(quirk, "maybe_set_sonoff_valve_percent", _write)
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         with caplog.at_level("DEBUG", logger=quirk.__name__):
             await quirk.override_set_valve(mock_self, ENTITY, 30)

@@ -39,7 +39,7 @@ class TrvSnapshot:
     last_valve_percent: float | None = None
 
 
-def to_pct(value: float | str | None) -> float | None:
+def to_percent(value: float | str | None) -> float | None:
     """Normalise a valve value to percent (0-100).
 
     Values in [0, 1) are treated as fractions and multiplied by 100.
@@ -218,7 +218,7 @@ def compute_hvac_action(
                 continue
 
             if snap.hvac_action is not None:
-                action_str = str(snap.hvac_action).lower()
+                action_str = snap.hvac_action.lower()
                 if action_str == "heating":
                     _LOGGER.debug(
                         "better_thermostat %s: overriding hvac_action to HEATING "
@@ -229,25 +229,28 @@ def compute_hvac_action(
                     action = HVACAction.HEATING
                     break
 
-            vp_pct = to_pct(snap.valve_position)
-            if vp_pct is not None and vp_pct > _VALVE_THRESH:
+            valve_position_percent = to_percent(snap.valve_position)
+            if (
+                valve_position_percent is not None
+                and valve_position_percent > _VALVE_THRESH
+            ):
                 _LOGGER.debug(
                     "better_thermostat %s: overriding hvac_action to HEATING "
                     "(valve_position %.1f%%, TRV %s)",
                     device_name,
-                    vp_pct,
+                    valve_position_percent,
                     snap.entity_id,
                 )
                 action = HVACAction.HEATING
                 break
 
-            last_pct = to_pct(snap.last_valve_percent)
-            if last_pct is not None and last_pct > _VALVE_THRESH:
+            last_percent = to_percent(snap.last_valve_percent)
+            if last_percent is not None and last_percent > _VALVE_THRESH:
                 _LOGGER.debug(
                     "better_thermostat %s: overriding hvac_action to HEATING "
                     "(last_valve_percent %.1f%%, TRV %s)",
                     device_name,
-                    last_pct,
+                    last_percent,
                     snap.entity_id,
                 )
                 action = HVACAction.HEATING
@@ -261,7 +264,7 @@ def compute_hvac_action(
         if tolerance_decision == HVACAction.HEATING
         else HVACAction.IDLE
     )
-    new_hold_active = bool(tolerance_hold and action != HVACAction.COOLING)
+    new_hold_active = tolerance_hold and action != HVACAction.COOLING
 
     return HvacActionResult(
         action=action,

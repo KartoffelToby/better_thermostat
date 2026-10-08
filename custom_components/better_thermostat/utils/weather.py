@@ -105,17 +105,17 @@ async def check_weather(self: BetterThermostat) -> bool:
             _now = self.clock.monotonic()
             if self.weather_verdict_missing_since is None:
                 self.weather_verdict_missing_since = _now
-            _silent_s = _now - self.weather_verdict_missing_since
+            _silent_seconds = _now - self.weather_verdict_missing_since
             if (
                 not self.weather_fallback_active
-                and _silent_s >= WEATHER_VERDICT_HOLD.total_seconds()
+                and _silent_seconds >= WEATHER_VERDICT_HOLD.total_seconds()
             ):
                 _LOGGER.warning(
                     "better_thermostat %s: weather entity %s has given no forecast "
                     "for %.1f hours, resuming heating until it does",
                     self.device_name,
                     self.weather_entity_id,
-                    _silent_s / 3600.0,
+                    _silent_seconds / 3600.0,
                 )
                 self.weather_fallback_active = True
             if self.weather_fallback_active:
@@ -268,9 +268,9 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
             else None
         )
         if isinstance(forecast, list) and len(forecast) > 0:
-            # current outside temp from entity state (may be None)
+            # current outside temperature from entity state (may be None)
             cur_state = self.hass.states.get(self.weather_entity_id)
-            cur_outside_temp = convert_to_float_celsius(
+            current_outdoor_temperature = convert_to_float_celsius(
                 (
                     str(cur_state.attributes.get("temperature"))
                     if cur_state and cur_state.attributes
@@ -285,7 +285,7 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
                 ),
             )
             # average the sampled forecast temps over the two-day horizon
-            _entity_temp_unit = (
+            _entity_temperature_unit = (
                 cur_state.attributes.get("temperature_unit")
                 if cur_state and cur_state.attributes
                 else None
@@ -307,32 +307,32 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
                         unit_of_measurement=(
                             _entry_unit
                             if isinstance(_entry_unit, str)
-                            else _entity_temp_unit
+                            else _entity_temperature_unit
                         ),
                     )
                 )
             valid_temps: list[float] = [t for t in temps if isinstance(t, (int, float))]
-            avg_forecast_temp = None
+            avg_forecast_temperature = None
             if valid_temps:
-                avg_forecast_temp = sum(valid_temps) / float(len(valid_temps))
+                avg_forecast_temperature = sum(valid_temps) / float(len(valid_temps))
 
             # A forecast whose entries and current reading are all unusable
             # carries no temperature at all, so it gives no opinion rather
             # than the "warm" an empty comparison would read as.
-            if avg_forecast_temp is None and not isinstance(
-                cur_outside_temp, (int, float)
+            if avg_forecast_temperature is None and not isinstance(
+                current_outdoor_temperature, (int, float)
             ):
                 return None
             threshold = heat_threshold(self.off_temperature, self.call_for_heat)
             cond_cur = (
-                isinstance(cur_outside_temp, (int, float))
-                and cur_outside_temp < threshold
+                isinstance(current_outdoor_temperature, (int, float))
+                and current_outdoor_temperature < threshold
             )
             cond_fc = (
-                isinstance(avg_forecast_temp, (int, float))
-                and avg_forecast_temp < threshold
+                isinstance(avg_forecast_temperature, (int, float))
+                and avg_forecast_temperature < threshold
             )
-            return bool(cond_cur or cond_fc)
+            return cond_cur or cond_fc
         else:
             raise TypeError
     except TypeError, ServiceNotSupported, HomeAssistantError:

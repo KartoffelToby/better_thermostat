@@ -683,7 +683,7 @@ def _seconds_to_duration_dict(value: object) -> dict[str, int]:
     total = max(total, 0)
     hours, remainder = divmod(total, 3600)
     minutes, seconds = divmod(remainder, 60)
-    return {"hours": int(hours), "minutes": int(minutes), "seconds": int(seconds)}
+    return {"hours": hours, "minutes": minutes, "seconds": seconds}
 
 
 def _build_user_fields(
@@ -821,11 +821,12 @@ def _build_user_fields(
                 duration_default = None
         add_field(key, selector.DurationSelector(), default=duration_default)
 
-    suggested_off_temp = _off_temperature_default(system_unit)
-    off_temp_default = _int_or(
-        resolve(CONF_OFF_TEMPERATURE, suggested_off_temp), suggested_off_temp
+    suggested_off_temperature = _off_temperature_default(system_unit)
+    off_temperature_default = _int_or(
+        resolve(CONF_OFF_TEMPERATURE, suggested_off_temperature),
+        suggested_off_temperature,
     )
-    add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
+    add_field(CONF_OFF_TEMPERATURE, int, default=off_temperature_default)
 
     # An entry that carries no preset list runs on the PresetManager default
     # set, so that is the set the update form offers. The create form suggests a
@@ -938,8 +939,8 @@ def _normalize_user_submission(
         return user_input.get(key, base.get(key, fallback))
 
     name = submitted(CONF_NAME, "")
-    suggested_off_temp = _off_temperature_default(system_unit)
-    off_temperature = submitted(CONF_OFF_TEMPERATURE, suggested_off_temp)
+    suggested_off_temperature = _off_temperature_default(system_unit)
+    off_temperature = submitted(CONF_OFF_TEMPERATURE, suggested_off_temperature)
     tolerance_fallback = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
 
     normalized: _UserDraft = {
@@ -954,7 +955,7 @@ def _normalize_user_submission(
         CONF_HUMIDITY_SENSOR: _entity_or_none(user_input.get(CONF_HUMIDITY_SENSOR)),
         CONF_OUTDOOR_SENSOR: _entity_or_none(user_input.get(CONF_OUTDOOR_SENSOR)),
         CONF_WEATHER: _entity_or_none(user_input.get(CONF_WEATHER)),
-        CONF_OFF_TEMPERATURE: _int_or(off_temperature, suggested_off_temp),
+        CONF_OFF_TEMPERATURE: _int_or(off_temperature, suggested_off_temperature),
         CONF_TOLERANCE: _float_or(
             submitted(CONF_TOLERANCE, tolerance_fallback), tolerance_fallback
         ),

@@ -1342,7 +1342,7 @@ class StateManager:
         # When the copy is next tried, the wait after that, and whether a try
         # is under way.
         self._copy_retry_at = 0.0
-        self._copy_retry_s = COPY_RETRY_FIRST_S
+        self._copy_retry_seconds = COPY_RETRY_FIRST_S
         self._copy_retry_running = False
         # The background task of the latest try, or of the latest
         # save_unless_closed(); flush() waits for it.
@@ -1352,7 +1352,7 @@ class StateManager:
         self._copy_retry_timer: CALLBACK_TYPE | None = None
         self._copy_retry_timed = True
         # The last runtime save skipped while the copy is pending, as
-        # ``(pre_save, delay_s)``; the timer schedules it once the copy exists.
+        # ``(pre_save, delay_seconds)``; the timer schedules it once the copy exists.
         self._held_save: tuple[Callable[[], None] | None, float] | None = None
 
     @staticmethod
@@ -1619,7 +1619,7 @@ class StateManager:
     # -- Load / Save ---------------------------------------------------------
 
     def schedule_delay_save(
-        self, pre_save: Callable[[], None] | None = None, delay_s: float = 15.0
+        self, pre_save: Callable[[], None] | None = None, delay_seconds: float = 15.0
     ) -> None:
         """Schedule a coalesced disk write through the Store.
 
@@ -1635,7 +1635,7 @@ class StateManager:
         pre_save : callable or None
             Optional callback invoked at write time to refresh the state
             before serialization.
-        delay_s : float
+        delay_seconds : float
             Coalescing window in seconds before the disk write fires.
         """
         if self._delay_save_pending:
@@ -1643,7 +1643,7 @@ class StateManager:
         if self._payload_awaiting_copy is not None:
             # The delayed write cannot take the copy first. Once the retry is
             # due, the copy is tried and the save scheduled behind it.
-            self._held_save = (pre_save, delay_s)
+            self._held_save = (pre_save, delay_seconds)
             if not self._copy_retry_running and monotonic() >= self._copy_retry_at:
                 self._start_copy_retry()
                 return
@@ -1686,7 +1686,7 @@ class StateManager:
                 self._dirty = False
             return data
 
-        self._store.async_delay_save(_data_to_save, delay_s)
+        self._store.async_delay_save(_data_to_save, delay_seconds)
 
     @property
     def copy_pending(self) -> bool:
@@ -1713,14 +1713,14 @@ class StateManager:
         copy exists. Home Assistant cancels it when it starts to stop, so it
         never runs beside the final write.
         """
-        delay_s = self._copy_retry_s
-        self._copy_retry_at = monotonic() + delay_s
-        self._copy_retry_s = min(delay_s * 2, COPY_RETRY_MAX_S)
+        delay_seconds = self._copy_retry_seconds
+        self._copy_retry_at = monotonic() + delay_seconds
+        self._copy_retry_seconds = min(delay_seconds * 2, COPY_RETRY_MAX_S)
         self._cancel_copy_retry_timer()
         if self._copy_retry_timed:
             self._copy_retry_timer = async_call_later(
                 self._hass,
-                delay_s,
+                delay_seconds,
                 HassJob(
                     self._retry_copy_when_due,
                     f"bt_state_copy_retry_{self._entry_id}",

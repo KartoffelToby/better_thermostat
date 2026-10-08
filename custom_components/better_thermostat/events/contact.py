@@ -235,10 +235,7 @@ async def trigger_contact_change(
             learn_more_url=role.learn_more_url,
             severity=ir.IssueSeverity.ERROR,
             translation_key=role.issue_translation_key,
-            translation_placeholders={
-                "name": str(self.device_name),
-                "state": str(new_state),
-            },
+            translation_placeholders={"name": self.device_name, "state": new_state},
         )
         return
 
@@ -262,7 +259,7 @@ async def trigger_contact_change(
 
     if new_contact_open:
         # contact was opened, disable heating power calculation for this period
-        self._heating_tracker.start_temp = None
+        self._heating_tracker.start_temperature = None
         self.async_write_ha_state()
 
     # Step the region; the queued task settles it (the region owns the

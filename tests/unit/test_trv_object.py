@@ -25,7 +25,7 @@ class TestTypedAccess:
         trv = _make()
         assert trv.entity_id == "climate.trv"
         assert trv.valve_max_opening == 100.0
-        assert trv.local_calibration_min == -7
+        assert trv.min_local_calibration == -7
         assert trv.calibration_received is True
         assert trv.ignore_trv_states is False
         assert trv.current_temperature is None
@@ -364,7 +364,7 @@ class TestTrvCapabilities:
     def test_unknown_hvac_modes_disable_off(self):
         """A TRV that never reported its modes is conservatively no-off.
 
-        BT then sends min temp instead of an OFF the device may not
+        BT then sends min temperature instead of an OFF the device may not
         support.
         """
         trv = _make()
@@ -427,7 +427,7 @@ class TestTrvCapabilities:
 
         class _Quirk:
             @staticmethod
-            async def override_set_valve(bt, entity_id, pct):
+            async def override_set_valve(bt, entity_id, percent):
                 return True
 
         trv = _make()

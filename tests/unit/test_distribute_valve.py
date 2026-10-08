@@ -41,8 +41,8 @@ class TestDistributeValvePercent:
     def test_zero_command(self):
         """When group command is 0 %, all TRVs get 0 %."""
         result = distribute_valve_percent(0.0, {"trv_a": 18.0, "trv_b": 25.0})
-        for pct in result.values():
-            assert pct == pytest.approx(0.0, abs=0.01)
+        for percent in result.values():
+            assert percent == pytest.approx(0.0, abs=0.01)
 
     def test_cold_trv_gets_more_than_warm(self):
         """A colder TRV should get more valve opening than the warmest."""
@@ -90,11 +90,11 @@ class TestDistributeValvePercent:
         assert result["trv_3"] == pytest.approx(100.0, abs=0.01)
 
         # All within [0, 100]
-        for pct in result.values():
-            assert 0.0 <= pct <= 100.0
+        for percent in result.values():
+            assert 0.0 <= percent <= 100.0
 
     def test_all_same_temperature(self):
-        """All TRVs at same temp → uniform distribution (all get MPC value)."""
+        """All TRVs at same temperature → uniform distribution (all get MPC value)."""
         trv_temps = {"a": 21.0, "b": 21.0, "c": 21.0}
         result = distribute_valve_percent(60.0, trv_temps)
 
@@ -130,8 +130,8 @@ class TestDistributeValvePercent:
         trv_temps = {"a": None, "b": None, "c": None}
         result = distribute_valve_percent(50.0, trv_temps)
 
-        for pct in result.values():
-            assert pct == pytest.approx(50.0, abs=0.01)
+        for percent in result.values():
+            assert percent == pytest.approx(50.0, abs=0.01)
 
     def test_clamped_to_100(self):
         """Extreme cold TRV with high group command doesn't exceed 100 %."""
@@ -200,7 +200,7 @@ class TestBuildMpcGroupKey:
         assert group_bucket == entity_bucket
 
     def test_group_key_none_target(self):
-        """Group key handles None target temp gracefully."""
+        """Group key handles None target temperature gracefully."""
         bt = ThermostatStandIn()
         bt.unique_id = "bt_test"
         bt.heat_target_temperature = None

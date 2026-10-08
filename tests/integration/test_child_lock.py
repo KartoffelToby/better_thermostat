@@ -59,7 +59,7 @@ async def _locked_room(hass, profile=GENERIC_HEAT_TRV):
             # well above its minimum once the command has gone out.
             and (device.target_temperature or 0.0) >= 21.0
             and all(
-                trv.system_mode_received and trv.target_temp_received
+                trv.system_mode_received and trv.target_temperature_received
                 for trv in bt.real_trvs.values()
             )
         ),

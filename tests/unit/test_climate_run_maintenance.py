@@ -219,11 +219,11 @@ async def test_a_maintenance_setpoint_waits_for_a_running_control_write(bt):
     back the value its own setpoint write sent. A maintenance write landing
     in that window would be taken for the control write and watched as such.
     """
-    bt._temp_lock = asyncio.Lock()
+    bt._temperature_lock = asyncio.Lock()
     writes = []
 
-    async def _record(_bt, entity_id, temp):
-        writes.append((entity_id, temp))
+    async def _record(_bt, entity_id, temperature):
+        writes.append((entity_id, temperature))
 
     async def _exercise(infos, *, set_temperature_fn, **kwargs):
         await set_temperature_fn("climate.trv", 30.0)
@@ -234,7 +234,7 @@ async def test_a_maintenance_setpoint_waits_for_a_running_control_write(bt):
         patch(f"{_CLIMATE}.adapter_set_temperature", _record),
         patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
     ):
-        async with bt._temp_lock:
+        async with bt._temperature_lock:
             run = asyncio.create_task(
                 BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
             )

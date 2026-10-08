@@ -76,7 +76,7 @@ def _is_blu_trv_entity(self: AdapterProbeHost, entity_id: str) -> bool:
     entry = er.async_get(self.hass).async_get(entity_id)
     if entry is None:
         return False
-    return _BLU_TRV_KEY in str(entry.unique_id or "").lower()
+    return _BLU_TRV_KEY in (entry.unique_id or "").lower()
 
 
 async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:

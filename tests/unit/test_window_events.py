@@ -71,7 +71,7 @@ class TestTriggerWindowChange:
         assert bt.kernel_state.window.phase == WindowPhase.OPENING
         assert bt.window_queue_task.get_nowait() is False
         # Heating power learning is disabled for the open period.
-        assert bt._heating_tracker.start_temp is None
+        assert bt._heating_tracker.start_temperature is None
 
     @pytest.mark.asyncio
     async def test_close_event_starts_pending_transition(self):

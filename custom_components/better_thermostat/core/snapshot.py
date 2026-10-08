@@ -36,7 +36,7 @@ def parse_hvac_mode(value: str | None) -> HvacMode | None:
     if value is None:
         return None
     try:
-        return HvacMode(str(value))
+        return HvacMode(value)
     except ValueError:
         return None
 
@@ -53,8 +53,8 @@ class TrvReported:
     min_temp: float | None = None
     max_temp: float | None = None
     valve_max_opening: float | None = None
-    local_calibration_min: float | None = None
-    local_calibration_max: float | None = None
+    min_local_calibration: float | None = None
+    max_local_calibration: float | None = None
 
 
 @dataclass(frozen=True)

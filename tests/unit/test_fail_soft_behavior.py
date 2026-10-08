@@ -169,7 +169,7 @@ class TestFallbackSetpointChannel:
 
         result = calculate_calibration_setpoint(bt, "climate.a")
 
-        # (target 5.0 - fallback mean 0.0) + TRV temp 4.0 = 9.0
+        # (target 5.0 - fallback mean 0.0) + TRV temperature 4.0 = 9.0
         assert result == pytest.approx(9.0)
 
 

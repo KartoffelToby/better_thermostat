@@ -678,7 +678,7 @@ def _release_entry(entry_id: str) -> None:
 # Helper
 
 
-def _get_filtered_temp(bt_climate: BetterThermostat) -> float | None:
+def _get_filtered_temperature(bt_climate: BetterThermostat) -> float | None:
     """Return room_temperature_filtered with fallback to room_temperature_ema."""
     value = bt_climate.room_temperature_filtered
     if value is None:
@@ -835,7 +835,7 @@ class BetterThermostatExternalTempSensor(_BtSensorBase):
     @override
     def _update_state(self) -> None:
         """Update state from climate entity."""
-        value = _get_filtered_temp(self._bt_climate)
+        value = _get_filtered_temperature(self._bt_climate)
         if value is not None:
             try:
                 self._attr_native_value = float(value)
@@ -870,8 +870,8 @@ class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
         if prev_ts is None or prev_ema is None:
             ema = float(new_value)
         else:
-            dt_s = max(0.0, now - prev_ts)
-            alpha = 1.0 - math.exp(-dt_s / self._tau_s) if dt_s > 0 else 0.0
+            dt_seconds = max(0.0, now - prev_ts)
+            alpha = 1.0 - math.exp(-dt_seconds / self._tau_s) if dt_seconds > 0 else 0.0
             ema = prev_ema + alpha * (new_value - prev_ema)
 
         self._ema_value = ema
@@ -880,7 +880,7 @@ class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
     @override
     def _update_state(self) -> None:
         """Update state from internal EMA."""
-        value = _get_filtered_temp(self._bt_climate)
+        value = _get_filtered_temperature(self._bt_climate)
         if value is not None:
             try:
                 self._update_ema(float(value))

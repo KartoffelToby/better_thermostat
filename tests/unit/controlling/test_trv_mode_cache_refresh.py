@@ -128,7 +128,7 @@ def thermostat(reported_states):
                 "temperature": 19.0,
                 "commanded_setpoint": 19.0,
                 "last_hvac_mode": "heat",
-                "target_temp_received": True,
+                "target_temperature_received": True,
                 "system_mode_received": True,
                 "calibration_received": True,
                 "calibration": 1,
@@ -840,7 +840,7 @@ class TestALockedPressHeldDuringACycle:
         trv = self._lock(thermostat)
         trv.remember_setpoint_confirmed(19.0)
         trv.commanded_setpoint = 22.0
-        trv.target_temp_received = False
+        trv.target_temperature_received = False
         reported_states[ENTITY_ID] = _reported_state("heat", setpoint=19.0)
 
         with patch(f"{_CTRL}.request_control_cycle") as request:

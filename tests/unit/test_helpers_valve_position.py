@@ -34,13 +34,13 @@ class TestHeatingPowerValvePosition:
     """Test heating_power_valve_position function."""
 
     def test_returns_zero_when_target_equals_current(self):
-        """Test that valve position is 0 when target temp equals current temp."""
+        """Test that valve position is 0 when target temperature equals current temperature."""
         mock_bt = MockThermostat(heat_target_temperature=20.0, room_temperature=20.0)
         result = heating_power_valve_position(
             mock_bt, "climate.test", mock_bt.room_temperature
         )
 
-        # When temp_diff is 0, formula gives 0
+        # When delta_kelvin is 0, formula gives 0
         assert result == 0.0
 
     @pytest.mark.parametrize(
@@ -117,7 +117,7 @@ class TestHeatingPowerValvePosition:
         )
 
         # Should be clamped to MIN_HEATING_POWER (0.001)
-        # With MIN_HEATING_POWER, temp_diff=2.0 should give high valve position
+        # With MIN_HEATING_POWER, delta_kelvin=2.0 should give high valve position
         assert result_low > 0.5  # Should be fairly high
 
         # Very high heating power (should be clamped to MAX)
@@ -132,7 +132,7 @@ class TestHeatingPowerValvePosition:
         assert result_high < 0.5  # Should be lower than unclamped
 
     def test_applies_minimum_valve_opening_for_large_diff(self):
-        """Test that minimum valve opening is applied for temp_diff > 1.0°C."""
+        """Test that minimum valve opening is applied for delta_kelvin > 1.0°C."""
         # VALVE_MIN_THRESHOLD_TEMP_DIFF = 1.0
         # VALVE_MIN_OPENING_LARGE_DIFF = 0.15
         mock_bt = MockThermostat(
@@ -146,7 +146,7 @@ class TestHeatingPowerValvePosition:
         assert result >= 0.15
 
     def test_applies_proportional_minimum_for_small_diff(self):
-        """Test proportional minimum for small temp differences (0.2-1.0°C)."""
+        """Test proportional minimum for small temperature differences (0.2-1.0°C)."""
         # VALVE_MIN_SMALL_DIFF_THRESHOLD = 0.2
         mock_bt = MockThermostat(
             heat_target_temperature=20.5, room_temperature=20.0, heating_power=0.05
@@ -193,7 +193,7 @@ class TestHeatingPowerValvePosition:
     def test_formula_produces_expected_values(self):
         """Test that the formula produces expected valve positions for known inputs."""
         # From the comments in the code:
-        # With heating_power of 0.02 and temp_diff of 0.5, expect ~0.3992
+        # With heating_power of 0.02 and delta_kelvin of 0.5, expect ~0.3992
         mock_bt = MockThermostat(
             heat_target_temperature=20.5, room_temperature=20.0, heating_power=0.02
         )
@@ -205,7 +205,7 @@ class TestHeatingPowerValvePosition:
         assert 0.15 <= result <= 0.50
 
     def test_max_valve_position_for_large_difference(self):
-        """Test that valve position reaches 100% for very large temp differences."""
+        """Test that valve position reaches 100% for very large temperature differences."""
         mock_bt = MockThermostat(
             heat_target_temperature=25.0, room_temperature=15.0, heating_power=0.001
         )

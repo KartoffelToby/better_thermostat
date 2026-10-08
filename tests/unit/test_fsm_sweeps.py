@@ -80,7 +80,7 @@ class TestWindowSweep:
 class TestLadderSweep:
     """The fail-soft ladder degrades fast and recovers slowly, exhaustively."""
 
-    PARAMS = cm.LadderParams(down_debounce_s=120.0, up_stability_s=300.0)
+    PARAMS = cm.LadderParams(down_debounce_seconds=120.0, up_stability_seconds=300.0)
     RUNGS = tuple(cm.ControlMode)
     # Pending ages: fresh, just below both thresholds, past debounce,
     # past stability.
@@ -110,7 +110,7 @@ class TestLadderSweep:
         result = cm.step_ladder(
             state,
             room_sensor_ok=room_ok,
-            trv_temp_ok=trv_ok,
+            trv_temperature_ok=trv_ok,
             now=NOW,
             params=self.PARAMS,
         )
@@ -147,7 +147,9 @@ class TestLadderSweep:
         )
         if result.mode != mode:
             threshold = (
-                self.PARAMS.down_debounce_s if degrading else self.PARAMS.up_stability_s
+                self.PARAMS.down_debounce_seconds
+                if degrading
+                else self.PARAMS.up_stability_seconds
             )
             since = down_since if degrading else up_since
             # A commit requires the full debounce/stability window of

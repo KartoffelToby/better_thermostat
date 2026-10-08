@@ -841,6 +841,68 @@ def test_a_name_is_renamed_as_the_naming_gate_reads_it(lines, name, renamed):
     assert script._renamed(name, renames) == renamed
 
 
+@pytest.mark.parametrize(
+    ("name", "renamed"),
+    [
+        ("preset_temp", ("preset_temperature",)),
+        ("_temp_to_set", ("_temperature_to_set",)),
+        ("delay_s", ("delay_seconds",)),
+        ("_last_pct_s", ("_last_percent_seconds",)),
+        ("rate_per_s", ()),
+        ("s_count", ()),
+        ("CONF_TEMP", ()),
+    ],
+    ids=[
+        "word",
+        "private-word",
+        "suffix",
+        "word-and-suffix",
+        "rate",
+        "no-suffix",
+        "constant",
+    ],
+)
+def test_a_name_is_renamed_by_the_glossarys_word_parts(lines, name, renamed):
+    """A rejected word is replaced wherever it stands, a unit suffix at the end.
+
+    A suffix after `per` is a rate's denominator and stays, and the match is
+    case-sensitive as in the naming gate, so a constant keeps its spelling.
+    """
+    script, _ = lines
+    renames = script.Renames(
+        {}, {"temp": "temperature", "pct": "percent"}, {"s": "seconds"}
+    )
+
+    assert script._renamed(name, renames) == renamed
+
+
+WORD_PART_GLOSSARY = """\
+[[word]]
+name = "temperature"
+rejected = ["temp"]
+
+[[modifier]]
+name = "_seconds"
+rejected = ["_s"]
+"""
+
+
+def test_a_line_renamed_by_word_parts_is_found(lines):
+    """A fix written with `temp` and `_s` is found where develop spells them out."""
+    script, line = lines
+    maintenance_commit = _renamed_fix(
+        line,
+        glossary=WORD_PART_GLOSSARY,
+        develop_spelling="hold_the_preset(preset_temperature, delay_seconds, {i})",
+        maintenance_spelling="hold_the_preset(preset_temp, delay_s, {i})",
+    )
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 4
+    assert commit.hits == 4
+
+
 def test_a_private_alias_past_the_cap_is_still_renamed(lines):
     """Past the spelling cap, a private alias takes the term behind its underscore."""
     script, _ = lines
@@ -1061,3 +1123,87 @@ def test_an_unfetched_ref_says_how_to_fetch_it(lines):
 
     assert "git fetch" in str(failure.value)
     assert "nowhere:refs/remotes/origin/nowhere" in str(failure.value)
+
+
+def test_a_name_inside_a_quoted_string_keeps_its_spelling(lines):
+    """A quoted key is text a rename leaves alone, so only the code is respelled."""
+    script, _ = lines
+    renames = script.Renames({}, {}, {"s": "seconds"})
+
+    spellings = script._spellings('config["delay_s"] = delay_s', renames)
+
+    assert spellings == [
+        'config["delay_s"] = delay_s',
+        'config["delay_s"] = delay_seconds',
+    ]
+
+
+def test_the_spelling_with_every_alias_renamed_survives_the_cap(lines):
+    """Twelve distinct aliases spell 4096 ways; the full rename is still tried.
+
+    It comes right after the marker, so the cap cannot cut it off.
+    """
+    script, _ = lines
+    aliases = [f"old{i}" for i in range(12)]
+    renames = {alias: (f"new{i}",) for i, alias in enumerate(aliases)}
+    marker = " + ".join(aliases)
+
+    spellings = script._spellings(marker, renames)
+
+    assert len(spellings) == script.SPELLINGS_PER_MARKER
+    assert spellings[1] == " + ".join(f"new{i}" for i in range(12))
+
+
+def test_a_name_in_an_f_string_field_is_code_and_respelled(lines):
+    """Inside an f-string only the literal text keeps its spelling.
+
+    A replacement field holds code, so its names are renamed like any other;
+    the text around it, and a doubled brace, stay as written.
+    """
+    script, _ = lines
+    renames = script.Renames({}, {}, {"s": "seconds"})
+
+    spellings = script._spellings('log(f"delay_s={delay_s} {{delay_s}}")', renames)
+
+    assert spellings == [
+        'log(f"delay_s={delay_s} {{delay_s}}")',
+        'log(f"delay_s={delay_seconds} {{delay_s}}")',
+    ]
+
+
+@pytest.mark.parametrize(
+    ("marker", "renamed"),
+    [
+        (
+            "log(f\"{config['delay_s']} after {delay_s}\")",
+            "log(f\"{config['delay_s']} after {delay_seconds}\")",
+        ),
+        (
+            'log(f"{config["delay_s"]} after {delay_s}")',
+            'log(f"{config["delay_s"]} after {delay_seconds}")',
+        ),
+        ("if delay_s > 0 and (", "if delay_seconds > 0 and ("),
+    ],
+    ids=["other-quotes", "same-quotes", "unfinished-line"],
+)
+def test_a_string_inside_an_f_string_field_is_text_again(lines, marker, renamed):
+    """A key quoted inside a replacement field keeps its spelling; code around it does not.
+
+    A marker is one line and may stop mid-statement; what the tokenizer did
+    read is still respelled.
+    """
+    script, _ = lines
+    renames = script.Renames({}, {}, {"s": "seconds"})
+
+    assert script._spellings(marker, renames) == [marker, renamed]
+
+
+def test_the_rest_of_an_unreadable_marker_keeps_its_spelling(lines):
+    """Past an unterminated string the tokenizer stops, and the rest stays as written."""
+    script, _ = lines
+    renames = script.Renames({}, {}, {"s": "seconds"})
+
+    assert script._spellings('wait(delay_s, "delay_s', renames) == [
+        'wait(delay_s, "delay_s',
+        'wait(delay_seconds, "delay_s',
+    ]

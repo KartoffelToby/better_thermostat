@@ -3,7 +3,7 @@
 Covers:
   - should_heat_with_tolerance  (hysteresis helper)
   - should_cool_with_tolerance  (hysteresis helper)
-  - to_pct                      (valve normalisation)
+  - to_percent                      (valve normalisation)
   - compute_hvac_action         (main FSM, TRV overrides, idempotency)
   - Hysteresis state transitions
 """
@@ -17,7 +17,7 @@ from custom_components.better_thermostat.utils.hvac_action import (
     compute_hvac_action,
     should_cool_with_tolerance,
     should_heat_with_tolerance,
-    to_pct,
+    to_percent,
 )
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ class TestShouldHeatWithTolerance:
     """Tests for should heat with tolerance."""
 
     def test_starts_below_threshold(self):
-        """Heating starts when temp < target - tolerance."""
+        """Heating starts when temperature < target - tolerance."""
         assert should_heat_with_tolerance(20.4, 21.0, 0.5, HVACAction.IDLE) is True
 
     def test_no_start_in_band_when_idle(self):
@@ -95,7 +95,7 @@ class TestShouldCoolWithTolerance:
     """Tests for should cool with tolerance."""
 
     def test_starts_at_the_upper_edge(self):
-        """Cooling starts when temp >= cool_target_temperature + tolerance."""
+        """Cooling starts when temperature >= cool_target_temperature + tolerance."""
         assert should_cool_with_tolerance(24.5, 24.0, 0.5, False) is True
 
     def test_no_start_in_band_when_idle(self):
@@ -162,37 +162,37 @@ class TestShouldCoolWithTolerance:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Group 3: to_pct
+# Group 3: to_percent
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestToPct:
-    """Tests for to pct."""
+    """Tests for to percent."""
 
     def test_fraction_to_percent(self):
         """Test Fraction to percent."""
-        assert to_pct(0.5) == 50.0
+        assert to_percent(0.5) == 50.0
 
     def test_already_percent(self):
         """Test Already percent."""
-        assert to_pct(50) == 50.0
+        assert to_percent(50) == 50.0
 
     def test_zero(self):
         """Test Zero."""
-        assert to_pct(0.0) == 0.0
+        assert to_percent(0.0) == 0.0
 
     def test_one_stays(self):
         """1.0 is NOT in [0, 1) → returned as-is (already percent)."""
-        assert to_pct(1.0) == 1.0
+        assert to_percent(1.0) == 1.0
 
     def test_invalid_returns_none(self):
         """Test Invalid returns none."""
-        assert to_pct("abc") is None
-        assert to_pct(None) is None
+        assert to_percent("abc") is None
+        assert to_percent(None) is None
 
     def test_string_number(self):
         """Test String number."""
-        assert to_pct("0.5") == 50.0
+        assert to_percent("0.5") == 50.0
 
 
 # ═══════════════════════════════════════════════════════════════════════════

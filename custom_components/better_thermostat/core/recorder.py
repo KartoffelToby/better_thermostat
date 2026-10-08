@@ -221,6 +221,11 @@ class FlightRecorder:
         ]
 
 
+def _renamed_key(raw: dict[str, Json], key: str, earlier: str) -> Json:
+    """Return ``raw[key]`` when present, or ``raw[earlier]`` when the export uses the earlier key."""
+    return raw[key] if key in raw else raw[earlier]
+
+
 def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
     """Reconstruct a WorldSnapshot from its exported form."""
     trvs = {}
@@ -235,8 +240,12 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
             min_temp=_float_or_none(raw["min_temp"]),
             max_temp=_float_or_none(raw["max_temp"]),
             valve_max_opening=_float_or_none(raw["valve_max_opening"]),
-            local_calibration_min=_float_or_none(raw["local_calibration_min"]),
-            local_calibration_max=_float_or_none(raw["local_calibration_max"]),
+            min_local_calibration=_float_or_none(
+                _renamed_key(raw, "min_local_calibration", "local_calibration_min")
+            ),
+            max_local_calibration=_float_or_none(
+                _renamed_key(raw, "max_local_calibration", "local_calibration_max")
+            ),
         )
     now = _datetime_or_none(data["now"])
     if now is None:

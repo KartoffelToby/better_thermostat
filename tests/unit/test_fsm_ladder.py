@@ -9,17 +9,19 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     step_ladder,
 )
 
-P = LadderParams(down_debounce_s=120.0, up_stability_s=300.0)
+P = LadderParams(down_debounce_seconds=120.0, up_stability_seconds=300.0)
 
 
 def _down(state, now, room_ok=False, trv_ok=True):
     return step_ladder(
-        state, room_sensor_ok=room_ok, trv_temp_ok=trv_ok, now=now, params=P
+        state, room_sensor_ok=room_ok, trv_temperature_ok=trv_ok, now=now, params=P
     )
 
 
 def _up(state, now):
-    return step_ladder(state, room_sensor_ok=True, trv_temp_ok=True, now=now, params=P)
+    return step_ladder(
+        state, room_sensor_ok=True, trv_temperature_ok=True, now=now, params=P
+    )
 
 
 def test_initial_state_is_optimal():
@@ -61,7 +63,7 @@ def test_hold_when_no_trv_temperature_either():
 
 
 def test_upgrade_requires_sustained_recovery():
-    """The ladder climbs back only after up_stability_s of recovery."""
+    """The ladder climbs back only after up_stability_seconds of recovery."""
     state = ControlModeState(mode=ControlMode.SENSOR_FALLBACK, degraded_since=0.0)
     state = _up(state, now=1000.0)
     assert state.mode == ControlMode.SENSOR_FALLBACK  # stability window running
@@ -171,7 +173,11 @@ def test_flapping_shallower_targets_do_not_starve_the_upgrade():
     room_ok = False
     for tick in range(11):
         state = step_ladder(
-            state, room_sensor_ok=room_ok, trv_temp_ok=True, now=tick * 60.0, params=P
+            state,
+            room_sensor_ok=room_ok,
+            trv_temperature_ok=True,
+            now=tick * 60.0,
+            params=P,
         )
         room_ok = not room_ok
     assert state.mode == ControlMode.SENSOR_FALLBACK
