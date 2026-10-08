@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from abc import ABC
 import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
@@ -554,7 +553,7 @@ def unsupported_hvac_mode_error(
     )
 
 
-class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
+class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     """Representation of a Better Thermostat device."""
 
     _attr_has_entity_name = True
