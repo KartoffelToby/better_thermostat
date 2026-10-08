@@ -4,12 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from custom_components.better_thermostat.calibration import _compute_tpi_balance
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiState,
     build_tpi_key,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_from_legacy_dict
 
 
 class _TpiStateStub:
@@ -42,7 +41,7 @@ def _make_bt(state_mgr: _TpiStateStub) -> ThermostatStandIn:
     bt.outdoor_sensor_entity_id = None
     bt.weather_entity_id = None
     bt.real_trvs = {
-        "climate.trv": Trv.from_legacy_dict(
+        "climate.trv": trv_from_legacy_dict(
             "climate.trv",
             {
                 "advanced": {},

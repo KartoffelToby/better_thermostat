@@ -7,8 +7,7 @@ from collections.abc import Iterable, Mapping
 import copy
 from dataclasses import dataclass
 import logging
-from types import ModuleType
-from typing import Any, Final, NotRequired, TypedDict, override
+from typing import Final, NotRequired, TypedDict, override
 
 from homeassistant import config_entries
 from homeassistant.components.climate.const import (
@@ -34,6 +33,7 @@ import voluptuous as vol
 
 from . import DOMAIN, other_entries_controlling, trv_entity_ids
 from .adapters.delegate import load_adapter
+from .adapters.types import TrvAdapter
 from .model_fixes.model_quirks import load_model_quirks, quirk_writes_valve
 from .utils.advanced_flags import as_bool as _as_bool
 from .utils.const import (
@@ -295,7 +295,7 @@ class _TrvDraft:
 
     entity_id: str
     integration: str | None
-    adapter: ModuleType | None
+    adapter: TrvAdapter | None
     stored: dict[str, object]
     advanced: _AdvancedDraft | None = None
 
@@ -469,8 +469,8 @@ async def _load_adapter_info(
     integration: str | None,
     entity_id: str | None,
     *,
-    existing_adapter: ModuleType | None = None,
-) -> tuple[ModuleType | None, dict[str, bool]]:
+    existing_adapter: TrvAdapter | None = None,
+) -> tuple[TrvAdapter | None, dict[str, bool]]:
     adapter = existing_adapter
     info: dict[str, bool] = {}
 
@@ -478,10 +478,10 @@ async def _load_adapter_info(
         if adapter is None:
             try:
                 adapter = await load_adapter(flow, integration, entity_id)
-            except RuntimeError, ValueError, TypeError:  # pragma: no cover - defensive
+            except RuntimeError, ValueError, TypeError:
                 _LOGGER.debug("load_adapter failed", exc_info=True)
 
-        if adapter is not None and hasattr(adapter, "get_info"):
+        if adapter is not None:
             try:
                 info = await adapter.get_info(flow, entity_id)
             except RuntimeError, ValueError, TypeError, AttributeError:
@@ -1149,7 +1149,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return OptionsFlowHandler(config_entry)
 
     async def async_step_confirm(
-        self, user_input: dict[str, Any] | None = None, confirm_type: str | None = None
+        self,
+        user_input: dict[str, object] | None = None,
+        confirm_type: str | None = None,
     ) -> config_entries.ConfigFlowResult:
         """Handle user-confirmation of discovered node."""
         errors: dict[str, str] = {}
@@ -1184,7 +1186,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_advanced(
-        self, user_input: dict[str, Any] | None = None, trv: _TrvDraft | None = None
+        self, user_input: dict[str, object] | None = None, trv: _TrvDraft | None = None
     ) -> config_entries.ConfigFlowResult:
         """Handle the advanced step of the config flow."""
         if trv is None:
@@ -1265,7 +1267,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @override
     async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
+        self, user_input: dict[str, object] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
@@ -1354,13 +1356,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         super().__init__()
 
     async def async_step_init(
-        self, _user_input: dict[str, Any] | None = None
+        self, _user_input: dict[str, object] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Manage the options."""
         return await self.async_step_user()
 
     async def async_step_advanced(
-        self, user_input: dict[str, Any] | None = None, trv: _TrvDraft | None = None
+        self, user_input: dict[str, object] | None = None, trv: _TrvDraft | None = None
     ) -> config_entries.ConfigFlowResult:
         """Manage the advanced options."""
         if trv is None:
@@ -1472,7 +1474,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
     async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
+        self, user_input: dict[str, object] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Handle the user step."""
         errors: dict[str, str] = {}

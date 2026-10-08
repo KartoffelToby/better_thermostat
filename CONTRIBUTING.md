@@ -357,9 +357,14 @@ seam, and only there may a
 temperature differences, `_kelvin_per_min` for rates, `_seconds` or `_minutes` for
 durations, `_percent` for percentages. Never `_C`, `_K`, `_k`, `_s`, `_pct`,
 `delta_T`, `dT`. Durations carry their unit even though seconds are the norm,
-because the persisted configuration mixes seconds and minutes. Of those
-spellings, only `delta_T`, `delta_t` and `dT` are in `glossary.toml`, so only
-they are checked; the suffixes rest on review.
+because the persisted configuration mixes seconds and minutes. A minimum is a
+`min_` prefix, never a `_min` suffix, which reads as minutes. `glossary.toml`
+checks all of it: `delta_T`, `delta_t` and `dT` as whole names, `temp` and
+`pct` as `[[word]]` entries wherever they stand in a name, and `_s`, `_sec`,
+`_min`, `_mins` and `_k` as `rejected` spellings of a `[[modifier]]` at the end
+of one. A suffix after `per` names the denominator of a rate and stays
+(`_kelvin_per_min`). Names Home Assistant dictates, such as `min_temp` or
+`target_temp_high`, are `[[exception]]` entries with their reason.
 
 **The control-theory code writes its equations' notation.** Under
 `custom_components/better_thermostat/utils/calibration/` and in the tests that
@@ -404,8 +409,12 @@ last production site is what makes its readers due, and they come out with it.
 
 `scripts/check_naming.py` matches whole identifiers against the rejected
 spellings in `glossary.toml`, a leading underscore included (`_offset` spells
-`offset`), and CI runs it. The tree carries none of them, so
-a single rejected spelling fails the check:
+`offset`), and the words between their underscores against its `[[word]]` and
+`[[modifier]]` rejections, and CI runs it. Unit suffixes are SI symbols the
+control-theory notation writes, so they are not judged under its
+`notation-paths`, nor where other code reads a name the notation spells. Whole
+names are clean; the word parts carry a backlog in `.naming-budget.json`, and
+outside it a single rejected spelling fails the check:
 
 ```bash
 uv run python scripts/check_naming.py list <path>    # what a file carries
@@ -518,7 +527,11 @@ Three more checks run on every pull request:
   it name the files that do not meet it yet and the rules each is exempt from.
   That list only shrinks: a new file is strict from the start, and
   `tests/gates/test_type_strictness_exemptions.py` holds it to a recorded
-  ceiling.
+  ceiling. `typing.Any` is allowed in two places only: `**kwargs: Any` on an
+  `@override` that Home Assistant declares that way, and the yield and send
+  slots of `Coroutine[Any, Any, T]`. Read untyped data as `object` or
+  `Mapping[str, object]` and narrow it.
+  `tests/gates/test_any_stays_at_the_boundary.py` fails on any other `Any`.
 - **hassfest:** Home Assistant's validator for the integration manifest and
   its metadata.
 - **HACS:** the HACS action validates the repository as a HACS integration.

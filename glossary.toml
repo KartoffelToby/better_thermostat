@@ -291,7 +291,27 @@ definition = "A generic value, where nothing more specific fits."
 rejected = ["val"]
 
 # ---------------------------------------------------------------------------
-# Modifiers: prefixes and suffixes with a fixed meaning.
+# Words: a word rejected wherever it stands in a name, between underscores.
+# `scripts/check_naming.py` judges them outside the `notation-paths` that
+# `pyproject.toml` declares; upper-case constants follow the persisted string
+# they name and are left alone.
+# ---------------------------------------------------------------------------
+
+[[word]]
+name = "temperature"
+definition = "The word is `temperature`, never `temp`: `trv_temperature`, `start_temperature`."
+rejected = ["temp"]
+
+[[word]]
+name = "percent"
+definition = "A percentage, 0–100: `valve_percent`, `target_percent`."
+rejected = ["pct"]
+
+# ---------------------------------------------------------------------------
+# Modifiers: prefixes and suffixes with a fixed meaning. A `rejected` spelling
+# of a suffix is judged as the last word of a name, outside the notation paths,
+# and not after `per`, where it is the denominator of a rate
+# (`_kelvin_per_min`).
 # ---------------------------------------------------------------------------
 
 [[modifier]]
@@ -307,12 +327,19 @@ name = "_monotonic"
 definition = "A timestamp from the monotonic clock, not from the wall clock."
 
 [[modifier]]
-name = "_seconds, _minutes"
-definition = "Duration, with the unit spelled out. Never `_s`, `_sec`, `_min`."
+name = "_seconds"
+definition = "A duration in seconds, with the unit spelled out."
+rejected = ["_s", "_sec", "_secs"]
+
+[[modifier]]
+name = "_minutes"
+definition = "A duration in minutes, with the unit spelled out. A minimum is a `min_` prefix, never a `_min` suffix, which reads as minutes."
+rejected = ["_min", "_mins"]
 
 [[modifier]]
 name = "_kelvin"
 definition = "A temperature difference. Absolute temperatures are °C and carry no suffix."
+rejected = ["_k"]
 
 [[modifier]]
 name = "_percent"
@@ -327,3 +354,48 @@ definition = "An HA entity id. Never `_id`, `_entity`, or a bare noun."
 # needs a reason. Without it the checker's findings stop being trustworthy.
 # ---------------------------------------------------------------------------
 
+
+[[exception]]
+alias = "min_temp"
+paths = ["custom_components/", "tests/"]
+reason = "Home Assistant's name: the ClimateEntity property and the climate state attribute a TRV reports. A field holding that attribute keeps the name it is read under."
+
+[[exception]]
+alias = "max_temp"
+paths = ["custom_components/", "tests/"]
+reason = "Home Assistant's name: the ClimateEntity property and the climate state attribute a TRV reports. A field holding that attribute keeps the name it is read under."
+
+[[exception]]
+alias = "attr_min_temp"
+paths = ["custom_components/", "tests/"]
+reason = "Home Assistant's ClimateEntity backing attribute `_attr_min_temp`."
+
+[[exception]]
+alias = "attr_max_temp"
+paths = ["custom_components/", "tests/"]
+reason = "Home Assistant's ClimateEntity backing attribute `_attr_max_temp`."
+
+[[exception]]
+alias = "target_temp_high"
+paths = ["custom_components/", "tests/"]
+reason = "Home Assistant's climate state attribute and set_temperature field for the upper end of a range."
+
+[[exception]]
+alias = "target_temp_low"
+paths = ["custom_components/", "tests/"]
+reason = "Home Assistant's climate state attribute and set_temperature field for the lower end of a range."
+
+[[exception]]
+alias = "target_temp_step"
+paths = ["custom_components/", "tests/"]
+reason = "Home Assistant's climate state attribute for the setpoint step a TRV reports."
+
+[[exception]]
+alias = "bt_min_temp"
+paths = ["custom_components/", "tests/"]
+reason = "Shadows Home Assistant's `min_temp` with the `bt_` collision prefix; CONTRIBUTING.md lists it."
+
+[[exception]]
+alias = "bt_max_temp"
+paths = ["custom_components/", "tests/"]
+reason = "Shadows Home Assistant's `max_temp` with the `bt_` collision prefix; CONTRIBUTING.md lists it."

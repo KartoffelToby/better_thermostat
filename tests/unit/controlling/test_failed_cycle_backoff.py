@@ -19,7 +19,6 @@ import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import decide
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import (
     FAILED_CYCLE_BACKOFF_MAX_S,
     FAILED_CYCLE_BACKOFF_S,
@@ -27,7 +26,12 @@ from custom_components.better_thermostat.utils.controlling import (
     control_queue,
 )
 from custom_components.better_thermostat.utils.snapshot import _build_trv_reported
-from tests.factories import ThermostatStandIn, make_snapshot, make_state
+from tests.factories import (
+    ThermostatStandIn,
+    make_snapshot,
+    make_state,
+    trv_from_legacy_dict,
+)
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 _QUIRKS = "custom_components.better_thermostat.model_fixes.model_quirks"
@@ -72,7 +76,7 @@ def _make_self() -> ThermostatStandIn:
     entity.calculate_heating_power = AsyncMock()
     entity.calculate_heat_loss = AsyncMock()
     entity.cooler_entity_id = None
-    entity.real_trvs = {_TRV: Trv.from_legacy_dict(_TRV, {})}
+    entity.real_trvs = {_TRV: trv_from_legacy_dict(_TRV, {})}
     entity.heat_target_temperature = 21.0
     entity.cool_target_temperature = None
     entity.bt_hvac_mode = HVACMode.HEAT
@@ -248,7 +252,7 @@ async def test_two_trvs_failing_in_turn_are_one_run(caplog):
     """Devices that fail alternately are paced as one run, each reported once."""
     other = "climate.trv2"
     entity = _make_self()
-    entity.real_trvs[other] = Trv.from_legacy_dict(other, {})
+    entity.real_trvs[other] = trv_from_legacy_dict(other, {})
     caplog.set_level(logging.DEBUG, logger=_CTRL)
     rounds = []
 
@@ -442,7 +446,7 @@ async def test_a_trv_still_away_since_it_failed_keeps_the_run():
     """
     other = "climate.trv2"
     entity = _make_self()
-    entity.real_trvs[other] = Trv.from_legacy_dict(other, {})
+    entity.real_trvs[other] = trv_from_legacy_dict(other, {})
     states = {_TRV: State(_TRV, "heat"), other: State(other, "heat")}
     entity.hass.states.get.side_effect = states.get
     rounds = []
