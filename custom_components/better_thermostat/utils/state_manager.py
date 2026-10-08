@@ -1376,29 +1376,19 @@ class StateManager:
         """Return persisted thermal stats clamped to their valid bounds.
 
         Returns ``(heating_power, heat_loss_rate)``; an element is ``None`` when
-        the persisted value is absent or cannot be parsed as a float.
+        the persisted value is absent or not finite.
         """
         thermal = self._state.thermal
-
-        heating_power: float | None = None
-        if thermal.heating_power is not None:
-            try:
-                number = float(thermal.heating_power)
-                if math.isfinite(number):
-                    heating_power = clamp(number, MIN_HEATING_POWER, MAX_HEATING_POWER)
-            except TypeError, ValueError, OverflowError:
-                heating_power = None
-
-        heat_loss_rate: float | None = None
-        if thermal.heat_loss_rate is not None:
-            try:
-                number = float(thermal.heat_loss_rate)
-                if math.isfinite(number):
-                    heat_loss_rate = clamp(number, MIN_HEAT_LOSS, MAX_HEAT_LOSS)
-            except TypeError, ValueError, OverflowError:
-                heat_loss_rate = None
-
-        return heating_power, heat_loss_rate
+        heating_power = thermal.heating_power
+        heat_loss_rate = thermal.heat_loss_rate
+        return (
+            clamp(heating_power, MIN_HEATING_POWER, MAX_HEATING_POWER)
+            if heating_power is not None and math.isfinite(heating_power)
+            else None,
+            clamp(heat_loss_rate, MIN_HEAT_LOSS, MAX_HEAT_LOSS)
+            if heat_loss_rate is not None and math.isfinite(heat_loss_rate)
+            else None,
+        )
 
     def record_thermal(
         self, heating_power: float | None, heat_loss_rate: float | None
