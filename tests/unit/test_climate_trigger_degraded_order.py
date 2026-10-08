@@ -65,7 +65,7 @@ async def test_trigger_steps_ladder_while_trv_is_unavailable(bt):
         assert bt.kernel_state.control_mode.degraded is True
 
         # A downgrade commits only after the debounce window has elapsed.
-        bt.clock.advance(LadderParams().down_debounce_s + 1)
+        bt.clock.advance(LadderParams().down_debounce_seconds + 1)
         await BetterThermostat._trigger_time(bt, None)
 
     assert bt.kernel_state.control_mode.mode != ControlMode.OPTIMAL

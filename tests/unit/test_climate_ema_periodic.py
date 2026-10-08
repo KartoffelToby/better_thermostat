@@ -23,7 +23,7 @@ def bt():
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.startup_running = False
-    mock.last_known_external_temp = 20.0
+    mock.last_known_external_temperature = 20.0
     mock.room_temperature_ema = None
     mock._slope_periodic_last_ts = None
     mock.temperature_slope = None
@@ -45,7 +45,7 @@ async def test_skips_while_startup_running(bt):
 @pytest.mark.asyncio
 async def test_skips_without_last_known_temp(bt):
     """Without a last known external temperature, nothing is updated."""
-    bt.last_known_external_temp = None
+    bt.last_known_external_temperature = None
     with patch(_EMA) as ema:
         await BetterThermostat._async_update_ema_periodic(bt)
     ema.assert_not_called()

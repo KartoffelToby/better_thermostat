@@ -371,7 +371,7 @@ def _close_coro(coro, name=None):
 
 def _control_bt():
     bt = _make_bt()
-    bt._temp_lock = asyncio.Lock()
+    bt._temperature_lock = asyncio.Lock()
     bt.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     bt.real_trvs["climate.trv"].hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     bt.real_trvs["climate.trv"].advanced = {
@@ -380,7 +380,7 @@ def _control_bt():
         "no_off_system_mode": False,
     }
     bt.real_trvs["climate.trv"].system_mode_received = False
-    bt.real_trvs["climate.trv"].target_temp_received = False
+    bt.real_trvs["climate.trv"].target_temperature_received = False
     bt.real_trvs["climate.trv"].calibration_received = False
     return bt
 
@@ -389,14 +389,14 @@ async def _run_setpoint_cycle(bt, target):
     """Run one control_trv cycle that wants ``target`` written."""
     with (
         patch(f"{_CTRL}.convert_outbound_states") as conv,
-        patch(f"{_CTRL}.set_temperature", autospec=True) as set_temp,
+        patch(f"{_CTRL}.set_temperature", autospec=True) as set_temperature,
         patch(f"{_CTRL}.set_hvac_mode", autospec=True),
         patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
         patch("asyncio.sleep", new=AsyncMock()),
     ):
         conv.return_value = {"temperature": target, "system_mode": HVACMode.HEAT}
         await control_trv(bt, "climate.trv")
-    return set_temp
+    return set_temperature
 
 
 class TestControlWatchdog:
@@ -493,8 +493,8 @@ class TestBudgetRetry:
         assert captured == []
 
         bt.clock.advance(10.0)
-        set_temp = await _run_setpoint_cycle(bt, target=23.0)
-        set_temp.assert_not_called()
+        set_temperature = await _run_setpoint_cycle(bt, target=23.0)
+        set_temperature.assert_not_called()
         assert len(captured) == 1
         coro, name = captured[0]
         assert "budget_retry" in name
@@ -542,14 +542,14 @@ class TestWatchdogHeartbeat:
     async def _run_setpoint(self, bt, target):
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
-            patch(f"{_CTRL}.set_temperature", autospec=True) as set_temp,
+            patch(f"{_CTRL}.set_temperature", autospec=True) as set_temperature,
             patch(f"{_CTRL}.set_hvac_mode", autospec=True),
             patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             conv.return_value = {"temperature": target, "system_mode": HVACMode.HEAT}
             await control_trv(bt, "climate.trv")
-        return set_temp
+        return set_temperature
 
     @pytest.mark.asyncio
     async def test_budget_deferred_write_stamps_heartbeat(self):
@@ -557,8 +557,8 @@ class TestWatchdogHeartbeat:
         bt = _control_bt()
         await self._run_setpoint(bt, target=22.0)
         bt.clock.advance(10.0)
-        set_temp = await self._run_setpoint(bt, target=23.0)
-        set_temp.assert_not_called()
+        set_temperature = await self._run_setpoint(bt, target=23.0)
+        set_temperature.assert_not_called()
         assert bt.kernel_state.last_control_monotonic == 10.0
 
     @pytest.mark.asyncio
@@ -594,23 +594,23 @@ class TestWriteBudget:
     async def _run(self, bt, target):
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
-            patch(f"{_CTRL}.set_temperature", autospec=True) as set_temp,
+            patch(f"{_CTRL}.set_temperature", autospec=True) as set_temperature,
             patch(f"{_CTRL}.set_hvac_mode", autospec=True),
             patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             conv.return_value = {"temperature": target, "system_mode": HVACMode.HEAT}
             result = await control_trv(bt, "climate.trv")
-        return result, set_temp
+        return result, set_temperature
 
     @pytest.mark.asyncio
     async def test_first_write_passes_and_stamps_budget(self):
         """The first write goes through and records the write time."""
         bt = _control_bt()
         bt.clock.advance(100.0)
-        result, set_temp = await self._run(bt, target=22.0)
+        result, set_temperature = await self._run(bt, target=22.0)
         assert result is True
-        set_temp.assert_called_once()
+        set_temperature.assert_called_once()
         assert bt.real_trvs["climate.trv"].last_write_monotonic == 100.0
 
     @pytest.mark.asyncio
@@ -619,9 +619,9 @@ class TestWriteBudget:
         bt = _control_bt()
         await self._run(bt, target=22.0)
         bt.clock.advance(10.0)
-        result, set_temp = await self._run(bt, target=23.0)
+        result, set_temperature = await self._run(bt, target=23.0)
         assert result is True
-        set_temp.assert_not_called()
+        set_temperature.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_write_after_budget_window_passes(self):
@@ -629,8 +629,8 @@ class TestWriteBudget:
         bt = _control_bt()
         await self._run(bt, target=22.0)
         bt.clock.advance(30.0)
-        _, set_temp = await self._run(bt, target=23.0)
-        set_temp.assert_called_once()
+        _, set_temperature = await self._run(bt, target=23.0)
+        set_temperature.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_frost_floor_write_bypasses_budget(self):
@@ -639,9 +639,9 @@ class TestWriteBudget:
         await self._run(bt, target=22.0)
         bt.clock.advance(1.0)
         # 1.0 °C is below the 5.0 °C frost floor -> hull rewrites -> bypass
-        _, set_temp = await self._run(bt, target=1.0)
-        set_temp.assert_called_once()
-        assert set_temp.call_args[0][2] == 5.0
+        _, set_temperature = await self._run(bt, target=1.0)
+        set_temperature.assert_called_once()
+        assert set_temperature.call_args[0][2] == 5.0
 
 
 class TestOffsetWriteBudget:
@@ -656,8 +656,8 @@ class TestOffsetWriteBudget:
         }
         bt.real_trvs["climate.trv"].calibration_received = True
         bt.real_trvs["climate.trv"].last_calibration = 0.0
-        bt.real_trvs["climate.trv"].local_calibration_min = -5.0
-        bt.real_trvs["climate.trv"].local_calibration_max = 5.0
+        bt.real_trvs["climate.trv"].min_local_calibration = -5.0
+        bt.real_trvs["climate.trv"].max_local_calibration = 5.0
         return bt
 
     async def _run(self, bt, calibration_offset):

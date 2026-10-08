@@ -110,24 +110,24 @@ _IDLE_OR_COOLING = (HVACAction.IDLE, HVACAction.COOLING)
 def _compute_zero_open_offset(
     self: BetterThermostat,
     entity_id: str,
-    _cur_trv_temp: float,
-    _cur_external_temp: float,
+    _cur_trv_temperature: float,
+    _cur_external_temperature: float,
     _cur_target_temp: float,
     _trv_temp_step: float,
 ) -> float:
-    """Compute the offset to push setpoint below TRV temp when valve fraction is zero.
+    """Compute the offset to push setpoint below TRV temperature when valve fraction is zero.
 
     Returns the offset so that callers can set:
-        _calibrated_setpoint = _cur_trv_temp - setpoint_drop
+        _calibrated_setpoint = _cur_trv_temperature - setpoint_drop
     """
-    _overshoot = max(0.0, _cur_external_temp - _cur_target_temp)
+    _overshoot = max(0.0, _cur_external_temperature - _cur_target_temp)
     _t_min = convert_to_float(
         str(self.real_trvs[entity_id].min_temp),
         self.device_name,
         "_compute_zero_open_offset()",
     )
     _max_setpoint_drop = (
-        max(1.0, _cur_trv_temp - float(_t_min)) if _t_min is not None else 8.0
+        max(1.0, _cur_trv_temperature - float(_t_min)) if _t_min is not None else 8.0
     )
     _setpoint_drop = _max_setpoint_drop * (1.0 - math.exp(-0.5 * _overshoot))
     _setpoint_drop = max(_trv_temp_step, _setpoint_drop)
@@ -165,7 +165,7 @@ def effective_room_temp(self: BetterThermostat) -> float | None:
     return self.room_temperature
 
 
-def _get_current_outdoor_temp(self: BetterThermostat) -> float | None:
+def _get_current_outdoor_temperature(self: BetterThermostat) -> float | None:
     """Get current outdoor temperature from outdoor sensor or weather entity."""
     if self.outdoor_sensor_entity_id is not None:
         state = self.hass.states.get(self.outdoor_sensor_entity_id)
@@ -173,7 +173,7 @@ def _get_current_outdoor_temp(self: BetterThermostat) -> float | None:
             return convert_to_float_celsius(
                 state.state,
                 self.device_name,
-                "_get_current_outdoor_temp()",
+                "_get_current_outdoor_temperature()",
                 unit_of_measurement=state.attributes.get("unit_of_measurement"),
             )
 
@@ -183,7 +183,7 @@ def _get_current_outdoor_temp(self: BetterThermostat) -> float | None:
             return convert_to_float_celsius(
                 state.attributes.get("temperature"),
                 self.device_name,
-                "_get_current_outdoor_temp()",
+                "_get_current_outdoor_temperature()",
                 unit_of_measurement=state.attributes.get("temperature_unit"),
             )
 
@@ -440,7 +440,7 @@ def _compute_mpc_balance(
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
-                outdoor_temperature=_get_current_outdoor_temp(self),
+                outdoor_temperature=_get_current_outdoor_temperature(self),
                 is_day=_is_day,
                 solar_intensity=_solar_intensity,
                 max_opening_pct=max_opening_pct,
@@ -618,11 +618,11 @@ def _confirmed_valve_pct(trv_state: Trv | None) -> float | None:
         if value is None:
             continue
         try:
-            pct = float(value)
+            percent = float(value)
         except TypeError, ValueError:
             continue
-        if math.isfinite(pct) and 0.0 <= pct <= 100.0:
-            return pct
+        if math.isfinite(percent) and 0.0 <= percent <= 100.0:
+            return percent
     return None
 
 
@@ -813,7 +813,7 @@ def _compute_mpc_v2_balance(
         )
     v2_params = MpcV2Params(plant=plant_prior)
 
-    outdoor_temperature = _get_current_outdoor_temp(self)
+    outdoor_temperature = _get_current_outdoor_temperature(self)
     # The single-TRV path has one physical input.  A group controller's
     # distributed outputs are intentionally not collapsed into a fictional
     # single valve fraction; it keeps its optimistic command until group
@@ -950,7 +950,7 @@ def _compute_tpi_balance(
                 key=key,
                 room_temperature=_room_temperature,
                 target_temperature=self.heat_target_temperature,
-                outdoor_temperature=_get_current_outdoor_temp(self),
+                outdoor_temperature=_get_current_outdoor_temperature(self),
                 window_open=self.contact_open,
                 heating_allowed=True,
                 bt_name=self.device_name,
@@ -1264,8 +1264,8 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
         configured_calibration_mode(self.real_trvs[entity_id].advanced)
     )
 
-    _cur_external_temp = effective_room_temp(self)
-    if _cur_external_temp is None:
+    _cur_external_temperature = effective_room_temp(self)
+    if _cur_external_temperature is None:
         return None
     if traits.needs_target and self.heat_target_temperature is None:
         return None
@@ -1277,8 +1277,8 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
         # so the TRV stops receiving a heating-promoting calibration once
         # the room reaches the set temperature (not target + tolerance).
         _within_tolerance = (
-            _cur_external_temp >= (_cur_target_temp - self.tolerance)
-            and _cur_external_temp < _cur_target_temp
+            _cur_external_temperature >= (_cur_target_temp - self.tolerance)
+            and _cur_external_temperature < _cur_target_temp
         )
 
         if _within_tolerance:
@@ -1300,7 +1300,7 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
 
     if (
         _current_trv_calibration is None
-        or _cur_external_temp is None
+        or _cur_external_temperature is None
         or _cur_trv_temp_f is None
         or _calibration_step is None
     ):
@@ -1312,12 +1312,12 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
             _context,
             _current_trv_calibration,
             _cur_trv_temp_f,
-            _cur_external_temp,
+            _cur_external_temperature,
             _calibration_step,
         )
         return None
 
-    _cur_external_temp = float(_cur_external_temp)
+    _cur_external_temperature = float(_cur_external_temperature)
     _cur_trv_temp_f = float(_cur_trv_temp_f)
     _current_trv_calibration = float(_current_trv_calibration)
     _calibration_step = float(_calibration_step)
@@ -1333,7 +1333,7 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
         _cur_trv_temp_f += _current_trv_calibration
 
     _new_trv_calibration = (
-        _cur_external_temp - _cur_trv_temp_f
+        _cur_external_temperature - _cur_trv_temp_f
     ) + _current_trv_calibration
 
     if traits.balance is None:
@@ -1357,7 +1357,7 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
                         self,
                         entity_id,
                         _cur_trv_temp_f,
-                        _cur_external_temp,
+                        _cur_external_temperature,
                         _cur_target_temp,
                         _calibration_step,
                     )
@@ -1374,7 +1374,7 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
 
         def _legacy_offset(valve_position: float) -> float:
             return _current_trv_calibration - (
-                (self.real_trvs[entity_id].local_calibration_min + _cur_trv_temp_f)
+                (self.real_trvs[entity_id].min_local_calibration + _cur_trv_temp_f)
                 * valve_position
             )
 
@@ -1414,9 +1414,9 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
         # from heating target + tolerance and is zero below that line.
         if _overheating_protection and _cur_target_temp is not None:
             if self.hvac_action == HVACAction.IDLE:
-                if _cur_external_temp > _cur_target_temp + self.tolerance:
+                if _cur_external_temperature > _cur_target_temp + self.tolerance:
                     _new_trv_calibration += (
-                        _cur_external_temp - (_cur_target_temp + self.tolerance)
+                        _cur_external_temperature - (_cur_target_temp + self.tolerance)
                     ) * 8.0
 
     # Direction-aware rounding for local calibration offset.
@@ -1449,7 +1449,7 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
     # Avoid rounding to 1 decimal as this caused precision loss issues
     # (see issues #1792, #1789, #1785).
     _log_calibration: float = round(_new_trv_calibration, 2)
-    _log_external_temp: float = round(_cur_external_temp, 2)
+    _log_external_temp: float = round(_cur_external_temperature, 2)
     _log_trv_temp: float = round(_cur_trv_temp_f, 2)
     _log_current_calibration: float = round(_current_trv_calibration, 2)
 
@@ -1491,7 +1491,7 @@ def calculate_calibration_setpoint(
     Returns
     -------
     float
-            new target temp with calibration
+            new target temperature with calibration
     """
     _context = "_calculate_calibration_setpoint()"
 
@@ -1512,23 +1512,25 @@ def calculate_calibration_setpoint(
     if _effective_room_temp is None:
         self.real_trvs[entity_id].calibration_balance = None
         return None
-    _cur_external_temp = float(_effective_room_temp)
+    _cur_external_temperature = float(_effective_room_temp)
     _cur_target_temp = float(self.heat_target_temperature)
 
     _cur_trv_temp_s = self.real_trvs[entity_id].current_temperature
-    _cur_trv_temp = _convert_to_float(_cur_trv_temp_s)
+    _cur_trv_temperature = _convert_to_float(_cur_trv_temp_s)
 
     # The step is the grid the setpoint is rounded to, so it is kept as the
     # device states it: a 1 °F step on the 0.01 grid of a reading, 0.56 K,
     # drifts off whole degrees Fahrenheit within a few steps.
     _trv_temp_step = normalize_step(self.real_trvs[entity_id].target_temp_step)
 
-    if _cur_trv_temp is None:
+    if _cur_trv_temperature is None:
         return None
 
-    _cur_trv_temp = float(_cur_trv_temp)
+    _cur_trv_temperature = float(_cur_trv_temperature)
 
-    _calibrated_setpoint = (_cur_target_temp - _cur_external_temp) + _cur_trv_temp
+    _calibrated_setpoint = (
+        _cur_target_temp - _cur_external_temperature
+    ) + _cur_trv_temperature
 
     if traits.balance is None:
         # DEFAULT and non-controller modes carry no valve/controller data.
@@ -1539,17 +1541,17 @@ def calculate_calibration_setpoint(
         _percent, _use_valve = _calibrator.cached()
         if _use_valve and _percent is not None:
             if float(_percent) == 0.0:
-                # Valve closed: push setpoint below TRV's own temp so it doesn't
+                # Valve closed: push setpoint below TRV's own temperature so it doesn't
                 # heat by itself even though direct valve control already sent 0%.
                 _setpoint_drop = _compute_zero_open_offset(
                     self,
                     entity_id,
-                    _cur_trv_temp,
-                    _cur_external_temp,
+                    _cur_trv_temperature,
+                    _cur_external_temperature,
                     _cur_target_temp,
                     _trv_temp_step,
                 )
-                _calibrated_setpoint = _cur_trv_temp - _setpoint_drop
+                _calibrated_setpoint = _cur_trv_temperature - _setpoint_drop
             else:
                 # Valve open: keep target so TRV internal logic doesn't restrict us.
                 _calibrated_setpoint = _cur_target_temp
@@ -1557,19 +1559,22 @@ def calculate_calibration_setpoint(
             _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
             if _max_temp is not None:
                 _valve_fraction = max(0.0, min(1.0, float(_percent) / 100.0))
-                _calibrated_setpoint = _cur_trv_temp + (
-                    (float(_max_temp) - _cur_trv_temp) * _valve_fraction
+                _calibrated_setpoint = _cur_trv_temperature + (
+                    (float(_max_temp) - _cur_trv_temperature) * _valve_fraction
                 )
-                if _valve_fraction == 0.0 and _calibrated_setpoint >= _cur_trv_temp:
+                if (
+                    _valve_fraction == 0.0
+                    and _calibrated_setpoint >= _cur_trv_temperature
+                ):
                     _setpoint_drop = _compute_zero_open_offset(
                         self,
                         entity_id,
-                        _cur_trv_temp,
-                        _cur_external_temp,
+                        _cur_trv_temperature,
+                        _cur_external_temperature,
                         _cur_target_temp,
                         _trv_temp_step,
                     )
-                    _calibrated_setpoint = _cur_trv_temp - _setpoint_drop
+                    _calibrated_setpoint = _cur_trv_temperature - _setpoint_drop
 
     _skip_post_adjustments = traits.skip_post_adjustments
 
@@ -1579,7 +1584,9 @@ def calculate_calibration_setpoint(
             max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
             if max_temp is None:
                 return _calibrated_setpoint
-            return _cur_trv_temp + ((float(max_temp) - _cur_trv_temp) * valve_position)
+            return _cur_trv_temperature + (
+                (float(max_temp) - _cur_trv_temperature) * valve_position
+            )
 
         _calibrated_setpoint, _skip_post_adjustments = traits.adjust(
             self,
@@ -1592,7 +1599,7 @@ def calculate_calibration_setpoint(
                 hold_value=_cur_target_temp,
                 legacy_fallback=_legacy_setpoint,
                 boost_sign=1.0,
-                boost_neutral=_cur_trv_temp,
+                boost_neutral=_cur_trv_temperature,
             ),
         )
 
@@ -1605,7 +1612,7 @@ def calculate_calibration_setpoint(
     if not _skip_post_adjustments:
         if traits.tolerance_delay:
             if self.hvac_action in _IDLE_OR_COOLING:
-                if _calibrated_setpoint - _cur_trv_temp > 0.0:
+                if _calibrated_setpoint - _cur_trv_temperature > 0.0:
                     _calibrated_setpoint -= self.tolerance * 2.0
 
     _calibrated_setpoint = fix_target_temperature_calibration(
@@ -1621,16 +1628,16 @@ def calculate_calibration_setpoint(
         # from heating target + tolerance and is zero below that line.
         if _overheating_protection:
             if self.hvac_action == HVACAction.IDLE:
-                if _cur_external_temp > _cur_target_temp + self.tolerance:
+                if _cur_external_temperature > _cur_target_temp + self.tolerance:
                     _calibrated_setpoint -= (
-                        _cur_external_temp - (_cur_target_temp + self.tolerance)
+                        _cur_external_temperature - (_cur_target_temp + self.tolerance)
                     ) * 8.0
 
     # Direction-aware rounding: idle and cooling round the setpoint DOWN so the
     # TRV sees a target below its current temperature and closes the valve.
     # When HEATING, round UP so the TRV keeps the valve open.
     # This prevents integer-step TRVs (step=1.0) from rounding a value like
-    # 19.7 up to 20.0 which would keep the valve open at the current temp.
+    # 19.7 up to 20.0 which would keep the valve open at the current temperature.
     if self.hvac_action in _IDLE_OR_COOLING:
         _step_rounding = Rounding.down
     elif self.hvac_action == HVACAction.HEATING:
@@ -1657,9 +1664,9 @@ def calculate_calibration_setpoint(
         self.device_name,
         entity_id,
         _calibrated_setpoint,
-        _cur_external_temp,
+        _cur_external_temperature,
         _cur_target_temp,
-        _cur_trv_temp,
+        _cur_trv_temperature,
     )
 
     return _calibrated_setpoint

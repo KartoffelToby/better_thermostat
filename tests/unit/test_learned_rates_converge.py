@@ -34,14 +34,14 @@ def _loss_cycle(
     per minute while ``action`` holds. Returns the minute the cycle ended on.
     """
     minute = start
-    temp = 21.0
+    temperature = 21.0
     for action, minutes, rate in segments:
         for _ in range(int(minutes)):
-            tracker.update(temp, action, _ts(minute))
+            tracker.update(temperature, action, _ts(minute))
             minute += 1.0
-            temp -= rate
-        tracker.update(temp, action, _ts(minute))
-    tracker.update(temp, HVACAction.HEATING, _ts(minute + 1.0))
+            temperature -= rate
+        tracker.update(temperature, action, _ts(minute))
+    tracker.update(temperature, HVACAction.HEATING, _ts(minute + 1.0))
     return minute + 2.0
 
 

@@ -151,34 +151,34 @@ class TestHeatingPowerTrackerTransitions:
         t._prev_action = HVACAction.IDLE
         result = t.update(19.0, HVACAction.HEATING, _NOW)
 
-        assert t.start_temp == 19.0
+        assert t.start_temperature == 19.0
         assert t.start_ts == _NOW
-        assert t.end_temp is None
+        assert t.end_temperature is None
         assert result.action_changed is True
 
     def test_heating_to_idle_sets_end(self):
         """Test Heating to idle sets end."""
         t = HeatingPowerTracker()
         t._prev_action = HVACAction.HEATING
-        t.start_temp = 19.0
+        t.start_temperature = 19.0
         t.start_ts = _NOW
 
         result = t.update(21.0, HVACAction.IDLE, _ts(10))
-        assert t.end_temp == 21.0
+        assert t.end_temperature == 21.0
         assert t.end_ts == _ts(10)
         assert result.action_changed is True
 
     def test_peak_tracking_temp_still_rising(self):
-        """Test Peak tracking temp still rising."""
+        """Test Peak tracking temperature still rising."""
         t = HeatingPowerTracker()
         t._prev_action = HVACAction.IDLE
-        t.start_temp = 19.0
+        t.start_temperature = 19.0
         t.start_ts = _NOW
-        t.end_temp = 21.0
+        t.end_temperature = 21.0
         t.end_ts = _ts(10)
 
         t.update(21.5, HVACAction.IDLE, _ts(12))
-        assert t.end_temp == 21.5
+        assert t.end_temperature == 21.5
         assert t.end_ts == _ts(12)
 
 
@@ -187,7 +187,7 @@ class TestHeatingPowerTrackerFinalization:
 
     def _run_complete_cycle(
         self,
-        start_temp: float = 19.0,
+        start_temperature: float = 19.0,
         peak_temp: float = 21.0,
         duration_min: float = 10.0,
         initial_power: float = 0.05,
@@ -198,7 +198,7 @@ class TestHeatingPowerTrackerFinalization:
         t = HeatingPowerTracker(heating_power=initial_power)
 
         # Start heating
-        t.update(start_temp, HVACAction.HEATING, _NOW)
+        t.update(start_temperature, HVACAction.HEATING, _NOW)
         # Stop heating (candidate end)
         t.update(peak_temp, HVACAction.IDLE, _ts(duration_min))
         # Temperature drops → finalize
@@ -212,7 +212,7 @@ class TestHeatingPowerTrackerFinalization:
         return t, result
 
     def test_finalization_on_temp_drop(self):
-        """Test Finalization on temp drop."""
+        """Test Finalization on temperature drop."""
         t, result = self._run_complete_cycle()
         assert result.cycle_result is not None
         assert isinstance(result.cycle_result, CycleResult)
@@ -244,19 +244,22 @@ class TestHeatingPowerTrackerFinalization:
         assert t.heating_power == 0.05  # unchanged
 
     def test_negative_temp_diff_discarded(self):
-        """If end_temp < start_temp the cycle is discarded."""
+        """If end_temperature < start_temperature the cycle is discarded."""
         t = HeatingPowerTracker(heating_power=0.05)
         t.update(21.0, HVACAction.HEATING, _NOW)
         t.update(20.0, HVACAction.IDLE, _ts(5))
         result = t.update(19.5, HVACAction.IDLE, _ts(6))
-        # Finalize triggered but temp_diff <= 0
+        # Finalize triggered but delta_kelvin <= 0
         assert result.cycle_result is not None
         assert t.heating_power == 0.05  # unchanged
 
     def test_ema_smoothing_correctness(self):
         """Verify the EMA formula is applied correctly."""
         t, _ = self._run_complete_cycle(
-            start_temp=19.0, peak_temp=21.0, duration_min=10.0, initial_power=0.05
+            start_temperature=19.0,
+            peak_temp=21.0,
+            duration_min=10.0,
+            initial_power=0.05,
         )
         # heating_rate = 2.0/10 = 0.2
         # weight_factor with target=22, min=18, max=21 (updated to max(21,22)=22)
@@ -272,7 +275,7 @@ class TestHeatingPowerTrackerFinalization:
         from custom_components.better_thermostat.utils.const import MIN_HEATING_POWER
 
         t = HeatingPowerTracker(heating_power=MIN_HEATING_POWER)
-        # Very tiny temp rise
+        # Very tiny temperature rise
         t.update(19.0, HVACAction.HEATING, _NOW)
         t.update(19.001, HVACAction.IDLE, _ts(10))
         t.update(18.9, HVACAction.IDLE, _ts(11), heat_target_temperature=20.0)
@@ -283,7 +286,7 @@ class TestHeatingPowerTrackerFinalization:
         from custom_components.better_thermostat.utils.const import MAX_HEATING_POWER
 
         t = HeatingPowerTracker(heating_power=MAX_HEATING_POWER)
-        # Huge temp rise in short time
+        # Huge temperature rise in short time
         t.update(15.0, HVACAction.HEATING, _NOW)
         t.update(30.0, HVACAction.IDLE, _ts(1.5))
         t.update(29.0, HVACAction.IDLE, _ts(2), heat_target_temperature=25.0)
@@ -339,11 +342,11 @@ class TestHeatingPowerTrackerFinalization:
         entry = t.cycles[0]
         assert "start" in entry
         assert "end" in entry
-        assert "temp_start" in entry
-        assert "temp_peak" in entry
+        assert "start_temperature" in entry
+        assert "peak_temperature" in entry
         assert "delta_kelvin" in entry
         assert "minutes" in entry
-        assert "rate_c_min" in entry
+        assert "rate_kelvin_per_min" in entry
 
     def test_reset_power(self):
         """Test Reset power."""
@@ -391,8 +394,8 @@ class TestHeatingPowerTrackerFinalization:
     def test_cycle_resets_state(self):
         """After finalization, start/end temps and timestamps should be None."""
         t, _ = self._run_complete_cycle()
-        assert t.start_temp is None
-        assert t.end_temp is None
+        assert t.start_temperature is None
+        assert t.end_temperature is None
         assert t.start_ts is None
         assert t.end_ts is None
 
@@ -408,15 +411,15 @@ class TestHeatLossTrackerWindowOpen:
     def test_window_open_resets_tracking(self):
         """Test Window open resets tracking."""
         t = HeatLossTracker()
-        t.start_temp = 21.0
+        t.start_temperature = 21.0
         t.start_ts = _NOW
-        t.end_temp = 20.0
+        t.end_temperature = 20.0
         t.end_ts = _ts(5)
 
         result = t.update(19.0, HVACAction.IDLE, _ts(10), window_open=True)
-        assert t.start_temp is None
+        assert t.start_temperature is None
         assert t.start_ts is None
-        assert t.end_temp is None
+        assert t.end_temperature is None
         assert t.end_ts is None
         assert result.cycle_result is None
 
@@ -426,7 +429,7 @@ class TestHeatLossTrackerWindowOpen:
         t.update(21.0, HVACAction.IDLE, _NOW)
         t.update(20.5, HVACAction.IDLE, _ts(5))
         t.update(20.0, HVACAction.IDLE, _ts(10), window_open=True)
-        assert t.start_temp is None
+        assert t.start_temperature is None
 
 
 class TestHeatLossTrackerIdle:
@@ -436,9 +439,9 @@ class TestHeatLossTrackerIdle:
         """Test Idle starts tracking."""
         t = HeatLossTracker()
         t.update(21.0, HVACAction.IDLE, _NOW)
-        assert t.start_temp == 21.0
+        assert t.start_temperature == 21.0
         assert t.start_ts == _NOW
-        assert t.end_temp == 21.0
+        assert t.end_temperature == 21.0
 
     def test_tracks_lowest_temperature(self):
         """Test Tracks lowest temperature."""
@@ -446,15 +449,15 @@ class TestHeatLossTrackerIdle:
         t.update(21.0, HVACAction.IDLE, _NOW)
         t.update(20.5, HVACAction.IDLE, _ts(5))
         t.update(20.0, HVACAction.IDLE, _ts(10))
-        assert t.end_temp == 20.0
+        assert t.end_temperature == 20.0
 
     def test_ignores_higher_temps(self):
-        """Once tracking, a higher temp should not update end_temp."""
+        """Once tracking, a higher temperature should not update end_temperature."""
         t = HeatLossTracker()
         t.update(21.0, HVACAction.IDLE, _NOW)
         t.update(20.0, HVACAction.IDLE, _ts(5))
         t.update(20.5, HVACAction.IDLE, _ts(10))
-        assert t.end_temp == 20.0  # still the lowest
+        assert t.end_temperature == 20.0  # still the lowest
 
 
 class TestHeatLossTrackerFinalization:
@@ -462,15 +465,15 @@ class TestHeatLossTrackerFinalization:
 
     def _run_complete_loss_cycle(
         self,
-        start_temp: float = 21.0,
-        end_temp: float = 20.0,
+        start_temperature: float = 21.0,
+        end_temperature: float = 20.0,
         duration_min: float = 10.0,
         initial_loss: float = 0.01,
     ) -> tuple[HeatLossTracker, HeatLossUpdate]:
         t = HeatLossTracker(heat_loss_rate=initial_loss)
-        t.update(start_temp, HVACAction.IDLE, _NOW)
-        t.update(end_temp, HVACAction.IDLE, _ts(duration_min))
-        result = t.update(end_temp, HVACAction.HEATING, _ts(duration_min + 1))
+        t.update(start_temperature, HVACAction.IDLE, _NOW)
+        t.update(end_temperature, HVACAction.IDLE, _ts(duration_min))
+        result = t.update(end_temperature, HVACAction.HEATING, _ts(duration_min + 1))
         return t, result
 
     def test_finalization_on_heating_restart(self):
@@ -498,7 +501,10 @@ class TestHeatLossTrackerFinalization:
     def test_ema_smoothing(self):
         """Verify loss rate moves toward observed rate."""
         t, _ = self._run_complete_loss_cycle(
-            start_temp=22.0, end_temp=20.0, duration_min=20.0, initial_loss=0.01
+            start_temperature=22.0,
+            end_temperature=20.0,
+            duration_min=20.0,
+            initial_loss=0.01,
         )
         # rate = 2/20 = 0.1, EMA: 0.01*0.9 + 0.1*0.1 = 0.019
         assert t.heat_loss_rate == pytest.approx(0.019, rel=0.01)
@@ -541,8 +547,8 @@ class TestHeatLossTrackerFinalization:
         entry = t.cycles[0]
         assert "start" in entry
         assert "end" in entry
-        assert "temp_start" in entry
-        assert "temp_min" in entry
+        assert "start_temperature" in entry
+        assert "min_temperature" in entry
         assert "rate" in entry
 
     def test_no_finalize_without_data(self):
@@ -554,7 +560,7 @@ class TestHeatLossTrackerFinalization:
     def test_cycle_resets_state(self):
         """After finalization, tracking state should be cleared."""
         t, _ = self._run_complete_loss_cycle()
-        assert t.start_temp is None
-        assert t.end_temp is None
+        assert t.start_temperature is None
+        assert t.end_temperature is None
         assert t.start_ts is None
         assert t.end_ts is None

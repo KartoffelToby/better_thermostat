@@ -249,21 +249,23 @@ async def set_temperature(
 
     # Clamp to device min/max if available
     trv = self.real_trvs.get(entity_id)
-    t_min_raw = trv.min_temp if trv is not None else None
-    t_max_raw = trv.max_temp if trv is not None else None
-    t_min = None
-    t_max = None
+    min_temperature_raw = trv.min_temp if trv is not None else None
+    max_temperature_raw = trv.max_temp if trv is not None else None
+    min_temperature = None
+    max_temperature = None
     try:
-        if t_min_raw is not None:
-            t_min = float(t_min_raw)
-        if t_max_raw is not None:
-            t_max = float(t_max_raw)
+        if min_temperature_raw is not None:
+            min_temperature = float(min_temperature_raw)
+        if max_temperature_raw is not None:
+            max_temperature = float(max_temperature_raw)
     except TypeError, ValueError:
-        t_min = None
-        t_max = None
-    if isinstance(t_min, (int, float)) and isinstance(t_max, (int, float)):
-        low = float(t_min)
-        high = float(t_max)
+        min_temperature = None
+        max_temperature = None
+    if isinstance(min_temperature, (int, float)) and isinstance(
+        max_temperature, (int, float)
+    ):
+        low = float(min_temperature)
+        high = float(max_temperature)
         rv = float(rounded) if isinstance(rounded, (int, float)) else float(t)
         if rv < low:
             rounded = low
@@ -657,7 +659,7 @@ async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> bool:
         has no valve channel or every attempt raised
     """
     try:
-        target_pct = int(valve)
+        target_percent = int(valve)
     except TypeError, ValueError, OverflowError:
         # `int()` refuses the infinities with OverflowError rather than
         # ValueError, and a position that cannot be converted is not one to
@@ -681,9 +683,9 @@ async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> bool:
                 self,
                 entity_id,
                 f"valve {method}",
-                f"valve position {target_pct}% through the {method} channel",
+                f"valve position {target_percent}% through the {method} channel",
                 write,
-                target_pct,
+                target_percent,
             )
         except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
             continue
@@ -691,7 +693,7 @@ async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> bool:
             continue
         # A channel exists only for a TRV the thermostat holds.
         trv = self.real_trvs[entity_id]
-        trv.last_valve_percent = target_pct
+        trv.last_valve_percent = target_percent
         trv.last_valve_method = method
         return True
     return False

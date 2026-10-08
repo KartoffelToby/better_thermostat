@@ -400,7 +400,7 @@ async def test_a_device_parked_at_its_minimum_keeps_the_room_off(hass, fake_trv)
     assert await wait_for(hass, lambda: _device_setpoint(hass) < 68.0, timeout_s=2.0)
     trv = bt.real_trvs[TRV_ID]
     assert await wait_for(
-        hass, lambda: trv.target_temp_received and not bt.ignore_states
+        hass, lambda: trv.target_temperature_received and not bt.ignore_states
     )
 
     # The head's next routine report carries the parked setpoint again.
@@ -432,7 +432,7 @@ async def test_a_device_turned_down_to_its_own_minimum_switches_the_room_off(
 
     trv = bt.real_trvs[TRV_ID]
     assert await wait_for(
-        hass, lambda: trv.target_temp_received and not bt.ignore_states
+        hass, lambda: trv.target_temperature_received and not bt.ignore_states
     )
 
     # A turn at the device reaches Home Assistant as a state of its own,

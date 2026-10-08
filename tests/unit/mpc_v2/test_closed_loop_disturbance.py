@@ -160,7 +160,7 @@ def _ceiling(plant: PlantParams, outdoor: float, free_heat: float) -> float:
     return (g * water + k * (outdoor + free_heat * plant.tau_room_min)) / (g + k)
 
 
-def _start_temp(outdoor: float, free_heat: float, setpoint: float) -> float:
+def _start_temperature(outdoor: float, free_heat: float, setpoint: float) -> float:
     """Return a start temperature the room can hold at ``setpoint``."""
     return min(setpoint, _ceiling(PlantParams(), outdoor, free_heat) - 0.5)
 
@@ -173,7 +173,7 @@ def _step_run(outdoor: float, free_heat: float) -> _Trace:
         outdoor=outdoor,
         free_heat_k_per_min=free_heat,
         setpoint_at=lambda h: STEP_FROM_SETPOINT if h < STEP_AT_H else SETPOINT,
-        start=_start_temp(outdoor, free_heat, STEP_FROM_SETPOINT),
+        start=_start_temperature(outdoor, free_heat, STEP_FROM_SETPOINT),
     )
 
 
@@ -185,7 +185,7 @@ def _gap_run(outdoor: float, free_heat: float) -> _Trace:
         outdoor=outdoor,
         free_heat_k_per_min=free_heat,
         setpoint_at=lambda h: SETPOINT,
-        start=_start_temp(outdoor, free_heat, SETPOINT),
+        start=_start_temperature(outdoor, free_heat, SETPOINT),
         window_open_h=WINDOW_OPEN_H,
     )
 

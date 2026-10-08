@@ -95,7 +95,7 @@ def accepts_user_setpoint(
     Parameters
     ----------
     trv
-        The device that reported the setpoint. ``target_temp_received``
+        The device that reported the setpoint. ``target_temperature_received``
         and ``system_mode_received`` say whether BT's own commands have
         landed, ``hvac_mode`` says whether the device is off, and
         ``ignore_trv_states`` is set while BT drives the device.
@@ -120,7 +120,7 @@ def accepts_user_setpoint(
     return (
         not is_echo
         and not child_lock
-        and trv.target_temp_received is True
+        and trv.target_temperature_received is True
         and trv.system_mode_received is True
         and trv.hvac_mode != HVACMode.OFF
         and not was_off
@@ -194,7 +194,7 @@ def _held_setpoint(self: BetterThermostat, state: State | None) -> float | None:
 
 
 def _read_internal_temperature_later(
-    self: BetterThermostat, trv: Trv, entity_id: str, interval_s: float
+    self: BetterThermostat, trv: Trv, entity_id: str, interval_seconds: float
 ) -> None:
     """Read a device's internal temperature again once its debounce is over.
 
@@ -218,7 +218,7 @@ def _read_internal_temperature_later(
         return
     started = False
 
-    async def _wait(delay_s: float) -> None:
+    async def _wait(delay_seconds: float) -> None:
         due: asyncio.Future[None] = self.hass.loop.create_future()
 
         @callback
@@ -226,7 +226,7 @@ def _read_internal_temperature_later(
             if not due.done():
                 due.set_result(None)
 
-        cancel_timer = async_call_later(self.hass, delay_s, _due)
+        cancel_timer = async_call_later(self.hass, delay_seconds, _due)
         try:
             await due
         finally:
@@ -240,7 +240,7 @@ def _read_internal_temperature_later(
                 _last = trv.last_internal_sensor_change
                 if _last is None:
                     break
-                _remaining = interval_s - (dt_util.now() - _last).total_seconds()
+                _remaining = interval_seconds - (dt_util.now() - _last).total_seconds()
                 if _remaining <= 0:
                     break
                 await _wait(max(0.1, _remaining))
@@ -355,7 +355,7 @@ async def trigger_trv_change(
             trv.current_temperature = None
         # The next valid reading is the first live data after the
         # outage and must not be dropped by the debounce below.
-        trv.accept_next_internal_temp = True
+        trv.accept_next_internal_temperature = True
         # Reachability/fail-soft state must re-evaluate now; otherwise it
         # stays stale until the next unrelated event.
         self.async_write_ha_state()
@@ -396,41 +396,41 @@ async def trigger_trv_change(
             exc_info=True,
         )
 
-    _new_current_temp = attr_to_celsius(
+    _new_current_temperature = attr_to_celsius(
         self, _org_trv_state, "current_temperature", None, "TRV_current_temp"
     )
     # Only a report that carries no readable internal temperature invalidates
     # the stored one; a marker value such as AVM's 126.5 / 127 °C is ignored
     # below and leaves the stored reading in place.
-    _reports_no_temp = _new_current_temp is None
+    _reports_no_temperature = _new_current_temperature is None
     # SENSOR_FALLBACK counts a stored reading only while the TRV's report
     # confirms it. A report that turns a plausible reading into a marker
     # value takes the TRV out of the mean, and one that turns a marker value
     # back into a plausible reading puts it back, so either moves the room
     # temperature the control law reads while the stored value stays.
-    _previous_temp = attr_to_celsius(
+    _previous_temperature = attr_to_celsius(
         self, old_state, "current_temperature", None, "TRV_previous_temp"
     )
     if (
         self.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
         and trv.current_temperature is not None
-        and _new_current_temp is not None
-        and _previous_temp is not None
-        and is_reasonable_temperature(_new_current_temp)
-        != is_reasonable_temperature(_previous_temp)
+        and _new_current_temperature is not None
+        and _previous_temperature is not None
+        and is_reasonable_temperature(_new_current_temperature)
+        != is_reasonable_temperature(_previous_temperature)
     ):
         _main_change = True
-    if _new_current_temp is not None and not is_reasonable_temperature(
-        _new_current_temp
+    if _new_current_temperature is not None and not is_reasonable_temperature(
+        _new_current_temperature
     ):
         _LOGGER.warning(
             "better_thermostat %s: TRV %s reports implausible current_temperature "
             "%s; ignoring",
             self.device_name,
             entity_id,
-            _new_current_temp,
+            _new_current_temperature,
         )
-        _new_current_temp = None
+        _new_current_temperature = None
 
     # A HomematicIP valve is radio-duty-cycle limited and is therefore read
     # far apart; every other integration only needs the short anti-flicker
@@ -439,7 +439,7 @@ async def trigger_trv_change(
     # not hold back the internal temperature of the other valves in the room.
     _time_diff = 600 if advanced_flag(advanced, CONF_HOMEMATICIP) else 5
     _last_internal_change = trv.last_internal_sensor_change
-    if _reports_no_temp:
+    if _reports_no_temperature:
         # A report without an internal temperature leaves no live value to
         # keep: the stored one would otherwise feed SENSOR_FALLBACK and the
         # ladder for as long as the device keeps reporting without it.
@@ -454,26 +454,26 @@ async def trigger_trv_change(
             trv.current_temperature = None
             # The next valid reading is the first live data after the gap
             # and must not be dropped by the debounce below.
-            trv.accept_next_internal_temp = True
+            trv.accept_next_internal_temperature = True
             _main_change = True
     elif (
-        _new_current_temp is not None
-        and trv.current_temperature != _new_current_temp
+        _new_current_temperature is not None
+        and trv.current_temperature != _new_current_temperature
         and (
-            trv.consume_accept_next_internal_temp()
+            trv.consume_accept_next_internal_temperature()
             or _last_internal_change is None
             or (dt_util.now() - _last_internal_change).total_seconds() > _time_diff
             or (trv.calibration_received is False and trv.calibration != 1)
         )
     ):
-        _old_temp = trv.current_temperature
-        trv.current_temperature = _new_current_temp
+        _old_temperature = trv.current_temperature
+        trv.current_temperature = _new_current_temperature
         _LOGGER.debug(
             "better_thermostat %s: TRV %s sends new internal temperature from %s to %s",
             self.device_name,
             entity_id,
-            _old_temp,
-            _new_current_temp,
+            _old_temperature,
+            _new_current_temperature,
         )
         trv.last_internal_sensor_change = dt_util.now()
         _main_change = True
@@ -507,8 +507,8 @@ async def trigger_trv_change(
         if self.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK:
             _main_change = True
     elif (
-        _new_current_temp is not None
-        and trv.current_temperature != _new_current_temp
+        _new_current_temperature is not None
+        and trv.current_temperature != _new_current_temperature
         and _last_internal_change is not None
     ):
         # Turned away by the debounce alone: the reading is read again once
@@ -816,7 +816,7 @@ async def trigger_trv_change(
             # debug log instead of guesswork.
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s setpoint change %s -> %s NOT adopted "
-                "(echo=%s child_lock=%s target_temp_received=%s system_mode_received=%s "
+                "(echo=%s child_lock=%s target_temperature_received=%s system_mode_received=%s "
                 "hvac_mode=%s window_open=%s door_open=%s ignore_trv_states=%s "
                 "heat_target_temperature=%s commanded_setpoint=%s pending_setpoints=%s step=%s)",
                 self.device_name,
@@ -825,7 +825,7 @@ async def trigger_trv_change(
                 _reported_setpoint,
                 _is_echo,
                 child_lock,
-                trv.target_temp_received,
+                trv.target_temperature_received,
                 trv.system_mode_received,
                 trv.hvac_mode,
                 self.window_open,

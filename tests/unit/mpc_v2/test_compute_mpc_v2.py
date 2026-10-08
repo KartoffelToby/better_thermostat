@@ -634,7 +634,7 @@ def test_non_finite_input_holds_last_command(caplog) -> None:
 def test_cooling_case_settles_at_zero_valve() -> None:
     """When target < current and outdoor is cool, the valve must close."""
     state: MpcV2State | None = None
-    last_pct = None
+    last_percent = None
     for _ in range(60):
         out, state = compute_mpc_v2(
             _baseline_input(
@@ -649,10 +649,10 @@ def test_cooling_case_settles_at_zero_valve() -> None:
         assert out is not None
         # No negative percent ever — the QP is bounded to u_min=0.
         assert out.valve_percent >= 0
-        last_pct = out.valve_percent
+        last_percent = out.valve_percent
 
     # After 60 cycles the Δu ramp has had plenty of time to walk down to 0.
-    assert last_pct == 0, f"expected fully closed valve, got {last_pct}%"
+    assert last_percent == 0, f"expected fully closed valve, got {last_percent}%"
 
 
 def test_zero_error_holds_steady() -> None:

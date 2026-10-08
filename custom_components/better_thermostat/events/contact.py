@@ -259,7 +259,7 @@ async def trigger_contact_change(
 
     if new_contact_open:
         # contact was opened, disable heating power calculation for this period
-        self._heating_tracker.start_temp = None
+        self._heating_tracker.start_temperature = None
         self.async_write_ha_state()
 
     # Step the region; the queued task settles it (the region owns the

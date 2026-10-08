@@ -102,7 +102,7 @@ async def _configure_heating_power(hass, bt):
     path a learned one travels.
     """
     bt.heating_power = LEARNED_HEATING_POWER
-    bt.schedule_save_state(delay_s=0)
+    bt.schedule_save_state(delay_seconds=0)
     bt.async_write_ha_state()
     await hass.async_block_till_done()
 

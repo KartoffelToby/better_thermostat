@@ -116,7 +116,7 @@ def mock_bt():
                 "temperature": 19.0,
                 "commanded_setpoint": 19.0,
                 "last_hvac_mode": "heat",
-                "target_temp_received": True,
+                "target_temperature_received": True,
                 "system_mode_received": True,
                 "calibration_received": True,
                 "calibration": 1,
@@ -186,7 +186,7 @@ def _add_homematicip_peer(bt):
             "temperature": 19.0,
             "commanded_setpoint": 19.0,
             "last_hvac_mode": "heat",
-            "target_temp_received": True,
+            "target_temperature_received": True,
             "system_mode_received": True,
             "calibration_received": True,
             "calibration": 1,
@@ -341,8 +341,8 @@ class TestInternalTemperatureChange:
     @pytest.mark.asyncio
     async def test_temp_change_updates_cache(self, mock_bt):
         """A new TRV temperature reading should update the cache."""
-        new_temp = 20.0
-        trv_state = _make_state(attributes={"current_temperature": new_temp})
+        new_temperature = 20.0
+        trv_state = _make_state(attributes={"current_temperature": new_temperature})
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
         mock_bt.real_trvs[ENTITY_ID].calibration_received = True
@@ -355,7 +355,7 @@ class TestInternalTemperatureChange:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.real_trvs[ENTITY_ID].current_temperature == new_temp
+        assert mock_bt.real_trvs[ENTITY_ID].current_temperature == new_temperature
 
     @pytest.mark.asyncio
     async def test_unavailable_trv_invalidates_internal_temperature(self, mock_bt):
@@ -657,7 +657,7 @@ class TestInternalTemperatureChange:
 
     @pytest.mark.asyncio
     async def test_calibration_received_flag_set(self, mock_bt):
-        """calibration_received should be set True on first temp change."""
+        """calibration_received should be set True on first temperature change."""
         mock_bt.real_trvs[ENTITY_ID].calibration_received = False
         mock_bt.real_trvs[ENTITY_ID].calibration = 1
         trv_state = _make_state(attributes={"current_temperature": 20.0})
@@ -3422,7 +3422,7 @@ class TestConvertOutboundStates:
         assert result["temperature"] == mock_bt.heat_target_temperature
 
     def test_off_without_off_in_mode_list_still_substitutes_min_temp(self, mock_bt):
-        """OFF stays exempt from the clamp so the min-temp branch fires."""
+        """OFF stays exempt from the clamp so the min-temperature branch fires."""
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.AUTO, HVACMode.HEAT]
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
 
@@ -3547,7 +3547,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
                 "temperature": 19.0,
                 "commanded_setpoint": 19.0,
                 "last_hvac_mode": "heat",
-                "target_temp_received": True,
+                "target_temperature_received": True,
                 "system_mode_received": True,
                 "calibration_received": True,
                 "calibration": 1,
@@ -3852,7 +3852,9 @@ class TestDualRoleEntityReports:
         return mock_bt
 
     @staticmethod
-    async def _report(bt, *, device_mode, reported_temp, previous_temp, step=None):
+    async def _report(
+        bt, *, device_mode, reported_temp, previous_temperature, step=None
+    ):
         """Drive one device report through the real TRV handler.
 
         ``step`` is the setpoint step the device publishes, if any.
@@ -3861,7 +3863,7 @@ class TestDualRoleEntityReports:
         old_state = _make_state(
             state_str=device_mode,
             attributes={
-                "temperature": previous_temp,
+                "temperature": previous_temperature,
                 "current_temperature": 22.0,
                 **published,
             },
@@ -3901,7 +3903,7 @@ class TestDualRoleEntityReports:
         moment the room switches to cooling.
         """
         await self._report(
-            shared_bt, device_mode="cool", reported_temp=24.0, previous_temp=20.0
+            shared_bt, device_mode="cool", reported_temp=24.0, previous_temperature=20.0
         )
 
         assert shared_bt.heat_target_temperature == 20.0
@@ -3921,7 +3923,7 @@ class TestDualRoleEntityReports:
         shared_bt.cool_max_temperature = 31.0
 
         await self._report(
-            shared_bt, device_mode="cool", reported_temp=29.0, previous_temp=24.0
+            shared_bt, device_mode="cool", reported_temp=29.0, previous_temperature=24.0
         )
 
         assert shared_bt.cool_target_temperature == 29.0
@@ -3933,7 +3935,7 @@ class TestDualRoleEntityReports:
     ):
         """A press on the remote while the unit cools names the cool target."""
         await self._report(
-            shared_bt, device_mode="cool", reported_temp=26.0, previous_temp=24.0
+            shared_bt, device_mode="cool", reported_temp=26.0, previous_temperature=24.0
         )
 
         assert shared_bt.cool_target_temperature == 26.0
@@ -3946,7 +3948,7 @@ class TestDualRoleEntityReports:
     ):
         """A press on the remote while the unit heats names the heat target."""
         await self._report(
-            shared_bt, device_mode="heat", reported_temp=21.0, previous_temp=20.0
+            shared_bt, device_mode="heat", reported_temp=21.0, previous_temperature=20.0
         )
 
         assert shared_bt.heat_target_temperature == 21.0
@@ -3966,7 +3968,7 @@ class TestDualRoleEntityReports:
         shared_bt._cooler_last_sent = {"hvac_mode_decided": HVACMode.COOL}
 
         await self._report(
-            shared_bt, device_mode="heat", reported_temp=26.0, previous_temp=20.0
+            shared_bt, device_mode="heat", reported_temp=26.0, previous_temperature=20.0
         )
 
         assert shared_bt.cool_target_temperature == 26.0
@@ -3987,7 +3989,7 @@ class TestDualRoleEntityReports:
             shared_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
 
         await self._report(
-            shared_bt, device_mode="heat", reported_temp=22.0, previous_temp=22.0
+            shared_bt, device_mode="heat", reported_temp=22.0, previous_temperature=22.0
         )
 
         assert shared_bt.heat_target_temperature == 20.0
@@ -4015,7 +4017,7 @@ class TestDualRoleEntityReports:
             shared_bt,
             device_mode="cool",
             reported_temp=pressed,
-            previous_temp=held,
+            previous_temperature=held,
             step=1.0,
         )
 
@@ -4042,7 +4044,7 @@ class TestDualRoleEntityReports:
             shared_bt,
             device_mode="cool",
             reported_temp=held,
-            previous_temp=20.0,
+            previous_temperature=20.0,
             step=1.0,
         )
 
@@ -4072,7 +4074,10 @@ class TestDualRoleEntityReports:
         shared_bt._cooler_last_sent = {"temperature": ((75.0 - 32.0) * 5.0 / 9.0, 0.0)}
 
         await self._report(
-            shared_bt, device_mode="cool", reported_temp=pressed, previous_temp=75.0
+            shared_bt,
+            device_mode="cool",
+            reported_temp=pressed,
+            previous_temperature=75.0,
         )
 
         assert shared_bt.heat_target_temperature == 20.0
@@ -4099,7 +4104,7 @@ class TestDualRoleEntityReports:
         mock_bt.real_trvs[ENTITY_ID].max_temp = 30.0
 
         await self._report(
-            mock_bt, device_mode="heat", reported_temp=24.0, previous_temp=19.0
+            mock_bt, device_mode="heat", reported_temp=24.0, previous_temperature=19.0
         )
 
         assert mock_bt.heat_target_temperature == 23.5
@@ -4188,7 +4193,7 @@ class TestOutageReportThroughTheListener:
             spawned.clear()
 
             assert trv.current_temperature is None
-            assert trv.accept_next_internal_temp is True
+            assert trv.accept_next_internal_temperature is True
 
             mock_bt.hass.states.get.side_effect = lambda entity_id: (
                 recovered if entity_id == ENTITY_ID else routed_states(entity_id)
@@ -4715,7 +4720,7 @@ class TestHeadsThatStayOffTheAir:
         """
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.current_temperature = None
-        trv.accept_next_internal_temp = False
+        trv.accept_next_internal_temperature = False
         unavailable = _make_state("unavailable", {"current_temperature": 18.0})
         mock_bt.hass.states.get.return_value = unavailable
 
@@ -4727,7 +4732,7 @@ class TestHeadsThatStayOffTheAir:
             )
 
         assert trv.current_temperature is None
-        assert trv.accept_next_internal_temp is True
+        assert trv.accept_next_internal_temperature is True
         request.assert_called_once_with(mock_bt)
         mock_bt.async_write_ha_state.assert_called_once()
 

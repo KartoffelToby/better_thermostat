@@ -2369,7 +2369,7 @@ class TestAFailedCopyThatRecovers:
     async def _runtime_save(hass, manager: StateManager) -> None:
         """Schedule a runtime save and let it run."""
         manager.mark_dirty()
-        manager.schedule_delay_save(delay_s=1.0)
+        manager.schedule_delay_save(delay_seconds=1.0)
         await hass.async_block_till_done(wait_background_tasks=True)
         async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=5))
         await hass.async_block_till_done(wait_background_tasks=True)
@@ -2407,7 +2407,7 @@ class TestAFailedCopyThatRecovers:
                 clock["now"] += 1
                 done = disk["attempts"]
                 manager.mark_dirty()
-                manager.schedule_delay_save(delay_s=1.0)
+                manager.schedule_delay_save(delay_seconds=1.0)
                 await hass.async_block_till_done(wait_background_tasks=True)
                 if disk["attempts"] > done:
                     attempts.append(clock["now"] - start)
@@ -2433,7 +2433,7 @@ class TestAFailedCopyThatRecovers:
             for _ in range(20):
                 clock["now"] += 3600
                 manager.mark_dirty()
-                manager.schedule_delay_save(delay_s=1.0)
+                manager.schedule_delay_save(delay_seconds=1.0)
                 await hass.async_block_till_done(wait_background_tasks=True)
 
         assert disk["attempts"] == 21
@@ -2481,7 +2481,7 @@ class TestAFailedCopyThatRecovers:
             manager = await self._loaded(hass, hass_storage)
             manager.mark_dirty()
             manager.schedule_delay_save(
-                pre_save=lambda: recorded.append(True), delay_s=1.0
+                pre_save=lambda: recorded.append(True), delay_seconds=1.0
             )
             await hass.async_block_till_done(wait_background_tasks=True)
             disk["full"] = False
@@ -2658,7 +2658,7 @@ class TestAFailedCopyThatRecovers:
             with patch.object(storage.Store, "_async_write_data", _gated):
                 clock["now"] += 61
                 manager.mark_dirty()
-                manager.schedule_delay_save(delay_s=1.0)
+                manager.schedule_delay_save(delay_seconds=1.0)
                 await asyncio.wait_for(entered.wait(), timeout=5)
 
                 manager.close()
