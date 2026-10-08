@@ -53,6 +53,34 @@ GLOSSARY = textwrap.dedent(
     """
 )
 
+# A word rejected wherever it stands and unit suffixes rejected at the end of a
+# name.
+PARTS = textwrap.dedent(
+    """
+    [[word]]
+    name = "temperature"
+    definition = "Never `temp`."
+    rejected = ["temp"]
+
+    [[modifier]]
+    name = "_seconds"
+    definition = "A duration in seconds."
+    rejected = ["_s"]
+
+    [[modifier]]
+    name = "_minutes"
+    definition = "A duration in minutes."
+    rejected = ["_min"]
+    """
+)
+
+NOTATION_PYPROJECT = textwrap.dedent(
+    """
+    [tool.better_thermostat.pep8-naming]
+    notation-paths = ["custom_components/calibration/**"]
+    """
+)
+
 # Six spellings of `cfg`, two of them identifiers. The module docstring, the
 # function docstring, the comment and the dict key are the other four, and a
 # rename may touch none of them.
@@ -93,6 +121,7 @@ def checker(tmp_path, monkeypatch):
     monkeypatch.setattr(script, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(script, "GLOSSARY_FILE", glossary)
     monkeypatch.setattr(script, "BUDGET_FILE", tmp_path / "budget.json")
+    monkeypatch.setattr(script, "PYPROJECT_FILE", tmp_path / "pyproject.toml")
     monkeypatch.setattr(script, "SCANNED", ("custom_components", "tests"))
     return script
 
@@ -480,3 +509,157 @@ def test_overlapping_roots_scan_each_file_once(checker):
     root = checker.REPO_ROOT / "custom_components"
     overlapping = [root, root / "loader.py"]
     assert len(checker._findings(overlapping, checker._load_glossary())) == 2
+
+
+def _with_parts(checker, extra: str = "") -> None:
+    """Add the word and suffix rules, and *extra*, to the test glossary."""
+    checker.GLOSSARY_FILE.write_text(GLOSSARY + PARTS + extra, encoding="utf-8")
+
+
+def _spelled(checker) -> list[tuple[str, str, str | None]]:
+    """Return each finding as its path, its name and the part it spells."""
+    return [
+        (f.path, f.alias, f.part)
+        for f in checker._findings(None, checker._load_glossary())
+    ]
+
+
+def test_a_rejected_word_counts_wherever_it_stands(checker):
+    """`temp` is a finding as the first, a middle and the last word of a name."""
+    _with_parts(checker)
+    _write(
+        checker,
+        "custom_components/trv.py",
+        "temp_to_send = 1\nlast_temp_seen = 2\ntrv_temp = 3\ntemperature = 4\n",
+    )
+    assert [(name, part) for _, name, part in _spelled(checker)] == [
+        ("temp_to_send", "temp"),
+        ("last_temp_seen", "temp"),
+        ("trv_temp", "temp"),
+    ]
+
+
+def test_a_rejected_suffix_counts_only_at_the_end_of_a_name(checker):
+    """`_s` ends `delay_s`; it is no suffix in `s_count` or in a bare `s`."""
+    _with_parts(checker)
+    _write(
+        checker,
+        "custom_components/delays.py",
+        "delay_s = 1\ns_count = 2\ns = 3\nlocal_calibration_min = 4\n",
+    )
+    assert [(name, part) for _, name, part in _spelled(checker)] == [
+        ("delay_s", "_s"),
+        ("local_calibration_min", "_min"),
+    ]
+
+
+def test_a_suffix_after_per_is_the_denominator_of_a_rate(checker):
+    """`_kelvin_per_min` spells a rate; its `min` is no duration."""
+    _with_parts(checker)
+    _write(checker, "custom_components/slope.py", "slope_kelvin_per_min = 1\n")
+    assert _spelled(checker) == []
+
+
+def test_an_upper_case_constant_follows_its_persisted_string(checker):
+    """A constant named after a stored key spells that key, not a naming choice."""
+    _with_parts(checker)
+    _write(checker, "custom_components/const.py", "CONF_MIN_TEMP = 'min_temp'\n")
+    assert _spelled(checker) == []
+
+
+def test_a_finding_names_the_part_and_its_replacement(checker):
+    """The report says which word to change and what to write instead."""
+    _with_parts(checker)
+    _write(checker, "custom_components/trv.py", "trv_temp = 1\n")
+    [finding] = checker._findings(None, checker._load_glossary())
+    assert str(finding) == (
+        "custom_components/trv.py:1: `trv_temp` spells `temp`, use `temperature`"
+    )
+
+
+def test_a_notation_path_keeps_its_unit_suffixes_but_not_its_words(checker):
+    """`_s` is an SI symbol the notation writes; `temp` is vocabulary there too."""
+    _with_parts(checker)
+    (checker.REPO_ROOT / "pyproject.toml").write_text(
+        NOTATION_PYPROJECT, encoding="utf-8"
+    )
+    _write(checker, "custom_components/calibration/pid.py", "dt_s = 1\ninp_temp = 2\n")
+    assert [(name, part) for _, name, part in _spelled(checker)] == [
+        ("inp_temp", "temp")
+    ]
+
+
+def test_a_reader_of_a_notation_suffix_is_not_charged(checker):
+    """A caller naming a notation parameter carries no naming decision of its own.
+
+    The same suffix on a name the notation does not spell is still a finding.
+    """
+    _with_parts(checker)
+    (checker.REPO_ROOT / "pyproject.toml").write_text(
+        NOTATION_PYPROJECT, encoding="utf-8"
+    )
+    _write(checker, "custom_components/calibration/reid.py", "tau_room_min = 1\n")
+    _write(
+        checker,
+        "custom_components/sensor.py",
+        "fit(tau_room_min=1)\nduration_min = 2\n",
+    )
+    assert _spelled(checker) == [
+        ("custom_components/sensor.py", "duration_min", "_min")
+    ]
+
+
+def test_a_test_reading_a_production_name_with_a_rejected_part_is_not_charged(checker):
+    """The test spells the name production chose, until production renames it."""
+    _with_parts(checker)
+    _write(checker, "custom_components/trv.py", "trv_temp = 1\n")
+    _write(checker, "tests/test_trv.py", "assert trv_temp\nown_temp = 2\n")
+    assert [(path, name) for path, name, _ in _spelled(checker)] == [
+        ("custom_components/trv.py", "trv_temp"),
+        ("tests/test_trv.py", "own_temp"),
+    ]
+
+
+def test_an_exception_clears_a_name_with_a_rejected_part(checker):
+    """A name Home Assistant dictates stays where the exception lists it."""
+    _with_parts(
+        checker,
+        textwrap.dedent(
+            """
+            [[exception]]
+            alias = "min_temp"
+            paths = ["custom_components/climate.py"]
+            reason = "Home Assistant's ClimateEntity property."
+            """
+        ),
+    )
+    _write(checker, "custom_components/climate.py", "min_temp = 1\n")
+    _write(checker, "custom_components/other.py", "min_temp = 1\n")
+    assert [path for path, _, _ in _spelled(checker)] == ["custom_components/other.py"]
+
+
+def test_an_exception_for_a_name_without_a_rejected_part_is_refused(checker):
+    """`minimum` spells no rejected part, so excusing it excuses nothing."""
+    _with_parts(
+        checker,
+        textwrap.dedent(
+            """
+            [[exception]]
+            alias = "minimum"
+            paths = ["custom_components/"]
+            reason = "Nothing to excuse."
+            """
+        ),
+    )
+    with pytest.raises(SystemExit, match="no term rejects minimum"):
+        checker._load_glossary()
+
+
+def test_a_modifier_rejecting_a_spelling_without_underscore_is_refused(checker):
+    """A suffix is written with its underscore; anything else is no suffix."""
+    checker.GLOSSARY_FILE.write_text(
+        GLOSSARY + PARTS.replace('rejected = ["_s"]', 'rejected = ["s"]'),
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="which is no suffix"):
+        checker._load_glossary()
