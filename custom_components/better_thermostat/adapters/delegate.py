@@ -18,6 +18,7 @@ from custom_components.better_thermostat.utils.helpers import (
     sibling_disabled_at_write,
 )
 
+from ..model_fixes.types import ValveChannelQuirk, ValveQuirk
 from ..utils.retry import async_retry, command_cancellation_as_disconnect
 from .types import TrvAdapter
 
@@ -348,12 +349,12 @@ class WriteOutage:
     reported_at: float
 
 
-async def _write_on_channel[T, R](
-    self: AdapterHost,
+async def _write_on_channel[H: AdapterHost, T, R](
+    self: H,
     entity_id: str,
     channel: str,
     what: str,
-    write: Callable[[AdapterHost, str, T], Awaitable[R]],
+    write: Callable[[H, str, T], Awaitable[R]],
     value: T,
 ) -> R:
     """Put one value on one write channel of the TRV and answer the write's answer.
@@ -399,7 +400,7 @@ async def _write_on_channel[T, R](
     device_name = self.device_name
     outage = outages.get(channel)
 
-    async def write_to_device(host: AdapterHost, target: str, payload: T) -> R:
+    async def write_to_device(host: H, target: str, payload: T) -> R:
         with command_cancellation_as_disconnect():
             return await write(host, target, payload)
 
@@ -550,11 +551,11 @@ async def set_calibration_offset(
     return True
 
 
-type ValveWrite = Callable[[AdapterHost, str, int], Awaitable[bool | None]]
+type ValveWrite = Callable[[BetterThermostat, str, int], Awaitable[bool | None]]
 
 
 def _valve_channels(
-    self: AdapterHost, entity_id: str
+    self: BetterThermostat, entity_id: str
 ) -> list[tuple[str, ValveWrite, bool]]:
     """List the channels a valve position can go out through, in the order tried."""
     trv_state = self.real_trvs.get(entity_id)
@@ -589,12 +590,11 @@ def _valve_channels(
     # that ``override_set_valve`` is a channel.
     channels: list[tuple[str, ValveWrite, bool]] = []
     model_quirks = trv_state.model_quirks if trv_state is not None else None
-    quirk_write = getattr(model_quirks, "override_set_valve", None)
-    quirk_has_channel = getattr(model_quirks, "has_valve_channel", None)
-    if quirk_write is not None and (
-        quirk_has_channel is None or quirk_has_channel(self, entity_id)
+    if isinstance(model_quirks, ValveQuirk) and (
+        not isinstance(model_quirks, ValveChannelQuirk)
+        or model_quirks.has_valve_channel(self, entity_id)
     ):
-        channels.append(("override", quirk_write, True))
+        channels.append(("override", model_quirks.override_set_valve, True))
     # A valve entity disabled in Home Assistant since it was adopted drops
     # every write, so it is no channel until it is enabled again.
     if (
@@ -613,7 +613,7 @@ def _valve_channels(
     return channels
 
 
-def valve_channel_available(self: AdapterHost, entity_id: str) -> bool:
+def valve_channel_available(self: BetterThermostat, entity_id: str) -> bool:
     """Whether any channel exists to write the TRV's valve position through.
 
     Without one, the valve is out of reach for a reason that lasts until
@@ -625,7 +625,7 @@ def valve_channel_available(self: AdapterHost, entity_id: str) -> bool:
     return bool(_valve_channels(self, entity_id))
 
 
-async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> bool:
+async def set_valve(self: BetterThermostat, entity_id: str, valve: float) -> bool:
     """Set a new valve position and record the value that went out.
 
     A model quirk's ``override_set_valve`` owns the valve channel where

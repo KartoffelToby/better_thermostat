@@ -40,7 +40,9 @@ async def discover_valve_entity(self: AdapterHost, entity_id: str) -> None:
         Entity ID of the TRV to run the lookup for.
     """
     try:
-        valve = await find_valve_entity(self, entity_id)
+        valve = await find_valve_entity(
+            self, entity_id, trv=self.real_trvs.get(entity_id)
+        )
     except Exception:
         _LOGGER.exception(
             "better_thermostat %s: valve entity discovery for %s failed",

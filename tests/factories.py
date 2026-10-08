@@ -37,6 +37,7 @@ from custom_components.better_thermostat.core.snapshot import (
     WorldSnapshot,
 )
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.controlling import TaskManager
 from custom_components.better_thermostat.utils.preset_manager import PresetManager
 
 DEFAULT_TRV_ID = "climate.trv"
@@ -273,6 +274,7 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
     # thermostat configured without a temperature step and before Home
     # Assistant assigned it a unique id.
     "flight_recorder": FlightRecorder,
+    "task_manager": TaskManager,
     "bt_target_temperature_step": lambda: None,
     "_unique_id": lambda: None,
 }

@@ -99,11 +99,7 @@ class _RegistryHost(Protocol):
 
 
 class _DeviceModelHost(_RegistryHost, Protocol):
-    """The instance surface model detection reads.
-
-    ``model`` is optional and only consulted as a fallback, so it is not part
-    of the required surface.
-    """
+    """The instance surface model detection reads."""
 
     @property
     def device_name(self) -> str:
@@ -186,16 +182,19 @@ _ENABLE_AND_RELOAD: Final = (
 
 
 def _report_disabled_sibling(
-    self: object, trv_entity_id: str, sibling_entity_id: str, role: str, outcome: str
+    self: AdapterProbeHost,
+    trv: Trv | None,
+    trv_entity_id: str,
+    sibling_entity_id: str,
+    role: str,
+    outcome: str,
 ) -> None:
     """Warn that the ``role`` entity of a TRV is disabled in Home Assistant.
 
     The TRV record remembers the warning, so it is logged once per entity
-    while the entity stays disabled. A host without TRV records, such as
-    the config flow, warns on every call.
+    while the entity stays disabled. Without a record, as in the config
+    flow, the warning is logged on every call.
     """
-    trvs = getattr(self, "real_trvs", None)
-    trv = trvs.get(trv_entity_id) if isinstance(trvs, dict) else None
     if trv is not None:
         if sibling_entity_id in trv.disabled_siblings_logged:
             return
@@ -203,7 +202,7 @@ def _report_disabled_sibling(
     _LOGGER.warning(
         "better_thermostat %s: %s, the %s entity of %s, is disabled in Home "
         "Assistant; %s",
-        getattr(self, "device_name", "unknown"),
+        self.device_name,
         sibling_entity_id,
         role,
         trv_entity_id,
@@ -229,6 +228,7 @@ def sibling_disabled_at_write(
         return False
     _report_disabled_sibling(
         self,
+        self.real_trvs.get(trv_entity_id),
         trv_entity_id,
         sibling_entity_id,
         role,
@@ -2302,12 +2302,25 @@ _MODELS_WITHOUT_VALVE_ENTITY = frozenset({"trv-zbt"})
 
 
 async def find_valve_entity(
-    self: AdapterProbeHost, entity_id: str
+    self: AdapterProbeHost, entity_id: str, *, trv: Trv | None = None
 ) -> ValveEntityInfo | None:
     """Locate a per-TRV valve position helper entity, if available.
 
-    Returns a mapping with the entity_id, whether it appears writable, and the
-    detection reason. ``None`` if no related entity could be found.
+    Parameters
+    ----------
+    self : AdapterProbeHost
+        Host providing Home Assistant access and the name to log under.
+    entity_id : str
+        Entity ID of the TRV to look up.
+    trv : Trv or None
+        Record of the TRV, which remembers the warning about a disabled
+        helper so it is logged once; None where no record exists yet.
+
+    Returns
+    -------
+    ValveEntityInfo or None
+        The entity_id, whether it appears writable, and the detection
+        reason; None if no related entity could be found.
     """
     entity_registry = er.async_get(self.hass)
     reg_entity = entity_registry.async_get(entity_id)
@@ -2324,7 +2337,10 @@ async def find_valve_entity(
         base_device.identifiers if base_device is not None else set()
     )
 
-    base_model_id = getattr(base_device, "model_id", None)
+    # Only a main device carries a model; a child device has none.
+    base_model_id = (
+        base_device.model_id if isinstance(base_device, dr.DeviceEntry) else None
+    )
     if (
         isinstance(base_model_id, str)
         and base_model_id.strip().lower() in _MODELS_WITHOUT_VALVE_ENTITY
@@ -2460,7 +2476,7 @@ async def find_valve_entity(
 
     if disabled_match is not None:
         _report_disabled_sibling(
-            self, entity_id, disabled_match, "valve position", _ENABLE_AND_RELOAD
+            self, trv, entity_id, disabled_match, "valve position", _ENABLE_AND_RELOAD
         )
     _LOGGER.debug(
         "better thermostat: Could not find valve position entity for %s", entity_id
@@ -2583,7 +2599,7 @@ _CALIBRATION_ENTITY_DOMAINS: set[str] = {"number", "select"}
 
 
 async def find_local_calibration_entity(
-    self: AdapterProbeHost, entity_id: str
+    self: AdapterProbeHost, entity_id: str, *, trv: Trv | None = None
 ) -> str | None:
     """Find the local calibration entity for the TRV.
 
@@ -2599,6 +2615,9 @@ async def find_local_calibration_entity(
             self instance of better_thermostat
     entity_id :
             entity id of the TRV to find the local calibration entity for
+    trv :
+            record of the TRV, which remembers the warning about a disabled
+            helper so it is logged once; None where no record exists yet
 
     Returns
     -------
@@ -2669,7 +2688,12 @@ async def find_local_calibration_entity(
     if calibration_entity is None:
         if disabled_match is not None:
             _report_disabled_sibling(
-                self, entity_id, disabled_match, "local calibration", _ENABLE_AND_RELOAD
+                self,
+                trv,
+                entity_id,
+                disabled_match,
+                "local calibration",
+                _ENABLE_AND_RELOAD,
             )
         _LOGGER.debug(
             "better thermostat: Could not find local calibration entity for %s",
@@ -2704,7 +2728,9 @@ async def get_trv_intigration(self: _RegistryHost, entity_id: str) -> str:
         return "generic_thermostat"
 
 
-async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
+async def get_device_model(
+    self: _DeviceModelHost, entity_id: str, *, configured_model: str | None = None
+) -> str:
     """Determine the device model from the Device Registry entry.
 
     Priority: model_id > model (before parens) > model > config > "generic"
@@ -2712,11 +2738,13 @@ async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
     Parameters
     ----------
     self :
-            any object exposing ``hass`` and ``device_name``. A ``model``
-            attribute is optional and only consulted as a fallback; callers
-            without one fall through to ``"generic"``.
+            any object exposing ``hass`` and ``device_name``
     entity_id :
             entity id of the TRV to look up
+    configured_model :
+            model the caller already has configured, consulted only when the
+            device registry names none; without one the answer falls through
+            to ``"generic"``
 
     Returns
     -------
@@ -2734,36 +2762,40 @@ async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
         dev_id = entry.device_id if entry is not None else None
         if isinstance(dev_id, str) and dev_id:
             device = dev_reg.async_get(dev_id)
-        # Selection exclusively via Device-Registry
+        # Selection exclusively via Device-Registry. Only a main device
+        # carries a manufacturer and a model; a child device has neither.
+        manufacturer, dev_model, dev_model_id = (
+            (device.manufacturer, device.model, device.model_id)
+            if isinstance(device, dr.DeviceEntry)
+            else (None, None, None)
+        )
         _LOGGER.debug(
             "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",
             self.device_name,
-            getattr(device, "manufacturer", None),
-            getattr(device, "model", None),
-            getattr(device, "model_id", None),
-            getattr(device, "name", None),
-            list(getattr(device, "identifiers", []) or []),
+            manufacturer,
+            dev_model,
+            dev_model_id,
+            device.name if device is not None else None,
+            list(device.identifiers) if device is not None else [],
         )
 
-        dev_model_id = getattr(device, "model_id", None)
         if isinstance(dev_model_id, str) and len(dev_model_id.strip()) >= 2:
             selected = dev_model_id.strip()
             source = "devreg.model_id"
         else:
-            model_str = getattr(device, "model", None)
             _LOGGER.debug(
                 "better_thermostat %s: device.model raw='%s'",
                 self.device_name,
-                model_str,
+                dev_model,
             )
-            if isinstance(model_str, str) and model_str.strip():
+            if isinstance(dev_model, str) and dev_model.strip():
                 # Extract model before parentheses: "MODEL (Desc)" -> "MODEL"
-                model_clean: str = re.sub(r"\s*\(.*\)\s*$", "", model_str).strip()
+                model_clean: str = re.sub(r"\s*\(.*\)\s*$", "", dev_model).strip()
                 if len(model_clean) >= 2:
                     selected = model_clean
                     source = "devreg.model(before_parens)"
-                elif len(model_str.strip()) >= 2:
-                    selected = model_str.strip()
+                elif len(dev_model.strip()) >= 2:
+                    selected = dev_model.strip()
                     source = "devreg.model"
     except Exception:
         # Registry access is best effort; the fallback chain below still
@@ -2776,7 +2808,6 @@ async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
         )
 
     # Final fallback: configured model, then generic
-    configured_model = getattr(self, "model", None)
     if (
         not selected
         and isinstance(configured_model, str)

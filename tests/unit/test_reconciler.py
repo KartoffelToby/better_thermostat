@@ -71,6 +71,7 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     trv.model_quirks = MagicMock()
     trv.model_quirks.override_set_temperature = AsyncMock(return_value=False)
     trv.model_quirks.override_set_hvac_mode = AsyncMock(return_value=False)
+    trv.model_quirks.override_set_valve = AsyncMock(return_value=True)
     bt.real_trvs = {"climate.trv": trv}
     state = Mock()
     state.state = trv_mode

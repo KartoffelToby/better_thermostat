@@ -108,6 +108,12 @@ class ChannelAdjustment:
     boost_neutral: float
 
 
+# A mode's adjustment of one calibration channel, as ``ModeTraits`` describes.
+type ChannelAdjust = Callable[
+    [BetterThermostat, str, float, bool, ChannelAdjustment], tuple[float, bool]
+]
+
+
 @dataclass(frozen=True)
 class ModeTraits:
     """Per-mode behavior of the calibration cascade.
@@ -124,7 +130,7 @@ class ModeTraits:
     uses_tolerance_band: bool = True
     skip_post_adjustments: bool = False
     tolerance_delay: bool = True
-    adjust: Callable[..., tuple[float, bool]] | None = None
+    adjust: ChannelAdjust | None = None
 
 
 @dataclass(frozen=True)

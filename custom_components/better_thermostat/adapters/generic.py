@@ -104,7 +104,7 @@ async def discover_calibration_entity(self: AdapterHost, entity_id: str) -> None
         return
 
     trv.local_temperature_calibration_entity = await find_local_calibration_entity(
-        self, entity_id
+        self, entity_id, trv=trv
     )
     _LOGGER.debug(
         "better_thermostat %s: uses local calibration entity %s",

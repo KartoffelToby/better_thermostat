@@ -1708,7 +1708,8 @@ class TestBoostModeSafetyOverride:
                     "temperature": 20.0,
                     "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
                     "model_quirks": Mock(
-                        override_set_hvac_mode=AsyncMock(return_value=False)
+                        override_set_hvac_mode=AsyncMock(return_value=False),
+                        override_set_valve=AsyncMock(return_value=True),
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
@@ -2056,7 +2057,8 @@ class TestBoostModeSafetyOverride:
                     "temperature": 20.0,
                     "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
                     "model_quirks": Mock(
-                        override_set_hvac_mode=AsyncMock(return_value=False)
+                        override_set_hvac_mode=AsyncMock(return_value=False),
+                        override_set_valve=AsyncMock(return_value=True),
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,

@@ -376,7 +376,9 @@ async def trigger_trv_change(
             "model_id" in _org_trv_state.attributes
             or "device" in _org_trv_state.attributes
         ):
-            detected = await get_device_model(self, entity_id)
+            detected = await get_device_model(
+                self, entity_id, configured_model=self.model
+            )
             if isinstance(detected, str) and detected:
                 _LOGGER.info(
                     "better_thermostat %s: TRV %s model detected: %s; loading quirks",

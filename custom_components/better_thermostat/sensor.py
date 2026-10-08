@@ -50,7 +50,7 @@ _ALGORITHMS_WITH_SENSORS: frozenset[CalibrationMode] = frozenset(
         CalibrationMode.PID_CALIBRATION,
     }
 )
-_ENTITY_CLEANUP_CALLBACKS: dict[str, Callable[..., None]] = {}
+_ENTITY_CLEANUP_CALLBACKS: dict[str, Callable[[object], None]] = {}
 _DISPATCHER_UNSUBSCRIBES: dict[str, Callable[[], None]] = {}
 
 # Global tracking variables for active preset number entities

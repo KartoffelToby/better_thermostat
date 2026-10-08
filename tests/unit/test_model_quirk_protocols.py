@@ -32,6 +32,7 @@ from custom_components.better_thermostat.model_fixes.types import (
     ModelQuirks,
     SetpointOffsetQuirk,
     UnknownStateQuirk,
+    ValveChannelQuirk,
     ValveQuirk,
 )
 from tests.factories import ThermostatStandIn
@@ -49,6 +50,7 @@ PROTOCOLS = (
     MaintenanceIntervalQuirk,
     SetpointOffsetQuirk,
     UnknownStateQuirk,
+    ValveChannelQuirk,
     ValveQuirk,
 )
 

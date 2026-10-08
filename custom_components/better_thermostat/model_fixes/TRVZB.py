@@ -19,6 +19,7 @@ from custom_components.better_thermostat.model_fixes.types import (
     ModelFixHost,
     ModelFixTrv,
     ModelQuirks,
+    ValveChannelQuirk,
     ValveQuirk,
 )
 from custom_components.better_thermostat.utils.helpers import is_sibling_entry
@@ -758,9 +759,11 @@ class _Surface:
     VALVE_MAINTENANCE_INTERVAL_HOURS = VALVE_MAINTENANCE_INTERVAL_HOURS
     maybe_set_external_temperature = staticmethod(maybe_set_external_temperature)
     override_set_valve = staticmethod(override_set_valve)
+    has_valve_channel = staticmethod(has_valve_channel)
 
 
 _MODEL_QUIRKS: ModelQuirks = _Surface()
 _EXTERNAL_TEMPERATURE_QUIRK: ExternalTemperatureQuirk = _Surface()
 _MAINTENANCE_INTERVAL_QUIRK: MaintenanceIntervalQuirk = _Surface()
 _VALVE_QUIRK: ValveQuirk = _Surface()
+_VALVE_CHANNEL_QUIRK: ValveChannelQuirk = _Surface()

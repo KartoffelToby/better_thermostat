@@ -215,7 +215,11 @@ TRV_STATE_SETTLE_S = 3.0
 WRITE_CONFIRM_TIMEOUT_S = 360
 
 
-def _write_interval_s(self: BetterThermostat, trv: Trv, channel: str) -> float:
+# A TRV write channel with its own write budget.
+type WriteChannel = Literal["setpoint", "offset", "valve"]
+
+
+def _write_interval_s(self: BetterThermostat, trv: Trv, channel: WriteChannel) -> float:
     """Minimum spacing between non-safety writes to this TRV on ``channel``.
 
     The first setpoint write after the user changed the room's target or
@@ -236,23 +240,39 @@ def _write_interval_s(self: BetterThermostat, trv: Trv, channel: str) -> float:
     return HOMEMATICIP_MIN_WRITE_INTERVAL_S
 
 
-def _budget_open(
-    last_write: float | None, now_monotonic: float, interval_s: float
-) -> bool:
+def _budget_open(last_write: float, now_monotonic: float, interval_s: float) -> bool:
     """Whether a channel's write-budget slot is free again."""
-    return last_write is None or now_monotonic - last_write >= interval_s
+    return now_monotonic - last_write >= interval_s
 
 
-# Per-channel write-budget stamp fields on the Trv.
-_BUDGET_STAMPS = {
-    "setpoint": "last_write_monotonic",
-    "offset": "last_offset_write_monotonic",
-    "valve": "last_valve_write_monotonic",
-}
+def _budget_stamp(trv: Trv, channel: WriteChannel) -> float | None:
+    """Monotonic time of the last write on ``channel`` to this TRV."""
+    match channel:
+        case "setpoint":
+            return trv.last_write_monotonic
+        case "offset":
+            return trv.last_offset_write_monotonic
+        case "valve":
+            return trv.last_valve_write_monotonic
+
+
+def _set_budget_stamp(trv: Trv, channel: WriteChannel, now_monotonic: float) -> None:
+    """Record a write on ``channel`` to this TRV at ``now_monotonic``."""
+    match channel:
+        case "setpoint":
+            trv.last_write_monotonic = now_monotonic
+        case "offset":
+            trv.last_offset_write_monotonic = now_monotonic
+        case "valve":
+            trv.last_valve_write_monotonic = now_monotonic
 
 
 def _consume_budget(
-    self: BetterThermostat, entity_id: str, channel: str, *, bypass: bool = False
+    self: BetterThermostat,
+    entity_id: str,
+    channel: WriteChannel,
+    *,
+    bypass: bool = False,
 ) -> bool:
     """Occupy one channel's write-budget slot, or defer the write.
 
@@ -261,11 +281,12 @@ def _consume_budget(
     accurate. Returns False when the budget defers, after logging it.
     """
     trv = self.real_trvs[entity_id]
-    stamp_attr = _BUDGET_STAMPS[channel]
     now = self.clock.monotonic()
-    last = getattr(trv, stamp_attr)
-    if not bypass and not _budget_open(
-        last, now, _write_interval_s(self, trv, channel)
+    last = _budget_stamp(trv, channel)
+    if (
+        not bypass
+        and last is not None
+        and not _budget_open(last, now, _write_interval_s(self, trv, channel))
     ):
         _LOGGER.debug(
             "better_thermostat %s: write budget defers %s write to %s "
@@ -276,14 +297,16 @@ def _consume_budget(
             now - last,
         )
         return False
-    setattr(trv, stamp_attr, now)
+    _set_budget_stamp(trv, channel, now)
     return True
 
 
-def _budget_remaining(self: BetterThermostat, entity_id: str, channel: str) -> float:
+def _budget_remaining(
+    self: BetterThermostat, entity_id: str, channel: WriteChannel
+) -> float:
     """Seconds until a channel's write-budget slot reopens."""
     trv = self.real_trvs[entity_id]
-    last = getattr(trv, _BUDGET_STAMPS[channel])
+    last = _budget_stamp(trv, channel)
     if last is None:
         # Never written on this channel, so the slot is already open.
         # Subtracting a monotonic clock from zero would yield a large
@@ -1233,9 +1256,6 @@ async def control_queue(self: BetterThermostat) -> None:
     None
         This function runs indefinitely in an asyncio task
     """
-    if not hasattr(self, "task_manager"):
-        self.task_manager = TaskManager(hass=self.hass)
-
     failed_run: _FailedCycleRun | None = None
     try:
         while True:
@@ -2069,9 +2089,6 @@ async def control_trv(
     # Guard against missing or invalid entity_id
     if not entity_id or entity_id not in self.real_trvs:
         return False
-
-    if not hasattr(self, "task_manager"):
-        self.task_manager = TaskManager(hass=self.hass)
 
     # The suppression flag is owned by the invocation that set it under the
     # lock; a caller cancelled while still waiting for the lock never set it
