@@ -191,6 +191,7 @@ from .utils.controlling import (
 from .utils.entry_schema import TrvAdvanced, TrvSettings, parse_settings
 from .utils.helpers import (
     COOLER_SETPOINT_KEYS,
+    CoolerSendCache,
     InboundSetpoint,
     async_fire_logbook_entry,
     async_normalize_bt_entity_ids,
@@ -576,7 +577,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
     # decided on, and each channel's run of consecutive send failures.
     # ``cooler_send_cache()`` creates it on first use, and every reader reaches
     # it through that helper.
-    _cooler_last_sent: dict[str, Any]
+    _cooler_last_sent: CoolerSendCache
 
     # Owner of the background tasks the control loop spawns. ``control_queue``
     # and ``control_trv`` each create one before they schedule anything, so
@@ -3729,7 +3730,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
 
     @property
     @override
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, object]:
         """Return the device specific state attributes.
 
         Returns
@@ -3737,7 +3738,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         dict
                 Attribute dictionary for the extra device specific state attributes.
         """
-        dev_specific: dict[str, Any] = {
+        dev_specific: dict[str, object] = {
             ATTR_STATE_WINDOW_OPEN: self.window_open,
             ATTR_STATE_DOOR_OPEN: self.door_open,
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,

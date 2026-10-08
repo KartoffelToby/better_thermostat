@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Any, Final, NamedTuple, Protocol, TypedDict
+from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -565,14 +565,14 @@ def offered_mode_signature(
     return frozenset(str(normalize_hvac_mode(mode)) for mode in trv_modes)
 
 
-def adopt_reported_hvac_modes(trv: Trv, reported_modes: Any) -> None:
+def adopt_reported_hvac_modes(trv: Trv, reported_modes: object) -> None:
     """Cache the HVAC modes a device reports on its state.
 
     Parameters
     ----------
     trv : Trv
             Per-TRV state holding the cached mode list.
-    reported_modes : Any
+    reported_modes : object
             Value of the device's ``hvac_modes`` attribute. An absent or
             empty list keeps the cached one: it means the device published
             no capabilities in this event, not that it lost them. The modes
@@ -1361,7 +1361,7 @@ def reported_setpoint_step_celsius(
             the reported step as a Celsius delta, or None when the state
             publishes no convertible step
     """
-    attributes: Mapping[str, Any] = state.attributes if state is not None else {}
+    attributes: Mapping[str, object] = state.attributes if state is not None else {}
     raw_step = attributes.get(ATTR_TARGET_TEMP_STEP)
     if raw_step is None:
         return None
@@ -1638,11 +1638,40 @@ def resolve_inbound_setpoint(
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
 
 
-def cooler_send_cache(self: BetterThermostat) -> dict[str, Any]:
+# The command one cooler channel attempted, as the failure backoff compares
+# it: the wanted mode on the mode channel, and the (high, low) bound pair on
+# the setpoint channel, where the lower bound is absent for a single-setpoint
+# write.
+CoolerCommand = HVACMode | tuple[float, float | None] | None
+
+# A channel's run of consecutive send failures of one command, at least one
+# long, as ``(count, monotonic_timestamp, attempted_command)``.
+CoolerFailureRun = tuple[int, float, CoolerCommand]
+
+# The cooler send cache :func:`cooler_send_cache` returns. Spelled
+# functionally because the keys are lookup strings, not attribute names.
+CoolerSendCache = TypedDict(  # noqa: UP013
+    "CoolerSendCache",
+    {
+        "temperature": tuple[float, float | None],
+        "temperature_settled": float,
+        "temperature_failed": CoolerFailureRun,
+        "target_temp_low": tuple[float, float],
+        "target_temp_low_settled": float,
+        "hvac_mode": tuple[HVACMode, float | None],
+        "hvac_mode_decided": HVACMode,
+        "hvac_mode_failed": CoolerFailureRun,
+    },
+    total=False,
+)
+
+
+def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     """Return the cooler send-cache, creating it on first use.
 
     Holds the last successfully sent command per channel as
-    ``(value, monotonic_timestamp)`` for the resend throttle, the settled
+    ``(value, monotonic_timestamp)`` for the resend throttle, with no
+    timestamp once the throttle no longer paces that value, the settled
     reading of each written channel, the mode the last cycle decided on for
     the hysteresis band, and each channel's run of consecutive send failures
     as ``(count, monotonic_timestamp, attempted_value)``. Created lazily
@@ -1655,12 +1684,15 @@ def cooler_send_cache(self: BetterThermostat) -> dict[str, Any]:
 
     Returns
     -------
-    dict
+    CoolerSendCache
             the cache, which the caller mutates in place
     """
-    last_sent: dict[str, Any] | None = getattr(self, "_cooler_last_sent", None)
+    try:
+        last_sent: CoolerSendCache | None = self._cooler_last_sent
+    except AttributeError:
+        last_sent = None
     if not isinstance(last_sent, dict):
-        last_sent = {}
+        last_sent = CoolerSendCache()
         self._cooler_last_sent = last_sent
     return last_sent
 
