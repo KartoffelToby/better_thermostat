@@ -147,7 +147,11 @@ VERSION_LINE = re.compile(r"""^["']?version["']?\s*[:=]""")
 HUNK_HEADER = re.compile(r"^@@ -\S+ \+(\d+)")
 CODE_PUNCTUATION = frozenset("=(){}[]:")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-QUOTED = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'")
+QUOTED = re.compile(
+    r"(?P<prefix>[A-Za-z]{0,2})(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*')"
+)
+# A replacement field of an f-string, ``{...}``; a doubled brace is text.
+FIELD = re.compile(r"(?<!\{)\{(?!\{)[^{}]*\}")
 
 # A subject written under this repository's commit convention. The convention
 # is what separates the two groups here: work built as a pair follows it and
@@ -596,6 +600,25 @@ def _renamed(name: str, renames: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
     return (prefix + "_".join(spelled),) if spelled != tokens else ()
 
 
+def _text_spans(marker: str) -> list[tuple[int, int]]:
+    """Return the spans of a marker that are string text rather than code.
+
+    A quoted string is text as a whole, except the replacement fields of an
+    f-string, ``{...}``, which hold code.
+    """
+    spans: list[tuple[int, int]] = []
+    for match in QUOTED.finditer(marker):
+        start, end = match.start() + len(match["prefix"]), match.end()
+        if "f" not in match["prefix"].lower():
+            spans.append((start, end))
+            continue
+        for field in FIELD.finditer(marker, start, end):
+            spans.append((start, field.start()))
+            start = field.end()
+        spans.append((start, end))
+    return spans
+
+
 def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
     """Return the marker as written plus every spelling the glossary renames it to.
 
@@ -611,7 +634,7 @@ def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
     key or a message, which a rename leaves as it is, so spelling it the new
     way could find a line the development line never wrote.
     """
-    quoted = [match.span() for match in QUOTED.finditer(marker)]
+    quoted = _text_spans(marker)
     occurrences = [
         match
         for match in IDENTIFIER.finditer(marker)
