@@ -552,7 +552,7 @@ class TestMpcV2SensorState:
 
     @staticmethod
     def _trv(name, debug):
-        return Trv.from_legacy_dict(name, {"calibration_balance": {"debug": debug}})
+        return trv_from_legacy_dict(name, {"calibration_balance": {"debug": debug}})
 
     @pytest.mark.parametrize(
         ("sensor_class", "debug_key", "value"),
@@ -594,7 +594,7 @@ class TestMpcV2SensorState:
         """Heads without the value, or on another controller, are passed over."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict("trv_1", {}),
+                "trv_1": trv_from_legacy_dict("trv_1", {}),
                 "trv_2": self._trv(
                     "trv_2", {"controller_version": "v1", "tau_room_min": 1.0}
                 ),
