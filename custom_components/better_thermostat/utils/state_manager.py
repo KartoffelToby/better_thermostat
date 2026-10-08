@@ -34,12 +34,12 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from datetime import datetime
 import logging
 import math
 from time import monotonic
-from typing import get_args, get_type_hints
+from typing import NoReturn
 
 from homeassistant.core import (
     CALLBACK_TYPE,
@@ -215,54 +215,6 @@ class RuntimeState:
 
 
 # Serialization helpers
-
-# Integer fields that tally occurrences, so a stored value is only usable
-# when it is a non-negative integer the store can write back.
-_COUNT_FIELDS = frozenset(
-    {
-        "dead_zone_hits",
-        "loss_learn_count",
-        "gain_learn_count",
-        "profile_samples",
-        "consecutive_insufficient_heat",
-    }
-)
-
-# Integer fields that record which way a quantity last moved, so a negative
-# value is meaningful and only the storable range applies.
-_SIGN_FIELDS = frozenset({"last_delta_sign", "last_error_sign"})
-
-# Fields that should be coerced to bool during deserialization.
-_BOOL_FIELDS = frozenset(
-    {
-        "is_calibration_active",
-        "regime_boost_active",
-        "tolerance_hold_active",
-        "auto_tune",
-    }
-)
-
-# Fields that should be coerced to str during deserialization.
-_STR_FIELDS = frozenset({"trv_profile"})
-
-
-def _nullable_fields(cls: type) -> frozenset[str]:
-    """Return the names of *cls*'s fields whose declared type admits ``None``.
-
-    Read off the declarations rather than listed by hand, so the set
-    still matches once a field's type changes.
-    """
-    hints = get_type_hints(cls)
-    return frozenset(
-        f.name for f in fields(cls) if type(None) in get_args(hints[f.name])
-    )
-
-
-_MPC_NULLABLE_FIELDS = _nullable_fields(MpcState)
-_MPC_V2_NULLABLE_FIELDS = _nullable_fields(MpcV2StateData)
-_MPC_V2_REID_NULLABLE_FIELDS = _nullable_fields(MpcV2ReidData)
-_PID_NULLABLE_FIELDS = _nullable_fields(PIDState)
-_TPI_NULLABLE_FIELDS = _nullable_fields(TpiState)
 
 
 def _copy_stored_tree(value: object) -> object:
@@ -459,10 +411,8 @@ def _within(value: float, bounds: tuple[float, float]) -> bool:
     return low <= value <= high
 
 
-def _null_or_poison(
-    attr: str, nullable: frozenset[str], *, stored: str | None = None
-) -> None:
-    """Let a stored null through, unless the declared type forbids one.
+def _refuse_null(stored: str) -> NoReturn:
+    """Reject a stored null where the declared type cannot hold one.
 
     A null where a number is declared is how a non-finite value gets back
     out of a file this module wrote: the store's encoder writes NaN and
@@ -470,17 +420,10 @@ def _null_or_poison(
     value that cannot be held. Neither leaves anything usable, so the
     entry gets the disposal :func:`_finite_or_poison` gives corrupt math.
 
-    *nullable* names the fields whose declared type admits a ``None``. An
-    empty set means the caller is parsing a place no ``None`` may reach at
-    all, such as an element of a collection declared to hold numbers.
-    *stored* is the key the field is stored under where that differs from
-    *attr*; the report names the key the file holds.
+    *stored* is the key the file holds the value under, or the name of the
+    collection element it was found in.
     """
-    if attr in nullable:
-        return
-    raise _PoisonedStateError(
-        f"{stored or attr} is null, which its declared type cannot hold"
-    )
+    raise _PoisonedStateError(f"{stored} is null, which its declared type cannot hold")
 
 
 def _finite_or_poison(value: object, attr: str) -> float:
@@ -543,11 +486,13 @@ def _finite_element(value: object, attr: str) -> float:
     costs the entry its stored values just as one does.
     """
     if value is None:
-        _null_or_poison(attr, frozenset())
+        _refuse_null(attr)
     return _finite_or_poison(value, attr)
 
 
-def _finite_perf_curve(value: Mapping[str, object]) -> dict[str, dict[str, float]]:
+def _finite_perf_curve(
+    value: Mapping[str, object],
+) -> dict[str, dict[str, float | int]]:
     """Copy a stored performance curve, parsing every statistic in it.
 
     What the offending value is decides what it costs. A bin that is not a
@@ -558,7 +503,7 @@ def _finite_perf_curve(value: Mapping[str, object]) -> dict[str, dict[str, float
     instead — the bins are declared to hold plain numbers, so either one is
     corrupt math, and the entry keeps none of its stored values.
     """
-    curve: dict[str, dict[str, float]] = {}
+    curve: dict[str, dict[str, float | int]] = {}
     for label, stats in value.items():
         if not is_json_object(stats):
             raise TypeError("perf_curve bin is not a mapping of statistics")
@@ -567,6 +512,185 @@ def _finite_perf_curve(value: Mapping[str, object]) -> dict[str, dict[str, float
             for name, stat in stats.items()
         }
     return curve
+
+
+def _not_a_collection(value: object, stored: str) -> TypeError:
+    """Return the error a collection field raises for a value of another shape.
+
+    A string that parses as a non-finite number is still the saved NaN it
+    spells and poisons the entry first; anything else costs only the field.
+    """
+    _finite_or_poison(value, stored)
+    return TypeError(f"{stored} is not a collection")
+
+
+def _stored_perf_curve(value: object, stored: str) -> dict[str, dict[str, float | int]]:
+    """Parse ``perf_curve``: a mapping of bins, each a mapping of statistics."""
+    if is_json_object(value):
+        return _finite_perf_curve(value)
+    raise _not_a_collection(value, stored)
+
+
+def _stored_recent_errors(value: object, stored: str) -> deque[float]:
+    """Parse ``recent_errors`` into the twenty-sample window the state keeps."""
+    if isinstance(value, (list, tuple)):
+        return deque(
+            (_finite_element(item, "recent_errors element") for item in value),
+            maxlen=20,
+        )
+    raise _not_a_collection(value, stored)
+
+
+def _stored_tally(value: object, stored: str) -> int:
+    """Parse an integer that tallies occurrences; an unusable one restores as 0."""
+    return stored_count(value)
+
+
+def _stored_direction(value: object, stored: str) -> int:
+    """Parse an integer that records which way a quantity last moved.
+
+    A negative value is meaningful here, so only the storable range applies.
+    """
+    return stored_int(value)
+
+
+def _stored_flag(value: object, stored: str) -> bool:
+    """Parse a flag with ``bool()``'s truthiness."""
+    return bool(value)
+
+
+def _stored_text(value: object, stored: str) -> str:
+    """Parse a name with ``str()``."""
+    return str(value)
+
+
+# Parses one stored value into a field's type. The second argument is the
+# key the value is stored under, for the error a corrupt value raises.
+type _FieldParser[T] = Callable[[object, str], T]
+
+
+class _StoredEntryReader:
+    """Read the fields of one stored entry, each into its declared type.
+
+    A field the entry does not hold keeps the default it is read with, and
+    so does one whose stored value its parser refuses; that one is named.
+    A stored null is a value only for a field read with :meth:`optional`.
+    A null anywhere else, and a parser that finds corrupt math, raise
+    :class:`_PoisonedStateError`, which costs the caller the whole entry.
+
+    Parameters
+    ----------
+    raw : Mapping[str, object]
+        the stored entry to read
+    kind : str
+        the store section the entry belongs to, for the reports
+    key : str | None
+        names the state entry, so a report about a value that cannot be read
+        can point at the room rather than at nothing
+    renamed : Mapping[str, str]
+        the store keys of the fields stored under a name other than their own
+    field_name_fallback : bool
+        whether a renamed field is also read under its field name, the
+        spelling a snapshot taken with ``asdict`` carries; the store key wins
+    """
+
+    def __init__(
+        self,
+        raw: Mapping[str, object],
+        kind: str,
+        key: str | None,
+        *,
+        renamed: Mapping[str, str] | None = None,
+        field_name_fallback: bool = False,
+    ) -> None:
+        self._raw = raw
+        self._kind = kind
+        self._key = key
+        self._renamed: Mapping[str, str] = renamed or {}
+        self._field_name_fallback = field_name_fallback
+
+    def required[T](self, name: str, parse: _FieldParser[T], default: T) -> T:
+        """Return field *name*, whose declared type holds no ``None``.
+
+        Parameters
+        ----------
+        name : str
+            the field's name
+        parse : _FieldParser[T]
+            turns the stored value into the field's type
+        default : T
+            the value a missing or unusable stored value leaves in place
+
+        Returns
+        -------
+        T
+            the parsed value, or *default*
+
+        Raises
+        ------
+        _PoisonedStateError
+            when the stored value is null or corrupt math
+        """
+        found = self._lookup(name)
+        if found is None:
+            return default
+        stored, value = found
+        if value is None:
+            _refuse_null(stored)
+        return self._parse(stored, value, parse, default)
+
+    def optional[T](
+        self, name: str, parse: _FieldParser[T], default: T | None
+    ) -> T | None:
+        """Return field *name*, whose declared type admits ``None``.
+
+        Parameters
+        ----------
+        name : str
+            the field's name
+        parse : _FieldParser[T]
+            turns a stored value other than null into the field's type
+        default : T | None
+            the value a missing or unusable stored value leaves in place
+
+        Returns
+        -------
+        T | None
+            the parsed value, None for a stored null, or *default*
+
+        Raises
+        ------
+        _PoisonedStateError
+            when the stored value is corrupt math
+        """
+        found = self._lookup(name)
+        if found is None:
+            return default
+        stored, value = found
+        if value is None:
+            return None
+        return self._parse(stored, value, parse, default)
+
+    def _lookup(self, name: str) -> tuple[str, object] | None:
+        """Return the store key and stored value of field *name*, if held."""
+        stored = self._renamed.get(name, name)
+        if stored in self._raw:
+            return stored, self._raw[stored]
+        if self._field_name_fallback and name in self._raw:
+            return stored, self._raw[name]
+        return None
+
+    def _parse[T](
+        self, stored: str, value: object, parse: _FieldParser[T], default: T
+    ) -> T:
+        """Parse *value*, or name it and return *default* when it is unusable."""
+        try:
+            return parse(value, stored)
+        except _PoisonedStateError:
+            raise
+        except TypeError, ValueError, OverflowError:
+            _report_unreadable_field(stored, self._kind, self._key)
+            return default
 
 
 def deserialize_mpc(
@@ -590,6 +714,10 @@ def deserialize_mpc(
     ``None``, the tallies included, because that is the shape a saved NaN
     comes back in.
 
+    The store spells a few fields under their own key
+    (:data:`_STORED_MPC_KEYS`); a snapshot taken with ``asdict`` spells them
+    by field name. The store key wins.
+
     Parameters
     ----------
     raw : Mapping[str, object]
@@ -601,51 +729,102 @@ def deserialize_mpc(
         collects the entry's section and key when a non-finite value
         discards its stored values
     """
-    state = MpcState()
-    for attr in MpcState.__dataclass_fields__:
-        # The store spells a few fields under their own key; a snapshot taken
-        # with ``asdict`` spells them by attribute. The store key wins.
-        stored = _STORED_MPC_KEYS.get(attr, attr)
-        if stored in raw:
-            value = raw[stored]
-        elif attr in raw:
-            value = raw[attr]
-        else:
-            continue
-        try:
-            if value is None:
-                _null_or_poison(attr, _MPC_NULLABLE_FIELDS)
-                setattr(state, attr, None)
-            elif attr == "perf_curve" and is_json_object(value):
-                setattr(state, attr, _finite_perf_curve(value))
-            elif attr == "recent_errors" and isinstance(value, (list, tuple)):
-                # MpcState.recent_errors is a deque(maxlen=20).
-                setattr(
-                    state,
-                    attr,
-                    deque(
-                        (
-                            _finite_element(item, "recent_errors element")
-                            for item in value
-                        ),
-                        maxlen=20,
-                    ),
-                )
-            elif attr in _COUNT_FIELDS:
-                setattr(state, attr, stored_count(value))
-            elif attr in _BOOL_FIELDS:
-                setattr(state, attr, bool(value))
-            elif attr in _STR_FIELDS:
-                setattr(state, attr, str(value))
-            else:
-                setattr(state, attr, _finite_or_poison(value, stored))
-        except _PoisonedStateError as error:
-            _discard_poisoned_entry(error, "mpc", key, poisoned)
-            return MpcState()
-        except TypeError, ValueError, OverflowError:
-            _report_unreadable_field(stored, "mpc", key)
-            continue
-    return state
+    read = _StoredEntryReader(
+        raw, "mpc", key, renamed=_STORED_MPC_KEYS, field_name_fallback=True
+    )
+    number = _finite_or_poison
+    held = MpcState()
+    try:
+        return MpcState(
+            last_percent=read.optional("last_percent", number, held.last_percent),
+            last_update_ts=read.required("last_update_ts", number, held.last_update_ts),
+            last_target_temperature=read.optional(
+                "last_target_temperature", number, held.last_target_temperature
+            ),
+            ema_slope=read.optional("ema_slope", number, held.ema_slope),
+            gain_est=read.optional("gain_est", number, held.gain_est),
+            loss_est=read.optional("loss_est", number, held.loss_est),
+            ka_est=read.optional("ka_est", number, held.ka_est),
+            solar_gain_est=read.optional("solar_gain_est", number, held.solar_gain_est),
+            last_temp=read.optional("last_temp", number, held.last_temp),
+            last_time=read.required("last_time", number, held.last_time),
+            last_trv_temp=read.optional("last_trv_temp", number, held.last_trv_temp),
+            last_trv_temp_ts=read.required(
+                "last_trv_temp_ts", number, held.last_trv_temp_ts
+            ),
+            last_window_open_ts=read.required(
+                "last_window_open_ts", number, held.last_window_open_ts
+            ),
+            dead_zone_hits=read.required(
+                "dead_zone_hits", _stored_tally, held.dead_zone_hits
+            ),
+            min_effective_percent=read.optional(
+                "min_effective_percent", number, held.min_effective_percent
+            ),
+            last_learn_time=read.optional(
+                "last_learn_time", number, held.last_learn_time
+            ),
+            last_learn_temp=read.optional(
+                "last_learn_temp", number, held.last_learn_temp
+            ),
+            last_residual_time=read.optional(
+                "last_residual_time", number, held.last_residual_time
+            ),
+            virtual_temp=read.optional("virtual_temp", number, held.virtual_temp),
+            virtual_temp_ts=read.required(
+                "virtual_temp_ts", number, held.virtual_temp_ts
+            ),
+            last_sensor_temperature=read.optional(
+                "last_sensor_temperature", number, held.last_sensor_temperature
+            ),
+            last_room_temperature=read.optional(
+                "last_room_temperature", number, held.last_room_temperature
+            ),
+            last_room_temp_ts=read.required(
+                "last_room_temp_ts", number, held.last_room_temp_ts
+            ),
+            perf_curve=read.required("perf_curve", _stored_perf_curve, held.perf_curve),
+            trv_profile=read.required("trv_profile", _stored_text, held.trv_profile),
+            profile_confidence=read.required(
+                "profile_confidence", number, held.profile_confidence
+            ),
+            profile_samples=read.required(
+                "profile_samples", _stored_tally, held.profile_samples
+            ),
+            u_integral=read.required("u_integral", number, held.u_integral),
+            time_integral=read.required("time_integral", number, held.time_integral),
+            last_integration_ts=read.required(
+                "last_integration_ts", number, held.last_integration_ts
+            ),
+            created_ts=read.required("created_ts", number, held.created_ts),
+            loss_learn_count=read.required(
+                "loss_learn_count", _stored_tally, held.loss_learn_count
+            ),
+            gain_learn_count=read.required(
+                "gain_learn_count", _stored_tally, held.gain_learn_count
+            ),
+            is_calibration_active=read.required(
+                "is_calibration_active", _stored_flag, held.is_calibration_active
+            ),
+            recent_errors=read.required(
+                "recent_errors", _stored_recent_errors, held.recent_errors
+            ),
+            regime_boost_active=read.required(
+                "regime_boost_active", _stored_flag, held.regime_boost_active
+            ),
+            consecutive_insufficient_heat=read.required(
+                "consecutive_insufficient_heat",
+                _stored_tally,
+                held.consecutive_insufficient_heat,
+            ),
+            kalman_P=read.required("kalman_P", number, held.kalman_P),
+            tolerance_hold_active=read.required(
+                "tolerance_hold_active", _stored_flag, held.tolerance_hold_active
+            ),
+        )
+    except _PoisonedStateError as error:
+        _discard_poisoned_entry(error, "mpc", key, poisoned)
+        return MpcState()
 
 
 def deserialize_mpc_v2(
@@ -667,7 +846,7 @@ def deserialize_mpc_v2(
     measurement.
 
     Those three are the only fields parsed; ``outdoor_fallback_logged`` and
-    ``snapshot`` are read past that loop and reach no guard. A ``snapshot``
+    ``snapshot`` are read after them and reach no guard. A ``snapshot``
     that is null or not a mapping therefore keeps the entry and leaves the
     empty default in its place — the very shape described above. Only a
     store this integration did not write can hold one: what it saves is
@@ -689,23 +868,20 @@ def deserialize_mpc_v2(
     MpcV2StateData | None
         the parsed entry, or None when it is corrupt
     """
-    state = MpcV2StateData()
-    for attr in ("last_percent", "last_compute_ts", "created_ts"):
-        if attr not in raw:
-            continue
-        value = raw[attr]
-        try:
-            if value is None:
-                _null_or_poison(attr, _MPC_V2_NULLABLE_FIELDS)
-                setattr(state, attr, None)
-            else:
-                setattr(state, attr, _finite_or_poison(value, attr))
-        except _PoisonedStateError as error:
-            _discard_poisoned_entry(error, "mpc_v2", key, poisoned)
-            return None
-        except TypeError, ValueError, OverflowError:
-            _report_unreadable_field(attr, "mpc_v2", key)
-            continue
+    read = _StoredEntryReader(raw, "mpc_v2", key)
+    number = _finite_or_poison
+    held = MpcV2StateData()
+    try:
+        state = MpcV2StateData(
+            last_percent=read.optional("last_percent", number, held.last_percent),
+            last_compute_ts=read.required(
+                "last_compute_ts", number, held.last_compute_ts
+            ),
+            created_ts=read.required("created_ts", number, held.created_ts),
+        )
+    except _PoisonedStateError as error:
+        _discard_poisoned_entry(error, "mpc_v2", key, poisoned)
+        return None
     state.outdoor_fallback_logged = bool(raw.get("outdoor_fallback_logged", False))
     snapshot = raw.get("snapshot")
     if is_json_object(snapshot):
@@ -764,26 +940,25 @@ def deserialize_mpc_v2_reid(
         collects the entry's section and key when a non-finite value or an
         out-of-band fit discards its stored values
     """
-    state = MpcV2ReidData()
-    for attr in MpcV2ReidData.__dataclass_fields__:
-        stored = _STORED_MPC_V2_REID_KEYS.get(attr, attr)
-        if stored not in raw:
-            continue
-        value = raw[stored]
-        try:
-            if value is None:
-                _null_or_poison(attr, _MPC_V2_REID_NULLABLE_FIELDS, stored=stored)
-                setattr(state, attr, None)
-            elif attr == "n_segments":
-                setattr(state, attr, stored_count(value))
-            else:
-                setattr(state, attr, _finite_or_poison(value, stored))
-        except _PoisonedStateError as error:
-            _discard_poisoned_entry(error, "mpc_v2_reid", key, poisoned)
-            return None
-        except TypeError, ValueError, OverflowError:
-            _report_unreadable_field(stored, "mpc_v2_reid", key)
-            continue
+    read = _StoredEntryReader(raw, "mpc_v2_reid", key, renamed=_STORED_MPC_V2_REID_KEYS)
+    number = _finite_or_poison
+    held = MpcV2ReidData()
+    try:
+        state = MpcV2ReidData(
+            tau_room_min=read.required("tau_room_min", number, held.tau_room_min),
+            gain_heater=read.required("gain_heater", number, held.gain_heater),
+            fitted_ts=read.required("fitted_ts", number, held.fitted_ts),
+            rmse_prior_kelvin=read.required(
+                "rmse_prior_kelvin", number, held.rmse_prior_kelvin
+            ),
+            rmse_fit_kelvin=read.required(
+                "rmse_fit_kelvin", number, held.rmse_fit_kelvin
+            ),
+            n_segments=read.required("n_segments", _stored_tally, held.n_segments),
+        )
+    except _PoisonedStateError as error:
+        _discard_poisoned_entry(error, "mpc_v2_reid", key, poisoned)
+        return None
     # A result whose fitted components lie outside the plausible band cannot
     # seed a plant prior. The band is two-sided on both: too small a
     # ``tau_room_min`` and the room dynamics blow up, too large and they
@@ -839,28 +1014,42 @@ def deserialize_pid(
         collects the entry's section and key when a non-finite value
         discards its stored values
     """
-    state = PIDState()
-    for attr in PIDState.__dataclass_fields__:
-        if attr not in raw:
-            continue
-        value = raw[attr]
-        try:
-            if value is None:
-                _null_or_poison(attr, _PID_NULLABLE_FIELDS)
-                setattr(state, attr, None)
-            elif attr in _SIGN_FIELDS:
-                setattr(state, attr, stored_int(value))
-            elif attr in _BOOL_FIELDS:
-                setattr(state, attr, bool(value))
-            else:
-                setattr(state, attr, _finite_or_poison(value, attr))
-        except _PoisonedStateError as error:
-            _discard_poisoned_entry(error, "pid", key, poisoned)
-            return PIDState()
-        except TypeError, ValueError, OverflowError:
-            _report_unreadable_field(attr, "pid", key)
-            continue
-    return state
+    read = _StoredEntryReader(raw, "pid", key)
+    number = _finite_or_poison
+    held = PIDState()
+    try:
+        return PIDState(
+            pid_integral=read.required("pid_integral", number, held.pid_integral),
+            pid_last_meas=read.optional("pid_last_meas", number, held.pid_last_meas),
+            pid_last_error=read.optional("pid_last_error", number, held.pid_last_error),
+            pid_last_time=read.required("pid_last_time", number, held.pid_last_time),
+            pid_kp=read.optional("pid_kp", number, held.pid_kp),
+            pid_ki=read.optional("pid_ki", number, held.pid_ki),
+            pid_kd=read.optional("pid_kd", number, held.pid_kd),
+            auto_tune=read.optional("auto_tune", _stored_flag, held.auto_tune),
+            last_tune_ts=read.required("last_tune_ts", number, held.last_tune_ts),
+            last_delta_sign=read.optional(
+                "last_delta_sign", _stored_direction, held.last_delta_sign
+            ),
+            last_error_sign=read.optional(
+                "last_error_sign", _stored_direction, held.last_error_sign
+            ),
+            previous_abs_error=read.optional(
+                "previous_abs_error", number, held.previous_abs_error
+            ),
+            last_abs_error=read.optional("last_abs_error", number, held.last_abs_error),
+            ema_slope=read.optional("ema_slope", number, held.ema_slope),
+            last_percent=read.required("last_percent", number, held.last_percent),
+            last_output_change_ts=read.required(
+                "last_output_change_ts", number, held.last_output_change_ts
+            ),
+            last_target_temp=read.optional(
+                "last_target_temp", number, held.last_target_temp
+            ),
+        )
+    except _PoisonedStateError as error:
+        _discard_poisoned_entry(error, "pid", key, poisoned)
+        return PIDState()
 
 
 def deserialize_tpi(
@@ -887,24 +1076,20 @@ def deserialize_tpi(
         collects the entry's section and key when a non-finite value
         discards its stored values
     """
-    state = TpiState()
-    for attr in TpiState.__dataclass_fields__:
-        if attr not in raw:
-            continue
-        value = raw[attr]
-        try:
-            if value is None:
-                _null_or_poison(attr, _TPI_NULLABLE_FIELDS)
-                setattr(state, attr, None)
-            else:
-                setattr(state, attr, _finite_or_poison(value, attr))
-        except _PoisonedStateError as error:
-            _discard_poisoned_entry(error, "tpi", key, poisoned)
-            return TpiState()
-        except TypeError, ValueError, OverflowError:
-            _report_unreadable_field(attr, "tpi", key)
-            continue
-    return state
+    read = _StoredEntryReader(raw, "tpi", key)
+    held = TpiState()
+    try:
+        return TpiState(
+            last_percent=read.optional(
+                "last_percent", _finite_or_poison, held.last_percent
+            ),
+            last_update_ts=read.required(
+                "last_update_ts", _finite_or_poison, held.last_update_ts
+            ),
+        )
+    except _PoisonedStateError as error:
+        _discard_poisoned_entry(error, "tpi", key, poisoned)
+        return TpiState()
 
 
 def _stored_section(
