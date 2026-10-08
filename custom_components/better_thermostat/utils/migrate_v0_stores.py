@@ -224,7 +224,7 @@ async def migrate_v0_stores(
         )
         thermal_raw = await thermal_store.async_load()
         if is_json_object(thermal_raw):
-            thermal_entry = thermal_raw.get(str(config_entry_id))
+            thermal_entry = thermal_raw.get(config_entry_id)
             if is_json_object(thermal_entry):
                 _import_legacy_data(state_mgr, thermal_data=thermal_entry)
                 any_imported = True

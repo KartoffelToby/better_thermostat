@@ -36,7 +36,7 @@ def parse_hvac_mode(value: str | None) -> HvacMode | None:
     if value is None:
         return None
     try:
-        return HvacMode(str(value))
+        return HvacMode(value)
     except ValueError:
         return None
 

@@ -62,7 +62,7 @@ def _option_to_offset(option: str) -> float | None:
         Offset in Kelvin, or None when the option carries no number.
     """
     try:
-        return float(str(option).replace("k", ""))
+        return float(option.replace("k", ""))
     except ValueError, TypeError:
         return None
 
@@ -142,7 +142,7 @@ async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
             return 0.0
         try:
             # For SELECT entities, remove the 'k' suffix if present (e.g., "1.5k" -> "1.5")
-            state_str = str(state.state).replace("k", "")
+            state_str = state.state.replace("k", "")
             return float(state_str)
         except ValueError, TypeError:
             _LOGGER.warning(
@@ -200,8 +200,11 @@ def _offered_offsets(state: State) -> list[float]:
     list of float
         Offset each usable option stands for.
     """
+    # Attribute values are untyped, so each option is read as text, as the
+    # write path reads the same list.
     parsed = [
-        _option_to_offset(option) for option in state.attributes.get("options") or []
+        _option_to_offset(str(option))
+        for option in state.attributes.get("options") or []
     ]
     return [value for value in parsed if value is not None]
 

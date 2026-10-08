@@ -1588,9 +1588,7 @@ def _compute_predictive_percent(
     # Build candidates: coarse global grid + fine local refinement.
     # Coarse only needs to localize the area; fine pass resolves integer-% output.
     coarse_step = 0.10
-    coarse_candidates = [
-        i * coarse_step for i in range(int(round(1.0 / coarse_step)) + 1)
-    ]
+    coarse_candidates = [i * coarse_step for i in range(round(1.0 / coarse_step) + 1)]
     coarse_candidates.extend([u0_frac, u_last_frac])
 
     best_u = 0.0
@@ -1610,7 +1608,7 @@ def _compute_predictive_percent(
     fine_window = max(0.05, coarse_step / 2.0)
     fine_start = max(0.0, best_u - fine_window)
     fine_end = min(1.0, best_u + fine_window)
-    n_fine = int(round((fine_end - fine_start) / fine_step))
+    n_fine = round((fine_end - fine_start) / fine_step)
     for idx in range(n_fine + 1):
         u = fine_start + idx * fine_step
         c = _evaluate_cost(u)
@@ -1882,11 +1880,11 @@ def _post_process_percent(
     if last_percent is not None:
         change = abs(smooth - last_percent)
         if (change < params.percent_hysteresis_pts and not target_changed) or too_soon:
-            percent_out = int(round(last_percent))
+            percent_out = round(last_percent)
         else:
-            percent_out = int(round(smooth))
+            percent_out = round(smooth)
     else:
-        percent_out = int(round(smooth))
+        percent_out = round(smooth)
 
     # 5) FINAL MIN EFFECTIVE CHECK ON INTEGER OUTPUT
     if params.enable_min_effective_percent:
@@ -1903,7 +1901,7 @@ def _post_process_percent(
                 _round_for_debug(percent_out, 2),
                 _round_for_debug(min_eff, 2),
             )
-            percent_out = int(round(min_eff))
+            percent_out = round(min_eff)
 
     # 6) DEAD-ZONE DETECTION (improved)
     trv_delta_K: float | None = None
@@ -2074,7 +2072,7 @@ def _post_process_percent(
                 and not big_open
                 and not big_close
             ):
-                percent_out = int(round(state.last_percent))
+                percent_out = round(state.last_percent)
                 debug["hold_block"] = True
                 debug["hold_remaining_s"] = int(max(0.0, remaining))
                 _LOGGER.debug(
@@ -2093,7 +2091,7 @@ def _post_process_percent(
         if percent_out > max_opening:
             debug["max_opening_pct"] = _round_for_debug(max_opening, 2)
             debug["max_opening_clamped"] = True
-            percent_out = int(round(max_opening))
+            percent_out = round(max_opening)
 
     # 8) UPDATE STATE ONLY IF CHANGED
     # Only update last_percent and last_update_ts if the output actually changed

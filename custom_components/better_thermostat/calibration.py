@@ -605,7 +605,7 @@ def _record_mpc_v2_reid_sample(
             T_trv=trv_temperature
             if isinstance(trv_temperature, (int, float))
             else None,
-            window_open=bool(self.contact_open),
+            window_open=self.contact_open,
         )
     )
 
@@ -848,7 +848,7 @@ def _compute_mpc_v2_balance(
                 target_temperature=self.heat_target_temperature,
                 room_temperature=mpc_room_temperature,
                 trv_temperature=trv_state.current_temperature,
-                window_open=bool(self.contact_open),
+                window_open=self.contact_open,
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
@@ -903,7 +903,7 @@ def _compute_mpc_v2_balance(
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state.calibration_balance = {
-        "valve_percent": int(round(max(0.0, min(100.0, this_trv_percent)))),
+        "valve_percent": round(max(0.0, min(100.0, this_trv_percent))),
         "apply_valve": supports_valve,
         "debug": {
             **asdict(mpc_output.diagnostics),
@@ -920,7 +920,7 @@ def _compute_mpc_v2_balance(
     self.schedule_save_state()
 
     trv_output = replace(
-        mpc_output, valve_percent=int(round(max(0.0, min(100.0, this_trv_percent))))
+        mpc_output, valve_percent=round(max(0.0, min(100.0, this_trv_percent)))
     )
     return trv_output, supports_valve
 

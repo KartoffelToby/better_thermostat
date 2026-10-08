@@ -594,7 +594,7 @@ def _valve_at_target(
     trv = self.real_trvs[entity_id]
     if trv.last_valve_percent is None:
         return False
-    if int(round(float(trv.last_valve_percent))) != int(round(float(target_percent))):
+    if round(float(trv.last_valve_percent)) != round(float(target_percent)):
         return False
     return not _valve_diverges(self, trv)
 
@@ -2181,13 +2181,11 @@ async def control_trv(
                     valve_settings = None
                 if valve_settings is not None:
                     target_percent = round(valve_settings.get("valve_percent", 0))
-                    target_percent = int(
-                        round(
-                            _through_safety_hull(
-                                snapshot, entity_id, valve_percent=float(target_percent)
-                            ).valve_percent
-                            or 0.0
-                        )
+                    target_percent = round(
+                        _through_safety_hull(
+                            snapshot, entity_id, valve_percent=float(target_percent)
+                        ).valve_percent
+                        or 0.0
                     )
                     # Closing the valve (0 %) is the overheat-safe direction
                     # and bypasses the write budget; everything else waits
@@ -2272,13 +2270,11 @@ async def control_trv(
                 # Closing the valve is the overheat-safe direction and skips
                 # the budget gate, but it is a real write: it passes the
                 # safety hull and occupies the budget slot like any other.
-                _reset_percent = int(
-                    round(
-                        _through_safety_hull(
-                            snapshot, entity_id, valve_percent=0.0
-                        ).valve_percent
-                        or 0.0
-                    )
+                _reset_percent = round(
+                    _through_safety_hull(
+                        snapshot, entity_id, valve_percent=0.0
+                    ).valve_percent
+                    or 0.0
                 )
                 if not _valve_at_target(self, entity_id, _reset_percent):
                     _consume_budget(self, entity_id, "valve", bypass=True)

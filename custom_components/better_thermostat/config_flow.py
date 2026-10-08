@@ -683,7 +683,7 @@ def _seconds_to_duration_dict(value: object) -> dict[str, int]:
     total = max(total, 0)
     hours, remainder = divmod(total, 3600)
     minutes, seconds = divmod(remainder, 60)
-    return {"hours": int(hours), "minutes": int(minutes), "seconds": int(seconds)}
+    return {"hours": hours, "minutes": minutes, "seconds": seconds}
 
 
 def _build_user_fields(

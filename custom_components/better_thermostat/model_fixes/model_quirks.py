@@ -50,7 +50,7 @@ def get_model_quirks_name(model: str | None) -> str:
         Module name to load: the model itself, unless another model's
         module answers for it.
     """
-    model_str = str(model) if model is not None else ""
+    model_str = model if model is not None else ""
     return _QUIRK_MODULE_ALIASES.get(model_str, model_str)
 
 

@@ -662,7 +662,7 @@ async def trigger_trv_change(
     # setpoint comes from the event's own state, so that state decides, not
     # the registry state, which may already hold a later report.
     _ignored_auto_report = new_state.state == HVACMode.AUTO and mode_remap(
-        self, entity_id, str(new_state.state), True
+        self, entity_id, new_state.state, True
     ) not in (HVACMode.OFF, HVACMode.HEAT)
     if (
         _setpoint is not None
@@ -907,7 +907,7 @@ def convert_inbound_states(
     if state.attributes is None or state.state is None:
         raise TypeError("convert_inbound_states() received None state, cannot convert")
 
-    remapped_state = mode_remap(self, entity_id, str(state.state), True)
+    remapped_state = mode_remap(self, entity_id, state.state, True)
 
     if remapped_state not in (HVACMode.OFF, HVACMode.HEAT):
         return None
