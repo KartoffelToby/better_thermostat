@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import re
-from types import ModuleType
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -197,8 +196,6 @@ def local_calibration_shifts_setpoint(self: ModelFixHost, entity_id: str) -> boo
     quirks: object = trv.model_quirks if trv is not None else None
     if not isinstance(quirks, SetpointOffsetQuirk):
         return False
-    if not isinstance(quirks, ModuleType):
-        return False
     return quirks.local_calibration_shifts_setpoint(self, entity_id)
 
 
@@ -226,11 +223,10 @@ def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
     """
     trv = self.real_trvs.get(entity_id)
     quirks: object = trv.model_quirks if trv is not None else None
+    # Only a record whose quirks define the function can answer. The check
+    # reads attributes statically, so a mock that would make the function
+    # up on lookup is read the way an unquirked device is.
     if not isinstance(quirks, UnknownStateQuirk):
-        return False
-    # The record holds the loaded quirk module, and only a loaded module can
-    # answer; anything else is read the way an unquirked device is.
-    if not isinstance(quirks, ModuleType):
         return False
     return quirks.trv_state_unknown_as_available(self, entity_id)
 

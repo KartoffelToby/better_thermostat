@@ -295,6 +295,27 @@ class TestReconcileTick:
         bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_a_quirk_driven_valve_is_not_held_to_a_read_only_entity(self):
+        """A valve the quirk writes is not compared with what a sensor reports.
+
+        Only a position written to the number entity can be read back as
+        the commanded one. A quirk reaches the valve through a channel of its
+        own, so a read-only position entity reporting something else is no
+        lost write and must not queue a cycle on every tick.
+        """
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.model_quirks.override_set_valve = AsyncMock(return_value=True)
+        trv.valve_position_entity = "number.valve"
+        trv.valve_position_writable = False
+        trv.last_valve_percent = 80
+        self._with_states(bt, {"number.valve": self._state("0")})
+
+        assert trv.capabilities().supports_valve_write is True
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_reconcile_probe_is_not_recorded(self):
         """The periodic probe leaves no flight-recorder entry.
 

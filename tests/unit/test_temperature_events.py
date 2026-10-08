@@ -391,6 +391,39 @@ class TestCommitTemperatureUpdate:
         )
 
     @pytest.mark.asyncio
+    async def test_a_reading_withdrawn_mid_round_is_not_written_on(self, mock_bt):
+        """Heads still waiting for their write get no reading once it is gone.
+
+        The write goes out head by head. A room temperature withdrawn while
+        an earlier head is being written leaves nothing to mirror into the
+        later ones.
+        """
+
+        async def _withdraw(*_args):
+            mock_bt.room_temperature = None
+            return True
+
+        first = SimpleNamespace(
+            maybe_set_external_temperature=AsyncMock(side_effect=_withdraw)
+        )
+        later = _external_temperature_quirks()
+        mock_bt.real_trvs = {
+            "climate.trv1": trv_from_legacy_dict(
+                "climate.trv1", {"model_quirks": first}
+            ),
+            "climate.trv2": trv_from_legacy_dict(
+                "climate.trv2", {"model_quirks": later}
+            ),
+        }
+
+        await _commit_temperature_update(mock_bt, 21.0)
+
+        first.maybe_set_external_temperature.assert_awaited_once_with(
+            mock_bt, "climate.trv1", 21.0
+        )
+        later.maybe_set_external_temperature.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_a_missing_trv_map_still_starts_a_control_cycle(
         self, mock_bt, caplog
     ):
