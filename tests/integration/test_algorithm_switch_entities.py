@@ -39,7 +39,7 @@ MPC = CalibrationMode.MPC_CALIBRATION.value
 DEFAULT = CalibrationMode.DEFAULT.value
 
 _ALGORITHM_SENSOR_SUFFIXES = {
-    PID: {"pid_kp", "pid_ki", "pid_kd", "pid_output", "pid_error"},
+    PID: {"pid_output", "pid_error"},
     MPC: {"virtual_temp", "mpc_gain", "mpc_loss", "mpc_ka"},
     DEFAULT: set(),
 }
@@ -115,9 +115,11 @@ async def test_a_sensor_the_user_enabled_stays_enabled_across_an_algorithm_chang
     output = registry.async_get_entity_id(
         "sensor", DOMAIN, f"{entry.entry_id}_pid_output"
     )
-    gain = registry.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_pid_kp")
+    error = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_pid_error"
+    )
     assert output is not None
-    assert gain is not None
+    assert error is not None
     assert hass.states.get(output) is None
 
     # Home Assistant reloads the entry a while after an entity is enabled.
@@ -137,8 +139,8 @@ async def test_a_sensor_the_user_enabled_stays_enabled_across_an_algorithm_chang
 
     assert registry.async_get(output).disabled_by is None
     assert hass.states.get(output) is not None
-    assert registry.async_get(gain).disabled_by is er.RegistryEntryDisabler.INTEGRATION
-    assert hass.states.get(gain) is None
+    assert registry.async_get(error).disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert hass.states.get(error) is None
 
 
 def _algorithm_controls(hass, entry) -> set[str]:
@@ -247,6 +249,38 @@ async def test_a_boot_removes_controls_left_by_an_earlier_algorithm(hass):
     }
     assert left == set()
     assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[MPC]
+
+
+async def test_a_boot_removes_the_gain_sensors_the_gain_numbers_replace(hass):
+    """The PID gains are numbers only; their former sensors leave on setup.
+
+    An installation that had the gain sensors keeps running PID, so they go
+    although the algorithm stays. The numbers with the same keys stay.
+    """
+    set_room_sensor(hass, 19.0)
+    profile = replace(GENERIC_HEAT_TRV, calibration_mode=PID)
+    await build_devices(hass, profile)
+    entry = make_entry(profile)
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    retired = {f"{entry.entry_id}_pid_{gain}" for gain in ("kp", "ki", "kd")}
+    for unique_id in retired:
+        registry.async_get_or_create("sensor", DOMAIN, unique_id, config_entry=entry)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    assert {
+        unique_id
+        for unique_id in retired
+        if registry.async_get_entity_id("sensor", DOMAIN, unique_id)
+    } == set()
+    assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[PID]
+    trv = profile.entity_id
+    for gain in ("kp", "ki", "kd"):
+        unique_id = f"{entry.entry_id}_{trv}_pid_{gain}"
+        assert registry.async_get_entity_id("number", DOMAIN, unique_id)
 
 
 @pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True)

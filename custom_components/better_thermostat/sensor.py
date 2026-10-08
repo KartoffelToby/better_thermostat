@@ -202,9 +202,6 @@ async def _setup_algorithm_sensors(
             entry_id,
             CalibrationMode.PID_CALIBRATION,
             [
-                BetterThermostatPidKpSensor(bt_climate),
-                BetterThermostatPidKiSensor(bt_climate),
-                BetterThermostatPidKdSensor(bt_climate),
                 BetterThermostatPidOutputSensor(bt_climate),
                 BetterThermostatPidErrorSensor(bt_climate),
             ],
@@ -1048,33 +1045,6 @@ class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):
     _v2_debug_key = "tau_room_min"
     _unique_id_suffix = "mpc_v2_room_time_constant"
     _shared_unique_id_suffix = "mpc_ka"
-
-
-class BetterThermostatPidKpSensor(_BtMpcSensorBase):
-    """Representation of a Better Thermostat PID Kp (proportional gain) Sensor."""
-
-    _attr_translation_key = "pid_kp"
-    _attr_device_class = None
-    _debug_key = "kp"
-    _unique_id_suffix = "pid_kp"
-
-
-class BetterThermostatPidKiSensor(_BtMpcSensorBase):
-    """Representation of a Better Thermostat PID Ki (integral gain) Sensor."""
-
-    _attr_translation_key = "pid_ki"
-    _attr_device_class = None
-    _debug_key = "ki"
-    _unique_id_suffix = "pid_ki"
-
-
-class BetterThermostatPidKdSensor(_BtMpcSensorBase):
-    """Representation of a Better Thermostat PID Kd (derivative gain) Sensor."""
-
-    _attr_translation_key = "pid_kd"
-    _attr_device_class = None
-    _debug_key = "kd"
-    _unique_id_suffix = "pid_kd"
 
 
 class BetterThermostatPidOutputSensor(_BtMpcSensorBase):

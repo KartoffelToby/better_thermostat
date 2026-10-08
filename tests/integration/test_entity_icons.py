@@ -67,7 +67,7 @@ async def test_every_entity_resolves_its_icon_from_the_translations(hass, fake_t
     ]
     keys = {(reg.domain, reg.translation_key) for reg in registered}
 
-    assert {("sensor", "pid_kp"), ("switch", "pid_auto_tune_no_trv")} <= keys
+    assert {("sensor", "pid_output"), ("switch", "pid_auto_tune_no_trv")} <= keys
     for reg in registered:
         assert "icon" not in hass.states.get(reg.entity_id).attributes, reg.entity_id
         if reg.translation_key in _DEVICE_CLASS_ICONS:

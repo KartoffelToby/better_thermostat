@@ -36,9 +36,6 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatMpcV2RoomTimeConstantSensor,
     BetterThermostatMpcV2VirtualTempSensor,
     BetterThermostatPidErrorSensor,
-    BetterThermostatPidKdSensor,
-    BetterThermostatPidKiSensor,
-    BetterThermostatPidKpSensor,
     BetterThermostatPidOutputSensor,
     BetterThermostatSolarIntensitySensor,
     BetterThermostatTempSlopeSensor,
@@ -631,9 +628,6 @@ class TestPidSensorState:
     @pytest.mark.parametrize(
         ("sensor_class", "debug_key", "value"),
         [
-            (BetterThermostatPidKpSensor, "kp", 60.0),
-            (BetterThermostatPidKiSensor, "ki", 0.01),
-            (BetterThermostatPidKdSensor, "kd", 2000.0),
             (BetterThermostatPidOutputSensor, "u", 42.5),
             (BetterThermostatPidErrorSensor, "e_K", -0.3),
         ],
@@ -647,27 +641,21 @@ class TestPidSensorState:
 
     def test_missing_debug_key_returns_none(self):
         """A PID sensor whose key is absent from debug reports None."""
-        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(kp=60.0))
+        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(u=42.5))
         sensor = BetterThermostatPidErrorSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
 
     def test_invalid_debug_value_returns_none(self):
         """A non-numeric debug value is coerced to None."""
-        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(kp="bad"))
-        sensor = BetterThermostatPidKpSensor(bt)
+        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(u="bad"))
+        sensor = BetterThermostatPidOutputSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
 
     @pytest.mark.parametrize(
         "sensor_class",
-        [
-            BetterThermostatPidKpSensor,
-            BetterThermostatPidKiSensor,
-            BetterThermostatPidKdSensor,
-            BetterThermostatPidOutputSensor,
-            BetterThermostatPidErrorSensor,
-        ],
+        [BetterThermostatPidOutputSensor, BetterThermostatPidErrorSensor],
     )
     def test_unavailable_when_hvac_off(self, sensor_class):
         """PID sensors are unavailable when the thermostat is off."""
@@ -1436,9 +1424,6 @@ class TestDynamicAlgorithmSensors:
         reg.async_remove.assert_not_called()
         assert len(registered) == len(mpc_sensors)
         assert {type(s) for s in added} == {
-            BetterThermostatPidKpSensor,
-            BetterThermostatPidKiSensor,
-            BetterThermostatPidKdSensor,
             BetterThermostatPidOutputSensor,
             BetterThermostatPidErrorSensor,
         }
