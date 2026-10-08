@@ -27,11 +27,11 @@ from custom_components.better_thermostat.utils.restore import (
 DEV = "Test BT"
 
 
-def _trv(temp, unit=None, entity_id="climate.trv"):
+def _trv(temperature, unit=None, entity_id="climate.trv"):
     """Build a TRV State carrying a target temperature (and optional unit)."""
     attrs: dict = {}
-    if temp is not None:
-        attrs[ATTR_TEMPERATURE] = temp
+    if temperature is not None:
+        attrs[ATTR_TEMPERATURE] = temperature
     if unit is not None:
         attrs["temperature_unit"] = unit
     return State(entity_id, "heat", attributes=attrs)

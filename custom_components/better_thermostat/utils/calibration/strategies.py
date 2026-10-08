@@ -149,12 +149,12 @@ class BalanceStrategy:
         """
         result, use_valve = self.compute(bt, entity_id)
         if result is None:
-            return None, bool(use_valve)
+            return None, use_valve
         percent = self.percent_of(result)
         if not isinstance(percent, (int, float)):
-            return None, bool(use_valve)
+            return None, use_valve
         self._watch_oscillation(bt, entity_id, float(percent))
-        return float(percent), bool(use_valve)
+        return float(percent), use_valve
 
     def _watch_oscillation(
         self, bt: BetterThermostat, entity_id: str, percent: float
@@ -192,10 +192,8 @@ class BalanceStrategy:
             and bt.heat_target_temperature is not None
             and trv.calibrator_health == CalibratorHealth.HEALTHY
         )
-        ready = bool(
-            healthy and trv is not None and trv.calibration_balance is not None
-        )
-        return Capability(configured=True, healthy=bool(healthy), ready=ready)
+        ready = healthy and trv is not None and trv.calibration_balance is not None
+        return Capability(configured=True, healthy=healthy, ready=ready)
 
 
 class BalanceCalibrator:

@@ -87,7 +87,7 @@ def test_finish_always_returns_to_idle():
 
 
 def test_running_cannot_block_forever():
-    """Invariant: a stale RUNNING phase stops blocking after max_run_s."""
+    """Invariant: a stale RUNNING phase stops blocking after max_run_seconds."""
     running = start_run(MaintenanceState(phase=MaintenancePhase.DUE), 100.0)
     assert running.is_blocking(now_monotonic=100.0 + 3599.0) is True
     assert running.is_blocking(now_monotonic=100.0 + 3600.0) is False
@@ -98,7 +98,7 @@ def test_running_without_timestamp_does_not_block():
 
     Such a state cannot come from start_run, only from deserialized or
     hand-built state; with no age to measure it could never hit the
-    max_run_s bound, so honoring it would block control forever.
+    max_run_seconds bound, so honoring it would block control forever.
     """
     state = MaintenanceState(phase=MaintenancePhase.RUNNING, running_since=None)
     assert state.is_blocking(now_monotonic=0.0) is False

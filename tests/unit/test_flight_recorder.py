@@ -341,6 +341,26 @@ def test_snapshot_exported_as_temp_slope_loads():
     assert matches is True
 
 
+def test_snapshot_exported_with_the_earlier_calibration_limit_keys_loads():
+    """Exports that name the TRV calibration limits the earlier way still load."""
+    recorder = FlightRecorder()
+    snapshot = _snapshot()
+    desired, _ = decide(snapshot, running_kernel_state())
+    recorder.record(snapshot, running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    for raw in entry["snapshot"]["trvs"].values():
+        raw["min_local_calibration"] = -5.0
+        raw["max_local_calibration"] = 5.0
+        raw["local_calibration_min"] = raw.pop("min_local_calibration")
+        raw["local_calibration_max"] = raw.pop("max_local_calibration")
+
+    rebuilt = snapshot_from_dict(entry["snapshot"])
+
+    assert rebuilt.trvs
+    for trv in rebuilt.trvs.values():
+        assert (trv.min_local_calibration, trv.max_local_calibration) == (-5.0, 5.0)
+
+
 class TestRoundtripCompleteness:
     """Every field of every recorded type survives export and reconstruct.
 
@@ -387,8 +407,8 @@ class TestRoundtripCompleteness:
             "min_temp": 6.0,
             "max_temp": 29.0,
             "valve_max_opening": 80.0,
-            "local_calibration_min": -4.0,
-            "local_calibration_max": 4.0,
+            "min_local_calibration": -4.0,
+            "max_local_calibration": 4.0,
         }
         assert set(trv_reported_kwargs) == {f.name for f in fields(TrvReported)}
 

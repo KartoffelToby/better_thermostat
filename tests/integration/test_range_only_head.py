@@ -96,7 +96,7 @@ async def test_a_range_only_head_confirms_the_write(hass, fake_trv):
 
     trv = bt.real_trvs[TRV_ID]
     assert await wait_for(hass, lambda: _head_low(hass) >= 22.0)
-    assert await wait_for(hass, lambda: trv.target_temp_received is True)
+    assert await wait_for(hass, lambda: trv.target_temperature_received is True)
     assert trv.confirmed_setpoint == trv.commanded_setpoint
     assert bt.heat_target_temperature == 22.0
     writes = len(fake_trv.set_temperature_calls)

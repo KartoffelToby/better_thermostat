@@ -152,7 +152,7 @@ class TestTrvStateUpdateBug:
     def test_bt_hvac_mode_should_remain_heat_when_window_triggered_min_temp(
         self, mock_bt_instance
     ):
-        """Test that bt_hvac_mode should remain HEAT when window caused the low temp.
+        """Test that bt_hvac_mode should remain HEAT when window caused the low temperature.
 
         This test will PASS after the fix is implemented.
         The fix should NOT change bt_hvac_mode based on temperature when
@@ -170,7 +170,7 @@ class TestTrvStateUpdateBug:
         )
 
         # FIXED behavior: Don't change bt_hvac_mode when window is open
-        # because we KNOW the low temp is due to window, not user turning off
+        # because we KNOW the low temperature is due to window, not user turning off
         if no_off_system_mode:
             if _new_heating_setpoint == min_temp:
                 # FIX: Only set OFF if window is NOT the cause

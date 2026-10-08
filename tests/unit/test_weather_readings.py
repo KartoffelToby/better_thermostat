@@ -11,7 +11,7 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.calibration import (
-    _get_current_outdoor_temp,
+    _get_current_outdoor_temperature,
     _get_current_solar_intensity,
 )
 from tests.factories import ThermostatStandIn
@@ -97,7 +97,7 @@ def test_the_outdoor_sensor_wins_over_the_weather():
         outdoor=OUTDOOR,
     )
 
-    assert _get_current_outdoor_temp(bt) == 7.5
+    assert _get_current_outdoor_temperature(bt) == 7.5
 
 
 def test_an_outdoor_sensor_that_is_not_there_leaves_the_weather_to_say():
@@ -111,7 +111,7 @@ def test_an_outdoor_sensor_that_is_not_there_leaves_the_weather_to_say():
         outdoor=OUTDOOR,
     )
 
-    assert _get_current_outdoor_temp(bt) == pytest.approx(10.0)
+    assert _get_current_outdoor_temperature(bt) == pytest.approx(10.0)
 
 
 @pytest.mark.parametrize(
@@ -122,4 +122,4 @@ def test_an_outdoor_sensor_that_is_not_there_leaves_the_weather_to_say():
     ],
 )
 def test_without_an_outdoor_reading_there_is_no_outdoor_temperature(bt):
-    assert _get_current_outdoor_temp(bt) is None
+    assert _get_current_outdoor_temperature(bt) is None

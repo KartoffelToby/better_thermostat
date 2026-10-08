@@ -146,7 +146,7 @@ def room_sensor_reading(self: BetterThermostat, state: State | None) -> float | 
     if state is None or state.state in UNAVAILABLE_STATES + UNKNOWN_STATES:
         return None
     value = convert_to_float_celsius(
-        str(state.state),
+        state.state,
         self.device_name,
         "room_sensor_reading()",
         unit_of_measurement=state.attributes.get("unit_of_measurement"),
@@ -333,7 +333,7 @@ def get_critical_entities(self: BetterThermostat) -> list[str]:
     """Return list of critical entity IDs.
 
     Critical entities are TRVs - without them the thermostat cannot function.
-    The room temperature sensor is semi-critical (can fall back to TRV temp).
+    The room temperature sensor is semi-critical (can fall back to TRV temperature).
 
     Returns
     -------
@@ -399,8 +399,8 @@ async def check_critical_entities(self: BetterThermostat) -> None:
                     severity=ir.IssueSeverity.ERROR,
                     translation_key="missing_entity",
                     translation_placeholders={
-                        "entity": str(entity),
-                        "name": str(self.device_name),
+                        "entity": entity,
+                        "name": self.device_name,
                     },
                 )
         else:
@@ -698,7 +698,7 @@ async def check_and_update_degraded_mode(
     )
     # A stored reading only counts while its TRV is actually reachable;
     # otherwise a pre-outage value would keep HOLD unreachable forever.
-    trv_temp_ok = any(
+    trv_temperature_ok = any(
         reachable_trv_temperature(self, entity_id) is not None
         for entity_id in self.real_trvs
     )
@@ -707,7 +707,7 @@ async def check_and_update_degraded_mode(
         control_mode=control_mode_step_ladder(
             self.kernel_state.control_mode,
             room_sensor_ok=room_sensor_ok,
-            trv_temp_ok=trv_temp_ok,
+            trv_temperature_ok=trv_temperature_ok,
             now=self.clock.monotonic(),
             params=LadderParams(),
         ),
@@ -740,7 +740,7 @@ async def check_and_update_degraded_mode(
             severity=ir.IssueSeverity.WARNING,
             translation_key="degraded_mode",
             translation_placeholders={
-                "name": str(self.device_name),
+                "name": self.device_name,
                 "sensors": ", ".join(unavailable),
             },
         )

@@ -59,7 +59,7 @@ async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
         support_offset = True
     valve = await find_valve_entity(self, entity_id)
     if valve is not None and valve.get("entity_id"):
-        support_valve = bool(valve.get("writable", False))
+        support_valve = valve.get("writable", False)
     if not support_valve:
         model = await get_device_model(self, entity_id)
         if model in _QUIRK_VALVE_MODELS:

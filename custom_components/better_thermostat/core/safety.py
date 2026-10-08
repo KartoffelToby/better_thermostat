@@ -131,8 +131,8 @@ def _clamp_trv(
             calibration_offset = None
         else:
             lower, upper = _resolve_bounds(
-                reported.local_calibration_min if reported is not None else None,
-                reported.local_calibration_max if reported is not None else None,
+                reported.min_local_calibration if reported is not None else None,
+                reported.max_local_calibration if reported is not None else None,
                 FALLBACK_MIN_OFFSET,
                 FALLBACK_MAX_OFFSET,
             )

@@ -5,7 +5,7 @@ Covers:
   - compute_next_maintenance  (interval + jitter)
   - compute_initial_maintenance (startup delay)
   - build_trv_snapshots       (snapshot builder)
-  - open_step / close_step    (direct valve vs temp-based)
+  - open_step / close_step    (direct valve vs temperature-based)
   - restore_one               (temperature + mode restore)
   - run_valve_maintenance      (full 2-cycle orchestrator)
 """
@@ -493,7 +493,7 @@ class TestRestoreOne:
 
     @pytest.mark.asyncio
     async def test_restores_temp_and_mode(self):
-        """Test Restores temp and mode."""
+        """Test Restores temperature and mode."""
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()
         info = _info(setpoint=22.5, cur_mode="heat")
@@ -615,8 +615,10 @@ class TestRunValveMaintenance:
         trv.remember_setpoint_written(21.0)
         bt.real_trvs = {"climate.trv1": trv}
 
-        async def write_through_the_delegate(entity_id: str, temp: float) -> None:
-            await delegate_set_temperature(bt, entity_id, temp)
+        async def write_through_the_delegate(
+            entity_id: str, temperature: float
+        ) -> None:
+            await delegate_set_temperature(bt, entity_id, temperature)
 
         infos = [_info(entity_id="climate.trv1", setpoint=21.0)]
         await run_valve_maintenance(
@@ -678,7 +680,7 @@ class TestRunValveMaintenance:
             cycle_sleep=0,
         )
 
-        # 2 opens (max) + 2 closes (min) = 4 temp calls, plus 1 restore = 5
+        # 2 opens (max) + 2 closes (min) = 4 temperature calls, plus 1 restore = 5
         assert temp_fn.await_count == 5
         valve_fn.assert_not_awaited()
 
@@ -704,7 +706,7 @@ class TestRunValveMaintenance:
             cycle_sleep=0,
         )
 
-        # restore calls temp + mode
+        # restore calls temperature + mode
         temp_fn.assert_awaited_once_with("trv1", 22.0)
         mode_fn.assert_awaited_once_with("trv1", "heat")
 
@@ -755,7 +757,7 @@ class TestRunValveMaintenance:
             cycle_sleep=0,
         )
 
-        # open/close skipped, but restore still sets temp + mode
+        # open/close skipped, but restore still sets temperature + mode
         assert temp_fn.await_count == 1  # only restore
         mode_fn.assert_awaited_once_with("trv1", "off")
 

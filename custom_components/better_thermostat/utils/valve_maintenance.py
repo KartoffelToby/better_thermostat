@@ -268,14 +268,14 @@ def build_trv_snapshots(
             continue
         support_valve = trv.capabilities().supports_valve_write
         adv = _get_advanced(trv)
-        use_direct = bool(
+        use_direct = (
             support_valve
             and configured_calibration_output(adv)
             == CalibrationOutput.DIRECT_VALVE_BASED
         )
 
         raw_max = trv.max_temp
-        raw_min = trv.min_temp
+        raw_min_temperature = trv.min_temp
         infos.append(
             MaintenanceTrvInfo(
                 entity_id=entity_id,
@@ -283,7 +283,9 @@ def build_trv_snapshots(
                 setpoint=read_setpoint(trv_state),
                 use_direct_valve=use_direct,
                 max_temp=float(raw_max) if isinstance(raw_max, (int, float)) else 30.0,
-                min_temp=float(raw_min) if isinstance(raw_min, (int, float)) else 5.0,
+                min_temp=float(raw_min_temperature)
+                if isinstance(raw_min_temperature, (int, float))
+                else 5.0,
                 wake_mode=pick_wake_mode(
                     trv_state.state, use_direct, trv_state.attributes.get("hvac_modes")
                 ),
@@ -299,21 +301,23 @@ SetTemperatureFn = Callable[[str, float], Awaitable[None]]
 SetHvacModeFn = Callable[[str, str], Awaitable[None]]
 
 
-async def _set_valve_pct(entity_id: str, pct: int, set_valve_fn: SetValveFn) -> bool:
+async def _set_valve_percent(
+    entity_id: str, percent: int, set_valve_fn: SetValveFn
+) -> bool:
     """Set valve percentage via callback."""
     try:
-        return bool(await set_valve_fn(entity_id, int(pct)))
+        return await set_valve_fn(entity_id, percent)
     except Exception:
         _LOGGER.debug(
             "better_thermostat: setting the valve of %s to %d%% failed",
             entity_id,
-            pct,
+            percent,
             exc_info=True,
         )
         return False
 
 
-def _temp_cycle_reaches_valve(info: MaintenanceTrvInfo) -> bool:
+def _temperature_cycle_reaches_valve(info: MaintenanceTrvInfo) -> bool:
     """Whether writing a setpoint moves this TRV's valve.
 
     An ``off`` TRV ignores setpoint writes, so the cycle only reaches it
@@ -343,9 +347,9 @@ async def open_step(
 ) -> None:
     """Open a TRV valve fully."""
     if info.use_direct_valve:
-        await _set_valve_pct(info.entity_id, 100, set_valve_fn)
+        await _set_valve_percent(info.entity_id, 100, set_valve_fn)
         return
-    if _temp_cycle_reaches_valve(info):
+    if _temperature_cycle_reaches_valve(info):
         await set_temperature_fn(info.entity_id, info.max_temp)
 
 
@@ -357,9 +361,9 @@ async def close_step(
 ) -> None:
     """Close a TRV valve fully."""
     if info.use_direct_valve:
-        await _set_valve_pct(info.entity_id, 0, set_valve_fn)
+        await _set_valve_percent(info.entity_id, 0, set_valve_fn)
         return
-    if _temp_cycle_reaches_valve(info):
+    if _temperature_cycle_reaches_valve(info):
         await set_temperature_fn(info.entity_id, info.min_temp)
 
 
@@ -496,7 +500,7 @@ async def run_valve_maintenance(
             continue
         if info.wake_mode is not None:
             woken.add(info.entity_id)
-        if info.use_direct_valve or _temp_cycle_reaches_valve(info):
+        if info.use_direct_valve or _temperature_cycle_reaches_valve(info):
             cycled.append(info)
 
     if not cycled:

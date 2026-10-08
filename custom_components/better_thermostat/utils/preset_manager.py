@@ -54,7 +54,7 @@ class PresetManager:
     def activate(
         self,
         preset: str,
-        current_target_temp: float | None,
+        current_target_temperature: float | None,
         min_temp: float,
         max_temp: float,
     ) -> float | None:
@@ -64,7 +64,7 @@ class PresetManager:
         ----------
         preset : str
             the preset to switch to
-        current_target_temp : float | None
+        current_target_temperature : float | None
             the setpoint in force before the switch, not the measured room
             temperature: leaving ``PRESET_NONE`` stores it so that returning
             to ``PRESET_NONE`` restores the setpoint the user had set
@@ -85,25 +85,25 @@ class PresetManager:
         old = self.mode
         self.mode = preset
 
-        # Save temp when leaving NONE
+        # Save temperature when leaving NONE
         if old == PRESET_NONE and preset != PRESET_NONE:
             if self.saved_temperature is None:
-                self.saved_temperature = current_target_temp
+                self.saved_temperature = current_target_temperature
 
         # Restore when returning to NONE
         if preset == PRESET_NONE and self.saved_temperature is not None:
-            temp = self.saved_temperature
+            temperature = self.saved_temperature
             self.saved_temperature = None
-            return temp
+            return temperature
 
-        # Apply preset temp — fall back through (preset, PRESET_NONE, midpoint)
+        # Apply preset temperature — fall back through (preset, PRESET_NONE, midpoint)
         # so an enabled preset missing from ``temperatures`` still produces a
         # sensible clamped target.
         if preset != PRESET_NONE:
-            temp = self.temperatures.get(
+            temperature = self.temperatures.get(
                 preset, self.temperatures.get(PRESET_NONE, (min_temp + max_temp) / 2)
             )
-            return min(max_temp, max(min_temp, temp))
+            return min(max_temp, max(min_temp, temperature))
 
         return None
 
@@ -112,9 +112,9 @@ class PresetManager:
         if self.mode == PRESET_NONE:
             return None
         self.mode = PRESET_NONE
-        temp = self.saved_temperature
+        temperature = self.saved_temperature
         self.saved_temperature = None
-        return temp
+        return temperature
 
     def update_temperature(self, preset: str, value: float) -> None:
         """Set the stored temperature for *preset*."""

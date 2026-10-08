@@ -196,7 +196,7 @@ pythonVersion = "3.14"
 python-version = "3.14"
 project-includes = ["custom_components/better_thermostat"]
 min-severity = "error"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true, unnecessary-type-conversion = "error" }
 
 # Every file under project-includes is checked at the strictness declared above.
 # The entries below name the files that do not meet it yet and list exactly the
