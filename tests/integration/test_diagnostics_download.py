@@ -65,5 +65,8 @@ async def test_the_download_carries_what_a_bug_report_needs(hass, fake_trv):
     assert valve["attributes"]["ieee"] == "**REDACTED**"
     assert download["sensors"]["humidity_sensor"]["state"] == "55.0"
     assert download["sensors"]["outdoor_sensor"]["state"] == "4.0"
+    assert download["summer_mode"]["damped_outdoor_temperature"] == 4.0
+    assert download["summer_mode"]["outdoor_reading"] == 4.0
+    assert download["summer_mode"]["call_for_heat"] is True
     assert download["sensors"]["humidity_sensor"]["entity_id"] == HUMIDITY_ID
     json.dumps(download, cls=JSONEncoder)
