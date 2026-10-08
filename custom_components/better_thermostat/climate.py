@@ -101,6 +101,7 @@ from .core.fsm.mode import (
     set_preset as mode_set_preset,
 )
 from .core.fsm.window import WindowPhase, WindowState
+from .core.outdoor import DampedOutdoorTemperature
 from .core.recorder import FlightRecorder
 from .core.watchdog import CONTROL_TICK_S
 from .device_binding import async_bind_trv_device, async_unbind_trv_device
@@ -1120,12 +1121,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self._preset_cool_temperature: float | None = None
         # Config entry id (same as unique id passed in) used for durable persistence beyond RestoreEntity
         self._config_entry_id = self._unique_id
-        self.last_avg_outdoor_temperature: float | None = None
+        self.damped_outdoor_temperature: float | None = None
         self.last_main_hvac_mode: str | None = None
         self._last_call_for_heat: bool | None = None
         self.weather_verdict_missing_since: float | None = None
         self.weather_fallback_active = False
-        self.outdoor_history_mean: float | None = None
+        self.outdoor_damping: DampedOutdoorTemperature | None = None
+        self.outdoor_history_damped = False
         self.outdoor_history_read_at: float | None = None
         self.outdoor_history_failing = False
         self._available = False
@@ -1496,7 +1498,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             )
             return
         _LOGGER.debug(
-            "better_thermostat %s: get last avg outdoor temps...", self.device_name
+            "better_thermostat %s: checking the damped outdoor temperature...",
+            self.device_name,
         )
         await check_ambient_air_temperature(self)
         self.async_write_ha_state()

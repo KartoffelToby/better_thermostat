@@ -20,8 +20,10 @@ from custom_components.better_thermostat.diagnostics import (
     async_get_config_entry_diagnostics,
 )
 from custom_components.better_thermostat.utils.const import (
+    CONF_OUTDOOR_SENSOR,
     CONF_TEMPERATURE_SENSOR,
     CONF_THERMOSTAT,
+    CONF_WEATHER,
 )
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
@@ -118,6 +120,32 @@ async def test_diagnostics_exports_the_flight_recorder():
     assert len(exported) == 1
     assert exported[0]["snapshot"]["trvs"]["climate.trv"]["current_temperature"] == 20.0
     assert exported[0]["desired"]["call_for_heat"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
+@pytest.mark.parametrize("source", [CONF_OUTDOOR_SENSOR, CONF_WEATHER])
+async def test_an_outdoor_source_adds_the_summer_mode_section(source):
+    """With an outdoor sensor or weather entity the download explains summer mode."""
+    bt = ThermostatStandIn()
+    entry = _config_entry(bt)
+    entry.data = {**entry.data, source: "sensor.outdoor"}
+    with patch(
+        f"{_DIAGNOSTICS}.summer_mode_facts", return_value={"call_for_heat": False}
+    ) as facts:
+        diagnostics = await async_get_config_entry_diagnostics(_hass(), entry)
+    facts.assert_called_once_with(bt)
+    assert diagnostics["summer_mode"] == {"call_for_heat": False}
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
+async def test_a_room_without_an_outdoor_source_has_no_summer_mode_section():
+    """Without an outdoor source there is no summer mode to explain."""
+    diagnostics = await async_get_config_entry_diagnostics(
+        _hass(), _config_entry(ThermostatStandIn())
+    )
+    assert "summer_mode" not in diagnostics
 
 
 @pytest.mark.asyncio
