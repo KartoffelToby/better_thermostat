@@ -147,6 +147,7 @@ def _raise_shared_trv_issue(
         is_persistent=False,
         severity=ir.IssueSeverity.WARNING,
         translation_key="shared_trv",
+        learn_more_url="https://better-thermostat.org/faq/shared-trv",
         translation_placeholders={"trv": trv_entity_id, "entries": ", ".join(names)},
     )
 

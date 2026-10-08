@@ -390,6 +390,7 @@ async def trigger_temperature_change(
             is_fixable=False,
             severity=ir.IssueSeverity.ERROR,
             translation_key="invalid_external_temperature",
+            learn_more_url="https://better-thermostat.org/faq/invalid-external-temperature",
             translation_placeholders={
                 "name": self.device_name,
                 "value": str(new_state.state),
