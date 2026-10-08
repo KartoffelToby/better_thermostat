@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Any, Final, NamedTuple, Protocol, TypedDict
+from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -565,14 +565,14 @@ def offered_mode_signature(
     return frozenset(str(normalize_hvac_mode(mode)) for mode in trv_modes)
 
 
-def adopt_reported_hvac_modes(trv: Trv, reported_modes: Any) -> None:
+def adopt_reported_hvac_modes(trv: Trv, reported_modes: object) -> None:
     """Cache the HVAC modes a device reports on its state.
 
     Parameters
     ----------
     trv : Trv
             Per-TRV state holding the cached mode list.
-    reported_modes : Any
+    reported_modes : object
             Value of the device's ``hvac_modes`` attribute. An absent or
             empty list keeps the cached one: it means the device published
             no capabilities in this event, not that it lost them. The modes
@@ -1361,7 +1361,7 @@ def reported_setpoint_step_celsius(
             the reported step as a Celsius delta, or None when the state
             publishes no convertible step
     """
-    attributes: Mapping[str, Any] = state.attributes if state is not None else {}
+    attributes: Mapping[str, object] = state.attributes if state is not None else {}
     raw_step = attributes.get(ATTR_TARGET_TEMP_STEP)
     if raw_step is None:
         return None
