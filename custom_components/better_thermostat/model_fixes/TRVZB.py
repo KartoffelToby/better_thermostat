@@ -156,7 +156,7 @@ def _valve_number_candidates(
     Returns the opening, closing and generic candidates, in registry order,
     or ``None`` when the TRV is no Sonoff model or has no registry entry.
     """
-    model = str(self.real_trvs[entity_id].model or "")
+    model = self.real_trvs[entity_id].model or ""
     # The TRV-ZBT's valve numbers configure its own controller and position
     # nothing, so it is ruled out before the Sonoff match below takes it in.
     if _TRV_ZBT_MODEL in model.lower():
@@ -280,7 +280,7 @@ async def maybe_set_sonoff_valve_percent(
             return False
         opening_candidates, closing_candidates, generic_candidates = candidates
 
-        pct = max(0, min(100, int(percent)))
+        pct = max(0, min(100, percent))
         _LOGGER.debug(
             "better_thermostat %s: TRVZB valve write candidates (open=%s, close=%s, generic=%s) target=%s%% for %s",
             self.device_name,
@@ -390,7 +390,7 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
     Returns True if handled (write attempted), False to let adapter fallback run.
     """
     try:
-        target_pct = max(0, min(100, int(percent)))
+        target_pct = max(0, min(100, percent))
 
         trv_state = self.real_trvs.get(entity_id)
         if trv_state is None:
@@ -399,7 +399,7 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
         # During valve maintenance we don't want to add additional delayed steps.
         if self.in_maintenance:
             ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
-            return bool(ok)
+            return ok
 
         # Cancel any previous pending delayed "bump then set".
         bump_pending = _cancel_pending_valve_bump(trv_state)
@@ -411,18 +411,18 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
         # If we don't know the last commanded percent, just set directly.
         if last_pct is None:
             ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
-            return bool(ok)
+            return ok
 
         # Only apply workaround when closing further, and only when the motor
         # was not already driven open by a bump whose write is still due.
         if target_pct < last_pct and not bump_pending:
-            bump_pct = min(100, int(last_pct) + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT)
+            bump_pct = min(100, last_pct + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT)
 
             # If we can't "bump open", fall back to direct set.
             ok_bump = await maybe_set_sonoff_valve_percent(self, entity_id, bump_pct)
             if not ok_bump:
                 ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
-                return bool(ok)
+                return ok
 
             seq = trv_state.extra.get("_trvzb_valve_bump_seq", 0) + 1
             trv_state.extra["_trvzb_valve_bump_seq"] = seq
@@ -457,7 +457,7 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
         # further open on every closing step while the target the cancelled
         # write was carrying never reaches the device.
         ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
-        return bool(ok)
+        return ok
     except TypeError, ValueError, KeyError, AttributeError:
         return False
 
@@ -592,7 +592,7 @@ async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bo
         # A selector that is not reporting names no option, and the device
         # behind it is in no state to take one either.
         return False
-    if str(state.state).startswith(_ON_A_REMOTE_SENSOR):
+    if state.state.startswith(_ON_A_REMOTE_SENSOR):
         return True
     options = state.attributes.get("options")
     option = next(
@@ -657,7 +657,7 @@ async def maybe_set_external_temperature(
         TRVZB or TRV-ZBT, names no such input, or the value is not a number.
     """
     try:
-        model = str(self.real_trvs[entity_id].model or "")
+        model = self.real_trvs[entity_id].model or ""
         if not (
             "sonoff" in model.lower()
             or "trvzb" in model.lower()
