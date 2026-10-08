@@ -400,11 +400,9 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
         # Cancel any previous pending delayed "bump then set".
         bump_pending = _cancel_pending_valve_bump(trv_state)
 
+        # The delegate records the position only once it is a finite int.
         last_pct_raw = trv_state.last_valve_percent
-        try:
-            last_pct = None if last_pct_raw is None else int(last_pct_raw)
-        except TypeError, ValueError:
-            last_pct = None
+        last_pct = None if last_pct_raw is None else int(last_pct_raw)
 
         # If we don't know the last commanded percent, just set directly.
         if last_pct is None:

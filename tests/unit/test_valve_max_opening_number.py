@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.calibration import _get_trv_max_opening
@@ -124,3 +125,32 @@ async def test_restored_state_that_is_not_a_number_keeps_the_default(caplog) -> 
 
     assert trv.valve_max_opening == 100.0
     assert len([r for r in caplog.records if r.levelno >= logging.WARNING]) == 1
+
+
+async def test_restored_state_that_is_no_number_keeps_the_cap() -> None:
+    """A saved state that does not parse leaves the cap the head holds."""
+    entity, trv, _ = _make_entity()
+    trv.valve_max_opening = 60.0
+    entity.async_get_last_state = AsyncMock(
+        return_value=State("number.bt_valve_max_opening", "open")
+    )
+    entity.async_get_last_extra_data = AsyncMock(return_value=None)
+
+    await entity.async_added_to_hass()
+
+    assert trv.valve_max_opening == 60.0
+    assert entity.native_value == 60.0
+
+
+async def test_the_cap_of_a_head_not_built_is_the_full_opening() -> None:
+    """A head the thermostat could not build shows no cap and takes none.
+
+    Its entity stays registered so it comes back once the head is built.
+    """
+    entity, _, bt_climate = _make_entity()
+    bt_climate.real_trvs = {}
+
+    await entity.async_set_native_value(40.0)
+
+    assert entity.native_value == 100.0
+    entity.async_write_ha_state.assert_called_once()

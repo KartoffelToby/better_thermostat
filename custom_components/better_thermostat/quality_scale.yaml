@@ -42,7 +42,7 @@ rules:
     comment: |
       Better Thermostat holds no credentials: it drives other integrations'
       entities inside Home Assistant and signs in to no device or service.
-  test-coverage: todo
+  test-coverage: done
 
   # Gold
   devices: done

@@ -47,14 +47,9 @@ def request_control_cycle(
             self.device_name,
         )
         return
-    try:
-        queue.put_nowait(self)
-    except asyncio.QueueFull:
-        # A cycle is already pending; it will see the new state.
-        _LOGGER.debug(
-            "better_thermostat %s: control cycle already pending, coalescing",
-            self.device_name,
-        )
+    # The queue is empty here, checked above or just drained, so the put
+    # cannot overflow it.
+    queue.put_nowait(self)
 
 
 def empty_queue(q: asyncio.Queue[BetterThermostat | None]) -> None:

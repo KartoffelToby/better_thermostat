@@ -408,7 +408,13 @@ async def set_calibration_offset(
         # Check if it's a SELECT entity or NUMBER entity
         if domain == "select":
             # For SELECT entities, format with 'k' suffix (e.g., "1.5k")
-            option_value = f"{calibration_offset:.1f}k"
+            rounded = f"{calibration_offset:.1f}"
+            option_value = f"{rounded}k"
+            # The option carries the value that goes on the wire, and the
+            # confirmation compares the device's report against it. Both the
+            # snap onto the option list and the one-decimal format move the
+            # value, so the command is the number the chosen option stands for.
+            commanded = float(rounded)
 
             # Get available options (handle None entity_state gracefully)
             options: list[str] = []
@@ -437,14 +443,9 @@ async def set_calibration_offset(
                             ),
                         )
                         option_value = closest_option
+                        commanded = parsed_options[closest_option]
 
-            # The option carries the value that goes on the wire, and the
-            # confirmation compares the device's report against it. Both the
-            # snap onto the option list and the one-decimal format move the
-            # value, so the command is read back off the option itself.
-            commanded = _option_to_offset(option_value)
-            if commanded is not None:
-                calibration_offset = commanded
+            calibration_offset = commanded
 
             await self.hass.services.async_call(
                 "select",

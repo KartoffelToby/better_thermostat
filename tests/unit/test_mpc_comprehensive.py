@@ -7,10 +7,12 @@ using real time with sufficiently large deltas.
 from __future__ import annotations
 
 from time import time
+from unittest.mock import patch
 
 import pytest
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.utils.calibration import mpc as mpc_module
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
     MpcInput,
@@ -20,6 +22,9 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     _detect_regime_change,
     _detect_trv_profile,
     _MpcState,
+    _parse_bucket,
+    _post_process_percent,
+    _room_rise_over,
     _round_for_debug,
     _seed_state_from_siblings,
     _split_mpc_key,
@@ -1689,6 +1694,23 @@ class TestBuildMpcGroupKey:
         assert ":group:" in group_key
         assert ":climate.trv_1:" in entity_key
 
+    @pytest.mark.parametrize("target", [float("inf"), float("-inf"), float("nan")])
+    def test_a_target_without_a_bucket_keys_as_unknown(self, target):
+        """A target that cannot be rounded to a bucket keys as ``tunknown``.
+
+        Both the per-TRV and the group key fall back instead of raising, as
+        the PID key does.
+        """
+
+        class FakeBT:
+            heat_target_temperature = target
+            unique_id = "bt_1"
+
+        assert build_mpc_key(FakeBT(), "climate.trv_1") == (
+            "bt_1:climate.trv_1:tunknown"
+        )
+        assert build_mpc_group_key(FakeBT()) == "bt_1:group:tunknown"
+
 
 # ===================================================================
 # 15. DISTRIBUTE VALVE PERCENT (multi-TRV compensation)
@@ -2494,3 +2516,431 @@ class TestIntegrationAccumulation:
         _compute(_inp(key="integ_win", window_open=True), params)
         assert state.u_integral == 0.0
         assert state.time_integral == 0.0
+
+
+# ===================================================================
+# PINNED WALL CLOCK: paths that depend on exact elapsed times
+# ===================================================================
+
+_NOW = 1_800_000_000.0
+
+
+def _run_at(
+    now: float, inp: MpcInput, params: MpcParams, state: _MpcState
+) -> MpcOutput:
+    """Run ``compute_mpc`` once with the wall clock pinned to *now*."""
+    with patch.object(mpc_module, "time", return_value=now):
+        output, _ = _compute_mpc_raw(inp, params, state=state, all_states={})
+    assert output is not None
+    return output
+
+
+class TestTrainedModelCreationStamp:
+    """A model that already carries profile confidence is not reported as new."""
+
+    def test_confident_model_is_backdated_past_training(self):
+        """Profile confidence above 0.5 backdates the creation stamp by 25 h."""
+        state = _MpcState(profile_confidence=0.8)
+
+        output = _run_at(_NOW, _inp(key="trained"), _default_params(), state)
+
+        assert state.created_ts == _NOW - 90000.0
+        assert output.debug["mpc_created_ts"] == _NOW - 90000.0
+
+    def test_unconfident_model_starts_now(self):
+        """Without profile confidence the creation stamp is this cycle."""
+        state = _MpcState(profile_confidence=0.5)
+
+        _run_at(_NOW, _inp(key="fresh"), _default_params(), state)
+
+        assert state.created_ts == _NOW
+
+
+class TestValveUsageIntegration:
+    """The valve average integrates the command that was in force."""
+
+    def test_no_command_in_force_integrates_nothing(self):
+        """Without a previous command the interval adds no valve usage."""
+        state = _MpcState(last_integration_ts=_NOW - 60.0, last_percent=None)
+
+        _run_at(_NOW, _inp(key="no_cmd"), _default_params(), state)
+
+        assert (state.u_integral, state.time_integral) == (0.0, 0.0)
+        assert state.last_integration_ts == _NOW
+
+    def test_command_in_force_integrates_over_the_interval(self):
+        """A command in force adds its percentage times the elapsed seconds."""
+        state = _MpcState(last_integration_ts=_NOW - 60.0, last_percent=50.0)
+
+        _run_at(_NOW, _inp(key="cmd"), _default_params(), state)
+
+        assert state.u_integral == pytest.approx(3000.0)
+        assert state.time_integral == pytest.approx(60.0)
+
+
+class TestKalmanWithoutElapsedTime:
+    """A cycle at the observer's own time stamp predicts nothing."""
+
+    def test_same_instant_leaves_the_virtual_temperature(self):
+        """No elapsed time and an unchanged sensor keep the estimate as is."""
+        params = _default_params(use_virtual_temp=True)
+        state = _MpcState()
+        _run_at(_NOW, _inp(key="kal0", room_temperature=20.0), params, state)
+        virtual_before = state.virtual_temp
+        p_before = state.kalman_P
+
+        output = _run_at(_NOW, _inp(key="kal0", room_temperature=20.0), params, state)
+
+        assert "kalman_predict_dT" not in output.debug
+        assert output.debug["kalman_update"] == "skipped_sensor_unchanged"
+        assert state.virtual_temp == virtual_before
+        assert state.kalman_P == p_before
+
+    def test_elapsed_time_predicts_and_grows_the_covariance(self):
+        """A minute later the observer predicts and its covariance grows."""
+        params = _default_params(use_virtual_temp=True)
+        state = _MpcState()
+        _run_at(_NOW, _inp(key="kal1", room_temperature=20.0), params, state)
+        p_before = state.kalman_P
+
+        output = _run_at(
+            _NOW + 60.0, _inp(key="kal1", room_temperature=20.0), params, state
+        )
+
+        assert "kalman_predict_dT" in output.debug
+        assert state.kalman_P == pytest.approx(p_before + params.kalman_Q * 60.0)
+
+
+class TestAdaptationFromARestoredAnchor:
+    """Adaptation from a learning anchor that has no history behind it.
+
+    A state restored from storage can carry a learning anchor without a
+    previous target or an integrated valve average; the identification
+    then takes the last command as the valve position and treats the
+    target as unchanged.
+    """
+
+    def _anchored_state(self, **overrides) -> _MpcState:
+        state = _MpcState(
+            last_learn_time=_NOW - 600.0,
+            last_learn_temp=20.0,
+            gain_est=0.06,
+            loss_est=0.01,
+            created_ts=_NOW - 3600.0,
+        )
+        for name, value in overrides.items():
+            setattr(state, name, value)
+        return state
+
+    def test_last_command_stands_in_for_the_valve_average(self):
+        """With no integrated average, the last command is the valve position."""
+        params = _default_params(mpc_adapt=True, mpc_adapt_alpha=0.1)
+        state = self._anchored_state(last_percent=60.0)
+
+        output = _run_at(_NOW, _inp(key="anchor", room_temperature=20.1), params, state)
+
+        assert output.debug["id_u_last"] == 0.6
+        assert output.debug["id_target_changed"] is False
+        assert output.debug["id_gain_method"] == "heat_rate"
+        # gain candidate (0.01 + 0.01) / 0.6, blended in with alpha 0.1
+        assert state.gain_est == pytest.approx(0.9 * 0.06 + 0.1 * (0.02 / 0.6))
+        assert state.gain_learn_count == 1
+
+    def test_no_command_counts_as_a_closed_valve(self):
+        """Without a last command the valve counts as closed for learning."""
+        params = _default_params(mpc_adapt=True, mpc_adapt_alpha=0.1)
+        state = self._anchored_state(last_percent=None, loss_est=0.005)
+
+        output = _run_at(
+            _NOW, _inp(key="anchor0", room_temperature=19.9), params, state
+        )
+
+        assert output.debug["id_u_last"] == 0.0
+        assert output.debug["id_loss_method"] == "cool_u0"
+        assert state.loss_learn_count == 1
+
+
+class TestLearnedMinimumOpeningInIdentification:
+    """With min-effective learning on, openings below the minimum count as closed."""
+
+    def _state(self, **overrides) -> _MpcState:
+        state = _MpcState(
+            last_learn_time=_NOW - 600.0,
+            last_learn_temp=20.0,
+            last_target_temperature=22.0,
+            last_percent=20.0,
+            gain_est=0.06,
+            loss_est=0.005,
+            min_effective_percent=30.0,
+            created_ts=_NOW - 3600.0,
+        )
+        for name, value in overrides.items():
+            setattr(state, name, value)
+        return state
+
+    def test_opening_below_the_minimum_learns_loss_while_cooling(self):
+        """A 20 % command under a 30 % minimum learns loss like a closed valve."""
+        params = _default_params(
+            mpc_adapt=True, mpc_adapt_alpha=0.1, enable_min_effective_percent=True
+        )
+        state = self._state()
+
+        output = _run_at(
+            _NOW, _inp(key="minopen", room_temperature=19.9), params, state
+        )
+
+        assert output.debug["id_loss_method"] == "cool_u0"
+        # loss candidate 0.01 °C/min above the estimate, blended with alpha 0.1
+        assert state.loss_est == pytest.approx(0.9 * 0.005 + 0.1 * 0.01)
+
+    def test_same_opening_without_minimum_learning_is_open(self):
+        """Without min-effective learning the same 20 % counts as open."""
+        params = _default_params(mpc_adapt=True, mpc_adapt_alpha=0.1)
+        state = self._state()
+
+        output = _run_at(
+            _NOW, _inp(key="minopen_off", room_temperature=19.9), params, state
+        )
+
+        assert output.debug["id_loss_method"] is None
+        assert state.loss_est == pytest.approx(0.005)
+
+    @pytest.mark.parametrize(
+        ("gain_before", "expected_gain", "expected_method"),
+        [
+            # implied gain (0.012 + 0.01) / 0.2 = 0.11 is within 10 % of 0.12
+            (0.12, 0.12, None),
+            # 0.11 is far above 0.06: a slow recovery with alpha 0.1 * 0.2
+            (0.06, 0.98 * 0.06 + 0.02 * 0.11, "recovery"),
+        ],
+    )
+    def test_gain_recovers_only_past_ten_percent(
+        self, gain_before, expected_gain, expected_method
+    ):
+        """Warming below the minimum raises the gain only when it is well above.
+
+        A 20 % command under a 30 % minimum keeps the heat-rate learning
+        out, so the recovery path alone decides.
+        """
+        params = _default_params(
+            mpc_adapt=True, mpc_adapt_alpha=0.1, enable_min_effective_percent=True
+        )
+        state = self._state(
+            last_learn_time=_NOW - 300.0, gain_est=gain_before, loss_est=0.01
+        )
+
+        output = _run_at(
+            _NOW, _inp(key="recover", room_temperature=20.06), params, state
+        )
+
+        assert output.debug["id_gain_method"] == expected_method
+        assert state.gain_est == pytest.approx(expected_gain)
+
+
+class TestPerfCurveWithoutElapsedTime:
+    """A performance sample needs elapsed time to form a rate."""
+
+    def _inp(self, room: float) -> MpcInput:
+        return _inp(key="perf0", room_temperature=room, target_temperature=22.0)
+
+    def test_no_elapsed_time_records_no_sample(self):
+        """With no minimum window, a repeat at the same instant adds nothing."""
+        params = _default_params(perf_curve_min_window_s=0.0)
+        state = _MpcState(last_room_temperature=20.0, last_room_temp_ts=_NOW)
+        debug: dict[str, object] = {}
+
+        _update_perf_curve(state, self._inp(20.2), params, _NOW, debug)
+
+        assert state.perf_curve == {}
+        assert debug == {}
+        assert (state.last_room_temperature, state.last_room_temp_ts) == (20.0, _NOW)
+
+    def test_elapsed_time_records_the_rate(self):
+        """A minute later the same rise is recorded as a rate per minute."""
+        params = _default_params(perf_curve_min_window_s=0.0)
+        state = _MpcState(
+            last_room_temperature=20.0, last_room_temp_ts=_NOW, last_percent=40.0
+        )
+        debug: dict[str, object] = {}
+
+        _update_perf_curve(state, self._inp(20.2), params, _NOW + 60.0, debug)
+
+        assert debug["perf_room_rate"] == pytest.approx(0.2)
+        assert state.perf_curve[debug["perf_curve_bin"]]["count"] == 1
+
+
+class TestRoomRiseOver:
+    """The room rise over a window, scaled from the controller's own record."""
+
+    def test_no_stamp_gives_no_rise(self):
+        """A recorded reading without a time stamp has no interval to scale."""
+        state = _MpcState(last_room_temperature=20.0, last_room_temp_ts=0.0)
+        assert _room_rise_over(state, _inp(room_temperature=21.0), _NOW, 300.0) is None
+
+    def test_no_elapsed_time_gives_no_rise(self):
+        """A reading taken at this instant spans no interval."""
+        state = _MpcState(last_room_temperature=20.0, last_room_temp_ts=_NOW)
+        assert _room_rise_over(state, _inp(room_temperature=21.0), _NOW, 300.0) is None
+
+    def test_rise_is_scaled_to_the_window(self):
+        """0.4 K over ten minutes scales to 0.2 K over a five-minute window."""
+        state = _MpcState(last_room_temperature=20.0, last_room_temp_ts=_NOW - 600.0)
+        rise = _room_rise_over(state, _inp(room_temperature=20.4), _NOW, 300.0)
+        assert rise == pytest.approx(0.2)
+
+
+class TestFinalMinimumOpeningClamp:
+    """The integer output is lifted to the learned minimum opening."""
+
+    def _params(self, *, learning: bool) -> MpcParams:
+        return _default_params(
+            min_update_interval_s=600.0, enable_min_effective_percent=learning
+        )
+
+    def _state(self) -> _MpcState:
+        return _MpcState(
+            last_percent=5.0, last_update_ts=_NOW - 10.0, min_effective_percent=12.0
+        )
+
+    def test_held_output_below_the_minimum_is_lifted(self):
+        """A rate-limited hold at 5 % rises to the 12 % minimum."""
+        state = self._state()
+
+        percent_out, debug, _ = _post_process_percent(
+            _inp(room_temperature=21.0),
+            self._params(learning=True),
+            state,
+            _NOW,
+            8.0,
+            None,
+        )
+
+        assert debug["too_soon"] is True
+        assert percent_out == 12
+        assert state.last_percent == 12.0
+
+    def test_held_output_stays_without_minimum_learning(self):
+        """With min-effective learning off, the same hold stays at 5 %."""
+        state = self._state()
+
+        percent_out, debug, _ = _post_process_percent(
+            _inp(room_temperature=21.0),
+            self._params(learning=False),
+            state,
+            _NOW,
+            8.0,
+            None,
+        )
+
+        assert debug["too_soon"] is True
+        assert percent_out == 5
+
+
+class TestUnparseableTargetBuckets:
+    """Sibling seeding with keys whose target bucket is not a number."""
+
+    @pytest.mark.parametrize("bucket", [None, "", "x21.0", "tunknown"])
+    def test_bucket_without_a_number_parses_to_none(self, bucket):
+        """Only a ``t`` followed by a number is a target bucket."""
+        assert _parse_bucket(bucket) is None
+
+    def test_bucket_with_a_number_parses(self):
+        """``t21.5`` is the 21.5 °C bucket."""
+        assert _parse_bucket("t21.5") == 21.5
+
+    def test_unknown_own_bucket_still_seeds_from_a_sibling(self):
+        """A state keyed under an unknown target seeds from a numbered sibling."""
+        state = _MpcState()
+        siblings = {"u:climate.a:t21.0": _MpcState(solar_gain_est=0.03)}
+
+        _seed_state_from_siblings(
+            "u:climate.a:tunknown", state, _default_params(), siblings
+        )
+
+        assert state.solar_gain_est == 0.03
+
+    def test_sibling_with_a_known_target_wins_over_an_unknown_one(self):
+        """An unknown sibling bucket ranks behind every numbered one."""
+        state = _MpcState()
+        siblings = {
+            "u:climate.a:tunknown": _MpcState(solar_gain_est=0.03),
+            "u:climate.a:t25.0": _MpcState(solar_gain_est=0.02),
+        }
+
+        _seed_state_from_siblings(
+            "u:climate.a:t21.0", state, _default_params(), siblings
+        )
+
+        assert state.solar_gain_est == 0.02
+
+
+class TestRegimeChangeOverflow:
+    """Prediction errors too large to square give no regime verdict."""
+
+    def test_biased_errors_signal_a_regime_change(self):
+        """Nine errors of 1 and one of 2 are a clear bias."""
+        assert _detect_regime_change([1.0] * 9 + [2.0]) is True
+
+    def test_the_same_errors_beyond_float_range_signal_nothing(self):
+        """The same shape scaled to 1e200 overflows the variance: no change."""
+        assert _detect_regime_change([1e200] * 9 + [2e200]) is False
+
+
+class TestProfileAdjustments:
+    """After 20 samples above 0.7 confidence, the TRV profile adjusts the model."""
+
+    def _confident(self, **overrides) -> _MpcState:
+        state = _MpcState(profile_samples=19, profile_confidence=0.7)
+        for name, value in overrides.items():
+            setattr(state, name, value)
+        return state
+
+    def test_exponential_profile_raises_the_gain_by_ten_percent(self):
+        """An exponential TRV starts from the configured gain, raised 10 %."""
+        params = _default_params(mpc_thermal_gain=0.06, deadzone_threshold_pct=20.0)
+        state = self._confident(trv_profile="exponential")
+
+        _detect_trv_profile(state, 60.0, 1.5, 300.0, 1.0, params)
+
+        assert state.profile_samples == 20
+        assert state.trv_profile == "exponential"
+        assert state.gain_est == pytest.approx(0.066)
+
+    def test_exponential_gain_is_capped(self):
+        """The raised gain stays within the configured maximum."""
+        params = _default_params(mpc_gain_max=0.5, deadzone_threshold_pct=20.0)
+        state = self._confident(trv_profile="exponential", gain_est=0.48)
+
+        _detect_trv_profile(state, 60.0, 1.5, 300.0, 1.0, params)
+
+        assert state.gain_est == pytest.approx(0.5)
+
+    def test_below_twenty_samples_nothing_is_adjusted(self):
+        """At 19 samples the same exponential evidence leaves the gain."""
+        params = _default_params(deadzone_threshold_pct=20.0)
+        state = self._confident(
+            trv_profile="exponential", profile_samples=18, gain_est=0.1
+        )
+
+        _detect_trv_profile(state, 60.0, 1.5, 300.0, 1.0, params)
+
+        assert state.profile_samples == 19
+        assert state.gain_est == 0.1
+
+    @pytest.mark.parametrize(
+        ("percent", "temp_delta", "profile"),
+        [(10.0, 0.1, "threshold"), (50.0, 1.0, "linear")],
+    )
+    def test_threshold_and_linear_profiles_leave_the_gain(
+        self, percent, temp_delta, profile
+    ):
+        """Threshold and linear TRVs leave the model to dead-zone learning."""
+        params = _default_params(deadzone_threshold_pct=20.0)
+        state = self._confident(trv_profile=profile, gain_est=0.1)
+
+        _detect_trv_profile(state, percent, temp_delta, 300.0, 1.0, params)
+
+        assert state.profile_samples == 20
+        assert state.trv_profile == profile
+        assert state.profile_confidence > 0.7
+        assert state.gain_est == 0.1
