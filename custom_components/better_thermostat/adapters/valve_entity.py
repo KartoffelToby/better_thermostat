@@ -54,7 +54,7 @@ async def discover_valve_entity(self: AdapterHost, entity_id: str) -> None:
 
     trv = self.real_trvs[entity_id]
     trv.valve_position_entity = valve.get("entity_id")
-    trv.valve_position_writable = bool(valve.get("writable", False))
+    trv.valve_position_writable = valve.get("writable", False)
 
 
 async def write_valve_percent(

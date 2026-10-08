@@ -183,7 +183,7 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
     if not _is_direct_valve(self, entity_id):
         return False
     try:
-        value = int(round(min(max(float(percent), 0.0), 100.0) / 100.0 * _VALVE_MAX))
+        value = round(min(max(float(percent), 0.0), 100.0) / 100.0 * _VALVE_MAX)
     except TypeError, ValueError:
         return False
 

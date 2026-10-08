@@ -369,7 +369,7 @@ async def trigger_temperature_change(
         return
 
     _incoming_temperature = convert_to_float_celsius(
-        str(new_state.state),
+        new_state.state,
         self.device_name,
         "external_temperature",
         unit_of_measurement=new_state.attributes.get("unit_of_measurement"),
@@ -409,7 +409,7 @@ async def trigger_temperature_change(
             learn_more_url="https://better-thermostat.org/faq/invalid-external-temperature",
             translation_placeholders={
                 "name": self.device_name,
-                "value": str(new_state.state),
+                "value": new_state.state,
             },
         )
         return

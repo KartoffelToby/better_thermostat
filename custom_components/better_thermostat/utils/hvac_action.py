@@ -218,7 +218,7 @@ def compute_hvac_action(
                 continue
 
             if snap.hvac_action is not None:
-                action_str = str(snap.hvac_action).lower()
+                action_str = snap.hvac_action.lower()
                 if action_str == "heating":
                     _LOGGER.debug(
                         "better_thermostat %s: overriding hvac_action to HEATING "
@@ -264,7 +264,7 @@ def compute_hvac_action(
         if tolerance_decision == HVACAction.HEATING
         else HVACAction.IDLE
     )
-    new_hold_active = bool(tolerance_hold and action != HVACAction.COOLING)
+    new_hold_active = tolerance_hold and action != HVACAction.COOLING
 
     return HvacActionResult(
         action=action,

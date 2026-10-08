@@ -146,7 +146,7 @@ def room_sensor_reading(self: BetterThermostat, state: State | None) -> float | 
     if state is None or state.state in UNAVAILABLE_STATES + UNKNOWN_STATES:
         return None
     value = convert_to_float_celsius(
-        str(state.state),
+        state.state,
         self.device_name,
         "room_sensor_reading()",
         unit_of_measurement=state.attributes.get("unit_of_measurement"),
@@ -399,8 +399,8 @@ async def check_critical_entities(self: BetterThermostat) -> None:
                     severity=ir.IssueSeverity.ERROR,
                     translation_key="missing_entity",
                     translation_placeholders={
-                        "entity": str(entity),
-                        "name": str(self.device_name),
+                        "entity": entity,
+                        "name": self.device_name,
                     },
                 )
         else:
@@ -740,7 +740,7 @@ async def check_and_update_degraded_mode(
             severity=ir.IssueSeverity.WARNING,
             translation_key="degraded_mode",
             translation_placeholders={
-                "name": str(self.device_name),
+                "name": self.device_name,
                 "sensors": ", ".join(unavailable),
             },
         )
