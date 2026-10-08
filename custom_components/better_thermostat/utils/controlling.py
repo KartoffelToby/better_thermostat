@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 import logging
 import math
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
@@ -73,6 +73,9 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
     TRV_SETPOINT_KEYS,
+    CoolerCommand,
+    CoolerFailureRun,
+    CoolerSendCache,
     attr_to_celsius,
     clamp_valve_percent,
     configured_calibration_mode,
@@ -1399,11 +1402,8 @@ async def control_queue(self: BetterThermostat) -> None:
             self.ignore_states = False
 
 
-# The command one cooler channel attempted, as the failure backoff compares
-# it: the wanted mode on the mode channel, and the (high, low) bound pair on
-# the setpoint channel, where the lower bound is absent for a single-setpoint
-# write.
-_CoolerCommand = HVACMode | tuple[float, float | None] | None
+# The cooler channels that keep a failure run in the send cache.
+_CoolerChannel = Literal["temperature", "hvac_mode"]
 
 
 def cooler_low_bound(
@@ -1428,10 +1428,19 @@ def cooler_low_bound(
     return low
 
 
+def _cooler_failure_run(
+    last_sent: CoolerSendCache, channel: _CoolerChannel
+) -> CoolerFailureRun | None:
+    """Return a channel's current run of consecutive send failures, if any."""
+    if channel == "temperature":
+        return last_sent.get("temperature_failed")
+    return last_sent.get("hvac_mode_failed")
+
+
 def _cooler_retry_deferred(
-    last_sent: dict[str, Any],
-    channel: str,
-    wanted: _CoolerCommand,
+    last_sent: CoolerSendCache,
+    channel: _CoolerChannel,
+    wanted: CoolerCommand,
     now_monotonic: float,
 ) -> bool:
     """Whether a channel's backoff still holds a command back.
@@ -1448,11 +1457,10 @@ def _cooler_retry_deferred(
     cycle rate either, which is what a desired value alternating between two
     rejected commands would otherwise do.
     """
-    failures, failed_at, failed_wanted = last_sent.get(
-        f"{channel}_failed", (0, None, None)
-    )
-    if not failures or failed_at is None:
+    run = _cooler_failure_run(last_sent, channel)
+    if run is None:
         return False
+    failures, failed_at, failed_wanted = run
     if failed_wanted != wanted:
         wait = COOLER_FAILURE_BACKOFF_BASE_S
     else:
@@ -1465,9 +1473,9 @@ def _cooler_retry_deferred(
 
 
 def _record_cooler_failure(
-    last_sent: dict[str, Any],
-    channel: str,
-    wanted: _CoolerCommand,
+    last_sent: CoolerSendCache,
+    channel: _CoolerChannel,
+    wanted: CoolerCommand,
     now_monotonic: float,
 ) -> None:
     """Extend a channel's run of consecutive failures of one command.
@@ -1477,14 +1485,17 @@ def _record_cooler_failure(
     describe the same command. The count stops at the length the backoff can
     still tell apart.
     """
-    failures, _, failed_wanted = last_sent.get(f"{channel}_failed", (0, None, None))
-    if failed_wanted != wanted:
-        failures = 0
-    last_sent[f"{channel}_failed"] = (
+    previous = _cooler_failure_run(last_sent, channel)
+    failures = 0 if previous is None or previous[2] != wanted else previous[0]
+    run: CoolerFailureRun = (
         min(failures + 1, COOLER_FAILURE_BACKOFF_MAX_RUN),
         now_monotonic,
         wanted,
     )
+    if channel == "temperature":
+        last_sent["temperature_failed"] = run
+    else:
+        last_sent["hvac_mode_failed"] = run
 
 
 async def control_cooler(
@@ -1669,10 +1680,12 @@ async def control_cooler(
         # first write of the next cooling period as a repeat of one the heating
         # channel has since replaced. The values stay, because they are what
         # tells a resend from a fresh command.
-        for _channel in ("temperature", "hvac_mode"):
-            _sent_value, _sent_ts = last_sent.get(_channel, (None, None))
-            if _sent_ts is not None:
-                last_sent[_channel] = (_sent_value, None)
+        _sent_temp = last_sent.get("temperature")
+        if _sent_temp is not None and _sent_temp[1] is not None:
+            last_sent["temperature"] = (_sent_temp[0], None)
+        _sent_mode = last_sent.get("hvac_mode")
+        if _sent_mode is not None and _sent_mode[1] is not None:
+            last_sent["hvac_mode"] = (_sent_mode[0], None)
         return
 
     if _shared_entity_id is not None:
