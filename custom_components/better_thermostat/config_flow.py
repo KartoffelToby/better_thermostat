@@ -73,6 +73,7 @@ from .utils.const import (
 )
 from .utils.entry_schema import StoredChoice
 from .utils.helpers import (
+    configured_calibration_mode,
     device_offers_mode,
     entry_name,
     entry_settings,
@@ -1611,12 +1612,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             advanced = trv.get("advanced", {})
             if not is_json_object(advanced):
                 continue
-            calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-            if isinstance(calibration_mode, str) and calibration_mode:
-                try:
-                    active_algorithms.add(CalibrationMode(calibration_mode))
-                except ValueError:
-                    continue
+            calibration_mode = configured_calibration_mode(advanced)
+            if calibration_mode is not None:
+                active_algorithms.add(calibration_mode)
 
         return active_algorithms
 
