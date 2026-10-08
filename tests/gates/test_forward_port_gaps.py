@@ -1169,3 +1169,41 @@ def test_a_name_in_an_f_string_field_is_code_and_respelled(lines):
         'log(f"delay_s={delay_s} {{delay_s}}")',
         'log(f"delay_s={delay_seconds} {{delay_s}}")',
     ]
+
+
+@pytest.mark.parametrize(
+    ("marker", "renamed"),
+    [
+        (
+            "log(f\"{config['delay_s']} after {delay_s}\")",
+            "log(f\"{config['delay_s']} after {delay_seconds}\")",
+        ),
+        (
+            'log(f"{config["delay_s"]} after {delay_s}")',
+            'log(f"{config["delay_s"]} after {delay_seconds}")',
+        ),
+        ("if delay_s > 0 and (", "if delay_seconds > 0 and ("),
+    ],
+    ids=["other-quotes", "same-quotes", "unfinished-line"],
+)
+def test_a_string_inside_an_f_string_field_is_text_again(lines, marker, renamed):
+    """A key quoted inside a replacement field keeps its spelling; code around it does not.
+
+    A marker is one line and may stop mid-statement; what the tokenizer did
+    read is still respelled.
+    """
+    script, _ = lines
+    renames = script.Renames({}, {}, {"s": "seconds"})
+
+    assert script._spellings(marker, renames) == [marker, renamed]
+
+
+def test_the_rest_of_an_unreadable_marker_keeps_its_spelling(lines):
+    """Past an unterminated string the tokenizer stops, and the rest stays as written."""
+    script, _ = lines
+    renames = script.Renames({}, {}, {"s": "seconds"})
+
+    assert script._spellings('wait(delay_s, "delay_s', renames) == [
+        'wait(delay_s, "delay_s',
+        'wait(delay_seconds, "delay_s',
+    ]
