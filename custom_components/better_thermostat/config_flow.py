@@ -31,7 +31,12 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util.unit_conversion import TemperatureConverter
 import voluptuous as vol
 
-from . import DOMAIN, other_entries_controlling, trv_entity_ids
+from . import (
+    DOMAIN,
+    BetterThermostatConfigEntry,
+    other_entries_controlling,
+    trv_entity_ids,
+)
 from .adapters.base import DeviceChannels
 from .adapters.delegate import load_adapter
 from .adapters.types import TrvAdapter
@@ -1152,7 +1157,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     @override
     def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
+        config_entry: BetterThermostatConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
         return OptionsFlowHandler(config_entry)
@@ -1347,7 +1352,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle a option flow for a config entry."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+    def __init__(self, config_entry: BetterThermostatConfigEntry) -> None:
         """Initialize options flow."""
         self.i = 0
         self.trv_bundle: list[_TrvDraft] = []
