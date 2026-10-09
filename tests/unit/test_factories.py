@@ -26,10 +26,10 @@ from tests.factories import (
 
 def test_make_bt_runs_through_both_calibration_channels():
     """A factory-built entity feeds the real calibration functions."""
-    bt = make_bt(
-        hvac_action=HVACAction.IDLE,
-        advanced={"calibration_mode": CalibrationMode.DEFAULT},
-    )
+    bt = make_bt(hvac_action=HVACAction.IDLE)
+    bt.real_trvs[DEFAULT_TRV_ID].advanced = {
+        "calibration_mode": CalibrationMode.DEFAULT
+    }
     assert calculate_calibration_local(bt, DEFAULT_TRV_ID) is not None
     assert calculate_calibration_setpoint(bt, DEFAULT_TRV_ID) is not None
 
