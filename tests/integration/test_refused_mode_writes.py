@@ -79,7 +79,7 @@ async def test_a_refused_off_is_retried_and_the_room_stays_off(hass, fake_trv):
     with patch.object(type(fake_trv), "async_set_hvac_mode", refuse_off):
         await _set_room_mode(hass, HVACMode.OFF)
         assert await wait_for(hass, lambda: "off" in fake_trv.set_hvac_mode_calls)
-        await wait_for(hass, lambda: not bt.ignore_states, timeout_s=5)
+        await wait_for(hass, lambda: not bt.ignore_states, timeout_seconds=5)
         refused = fake_trv.set_hvac_mode_calls.count("off")
 
         _plain_report(fake_trv, 18.4)
@@ -127,7 +127,7 @@ async def test_the_users_heat_survives_a_dropped_message_after_an_outage(
 
         device["drops"] = 1
         await _set_room_mode(hass, HVACMode.HEAT)
-        await wait_for(hass, lambda: not bt.ignore_states, timeout_s=5)
+        await wait_for(hass, lambda: not bt.ignore_states, timeout_seconds=5)
         await _settle(hass)
         set_room_sensor(hass, 18.2)
         assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.HEAT)
@@ -184,7 +184,7 @@ async def test_a_refused_mode_is_written_again_without_another_event(
     with patch.object(type(fake_trv), "async_set_hvac_mode", refuse):
         await _set_room_mode(hass, wanted)
         assert await wait_for(hass, lambda: str(wanted) in fake_trv.set_hvac_mode_calls)
-        await wait_for(hass, lambda: not bt.ignore_states, timeout_s=5)
+        await wait_for(hass, lambda: not bt.ignore_states, timeout_seconds=5)
         await _settle(hass)
         assert fake_trv.hvac_mode == held
         device["refusing"] = False

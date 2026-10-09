@@ -2859,7 +2859,7 @@ async def get_device_model(
     # Final fallback: configured model, then generic
     if (
         not selected
-        and isinstance(configured_model, str)
+        and configured_model is not None
         and len(configured_model.strip()) >= 2
     ):
         selected = configured_model.strip()

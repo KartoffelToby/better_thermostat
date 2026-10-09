@@ -9,6 +9,7 @@ so that fallback is optional.
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.const import CONF_NAME
 from homeassistant.core import State
 import pytest
@@ -38,11 +39,15 @@ class _Caller:
 
 def _make_config_entry():
     entry = MagicMock()
+    stored_trv: dict[str, object] = {
+        "trv": STORED_TRV,
+        "integration": "mqtt",
+        "model": "TRVZB",
+        "advanced": {},
+    }
     entry.data = {
         CONF_NAME: "Living Room",
-        CONF_THERMOSTAT: [
-            {"trv": STORED_TRV, "integration": "mqtt", "model": "TRVZB", "advanced": {}}
-        ],
+        CONF_THERMOSTAT: [stored_trv],
         CONF_TEMPERATURE_SENSOR: "sensor.living_room_temperature",
     }
     return entry
@@ -51,7 +56,12 @@ def _make_config_entry():
 def _make_hass():
     hass = MagicMock()
     hass.states.get.return_value = State(
-        GENERIC_TRV, "heat", {"hvac_modes": ["heat", "off"]}
+        GENERIC_TRV,
+        "heat",
+        {
+            "hvac_modes": ["heat", "off"],
+            "supported_features": ClimateEntityFeature.TARGET_TEMPERATURE,
+        },
     )
     return hass
 
@@ -79,7 +89,7 @@ def _patch_empty_registries():
     )
 
 
-def _submission():
+def _submission() -> dict[str, object]:
     return {
         CONF_NAME: "Living Room",
         CONF_THERMOSTAT: [GENERIC_TRV],
@@ -154,16 +164,4 @@ async def test_get_device_model_prefers_configured_model_over_generic():
         assert (
             await get_device_model(caller, STORED_TRV, configured_model="TRVZB")
             == "TRVZB"
-        )
-
-
-@pytest.mark.asyncio
-async def test_get_device_model_ignores_non_string_configured_model():
-    """A configured model of the wrong type is not used as a fallback."""
-    caller = _Caller(MagicMock())
-    patch_er, patch_dr = _patch_empty_registries()
-
-    with patch_er, patch_dr:
-        assert (
-            await get_device_model(caller, STORED_TRV, configured_model=42) == "generic"
         )

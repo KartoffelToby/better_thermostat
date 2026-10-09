@@ -345,7 +345,7 @@ async def test_a_room_sensor_that_returns_is_trusted_again_within_one_tick(
     clock = FakeClock()
     bt.clock = clock
     clock.advance(10_000)
-    stability_s = LadderParams().up_stability_seconds
+    stability_seconds = LadderParams().up_stability_seconds
 
     async def let_a_tick_fire(seconds):
         """Advance both clocks by ``seconds`` and run what falls due."""
@@ -355,7 +355,7 @@ async def test_a_room_sensor_that_returns_is_trusted_again_within_one_tick(
 
     hass.states.async_set(SENSOR_ID, "unavailable")
     await hass.async_block_till_done()
-    await let_a_tick_fire(stability_s)
+    await let_a_tick_fire(stability_seconds)
     assert bt.kernel_state.control_mode.mode != ControlMode.OPTIMAL
 
     # One reading, then silence: the room is settled and the sensor has
@@ -364,7 +364,7 @@ async def test_a_room_sensor_that_returns_is_trusted_again_within_one_tick(
     await hass.async_block_till_done()
     assert bt.kernel_state.control_mode.mode != ControlMode.OPTIMAL
 
-    await let_a_tick_fire(stability_s + 60)
+    await let_a_tick_fire(stability_seconds + 60)
 
     assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
 
@@ -610,14 +610,14 @@ async def test_a_room_sensor_that_reports_after_a_fallback_start_takes_over(
     clock = FakeClock()
     bt.clock = clock
     clock.advance(10_000)
-    stability_s = LadderParams().up_stability_seconds
+    stability_seconds = LadderParams().up_stability_seconds
 
     set_room_sensor(hass, 17.0)
     assert await wait_for(hass, lambda: bt.room_temperature == 17.0)
 
-    clock.advance(stability_s + 60)
+    clock.advance(stability_seconds + 60)
     async_fire_time_changed(
-        hass, dt_util.utcnow() + timedelta(seconds=stability_s + 61)
+        hass, dt_util.utcnow() + timedelta(seconds=stability_seconds + 61)
     )
     await hass.async_block_till_done()
 
@@ -652,14 +652,14 @@ async def test_a_room_sensor_with_an_implausible_reading_at_boot_hands_the_room_
     # controlled one continues from where that one stands.
     clock = FakeClock(monotonic_value=bt.clock.monotonic())
     bt.clock = clock
-    stability_s = LadderParams().up_stability_seconds
+    stability_seconds = LadderParams().up_stability_seconds
     # The sensor keeps reporting nonsense for longer than the ladder takes
     # to trust a recovered sensor again.
     set_room_sensor(hass, 126.4)
     await hass.async_block_till_done()
-    clock.advance(stability_s + 60)
+    clock.advance(stability_seconds + 60)
     async_fire_time_changed(
-        hass, dt_util.utcnow() + timedelta(seconds=stability_s + 61)
+        hass, dt_util.utcnow() + timedelta(seconds=stability_seconds + 61)
     )
     await hass.async_block_till_done()
     assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
@@ -735,11 +735,11 @@ async def test_a_room_sensor_that_reports_during_a_fallback_start_takes_over(
 
     clock = FakeClock(monotonic_value=bt.clock.monotonic())
     bt.clock = clock
-    stability_s = LadderParams().up_stability_seconds
+    stability_seconds = LadderParams().up_stability_seconds
     assert await tick_until(
         hass,
         clock,
-        stability_s + 60,
+        stability_seconds + 60,
         lambda: bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL,
     )
     assert effective_room_temperature(bt) == 17.0
@@ -766,11 +766,11 @@ async def test_a_room_sensor_that_drops_out_during_startup_hands_the_room_to_the
 
     clock = FakeClock(monotonic_value=bt.clock.monotonic())
     bt.clock = clock
-    down_s = LadderParams().down_debounce_seconds
+    down_seconds = LadderParams().down_debounce_seconds
     assert await tick_until(
         hass,
         clock,
-        down_s + 60,
+        down_seconds + 60,
         lambda: bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK,
     )
     assert effective_room_temperature(bt) == trv_temperature

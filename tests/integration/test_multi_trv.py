@@ -615,7 +615,9 @@ async def report_and_wait(room: OutageRoom, entrance: Entrance) -> bool:
         room.cycle_requests = requests
         await entrance.report(room)
         return await wait_for(
-            room.hass, lambda: entrance.reached(room), timeout_s=REACTION_TIMEOUT_S
+            room.hass,
+            lambda: entrance.reached(room),
+            timeout_seconds=REACTION_TIMEOUT_S,
         )
 
 
@@ -826,7 +828,7 @@ async def test_a_room_booting_with_a_head_gone_waits_out_the_grace_window(
     assert not await wait_for(
         hass,
         lambda: any(head.set_temperature_calls for head in trv_group.entities),
-        timeout_s=1.0,
+        timeout_seconds=1.0,
     )
     assert bt.startup_running
     assert hass.states.get(BT_ENTITY).state == "unavailable"

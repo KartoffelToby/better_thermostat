@@ -8,11 +8,13 @@ Covers:
   - Unload cleanup
 """
 
+from collections.abc import Iterable
 import logging
 import math
 from time import monotonic
 from unittest.mock import MagicMock, patch
 
+from homeassistant.components.sensor import SensorEntity
 import pytest
 
 from custom_components.better_thermostat import BetterThermostatData
@@ -53,11 +55,13 @@ from custom_components.better_thermostat.sensor import (
     _setup_algorithm_sensors,
     async_setup_entry,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
 )
+from custom_components.better_thermostat.utils.entry_schema import TrvSettings
 from tests.factories import (
     ThermostatStandIn,
     make_entity_registry,
@@ -71,6 +75,22 @@ DOMAIN = "better_thermostat"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _native_number(sensor: SensorEntity) -> float:
+    """Return the sensor's native value, which these sensors publish as a number."""
+    value = sensor._attr_native_value
+    assert isinstance(value, int | float)
+    return value
+
+
+def _unique_ids(sensors: Iterable[SensorEntity]) -> list[str]:
+    """Return the unique ids of sensors, every one of which carries one."""
+    unique_ids: list[str] = []
+    for sensor in sensors:
+        assert sensor.unique_id is not None
+        unique_ids.append(sensor.unique_id)
+    return unique_ids
 
 
 def _make_bt_climate(**overrides):
@@ -88,9 +108,9 @@ def _make_bt_climate(**overrides):
     bt.temperature_slope = None
     bt.heating_power = None
     bt.heat_loss_rate = None
-    bt.real_trvs = {}
-    bt.all_trvs = []
-    bt.preset_modes = []
+    bt.real_trvs = dict[str, Trv]()
+    bt.all_trvs = list[TrvSettings]()
+    bt.preset_modes = list[str]()
     bt.door_open = False
     for k, v in overrides.items():
         setattr(bt, k, v)
@@ -229,7 +249,7 @@ class TestExternalTemp1hEMASensor:
         bt.room_temperature_filtered = 25.0
         sensor._update_state()  # second
         # EMA should be between 20 and 25, closer to 20
-        assert 20.0 < sensor._attr_native_value < 25.0
+        assert 20.0 < _native_number(sensor) < 25.0
 
     def test_ema_converges_over_time(self):
         """After many tau periods, EMA should be very close to new value."""
@@ -241,7 +261,7 @@ class TestExternalTemp1hEMASensor:
         bt.room_temperature_filtered = 25.0
         sensor._update_state()
         # After 5 tau, alpha ≈ 1 - e^(-5) ≈ 0.993
-        assert abs(sensor._attr_native_value - 25.0) < 0.1
+        assert abs(_native_number(sensor) - 25.0) < 0.1
 
     def test_zero_dt_does_not_change_ema(self):
         """When dt=0, alpha=0, EMA should not change."""
@@ -274,11 +294,12 @@ class TestExternalTemp1hEMASensor:
         bt = _make_bt_climate(room_temperature_filtered=20.0)
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
         sensor._update_ema(20.0)  # first
-        dt_s = 600.0  # 10 minutes
-        sensor._last_update_ts = monotonic() - dt_s
+        dt_seconds = 600.0  # 10 minutes
+        sensor._last_update_ts = monotonic() - dt_seconds
         sensor._update_ema(25.0)
-        expected_alpha = 1.0 - math.exp(-dt_s / 3600.0)
+        expected_alpha = 1.0 - math.exp(-dt_seconds / 3600.0)
         expected_ema = 20.0 + expected_alpha * (25.0 - 20.0)
+        assert sensor._ema_value is not None
         assert abs(sensor._ema_value - expected_ema) < 0.001
 
 
@@ -290,21 +311,21 @@ class TestExternalTemp1hEMASensor:
 class TestSimpleAttributeSensors:
     """Tests for sensors that read a single attribute."""
 
-    def test_temp_slope_with_value(self):
+    def test_temperature_slope_with_value(self):
         """Temp slope with value."""
         bt = _make_bt_climate(temperature_slope=0.0123)
         sensor = BetterThermostatTempSlopeSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 0.0123
 
-    def test_temp_slope_rounds_to_4_decimals(self):
+    def test_temperature_slope_rounds_to_4_decimals(self):
         """Temp slope rounds to 4 decimals."""
         bt = _make_bt_climate(temperature_slope=0.01236789)
         sensor = BetterThermostatTempSlopeSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 0.0124
 
-    def test_temp_slope_none(self):
+    def test_temperature_slope_none(self):
         """Temp slope none."""
         bt = _make_bt_climate(temperature_slope=None)
         sensor = BetterThermostatTempSlopeSensor(bt)
@@ -458,10 +479,10 @@ class TestMpcSensorState:
             )
         }
 
-    def test_virtual_temp_reads_from_debug(self):
+    def test_virtual_temperature_reads_from_debug(self):
         """Virtual temperature reads from debug."""
         bt = _make_bt_climate(
-            real_trvs=self._make_trv_with_debug(mpc_virtual_temp=22.5)
+            real_trvs=self._make_trv_with_debug(**{"mpc_virtual_temp": 22.5})
         )
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
@@ -523,7 +544,7 @@ class TestMpcSensorState:
     def test_invalid_debug_value_returns_none(self):
         """Invalid debug value returns none."""
         bt = _make_bt_climate(
-            real_trvs=self._make_trv_with_debug(mpc_virtual_temp="bad")
+            real_trvs=self._make_trv_with_debug(**{"mpc_virtual_temp": "bad"})
         )
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
@@ -883,7 +904,7 @@ class TestSetupAlgorithmSensors:
         tracked_ids = _ACTIVE_ALGORITHM_ENTITIES["entry_1"][
             CalibrationMode.MPC_CALIBRATION
         ]
-        assert sorted(tracked_ids) == sorted(s.unique_id for s in sensors)
+        assert sorted(tracked_ids) == sorted(_unique_ids(sensors))
 
     @pytest.mark.asyncio
     async def test_dropping_mpc_removes_it_from_tracking(self):
@@ -1077,11 +1098,13 @@ class TestReleaseEntry:
     def test_cleans_all_tracking_dicts(self):
         """Cleans all tracking dicts."""
         entry = _make_entry()
-        _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {"algo": ["id1"]}
+        _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {
+            CalibrationMode.MPC_CALIBRATION: ["id1"]
+        }
         _ENTITY_CLEANUP_CALLBACKS["entry_1"] = MagicMock()
-        _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid": {}}
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid": {}}
-        _ACTIVE_SWITCH_ENTITIES["entry_1"] = {"uid": {}}
+        _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid": dict[str, str | bool]()}
+        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid": dict[str, str]()}
+        _ACTIVE_SWITCH_ENTITIES["entry_1"] = {"uid": dict[str, str]()}
 
         _release_entry(entry.entry_id)
 
@@ -1293,7 +1316,7 @@ class TestDynamicAlgorithmSensors:
         return reg
 
     @staticmethod
-    async def _config_change(bt, reg):
+    async def _config_change(bt, reg) -> list[SensorEntity]:
         """Run one configuration change and return the entities it added."""
         async_add_entities = MagicMock()
         with (
@@ -1385,7 +1408,7 @@ class TestDynamicAlgorithmSensors:
         refused_id = mpc_sensors[1].unique_id
         reg = self._registry_of(registered, failing={f"sensor.{refused_id}"})
 
-        bt.real_trvs = {}
+        bt.real_trvs = dict[str, Trv]()
         assert await self._config_change(bt, reg) == []
         assert set(registered) == {refused_id}
 
@@ -1728,7 +1751,7 @@ class TestEdgeCasesAndPotentialBugs:
     @pytest.mark.asyncio
     async def test_cleanup_stale_empty_entry_removed(self):
         """After all algorithms removed, the entry_id key should be deleted."""
-        _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {}
+        _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = dict[CalibrationMode, list[str]]()
         # empty dict → should be cleaned up
         hass = MagicMock()
         bt = _make_bt_climate()
@@ -1756,21 +1779,25 @@ class TestEdgeCasesAndPotentialBugs:
     async def test_get_active_algorithms_with_empty_advanced(self):
         """A TRV with empty advanced settings runs the default mode."""
         bt = _make_bt_climate(
-            real_trvs={"trv_1": trv_from_legacy_dict("trv_1", {"advanced": {}})}
+            real_trvs={
+                "trv_1": trv_from_legacy_dict(
+                    "trv_1", {"advanced": dict[str, object]()}
+                )
+            }
         )
         result = _get_active_algorithms(bt)
         assert result == {DEFAULT_CALIBRATION_MODE}
 
-    def test_external_temp_sensor_with_nan(self):
+    def test_external_temperature_sensor_with_nan(self):
         """NaN as temperature value should be handled."""
         bt = _make_bt_climate(room_temperature_filtered=float("nan"))
         sensor = BetterThermostatExternalTempSensor(bt)
         sensor._update_state()
         # NaN is a valid float, so it will be set (but it's arguably a bug)
         assert sensor._attr_native_value is not None  # float("nan") is a float
-        assert math.isnan(sensor._attr_native_value)
+        assert math.isnan(_native_number(sensor))
 
-    def test_external_temp_sensor_with_inf(self):
+    def test_external_temperature_sensor_with_inf(self):
         """Infinity as temperature should be handled."""
         bt = _make_bt_climate(room_temperature_filtered=float("inf"))
         sensor = BetterThermostatExternalTempSensor(bt)
@@ -1786,6 +1813,7 @@ class TestEdgeCasesAndPotentialBugs:
         sensor._last_update_ts = monotonic() - 60
         sensor._update_ema(float("nan"))
         # NaN math: 20 + alpha * (nan - 20) = nan
+        assert sensor._ema_value is not None
         assert math.isnan(sensor._ema_value)
 
 

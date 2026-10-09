@@ -54,7 +54,7 @@ def test_default_saturates_at_100():
     assert out.valve_percent == 100.0
 
 
-def test_default_ignores_trv_temp():
+def test_default_ignores_trv_temperature():
     """DEFAULT regulates against the external sensor, not the TRV body."""
     # External says 20, TRV body says 25. DEFAULT must use the external value.
     out = DefaultCalibrationAdapter().step(_ctx(target=21.0, current=20.0, trv=25.0))
@@ -135,7 +135,7 @@ def test_no_calibration_proportional_to_trv_error():
     assert out.valve_percent == pytest.approx(30.0)
 
 
-def test_no_calibration_diagnostics_show_which_temp_was_used():
+def test_no_calibration_diagnostics_show_which_temperature_was_used():
     """``trv_temperature_used`` reflects the actual reference temperature."""
     out = NoCalibrationAdapter().step(_ctx(target=21.0, current=20.0, trv=20.5))
     assert out.diagnostics["trv_temperature_used"] == 20.5

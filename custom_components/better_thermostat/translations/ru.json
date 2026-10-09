@@ -84,7 +84,11 @@
       "no_off_mode": "Устройство не поддерживает режим «выкл.» :(\nBetter Thermostat будет использовать минимальную заданную температуру.",
       "no_outside_temp": "Датчик наружной температуры не найден. Будет использоваться сущность погоды.",
       "target_temp_min_above_max": "Минимальная заданная температура не должна превышать максимальную.",
-      "trv_not_found": "Home Assistant не знает {trv}. Выберите существующий термостат."
+      "trv_not_found": "Home Assistant не знает {trv}. Выберите существующий термостат.",
+      "trv_is_better_thermostat": "{trv} — это Better Thermostat. Выберите вместо него физический термостат.",
+      "trv_no_target_temperature": "{trv} не принимает целевую температуру. Выберите термостат, который её принимает.",
+      "cooler_is_better_thermostat": "{cooler} — это Better Thermostat. Выберите вместо него физическое устройство охлаждения.",
+      "cooler_no_target_temperature": "{cooler} не принимает целевую температуру. Выберите устройство охлаждения, которое её принимает."
     },
     "abort": {
       "single_instance_allowed": "Для каждого физического термостата можно создать только один Better Thermostat.",
@@ -171,7 +175,11 @@
       "target_temp_min_above_max": "Минимальная заданная температура не должна превышать максимальную.",
       "no_sensor": "Выберите датчик температуры в помещении.",
       "trv_in_use": "{trv} уже управляется Better Thermostat {entry}. Термостат может принадлежать только одному Better Thermostat.",
-      "trv_not_found": "Home Assistant не знает {trv}. Выберите существующий термостат."
+      "trv_not_found": "Home Assistant не знает {trv}. Выберите существующий термостат.",
+      "trv_is_better_thermostat": "{trv} — это Better Thermostat. Выберите вместо него физический термостат.",
+      "trv_no_target_temperature": "{trv} не принимает целевую температуру. Выберите термостат, который её принимает.",
+      "cooler_is_better_thermostat": "{cooler} — это Better Thermostat. Выберите вместо него физическое устройство охлаждения.",
+      "cooler_no_target_temperature": "{cooler} не принимает целевую температуру. Выберите устройство охлаждения, которое её принимает."
     }
   },
   "issues": {

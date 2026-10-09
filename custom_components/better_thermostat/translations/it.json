@@ -84,7 +84,11 @@
       "no_off_mode": "Il tuo dispositivo è particolare e non ha una modalità 'off' :(\nBetter Thermostat userà invece la temperatura target minima.",
       "no_outside_temp": "Non hai un sensore di temperatura esterna. Better Thermostat userà l’entità meteo al suo posto.",
       "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima.",
-      "trv_not_found": "Home Assistant non conosce {trv}. Seleziona un termostato esistente."
+      "trv_not_found": "Home Assistant non conosce {trv}. Seleziona un termostato esistente.",
+      "trv_is_better_thermostat": "{trv} è un Better Thermostat. Seleziona invece un termostato reale.",
+      "trv_no_target_temperature": "{trv} non accetta una temperatura obiettivo. Seleziona un termostato che la accetti.",
+      "cooler_is_better_thermostat": "{cooler} è un Better Thermostat. Seleziona invece un dispositivo di raffreddamento reale.",
+      "cooler_no_target_temperature": "{cooler} non accetta una temperatura obiettivo. Seleziona un dispositivo di raffreddamento che la accetti."
     },
     "abort": {
       "single_instance_allowed": "È consentito un solo termostato per ogni dispositivo reale.",
@@ -171,7 +175,11 @@
       "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima.",
       "no_sensor": "Seleziona un sensore di temperatura ambiente.",
       "trv_in_use": "{trv} è già controllato dal Better Thermostat {entry}. Un termostato può appartenere a un solo Better Thermostat.",
-      "trv_not_found": "Home Assistant non conosce {trv}. Seleziona un termostato esistente."
+      "trv_not_found": "Home Assistant non conosce {trv}. Seleziona un termostato esistente.",
+      "trv_is_better_thermostat": "{trv} è un Better Thermostat. Seleziona invece un termostato reale.",
+      "trv_no_target_temperature": "{trv} non accetta una temperatura obiettivo. Seleziona un termostato che la accetti.",
+      "cooler_is_better_thermostat": "{cooler} è un Better Thermostat. Seleziona invece un dispositivo di raffreddamento reale.",
+      "cooler_no_target_temperature": "{cooler} non accetta una temperatura obiettivo. Seleziona un dispositivo di raffreddamento che la accetti."
     }
   },
   "issues": {

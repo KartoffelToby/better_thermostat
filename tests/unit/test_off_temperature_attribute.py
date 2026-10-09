@@ -30,11 +30,11 @@ def mock_bt_with_off_temperature():
     bt.tolerance = 0.5
     bt.bt_target_temperature_step = 0.5
     bt.heating_power = 0.1
-    bt.devices_errors = []
-    bt.devices_states = {}
+    bt.devices_errors = list[str]()
+    bt.devices_states = dict[str, dict[str, str | None]]()
     bt.room_temperature_filtered = 20.5
     bt.degraded_mode = False
-    bt.unavailable_sensors = []
+    bt.unavailable_sensors = list[str]()
     return bt
 
 
@@ -53,11 +53,11 @@ def mock_bt_without_off_temperature():
     bt.tolerance = 0.5
     bt.bt_target_temperature_step = 0.5
     bt.heating_power = 0.1
-    bt.devices_errors = []
-    bt.devices_states = {}
+    bt.devices_errors = list[str]()
+    bt.devices_states = dict[str, dict[str, str | None]]()
     bt.room_temperature_filtered = 20.5
     bt.degraded_mode = False
-    bt.unavailable_sensors = []
+    bt.unavailable_sensors = list[str]()
     return bt
 
 
@@ -103,12 +103,12 @@ class TestOffTemperatureAttribute:
         """
         test_values = [15.0, 18.0, 20.0, 22.0, 25.0, 0.0]
 
-        for temp_value in test_values:
+        for temperature_value in test_values:
             bt = ThermostatStandIn()
-            bt.off_temperature = temp_value
+            bt.off_temperature = temperature_value
 
             # Verify the value is stored correctly
-            assert bt.off_temperature == temp_value
+            assert bt.off_temperature == temperature_value
             assert isinstance(bt.off_temperature, float)
 
     def test_off_temperature_constant_definition(self):

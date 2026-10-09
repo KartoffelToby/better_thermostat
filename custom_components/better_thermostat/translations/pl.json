@@ -84,7 +84,11 @@
       "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie",
       "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej.",
       "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej.",
-      "trv_not_found": "Home Assistant nie zna {trv}. Wybierz istniejący termostat."
+      "trv_not_found": "Home Assistant nie zna {trv}. Wybierz istniejący termostat.",
+      "trv_is_better_thermostat": "{trv} jest urządzeniem Better Thermostat. Wybierz zamiast niego prawdziwy termostat.",
+      "trv_no_target_temperature": "{trv} nie przyjmuje temperatury docelowej. Wybierz termostat, który ją przyjmuje.",
+      "cooler_is_better_thermostat": "{cooler} jest urządzeniem Better Thermostat. Wybierz zamiast niego prawdziwe urządzenie chłodzące.",
+      "cooler_no_target_temperature": "{cooler} nie przyjmuje temperatury docelowej. Wybierz urządzenie chłodzące, które ją przyjmuje."
     },
     "abort": {
       "single_instance_allowed": "Dozwolony jest tylko jeden termostat dla jednego urządzenia.",
@@ -171,7 +175,11 @@
       "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej.",
       "no_sensor": "Wybierz czujnik temperatury pomieszczenia.",
       "trv_in_use": "{trv} jest już sterowany przez Better Thermostat {entry}. Termostat może należeć tylko do jednego Better Thermostat.",
-      "trv_not_found": "Home Assistant nie zna {trv}. Wybierz istniejący termostat."
+      "trv_not_found": "Home Assistant nie zna {trv}. Wybierz istniejący termostat.",
+      "trv_is_better_thermostat": "{trv} jest urządzeniem Better Thermostat. Wybierz zamiast niego prawdziwy termostat.",
+      "trv_no_target_temperature": "{trv} nie przyjmuje temperatury docelowej. Wybierz termostat, który ją przyjmuje.",
+      "cooler_is_better_thermostat": "{cooler} jest urządzeniem Better Thermostat. Wybierz zamiast niego prawdziwe urządzenie chłodzące.",
+      "cooler_no_target_temperature": "{cooler} nie przyjmuje temperatury docelowej. Wybierz urządzenie chłodzące, które ją przyjmuje."
     }
   },
   "issues": {

@@ -36,6 +36,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     sanitize_mpc_state,
 )
 from custom_components.better_thermostat.utils.state_manager import deserialize_mpc
+from tests.factories import ThermostatStandIn
 
 _STATES: dict[str, _MpcState] = {}
 
@@ -140,13 +141,14 @@ def _default_params(
     return replace(base, **overrides) if overrides else base
 
 
-def _compute(inp: MpcInput, params: MpcParams) -> MpcOutput | None:
+def _compute(inp: MpcInput, params: MpcParams) -> MpcOutput:
     """Call compute_mpc and return only the MpcOutput (discard state).
 
     Most tests only need the output; the few that inspect the returned
     state can call ``compute_mpc`` directly.
     """
     output, _state = compute_mpc(inp, params)
+    assert output is not None
     return output
 
 
@@ -161,6 +163,14 @@ def _inp(key: str = "test", **overrides) -> MpcInput:
     }
     defaults.update(overrides)
     return MpcInput(**defaults)
+
+
+def _keyed_thermostat(target: object, unique_id: str | None) -> ThermostatStandIn:
+    """Build a thermostat stand-in carrying what the state keys are built from."""
+    bt = ThermostatStandIn()
+    bt.heat_target_temperature = target
+    bt._unique_id = unique_id
+    return bt
 
 
 # ===================================================================
@@ -246,7 +256,7 @@ class TestCurveBinLabel:
         label = _curve_bin_label(3.7, 2.5)
         assert "p" in label
 
-    def test_bin_pct_below_one_clamped_to_one(self):
+    def test_bin_percent_below_one_clamped_to_one(self):
         """Test that bin_percent below 1.0 is clamped to 1.0."""
         label = _curve_bin_label(50.0, 0.5)
         # bin_percent should be clamped to 1.0
@@ -259,52 +269,42 @@ class TestBuildMpcKey:
     def test_normal_key(self):
         """Test building a key with normal uid and target temperature."""
 
-        class FakeBT:
-            heat_target_temperature = 21.5
-            unique_id = "bt_123"
+        bt = _keyed_thermostat(21.5, "bt_123")
 
-        key = build_mpc_key(FakeBT(), "climate.trv_1")
+        key = build_mpc_key(bt, "climate.trv_1")
         # 21.5 rounded to 0.5 step => 21.5
         assert key == "bt_123:climate.trv_1:t21.5"
 
     def test_target_none(self):
         """Test that None target temperature produces 'tunknown' bucket."""
 
-        class FakeBT:
-            heat_target_temperature = None
-            unique_id = "bt_x"
+        bt = _keyed_thermostat(None, "bt_x")
 
-        key = build_mpc_key(FakeBT(), "climate.trv")
+        key = build_mpc_key(bt, "climate.trv")
         assert "tunknown" in key
 
     def test_target_string(self):
         """Test that non-numeric target temperature produces 'tunknown' bucket."""
 
-        class FakeBT:
-            heat_target_temperature = "unavailable"
-            unique_id = "bt_y"
+        bt = _keyed_thermostat("unavailable", "bt_y")
 
-        key = build_mpc_key(FakeBT(), "climate.trv")
+        key = build_mpc_key(bt, "climate.trv")
         assert "tunknown" in key
 
     def test_missing_unique_id_fallback(self):
         """An entity without a unique id keys its state under ``bt``."""
 
-        class FakeBT:
-            heat_target_temperature = 20.0
-            unique_id = None
+        bt = _keyed_thermostat(20.0, None)
 
-        key = build_mpc_key(FakeBT(), "climate.trv")
+        key = build_mpc_key(bt, "climate.trv")
         assert key.startswith("bt:")
 
     def test_target_rounding_half_degree(self):
         """Test that target temperature is rounded to 0.5 degree steps."""
 
-        class FakeBT:
-            heat_target_temperature = 21.3
-            unique_id = "u"
+        bt = _keyed_thermostat(21.3, "u")
 
-        key = build_mpc_key(FakeBT(), "e")
+        key = build_mpc_key(bt, "e")
         # round(21.3 * 2) / 2 = round(42.6) / 2 = 43 / 2 = 21.5
         assert "t21.5" in key
 
@@ -387,13 +387,13 @@ class TestComputeMpcBasic:
         result = _compute(_inp(heating_allowed=False), _default_params())
         assert result.valve_percent == 0
 
-    def test_missing_target_temp(self):
+    def test_missing_target_temperature(self):
         """Test that None target temperature produces 0% valve."""
         result = _compute(_inp(target_temperature=None), _default_params())
         assert result is not None
         assert result.valve_percent == 0
 
-    def test_missing_current_temp(self):
+    def test_missing_current_temperature(self):
         """Test that None current temperature does not crash."""
         result = _compute(_inp(room_temperature=None), _default_params())
         assert result is not None
@@ -446,7 +446,7 @@ class TestComputeMpcBasic:
                 f"{temps[i - 1]}°C ({results[i - 1]}%)"
             )
 
-    def test_filtered_temp_reduces_valve_demand(self):
+    def test_filtered_temperature_reduces_valve_demand(self):
         """room_temperature_filtered closer to target should lower the cost-optimized valve."""
         params = _default_params(mpc_adapt=False)
         raw = _compute(_inp(key="filt_raw", room_temperature=20.5), params)
@@ -560,6 +560,8 @@ class TestAdaptiveLearning:
         # Room cooled from 21.0 to 20.5 in 5 min = -0.1 °C/min
         _compute(_inp(key="loss_cool", room_temperature=20.5), params)
         # Loss should have increased (room is cooling faster than model predicted)
+        assert state.loss_est is not None
+        assert loss_before is not None
         assert state.loss_est >= loss_before
 
     def test_gain_learns_when_valve_open_and_warming(self):
@@ -674,6 +676,7 @@ class TestAdaptiveLearning:
 
         # Room warmed a lot -> gain candidate could be very high
         _compute(_inp(key="gclamp", room_temperature=20.8), params)
+        assert state.gain_est is not None
         assert state.gain_est <= params.mpc_gain_max
         assert state.gain_est >= params.mpc_gain_min
 
@@ -700,6 +703,7 @@ class TestAdaptiveLearning:
 
         # Room cooled fast -> loss candidate high
         _compute(_inp(key="lclamp", room_temperature=20.0), params)
+        assert state.loss_est is not None
         assert state.loss_est <= params.mpc_loss_max
         assert state.loss_est >= params.mpc_loss_min
 
@@ -730,7 +734,7 @@ class TestAdaptiveLearning:
         _compute(_inp(key="loss_ow", room_temperature=20.0), params)
         assert state.loss_est == pytest.approx(loss_before)
 
-    def test_ka_est_initialized_with_outdoor_temp(self):
+    def test_ka_est_initialized_with_outdoor_temperature(self):
         """ka_est should be calculated when outdoor_temp is provided."""
         params = _default_params(mpc_adapt=True, mpc_loss_coeff=0.01)
         _compute(_inp(key="ka", room_temperature=20.0, outdoor_temperature=5.0), params)
@@ -768,6 +772,8 @@ class TestAdaptiveLearning:
         # With residual learning: loss_candidate = gain*u - rate ≈ 0.06*0.167 - 0 ≈ 0.01
         # If loss_candidate > loss_est AND target-current > 0.2 -> insufficient heat
         # -> gain should be reduced
+        assert state.gain_est is not None
+        assert gain_before is not None
         assert state.gain_est <= gain_before
 
 
@@ -779,14 +785,14 @@ class TestAdaptiveLearning:
 class TestVirtualTemperature:
     """Tests for virtual temperature forward prediction and sync."""
 
-    def test_virtual_temp_initialized_from_sensor(self):
+    def test_virtual_temperature_initialized_from_sensor(self):
         """Test that virtual_temperature starts at the sensor reading."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vinit", room_temperature=20.5), params)
         state = _STATES["vinit"]
         assert state.virtual_temperature == pytest.approx(20.5)
 
-    def test_virtual_temp_corrects_large_drift(self):
+    def test_virtual_temperature_corrects_large_drift(self):
         """Kalman filter should correct virtual_temperature when it drifts far from sensor."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vreset", room_temperature=20.0), params)
@@ -803,7 +809,7 @@ class TestVirtualTemperature:
         # Kalman should correct most of the 1K drift
         assert abs(state.virtual_temperature - 20.0) < 0.5
 
-    def test_virtual_temp_stays_close_to_sensor(self):
+    def test_virtual_temperature_stays_close_to_sensor(self):
         """Kalman update should keep virtual_temperature close to sensor value."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vclamp", room_temperature=20.0), params)
@@ -816,7 +822,7 @@ class TestVirtualTemperature:
         # After Kalman update, virtual_temperature should be closer to sensor
         assert abs(state.virtual_temperature - 20.0) < 0.3
 
-    def test_virtual_temp_not_synced_when_sensor_unchanged(self):
+    def test_virtual_temperature_not_synced_when_sensor_unchanged(self):
         """Sync should be skipped when sensor value hasn't changed."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vsame", room_temperature=20.0), params)
@@ -827,7 +833,7 @@ class TestVirtualTemperature:
         _compute(_inp(key="vsame", room_temperature=20.0), params)
         assert state.virtual_temperature is not None
 
-    def test_virtual_temp_used_for_delta_t(self):
+    def test_virtual_temperature_used_for_delta_t(self):
         """When virtual temperature is enabled, delta_kelvin should use virtual temperature, not sensor."""
         params = _default_params(use_virtual_temperature=True)
         _compute(
@@ -837,7 +843,7 @@ class TestVirtualTemperature:
         # Virtual temperature should be close to sensor on first call
         assert state.virtual_temperature is not None
 
-    def test_window_open_clears_virtual_temp(self):
+    def test_window_open_clears_virtual_temperature(self):
         """Test that window_open resets virtual_temperature to None."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vwin", room_temperature=20.0), params)
@@ -910,10 +916,12 @@ class TestRegimeBoostIntegration:
         _compute(_inp(key="rboost"), params)
         state = _STATES["rboost"]
         # Inject biased errors to trigger regime change
-        state.recent_errors = [0.05] * 15
+        state.recent_errors.clear()
+        state.recent_errors.extend([0.05] * 15)
         # But _detect_regime_change returns False when std==0
         # So we need some variance
-        state.recent_errors = [0.04 + 0.001 * i for i in range(15)]
+        state.recent_errors.clear()
+        state.recent_errors.extend(0.04 + 0.001 * i for i in range(15))
         # Now mean ≈ 0.047, std is tiny -> t-stat should be high
         assert _detect_regime_change(state.recent_errors) is True
 
@@ -1174,7 +1182,7 @@ class TestPerfCurveSampling:
 class TestForcedCalibration:
     """Tests for forced loss calibration (random valve-off episodes)."""
 
-    def test_calibration_ends_when_temp_drops_below_threshold(self):
+    def test_calibration_ends_when_temperature_drops_below_threshold(self):
         """Active calibration should end when temperature < target - hysteresis."""
         params = _default_params()
         _compute(
@@ -1584,7 +1592,7 @@ class TestEdgeCases:
             assert result is not None
             assert 0 <= result.valve_percent <= 100
 
-    def test_outdoor_temp_affects_loss_calculation(self):
+    def test_outdoor_temperature_affects_loss_calculation(self):
         """With outdoor temperature and ka_est, loss should be dynamic."""
         params = _default_params(mpc_adapt=True)
         # Cold outside -> higher loss
@@ -1652,44 +1660,36 @@ class TestBuildMpcGroupKey:
     def test_group_key_format(self):
         """Group key uses ':group:' instead of entity_id."""
 
-        class FakeBT:
-            heat_target_temperature = 21.5
-            unique_id = "bt_123"
+        bt = _keyed_thermostat(21.5, "bt_123")
 
-        key = build_mpc_group_key(FakeBT())
+        key = build_mpc_group_key(bt)
         assert key == "bt_123:group:t21.5"
 
     def test_group_key_target_none(self):
         """None target temperature produces 'tunknown' bucket."""
 
-        class FakeBT:
-            heat_target_temperature = None
-            unique_id = "bt_x"
+        bt = _keyed_thermostat(None, "bt_x")
 
-        key = build_mpc_group_key(FakeBT())
+        key = build_mpc_group_key(bt)
         assert "tunknown" in key
         assert ":group:" in key
 
     def test_group_key_missing_uid(self):
         """An entity without a unique id keys its group under ``bt``."""
 
-        class FakeBT:
-            heat_target_temperature = 20.0
-            unique_id = None
+        bt = _keyed_thermostat(20.0, None)
 
-        key = build_mpc_group_key(FakeBT())
+        key = build_mpc_group_key(bt)
         assert key.startswith("bt:")
         assert ":group:" in key
 
     def test_group_key_differs_from_entity_key(self):
         """Group key and entity key should differ (group vs entity_id)."""
 
-        class FakeBT:
-            heat_target_temperature = 22.0
-            unique_id = "bt_1"
+        bt = _keyed_thermostat(22.0, "bt_1")
 
-        group_key = build_mpc_group_key(FakeBT())
-        entity_key = build_mpc_key(FakeBT(), "climate.trv_1")
+        group_key = build_mpc_group_key(bt)
+        entity_key = build_mpc_key(bt, "climate.trv_1")
         assert group_key != entity_key
         assert ":group:" in group_key
         assert ":climate.trv_1:" in entity_key
@@ -1702,14 +1702,10 @@ class TestBuildMpcGroupKey:
         the PID key does.
         """
 
-        class FakeBT:
-            heat_target_temperature = target
-            unique_id = "bt_1"
+        bt = _keyed_thermostat(target, "bt_1")
 
-        assert build_mpc_key(FakeBT(), "climate.trv_1") == (
-            "bt_1:climate.trv_1:tunknown"
-        )
-        assert build_mpc_group_key(FakeBT()) == "bt_1:group:tunknown"
+        assert build_mpc_key(bt, "climate.trv_1") == ("bt_1:climate.trv_1:tunknown")
+        assert build_mpc_group_key(bt) == "bt_1:group:tunknown"
 
 
 # ===================================================================
@@ -1883,6 +1879,8 @@ class TestKalmanFilter:
         # predicted_change_K = gain * u * dt_min - loss * dt_min
         # = 0.06 * 1.0 * 1.0 - 0.01 * 1.0 = 0.05
         # virtual_temperature should have increased (gain > loss at u=1)
+        assert state.virtual_temperature is not None
+        assert vt_before is not None
         assert state.virtual_temperature > vt_before
 
 
@@ -1939,7 +1937,9 @@ class TestAnalyticalSolver:
             params,
         )
         assert "mpc_cost" in result.debug
-        assert result.debug["mpc_cost"] >= 0
+        cost = result.debug["mpc_cost"]
+        assert isinstance(cost, int | float)
+        assert cost >= 0
 
 
 # ===================================================================
@@ -2046,6 +2046,8 @@ class TestGainLearnCountGuard:
 
         _compute(_inp(key="wlu_allowed", room_temperature=20.0), params)
         # With gain_learn_count=2 and warming below u0, loss should decrease
+        assert state.loss_est is not None
+        assert loss_before is not None
         assert state.loss_est <= loss_before
 
 
@@ -2365,7 +2367,7 @@ class TestDequeEviction:
 class TestStaleStateAnchorReset:
     """Test that stale state detection also resets learning anchors properly."""
 
-    def test_stale_resets_learn_time_and_temp(self):
+    def test_stale_resets_learn_time_and_temperature(self):
         """Stale detection should reset learn_time and learn_temp, not just u_integral."""
         params = _default_params(mpc_adapt=True)
         _compute(_inp(key="stale_full", room_temperature=20.0), params)
@@ -2773,7 +2775,9 @@ class TestPerfCurveWithoutElapsedTime:
         _update_perf_curve(state, self._inp(20.2), params, _NOW + 60.0, debug)
 
         assert debug["perf_room_rate"] == pytest.approx(0.2)
-        assert state.perf_curve[debug["perf_curve_bin"]]["count"] == 1
+        bucket = debug["perf_curve_bin"]
+        assert isinstance(bucket, str)
+        assert state.perf_curve[bucket]["count"] == 1
 
 
 class TestRoomRiseOver:

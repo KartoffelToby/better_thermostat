@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, fields
 from datetime import timedelta
 import logging
 from typing import get_args, get_type_hints
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
 from homeassistant.core import CoreState
@@ -36,6 +37,7 @@ from pytest_homeassistant_custom_component.common import async_fire_time_changed
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Params
 from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
     ControllerSnapshot,
+    MpcV2Controller,
 )
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     GAIN_HEATER_BOUNDS,
@@ -94,6 +96,29 @@ _MPC_V2_NULLABLE_FIELDS = _nullable_fields(MpcV2StateData)
 _MPC_V2_REID_NULLABLE_FIELDS = _nullable_fields(MpcV2ReidData)
 _PID_NULLABLE_FIELDS = _nullable_fields(PIDState)
 _TPI_NULLABLE_FIELDS = _nullable_fields(TpiState)
+
+
+def _edited_payload() -> dict[str, object]:
+    """Return a freshly serialized payload, open to edits the way a store file is."""
+    return dict(_serialize(RuntimeState()))
+
+
+def _stored_section(
+    payload: Mapping[str, object], section: str
+) -> Mapping[str, object]:
+    """Return one section of a stored payload."""
+    entries = payload[section]
+    assert isinstance(entries, dict)
+    return entries
+
+
+def _stored_entry(
+    payload: Mapping[str, object], section: str, key: str
+) -> Mapping[str, object]:
+    """Return one keyed entry of a stored payload's section."""
+    entry = _stored_section(payload, section)[key]
+    assert isinstance(entry, dict)
+    return entry
 
 
 def _hass_double() -> AsyncMock:
@@ -322,7 +347,7 @@ class TestSerializeDeserializeRoundtrip:
 
         Preset temperatures live in the preset number entities.
         """
-        raw = _serialize(RuntimeState())
+        raw = _edited_payload()
         raw["presets"] = {"comfort": 22.0}
 
         restored = _deserialize(raw)
@@ -331,7 +356,7 @@ class TestSerializeDeserializeRoundtrip:
 
     def test_thermal_rejects_non_finite(self):
         """NaN/inf thermal stats in a stored payload are rejected on load."""
-        raw = _serialize(RuntimeState())
+        raw = _edited_payload()
         raw["thermal"] = {"heating_power": float("nan"), "heat_loss_rate": float("inf")}
 
         restored = _deserialize(raw)
@@ -418,7 +443,7 @@ class TestDeserializeMpcTypeCoercion:
 
     def test_none_preserved(self):
         """None values are preserved for nullable fields."""
-        raw = {"gain_est": None, "loss_est": None}
+        raw: dict[str, object] = {"gain_est": None, "loss_est": None}
         mpc = deserialize_mpc(raw)
         assert mpc.gain_est is None
         assert mpc.loss_est is None
@@ -461,7 +486,7 @@ class TestDeserializePidTypeCoercion:
 
     def test_none_preserved(self):
         """None values are preserved for nullable fields."""
-        raw = {"pid_kp": None}
+        raw: dict[str, object] = {"pid_kp": None}
         pid = deserialize_pid(raw)
         assert pid.pid_kp is None
 
@@ -576,7 +601,7 @@ class TestDeserializeMpcV2Reid:
 
     def test_null_entry_is_absent_after_a_full_load(self):
         """A saved NaN comes back as a null and leaves no key behind."""
-        raw = _serialize(RuntimeState())
+        raw = _edited_payload()
         raw["mpc_v2_reid"] = {
             "good": {"tau_room_min": 240.0, "gain_heater": 3.0},
             "bad": {"tau_room_min": 240.0, "gain_heater": 3.0, "rmse_fit_K": None},
@@ -622,7 +647,7 @@ class TestDeserializeMpcV2Reid:
 
     def test_out_of_band_entry_is_absent_after_a_full_load(self):
         """The rejected entry leaves no key behind and spares its neighbour."""
-        raw = _serialize(RuntimeState())
+        raw = _edited_payload()
         raw["mpc_v2_reid"] = {
             "good": {"tau_room_min": 240.0, "gain_heater": 3.0},
             "bad": {"tau_room_min": 5e-324, "gain_heater": 3.0},
@@ -686,7 +711,7 @@ class TestDeserializeMpcV2Reid:
             '{"tau_room_min": "NaN", "gain_heater": 3.0}}}'
         )
         assert isinstance(raw, dict)
-        assert raw["mpc_v2_reid"]["bt:reid"]["tau_room_min"] == "NaN"
+        assert _stored_entry(raw, "mpc_v2_reid", "bt:reid")["tau_room_min"] == "NaN"
         assert _deserialize(raw).mpc_v2_reid == {}
 
     def test_oversized_stored_count_cannot_break_the_next_save(self):
@@ -700,14 +725,16 @@ class TestDeserializeMpcV2Reid:
             '"gain_heater": 3.0, "n_segments": ' + "9" * 300 + "}}}"
         )
         assert isinstance(raw, dict)
-        assert isinstance(raw["mpc_v2_reid"]["bt:reid"]["n_segments"], float)
+        assert isinstance(
+            _stored_entry(raw, "mpc_v2_reid", "bt:reid")["n_segments"], float
+        )
         restored = _deserialize(raw)
         assert restored.mpc_v2_reid["bt:reid"].n_segments == 0
-        prepare_save_json(_serialize(restored))
+        prepare_save_json(dict(_serialize(restored)))
 
     def test_poisoned_entry_is_absent_after_a_full_load(self):
         """A discarded entry leaves no key behind for the prior lookup."""
-        raw = _serialize(RuntimeState())
+        raw = _edited_payload()
         raw["mpc_v2_reid"] = {
             "good": {"tau_room_min": 240.0, "gain_heater": 3.0},
             "bad": {"tau_room_min": float("nan"), "gain_heater": 3.0},
@@ -776,7 +803,7 @@ class TestStoredIntegerFields:
         restored = _deserialize(raw)
         assert restored.mpc["k"].dead_zone_hits == 0
         assert restored.pid["k"].last_error_sign is None
-        prepare_save_json(_serialize(restored))
+        prepare_save_json(dict(_serialize(restored)))
 
 
 class TestNonFiniteStringsFromAStore:
@@ -838,7 +865,7 @@ _NULL_CASES = [
         deserialize_mpc_v2,
         MpcV2StateData,
         ["last_percent", "last_compute_ts", "created_ts"],
-        {},
+        dict[str, str](),
     ),
     (
         deserialize_mpc_v2_reid,
@@ -846,8 +873,8 @@ _NULL_CASES = [
         [f.name for f in fields(MpcV2ReidData)],
         _STORED_MPC_V2_REID_KEYS,
     ),
-    (deserialize_pid, PIDState, [f.name for f in fields(PIDState)], {}),
-    (deserialize_tpi, TpiState, [f.name for f in fields(TpiState)], {}),
+    (deserialize_pid, PIDState, [f.name for f in fields(PIDState)], dict[str, str]()),
+    (deserialize_tpi, TpiState, [f.name for f in fields(TpiState)], dict[str, str]()),
 ]
 
 
@@ -1078,6 +1105,7 @@ class TestDeserializeMpcV2:
             "snapshot": {"u_prev": 0.5},
         }
         state = deserialize_mpc_v2(raw)
+        assert state is not None
         assert state.last_percent == 42.0
         assert state.last_compute_ts == 100.0
         assert state.created_ts == 10.0
@@ -1373,7 +1401,7 @@ class TestMigrationV0ToV1:
 
     def test_adds_missing_keys(self):
         """Empty dict gets all required v1 keys."""
-        raw: dict = {}
+        raw: dict[str, object] = {}
         result = _migrate_v0_to_v1(raw)
         assert result["version"] == 1
         assert result["mpc"] == {}
@@ -1386,8 +1414,8 @@ class TestMigrationV0ToV1:
         raw = {"mpc": {"k": {"gain_est": 0.5}}, "thermal": {"heating_power": 1000}}
         result = _migrate_v0_to_v1(raw)
         assert result["version"] == 1
-        assert result["mpc"]["k"]["gain_est"] == 0.5
-        assert result["thermal"]["heating_power"] == 1000
+        assert _stored_entry(result, "mpc", "k")["gain_est"] == 0.5
+        assert _stored_section(result, "thermal")["heating_power"] == 1000
 
     def test_does_not_overwrite_existing_version(self):
         """Setdefault does not overwrite an existing version key."""
@@ -1516,7 +1544,10 @@ class TestStateManagerLoadSave:
         would kill startup over data that relearning replaces anyway.
         """
         mgr, mock_store = self._make_manager_with_store()
-        mock_store.async_load.return_value = {"version": 1, "mpc": {"k": {}}}
+        mock_store.async_load.return_value = {
+            "version": 1,
+            "mpc": {"k": dict[str, object]()},
+        }
         with (
             patch(f"{_SM}._deserialize", side_effect=TypeError("poisoned")),
             patch(f"{_SM}.Store", return_value=AsyncMock()),
@@ -1533,8 +1564,8 @@ class TestStateManagerLoadSave:
         mock_store.async_load.return_value = {
             "version": 1,
             "mpc": {"k1": {"gain_est": 0.5, "dead_zone_hits": 2}},
-            "pid": {},
-            "tpi": {},
+            "pid": dict[str, object](),
+            "tpi": dict[str, object](),
             "thermal": {"heating_power": 1000.0},
         }
 
@@ -1617,14 +1648,11 @@ class TestStateManagerLoadSave:
 # ---------------------------------------------------------------------------
 
 
-class _StubMpcV2Controller:
-    """Minimal stand-in exposing the export surface the save path uses."""
-
-    def __init__(self, snapshot: ControllerSnapshot) -> None:
-        self.snapshot = snapshot
-
-    def export_snapshot(self) -> ControllerSnapshot:
-        return self.snapshot
+def _controller_exporting(snapshot: ControllerSnapshot) -> MagicMock:
+    """Return a controller double whose export answers with *snapshot*."""
+    controller = create_autospec(MpcV2Controller, instance=True)
+    controller.export_snapshot.return_value = snapshot
+    return controller
 
 
 def _make_snapshot(last_u: float) -> ControllerSnapshot:
@@ -1660,7 +1688,8 @@ class TestScheduleDelaySave:
         """The write-time payload reflects the live MPC v2 controller state."""
         mgr, mock_store = self._make_manager_with_store()
         live = mgr.get_mpc_v2_live("k1", MpcV2Params())
-        live.controller = _StubMpcV2Controller(_make_snapshot(last_u=10.0))
+        controller = _controller_exporting(_make_snapshot(last_u=10.0))
+        live.controller = controller
         live.last_percent = 42.0
         mgr.set_mpc_v2_live("k1", live)
 
@@ -1668,7 +1697,7 @@ class TestScheduleDelaySave:
         # Mutations after scheduling must still land in the payload:
         # serialization happens when the Store fires the delayed write.
         live.last_percent = 55.0
-        live.controller.snapshot = _make_snapshot(last_u=77.0)
+        controller.export_snapshot.return_value = _make_snapshot(last_u=77.0)
 
         data_func = mock_store.async_delay_save.call_args[0][0]
         data = data_func()
@@ -1681,7 +1710,7 @@ class TestScheduleDelaySave:
         """A live controller gone non-finite must not overwrite what is stored."""
         mgr, mock_store = self._make_manager_with_store()
         live = mgr.get_mpc_v2_live("k1", MpcV2Params())
-        live.controller = _StubMpcV2Controller(_make_snapshot(last_u=10.0))
+        live.controller = _controller_exporting(_make_snapshot(last_u=10.0))
         live.last_percent = 42.0
         live.last_compute_ts = 100.0
         mgr.set_mpc_v2_live("k1", live)
@@ -1788,14 +1817,14 @@ class TestClampedThermal:
         mgr.thermal = ThermalStats(heating_power=hp, heat_loss_rate=hl)
         assert mgr.clamped_thermal() == (hp, hl)
 
-    def test_heating_power_clamped_to_max(self):
+    def test_heating_power_clamped_to_maximum(self):
         """A heating_power above the max is clamped down."""
         mgr = _make_manager()
         mgr.thermal = ThermalStats(heating_power=MAX_HEATING_POWER * 10)
         hp, _ = mgr.clamped_thermal()
         assert hp == MAX_HEATING_POWER
 
-    def test_heating_power_clamped_to_min(self):
+    def test_heating_power_clamped_to_minimum(self):
         """A heating_power below the min is clamped up."""
         mgr = _make_manager()
         mgr.thermal = ThermalStats(heating_power=-5.0)
@@ -1928,7 +1957,7 @@ class TestFilterState:
 
     def test_non_finite_values_are_dropped_on_load(self):
         """Poisoned filter values degrade to defaults instead of loading."""
-        raw = _serialize(RuntimeState())
+        raw = _edited_payload()
         raw["filters"] = {"external_temp_ema": float("nan"), "temp_slope": "oops"}
         restored = _deserialize(raw)
         assert restored.filters.room_temperature_ema is None
@@ -2021,7 +2050,10 @@ class TestUnreadableStoreIsKeptForRecovery:
         """Setting the copy aside does not change the fallback behaviour."""
         with _stores_by_key() as stores:
             mgr = StateManager(_hass_double(), "test_entry")
-            stores[_LIVE_STORE_KEY].async_load.return_value = {"version": 1, "mpc": {}}
+            stores[_LIVE_STORE_KEY].async_load.return_value = {
+                "version": 1,
+                "mpc": dict[str, object](),
+            }
             with patch(f"{_SM}._deserialize", side_effect=TypeError("poisoned")):
                 await mgr.load()
 
@@ -2033,7 +2065,10 @@ class TestUnreadableStoreIsKeptForRecovery:
         """The first copy is the one still holding the accumulated state."""
         with _stores_by_key() as stores:
             mgr = StateManager(_hass_double(), "test_entry")
-            stores[_LIVE_STORE_KEY].async_load.return_value = {"version": 1, "mpc": {}}
+            stores[_LIVE_STORE_KEY].async_load.return_value = {
+                "version": 1,
+                "mpc": dict[str, object](),
+            }
             earlier = AsyncMock()
             earlier.async_load = AsyncMock(
                 return_value={"version": 1, "mpc": {"k1": {"gain_est": 0.9}}}
@@ -2072,7 +2107,10 @@ class TestUnreadableStoreIsKeptForRecovery:
         """A storage error while copying is reported, not raised."""
         with _stores_by_key() as stores:
             mgr = StateManager(_hass_double(), "test_entry")
-            stores[_LIVE_STORE_KEY].async_load.return_value = {"version": 1, "mpc": {}}
+            stores[_LIVE_STORE_KEY].async_load.return_value = {
+                "version": 1,
+                "mpc": dict[str, object](),
+            }
             with (
                 caplog.at_level(logging.WARNING, logger=_SM),
                 patch(f"{_SM}._deserialize", side_effect=TypeError("poisoned")),
@@ -2226,7 +2264,7 @@ def _truncated_into(store: AsyncMock):
     return _save
 
 
-def _poisoned_payload(gain: float) -> dict:
+def _poisoned_payload(gain: float) -> dict[str, object]:
     """Return a stored payload that loads with one entry reset."""
     return {"version": 1, "mpc": {"k1": {"gain_est": gain, "kalman_P": None}}}
 
@@ -2239,7 +2277,7 @@ class TestEveryDistinctPayloadIsKept:
     """
 
     @staticmethod
-    async def _load_and_save(stores, payload: dict) -> StateManager:
+    async def _load_and_save(stores, payload: dict[str, object]) -> StateManager:
         mgr = StateManager(_hass_double(), "test_entry")
         stores[_LIVE_STORE_KEY].async_load.return_value = payload
         await mgr.load()
@@ -2248,7 +2286,7 @@ class TestEveryDistinctPayloadIsKept:
         return mgr
 
     @staticmethod
-    def _stored(stores, key: str, payload: dict) -> None:
+    def _stored(stores, key: str, payload: dict[str, object]) -> None:
         """Seed an existing copy under *key*."""
         store = AsyncMock()
         store.async_load = AsyncMock(return_value=payload)
@@ -2422,7 +2460,7 @@ class TestAFailedCopyThatRecovers:
     _PAYLOAD = {"version": 1, "mpc": {"k1": {"gain_est": 0.5, "kalman_P": None}}}
 
     @contextmanager
-    def _disk(self, disk: dict):
+    def _disk(self, disk: dict[str, bool | int]):
         """Fail every write of a set-aside copy while ``disk["full"]`` is set."""
         write = storage.Store._async_write_data
 
@@ -2458,7 +2496,7 @@ class TestAFailedCopyThatRecovers:
     async def test_a_runtime_save_after_recovery_lands(self, hass, hass_storage):
         """The first runtime save once the retry is due writes copy and state."""
         clock = {"now": 1000.0}
-        disk = {"full": True}
+        disk: dict[str, bool | int] = {"full": True}
         with self._disk(disk), patch(f"{_SM}.monotonic", lambda: clock["now"]):
             manager = await self._loaded(hass, hass_storage)
             disk["full"] = False
@@ -2479,7 +2517,7 @@ class TestAFailedCopyThatRecovers:
         """A disk that stays full is tried ever less often and reported once."""
         caplog.set_level(logging.DEBUG, logger=_SM)
         clock = {"now": 1000.0}
-        disk = {"full": True}
+        disk: dict[str, bool | int] = {"full": True}
         attempts: list[float] = []
         with self._disk(disk), patch(f"{_SM}.monotonic", lambda: clock["now"]):
             manager = await self._loaded(hass, hass_storage)
@@ -2508,7 +2546,7 @@ class TestAFailedCopyThatRecovers:
     async def test_the_interval_stops_growing_at_an_hour(self, hass, hass_storage):
         """A disk that stays full is retried once an hour at most, not less."""
         clock = {"now": 1000.0}
-        disk = {"full": True}
+        disk: dict[str, bool | int] = {"full": True}
         with self._disk(disk), patch(f"{_SM}.monotonic", lambda: clock["now"]):
             manager = await self._loaded(hass, hass_storage)
             for _ in range(20):
@@ -2523,7 +2561,7 @@ class TestAFailedCopyThatRecovers:
         self, hass, hass_storage
     ):
         """While stopping, a copy would only be queued, so it is left for later."""
-        disk = {"full": True}
+        disk: dict[str, bool | int] = {"full": True}
         with self._disk(disk):
             manager = await self._loaded(hass, hass_storage)
             disk["full"] = False
@@ -2556,7 +2594,7 @@ class TestAFailedCopyThatRecovers:
         No further change of state is needed: until something else triggers
         a save, an abrupt stop would otherwise lose that learning.
         """
-        disk = {"full": True}
+        disk: dict[str, bool | int] = {"full": True}
         recorded: list[bool] = []
         with self._disk(disk):
             manager = await self._loaded(hass, hass_storage)
@@ -2582,7 +2620,7 @@ class TestAFailedCopyThatRecovers:
         self, hass, hass_storage, freezer
     ):
         """Each failed timed try waits twice as long as the one before."""
-        disk = {"full": True}
+        disk: dict[str, bool | int] = {"full": True}
         attempts: list[int] = []
         with self._disk(disk):
             manager = await self._loaded(hass, hass_storage)
@@ -2605,7 +2643,7 @@ class TestAFailedCopyThatRecovers:
         A timer that outlived the entity would write into a store the next
         entity for the same entry owns by then.
         """
-        disk = {"full": True}
+        disk: dict[str, bool | int] = {"full": True}
         with self._disk(disk):
             manager = await self._loaded(hass, hass_storage)
             manager.mark_dirty()
@@ -2628,7 +2666,7 @@ class TestAFailedCopyThatRecovers:
         ``flush()`` makes the final write; a save queued by the copy after
         ``close()`` would write into a store the next entity owns by then.
         """
-        disk = {"full": True}
+        disk: dict[str, bool | int] = {"full": True}
         entered = asyncio.Event()
         release = asyncio.Event()
         write = storage.Store._async_write_data
@@ -2666,7 +2704,7 @@ class TestAFailedCopyThatRecovers:
         succeeds; the running copy then schedules no save after ``close()``,
         so the flush has to wait for it and write the state itself.
         """
-        disk = {"full": True}
+        disk: dict[str, bool | int] = {"full": True}
         entered = asyncio.Event()
         release = asyncio.Event()
         write = storage.Store._async_write_data
@@ -2717,7 +2755,7 @@ class TestAFailedCopyThatRecovers:
         and write the state itself.
         """
         clock = {"now": 1000.0}
-        disk = {"full": True}
+        disk: dict[str, bool | int] = {"full": True}
         entered = asyncio.Event()
         release = asyncio.Event()
         write = storage.Store._async_write_data

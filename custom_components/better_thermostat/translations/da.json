@@ -84,7 +84,11 @@
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
       "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
       "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
-      "trv_not_found": "Home Assistant kender ikke {trv}. Vælg en termostat, der findes."
+      "trv_not_found": "Home Assistant kender ikke {trv}. Vælg en termostat, der findes.",
+      "trv_is_better_thermostat": "{trv} er en Better Thermostat. Vælg en rigtig termostat i stedet.",
+      "trv_no_target_temperature": "{trv} accepterer ingen måltemperatur. Vælg en termostat, der gør.",
+      "cooler_is_better_thermostat": "{cooler} er en Better Thermostat. Vælg en rigtig køleenhed i stedet.",
+      "cooler_no_target_temperature": "{cooler} accepterer ingen måltemperatur. Vælg en køleenhed, der gør."
     },
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
@@ -171,7 +175,11 @@
       "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
       "no_sensor": "Vælg venligst en rumtemperatursensor.",
       "trv_in_use": "{trv} styres allerede af Better Thermostat {entry}. En termostat kan kun høre til én Better Thermostat.",
-      "trv_not_found": "Home Assistant kender ikke {trv}. Vælg en termostat, der findes."
+      "trv_not_found": "Home Assistant kender ikke {trv}. Vælg en termostat, der findes.",
+      "trv_is_better_thermostat": "{trv} er en Better Thermostat. Vælg en rigtig termostat i stedet.",
+      "trv_no_target_temperature": "{trv} accepterer ingen måltemperatur. Vælg en termostat, der gør.",
+      "cooler_is_better_thermostat": "{cooler} er en Better Thermostat. Vælg en rigtig køleenhed i stedet.",
+      "cooler_no_target_temperature": "{cooler} accepterer ingen måltemperatur. Vælg en køleenhed, der gør."
     }
   },
   "issues": {

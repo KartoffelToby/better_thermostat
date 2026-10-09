@@ -175,17 +175,12 @@ class TestCheckSystemMode:
         # Patch asyncio.sleep
         import custom_components.better_thermostat.utils.controlling as controlling_module
 
-        original_sleep_func = controlling_module.asyncio.sleep
-        controlling_module.asyncio.sleep = mock_sleep
-
-        try:
+        with patch.object(controlling_module.asyncio, "sleep", mock_sleep):
             result = await check_system_mode(mock_self, "climate.trv1")
 
             assert result is True
             # Flag should still be set to True after timeout
             assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
-        finally:
-            controlling_module.asyncio.sleep = original_sleep_func
 
     @pytest.mark.asyncio
     async def test_unavailable_state_treated_as_done(self):
@@ -228,7 +223,7 @@ class TestCheckSystemMode:
         trv.model_quirks = ZWA021
         trv.advanced = {"calibration": CalibrationOutput.DIRECT_VALVE_BASED}
 
-        slept = []
+        slept: list[float] = []
         original_sleep = asyncio.sleep
 
         async def mock_sleep(duration):
@@ -237,13 +232,9 @@ class TestCheckSystemMode:
 
         import custom_components.better_thermostat.utils.controlling as controlling_module
 
-        original_sleep_func = controlling_module.asyncio.sleep
-        controlling_module.asyncio.sleep = mock_sleep
-        try:
+        with patch.object(controlling_module.asyncio, "sleep", mock_sleep):
             with caplog.at_level(logging.WARNING):
                 result = await check_system_mode(mock_self, "climate.trv1")
-        finally:
-            controlling_module.asyncio.sleep = original_sleep_func
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
@@ -377,7 +368,7 @@ class TestCheckTargetTemperature:
         trv.model_quirks = ZWA021
         trv.advanced = {"calibration": CalibrationOutput.DIRECT_VALVE_BASED}
 
-        slept = []
+        slept: list[float] = []
         original_sleep = asyncio.sleep
 
         async def mock_sleep(duration):
@@ -388,12 +379,8 @@ class TestCheckTargetTemperature:
 
         import custom_components.better_thermostat.utils.controlling as controlling_module
 
-        original_sleep_func = controlling_module.asyncio.sleep
-        controlling_module.asyncio.sleep = mock_sleep
-        try:
+        with patch.object(controlling_module.asyncio, "sleep", mock_sleep):
             result = await _watch_last_write(mock_self, "climate.trv1")
-        finally:
-            controlling_module.asyncio.sleep = original_sleep_func
 
         assert result is True
         assert slept.count(1) == 1
@@ -437,7 +424,7 @@ class TestCheckTargetTemperature:
         assert mock_self.real_trvs["climate.trv1"].target_temperature_received is True
 
     @pytest.mark.asyncio
-    async def test_range_mode_confirms_via_target_temp_low(self):
+    async def test_range_mode_confirms_via_target_temperature_low(self):
         """A range-capable TRV confirms the write through target_temp_low."""
         mock_state = Mock()
         mock_state.attributes = {
@@ -467,8 +454,7 @@ class TestCheckTargetTemperature:
     @pytest.mark.asyncio
     async def test_temperature_is_none(self):
         """Test when current temperature is None."""
-        mock_state = Mock()
-        mock_state.attributes = {"temperature": None}
+        mock_state = State("climate.trv1", HVACMode.HEAT, {"temperature": None})
 
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
@@ -508,11 +494,11 @@ class TestCheckTargetTemperature:
         }
 
         # Simulate temperature change after 0.1 seconds
-        async def update_temp():
+        async def update_temperature():
             await asyncio.sleep(0.1)
             mock_state.attributes["temperature"] = 21.0
 
-        update_task = asyncio.create_task(update_temp())
+        update_task = asyncio.create_task(update_temperature())
 
         result = await _watch_last_write(mock_self, "climate.trv1")
 
@@ -553,18 +539,13 @@ class TestCheckTargetTemperature:
 
         import custom_components.better_thermostat.utils.controlling as controlling_module
 
-        original_sleep_func = controlling_module.asyncio.sleep
-        controlling_module.asyncio.sleep = mock_sleep
-
-        try:
+        with patch.object(controlling_module.asyncio, "sleep", mock_sleep):
             result = await _watch_last_write(mock_self, "climate.trv1")
 
             assert result is True
             assert (
                 mock_self.real_trvs["climate.trv1"].target_temperature_received is True
             )
-        finally:
-            controlling_module.asyncio.sleep = original_sleep_func
 
     @pytest.mark.asyncio
     async def test_writes_made_during_the_wait_survive_the_confirmation(self):
@@ -941,7 +922,7 @@ class TestGetValveControlBoostCalibrationOutput:
         assert bal is None
         assert source is None
 
-    def test_boost_target_temp_based_returns_none(self):
+    def test_boost_target_temperature_based_returns_none(self):
         """TARGET_TEMP_BASED + boost → no valve override (None, None)."""
         mock_self = self._mock_in_boost()
         bal, source = _get_valve_control(

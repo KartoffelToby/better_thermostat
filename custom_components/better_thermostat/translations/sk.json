@@ -84,7 +84,11 @@
       "no_off_mode": "Vaše zariadenie je veľmi špeciálne a nemá režim vypnutia :(\nBetter Thermostat namiesto toho použije minimálnu cieľovú teplotu.",
       "no_outside_temp": "Nemáte snímač vonkajšej teploty. Better Thermostat namiesto toho použije entitu počasie.",
       "target_temp_min_above_max": "Cieľová minimálna teplota nesmie prekročiť cieľovú maximálnu teplotu.",
-      "trv_not_found": "Home Assistant nepozná {trv}. Vyberte termostat, ktorý existuje."
+      "trv_not_found": "Home Assistant nepozná {trv}. Vyberte termostat, ktorý existuje.",
+      "trv_is_better_thermostat": "{trv} je Better Thermostat. Vyberte namiesto neho reálny termostat.",
+      "trv_no_target_temperature": "{trv} neprijíma cieľovú teplotu. Vyberte termostat, ktorý ju prijíma.",
+      "cooler_is_better_thermostat": "{cooler} je Better Thermostat. Vyberte namiesto neho reálne chladiace zariadenie.",
+      "cooler_no_target_temperature": "{cooler} neprijíma cieľovú teplotu. Vyberte chladiace zariadenie, ktoré ju prijíma."
     },
     "abort": {
       "single_instance_allowed": "Pre každý real je povolený len jeden termostat.",
@@ -171,7 +175,11 @@
       "target_temp_min_above_max": "Cieľová minimálna teplota nesmie prekročiť cieľovú maximálnu teplotu.",
       "no_sensor": "Vyberte snímač izbovej teploty.",
       "trv_in_use": "{trv} už ovláda Better Thermostat {entry}. Termostat môže patriť iba jednému Better Thermostat.",
-      "trv_not_found": "Home Assistant nepozná {trv}. Vyberte termostat, ktorý existuje."
+      "trv_not_found": "Home Assistant nepozná {trv}. Vyberte termostat, ktorý existuje.",
+      "trv_is_better_thermostat": "{trv} je Better Thermostat. Vyberte namiesto neho reálny termostat.",
+      "trv_no_target_temperature": "{trv} neprijíma cieľovú teplotu. Vyberte termostat, ktorý ju prijíma.",
+      "cooler_is_better_thermostat": "{cooler} je Better Thermostat. Vyberte namiesto neho reálne chladiace zariadenie.",
+      "cooler_no_target_temperature": "{cooler} neprijíma cieľovú teplotu. Vyberte chladiace zariadenie, ktoré ju prijíma."
     }
   },
   "issues": {

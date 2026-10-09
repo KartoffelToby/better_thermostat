@@ -74,7 +74,7 @@ def _populated_mpc() -> MpcState:
         loss_est=0.007,
         ka_est=0.0025,
         solar_gain_est=0.4,
-        last_temperature=20.75,
+        last_cycle_temperature=20.75,
         last_time=1700000002.0,
         last_trv_temperature=24.5,
         last_trv_temperature_ts=1700000003.0,
@@ -189,7 +189,7 @@ def _populated_state() -> RuntimeState:
 
 def _stored_bytes(state: RuntimeState) -> bytes:
     """Return the bytes Home Assistant's Store writes for *state*'s payload."""
-    mode, json_data = prepare_save_json(_serialize(state))
+    mode, json_data = prepare_save_json(dict(_serialize(state)))
     assert mode == "wb"
     assert isinstance(json_data, bytes)
     return json_data
@@ -228,7 +228,7 @@ def test_serializing_leaves_the_live_state_unshared():
     x_hat = snapshot["x_hat"]
     assert isinstance(x_hat, list)
     x_hat.append(1.0)
-    assert _stored_bytes(_populated_state()) == prepare_save_json(data)[1]
+    assert _stored_bytes(_populated_state()) == prepare_save_json(dict(data))[1]
 
 
 _FILTER_KEYS = {

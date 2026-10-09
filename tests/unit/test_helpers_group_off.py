@@ -5,13 +5,17 @@ when every available member is off (or, for ``no_off_system_mode`` devices, at
 its minimum temperature). Single-TRV instances always agree.
 """
 
-import types
+from collections.abc import Mapping
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 import pytest
 
+from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.containers import BtConfig
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.helpers import (
     bound_to_celsius,
     group_all_members_off,
@@ -19,9 +23,14 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 
 
-def _member(no_off=False, min_temp=5.0, target_temp_step=None):
-    """A minimal stand-in for a Trv exposing only what the helper reads."""
-    return types.SimpleNamespace(
+def _member(
+    no_off: bool = False,
+    min_temp: float | None = 5.0,
+    target_temp_step: float | None = None,
+) -> Trv:
+    """A Trv carrying what the helper reads; ``_fake_self`` sets its entity id."""
+    return Trv(
+        entity_id="climate.member",
         advanced={"no_off_system_mode": no_off},
         min_temp=min_temp,
         target_temp_step=target_temp_step,
@@ -32,10 +41,17 @@ def _state(entity_id, state_str, temperature=19.0):
     return State(entity_id, state_str, attributes={"temperature": temperature})
 
 
-def _fake_self(members, states, system_unit=UnitOfTemperature.CELSIUS):
-    self_ = types.SimpleNamespace()
-    self_.device_name = "Test"
-    self_.real_trvs = members
+def _fake_self(
+    members: Mapping[str, Trv],
+    states: Mapping[str, State],
+    system_unit: UnitOfTemperature = UnitOfTemperature.CELSIUS,
+) -> BetterThermostat:
+    self_ = object.__new__(BetterThermostat)
+    self_.config = BtConfig(device_name="Test")
+    self_.real_trvs = {
+        entity_id: replace(member, entity_id=entity_id)
+        for entity_id, member in members.items()
+    }
     hass = MagicMock()
     hass.states.get.side_effect = states.get
     hass.config.units.temperature_unit = system_unit
@@ -111,7 +127,7 @@ def test_no_off_fahrenheit_above_min_false():
     assert group_all_members_off(self_) is False
 
 
-def test_no_off_target_temp_low_at_min_true():
+def test_no_off_target_temperature_low_at_min_true():
     """A member exposing only target_temp_low at min_temp counts as off."""
     members = {"climate.a": _member(no_off=True), "climate.b": _member(no_off=True)}
     states = {
@@ -121,7 +137,7 @@ def test_no_off_target_temp_low_at_min_true():
     assert group_all_members_off(_fake_self(members, states)) is True
 
 
-def test_no_off_null_temperature_falls_back_to_target_temp_low():
+def test_no_off_null_temperature_falls_back_to_target_temperature_low():
     """A device on a target range publishes ``temperature`` as None.
 
     Home Assistant emits both attributes for a device that supports a single

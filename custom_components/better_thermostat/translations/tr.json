@@ -84,7 +84,11 @@
       "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
       "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
       "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
-      "trv_not_found": "Home Assistant {trv} öğesini tanımıyor. Var olan bir termostat seçin."
+      "trv_not_found": "Home Assistant {trv} öğesini tanımıyor. Var olan bir termostat seçin.",
+      "trv_is_better_thermostat": "{trv} bir Better Thermostat. Bunun yerine gerçek bir termostat seçin.",
+      "trv_no_target_temperature": "{trv} hedef sıcaklık kabul etmiyor. Hedef sıcaklık kabul eden bir termostat seçin.",
+      "cooler_is_better_thermostat": "{cooler} bir Better Thermostat. Bunun yerine gerçek bir soğutma cihazı seçin.",
+      "cooler_no_target_temperature": "{cooler} hedef sıcaklık kabul etmiyor. Hedef sıcaklık kabul eden bir soğutma cihazı seçin."
     },
     "abort": {
       "single_instance_allowed": "Her gerçek termostat için yalnızca tek bir Termostat'a izin verilir.",
@@ -171,7 +175,11 @@
       "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
       "no_sensor": "Lütfen bir oda sıcaklığı sensörü seçin.",
       "trv_in_use": "{trv} zaten Better Thermostat {entry} tarafından kontrol ediliyor. Bir termostat yalnızca bir Better Thermostat’a ait olabilir.",
-      "trv_not_found": "Home Assistant {trv} öğesini tanımıyor. Var olan bir termostat seçin."
+      "trv_not_found": "Home Assistant {trv} öğesini tanımıyor. Var olan bir termostat seçin.",
+      "trv_is_better_thermostat": "{trv} bir Better Thermostat. Bunun yerine gerçek bir termostat seçin.",
+      "trv_no_target_temperature": "{trv} hedef sıcaklık kabul etmiyor. Hedef sıcaklık kabul eden bir termostat seçin.",
+      "cooler_is_better_thermostat": "{cooler} bir Better Thermostat. Bunun yerine gerçek bir soğutma cihazı seçin.",
+      "cooler_no_target_temperature": "{cooler} hedef sıcaklık kabul etmiyor. Hedef sıcaklık kabul eden bir soğutma cihazı seçin."
     }
   },
   "issues": {

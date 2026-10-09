@@ -167,7 +167,7 @@ class TrvWorld:
     setpoint: float | None = None
     min_temp: float | None = 5.0
     max_temp: float | None = 30.0
-    calibration_min: float | None = None
+    minimum_calibration: float | None = None
     calibration_max: float | None = None
     valve_max_opening: float | None = None
 
@@ -276,7 +276,7 @@ class KernelMachine(RuleBasedStateMachine):
         self.requested_preset: str | None = None
         self._restart()
         if started:
-            self._finish_startup(grace_s=0)
+            self._finish_startup(grace_seconds=0)
 
     def _restart(self) -> None:
         """Rebuild the entity as ``async_added_to_hass`` does.
@@ -332,7 +332,10 @@ class KernelMachine(RuleBasedStateMachine):
         contact, params = self._contact(kind)
         region = getattr(self.kernel, kind)
         stepped = window_step(region, contact.raw_open, now, params)
-        self.kernel = replace(self.kernel, **{kind: stepped})
+        if kind == "window":
+            self.kernel = replace(self.kernel, window=stepped)
+        else:
+            self.kernel = replace(self.kernel, door=stepped)
         contact.observe(now, params)
         assert stepped.effective_open == contact.committed_open, (
             f"{kind} region {stepped} disagrees with the debounced sensor "
@@ -440,7 +443,7 @@ class KernelMachine(RuleBasedStateMachine):
                     min_temp=trv.min_temp,
                     max_temp=trv.max_temp,
                     valve_max_opening=trv.valve_max_opening,
-                    min_local_calibration=trv.calibration_min,
+                    min_local_calibration=trv.minimum_calibration,
                     max_local_calibration=trv.calibration_max,
                 )
                 for entity_id, trv in self.trvs.items()
@@ -535,7 +538,7 @@ class KernelMachine(RuleBasedStateMachine):
         entity_id=st.sampled_from(TRV_IDS),
         min_temp=device_bounds,
         max_temp=device_bounds,
-        calibration_min=st.sampled_from((None, math.nan, -12.7, -5.0, 3.0)),
+        minimum_calibration=st.sampled_from((None, math.nan, -12.7, -5.0, 3.0)),
         calibration_max=st.sampled_from((None, math.nan, 12.7, 5.0, -3.0)),
         valve_max_opening=st.sampled_from((None, math.nan, 0.0, 60.0, 100.0)),
     )
@@ -544,7 +547,7 @@ class KernelMachine(RuleBasedStateMachine):
         entity_id: str,
         min_temp: float | None,
         max_temp: float | None,
-        calibration_min: float | None,
+        minimum_calibration: float | None,
         calibration_max: float | None,
         valve_max_opening: float | None,
     ) -> None:
@@ -552,7 +555,7 @@ class KernelMachine(RuleBasedStateMachine):
         trv = self.trvs[entity_id]
         trv.min_temp = min_temp
         trv.max_temp = max_temp
-        trv.calibration_min = calibration_min
+        trv.minimum_calibration = minimum_calibration
         trv.calibration_max = calibration_max
         trv.valve_max_opening = valve_max_opening
 
@@ -609,17 +612,17 @@ class KernelMachine(RuleBasedStateMachine):
         self._restart()
 
     @precondition(lambda self: self.model_initialising)
-    @rule(grace_s=st.sampled_from((0, 60, 900)))
-    def startup_completes(self, grace_s: int) -> None:
+    @rule(grace_seconds=st.sampled_from((0, 60, 900)))
+    def startup_completes(self, grace_seconds: int) -> None:
         """The startup sequence finishes and arms the annunciation grace."""
-        self._finish_startup(grace_s)
+        self._finish_startup(grace_seconds)
         self._control_cycle()
 
-    def _finish_startup(self, grace_s: int) -> None:
+    def _finish_startup(self, grace_seconds: int) -> None:
         self.kernel = replace(
             self.kernel,
             lifecycle=startup_finished(
-                self.kernel.lifecycle, self.wall + timedelta(seconds=grace_s)
+                self.kernel.lifecycle, self.wall + timedelta(seconds=grace_seconds)
             ),
         )
         self.model_initialising = False
@@ -853,7 +856,7 @@ class KernelMachine(RuleBasedStateMachine):
             self._check_bounded(
                 before.calibration_offset,
                 intent.calibration_offset,
-                trv.calibration_min,
+                trv.minimum_calibration,
                 trv.calibration_max,
                 FALLBACK_MIN_OFFSET,
                 FALLBACK_MAX_OFFSET,
