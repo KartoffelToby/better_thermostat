@@ -370,7 +370,10 @@ class TestMaintenanceSweep:
     @pytest.mark.parametrize("phase", tuple(mt.MaintenancePhase))
     def test_finish_run_always_returns_to_idle(self, phase):
         """finish_run is unconditional — RUNNING can never be sticky."""
-        state = mt.MaintenanceState(phase=phase, running_since=NOW)
+        state = mt.MaintenanceState(
+            phase=phase,
+            running_since=NOW if phase == mt.MaintenancePhase.RUNNING else None,
+        )
         result = mt.finish_run(state, NOW_DT + timedelta(days=5))
         assert result.phase == mt.MaintenancePhase.IDLE
         assert result.running_since is None

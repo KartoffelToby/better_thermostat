@@ -327,6 +327,24 @@ def _pending_window_of(control_mode: dict[str, Json]) -> PendingWindow | None:
     return None
 
 
+def _maintenance_of(raw: dict[str, Json]) -> MaintenanceState:
+    """Read the maintenance region from its exported form.
+
+    A start timestamp counts only alongside a RUNNING phase. A RUNNING
+    phase without one loads as IDLE: with no age to measure it never
+    blocked control, and IDLE is the consistent state that behaves the
+    same way in ``decide()``.
+    """
+    phase = MaintenancePhase(_str_of(raw["phase"]))
+    next_due = _datetime_or_none(raw["next_due"])
+    running_since = _float_or_none(raw["running_since"])
+    if phase != MaintenancePhase.RUNNING:
+        return MaintenanceState(phase=phase, next_due=next_due)
+    if running_since is None:
+        return MaintenanceState(next_due=next_due)
+    return MaintenanceState(phase=phase, next_due=next_due, running_since=running_since)
+
+
 def state_from_dict(data: dict[str, Json]) -> KernelState:
     """Reconstruct a KernelState from its exported form."""
     window = _dict_of(data["window"])
@@ -361,11 +379,7 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
             if door is not None
             else WindowState()
         ),
-        maintenance=MaintenanceState(
-            phase=MaintenancePhase(_str_of(maintenance["phase"])),
-            next_due=_datetime_or_none(maintenance["next_due"]),
-            running_since=_float_or_none(maintenance["running_since"]),
-        ),
+        maintenance=_maintenance_of(maintenance),
         lifecycle=LifecycleState(
             phase=LifecyclePhase(_str_of(lifecycle["phase"])),
             grace_until=_datetime_or_none(lifecycle["grace_until"]),

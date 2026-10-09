@@ -313,8 +313,8 @@ def test_exported_online_flag_is_ignored_on_import():
 def test_restored_running_maintenance_without_timestamp_never_blocks():
     """A deserialized RUNNING phase lacking its timestamp cannot block.
 
-    state_from_dict accepts running_since=None alongside phase
-    "running"; the restored region must not pre-empt control forever.
+    state_from_dict loads running_since=None alongside phase "running"
+    as IDLE; the restored region must not pre-empt control forever.
     """
     from custom_components.better_thermostat.core.fsm.maintenance import (
         MaintenancePhase,
@@ -330,9 +330,31 @@ def test_restored_running_maintenance_without_timestamp_never_blocks():
         "running_since": None,
     }
     rebuilt = state_from_dict(entry["state"])
-    assert rebuilt.maintenance.phase == MaintenancePhase.RUNNING
+    assert rebuilt.maintenance.phase == MaintenancePhase.IDLE
     assert rebuilt.maintenance.is_blocking(now_monotonic=0.0) is False
     assert rebuilt.maintenance.is_blocking(now_monotonic=99_999.0) is False
+    matches, _ = replay(entry)
+    assert matches is True
+
+
+def test_restored_start_timestamp_outside_running_is_dropped():
+    """A start timestamp next to a non-RUNNING phase loads without it."""
+    from custom_components.better_thermostat.core.fsm.maintenance import (
+        MaintenancePhase,
+    )
+
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["state"]["maintenance"] = {
+        "phase": "due",
+        "next_due": None,
+        "running_since": 900.0,
+    }
+    rebuilt = state_from_dict(entry["state"])
+    assert rebuilt.maintenance.phase == MaintenancePhase.DUE
+    assert rebuilt.maintenance.running_since is None
 
 
 def _split_pending_entry(control_mode: dict) -> dict:
