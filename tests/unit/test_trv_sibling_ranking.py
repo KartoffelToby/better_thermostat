@@ -29,6 +29,7 @@ from custom_components.better_thermostat.switch import BetterThermostatChildLock
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils import helpers
 from custom_components.better_thermostat.utils.const import CONF_CHILD_LOCK
+from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 TRV_ID = "climate.trv"
@@ -53,7 +54,7 @@ def _order_id(order: tuple[er.RegistryEntry, ...]) -> str:
     return ",".join(entry.entity_id for entry in order)
 
 
-def _host(registry: Any, advanced: dict[str, Any] | None = None) -> MagicMock:
+def _host(registry: Any, advanced: TrvAdvanced | None = None) -> MagicMock:
     """A Better Thermostat stand-in whose states follow the registry.
 
     Every enabled switch reports ``on``, every other enabled entity a
