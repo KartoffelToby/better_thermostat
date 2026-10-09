@@ -514,12 +514,8 @@ async def trigger_temperature_change(
                         return
                     # Re-check the debounce interval at the time the timer fires
                     _cb_age = (
-                        (
-                            dt_util.now() - self.last_external_sensor_change
-                        ).total_seconds()
-                        if self.last_external_sensor_change is not None
-                        else 999999
-                    )
+                        dt_util.now() - self.last_external_sensor_change
+                    ).total_seconds()
                     if _cb_age <= _time_diff:
                         return
                     _LOGGER.debug(

@@ -1079,14 +1079,15 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # the room is switched into onto it; get_hvac_bt_mode() publishes it
         # and mode_remap() spells it for each device.
         self._bt_hvac_mode: HVACMode | None = None
-        self.closed_window_triggered = False
         self.call_for_heat = True
         self.ignore_states = False
         self.version = VERSION
-        self.last_change = self.clock.now() - timedelta(hours=2)
+        self.last_change: datetime = self.clock.now() - timedelta(hours=2)
         # Monotonic time of the user's last change of the room target or mode.
         self.last_user_change_monotonic: float | None = None
-        self.last_external_sensor_change = self.clock.now() - timedelta(hours=2)
+        self.last_external_sensor_change: datetime = self.clock.now() - timedelta(
+            hours=2
+        )
         self._temperature_lock = asyncio.Lock()
         self.bt_update_lock = False
         if enabled_presets is not None:
@@ -1127,8 +1128,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self._loss_tracker = HeatLossTracker()
         # Heat loss tracking (idle cooling rate)
         self.heat_loss_rate = 0.01
-        self._tolerance_last_action = HVACAction.IDLE
-        self._tolerance_hold_active = False
         self._async_unsub_state_changed: CALLBACK_TYPE | None = None
         self.all_entities = []
         self.devices_states = {}
