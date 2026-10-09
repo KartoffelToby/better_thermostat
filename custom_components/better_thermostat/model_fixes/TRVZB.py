@@ -465,8 +465,15 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
             bump_task = self.task_manager.create_task(
                 _delayed_set(), name=f"bt_trvzb_valve_bump_{entity_id}"
             )
-            if bump_task is not None:
-                trv_state.extra["_trvzb_valve_bump_task"] = bump_task
+            if bump_task is None:
+                # The thermostat is being removed and starts no deferred
+                # work. The bump has opened the valve already, so the target
+                # goes out now rather than leaving it open.
+                ok = await maybe_set_sonoff_valve_percent(
+                    self, entity_id, target_percent
+                )
+                return ok
+            trv_state.extra["_trvzb_valve_bump_task"] = bump_task
             return True
 
         # Opening, unchanged, or a close following a bump that has not run yet:

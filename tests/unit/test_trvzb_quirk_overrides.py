@@ -963,14 +963,19 @@ class TestTheDeferredValveWrite:
         assert writes == [50]
 
     @pytest.mark.asyncio
-    async def test_a_removed_thermostat_schedules_no_write(self, writes):
-        """Once the removal has closed the task owner, no deferred write starts."""
+    async def test_a_removed_thermostat_closes_without_deferring(self, writes):
+        """Once the removal has closed the task owner, the close goes out at once.
+
+        The bump has already opened the valve; with no deferred write to
+        follow it, leaving the valve there would hold it further open than
+        asked for.
+        """
         mock_self, trv_state = _make_valve_self(last_percent=40)
         mock_self.task_manager.cancel_all()
 
         assert await quirk.override_set_valve(mock_self, ENTITY, 30) is True
 
-        assert writes == [50]
+        assert writes == [50, 30]
         assert "_trvzb_valve_bump_task" not in trv_state.extra
 
     @pytest.mark.asyncio
