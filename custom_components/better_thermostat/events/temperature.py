@@ -458,13 +458,17 @@ async def trigger_temperature_change(
                 if self.plateau_timer_cancel is not None:
                     self.plateau_timer_cancel()
                     self.plateau_timer_cancel = None
-        # no change (value back to current): reset pending/timer
-        elif self.pending_temperature is not None:
-            self.pending_temperature = None
-            self.pending_since = None
-            if self.plateau_timer_cancel is not None:
-                self.plateau_timer_cancel()
-                self.plateau_timer_cancel = None
+        else:
+            # Back on the committed value: the drift is gone, so a sensor
+            # flickering between two values starts every excursion from zero.
+            self.accum_delta = 0.0
+            self.accum_dir = 0
+            if self.pending_temperature is not None:
+                self.pending_temperature = None
+                self.pending_since = None
+                if self.plateau_timer_cancel is not None:
+                    self.plateau_timer_cancel()
+                    self.plateau_timer_cancel = None
 
     _accum_ok = (
         _cur_q is not None

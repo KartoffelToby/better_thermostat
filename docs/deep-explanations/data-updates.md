@@ -25,7 +25,7 @@ A room sensor that reports small jumps back and forth would otherwise make the T
 
 - it is the first reading after startup,
 - it differs from the current value by at least 0.11 °C, and the last accepted reading is more than 5 seconds old,
-- smaller changes in the same direction add up to at least 0.11 °C,
+- smaller changes in the same direction add up to at least 0.11 °C; a reading back on the current value starts the count again, so a sensor flickering between two neighbouring values is not taken,
 - a smaller change has stayed the same for two minutes.
 
 A reading that comes too soon is not lost: it is taken as soon as the 5 seconds are over. A reading outside −50 °C to 60 °C, or one that is not a number, is ignored and raises the [invalid external temperature](/faq/invalid-external-temperature) repair issue. `unknown` and `unavailable` are not readings; they count as a missing sensor (see [Degraded mode](/faq/degraded-mode)).

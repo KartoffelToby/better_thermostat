@@ -777,6 +777,41 @@ class TestAccumulationTracking:
 
         assert mock_bt.pending_temperature is None
 
+    @pytest.mark.asyncio
+    async def test_value_back_on_committed_clears_the_accumulation(self, mock_bt):
+        """A reading equal to the committed value leaves no drift behind."""
+        mock_bt.room_temperature = 20.0
+        mock_bt.accum_delta = 0.1
+        mock_bt.accum_dir = 1
+
+        await trigger_temperature_change(mock_bt, _make_event(State(SENSOR_ID, "20.0")))
+
+        assert mock_bt.accum_delta == 0.0
+        assert mock_bt.accum_dir == 0
+
+    @pytest.mark.asyncio
+    async def test_flicker_by_one_sensor_step_is_never_committed(self, mock_bt):
+        """A sensor alternating between the committed value and one 0.1 K step
+        above it changes nothing: each excursion stays below the threshold.
+        """
+        mock_bt.room_temperature = 20.0
+        readings = ["20.1", "20.0"] * 6
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later",
+            MagicMock(),
+        ):
+            for reading in readings:
+                mock_bt.last_external_sensor_change = dt_util.now() - timedelta(
+                    seconds=60
+                )
+                await trigger_temperature_change(
+                    mock_bt, _make_event(State(SENSOR_ID, reading))
+                )
+                assert mock_bt.room_temperature == 20.0
+
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # 6. Plateau logic
