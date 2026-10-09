@@ -46,6 +46,7 @@ from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
 )
+from custom_components.better_thermostat.utils.helpers import entry_issue_id
 
 from .conftest import (
     BT_ENTITY,
@@ -87,9 +88,9 @@ def bt_issues(hass) -> list[str]:
     )
 
 
-def missing_entity_issue(entity_id: str) -> str:
+def missing_entity_issue(entry, entity_id: str) -> str:
     """Return the id of the repair issue that names ``entity_id`` as missing."""
-    return f"missing_entity_{entity_id}"
+    return entry_issue_id(entry.entry_id, "missing_entity", entity_id)
 
 
 async def let_the_wait_loop_run(hass, rounds: int = 20) -> None:
@@ -155,7 +156,7 @@ async def test_a_trv_that_never_arrives_is_reported_once_the_grace_window_closes
         assert await wait_for(hass, lambda: bt_issues(hass))
 
     bt = entry.runtime_data.climate
-    assert bt_issues(hass) == [missing_entity_issue(TRV_ID)]
+    assert bt_issues(hass) == [missing_entity_issue(entry, TRV_ID)]
     assert bt.devices_errors == [TRV_ID]
     assert bt.startup_running
     assert hass.states.get(BT_ENTITY).state == "unavailable"
@@ -205,7 +206,7 @@ async def test_a_trv_lost_after_startup_is_reported_and_cleared_on_return(
 
         fake_trv.set_available(False)
         assert await wait_for(hass, lambda: bt_issues(hass))
-        assert bt_issues(hass) == [missing_entity_issue(TRV_ID)]
+        assert bt_issues(hass) == [missing_entity_issue(entry, TRV_ID)]
         assert bt.devices_errors == [TRV_ID]
 
         fake_trv.set_available(True)
@@ -236,7 +237,7 @@ async def test_an_optional_sensor_outage_annunciates_degraded_mode_and_recovers(
         hass.states.async_set(WINDOW_ID, "unavailable")
         assert await wait_for(hass, lambda: bt.degraded_mode)
         assert bt.unavailable_sensors == [WINDOW_ID]
-        assert bt_issues(hass) == [f"degraded_mode_{bt.device_name}"]
+        assert bt_issues(hass) == [entry_issue_id(entry.entry_id, "degraded_mode")]
         assert hass.states.get(BT_ENTITY).attributes["degraded_mode"] is True
 
         hass.states.async_set(WINDOW_ID, "off")
@@ -496,7 +497,7 @@ async def test_a_returning_room_sensor_restarts_the_filtered_temperature(
 def degraded_issue_sensors(hass, bt) -> str | None:
     """Return the sensors the degraded-mode repair issue names, if it is open."""
     issue = ir.async_get(hass).async_get_issue(
-        DOMAIN, f"degraded_mode_{bt.device_name}"
+        DOMAIN, entry_issue_id(bt._config_entry_id, "degraded_mode")
     )
     if issue is None or issue.translation_placeholders is None:
         return None
