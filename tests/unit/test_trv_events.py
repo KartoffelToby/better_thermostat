@@ -39,7 +39,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import TaskManager
-from custom_components.better_thermostat.utils.helpers import mode_remap
+from custom_components.better_thermostat.utils.helpers import SentCommand, mode_remap
 from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 ENTITY_ID = "climate.test_trv"
@@ -3837,7 +3837,7 @@ class TestDualRoleEntityReports:
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.heat_target_temperature = 20.0
         mock_bt.cool_target_temperature = 24.0
-        mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        mock_bt._cooler_last_sent = {"temperature": SentCommand(24.0, 0.0)}
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
             HVACMode.OFF,
             HVACMode.HEAT,
@@ -4013,7 +4013,9 @@ class TestDualRoleEntityReports:
         """
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
         shared_bt.cool_target_temperature = cool_target_temperature
-        shared_bt._cooler_last_sent = {"temperature": (cool_target_temperature, 0.0)}
+        shared_bt._cooler_last_sent = {
+            "temperature": SentCommand(cool_target_temperature, 0.0)
+        }
 
         await self._report(
             shared_bt,
@@ -4039,7 +4041,9 @@ class TestDualRoleEntityReports:
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
         shared_bt.cool_target_temperature = cool_target_temperature
         shared_bt._cooler_last_sent = (
-            {"temperature": (cool_target_temperature, 0.0)} if send_cache_primed else {}
+            {"temperature": SentCommand(cool_target_temperature, 0.0)}
+            if send_cache_primed
+            else {}
         )
 
         await self._report(
@@ -4073,7 +4077,9 @@ class TestDualRoleEntityReports:
         24 °C the cache would round to on the room's own 0.5 °C grid.
         """
         shared_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
-        shared_bt._cooler_last_sent = {"temperature": ((75.0 - 32.0) * 5.0 / 9.0, 0.0)}
+        shared_bt._cooler_last_sent = {
+            "temperature": SentCommand((75.0 - 32.0) * 5.0 / 9.0, 0.0)
+        }
 
         await self._report(
             shared_bt,
@@ -4100,7 +4106,7 @@ class TestDualRoleEntityReports:
         mock_bt.cooler_entity_id = "climate.split_unit"
         mock_bt.heat_target_temperature = 19.0
         mock_bt.cool_target_temperature = 24.0
-        mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        mock_bt._cooler_last_sent = {"temperature": SentCommand(24.0, 0.0)}
         mock_bt.bt_max_temp = 30.0
         mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
         mock_bt.real_trvs[ENTITY_ID].max_temp = 30.0

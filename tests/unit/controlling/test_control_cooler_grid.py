@@ -13,6 +13,7 @@ import pytest
 
 from custom_components.better_thermostat.utils.controlling import control_cooler
 from custom_components.better_thermostat.utils.helpers import (
+    SentCommand,
     cooler_send_cache,
     last_sent_cooler_temperature,
 )
@@ -113,7 +114,7 @@ async def test_a_failed_write_leaves_the_previous_one_recorded():
         room_temperature=27.0,
         cool_target_temperature=24.3,
     )
-    previous = (22.0, mock_self.clock.monotonic() - 10_000.0)
+    previous = SentCommand(22.0, mock_self.clock.monotonic() - 10_000.0)
     cooler_send_cache(mock_self)["temperature"] = previous
 
     async def service_call(domain, service, data, **kwargs):

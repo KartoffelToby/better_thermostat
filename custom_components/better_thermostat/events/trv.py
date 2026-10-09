@@ -40,6 +40,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
+    SentCommand,
     adopt_reported_hvac_modes,
     attr_to_celsius,
     configured_calibration_mode,
@@ -750,7 +751,7 @@ async def trigger_trv_change(
                 # time for the resend throttle, and the device has not settled
                 # on any write since.
                 _cooler_sent = cooler_send_cache(self)
-                _cooler_sent["temperature"] = (_raw_heating_setpoint, None)
+                _cooler_sent["temperature"] = SentCommand(_raw_heating_setpoint, None)
                 _cooler_sent.pop("temperature_settled", None)
                 # Residual tie-break only, the counterpart of the one below.
                 self._enforce_heat_below_cool()

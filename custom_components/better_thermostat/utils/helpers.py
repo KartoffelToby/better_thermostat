@@ -1644,21 +1644,52 @@ def resolve_inbound_setpoint(
 # write.
 CoolerCommand = HVACMode | tuple[float, float | None] | None
 
-# A channel's run of consecutive send failures of one command, at least one
-# long, as ``(count, monotonic_timestamp, attempted_command)``.
-CoolerFailureRun = tuple[int, float, CoolerCommand]
+
+class CoolerFailureRun(NamedTuple):
+    """A channel's run of consecutive send failures of one command.
+
+    Attributes
+    ----------
+    count : int
+        Failures in the run, at least one
+    failed_at : float
+        Monotonic time of the latest failure
+    command : CoolerCommand
+        The command every failure of the run attempted
+    """
+
+    count: int
+    failed_at: float
+    command: CoolerCommand
+
+
+class SentCommand[T](NamedTuple):
+    """The last command a cooler channel sent successfully.
+
+    Attributes
+    ----------
+    value : T
+        The value written
+    sent_at : float | None
+        Monotonic time of the write, or None once the resend throttle no
+        longer paces the value
+    """
+
+    value: T
+    sent_at: float | None
+
 
 # The cooler send cache :func:`cooler_send_cache` returns. Spelled
 # functionally because the keys are lookup strings, not attribute names.
 CoolerSendCache = TypedDict(  # noqa: UP013
     "CoolerSendCache",
     {
-        "temperature": tuple[float, float | None],
+        "temperature": SentCommand[float],
         "temperature_settled": float,
         "temperature_failed": CoolerFailureRun,
-        "target_temp_low": tuple[float, float],
+        "target_temp_low": SentCommand[float],
         "target_temp_low_settled": float,
-        "hvac_mode": tuple[HVACMode, float | None],
+        "hvac_mode": SentCommand[HVACMode],
         "hvac_mode_decided": HVACMode,
         "hvac_mode_failed": CoolerFailureRun,
     },
@@ -1669,12 +1700,10 @@ CoolerSendCache = TypedDict(  # noqa: UP013
 def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     """Return the cooler send-cache, creating it on first use.
 
-    Holds the last successfully sent command per channel as
-    ``(value, monotonic_timestamp)`` for the resend throttle, with no
-    timestamp once the throttle no longer paces that value, the settled
-    reading of each written channel, the mode the last cycle decided on for
-    the hysteresis band, and each channel's run of consecutive send failures
-    as ``(count, monotonic_timestamp, attempted_value)``. Created lazily
+    Holds the last successfully sent command per channel as a
+    :class:`SentCommand` for the resend throttle, the settled reading of each
+    written channel, the mode the last cycle decided on for the hysteresis
+    band, and each channel's :class:`CoolerFailureRun`. Created lazily
     because only cooler-equipped instances need it.
 
     Parameters
@@ -1711,8 +1740,8 @@ def last_sent_cooler_temperature(self: BetterThermostat) -> float | None:
             the setpoint of the last successful write, or None when no write
             has succeeded yet
     """
-    value = cooler_send_cache(self).get("temperature", (None, None))[0]
-    return value if isinstance(value, (int, float)) else None
+    sent = cooler_send_cache(self).get("temperature")
+    return sent.value if sent is not None else None
 
 
 def dual_role_entity_id(self: BetterThermostat) -> str | None:

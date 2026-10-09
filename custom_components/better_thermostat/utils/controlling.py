@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 import logging
 import math
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
@@ -76,6 +76,7 @@ from custom_components.better_thermostat.utils.helpers import (
     CoolerCommand,
     CoolerFailureRun,
     CoolerSendCache,
+    SentCommand,
     attr_to_celsius,
     clamp_valve_percent,
     configured_calibration_mode,
@@ -182,6 +183,8 @@ COOLER_FAILURE_BACKOFF_MAX_RUN = 1 + math.ceil(
         COOLER_FAILURE_BACKOFF_FACTOR,
     )
 )
+# What the send cache answers for a channel that has sent nothing yet.
+_NOTHING_SENT: Final = SentCommand(None, None)
 # A cooler may snap a received setpoint onto its own step grid (e.g. 0.5 °C,
 # or a whole-°F grid). A post-send reading within this distance of the sent
 # value counts as that device-side quantization, not as an unapplied command.
@@ -1201,7 +1204,9 @@ def _locked_device_moved(
         return False
     if state.state != STATE_UNKNOWN:
         if cooling_owns_dual_role_device(self, entity_id):
-            commanded_mode = cooler_send_cache(self).get("hvac_mode", (None, None))[0]
+            commanded_mode = (
+                cooler_send_cache(self).get("hvac_mode", _NOTHING_SENT).value
+            )
         elif trv.system_mode_received:
             commanded_mode = trv.last_hvac_mode
         else:
@@ -1486,16 +1491,15 @@ def _cooler_retry_deferred(
     run = _cooler_failure_run(last_sent, channel)
     if run is None:
         return False
-    failures, failed_at, failed_wanted = run
-    if failed_wanted != wanted:
+    if run.command != wanted:
         wait = COOLER_FAILURE_BACKOFF_BASE_S
     else:
         wait = min(
             COOLER_FAILURE_BACKOFF_BASE_S
-            * COOLER_FAILURE_BACKOFF_FACTOR ** (failures - 1),
+            * COOLER_FAILURE_BACKOFF_FACTOR ** (run.count - 1),
             COOLER_FAILURE_BACKOFF_MAX_S,
         )
-    return (now_monotonic - failed_at) < wait
+    return (now_monotonic - run.failed_at) < wait
 
 
 def _record_cooler_failure(
@@ -1512,11 +1516,11 @@ def _record_cooler_failure(
     still tell apart.
     """
     previous = _cooler_failure_run(last_sent, channel)
-    failures = 0 if previous is None or previous[2] != wanted else previous[0]
-    run: CoolerFailureRun = (
-        min(failures + 1, COOLER_FAILURE_BACKOFF_MAX_RUN),
-        now_monotonic,
-        wanted,
+    failures = 0 if previous is None or previous.command != wanted else previous.count
+    run = CoolerFailureRun(
+        count=min(failures + 1, COOLER_FAILURE_BACKOFF_MAX_RUN),
+        failed_at=now_monotonic,
+        command=wanted,
     )
     if channel == "temperature":
         last_sent["temperature_failed"] = run
@@ -1709,11 +1713,11 @@ async def control_cooler(
         # channel has since replaced. The values stay, because they are what
         # tells a resend from a fresh command.
         _sent_temperature = last_sent.get("temperature")
-        if _sent_temperature is not None and _sent_temperature[1] is not None:
-            last_sent["temperature"] = (_sent_temperature[0], None)
+        if _sent_temperature is not None and _sent_temperature.sent_at is not None:
+            last_sent["temperature"] = _sent_temperature._replace(sent_at=None)
         _sent_mode = last_sent.get("hvac_mode")
-        if _sent_mode is not None and _sent_mode[1] is not None:
-            last_sent["hvac_mode"] = (_sent_mode[0], None)
+        if _sent_mode is not None and _sent_mode.sent_at is not None:
+            last_sent["hvac_mode"] = _sent_mode._replace(sent_at=None)
         return
 
     if _shared_entity_id is not None:
@@ -1729,7 +1733,9 @@ async def control_cooler(
     # temperature is unknown, only send if the desired value changed since
     # the last successful command; otherwise send when it differs from the
     # reported value beyond the device tolerance.
-    last_temperature, last_temperature_ts = last_sent.get("temperature", (None, None))
+    _sent_temperature = last_sent.get("temperature", _NOTHING_SENT)
+    last_temperature = _sent_temperature.value
+    last_temperature_ts = _sent_temperature.sent_at
     temperature_changed_since_last_send = last_temperature != desired_temperature
     # A quantizing device settles near the sent value on its own grid. The
     # first post-send reading close to the sent value is remembered as the
@@ -1782,7 +1788,7 @@ async def control_cooler(
         )
         # A lower bound BT never wrote at this value is a new payload, not a
         # resend; one it already wrote and the device ignored is a retry.
-        last_low = last_sent.get("target_temp_low", (None, None))[0]
+        last_low = last_sent.get("target_temp_low", _NOTHING_SENT).value
         _low_bound_changed = last_low != _low_to_set
         current_low = attr_to_celsius(
             self, cooler_state, "target_temp_low", None, "control_cooler()"
@@ -1911,7 +1917,7 @@ async def control_cooler(
                 "failure-backoff step %s",
                 self.device_name,
                 self.cooler_entity_id,
-                last_sent["temperature_failed"][0],
+                last_sent["temperature_failed"].count,
             )
             temperature_to_send = None
 
@@ -1966,7 +1972,7 @@ async def control_cooler(
         # runs. A command the device's client library cancelled counts as such
         # a failure; a cancellation of this task itself propagates.
         _previous_send = last_sent.get("temperature")
-        last_sent["temperature"] = (temperature_to_send, now_monotonic)
+        last_sent["temperature"] = SentCommand(temperature_to_send, now_monotonic)
         try:
             with command_cancellation_as_disconnect():
                 await self.hass.services.async_call(
@@ -1999,12 +2005,14 @@ async def control_cooler(
             # bound's settled reading.
             last_sent.pop("temperature_settled", None)
             if _write_range:
-                last_sent["target_temp_low"] = (_low_to_set_c, now_monotonic)
+                last_sent["target_temp_low"] = SentCommand(_low_to_set_c, now_monotonic)
                 last_sent.pop("target_temp_low_settled", None)
 
     # Decide whether an hvac_mode command is needed, throttling identical
     # resends the same way as temperature commands.
-    last_mode, last_mode_ts = last_sent.get("hvac_mode", (None, None))
+    _sent_mode = last_sent.get("hvac_mode", _NOTHING_SENT)
+    last_mode = _sent_mode.value
+    last_mode_ts = _sent_mode.sent_at
     mode_changed_since_last_send = last_mode != desired_mode
     should_send_mode = current_hvac_mode != desired_mode
 
@@ -2033,7 +2041,7 @@ async def control_cooler(
             "failure-backoff step %s",
             self.device_name,
             self.cooler_entity_id,
-            last_sent["hvac_mode_failed"][0],
+            last_sent["hvac_mode_failed"].count,
         )
         should_send_mode = False
 
@@ -2066,7 +2074,7 @@ async def control_cooler(
                 err,
             )
         else:
-            last_sent["hvac_mode"] = (desired_mode, now_monotonic)
+            last_sent["hvac_mode"] = SentCommand(desired_mode, now_monotonic)
             last_sent.pop("hvac_mode_failed", None)
 
 

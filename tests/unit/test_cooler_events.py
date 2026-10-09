@@ -14,6 +14,7 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.events.cooler import trigger_cooler_change
+from custom_components.better_thermostat.utils.helpers import SentCommand
 from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.test_cooler"
@@ -833,7 +834,7 @@ class TestEchoSuppression:
         does not catch it.
         """
         mock_bt.cool_target_temperature = 25.0
-        mock_bt._cooler_last_sent = {"temperature": (22.0, 0.0)}
+        mock_bt._cooler_last_sent = {"temperature": SentCommand(22.0, 0.0)}
         old_state = _make_state(attributes={"temperature": 25.0})
         new_state = _make_state(attributes={"temperature": 22.0})
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
@@ -848,7 +849,7 @@ class TestEchoSuppression:
     async def test_device_rounding_of_own_write_is_not_adopted(self, mock_bt):
         """A device rounding BT's write to its own grid is not user input."""
         mock_bt.cool_target_temperature = 24.4
-        mock_bt._cooler_last_sent = {"temperature": (24.4, 0.0)}
+        mock_bt._cooler_last_sent = {"temperature": SentCommand(24.4, 0.0)}
         old_state = _make_state(
             attributes={"temperature": 26.0, "target_temp_step": 1.0}
         )
@@ -866,7 +867,7 @@ class TestEchoSuppression:
     async def test_user_change_of_one_full_step_is_adopted(self, mock_bt):
         """A change of at least one device step is user input."""
         mock_bt.cool_target_temperature = 24.0
-        mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        mock_bt._cooler_last_sent = {"temperature": SentCommand(24.0, 0.0)}
         old_state = _make_state(
             attributes={"temperature": 24.0, "target_temp_step": 1.0}
         )
@@ -903,7 +904,9 @@ class TestEchoSuppression:
         """
         mock_bt.hass.config.units.temperature_unit = unit
         mock_bt.cool_target_temperature = cool_target_temperature
-        mock_bt._cooler_last_sent = {"temperature": (cool_target_temperature, 0.0)}
+        mock_bt._cooler_last_sent = {
+            "temperature": SentCommand(cool_target_temperature, 0.0)
+        }
         old_state = _make_state(
             attributes={"temperature": held, "target_temp_step": step}
         )
@@ -948,7 +951,7 @@ class TestEchoSuppression:
         mock_bt.hass.config.units.temperature_unit = unit
         mock_bt.cool_target_temperature = cool_target_temperature
         mock_bt._cooler_last_sent = (
-            {"temperature": (cool_target_temperature, 0.0)}
+            {"temperature": SentCommand(cool_target_temperature, 0.0)}
             if send_cache_primed
             else None
         )
@@ -998,7 +1001,7 @@ class TestCoolerUnitHandling:
         """
         mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         mock_bt.cool_target_temperature = 23.89
-        mock_bt._cooler_last_sent = {"temperature": (23.89, 0.0)}
+        mock_bt._cooler_last_sent = {"temperature": SentCommand(23.89, 0.0)}
         old_state = _make_state(
             attributes={"temperature": 75.0, "target_temp_step": 1.0}
         )
@@ -1022,7 +1025,7 @@ class TestCoolerUnitHandling:
         """
         mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         mock_bt.cool_target_temperature = 21.11  # 70 °F
-        mock_bt._cooler_last_sent = {"temperature": (21.11, 0.0)}
+        mock_bt._cooler_last_sent = {"temperature": SentCommand(21.11, 0.0)}
         old_state = _make_state(
             attributes={"temperature": 70.0, "target_temp_step": 2.0}
         )
@@ -1056,7 +1059,9 @@ class TestCoolerUnitHandling:
         """
         mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         mock_bt.cool_target_temperature = 24.0
-        mock_bt._cooler_last_sent = {"temperature": ((75.0 - 32.0) * 5.0 / 9.0, 0.0)}
+        mock_bt._cooler_last_sent = {
+            "temperature": SentCommand((75.0 - 32.0) * 5.0 / 9.0, 0.0)
+        }
         old_state = _make_state(attributes={"temperature": 75.0})
         new_state = _make_state(attributes={"temperature": pressed})
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
