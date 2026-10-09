@@ -1719,9 +1719,9 @@ async def control_cooler(
     # the last successful command; otherwise send when it differs from the
     # reported value beyond the device tolerance.
     _sent_temperature = last_sent.get("temperature", _NOTHING_SENT)
-    last_temperature = _sent_temperature.value
-    last_temperature_ts = _sent_temperature.sent_at
-    temperature_changed_since_last_send = last_temperature != desired_temperature
+    last_sent_setpoint = _sent_temperature.value
+    last_sent_setpoint_ts = _sent_temperature.sent_at
+    temperature_changed_since_last_send = last_sent_setpoint != desired_temperature
     # A quantizing device settles near the sent value on its own grid. The
     # first post-send reading close to the sent value is remembered as the
     # device's answer; while it holds and the desired value is unchanged,
@@ -1729,10 +1729,10 @@ async def control_cooler(
     settled_temperature = last_sent.get("temperature_settled")
     if (
         not temperature_changed_since_last_send
-        and last_temperature is not None
+        and last_sent_setpoint is not None
         and cooler_setpoint is not None
         and settled_temperature is None
-        and abs(cooler_setpoint - last_temperature) <= COOLER_QUANTIZATION_TOLERANCE_K
+        and abs(cooler_setpoint - last_sent_setpoint) <= COOLER_QUANTIZATION_TOLERANCE_K
     ):
         settled_temperature = cooler_setpoint
         last_sent["temperature_settled"] = settled_temperature
@@ -1852,8 +1852,8 @@ async def control_cooler(
         temperature_to_send is not None
         and not (_low_bound_drifted and _low_bound_changed)
         and not temperature_changed_since_last_send
-        and last_temperature_ts is not None
-        and (now_monotonic - last_temperature_ts) < COOLER_RESEND_INTERVAL_S
+        and last_sent_setpoint_ts is not None
+        and (now_monotonic - last_sent_setpoint_ts) < COOLER_RESEND_INTERVAL_S
     ):
         _LOGGER.debug(
             "better_thermostat %s: cooler %s suppressing identical set_temperature "

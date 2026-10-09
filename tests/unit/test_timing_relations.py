@@ -53,7 +53,7 @@ from tests.unit.test_climate_startup_registration import (
 _RETRY = "custom_components.better_thermostat.utils.retry"
 
 
-def _interval_s(bt, registered, name):
+def _interval_seconds(bt, registered, name):
     """The interval, in seconds, ``name`` was registered on.
 
     Fails when the tick is missing or registered on more than one interval,
@@ -101,7 +101,7 @@ async def test_the_registered_ladder_tick_comes_round_within_both_windows(
     """
     params = LadderParams()
     for bt, registered in (recomputing, not_recomputing):
-        tick = _interval_s(bt, registered, "_availability_tick")
+        tick = _interval_seconds(bt, registered, "_availability_tick")
 
         assert tick < min(params.down_debounce_seconds, params.up_stability_seconds)
 
@@ -122,9 +122,9 @@ async def test_every_cycle_driving_tick_comes_round_within_the_watchdog_age(
     than that would make a healthy loop look stalled between two firings.
     """
     bt, registered = recomputing
-    assert _interval_s(bt, registered, "_trigger_time") < WATCHDOG_MAX_AGE_S
+    assert _interval_seconds(bt, registered, "_trigger_time") < WATCHDOG_MAX_AGE_S
     for bt, registered in (recomputing, not_recomputing):
-        assert _interval_s(bt, registered, "_reconcile_tick") < WATCHDOG_MAX_AGE_S
+        assert _interval_seconds(bt, registered, "_reconcile_tick") < WATCHDOG_MAX_AGE_S
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +152,7 @@ async def test_a_controller_mode_recomputes_at_least_once_per_control_tick(mode)
     """
     bt, registered = await _registered({"calibration_mode": mode})
 
-    assert _interval_s(bt, registered, "_trigger_time") <= CONTROL_TICK_S
+    assert _interval_seconds(bt, registered, "_trigger_time") <= CONTROL_TICK_S
     assert DobParams().max_reading_interval_s > CONTROL_TICK_S
 
 
@@ -174,8 +174,8 @@ async def test_the_cooler_resend_interval_sits_in_the_compressor_band_below_the_
     """
     bt, registered = recomputing
     ticks = (
-        _interval_s(bt, registered, "_reconcile_tick"),
-        _interval_s(bt, registered, "_trigger_time"),
+        _interval_seconds(bt, registered, "_reconcile_tick"),
+        _interval_seconds(bt, registered, "_trigger_time"),
         WATCHDOG_MAX_AGE_S,
     )
 
@@ -209,7 +209,9 @@ async def test_the_failed_cycle_backoff_tops_out_at_the_reconcile_tick(not_recom
     """
     bt, registered = not_recomputing
 
-    assert FAILED_CYCLE_BACKOFF_MAX_S <= _interval_s(bt, registered, "_reconcile_tick")
+    assert FAILED_CYCLE_BACKOFF_MAX_S <= _interval_seconds(
+        bt, registered, "_reconcile_tick"
+    )
 
 
 def test_a_failing_run_is_reported_less_often_than_it_is_retried():
@@ -226,7 +228,7 @@ def test_a_failing_run_is_reported_less_often_than_it_is_retried():
 # ---------------------------------------------------------------------------
 
 
-async def _worst_case_write_ladder_s():
+async def _worst_case_write_ladder_seconds():
     """Seconds one write channel spends retrying a device that never answers.
 
     Measured rather than recomputed: the write goes through the real retry
@@ -265,9 +267,9 @@ async def test_the_startup_control_budget_outlasts_one_full_write_ladder():
     ends with. A shorter budget cancels the write with attempts unspent,
     which is exactly the device that is still waking up after a restart.
     """
-    ladder_s = await _worst_case_write_ladder_s()
+    ladder_seconds = await _worst_case_write_ladder_seconds()
 
-    assert ladder_s + TRV_STATE_SETTLE_S < STARTUP_CONTROL_BUDGET_S
+    assert ladder_seconds + TRV_STATE_SETTLE_S < STARTUP_CONTROL_BUDGET_S
 
 
 # ---------------------------------------------------------------------------

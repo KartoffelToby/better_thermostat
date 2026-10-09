@@ -103,12 +103,12 @@ class TestOffTemperatureAttribute:
         """
         test_values = [15.0, 18.0, 20.0, 22.0, 25.0, 0.0]
 
-        for temp_value in test_values:
+        for temperature_value in test_values:
             bt = ThermostatStandIn()
-            bt.off_temperature = temp_value
+            bt.off_temperature = temperature_value
 
             # Verify the value is stored correctly
-            assert bt.off_temperature == temp_value
+            assert bt.off_temperature == temperature_value
             assert isinstance(bt.off_temperature, float)
 
     def test_off_temperature_constant_definition(self):

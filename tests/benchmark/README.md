@@ -243,7 +243,7 @@ A scenario is a `ScenarioConfig` literal in `scenarios.py`:
 SXX_MY_SCENARIO = ScenarioConfig(
     name="SXX_my_scenario",
     description="...",
-    duration_min=180,
+    duration_minutes=180,
     initial=InitialConditions(T_room=20.0, T_rad=20.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.step(30 * 60.0, 20.0, 21.0),

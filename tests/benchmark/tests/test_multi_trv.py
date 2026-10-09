@@ -231,7 +231,9 @@ def test_run_multi_trv_scenario_honors_scenario_stabilisation_override(monkeypat
         seen["min"] = stabilisation_min
 
     monkeypatch.setattr(multi_trv_runner, "_stabilise_multi_trv", _spy)
-    scenario = replace(S01_SETPOINT_STEP_SMALL, stabilisation_min=7.0, duration_min=1)
+    scenario = replace(
+        S01_SETPOINT_STEP_SMALL, stabilisation_min=7.0, duration_minutes=1
+    )
     run_multi_trv_scenario(
         PidAdapter(),
         scenario,

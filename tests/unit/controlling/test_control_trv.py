@@ -327,7 +327,7 @@ class TestControlTrvUnavailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch(
                 _PATCHES["set_valve"], autospec=True, return_value=True
             ) as mock_set_valve,
@@ -338,7 +338,7 @@ class TestControlTrvUnavailablePath:
             assert result is True
             mock_convert.assert_not_called()
             mock_set_hvac.assert_not_called()
-            mock_set_temp.assert_not_called()
+            mock_set_temperature.assert_not_called()
             mock_set_valve.assert_not_called()
 
     @pytest.mark.asyncio
@@ -384,7 +384,7 @@ class TestControlTrvUnavailablePath:
             assert result is True
 
     @pytest.mark.asyncio
-    async def test_boost_mode_sets_max_temp_unavailable(self):
+    async def test_boost_mode_sets_max_temperature_unavailable(self):
         """Test that boost mode sets temperature to max_temp for unavailable TRV.
 
         In the unavailable path, boost mode sets _temperature to max_temp (30).
@@ -410,7 +410,7 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
@@ -427,18 +427,18 @@ class TestControlTrvUnavailablePath:
                 "local_temperature_calibration": 0.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_set_temp.return_value = None
+            mock_set_temperature.return_value = None
 
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is True
             # Boost sets temperature to max_temp (30.0)
-            mock_set_temp.assert_called_once()
-            args = mock_set_temp.call_args[0]
+            mock_set_temperature.assert_called_once()
+            args = mock_set_temperature.call_args[0]
             assert args[2] == 30.0
 
     @pytest.mark.asyncio
-    async def test_boost_mode_sets_max_temp(self):
+    async def test_boost_mode_sets_max_temperature(self):
         """Boost on a DIRECT_VALVE_BASED TRV sets temperature to max_temp."""
         mock_self = _make_mock_self(
             trv_state=STATE_UNAVAILABLE,
@@ -458,7 +458,7 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
@@ -474,17 +474,17 @@ class TestControlTrvUnavailablePath:
                 "temperature": 20.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_set_temp.return_value = None
+            mock_set_temperature.return_value = None
 
             await control_trv(mock_self, "climate.trv1")
 
             # Should call set_temperature with max_temp (30.0)
-            mock_set_temp.assert_called_once()
-            args = mock_set_temp.call_args[0]
+            mock_set_temperature.assert_called_once()
+            args = mock_set_temperature.call_args[0]
             assert args[2] == 30.0  # max_temp
 
     @pytest.mark.asyncio
-    async def test_boost_mode_offset_does_not_override_temp(self):
+    async def test_boost_mode_offset_does_not_override_temperature(self):
         """Boost on an offset-mode TRV keeps the calibrated setpoint, not max."""
         mock_self = _make_mock_self(
             trv_state=STATE_UNAVAILABLE,
@@ -504,7 +504,7 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch(
                 _PATCHES["set_valve"], autospec=True, return_value=True
             ) as mock_set_valve,
@@ -524,12 +524,12 @@ class TestControlTrvUnavailablePath:
                 "local_temperature_calibration": -1.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_set_temp.return_value = None
+            mock_set_temperature.return_value = None
 
             await control_trv(mock_self, "climate.trv1")
 
-            mock_set_temp.assert_called_once()
-            args = mock_set_temp.call_args[0]
+            mock_set_temperature.assert_called_once()
+            args = mock_set_temperature.call_args[0]
             assert args[2] == 22.0  # calibrated setpoint, not max_temp
             mock_set_valve.assert_not_called()
 
@@ -629,14 +629,16 @@ class TestControlTrvAvailablePath:
                 _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
             patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_mode,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             await control_trv(mock_self, "climate.trv1")
 
             mock_override_mode.assert_not_awaited()
             mock_set_mode.assert_not_awaited()
-            mock_set_temp.assert_awaited_once_with(mock_self, "climate.trv1", 22.0)
+            mock_set_temperature.assert_awaited_once_with(
+                mock_self, "climate.trv1", 22.0
+            )
 
     @pytest.mark.asyncio
     async def test_swapped_device_without_auto_still_gets_heat(self):
@@ -673,7 +675,7 @@ class TestControlTrvAvailablePath:
                 _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
             patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_mode,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             await control_trv(mock_self, "climate.trv1")
@@ -681,7 +683,9 @@ class TestControlTrvAvailablePath:
             mock_set_mode.assert_awaited_once_with(
                 mock_self, "climate.trv1", HVACMode.HEAT
             )
-            mock_set_temp.assert_awaited_once_with(mock_self, "climate.trv1", 22.0)
+            mock_set_temperature.assert_awaited_once_with(
+                mock_self, "climate.trv1", 22.0
+            )
 
     @pytest.mark.asyncio
     async def test_set_temperature_quirk_skips_generic_adapter(self):
@@ -699,7 +703,7 @@ class TestControlTrvAvailablePath:
                 _PATCHES["override_set_temperature"], autospec=True, return_value=True
             ) as mock_override,
             patch(_PATCHES["set_hvac_mode"], autospec=True),
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -710,7 +714,7 @@ class TestControlTrvAvailablePath:
             await control_trv(mock_self, "climate.trv1")
 
             mock_override.assert_awaited_once_with(mock_self, "climate.trv1", 21.0)
-            mock_set_temp.assert_not_called()
+            mock_set_temperature.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_skip_guard_matches_across_float_rounding_grids(self):
@@ -739,7 +743,7 @@ class TestControlTrvAvailablePath:
                 _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ) as mock_override,
             patch(_PATCHES["set_hvac_mode"], autospec=True),
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -750,7 +754,7 @@ class TestControlTrvAvailablePath:
             await control_trv(mock_self, "climate.trv1")
 
             mock_override.assert_not_called()
-            mock_set_temp.assert_not_called()
+            mock_set_temperature.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_set_temperature_falls_back_to_generic_adapter(self):
@@ -768,7 +772,7 @@ class TestControlTrvAvailablePath:
                 _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ) as mock_override,
             patch(_PATCHES["set_hvac_mode"], autospec=True),
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -779,7 +783,9 @@ class TestControlTrvAvailablePath:
             await control_trv(mock_self, "climate.trv1")
 
             mock_override.assert_awaited_once_with(mock_self, "climate.trv1", 21.0)
-            mock_set_temp.assert_awaited_once_with(mock_self, "climate.trv1", 21.0)
+            mock_set_temperature.assert_awaited_once_with(
+                mock_self, "climate.trv1", 21.0
+            )
 
     @pytest.mark.asyncio
     async def test_available_trv_convert_fails_returns_false(self):
@@ -1334,7 +1340,7 @@ class TestControlTrvAvailablePath:
             assert mock_set_hvac.call_args[0][2] == HVACMode.OFF
 
     @pytest.mark.asyncio
-    async def test_no_off_mode_sends_min_temp_when_off_requested(self):
+    async def test_no_off_mode_sends_min_temperature_when_off_requested(self):
         """Test that TRV without OFF mode sends min_temp when OFF is requested."""
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT,
@@ -1349,7 +1355,7 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
@@ -1363,13 +1369,13 @@ class TestControlTrvAvailablePath:
                 "temperature": 20.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_set_temp.return_value = None
+            mock_set_temperature.return_value = None
 
             await control_trv(mock_self, "climate.trv1")
 
             # Should set temperature to min_temp (5.0) because OFF is not available
-            mock_set_temp.assert_called_once()
-            args = mock_set_temp.call_args[0]
+            mock_set_temperature.assert_called_once()
+            args = mock_set_temperature.call_args[0]
             assert args[2] == 5.0  # min_temp
             mock_set_hvac.assert_not_awaited()
 
@@ -1393,7 +1399,7 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
@@ -1407,17 +1413,17 @@ class TestControlTrvAvailablePath:
                 "temperature": 20.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_set_temp.return_value = None
+            mock_set_temperature.return_value = None
 
             await control_trv(mock_self, "climate.trv1")
 
             mock_set_hvac.assert_awaited_once()
             assert mock_set_hvac.await_args[0][2] == HVACMode.OFF
-            for call in mock_set_temp.call_args_list:
+            for call in mock_set_temperature.call_args_list:
                 assert call[0][2] != 5.0
 
     @pytest.mark.asyncio
-    async def test_no_off_in_the_device_spelling_still_sends_min_temp(self):
+    async def test_no_off_in_the_device_spelling_still_sends_min_temperature(self):
         """A device genuinely without OFF keeps taking the min_temp path."""
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT,
@@ -1430,7 +1436,7 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
@@ -1444,12 +1450,12 @@ class TestControlTrvAvailablePath:
                 "temperature": 20.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_set_temp.return_value = None
+            mock_set_temperature.return_value = None
 
             await control_trv(mock_self, "climate.trv1")
 
-            mock_set_temp.assert_called_once()
-            assert mock_set_temp.call_args[0][2] == 5.0
+            mock_set_temperature.assert_called_once()
+            assert mock_set_temperature.call_args[0][2] == 5.0
             mock_set_hvac.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -1470,7 +1476,7 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
@@ -1484,13 +1490,13 @@ class TestControlTrvAvailablePath:
                 "temperature": 20.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_set_temp.return_value = None
+            mock_set_temperature.return_value = None
 
             await control_trv(mock_self, "climate.trv1")
 
             # None hvac_modes -> treated as no OFF mode -> min_temp (5.0) sent.
-            mock_set_temp.assert_called_once()
-            assert mock_set_temp.call_args[0][2] == 5.0
+            mock_set_temperature.assert_called_once()
+            assert mock_set_temperature.call_args[0][2] == 5.0
             mock_set_hvac.assert_not_awaited()
 
 
@@ -1782,7 +1788,7 @@ class TestBoostModeSafetyOverride:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch(
                 _PATCHES["set_valve"], autospec=True, return_value=True
             ) as mock_set_valve,
@@ -1804,8 +1810,8 @@ class TestBoostModeSafetyOverride:
         assert result is True
         mock_set_valve.assert_not_called()
         # The raw target is locked on the device (22.0, not boost max).
-        mock_set_temp.assert_called_once()
-        assert mock_set_temp.call_args[0][2] == 22.0
+        mock_set_temperature.assert_called_once()
+        assert mock_set_temperature.call_args[0][2] == 22.0
 
     @pytest.mark.asyncio
     async def test_boost_safety_reset_stamps_the_valve_budget(self):
@@ -2504,7 +2510,7 @@ class TestRaceConditionLockCoverage:
             patch(
                 _PATCHES["set_calibration_offset"], autospec=True, return_value=True
             ) as mock_set_calibration_offset,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
@@ -2536,7 +2542,7 @@ class TestRaceConditionLockCoverage:
                 execution_log.append(f"set_calibration_offset_end_{args[1]}")
                 return True
 
-            async def delayed_set_temp(*args, **kwargs):
+            async def delayed_set_temperature(*args, **kwargs):
                 execution_log.append(f"set_temp_start_{args[1]}")
                 await asyncio.sleep(0.01)
                 execution_log.append(f"set_temp_end_{args[1]}")
@@ -2544,7 +2550,7 @@ class TestRaceConditionLockCoverage:
             mock_set_valve.side_effect = delayed_set_valve
             mock_set_hvac_mode.side_effect = delayed_set_hvac_mode
             mock_set_calibration_offset.side_effect = delayed_set_calibration_offset
-            mock_set_temp.side_effect = delayed_set_temp
+            mock_set_temperature.side_effect = delayed_set_temperature
 
             results = await asyncio.gather(
                 control_trv(mock_self, "climate.trv1"),
@@ -2556,7 +2562,7 @@ class TestRaceConditionLockCoverage:
             assert results[1] is True
 
             total_calls = (
-                mock_set_temp.call_count
+                mock_set_temperature.call_count
                 + mock_set_hvac_mode.call_count
                 + mock_set_calibration_offset.call_count
                 + mock_set_valve.call_count
@@ -2792,7 +2798,7 @@ class TestRaceConditionLockCoverage:
             patch(
                 _PATCHES["set_calibration_offset"], autospec=True, return_value=True
             ) as mock_set_calibration_offset,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
@@ -2824,7 +2830,7 @@ class TestRaceConditionLockCoverage:
                 )
                 return True
 
-            async def check_lock_on_set_temp(*args, **kwargs):
+            async def check_lock_on_set_temperature(*args, **kwargs):
                 lock_state_during_operations.append(
                     ("set_temperature", mock_self._temperature_lock.locked())
                 )
@@ -2834,7 +2840,7 @@ class TestRaceConditionLockCoverage:
             mock_set_calibration_offset.side_effect = (
                 check_lock_on_set_calibration_offset
             )
-            mock_set_temp.side_effect = check_lock_on_set_temp
+            mock_set_temperature.side_effect = check_lock_on_set_temperature
 
             result = await control_trv(mock_self, "climate.trv1")
 
@@ -3111,7 +3117,7 @@ class TestGroupedTrvCalibration:
             patch(
                 _PATCHES["set_calibration_offset"], autospec=True, return_value=True
             ) as mock_set_calibration_offset,
-            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
             patch(_PATCHES["set_hvac_mode"], autospec=True),
             patch(_PATCHES["set_valve"], autospec=True, return_value=True),
             patch(
@@ -3134,7 +3140,9 @@ class TestGroupedTrvCalibration:
 
             assert result is True
             mock_set_calibration_offset.assert_not_called()
-            mock_set_temp.assert_awaited_once_with(mock_bt_grouped, entity_id, 21.0)
+            mock_set_temperature.assert_awaited_once_with(
+                mock_bt_grouped, entity_id, 21.0
+            )
 
     @pytest.mark.parametrize(
         ("step", "reported", "released"),

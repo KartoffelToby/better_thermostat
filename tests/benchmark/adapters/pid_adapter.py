@@ -46,7 +46,7 @@ class PidAdapter:
         self._key = key if key is not None else f"bench:trv:pid{next(_KEY_COUNTER)}"
         self._sim_time_s: float = 0.0
         self._original_monotonic = pid_mod.monotonic
-        self._prev_temp: float | None = None
+        self._previous_temperature: float | None = None
         self._prev_t: float | None = None
 
     def _virtualise_time(self) -> None:
@@ -66,19 +66,19 @@ class PidAdapter:
         """
         self._state = deserialize_pid(prior) if prior else PIDState()
         self._sim_time_s = 0.0
-        self._prev_temp = None
+        self._previous_temperature = None
         self._prev_t = None
 
     def _estimate_slope(self, ctx: BenchmarkContext) -> float | None:
-        if self._prev_temp is None or self._prev_t is None:
-            self._prev_temp = ctx.room_temperature
+        if self._previous_temperature is None or self._prev_t is None:
+            self._previous_temperature = ctx.room_temperature
             self._prev_t = ctx.t
             return None
         dt_min = (ctx.t - self._prev_t) / 60.0
         slope: float | None = None
         if dt_min > 0.0:
-            slope = (ctx.room_temperature - self._prev_temp) / dt_min
-        self._prev_temp = ctx.room_temperature
+            slope = (ctx.room_temperature - self._previous_temperature) / dt_min
+        self._previous_temperature = ctx.room_temperature
         self._prev_t = ctx.t
         return slope
 

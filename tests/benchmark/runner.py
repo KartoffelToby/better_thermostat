@@ -275,7 +275,7 @@ def _drive_adapter(
 
     t = 0.0
     last_valve_percent = 0.0
-    last_measured_temp = facade.T_room
+    last_measured_temperature = facade.T_room
     restart_fired = False
 
     while t <= duration_s + 1e-6:
@@ -321,8 +321,8 @@ def _drive_adapter(
         # its last good reading rather than being handed the plant truth.
         sampled = sensor.read(t, facade.T_room)
         if sampled is not None:
-            last_measured_temp = sampled
-        T_measured = last_measured_temp
+            last_measured_temperature = sampled
+        T_measured = last_measured_temperature
 
         ctx = BenchmarkContext(
             t=t,
@@ -422,7 +422,7 @@ def run_scenario(
     # more time to settle. Never shrink below the scenario default.
     time_scale = _plant_time_scale(actual_plant)
     duration_s = max(
-        scenario.duration_min * 60.0, scenario.duration_min * 60.0 * time_scale
+        scenario.duration_minutes * 60.0, scenario.duration_minutes * 60.0 * time_scale
     )
     series = _drive_adapter(
         adapter, facade, scenario, step_s, duration_s, handle_controller_restart=True

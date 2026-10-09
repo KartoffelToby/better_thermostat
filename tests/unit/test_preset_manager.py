@@ -67,7 +67,9 @@ class TestAvailableModes:
 class TestActivate:
     """activate() switches presets, saves/restores user temperature, clamps to bounds."""
 
-    def test_none_to_comfort_saves_and_returns_preset_temp(self, mgr: PresetManager):
+    def test_none_to_comfort_saves_and_returns_preset_temperature(
+        self, mgr: PresetManager
+    ):
         """Going NONE→COMFORT saves the current temperature and returns the preset value."""
         result = mgr.activate(
             PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
@@ -76,7 +78,7 @@ class TestActivate:
         assert mgr.saved_temperature == 20.0
         assert result == _DEFAULT_TEMPERATURES[PRESET_COMFORT]
 
-    def test_comfort_to_none_restores_saved_temp(self, mgr: PresetManager):
+    def test_comfort_to_none_restores_saved_temperature(self, mgr: PresetManager):
         """Returning to NONE restores the previously saved user temperature."""
         mgr.activate(
             PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
@@ -88,7 +90,7 @@ class TestActivate:
         assert mgr.saved_temperature is None
         assert mgr.mode == PRESET_NONE
 
-    def test_comfort_to_eco_keeps_saved_temp(self, mgr: PresetManager):
+    def test_comfort_to_eco_keeps_saved_temperature(self, mgr: PresetManager):
         """Preset→preset transitions preserve the originally saved temperature."""
         mgr.activate(
             PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
@@ -100,7 +102,7 @@ class TestActivate:
         # saved_temperature should still hold the original value
         assert mgr.saved_temperature == 20.0
 
-    def test_clamping_to_min(self, mgr: PresetManager):
+    def test_clamping_to_minimum(self, mgr: PresetManager):
         """Preset values below min_temp are clamped to min_temp."""
         mgr.temperatures[PRESET_AWAY] = 3.0
         result = mgr.activate(
@@ -108,7 +110,7 @@ class TestActivate:
         )
         assert result == 5.0
 
-    def test_clamping_to_max(self, mgr: PresetManager):
+    def test_clamping_to_maximum(self, mgr: PresetManager):
         """Preset values above max_temp are clamped to max_temp."""
         mgr.temperatures[PRESET_BOOST] = 50.0
         result = mgr.activate(
@@ -190,7 +192,7 @@ class TestActivate:
 class TestDeactivate:
     """deactivate() returns to PRESET_NONE and restores the saved temperature."""
 
-    def test_deactivate_restores_temp(self, mgr: PresetManager):
+    def test_deactivate_restores_temperature(self, mgr: PresetManager):
         """deactivate() restores the saved temperature and clears state."""
         mgr.activate(
             PRESET_COMFORT, current_target_temperature=20.0, min_temp=5.0, max_temp=30.0
@@ -278,7 +280,9 @@ class TestSavedTemperatureLifecycle:
 class TestRecordManualChange:
     """record_manual_change() stores manual setpoints only while in PRESET_NONE."""
 
-    def test_updates_stored_temp_in_none_and_returns_old(self, mgr: PresetManager):
+    def test_updates_stored_temperature_in_none_and_returns_old(
+        self, mgr: PresetManager
+    ):
         """In PRESET_NONE a changed value is stored and the old value returned."""
         mgr.mode = PRESET_NONE
         old = mgr.record_manual_change(23.0)

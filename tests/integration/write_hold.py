@@ -41,16 +41,16 @@ WriteMethod = Literal[
 ]
 
 
-async def poll_until(hass, predicate, timeout_s: float = 10.0) -> bool:
+async def poll_until(hass, predicate, timeout_seconds: float = 10.0) -> bool:
     """Yield to the loop until ``predicate()`` is true or time runs out.
 
     The counterpart of ``conftest.wait_for`` for the time a write is held:
     that one blocks until Home Assistant has finished every task it tracks,
     and the held service call is one of them, so it would wait for a release
     that only the waiting test can give. It is also the one to bound a wait
-    with: ``timeout_s`` is all it waits, however busy the loop is.
+    with: ``timeout_seconds`` is all it waits, however busy the loop is.
     """
-    deadline = hass.loop.time() + timeout_s
+    deadline = hass.loop.time() + timeout_seconds
     while hass.loop.time() < deadline:
         if predicate():
             return True

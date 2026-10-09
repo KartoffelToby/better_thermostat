@@ -199,7 +199,7 @@ class TestTpiOverManyCycles:
             target_temperature=22.0,
             outdoor_temperature=5.0,
         )
-        expected_pct = 100.0 * (
+        expected_percent = 100.0 * (
             params.coef_int * (22.0 - 21.8) + params.coef_ext * (22.0 - 5.0)
         )
 
@@ -210,7 +210,7 @@ class TestTpiOverManyCycles:
             )
             duty_cycles.append(result.duty_cycle_percent)
 
-        assert duty_cycles == pytest.approx([expected_pct] * 50)
+        assert duty_cycles == pytest.approx([expected_percent] * 50)
 
     def test_last_duty_cycle_is_held_for_every_cycle_of_a_sensor_dropout(self):
         """A room sensor that stops reporting must freeze the command, not drop it.
@@ -235,13 +235,13 @@ class TestTpiOverManyCycles:
         )
 
         warm, state = compute_tpi(reading, params, state=state, now=0.0)
-        held_pct = warm.duty_cycle_percent
-        assert held_pct > 0.0
+        held_percent = warm.duty_cycle_percent
+        assert held_percent > 0.0
 
         for cycle in range(1, 13):
             result, state = compute_tpi(gap, params, state=state, now=float(cycle))
             assert result.debug["reason"] == "missing_temps"
-            assert result.duty_cycle_percent == held_pct
+            assert result.duty_cycle_percent == held_percent
 
         colder = TpiInput(
             key="k",
@@ -252,4 +252,4 @@ class TestTpiOverManyCycles:
         after_gap, _ = compute_tpi(colder, params, state=state, now=200.0)
         fresh, _ = compute_tpi(colder, params, state=TpiState(), now=200.0)
         assert after_gap.duty_cycle_percent == fresh.duty_cycle_percent
-        assert after_gap.duty_cycle_percent != held_pct
+        assert after_gap.duty_cycle_percent != held_percent

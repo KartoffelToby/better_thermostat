@@ -51,7 +51,7 @@ class _Case:
     noise: float
     quantum: float
     max_moves: int
-    max_valve_span_pct: int
+    max_valve_span_percent: int
     max_mean_abs_error: float
     setpoint: float = SETPOINT
 
@@ -188,5 +188,5 @@ def test_valve_stays_calm_on_a_noisy_sensor_or_a_mismatched_model(name: str) -> 
     assert max(valves) > 0
 
     assert moves <= case.max_moves, f"{moves} valve moves, span {span} %"
-    assert span <= case.max_valve_span_pct, f"valve {min(valves)}..{max(valves)} %"
+    assert span <= case.max_valve_span_percent, f"valve {min(valves)}..{max(valves)} %"
     assert mean_abs_error <= case.max_mean_abs_error
