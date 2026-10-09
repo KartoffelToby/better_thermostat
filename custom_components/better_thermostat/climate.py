@@ -1107,7 +1107,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # Config entry id (same as unique id passed in) used for durable persistence beyond RestoreEntity
         self._config_entry_id = self._unique_id
         self.damped_outdoor_temperature: float | None = None
-        self.last_main_hvac_mode: str | None = None
+        self.last_main_hvac_mode: HVACMode | None = None
         self._last_call_for_heat: bool | None = None
         self.weather_verdict_missing_since: float | None = None
         self.weather_fallback_active = False
@@ -2418,10 +2418,17 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # call_for_heat and humidity are observations, not UI state:
             # they are rebuilt from live data within the first cycles, so
             # they are deliberately not restored from entity attributes.
-            if old_state.attributes.get(ATTR_STATE_MAIN_MODE, None) is not None:
-                self.last_main_hvac_mode = str(
-                    old_state.attributes[ATTR_STATE_MAIN_MODE]
-                )
+            restored_main_mode = old_state.attributes.get(ATTR_STATE_MAIN_MODE)
+            if restored_main_mode is not None:
+                try:
+                    self.last_main_hvac_mode = HVACMode(str(restored_main_mode))
+                except ValueError:
+                    _LOGGER.warning(
+                        "better_thermostat %s: restored an unrecognised main mode %s; "
+                        "ignoring it",
+                        self.device_name,
+                        restored_main_mode,
+                    )
 
             # Learned values: the StateManager is the persistence
             # authority. The restored attributes only fill in when the

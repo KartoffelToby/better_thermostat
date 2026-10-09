@@ -48,6 +48,7 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
+    ATTR_STATE_MAIN_MODE,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     CONF_HOMEMATICIP,
@@ -2545,6 +2546,34 @@ class TestRestoreState:
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
         assert bt.bt_hvac_mode is None
+
+    @pytest.mark.asyncio
+    async def test_restored_main_mode_is_parsed_to_enum(self, bt):
+        """A restored main mode becomes an HVACMode enum."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_MAIN_MODE: "heat_cool"}
+        bt._saved_state = old
+        bt.preset_mgr.temperatures = {}
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.last_main_hvac_mode is HVACMode.HEAT_COOL
+
+    @pytest.mark.asyncio
+    async def test_unrecognised_main_mode_is_not_restored(self, bt, caplog):
+        """A restored main mode that is no HVAC mode is dropped and logged."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_MAIN_MODE: "warm"}
+        bt._saved_state = old
+        bt.preset_mgr.temperatures = {}
+
+        with caplog.at_level(logging.WARNING):
+            await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.last_main_hvac_mode is None
+        assert "unrecognised main mode warm" in caplog.text
 
 
 # ---------------------------------------------------------------------------
