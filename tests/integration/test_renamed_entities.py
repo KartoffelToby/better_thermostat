@@ -20,6 +20,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     build_pid_key,
 )
 from custom_components.better_thermostat.utils.const import CalibrationMode
+from custom_components.better_thermostat.utils.helpers import entry_issue_id
 from custom_components.better_thermostat.utils.renamed_entities import (
     move_trv_unique_ids,
 )
@@ -207,10 +208,11 @@ async def test_a_renamed_room_sensor_is_read_under_its_new_id(hass):
 
 async def test_a_rename_clears_the_missing_entity_repair_of_the_old_id(hass):
     entry, bt = await _started_pid_trv(hass)
+    old_issue = entry_issue_id(entry.entry_id, "missing_entity", PID_TRV.entity_id)
     ir.async_create_issue(
         hass,
         DOMAIN,
-        f"missing_entity_{PID_TRV.entity_id}",
+        old_issue,
         is_fixable=False,
         severity=ir.IssueSeverity.WARNING,
         translation_key="missing_entity",
@@ -220,12 +222,7 @@ async def test_a_rename_clears_the_missing_entity_repair_of_the_old_id(hass):
     await hass.async_block_till_done()
     await _reloaded(hass, entry, bt)
 
-    assert (
-        ir.async_get(hass).async_get_issue(
-            DOMAIN, f"missing_entity_{PID_TRV.entity_id}"
-        )
-        is None
-    )
+    assert ir.async_get(hass).async_get_issue(DOMAIN, old_issue) is None
 
 
 async def test_an_entity_the_entry_does_not_name_changes_nothing(hass):

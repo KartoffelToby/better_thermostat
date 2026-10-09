@@ -421,7 +421,6 @@ async def _follow_entity_rename(
         )
         if state_mgr is not None:
             state_mgr.move_thermostat(old_entity_id, new_entity_id)
-    ir.async_delete_issue(hass, DOMAIN, f"missing_entity_{old_entity_id}")
     _LOGGER.info(
         "better_thermostat %s: %s is now %s; the settings follow the new entity id",
         entry_name(entry),
