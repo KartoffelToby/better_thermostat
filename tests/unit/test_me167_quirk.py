@@ -9,7 +9,6 @@ to the next.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import ModuleType
 
 from homeassistant.components.climate.const import HVACAction
 import pytest
@@ -19,11 +18,13 @@ from custom_components.better_thermostat.model_fixes import ME167, default
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     local_calibration_shifts_setpoint,
 )
+from custom_components.better_thermostat.model_fixes.types import ModelQuirks
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_PROTECT_OVERHEATING,
     CalibrationMode,
 )
-from tests.factories import ThermostatStandIn, make_state, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn, make_state
 
 ENTITY_ID = "climate.me167"
 ROOM = 22.0
@@ -46,7 +47,7 @@ class SimulatedTrv:
 def _host(
     device: SimulatedTrv,
     *,
-    quirks: ModuleType | None = ME167,
+    quirks: ModelQuirks | None = ME167,
     step: float = 0.1,
     protect_overheating: bool = False,
     mode: CalibrationMode = CalibrationMode.DEFAULT,
@@ -61,23 +62,21 @@ def _host(
     bt.room_temperature = ROOM
     bt.heat_target_temperature = None
     bt.real_trvs = {
-        ENTITY_ID: trv_from_legacy_dict(
-            ENTITY_ID,
-            {
-                "advanced": {
-                    "calibration_mode": mode,
-                    CONF_PROTECT_OVERHEATING: protect_overheating,
-                },
-                "current_temperature": device.reported,
-                "last_calibration": device.held_offset,
-                "local_calibration_step": step,
-                "min_local_calibration": -7.0,
-                "max_local_calibration": 7.0,
-                "target_temp_step": 0.5,
-                "min_temp": 5.0,
-                "max_temp": 35.0,
-                "model_quirks": quirks,
+        ENTITY_ID: Trv(
+            entity_id=ENTITY_ID,
+            advanced={
+                "calibration_mode": mode,
+                CONF_PROTECT_OVERHEATING: protect_overheating,
             },
+            current_temperature=device.reported,
+            last_calibration=device.held_offset,
+            local_calibration_step=step,
+            min_local_calibration=-7.0,
+            max_local_calibration=7.0,
+            target_temp_step=0.5,
+            min_temp=5.0,
+            max_temp=35.0,
+            model_quirks=quirks,
         )
     }
     return bt
