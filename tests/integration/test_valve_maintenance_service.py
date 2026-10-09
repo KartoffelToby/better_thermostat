@@ -73,8 +73,7 @@ async def test_a_run_started_by_the_service_ends_with_the_thermostat(hass, fake_
             raise
 
     with patch(MAINTENANCE_EXERCISE, held_exercise):
-        # Not a Home Assistant task: the call is held open by the exercise,
-        # and waiting for the loop to settle must not wait for it.
+        # The exercise holds the call open, so it runs beside the test.
         call = asyncio.ensure_future(
             hass.services.async_call(
                 DOMAIN,
@@ -86,11 +85,13 @@ async def test_a_run_started_by_the_service_ends_with_the_thermostat(hass, fake_
         try:
             await asyncio.wait_for(exercising.wait(), 5)
             assert await hass.config_entries.async_unload(entry.entry_id)
-            await hass.async_block_till_done()
             stopped_with_the_unload = stopped.is_set()
-            await asyncio.wait_for(call, 5)
+            if stopped_with_the_unload:
+                # A run the removal stopped ends the call without an error.
+                await asyncio.wait_for(call, 5)
         finally:
             call.cancel()
+            await asyncio.gather(call, return_exceptions=True)
 
     assert stopped_with_the_unload
     assert entry.state is ConfigEntryState.NOT_LOADED
