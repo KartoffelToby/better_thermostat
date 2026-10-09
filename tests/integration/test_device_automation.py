@@ -1115,6 +1115,10 @@ async def test_battery_low_reads_the_levels_as_numbers(hass, fake_trv):
     await hass.async_block_till_done()
     assert not calls
 
+    _republish(hass, batteries=batteries("nan", "50"))
+    await hass.async_block_till_done()
+    assert not calls
+
     _republish(hass, batteries=batteries("100", "15", "unavailable"))
     await hass.async_block_till_done()
 

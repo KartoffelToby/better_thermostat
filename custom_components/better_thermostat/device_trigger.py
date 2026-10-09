@@ -371,12 +371,12 @@ async def async_attach_trigger(
     #   Template extracts the minimum 'battery' value from the batteries JSON dict.
     #   Each level is the battery entity's state, a string, so the levels are
     #   converted to numbers before the minimum is taken; a level that is no
-    #   number, such as "unavailable", is left out.
+    #   finite number, such as "unavailable" or "nan", is left out.
     if trigger_type == "battery_low":
         battery_template = (
             "{%- set bat = state.attributes.get('batteries', '{}') | from_json -%}"
             "{%- set levels = bat.values() | map(attribute='battery')"
-            " | map('float', none) | reject('none') | list -%}"
+            " | select('is_number') | map('float') | list -%}"
             "{{ (levels | min) if levels else 101 }}"
         )
         numeric_config = _build_numeric(battery_template)
