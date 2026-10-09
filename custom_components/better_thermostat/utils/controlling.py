@@ -1417,7 +1417,24 @@ async def control_queue(self: BetterThermostat) -> None:
                         "better_thermostat %s: ERROR in control cycle", self.device_name
                     )
                     if not self.in_maintenance:
+                        # Close the window the way a cycle that completes
+                        # does, so what the TRVs reported meanwhile is read
+                        # now rather than on their next report.
+                        try:
+                            refresh_cached_trv_modes(self)
+                        except Exception:
+                            _LOGGER.exception(
+                                "better_thermostat %s: ERROR settling TRV modes",
+                                self.device_name,
+                            )
                         self.ignore_states = False
+                        try:
+                            await read_reports_held_during_cycle(self)
+                        except Exception:
+                            _LOGGER.exception(
+                                "better_thermostat %s: ERROR reading held TRV reports",
+                                self.device_name,
+                            )
                 finally:
                     # One acknowledgement per item taken, including an item that
                     # carries no cycle and one whose handling is cancelled. The
