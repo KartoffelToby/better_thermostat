@@ -33,14 +33,14 @@ from custom_components.better_thermostat.utils.controlling import (
     read_reports_held_during_cycle,
     refresh_cached_trv_modes,
 )
-from tests.factories import ThermostatStandIn, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.test_trv"
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 _COOLER = "custom_components.better_thermostat.events.cooler"
 
 # The mode list of an ordinary radiator valve.
-OFFERED_MODES = [HVACMode.OFF, HVACMode.HEAT]
+OFFERED_MODES: list[str] = [HVACMode.OFF, HVACMode.HEAT]
 
 
 def _reported_state(mode: str, setpoint: float | None = 19.0) -> State:
@@ -117,34 +117,31 @@ def thermostat(reported_states):
         BetterThermostat._clamp_inbound_heat_target(bt, value)
     )
     bt.real_trvs = {
-        ENTITY_ID: trv_from_legacy_dict(
-            ENTITY_ID,
-            {
-                "hvac_mode": "heat",
-                "hvac_modes": OFFERED_MODES,
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "current_temperature": 18.0,
-                "temperature": 19.0,
-                "commanded_setpoint": 19.0,
-                "last_hvac_mode": "heat",
-                "target_temperature_received": True,
-                "system_mode_received": True,
-                "calibration_received": True,
-                "calibration": 1,
-                "last_calibration": 0.0,
-                "ignore_trv_states": False,
-                "model": "SomeModel",
-                "model_quirks": None,
-                "hvac_action": "heating",
-                "valve_position": 50,
-                "advanced": {
-                    "calibration": CalibrationOutput.LOCAL_BASED,
-                    "calibration_mode": CalibrationMode.DEFAULT,
-                    "no_off_system_mode": False,
-                    "heat_auto_swapped": False,
-                    "child_lock": False,
-                },
+        ENTITY_ID: Trv(
+            entity_id=ENTITY_ID,
+            hvac_mode="heat",
+            hvac_modes=OFFERED_MODES,
+            min_temp=5.0,
+            max_temp=30.0,
+            current_temperature=18.0,
+            commanded_setpoint=19.0,
+            last_hvac_mode="heat",
+            target_temperature_received=True,
+            system_mode_received=True,
+            calibration_received=True,
+            calibration=1,
+            last_calibration=0.0,
+            ignore_trv_states=False,
+            model="SomeModel",
+            model_quirks=None,
+            hvac_action="heating",
+            valve_position=50,
+            advanced={
+                "calibration": CalibrationOutput.LOCAL_BASED,
+                "calibration_mode": CalibrationMode.DEFAULT,
+                "no_off_system_mode": False,
+                "heat_auto_swapped": False,
+                "child_lock": False,
             },
         )
     }
