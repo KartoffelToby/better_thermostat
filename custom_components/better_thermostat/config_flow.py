@@ -1083,16 +1083,27 @@ async def _new_trv_draft(
     return draft, model
 
 
-def _stored_trv_draft(entity_id: str, stored: Mapping[str, object]) -> _TrvDraft:
-    """Return the draft of a thermostat the entry has, from its stored mapping."""
+async def _stored_trv_draft(
+    flow: OptionsFlowHandler, entity_id: str, stored: Mapping[str, object]
+) -> _TrvDraft:
+    """Return the draft of a thermostat the entry has, from its stored mapping.
+
+    The mapping is kept as stored, except that an integration or a model
+    that is not a string is looked up again the way a new thermostat's is.
+    Setup refuses a thermostat without an integration, so saving the
+    options is how such an entry is repaired.
+    """
     copied = copy.deepcopy(dict(stored))
     copied["adapter"] = None
     integration = copied.get("integration")
+    if not isinstance(integration, str):
+        integration = await get_trv_intigration(flow, entity_id)
+        copied["integration"] = integration
+    model = copied.get("model")
+    if "model" in copied and model is not None and not isinstance(model, str):
+        copied["model"] = await get_device_model(flow, entity_id)
     return _TrvDraft(
-        entity_id=entity_id,
-        integration=integration if isinstance(integration, str) else None,
-        adapter=None,
-        stored=copied,
+        entity_id=entity_id, integration=integration, adapter=None, stored=copied
     )
 
 
@@ -1551,6 +1562,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data={}, options=options
             )
+            if self._config_entry.state is config_entries.ConfigEntryState.SETUP_ERROR:
+                # The update listener that reloads the entry on a write is
+                # registered by a setup that succeeded, so an entry whose
+                # setup failed is set up again here, with the settings just
+                # written.
+                self.hass.config_entries.async_schedule_reload(
+                    self._config_entry.entry_id
+                )
             if algorithms_changed:
                 # Dynamic entity management adds and removes algorithm sensors.
                 signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
@@ -1647,7 +1666,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 for entity_id in heaters:
                     if entity_id in existing_trvs:
                         self.trv_bundle.append(
-                            _stored_trv_draft(entity_id, existing_trvs[entity_id])
+                            await _stored_trv_draft(
+                                self, entity_id, existing_trvs[entity_id]
+                            )
                         )
                     else:
                         # This is a new TRV added during edit
