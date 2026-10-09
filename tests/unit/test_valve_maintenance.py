@@ -1113,6 +1113,53 @@ class TestARunCancelledPartWay:
         assert ("temperature", "trv_valve", 20.0) in writes
 
     @pytest.mark.asyncio
+    async def test_a_run_cancelled_during_its_own_restore_still_restores(self):
+        """A cancel landing on the final restore still puts the mode back."""
+        writes, _opened, set_valve, set_temperature, set_mode = self._devices()
+        restoring = asyncio.Event()
+        held_once = False
+
+        async def set_temperature_holding_the_first_restore(
+            entity_id: str, temperature: float
+        ) -> None:
+            nonlocal held_once
+            await set_temperature(entity_id, temperature)
+            if entity_id == "trv_off" and temperature == 12.0 and not held_once:
+                held_once = True
+                restoring.set()
+                await asyncio.Event().wait()
+
+        infos = [
+            _info(
+                entity_id="trv_off",
+                cur_mode=HVACMode.OFF,
+                setpoint=12.0,
+                wake_mode=HVACMode.HEAT,
+            ),
+            _info(entity_id="trv_valve", setpoint=20.0, use_direct_valve=True),
+        ]
+        run = asyncio.create_task(
+            run_valve_maintenance(
+                infos,
+                set_valve_fn=set_valve,
+                set_temperature_fn=set_temperature_holding_the_first_restore,
+                set_hvac_mode_fn=set_mode,
+                get_state=_reports_a_moved_mode(infos),
+                device_name="Test",
+                cycle_sleep=0,
+            )
+        )
+        await restoring.wait()
+        writes.clear()
+
+        run.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run
+
+        assert ("temperature", "trv_off", 12.0) in writes
+        assert ("mode", "trv_off", HVACMode.OFF) in writes
+
+    @pytest.mark.asyncio
     async def test_a_restore_that_never_returns_is_given_up(self, monkeypatch):
         """The removal waiting for the run is held for a bounded time only."""
         monkeypatch.setattr(

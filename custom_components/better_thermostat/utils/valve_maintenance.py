@@ -531,8 +531,9 @@ async def run_valve_maintenance(
     ``self`` (ignore_states, in_maintenance, control_queue) stay in
     ``climate.py``'s wrapper.
 
-    A run cancelled part-way still restores its TRVs, within
-    ``RESTORE_AFTER_STOP_TIMEOUT_S``, before the cancellation propagates.
+    A run cancelled part-way, its own restore included, still restores its
+    TRVs, within ``RESTORE_AFTER_STOP_TIMEOUT_S``, before the cancellation
+    propagates.
 
     Parameters
     ----------
@@ -640,6 +641,14 @@ async def run_valve_maintenance(
                 )
                 open_valves = []
                 await asyncio.sleep(cycle_sleep)
+
+        await _restore_all(
+            infos,
+            woken,
+            set_temperature_fn=set_temperature_fn,
+            set_hvac_mode_fn=set_hvac_mode_fn,
+            get_state=get_state,
+        )
     except asyncio.CancelledError:
         await _restore_after_stop(
             infos,
@@ -652,13 +661,5 @@ async def run_valve_maintenance(
             device_name=device_name,
         )
         raise
-
-    await _restore_all(
-        infos,
-        woken,
-        set_temperature_fn=set_temperature_fn,
-        set_hvac_mode_fn=set_hvac_mode_fn,
-        get_state=get_state,
-    )
 
     _LOGGER.info("better_thermostat %s: valve maintenance finished", device_name)
