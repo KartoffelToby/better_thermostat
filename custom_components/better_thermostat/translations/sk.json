@@ -57,7 +57,7 @@
           "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
           "calibration": "Typ kalibrácie",
           "calibration_mode": "Režim kalibrácie",
-          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "no_off_system_mode": "Použiť minimálnu teplotu namiesto 'vypnuté'",
           "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti"
         },
         "data_description": {
@@ -66,10 +66,10 @@
           "child_lock": "Zamkne tlačidlá TRV, ak má detskú poistku; zmeny vykonané priamo na TRV sa ignorujú.",
           "homematicip": "Posiela príkazy menej často, aby zariadenia HomematicIP zostali v rámci svojho duty cycle.",
           "valve_maintenance": "Občas otvorí a zatvorí ventil, aby sa nezasekol. Pre TRV bez vlastnej údržby.",
-          "calibration": "Ako sa má kalibrácia použiť na TRV (cieľová teplota alebo posun)\n***Na základe cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Na základe ofsetu***: Použite kalibráciu na offset.",
-          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
-          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV turned to its minimum temperature counts as switched off: once every TRV of the room is off, the room switches off, and turning a knob up switches it back on. A turn while a window or door is open counts too; the heating then waits until every window and door is closed. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
-          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
+          "calibration": "Ako sa kalibrácia použije na TRV\n***Podľa cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Podľa posunu***: Použite kalibráciu na posun teploty.\n***Priame ovládanie ventilu***: Nastavte otvorenie ventilu priamo. Ponúka sa len vtedy, keď má TRV zapisovateľnú polohu ventilu. Režimy kalibrácie, ktoré nevypočítajú otvorenie ventilu, namiesto toho posielajú cieľovú teplotu.",
+          "calibration_mode": "Ako sa kalibrácia vypočíta\n***AI podľa času (predvolené)***: Postupne sa učí vykurovací výkon miestnosti a odvodí z neho kalibráciu.\n***Iba posun externého snímača***: Opraví interný snímač TRV podľa vášho externého snímača teploty. Navyše nebeží žiadny regulátor.\n***Prediktívne MPC (beta)***: Predpovedá teplotu v miestnosti a vypočíta z nej otvorenie ventilu. Učí sa tepelné správanie miestnosti.\n***(AI) MPC v2 (QP + Kalman, experimentálne)***: Odhaduje stav miestnosti Kalmanovým filtrom a vypočíta otvorenie ventilu modelovým prediktívnym regulátorom. Nastavenie MPC v2 veľkosť miestnosti vyberá model miestnosti: naučený z miestnosti (Automaticky) alebo pevný pre veľkosť miestnosti (malá, stredná, veľká).\n***Agresívne***: Pridá ku kalibrácii navýšenie, kým sa miestnosť vykuruje, a preskočí oneskorenie tolerancie, aby TRV začal kúriť skôr. Užitočné, ak sa miestnosť ohrieva pomaly.\n***Regulátor TPI***: Vypočíta dobu zopnutia vykurovacích cyklov z rozdielu teplôt.\n***Regulátor PID***: Vypočíta otvorenie ventilu z odchýlky teploty pomocou proporcionálnej, integračnej a derivačnej zložky.\n***Bez kalibrácie***: Pošle cieľovú teplotu do TRV bez zmeny a nepoužije žiadnu korekciu.",
+          "no_off_system_mode": "S touto možnosťou Better Thermostat posiela TRV jeho minimálnu teplotu namiesto 'vypnuté'. TRV, ktorý hlási svoju minimálnu teplotu, sa považuje za vypnutý: keď sú všetky TRV v miestnosti vypnuté, miestnosť sa vypne, a otočenie gombíka nahor ju znova zapne. Počíta sa aj otočenie pri otvorenom okne alebo dverách; kúrenie potom čaká, kým nie sú všetky okná a dvere zatvorené. TRV bez režimu vypnutia dostane svoju minimálnu teplotu aj bez tejto možnosti. Zapnite ju pre TRV, ktorého režim vypnutia nefunguje, alebo pre TRV bez režimu vypnutia, ktorého gombík má zapínať a vypínať Better Thermostat.",
+          "mpc_v2_plant_preset": "Používa sa iba v režime kalibrácie MPC v2.\n***Automaticky***: Odvodí model miestnosti z toho, čo sa Better Thermostat o miestnosti naučil, napríklad z miery jej tepelných strát.\n***Malá, stredná alebo veľká miestnosť***: Začína s pevným modelom miestnosti pre túto veľkosť."
         }
       },
       "confirm": {
@@ -154,7 +154,7 @@
           "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
           "calibration": "Druh kalibrácie, ktorý chcete použiť",
           "calibration_mode": "Režim kalibrácie",
-          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "no_off_system_mode": "Použiť minimálnu teplotu namiesto 'vypnuté'",
           "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti"
         },
         "data_description": {
@@ -163,10 +163,10 @@
           "child_lock": "Zamkne tlačidlá TRV, ak má detskú poistku; zmeny vykonané priamo na TRV sa ignorujú.",
           "homematicip": "Posiela príkazy menej často, aby zariadenia HomematicIP zostali v rámci svojho duty cycle.",
           "valve_maintenance": "Občas otvorí a zatvorí ventil, aby sa nezasekol. Pre TRV bez vlastnej údržby.",
-          "calibration": "Ako sa má kalibrácia použiť na TRV (cieľová teplota alebo ofset)\n***Na základe cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Na základe ofsetu***: Použite kalibráciu na offset.",
-          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
-          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV turned to its minimum temperature counts as switched off: once every TRV of the room is off, the room switches off, and turning a knob up switches it back on. A turn while a window or door is open counts too; the heating then waits until every window and door is closed. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
-          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
+          "calibration": "Ako sa kalibrácia použije na TRV\n***Podľa cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Podľa posunu***: Použite kalibráciu na posun teploty.\n***Priame ovládanie ventilu***: Nastavte otvorenie ventilu priamo. Ponúka sa len vtedy, keď má TRV zapisovateľnú polohu ventilu. Režimy kalibrácie, ktoré nevypočítajú otvorenie ventilu, namiesto toho posielajú cieľovú teplotu.",
+          "calibration_mode": "Ako sa kalibrácia vypočíta\n***AI podľa času (predvolené)***: Postupne sa učí vykurovací výkon miestnosti a odvodí z neho kalibráciu.\n***Iba posun externého snímača***: Opraví interný snímač TRV podľa vášho externého snímača teploty. Navyše nebeží žiadny regulátor.\n***Prediktívne MPC (beta)***: Predpovedá teplotu v miestnosti a vypočíta z nej otvorenie ventilu. Učí sa tepelné správanie miestnosti.\n***(AI) MPC v2 (QP + Kalman, experimentálne)***: Odhaduje stav miestnosti Kalmanovým filtrom a vypočíta otvorenie ventilu modelovým prediktívnym regulátorom. Nastavenie MPC v2 veľkosť miestnosti vyberá model miestnosti: naučený z miestnosti (Automaticky) alebo pevný pre veľkosť miestnosti (malá, stredná, veľká).\n***Agresívne***: Pridá ku kalibrácii navýšenie, kým sa miestnosť vykuruje, a preskočí oneskorenie tolerancie, aby TRV začal kúriť skôr. Užitočné, ak sa miestnosť ohrieva pomaly.\n***Regulátor TPI***: Vypočíta dobu zopnutia vykurovacích cyklov z rozdielu teplôt.\n***Regulátor PID***: Vypočíta otvorenie ventilu z odchýlky teploty pomocou proporcionálnej, integračnej a derivačnej zložky.\n***Bez kalibrácie***: Pošle cieľovú teplotu do TRV bez zmeny a nepoužije žiadnu korekciu.",
+          "no_off_system_mode": "S touto možnosťou Better Thermostat posiela TRV jeho minimálnu teplotu namiesto 'vypnuté'. TRV, ktorý hlási svoju minimálnu teplotu, sa považuje za vypnutý: keď sú všetky TRV v miestnosti vypnuté, miestnosť sa vypne, a otočenie gombíka nahor ju znova zapne. Počíta sa aj otočenie pri otvorenom okne alebo dverách; kúrenie potom čaká, kým nie sú všetky okná a dvere zatvorené. TRV bez režimu vypnutia dostane svoju minimálnu teplotu aj bez tejto možnosti. Zapnite ju pre TRV, ktorého režim vypnutia nefunguje, alebo pre TRV bez režimu vypnutia, ktorého gombík má zapínať a vypínať Better Thermostat.",
+          "mpc_v2_plant_preset": "Používa sa iba v režime kalibrácie MPC v2.\n***Automaticky***: Odvodí model miestnosti z toho, čo sa Better Thermostat o miestnosti naučil, napríklad z miery jej tepelných strát.\n***Malá, stredná alebo veľká miestnosť***: Začína s pevným modelom miestnosti pre túto veľkosť."
         }
       }
     },
@@ -227,15 +227,15 @@
         },
         "defaults_kp": {
           "name": "Predvolené kp",
-          "description": "Proporcionálne zosilnenie nastavené po vynulovaní (ak nie je zadané, použije sa BalanceParams.kp)."
+          "description": "Proporcionálne zosilnenie nastavené po vynulovaní (ak nie je zadané, použije sa vstavaná predvolená hodnota PID)."
         },
         "defaults_ki": {
           "name": "Predvolené ki",
-          "description": "Integračné zosilnenie nastavené po vynulovaní (ak nie je zadané, použije sa BalanceParams.ki)."
+          "description": "Integračné zosilnenie nastavené po vynulovaní (ak nie je zadané, použije sa vstavaná predvolená hodnota PID)."
         },
         "defaults_kd": {
           "name": "Predvolené kd",
-          "description": "Derivačné zosilnenie nastavené po vynulovaní (ak nie je zadané, použije sa BalanceParams.kd)."
+          "description": "Derivačné zosilnenie nastavené po vynulovaní (ak nie je zadané, použije sa vstavaná predvolená hodnota PID)."
         }
       }
     }
