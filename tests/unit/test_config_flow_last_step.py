@@ -26,7 +26,7 @@ ADVANCED_CONTEXT = _AdvancedContext(
 )
 
 
-def _stored(count: int) -> list[dict]:
+def _stored(count: int) -> list[dict[str, object]]:
     return [
         {"trv": f"climate.trv{index}", "integration": "generic", "advanced": {}}
         for index in range(count)
@@ -36,9 +36,12 @@ def _stored(count: int) -> list[dict]:
 def _drafts(count: int) -> list[_TrvDraft]:
     return [
         _TrvDraft(
-            entity_id=stored["trv"], integration="generic", adapter=None, stored=stored
+            entity_id=f"climate.trv{index}",
+            integration="generic",
+            adapter=None,
+            stored=stored,
         )
-        for stored in _stored(count)
+        for index, stored in enumerate(_stored(count))
     ]
 
 

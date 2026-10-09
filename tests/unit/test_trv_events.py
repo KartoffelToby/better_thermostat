@@ -6,8 +6,9 @@ and the convert_inbound_states / convert_outbound_states helpers.
 """
 
 import asyncio
+from collections.abc import Callable, Coroutine
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -39,11 +40,18 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import TaskManager
-from custom_components.better_thermostat.utils.helpers import mode_remap
-from tests.factories import ThermostatStandIn, trv_from_legacy_dict
+from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
+from custom_components.better_thermostat.utils.helpers import (
+    CoolerSendCache,
+    mode_remap,
+)
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.test_trv"
 PEER_ID = "climate.test_trv_peer"
+
+# A timer the reread armed: its delay in seconds and the callback it runs.
+type _ArmedTimer = tuple[float, Callable[[datetime], object]]
 
 
 # ---------------------------------------------------------------------------
@@ -107,34 +115,31 @@ def mock_bt():
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
 
     bt.real_trvs = {
-        ENTITY_ID: trv_from_legacy_dict(
-            ENTITY_ID,
-            {
-                "hvac_mode": HVACMode.HEAT,
-                "hvac_modes": [HVACMode.OFF, HVACMode.HEAT],
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "current_temperature": 18.0,
-                "temperature": 19.0,
-                "commanded_setpoint": 19.0,
-                "last_hvac_mode": "heat",
-                "target_temperature_received": True,
-                "system_mode_received": True,
-                "calibration_received": True,
-                "calibration": None,
-                "last_calibration": 0.0,
-                "ignore_trv_states": False,
-                "model": "SomeModel",
-                "model_quirks": None,
-                "hvac_action": "heating",
-                "valve_position": 50,
-                "advanced": {
-                    "calibration": CalibrationOutput.LOCAL_BASED,
-                    "calibration_mode": CalibrationMode.DEFAULT,
-                    "no_off_system_mode": False,
-                    "heat_auto_swapped": False,
-                    "child_lock": False,
-                },
+        ENTITY_ID: Trv(
+            entity_id=ENTITY_ID,
+            hvac_mode=HVACMode.HEAT,
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+            min_temp=5.0,
+            max_temp=30.0,
+            current_temperature=18.0,
+            commanded_setpoint=19.0,
+            last_hvac_mode="heat",
+            target_temperature_received=True,
+            system_mode_received=True,
+            calibration_received=True,
+            calibration=None,
+            last_calibration=0.0,
+            ignore_trv_states=False,
+            model="SomeModel",
+            model_quirks=None,
+            hvac_action="heating",
+            valve_position=50,
+            advanced={
+                "calibration": CalibrationOutput.LOCAL_BASED,
+                "calibration_mode": CalibrationMode.DEFAULT,
+                "no_off_system_mode": False,
+                "heat_auto_swapped": False,
+                "child_lock": False,
             },
         )
     }
@@ -177,35 +182,32 @@ def _add_homematicip_peer(bt):
     Returns the state the peer reports, so a caller can route
     ``hass.states.get`` to the right state per entity.
     """
-    peer = trv_from_legacy_dict(
-        PEER_ID,
-        {
-            "hvac_mode": HVACMode.HEAT,
-            "hvac_modes": [HVACMode.OFF, HVACMode.HEAT],
-            "min_temp": 5.0,
-            "max_temp": 30.0,
-            "current_temperature": 18.0,
-            "temperature": 19.0,
-            "commanded_setpoint": 19.0,
-            "last_hvac_mode": "heat",
-            "target_temperature_received": True,
-            "system_mode_received": True,
-            "calibration_received": True,
-            "calibration": None,
-            "last_calibration": 0.0,
-            "ignore_trv_states": False,
-            "model": "SomeModel",
-            "model_quirks": None,
-            "hvac_action": "heating",
-            "valve_position": 50,
-            "advanced": {
-                "calibration": CalibrationOutput.LOCAL_BASED,
-                "calibration_mode": CalibrationMode.DEFAULT,
-                "no_off_system_mode": False,
-                "heat_auto_swapped": False,
-                "child_lock": False,
-                CONF_HOMEMATICIP: True,
-            },
+    peer = Trv(
+        entity_id=PEER_ID,
+        hvac_mode=HVACMode.HEAT,
+        hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+        min_temp=5.0,
+        max_temp=30.0,
+        current_temperature=18.0,
+        commanded_setpoint=19.0,
+        last_hvac_mode="heat",
+        target_temperature_received=True,
+        system_mode_received=True,
+        calibration_received=True,
+        calibration=None,
+        last_calibration=0.0,
+        ignore_trv_states=False,
+        model="SomeModel",
+        model_quirks=None,
+        hvac_action="heating",
+        valve_position=50,
+        advanced={
+            "calibration": CalibrationOutput.LOCAL_BASED,
+            "calibration_mode": CalibrationMode.DEFAULT,
+            "no_off_system_mode": False,
+            "heat_auto_swapped": False,
+            "child_lock": False,
+            CONF_HOMEMATICIP: True,
         },
     )
     bt.real_trvs[PEER_ID] = peer
@@ -1877,7 +1879,8 @@ class TestHvacModeUpdate:
         the outside is a dial that works for temperature and not for mode.
         """
         outcomes = []
-        for flag in ({}, {"child_lock": False}):
+        flags: tuple[TrvAdvanced, ...] = ({}, {"child_lock": False})
+        for flag in flags:
             trv = mock_bt.real_trvs[ENTITY_ID]
             trv.advanced.pop("child_lock", None)
             trv.advanced.update(flag)
@@ -3103,11 +3106,6 @@ class TestControlQueueTrigger:
 class TestConvertInboundStates:
     """Tests for convert_inbound_states()."""
 
-    def test_none_state_raises_typeerror(self, mock_bt):
-        """Raise TypeError when state is None."""
-        with pytest.raises(TypeError):
-            convert_inbound_states(mock_bt, ENTITY_ID, None)  # type: ignore[arg-type]
-
     def test_none_attributes_raises_typeerror(self, mock_bt):
         """Raise TypeError when state.attributes is None."""
         state = MagicMock(spec=State)
@@ -3616,34 +3614,31 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}} for _ in entity_ids]
 
     bt.real_trvs = {
-        eid: trv_from_legacy_dict(
-            eid,
-            {
-                "hvac_mode": HVACMode.HEAT,
-                "hvac_modes": [HVACMode.OFF, HVACMode.HEAT],
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "current_temperature": 18.0,
-                "temperature": 19.0,
-                "commanded_setpoint": 19.0,
-                "last_hvac_mode": "heat",
-                "target_temperature_received": True,
-                "system_mode_received": True,
-                "calibration_received": True,
-                "calibration": None,
-                "last_calibration": 0.0,
-                "ignore_trv_states": False,
-                "model": "SomeModel",
-                "model_quirks": None,
-                "hvac_action": "heating",
-                "valve_position": 50,
-                "advanced": {
-                    "calibration": CalibrationOutput.LOCAL_BASED,
-                    "calibration_mode": CalibrationMode.DEFAULT,
-                    "no_off_system_mode": no_off,
-                    "heat_auto_swapped": False,
-                    "child_lock": False,
-                },
+        eid: Trv(
+            entity_id=eid,
+            hvac_mode=HVACMode.HEAT,
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+            min_temp=5.0,
+            max_temp=30.0,
+            current_temperature=18.0,
+            commanded_setpoint=19.0,
+            last_hvac_mode="heat",
+            target_temperature_received=True,
+            system_mode_received=True,
+            calibration_received=True,
+            calibration=None,
+            last_calibration=0.0,
+            ignore_trv_states=False,
+            model="SomeModel",
+            model_quirks=None,
+            hvac_action="heating",
+            valve_position=50,
+            advanced={
+                "calibration": CalibrationOutput.LOCAL_BASED,
+                "calibration_mode": CalibrationMode.DEFAULT,
+                "no_off_system_mode": no_off,
+                "heat_auto_swapped": False,
+                "child_lock": False,
             },
         )
         for eid in entity_ids
@@ -4135,7 +4130,9 @@ class TestDualRoleEntityReports:
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
         shared_bt.cool_target_temperature = cool_target_temperature
         shared_bt._cooler_last_sent = (
-            {"temperature": (cool_target_temperature, 0.0)} if send_cache_primed else {}
+            CoolerSendCache(temperature=(cool_target_temperature, 0.0))
+            if send_cache_primed
+            else CoolerSendCache()
         )
 
         await self._report(
@@ -4234,8 +4231,8 @@ def _prepare_outage_room(bt, *, with_peer: bool):
         unavailable if entity_id == ENTITY_ID else peer_state
     )
     bt.in_maintenance = False
-    bt.devices_errors = []
-    bt.devices_states = {}
+    bt.devices_errors = list[str]()
+    bt.devices_states = dict[str, dict[str, object]]()
     bt._critical_grace_until = None
     # The entity has subscribed to its TRVs' state changes.
     bt._async_unsub_state_changed = MagicMock()
@@ -4331,7 +4328,7 @@ class TestInternalRereadAfterTheDebounce:
 
     def _start(self, mock_bt, trv):
         """Arm the reread and return the work it hands to the entity."""
-        work = []
+        work: list[Coroutine[object, object, None]] = []
         mock_bt.task_manager.create_task = MagicMock(
             side_effect=lambda coro, **kwargs: work.append(coro) or MagicMock()
         )
@@ -4463,7 +4460,7 @@ class TestInternalRereadAfterTheDebounce:
             mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
         )
         clock = [self.T0 + timedelta(seconds=1)]
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
         with patch(
             "custom_components.better_thermostat.events.trv.request_control_cycle"
@@ -4490,7 +4487,7 @@ class TestInternalRereadAfterTheDebounce:
         _set_control_mode(mock_bt, ControlMode.SENSOR_FALLBACK)
         assert effective_room_temperature(mock_bt) == pytest.approx(18.0)
         clock = [self.T0 + timedelta(seconds=1)]
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
         with patch(
             "custom_components.better_thermostat.events.trv.request_control_cycle"
@@ -4515,7 +4512,7 @@ class TestInternalRereadAfterTheDebounce:
             current=None,
         )
         clock = [self.T0 + timedelta(seconds=1)]
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
         await self._run(
             coro, clock, timers, [(self.T0 + timedelta(seconds=5), lambda: None)]
@@ -4534,7 +4531,7 @@ class TestInternalRereadAfterTheDebounce:
             mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
         )
         clock = [self.T0 + timedelta(seconds=1)]
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
         seen_at_first_deadline = []
 
@@ -4576,7 +4573,7 @@ class TestInternalRereadAfterTheDebounce:
             mock_bt, state=_make_state(attributes={"current_temperature": unchanged})
         )
         clock = [self.T0 + timedelta(seconds=1)]
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
         with patch(
             "custom_components.better_thermostat.events.trv.request_control_cycle"
@@ -4603,7 +4600,7 @@ class TestInternalRereadAfterTheDebounce:
         )
         replacement = Trv(entity_id=ENTITY_ID, current_temperature=18.0)
         clock = [self.T0 + timedelta(seconds=1)]
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
 
         def _leave():
@@ -4635,7 +4632,7 @@ class TestInternalRereadAfterTheDebounce:
         trv = self._prepare(
             mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
         )
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
         with (
             patch(

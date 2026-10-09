@@ -29,7 +29,7 @@ def bt():
 
 
 def _hvac_mode(bt):
-    return BetterThermostat.hvac_mode.fget(bt)
+    return BetterThermostat.hvac_mode.__get__(bt)
 
 
 def test_none_maps_to_off(bt):

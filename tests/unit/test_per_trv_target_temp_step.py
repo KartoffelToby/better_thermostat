@@ -56,7 +56,7 @@ def bt():
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
     mock.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
-    mock.all_entities = []
+    mock.all_entities = list[str]()
     mock.cooler_entity_id = COOLER_ID
     mock.bt_min_temp = None
     mock.bt_max_temp = None
