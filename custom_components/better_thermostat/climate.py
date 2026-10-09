@@ -3946,17 +3946,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # Fallback if None
         if self.bt_hvac_mode is None:
             return HVACMode.OFF
-        mapped = get_hvac_bt_mode(self, self.bt_hvac_mode)
-        if isinstance(mapped, HVACMode):
-            result = mapped
-        else:
-            try:
-                result = HVACMode(mapped)
-            except ValueError:
-                try:
-                    result = HVACMode[mapped.upper()]
-                except KeyError, AttributeError:
-                    return HVACMode.OFF
+        result = get_hvac_bt_mode(self, self.bt_hvac_mode)
 
         # Ensure result is in available modes list
         if result not in self._hvac_list:

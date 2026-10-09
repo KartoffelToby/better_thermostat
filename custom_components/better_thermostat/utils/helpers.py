@@ -442,7 +442,7 @@ def entity_uses_mpc_calibration(bt: _CalibrationModeHost, entity_id: str) -> boo
     return entity_uses_calibration_mode(bt, entity_id, CalibrationMode.MPC_CALIBRATION)
 
 
-def get_hvac_bt_mode(self: BetterThermostat, mode: str) -> str:
+def get_hvac_bt_mode(self: BetterThermostat, mode: HVACMode) -> HVACMode:
     """Return the mode Better Thermostat publishes for a room mode.
 
     Either spelling of "on" is published in the spelling the instance's own
