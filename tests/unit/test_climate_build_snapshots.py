@@ -21,7 +21,7 @@ def bt():
     """Minimal BetterThermostat mock for snapshot building."""
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
-    mock.real_trvs = {}
+    mock.real_trvs = dict[str, Trv]()
     mock.hass = MagicMock()
     mock.hass.states.get.return_value = None
     return mock

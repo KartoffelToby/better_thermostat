@@ -1,10 +1,12 @@
 """Tests for the Trv domain object."""
 
-import importlib
-
 import pytest
 
-from custom_components.better_thermostat.model_fixes import default as default_quirk
+from custom_components.better_thermostat.model_fixes import (
+    TRVZB,
+    ZWA021,
+    default as default_quirk,
+)
 from custom_components.better_thermostat.trv import (
     ECHO_SETPOINTS_LIMIT,
     PendingSetpoint,
@@ -106,8 +108,7 @@ class TestExtraScratchpad:
     def test_no_dict_protocol(self):
         """Trv does not speak the dict protocol: attribute access only."""
         trv = _make()
-        with pytest.raises(TypeError):
-            trv["current_temperature"]
+        assert not hasattr(type(trv), "__getitem__")
         assert not hasattr(trv, "get")
 
     def test_truthiness(self):
@@ -425,7 +426,7 @@ class TestTrvCapabilities:
     def test_valve_capability_from_quirk_override(self):
         """A quirk-provided override_set_valve enables valve writes."""
 
-        class _Quirk:
+        class _Quirk(default_quirk._Surface):
             @staticmethod
             async def override_set_valve(bt, entity_id, percent):
                 return True
@@ -446,11 +447,9 @@ class TestTrvCapabilities:
         trv.valve_position_entity = None
         assert trv.capabilities().supports_valve_write is False
 
-    @pytest.mark.parametrize("model", ["TRVZB", "ZWA021"])
-    def test_a_model_that_drives_its_valve_keeps_the_capability(self, model):
+    @pytest.mark.parametrize("quirks", [TRVZB, ZWA021], ids=["TRVZB", "ZWA021"])
+    def test_a_model_that_drives_its_valve_keeps_the_capability(self, quirks):
         """The modules that do command a valve still report one."""
         trv = _make()
-        trv.model_quirks = importlib.import_module(
-            f"custom_components.better_thermostat.model_fixes.{model}"
-        )
+        trv.model_quirks = quirks
         assert trv.capabilities().supports_valve_write is True

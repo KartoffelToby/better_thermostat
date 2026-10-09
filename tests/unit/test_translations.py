@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Mapping
 import json
 from pathlib import Path
 import re
@@ -68,7 +69,7 @@ ENTITY_TRANSLATION_KEYS = {
 }
 
 
-def _flatten(obj: dict, prefix: str = "") -> dict[str, object]:
+def _flatten(obj: Mapping[str, object], prefix: str = "") -> dict[str, object]:
     """Flatten nested dictionary values into dotted-key paths."""
     flat: dict[str, object] = {}
     for key, value in obj.items():
@@ -85,11 +86,25 @@ def test_flatten_preserves_empty_object_leaves():
     assert _flatten({"config": {"name": {}}}) == {"config.name": {}}
 
 
-def _load_json(path: Path) -> dict:
+def _load_json(path: Path) -> dict[str, object]:
     """Load a JSON object from path."""
     value = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(value, dict), f"{path} must contain a JSON object"
     return value
+
+
+def _section(value: object, *keys: str) -> dict[str, object]:
+    """Return the JSON object at ``keys`` below ``value``."""
+    for key in keys:
+        assert isinstance(value, dict)
+        value = value[key]
+    assert isinstance(value, dict)
+    return value
+
+
+def _is_mdi_icon(icon: object) -> bool:
+    """Return whether ``icon`` names a Material Design icon."""
+    return isinstance(icon, str) and icon.startswith("mdi:")
 
 
 def _load(path: Path) -> dict[str, object]:
@@ -113,9 +128,11 @@ def test_inlang_languages_match_translation_catalogs():
     project = _load_json(PROJECT_INLANG)
 
     assert project["sourceLanguageTag"] == "en"
-    assert sorted(project["languageTags"]) == ALL_LANGUAGES
+    language_tags = project["languageTags"]
+    assert isinstance(language_tags, list)
+    assert sorted(language_tags) == ALL_LANGUAGES
     assert (
-        project["plugin.inlang.i18next"]["pathPattern"]
+        _section(project, "plugin.inlang.i18next")["pathPattern"]
         == "./custom_components/better_thermostat/translations/{languageTag}.json"
     )
 
@@ -164,10 +181,10 @@ def test_placeholders_match(lang: str):
 
 def test_entity_translation_catalog_covers_platform_keys():
     """All stable translation keys used by entity platforms must be cataloged."""
-    english_entities = _load_json(TRANSLATIONS / "en.json").get("entity", {})
+    english_entities = _section(_load_json(TRANSLATIONS / "en.json").get("entity", {}))
 
     for platform, expected_keys in ENTITY_TRANSLATION_KEYS.items():
-        actual_keys = set(english_entities.get(platform, {}))
+        actual_keys = set(_section(english_entities.get(platform, {})))
         missing = expected_keys - actual_keys
         assert not missing, f"entity.{platform} is missing translation keys: {missing}"
 
@@ -189,19 +206,22 @@ def test_entity_platforms_do_not_hardcode_natural_language_names(platform: str):
     for node in ast.walk(tree):
         targets: list[ast.expr] = []
         value: ast.expr | None = None
+        line = 0
         if isinstance(node, ast.Assign):
             targets = node.targets
             value = node.value
+            line = node.lineno
         elif isinstance(node, ast.AnnAssign):
             targets = [node.target]
             value = node.value
+            line = node.lineno
 
         if value is None or not any(_is_attr_name_target(target) for target in targets):
             continue
         if isinstance(value, ast.Constant) and isinstance(value.value, str):
-            hardcoded.append((node.lineno, value.value))
+            hardcoded.append((line, value.value))
         elif isinstance(value, ast.JoinedStr):
-            hardcoded.append((node.lineno, ast.unparse(value)))
+            hardcoded.append((line, ast.unparse(value)))
 
     assert not hardcoded, (
         f"{platform} hardcodes user-facing entity names instead of "
@@ -213,12 +233,14 @@ def test_services_yaml_covered():
     """Every service and service field in services.yaml has an English string."""
     services = yaml.safe_load((COMPONENT / "services.yaml").read_text(encoding="utf-8"))
     english = _load_json(TRANSLATIONS / "en.json")
-    translated_services = english.get("services", {})
+    translated_services = _section(english.get("services", {}))
 
     assert set(services) == set(translated_services)
     for name, spec in services.items():
         expected_fields = set(spec.get("fields", {}))
-        translated_fields = set(translated_services[name].get("fields", {}))
+        translated_fields = set(
+            _section(_section(translated_services, name).get("fields", {}))
+        )
         assert expected_fields == translated_fields, (
             f"service {name}: fields in services.yaml and en.json differ"
         )
@@ -230,23 +252,25 @@ DEVICE_CLASS_ICON_KEYS = {"external_temp_ema", "external_temp_ema_1h"}
 
 def test_icons_json_names_an_icon_for_every_sensor_and_switch():
     """Each sensor and switch key has an icon, and the catalog has no stray key."""
-    icons = _load_json(COMPONENT / "icons.json")["entity"]
+    icons = _section(_load_json(COMPONENT / "icons.json"), "entity")
 
     assert set(icons) == {"sensor", "switch"}
-    for platform, keys in icons.items():
+    for platform in icons:
+        keys = _section(icons, platform)
         assert set(keys) == ENTITY_TRANSLATION_KEYS[platform] - DEVICE_CLASS_ICON_KEYS
-        for key, spec in keys.items():
-            named = [spec["default"], *spec.get("state", {}).values()]
-            assert all(icon.startswith("mdi:") for icon in named), (platform, key)
+        for key in keys:
+            spec = _section(keys, key)
+            named = [spec["default"], *_section(spec.get("state", {})).values()]
+            assert all(_is_mdi_icon(icon) for icon in named), (platform, key)
 
 
 def test_icons_json_names_an_icon_for_every_service():
     """The action picker shows an icon for each service in services.yaml."""
     services = yaml.safe_load((COMPONENT / "services.yaml").read_text(encoding="utf-8"))
-    icons = _load_json(COMPONENT / "icons.json")["services"]
+    icons = _section(_load_json(COMPONENT / "icons.json"), "services")
 
     assert set(icons) == set(services)
-    assert all(spec["service"].startswith("mdi:") for spec in icons.values())
+    assert all(_is_mdi_icon(_section(icons, name)["service"]) for name in icons)
 
 
 def test_select_selectors_declare_translation_keys():
@@ -293,7 +317,7 @@ def test_selector_catalog_covers_every_option():
         MpcV2PlantPreset,
     )
 
-    catalog = _load_json(TRANSLATIONS / "en.json")["selector"]
+    catalog = _section(_load_json(TRANSLATIONS / "en.json"), "selector")
     expected = {
         "calibration_mode": {member.value for member in CalibrationMode},
         "calibration_output": {member.value for member in CalibrationOutput},
@@ -303,7 +327,7 @@ def test_selector_catalog_covers_every_option():
         "target_temp_step": set(_TARGET_TEMP_STEP_SELECTOR_TO_VALUE),
     }
     for key, options in expected.items():
-        assert set(catalog[key]["options"]) == options, (
+        assert set(_section(catalog, key, "options")) == options, (
             f"selector.{key} options and the catalog have drifted apart"
         )
 
@@ -342,7 +366,8 @@ def test_every_form_field_has_a_label(lang: str):
     catalog = _load_json(TRANSLATIONS / f"{lang}.json")
     unlabelled = {
         f"{section}.step.{step}": sorted(
-            published - set(catalog[section]["step"][step].get("data", {}))
+            published
+            - set(_section(_section(catalog, section, "step", step).get("data", {})))
         )
         for (section, step), published in _published_form_fields().items()
     }
@@ -381,7 +406,7 @@ def test_user_errors_name_a_catalog_message():
     whatever the user's language. The placeholders the call passes must be
     the ones the English message uses.
     """
-    messages = _load_json(TRANSLATIONS / "en.json").get("exceptions", {})
+    messages = _section(_load_json(TRANSLATIONS / "en.json").get("exceptions", {}))
     raised = _constructed_user_errors()
     assert raised, "the scan found no error construction at all"
 
@@ -396,15 +421,19 @@ def test_user_errors_name_a_catalog_message():
         if not (isinstance(domain, ast.Name) and domain.id == "DOMAIN"):
             problems.append(f"{where}: translation_domain is not DOMAIN")
         key = kwargs.get("translation_key")
-        if not (isinstance(key, ast.Constant) and key.value in messages):
+        if not (
+            isinstance(key, ast.Constant)
+            and isinstance(key.value, str)
+            and key.value in messages
+        ):
             problems.append(f"{where}: translation_key is missing from en.json")
             continue
         passed = kwargs.get("translation_placeholders")
         names = (
             sorted(f"{{{k.value}}}" for k in passed.keys if isinstance(k, ast.Constant))
             if isinstance(passed, ast.Dict)
-            else []
+            else list[str]()
         )
-        if names != _placeholders(messages[key.value]["message"]):
+        if names != _placeholders(_section(messages, key.value)["message"]):
             problems.append(f"{where}: placeholders {names} differ from en.json")
     assert not problems, "\n".join(problems)
