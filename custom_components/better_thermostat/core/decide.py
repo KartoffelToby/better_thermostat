@@ -46,10 +46,7 @@ from .fsm.maintenance import MaintenanceState
 from .fsm.mode import ModeState
 from .fsm.reachability import ReachabilityState, step as reachability_step
 from .fsm.window import WindowState
-from .snapshot import HvacMode, WorldSnapshot
-
-# Preset name kept in the core vocabulary; value matches HA's PRESET_BOOST.
-PRESET_BOOST = "boost"
+from .snapshot import HvacMode, Preset, WorldSnapshot
 
 
 @dataclass(frozen=True)
@@ -122,7 +119,7 @@ def is_boost_heating(snapshot: WorldSnapshot) -> bool:
         is below the target, ``False`` otherwise.
     """
     return (
-        snapshot.preset_mode == PRESET_BOOST
+        snapshot.preset_mode == Preset.BOOST
         and snapshot.room_temperature is not None
         and snapshot.heat_target_temperature is not None
         and snapshot.room_temperature < snapshot.heat_target_temperature

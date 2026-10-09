@@ -23,7 +23,7 @@ from .fsm.maintenance import MaintenancePhase, MaintenanceState
 from .fsm.mode import ModeState
 from .fsm.reachability import ReachabilityState
 from .fsm.window import WindowPhase, WindowState
-from .snapshot import TrvReported, WorldSnapshot, parse_hvac_mode
+from .snapshot import TrvReported, WorldSnapshot, parse_hvac_mode, parse_preset
 
 DEFAULT_CAPACITY = 50
 
@@ -279,7 +279,7 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
         ),
         call_for_heat=_bool_of(data["call_for_heat"]),
         window_open=_bool_or_none(data.get("window_open")),
-        preset_mode=_str_or_none(data["preset_mode"]),
+        preset_mode=parse_preset(_str_or_none(data["preset_mode"])),
         tolerance=_float_or_default(data["tolerance"], 0.0),
         outdoor_temperature=_float_or_none(data["outdoor_temperature"]),
         is_day=_bool_of(data["is_day"]),
@@ -387,7 +387,7 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
         mode=ModeState(
             hvac_mode=parse_hvac_mode(_str_or_none(mode["hvac_mode"]))
             or ModeState().hvac_mode,
-            preset=_str_or_none(mode["preset"]),
+            preset=parse_preset(_str_or_none(mode["preset"])),
         ),
         control_mode=ControlModeState(
             mode=ControlMode(_str_of(control_mode["mode"])),

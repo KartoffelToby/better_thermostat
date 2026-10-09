@@ -21,7 +21,7 @@ from custom_components.better_thermostat.core.fsm import (
     reachability as rb,
     window as wd,
 )
-from custom_components.better_thermostat.core.snapshot import HvacMode
+from custom_components.better_thermostat.core.snapshot import HvacMode, Preset
 
 NOW = 10_000.0
 NOW_DT = datetime(2026, 1, 2, 8, 30, tzinfo=UTC)
@@ -259,19 +259,20 @@ class TestModeSweep:
     )
     def test_hvac_mode_stays_valid(self, current, value):
         """Unknown inputs leave the state unchanged; known ones apply."""
-        state = md.ModeState(hvac_mode=current, preset="eco")
+        state = md.ModeState(hvac_mode=current, preset=Preset.ECO)
         result = md.set_hvac_mode(state, value)
         assert isinstance(result.hvac_mode, HvacMode)
         if result.hvac_mode != current:
             assert value is not None and result.hvac_mode == value.strip().lower()
         # The preset axis is untouched by the mode axis.
-        assert result.preset == "eco"
+        assert result.preset == Preset.ECO
 
     @pytest.mark.parametrize(
         ("current", "preset"),
         list(
             itertools.product(
-                (None, "eco", "boost"), (None, "", "none", "eco", "boost", "away")
+                (None, Preset.ECO, Preset.BOOST),
+                (None, "", "none", "eco", "boost", "away", "bogus"),
             )
         ),
     )
@@ -279,10 +280,12 @@ class TestModeSweep:
         """PRESET_NONE and empty values clear; the mode axis is untouched."""
         state = md.ModeState(hvac_mode=HvacMode.HEAT, preset=current)
         result = md.set_preset(state, preset)
-        if preset in (None, "", md.PRESET_NONE):
+        if preset in (None, "", Preset.NONE):
             assert result.preset is None
+        elif preset == "bogus":
+            assert result == state
         else:
-            assert result.preset == preset
+            assert result.preset == Preset(preset)
         assert result.hvac_mode == HvacMode.HEAT
 
 

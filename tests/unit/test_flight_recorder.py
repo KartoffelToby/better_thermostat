@@ -21,6 +21,7 @@ from custom_components.better_thermostat.core.recorder import (
 )
 from custom_components.better_thermostat.core.snapshot import (
     HvacMode,
+    Preset,
     TrvReported,
     WorldSnapshot,
 )
@@ -560,7 +561,7 @@ class TestRoundtripCompleteness:
             "temperature_slope": 0.02,
             "call_for_heat": True,
             "window_open": True,
-            "preset_mode": "eco",
+            "preset_mode": Preset.ECO,
             "tolerance": 0.3,
             "outdoor_temperature": 5.5,
             "is_day": False,
@@ -584,7 +585,7 @@ class TestRoundtripCompleteness:
                 phase=LifecyclePhase.RUNNING,
                 grace_until=datetime(2026, 1, 10, 8, 0, tzinfo=UTC),
             ),
-            "mode": ModeState(hvac_mode=HvacMode.HEAT, preset="eco"),
+            "mode": ModeState(hvac_mode=HvacMode.HEAT, preset=Preset.ECO),
             "control_mode": ControlModeState(
                 mode=ControlMode.SENSOR_FALLBACK,
                 unavailable_sensors=("sensor.room",),
