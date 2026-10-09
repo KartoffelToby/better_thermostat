@@ -172,6 +172,47 @@ async def test_unload_and_reload_the_entry(hass, fake_trv):
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
 
 
+async def test_a_setup_that_fails_part_way_leaves_no_thermostat_behind(hass, fake_trv):
+    """A platform failing after the climate one takes the climate one down too.
+
+    The entry is in an error state then, and Home Assistant does not unload
+    it. A thermostat left set up would go on writing to the TRV next to an
+    entry the user sees as failed, and the next setup attempt would fail on
+    the climate platform it finds already set up.
+    """
+    from homeassistant.config_entries import ConfigEntries, ConfigEntryState
+    from homeassistant.const import Platform
+
+    forward = ConfigEntries.async_forward_entry_setups
+    sensor_platform_broken = True
+
+    async def sensor_platform_fails(self, entry, platforms):
+        platforms = list(platforms)
+        if sensor_platform_broken and Platform.SENSOR in platforms:
+            raise ImportError("sensor platform failed to import")
+        await forward(self, entry, platforms)
+
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(fake_trv.profile)
+    entry.add_to_hass(hass)
+    with patch.object(
+        ConfigEntries, "async_forward_entry_setups", sensor_platform_fails
+    ):
+        assert not await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.state is ConfigEntryState.SETUP_ERROR
+        bt_state = hass.states.get(BT_ENTITY)
+        assert bt_state is None or bt_state.state == "unavailable"
+
+        sensor_platform_broken = False
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    await wait_for_startup(hass, entry)
+    assert hass.states.get(BT_ENTITY).state == "heat"
+
+
 @pytest.mark.parametrize("device_role", ROLE_SCENARIOS, indirect=True, ids=profile_id)
 async def test_the_role_scenario_decides_what_the_entry_controls(hass, device_role):
     """The entry wires exactly the devices and channels its role names.
