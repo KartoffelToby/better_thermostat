@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 import sys
 from types import FrameType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
@@ -26,6 +26,9 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plan
     PlantModelRC2,
     PlantParams,
 )
+
+if TYPE_CHECKING:
+    from sys import TraceFunction
 
 
 class TestPlantPriorBands:
@@ -159,7 +162,7 @@ def _plant_lines_run(work: Callable[[], Any]) -> int:
     plant_source = Path(_plant.__file__).resolve()
     count = 0
 
-    def tracer(frame: FrameType, event: str, _arg: object) -> object:
+    def tracer(frame: FrameType, event: str, _arg: object) -> TraceFunction | None:
         nonlocal count
         if Path(frame.f_code.co_filename).resolve() != plant_source:
             return None
