@@ -57,7 +57,7 @@
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
-          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "no_off_system_mode": "Brug minimumstemperaturen i stedet for 'slukket'",
           "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
         },
         "data_description": {
@@ -66,10 +66,10 @@
           "child_lock": "Låser TRV'ens knapper, hvis den har en børnesikring; ændringer på selve TRV'en ignoreres.",
           "homematicip": "Sender kommandoer sjældnere, så HomematicIP-enheder holder sig inden for deres duty cycle.",
           "valve_maintenance": "Åbner og lukker ventilen en gang imellem, så den ikke sætter sig fast. Til TRV'er uden egen vedligeholdelse.",
-          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset.",
-          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
-          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
-          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
+          "calibration": "Hvordan kalibreringen anvendes på TRV'en\n***Baseret på måltemperatur***: Anvend kalibreringen på måltemperaturen.\n***Baseret på forskydning***: Anvend kalibreringen på temperaturforskydningen.\n***Direkte ventilstyring***: Indstil ventilåbningen direkte. Tilbydes kun, når TRV'en har en skrivbar ventilposition. Kalibreringstilstande, der ikke giver en ventilåbning, sender i stedet en måltemperatur.",
+          "calibration_mode": "Hvordan kalibreringen beregnes\n***AI tidsbaseret (standard)***: Lærer rummets varmeeffekt over tid og udleder kalibreringen af den.\n***Kun ekstern sensorforskydning***: Korrigerer TRV'ens interne sensor med din eksterne temperatursensor. Der kører ingen regulator ovenpå.\n***MPC forudsigende (beta)***: Forudsiger rumtemperaturen og beregner en ventilåbning ud fra den. Lærer rummets termiske adfærd.\n***(AI) MPC v2 (QP + Kalman, eksperimentel)***: Estimerer rummets tilstand med et Kalman-filter og beregner en ventilåbning med en modelprædiktiv regulator. Indstillingen MPC v2 rumstørrelse vælger rummodellen: lært fra rummet (automatisk) eller fast for en rumstørrelse (lille, mellemstort, stort).\n***Aggressiv***: Hæver kalibreringen, mens rummet opvarmes, og springer toleranceforsinkelsen over, så TRV'en begynder at varme tidligere. Nyttigt, hvis dit rum varmes langsomt op.\n***TPI-regulator***: Beregner varmecyklussernes driftstid ud fra temperaturforskellen.\n***PID-regulator***: Beregner en ventilåbning ud fra temperaturafvigelsen med et proportional-, integral- og differentialled.\n***Ingen kalibrering***: Sender måltemperaturen uændret til TRV'en og foretager ingen korrektion.",
+          "no_off_system_mode": "Med denne indstilling sender Better Thermostat TRV'en dens minimumstemperatur i stedet for 'slukket'. En TRV, der rapporterer sin minimumstemperatur, regnes som slukket: når alle rummets TRV'er er slukket, og intet vindue eller dør er åben, slukker rummet, og når en drejeknap skrues op, tænder det igen. En TRV uden 'slukket'-tilstand får sin minimumstemperatur også uden denne indstilling. Slå den til for en TRV, hvis 'slukket'-tilstand ikke virker, eller for en TRV uden 'slukket'-tilstand, hvis drejeknap skal tænde og slukke Better Thermostat.",
+          "mpc_v2_plant_preset": "Bruges kun af kalibreringstilstanden MPC v2.\n***Automatisk***: Udleder rummodellen af det, Better Thermostat har lært om rummet, f.eks. dets varmetabsrate.\n***Lille, mellemstort eller stort rum***: Starter fra en fast rummodel for den rumstørrelse."
         }
       },
       "confirm": {
@@ -154,7 +154,7 @@
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
-          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "no_off_system_mode": "Brug minimumstemperaturen i stedet for 'slukket'",
           "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
         },
         "data_description": {
@@ -163,10 +163,10 @@
           "child_lock": "Låser TRV'ens knapper, hvis den har en børnesikring; ændringer på selve TRV'en ignoreres.",
           "homematicip": "Sender kommandoer sjældnere, så HomematicIP-enheder holder sig inden for deres duty cycle.",
           "valve_maintenance": "Åbner og lukker ventilen en gang imellem, så den ikke sætter sig fast. Til TRV'er uden egen vedligeholdelse.",
-          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset.",
-          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
-          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
-          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
+          "calibration": "Hvordan kalibreringen anvendes på TRV'en\n***Baseret på måltemperatur***: Anvend kalibreringen på måltemperaturen.\n***Baseret på forskydning***: Anvend kalibreringen på temperaturforskydningen.\n***Direkte ventilstyring***: Indstil ventilåbningen direkte. Tilbydes kun, når TRV'en har en skrivbar ventilposition. Kalibreringstilstande, der ikke giver en ventilåbning, sender i stedet en måltemperatur.",
+          "calibration_mode": "Hvordan kalibreringen beregnes\n***AI tidsbaseret (standard)***: Lærer rummets varmeeffekt over tid og udleder kalibreringen af den.\n***Kun ekstern sensorforskydning***: Korrigerer TRV'ens interne sensor med din eksterne temperatursensor. Der kører ingen regulator ovenpå.\n***MPC forudsigende (beta)***: Forudsiger rumtemperaturen og beregner en ventilåbning ud fra den. Lærer rummets termiske adfærd.\n***(AI) MPC v2 (QP + Kalman, eksperimentel)***: Estimerer rummets tilstand med et Kalman-filter og beregner en ventilåbning med en modelprædiktiv regulator. Indstillingen MPC v2 rumstørrelse vælger rummodellen: lært fra rummet (automatisk) eller fast for en rumstørrelse (lille, mellemstort, stort).\n***Aggressiv***: Hæver kalibreringen, mens rummet opvarmes, og springer toleranceforsinkelsen over, så TRV'en begynder at varme tidligere. Nyttigt, hvis dit rum varmes langsomt op.\n***TPI-regulator***: Beregner varmecyklussernes driftstid ud fra temperaturforskellen.\n***PID-regulator***: Beregner en ventilåbning ud fra temperaturafvigelsen med et proportional-, integral- og differentialled.\n***Ingen kalibrering***: Sender måltemperaturen uændret til TRV'en og foretager ingen korrektion.",
+          "no_off_system_mode": "Med denne indstilling sender Better Thermostat TRV'en dens minimumstemperatur i stedet for 'slukket'. En TRV, der rapporterer sin minimumstemperatur, regnes som slukket: når alle rummets TRV'er er slukket, og intet vindue eller dør er åben, slukker rummet, og når en drejeknap skrues op, tænder det igen. En TRV uden 'slukket'-tilstand får sin minimumstemperatur også uden denne indstilling. Slå den til for en TRV, hvis 'slukket'-tilstand ikke virker, eller for en TRV uden 'slukket'-tilstand, hvis drejeknap skal tænde og slukke Better Thermostat.",
+          "mpc_v2_plant_preset": "Bruges kun af kalibreringstilstanden MPC v2.\n***Automatisk***: Udleder rummodellen af det, Better Thermostat har lært om rummet, f.eks. dets varmetabsrate.\n***Lille, mellemstort eller stort rum***: Starter fra en fast rummodel for den rumstørrelse."
         }
       }
     },
@@ -234,15 +234,15 @@
         },
         "defaults_kp": {
           "name": "Standard-kp",
-          "description": "Proportionalforstærkning, der sættes efter nulstilling (falder tilbage til BalanceParams.kp, hvis ikke angivet)."
+          "description": "Proportionalforstærkning, der sættes efter nulstilling (falder tilbage til den indbyggede PID-standardværdi, hvis ikke angivet)."
         },
         "defaults_ki": {
           "name": "Standard-ki",
-          "description": "Integralforstærkning, der sættes efter nulstilling (falder tilbage til BalanceParams.ki, hvis ikke angivet)."
+          "description": "Integralforstærkning, der sættes efter nulstilling (falder tilbage til den indbyggede PID-standardværdi, hvis ikke angivet)."
         },
         "defaults_kd": {
           "name": "Standard-kd",
-          "description": "Differentialforstærkning, der sættes efter nulstilling (falder tilbage til BalanceParams.kd, hvis ikke angivet)."
+          "description": "Differentialforstærkning, der sættes efter nulstilling (falder tilbage til den indbyggede PID-standardværdi, hvis ikke angivet)."
         }
       }
     }
