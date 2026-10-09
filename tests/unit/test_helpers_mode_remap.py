@@ -5,17 +5,20 @@ between Better Thermostat and TRVs. This includes handling quirks like
 heat_auto_swapped devices and TRVs that only support HEAT_COOL but not HEAT.
 """
 
+from collections.abc import Sequence
 import logging
 
 from homeassistant.components.climate.const import HVACMode
 import pytest
 
+from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.containers import BtConfig
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.helpers import (
     adopt_reported_hvac_modes,
     get_hvac_bt_mode,
     mode_remap,
 )
-from tests.factories import trv_from_legacy_dict
 
 HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
 
@@ -38,26 +41,29 @@ def _forgotten_swap_records(caplog):
     ]
 
 
-class MockThermostat:
-    """Mock Better Thermostat instance for testing."""
+def _thermostat() -> BetterThermostat:
+    """Return a thermostat shell holding only its name and its TRVs."""
+    thermostat = object.__new__(BetterThermostat)
+    thermostat.config = BtConfig(device_name="Test")
+    thermostat.real_trvs = {}
+    return thermostat
 
-    def __init__(self, device_name="Test"):
-        """Initialize mock thermostat."""
-        self.device_name = device_name
-        self.real_trvs = {}
 
-    def add_trv(self, entity_id, heat_auto_swapped=False, hvac_modes=None):
-        """Add a TRV configuration."""
-        if hvac_modes is None:
-            hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+def _add_trv(
+    thermostat: BetterThermostat,
+    entity_id: str,
+    heat_auto_swapped: bool = False,
+    hvac_modes: Sequence[str] | None = None,
+) -> None:
+    """Add a TRV configuration to the thermostat."""
+    if hvac_modes is None:
+        hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
 
-        self.real_trvs[entity_id] = trv_from_legacy_dict(
-            entity_id,
-            {
-                "advanced": {"heat_auto_swapped": heat_auto_swapped},
-                "hvac_modes": hvac_modes,
-            },
-        )
+    thermostat.real_trvs[entity_id] = Trv(
+        entity_id=entity_id,
+        advanced={"heat_auto_swapped": heat_auto_swapped},
+        hvac_modes=list(hvac_modes),
+    )
 
 
 class TestModeRemapBasic:
@@ -65,8 +71,8 @@ class TestModeRemapBasic:
 
     def test_returns_mode_unchanged_when_no_remapping_needed(self):
         """Test that modes are returned unchanged when no remapping is needed."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test")
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test")
 
         # OFF should stay OFF
         result = mode_remap(mock_bt, "climate.test", HVACMode.OFF)
@@ -78,8 +84,8 @@ class TestModeRemapBasic:
 
     def test_returns_off_for_unsupported_auto_mode(self):
         """Test that AUTO mode returns OFF when not supported and logs error."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT])
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT])
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.AUTO)
         assert result == HVACMode.OFF
@@ -90,24 +96,25 @@ class TestModeRemapHeatAutoSwapped:
 
     def test_outbound_heat_becomes_auto_when_swapped(self):
         """Test that HEAT becomes AUTO for outbound when heat_auto_swapped."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", heat_auto_swapped=True)
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", heat_auto_swapped=True)
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
         assert result == HVACMode.AUTO
 
     def test_inbound_auto_becomes_heat_when_swapped(self):
         """Test that AUTO becomes HEAT for inbound when heat_auto_swapped."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", heat_auto_swapped=True)
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", heat_auto_swapped=True)
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.AUTO, inbound=True)
         assert result == HVACMode.HEAT
 
     def test_other_modes_unchanged_when_swapped(self):
         """Test that other modes are unchanged when heat_auto_swapped."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO, HVACMode.COOL],
@@ -123,8 +130,9 @@ class TestModeRemapHeatAutoSwapped:
 
     def test_swapped_heat_falls_back_when_device_has_no_auto(self):
         """A swapped device without AUTO receives the unswapped HEAT."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
@@ -135,8 +143,9 @@ class TestModeRemapHeatAutoSwapped:
 
     def test_swapped_heat_dropped_when_device_offers_neither(self):
         """A swapped device with neither AUTO nor HEAT gets no mode written."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.COOL],
@@ -147,8 +156,9 @@ class TestModeRemapHeatAutoSwapped:
 
     def test_swapped_heat_becomes_auto_when_device_offers_auto(self):
         """A swapped device offering AUTO still receives AUTO for HEAT."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO],
@@ -159,8 +169,9 @@ class TestModeRemapHeatAutoSwapped:
 
     def test_inbound_swap_survives_an_auto_less_mode_list(self):
         """The inbound AUTO->HEAT swap is never clamped by the mode list."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
@@ -171,9 +182,10 @@ class TestModeRemapHeatAutoSwapped:
 
     def test_heat_auto_swap_takes_precedence(self):
         """Test that heat_auto_swapped takes precedence over other remapping."""
-        mock_bt = MockThermostat()
+        mock_bt = _thermostat()
         # TRV that supports HEAT_COOL but has heat_auto_swapped set
-        mock_bt.add_trv(
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.AUTO, HVACMode.HEAT_COOL],
@@ -189,25 +201,27 @@ class TestModeRemapHeatCoolTranslation:
 
     def test_outbound_heat_becomes_heat_cool_when_no_heat_support(self):
         """Test HEAT becomes HEAT_COOL when TRV only supports HEAT_COOL."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT_COOL])
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT_COOL])
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
         assert result == HVACMode.HEAT_COOL
 
     def test_inbound_heat_cool_becomes_heat_when_no_heat_support(self):
         """Test HEAT_COOL becomes HEAT when receiving from TRV."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT_COOL])
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT_COOL])
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=True)
         assert result == HVACMode.HEAT
 
     def test_no_translation_when_heat_is_supported(self):
         """Test that HEAT is not translated when TRV supports it."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL],
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
@@ -215,9 +229,11 @@ class TestModeRemapHeatCoolTranslation:
 
     def test_heat_cool_stays_when_both_supported(self):
         """Test that HEAT_COOL stays when both HEAT and HEAT_COOL supported."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL],
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=False)
@@ -244,8 +260,8 @@ class TestModeRemapTranslationOnAReportedSpelling:
     @pytest.mark.parametrize("hvac_modes", HEAT_ONLY)
     def test_outbound_heat_cool_becomes_heat(self, hvac_modes, caplog):
         """A heat-only device receives HEAT rather than no mode at all."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=hvac_modes)
 
         with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
             result = mode_remap(
@@ -264,8 +280,8 @@ class TestModeRemapTranslationOnAReportedSpelling:
         room with a cooler re-expresses it as HEAT_COOL through
         get_hvac_bt_mode() when it publishes its own mode.
         """
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=hvac_modes)
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=True)
         assert result == HVACMode.HEAT
@@ -273,8 +289,8 @@ class TestModeRemapTranslationOnAReportedSpelling:
     @pytest.mark.parametrize("hvac_modes", HEAT_COOL_ONLY)
     def test_outbound_heat_becomes_heat_cool(self, hvac_modes, caplog):
         """A HEAT_COOL-only device receives HEAT_COOL rather than no mode."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=hvac_modes)
 
         with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
             result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
@@ -285,8 +301,8 @@ class TestModeRemapTranslationOnAReportedSpelling:
     @pytest.mark.parametrize("hvac_modes", HEAT_COOL_ONLY)
     def test_inbound_heat_cool_becomes_heat(self, hvac_modes):
         """A HEAT_COOL-only device's HEAT_COOL is decoded as HEAT."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=hvac_modes)
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=True)
         assert result == HVACMode.HEAT
@@ -314,8 +330,8 @@ class TestModeRemapTranslationOnAReportedSpelling:
         instance stores one spelling for all of them, so the mode reaches
         convert_inbound_states() as a mode that function carries on.
         """
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=hvac_modes)
 
         assert (
             mode_remap(mock_bt, "climate.test", reported, inbound=True) == HVACMode.HEAT
@@ -332,8 +348,8 @@ class TestModeRemapTranslationOnAReportedSpelling:
     )
     def test_every_offered_set_decodes_an_off_report_as_off(self, hvac_modes):
         """OFF is spelled the same by every device and by the instance."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=hvac_modes)
 
         assert (
             mode_remap(mock_bt, "climate.test", HVACMode.OFF, inbound=True)
@@ -342,8 +358,9 @@ class TestModeRemapTranslationOnAReportedSpelling:
 
     def test_a_device_offering_both_is_not_translated(self):
         """Offering both spellings of the heating mode translates neither."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             hvac_modes=["HVACMode.OFF", "HVACMode.HEAT", "HVACMode.HEAT_COOL"],
         )
@@ -363,7 +380,7 @@ class TestModeRemapEdgeCases:
 
     def test_missing_entity_id_passes_mode_through(self):
         """An untracked entity_id leaves the mode unchanged instead of raising."""
-        mock_bt = MockThermostat()
+        mock_bt = _thermostat()
         # Don't add any TRVs
 
         result = mode_remap(mock_bt, "climate.missing", HVACMode.HEAT, inbound=False)
@@ -371,10 +388,10 @@ class TestModeRemapEdgeCases:
 
     def test_missing_advanced_config_defaults_to_no_swap(self):
         """Without advanced config the Trv defaults make remap a no-op."""
-        mock_bt = MockThermostat()
+        mock_bt = _thermostat()
         # Trv without advanced config: defaults to an empty dict
-        mock_bt.real_trvs["climate.test"] = trv_from_legacy_dict(
-            "climate.test", {"hvac_modes": [HVACMode.OFF, HVACMode.HEAT]}
+        mock_bt.real_trvs["climate.test"] = Trv(
+            entity_id="climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT]
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
@@ -386,9 +403,9 @@ class TestModeRemapEdgeCases:
         convert_outbound_states then handles the device via its
         no-system-mode branch instead of aborting on an exception.
         """
-        mock_bt = MockThermostat()
-        mock_bt.real_trvs["climate.test"] = trv_from_legacy_dict(
-            "climate.test", {"advanced": {"heat_auto_swapped": False}}
+        mock_bt = _thermostat()
+        mock_bt.real_trvs["climate.test"] = Trv(
+            entity_id="climate.test", advanced={"heat_auto_swapped": False}
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
@@ -396,9 +413,11 @@ class TestModeRemapEdgeCases:
 
     def test_cool_mode_handling(self):
         """Test handling of COOL mode."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL],
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.COOL, inbound=False)
@@ -406,9 +425,11 @@ class TestModeRemapEdgeCases:
 
     def test_dry_mode_handling(self):
         """Test handling of DRY mode."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.DRY]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.DRY],
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.DRY, inbound=False)
@@ -416,9 +437,11 @@ class TestModeRemapEdgeCases:
 
     def test_fan_only_mode_handling(self):
         """Test handling of FAN_ONLY mode."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.FAN_ONLY]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.FAN_ONLY],
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.FAN_ONLY, inbound=False)
@@ -430,9 +453,11 @@ class TestModeRemapUnsupportedOutboundMode:
 
     def test_heat_cool_dropped_on_auto_cool_off_device(self):
         """HEAT_COOL is not written to a device offering auto/cool/off."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=False)
@@ -440,9 +465,11 @@ class TestModeRemapUnsupportedOutboundMode:
 
     def test_heat_dropped_on_auto_cool_off_device(self):
         """HEAT is not written to a device offering auto/cool/off."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
@@ -450,9 +477,11 @@ class TestModeRemapUnsupportedOutboundMode:
 
     def test_offered_mode_still_passes_through(self):
         """An offered mode reaches the device unchanged."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.COOL, inbound=False)
@@ -460,8 +489,8 @@ class TestModeRemapUnsupportedOutboundMode:
 
     def test_dry_dropped_on_off_heat_device(self):
         """DRY is not written to a device offering off/heat."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT])
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT])
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.DRY, inbound=False)
         assert result is None
@@ -472,16 +501,16 @@ class TestModeRemapUnsupportedOutboundMode:
         convert_outbound_states needs the literal OFF to substitute the
         device's minimum temperature.
         """
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=[HVACMode.AUTO, HVACMode.HEAT])
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=[HVACMode.AUTO, HVACMode.HEAT])
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.OFF, inbound=False)
         assert result == HVACMode.OFF
 
     def test_inbound_modes_are_never_clamped(self):
         """Values reported by the device pass through untouched."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT])
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT])
 
         assert mode_remap(mock_bt, "climate.test", "cool", inbound=True) == "cool"
         assert mode_remap(mock_bt, "climate.test", "dry", inbound=True) == "dry"
@@ -494,9 +523,11 @@ class TestModeRemapUnsupportedOutboundMode:
         no mode at all, and the error names the swap option as the likely
         missing setting.
         """
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO],
         )
 
         with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
@@ -507,9 +538,9 @@ class TestModeRemapUnsupportedOutboundMode:
 
     def test_unreported_mode_list_disables_the_clamp(self):
         """hvac_modes=None keeps the pass-through for no-system-mode devices."""
-        mock_bt = MockThermostat()
-        mock_bt.real_trvs["climate.test"] = trv_from_legacy_dict(
-            "climate.test", {"advanced": {"heat_auto_swapped": False}}
+        mock_bt = _thermostat()
+        mock_bt.real_trvs["climate.test"] = Trv(
+            entity_id="climate.test", advanced={"heat_auto_swapped": False}
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=False)
@@ -517,17 +548,19 @@ class TestModeRemapUnsupportedOutboundMode:
 
     def test_plain_string_mode_list_is_normalized(self):
         """A mode list of plain strings matches HVACMode members."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=["heat", "off"])
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=["heat", "off"])
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
         assert result == HVACMode.HEAT
 
     def test_auto_branch_wins_over_the_clamp(self, caplog):
         """AUTO reports OFF and names the heat auto swapped option."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
         )
 
         with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
@@ -539,9 +572,11 @@ class TestModeRemapUnsupportedOutboundMode:
 
     def test_the_auto_error_is_annunciated_once(self, caplog):
         """Every outbound AUTO cycle keeps reporting OFF, but logs once."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
         )
 
         with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
@@ -555,9 +590,11 @@ class TestModeRemapUnsupportedOutboundMode:
 
     def test_a_changed_offered_set_annunciates_auto_again(self, caplog):
         """A genuine capability change re-arms the AUTO annunciation."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
         )
         trv = mock_bt.real_trvs["climate.test"]
 
@@ -576,9 +613,11 @@ class TestModeRemapUnsupportedOutboundMode:
 
     def test_error_is_logged_once_per_mode(self, caplog):
         """Repeated cycles annunciate each unsupported mode a single time."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
         )
 
         with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
@@ -600,8 +639,9 @@ class TestModeRemapUnsupportedOutboundMode:
 
     def test_hint_names_disabling_the_swap_when_it_is_on(self, caplog):
         """A swapped device offering neither AUTO nor HEAT names the swap."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.COOL],
@@ -621,9 +661,11 @@ class TestModeRemapUnsupportedOutboundMode:
 
     def test_hint_names_enabling_the_swap_when_it_is_off(self, caplog):
         """An unswapped device is told about the option it has not set."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
-            "climate.test", hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF]
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
+            "climate.test",
+            hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
         )
 
         with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
@@ -653,8 +695,9 @@ class TestModeRemapSwapFallback:
 
     def test_heat_is_written_when_auto_is_missing(self):
         """The swap's output is unwritable, so the original HEAT is written."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
@@ -665,8 +708,9 @@ class TestModeRemapSwapFallback:
 
     def test_auto_still_wins_when_the_device_offers_it(self):
         """The swap keeps its effect on the devices it was meant for."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO],
@@ -677,8 +721,9 @@ class TestModeRemapSwapFallback:
 
     def test_no_fallback_when_heat_is_not_offered_either(self):
         """The fallback never resurrects a mode the device does not offer."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.COOL],
@@ -689,8 +734,9 @@ class TestModeRemapSwapFallback:
 
     def test_fallback_matches_a_prefixed_mode_spelling(self):
         """A mode list spelled "HVACMode.HEAT" is recognised as offering HEAT."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=["HVACMode.OFF", "HVACMode.HEAT"],
@@ -701,8 +747,9 @@ class TestModeRemapSwapFallback:
 
     def test_fallback_does_not_fire_inbound(self):
         """An inbound AUTO keeps becoming HEAT without consulting the list."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.COOL],
@@ -716,8 +763,8 @@ class TestModeRemapSwapFallback:
 
     def test_fallback_leaves_the_auto_error_branch_alone(self, caplog):
         """An unswapped device still answers AUTO with OFF and its own error."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT])
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT])
 
         with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
             result = mode_remap(mock_bt, "climate.test", HVACMode.AUTO, inbound=False)
@@ -727,8 +774,9 @@ class TestModeRemapSwapFallback:
 
     def test_fallback_is_announced_once(self, caplog):
         """Repeated cycles announce the substitution a single time."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
@@ -756,8 +804,9 @@ class TestModeRemapSwappedDeviceInACoolerRoom:
 
     def test_heat_cool_reaches_a_swapped_device_as_auto(self):
         """A room-level heat demand arrives as the device's heating mode."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.AUTO],
@@ -768,8 +817,9 @@ class TestModeRemapSwappedDeviceInACoolerRoom:
 
     def test_heat_cool_falls_back_to_heat_when_auto_is_missing(self):
         """The swap's output is unwritable, so the unswapped mode is written."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
@@ -784,8 +834,9 @@ class TestModeRemapSwappedDeviceInACoolerRoom:
         The unswapped path already treats HEAT_COOL as the heating mode of a
         device offering nothing narrower; the swap resolves it the same way.
         """
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT_COOL],
@@ -802,8 +853,9 @@ class TestModeRemapSwappedDeviceInACoolerRoom:
 
     def test_heat_outranks_heat_cool_as_a_fallback(self):
         """A radiator offering both receives the single-setpoint mode."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL],
@@ -814,8 +866,9 @@ class TestModeRemapSwappedDeviceInACoolerRoom:
 
     def test_heat_cool_is_dropped_when_neither_mode_is_offered(self, caplog):
         """A device offering none of the three keeps its own, and says so once."""
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.COOL],
@@ -849,9 +902,9 @@ class TestModeRemapSwappedDeviceInACoolerRoom:
             [HVACMode.OFF, HVACMode.COOL],
             [HVACMode.OFF, HVACMode.AUTO, HVACMode.HEAT_COOL],
         ):
-            mock_bt = MockThermostat()
-            mock_bt.add_trv(
-                "climate.test", heat_auto_swapped=True, hvac_modes=hvac_modes
+            mock_bt = _thermostat()
+            _add_trv(
+                mock_bt, "climate.test", heat_auto_swapped=True, hvac_modes=hvac_modes
             )
 
             via_heat = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
@@ -867,9 +920,10 @@ class TestModeRemapSwappedDeviceInACoolerRoom:
         not a cooler is configured; a room with one re-expresses it as
         HEAT_COOL when it publishes its own mode.
         """
-        mock_bt = MockThermostat()
+        mock_bt = _thermostat()
         mock_bt.map_on_hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.add_trv(
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.AUTO],
@@ -894,8 +948,8 @@ class TestModeRemapSwappedDeviceInACoolerRoom:
         reported HEAT_COOL is the device heating, as it is on an unswapped
         device, and switching it on at the panel reaches the instance.
         """
-        mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", heat_auto_swapped=True, hvac_modes=hvac_modes)
+        mock_bt = _thermostat()
+        _add_trv(mock_bt, "climate.test", heat_auto_swapped=True, hvac_modes=hvac_modes)
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=True)
         assert result == HVACMode.HEAT
@@ -906,8 +960,9 @@ class TestModeRemapSwappedDeviceInACoolerRoom:
         AUTO is that device's heating mode, so a reported HEAT_COOL is not
         translated into HEAT.
         """
-        mock_bt = MockThermostat()
-        mock_bt.add_trv(
+        mock_bt = _thermostat()
+        _add_trv(
+            mock_bt,
             "climate.test",
             heat_auto_swapped=True,
             hvac_modes=[HVACMode.OFF, HVACMode.AUTO],

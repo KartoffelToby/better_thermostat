@@ -13,7 +13,7 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def bt():
     """Minimal BetterThermostat mock for snapshot building."""
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
-    mock.real_trvs = {}
+    mock.real_trvs = dict[str, Trv]()
     mock.hass = MagicMock()
     mock.hass.states.get.return_value = None
     return mock
@@ -40,9 +40,7 @@ def test_non_trv_entry_skipped(bt):
 def test_cached_action_used(bt):
     """A cached hvac_action is used directly, without reading the live state."""
     bt.real_trvs = {
-        "climate.trv": trv_from_legacy_dict(
-            "climate.trv", {"hvac_action": HVACAction.HEATING}
-        )
+        "climate.trv": Trv(entity_id="climate.trv", hvac_action=HVACAction.HEATING)
     }
     bt.hass.states.get.return_value = State(
         "climate.trv", "heat", attributes={"hvac_action": "idle"}
@@ -66,7 +64,7 @@ def test_fallback_to_hass_hvac_action_and_caches(bt):
 
 def test_fallback_to_legacy_action_attribute(bt):
     """The legacy 'action' attribute is used when 'hvac_action' is absent."""
-    bt.real_trvs = {"climate.trv": trv_from_legacy_dict("climate.trv", {})}
+    bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
     bt.hass.states.get.return_value = State(
         "climate.trv", "heat", attributes={"action": "heating"}
     )
@@ -96,7 +94,7 @@ def test_live_value_that_names_no_action_yields_none(bt):
 
 def test_no_state_yields_none_action(bt):
     """No cached value and no live state -> hvac_action None."""
-    bt.real_trvs = {"climate.trv": trv_from_legacy_dict("climate.trv", {})}
+    bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
     bt.hass.states.get.return_value = None
     assert _snaps(bt)[0].hvac_action is None
 
@@ -104,14 +102,12 @@ def test_no_state_yields_none_action(bt):
 def test_snapshot_carries_valve_fields(bt):
     """Valve fields pass through to the snapshot."""
     bt.real_trvs = {
-        "climate.trv": trv_from_legacy_dict(
-            "climate.trv",
-            {
-                "hvac_action": HVACAction.IDLE,
-                "ignore_trv_states": True,
-                "valve_position": 42,
-                "last_valve_percent": 17,
-            },
+        "climate.trv": Trv(
+            entity_id="climate.trv",
+            hvac_action=HVACAction.IDLE,
+            ignore_trv_states=True,
+            valve_position=42,
+            last_valve_percent=17,
         )
     }
     snap = _snaps(bt)[0]
