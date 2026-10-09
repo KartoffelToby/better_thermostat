@@ -6,31 +6,23 @@ level passes, one that dropped fails, one that vanished from the report fails
 too, and one that arrived without a floor fails until its floor is recorded.
 """
 
-import importlib.util
 import json
 from pathlib import Path
 
 import pytest
 
+from scripts import coverage_floors
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "scripts" / "coverage_floors.py"
 
 MODULE = "custom_components/better_thermostat/climate.py"
 OTHER = "custom_components/better_thermostat/sensor.py"
 
 
-def _load_script():
-    """Import the floors script as a module."""
-    spec = importlib.util.spec_from_file_location("coverage_floors", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 @pytest.fixture
 def floors(tmp_path, monkeypatch):
     """Point the script at a floors file inside the test's own directory."""
-    script = _load_script()
+    script = coverage_floors
     monkeypatch.setattr(script, "FLOORS_FILE", tmp_path / "floors.json")
     return script
 

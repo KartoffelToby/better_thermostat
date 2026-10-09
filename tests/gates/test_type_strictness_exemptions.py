@@ -14,6 +14,10 @@ enumeration of the clean files instead of the backlog, and settles strictness
 per entry rather than on ``[tool.pyrefly]``, where one declaration reaches
 every file. The fourth way — appending an entry — is visible in the diff but
 still has to raise the recorded ceiling.
+
+One block stands outside that list: the one that covers ``tests/``. It is
+policy rather than backlog, and lets a test leave its parameters unannotated,
+since pytest hands fixtures in by name. It may relax that rule and no other.
 """
 
 from pathlib import Path
@@ -28,11 +32,28 @@ EXEMPTION_CEILING = 1
 
 GLOB_CHARACTERS = "*?["
 
+TESTS_BLOCK = {"matches": "tests/**", "errors": {"implicit-any-parameter": False}}
 
-def _exemptions():
+
+def _sub_configs():
     """Return the pyrefly sub-config blocks as parsed from pyproject.toml."""
     config = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
     return config["tool"]["pyrefly"]["sub-config"]
+
+
+def _exemptions():
+    """Return the sub-config blocks that exempt a file of the integration."""
+    return [
+        entry for entry in _sub_configs() if not entry["matches"].startswith("tests/")
+    ]
+
+
+def test_the_tests_relax_only_their_parameter_annotations():
+    blocks = [
+        entry for entry in _sub_configs() if entry["matches"].startswith("tests/")
+    ]
+
+    assert blocks == [TESTS_BLOCK]
 
 
 def test_every_exemption_names_a_file_that_exists():

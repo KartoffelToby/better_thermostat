@@ -20,7 +20,7 @@ sequence of eight events takes a few dozen of them at most.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
+from collections.abc import Callable, Sized
 import json
 import os
 from pathlib import Path
@@ -96,12 +96,12 @@ def shrink[T](events: list[T], still_breaks: Callable[[list[T]], bool]) -> list[
             size //= 2
 
 
-def _half(events: list) -> int:
+def _half(events: Sized) -> int:
     """Return half the length of ``events``, rounded up, and at least one."""
     return max(1, (len(events) + 1) // 2)
 
 
-def _count(events: list) -> str:
+def _count(events: Sized) -> str:
     """Return how many events there are, in words."""
     return f"{len(events)} event" + ("" if len(events) == 1 else "s")
 

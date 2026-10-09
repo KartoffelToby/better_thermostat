@@ -10,7 +10,6 @@ taken with the repository's lint settings ignored, so the suppressions that
 silence `ruff check` do not lower it.
 """
 
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -18,8 +17,9 @@ import textwrap
 
 import pytest
 
+from scripts import blind_except_budget
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "scripts" / "blind_except_budget.py"
 
 FILE = "custom_components/better_thermostat/climate.py"
 OTHER = "custom_components/better_thermostat/sensor.py"
@@ -78,18 +78,10 @@ NEWER_GRAMMAR = textwrap.dedent(
 )
 
 
-def _load_script():
-    """Import the budget script as a module."""
-    spec = importlib.util.spec_from_file_location("blind_except_budget", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 @pytest.fixture
 def budget(tmp_path, monkeypatch):
     """Point the script at a budget file inside the test's own directory."""
-    script = _load_script()
+    script = blind_except_budget
     monkeypatch.setattr(script, "BUDGET_FILE", tmp_path / "budget.json")
     return script
 
@@ -267,7 +259,7 @@ def test_the_recorded_budget_names_files_that_exist(budget):
 
 def test_the_repository_stays_within_its_recorded_budget():
     """The committed counts hold against a real scan of the working tree."""
-    assert _load_script().check() == 0
+    assert blind_except_budget.check() == 0
 
 
 def _repository_with(root: Path, *, tracked: str, untracked: str, ignored: str):

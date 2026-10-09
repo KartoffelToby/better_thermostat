@@ -527,7 +527,10 @@ Three more checks run on every pull request:
   it name the files that do not meet it yet and the rules each is exempt from.
   That list only shrinks: a new file is strict from the start, and
   `tests/gates/test_type_strictness_exemptions.py` holds it to a recorded
-  ceiling. `typing.Any` is allowed in two places only: `**kwargs: Any` on an
+  ceiling. `scripts/` is checked the same way. The directories of `tests/` that
+  `project-includes` lists are too, except that a test may leave its parameters
+  unannotated, since pytest hands fixtures in by name; the rest of `tests/`
+  joins that list one directory at a time. `typing.Any` is allowed in two places only: `**kwargs: Any` on an
   `@override` that Home Assistant declares that way, and the yield and send
   slots of `Coroutine[Any, Any, T]`. Read untyped data as `object` or
   `Mapping[str, object]` and narrow it.
