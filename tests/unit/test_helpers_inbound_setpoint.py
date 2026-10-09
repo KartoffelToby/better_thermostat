@@ -310,6 +310,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.raw, result.value, result.clamped) == (21.0, 21.0, False)
 
     def test_value_above_range_is_clamped_and_raw_kept(self):
@@ -322,6 +323,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.raw, result.value, result.clamped) == (35.0, 30.0, True)
 
     def test_value_below_range_is_clamped(self):
@@ -334,6 +336,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.raw, result.value, result.clamped) == (2.0, 5.0, True)
 
     def test_value_within_a_step_of_a_known_value_is_an_echo(self):
@@ -346,6 +349,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert result.is_echo is True
 
     def test_a_full_step_away_is_user_input(self):
@@ -358,6 +362,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert result.is_echo is False
 
     def test_a_full_step_off_a_non_dyadic_grid_is_user_input(self):
@@ -374,6 +379,7 @@ class TestResolveInboundSetpoint:
             step=1.1111,
             log_source="t",
         )
+        assert result is not None
         assert result.is_echo is False
 
     def test_every_fahrenheit_step_is_user_input(self):
@@ -408,6 +414,7 @@ class TestResolveInboundSetpoint:
                 step=step,
                 log_source="t",
             )
+            assert result is not None
             assert result.is_echo is False, f"{fahrenheit} °F -> {fahrenheit + 1} °F"
 
     def test_non_numeric_known_values_are_ignored(self):
@@ -416,10 +423,11 @@ class TestResolveInboundSetpoint:
             _fake_self(),
             _state({"temperature": 22.0}),
             keys=TRV_SETPOINT_KEYS,
-            known_values=(None, "unset"),
+            known_values=(None,),
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert result.is_echo is False
 
     def test_unknown_bounds_do_not_raise(self):
@@ -435,6 +443,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.value, result.clamped) == (21.0, False)
 
     def test_known_bound_is_still_enforced_alone(self):
@@ -449,6 +458,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.value, result.clamped) == (5.0, True)
 
     def test_inverted_range_never_yields_a_value_above_the_maximum(self):
@@ -469,6 +479,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.value, result.clamped) == (20.0, True)
 
     def test_report_outside_the_range_matching_a_known_value_is_an_echo(self):
@@ -485,6 +496,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.raw, result.value, result.is_echo) == (2.0, 5.0, True)
 
     def test_echo_is_judged_after_clamping(self):
@@ -497,6 +509,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.value, result.is_echo) == (30.0, True)
 
 

@@ -25,6 +25,7 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.helpers import InboundSetpoint
 from custom_components.better_thermostat.utils.hvac_action import ToleranceHysteresis
 from custom_components.better_thermostat.utils.thermal_learning import (
@@ -78,7 +79,7 @@ def mock_bt():
     # Cooling channel: off unless a test configures one
     bt.cooler_entity_id = None
     bt._preset_cool_temperature = None
-    bt._preset_cool_temperatures = {}
+    bt._preset_cool_temperatures = dict[str, float]()
     # Thermal tracker property delegates
     type(bt).heating_power = property(
         lambda self: self._heating_tracker.heating_power,
@@ -112,7 +113,7 @@ def mock_bt():
     )
     bt.bt_update_lock = False
     # TRVs
-    bt.real_trvs = {}
+    bt.real_trvs = dict[str, Trv]()
     # HA callbacks
     bt.control_queue_task = MagicMock()
     bt.async_write_ha_state = MagicMock()
