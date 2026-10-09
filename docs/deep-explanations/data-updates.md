@@ -34,6 +34,12 @@ A reading that comes too soon is not lost: it is taken as soon as the 5 seconds 
 
 When a TRV reports a new target temperature that Better Thermostat did not send, Better Thermostat takes it as your new target for the whole room. It does not do this while the child lock option is on, while a window or door is open, or while the TRV is off. Values Better Thermostat wrote itself and that the TRV reports back are recognised and not taken as your input.
 
+### Changes made on the cooler
+
+A new target temperature that the cooler reports while it stays in cooling mode (`cool`, or the upper bound in `heat_cool`) becomes your new cooling target. Better Thermostat ignores a target temperature that the cooler reports while it is off or in the same update that changes its mode: many integrations show a placeholder for an air conditioner that is off. Tado, for example, shows 5 °C. A cooler can also hold a target on a coarser grid than it reports, for example 22 °C after Better Thermostat sent 22.5 °C. Its first report within 0.5 °C of the value Better Thermostat sent counts as that answer and not as your input, even when it arrives later from a poll. A change on the cooler after that answer is your input again.
+
+At the first start, Better Thermostat takes the cooling target from the cooler. If the cooler is off, it takes the cooling temperature of the active preset instead.
+
 ## Control cycles
 
 Every change that matters, whether from a sensor, from a TRV or from you on the thermostat entity, asks for a control cycle. A cycle reads the current state of all entities, decides what each TRV should do and writes only what differs from what the TRV already has. Requests that arrive while a cycle is waiting are folded into it, so a burst of changes leads to one decision.

@@ -22,6 +22,7 @@ from custom_components.better_thermostat.utils.helpers import (
     resolve_inbound_setpoint,
     resolve_state_change_event,
     setpoint_echo_window,
+    settle_cooler_reading,
     state_says_nothing,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
@@ -32,6 +33,9 @@ if TYPE_CHECKING:
     from custom_components.better_thermostat.climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
+
+# The cooler modes whose reported setpoint is a cooling setpoint.
+COOLING_MODES = (HVACMode.COOL, HVACMode.HEAT_COOL)
 
 
 def cooling_writes_as_held(
@@ -145,7 +149,32 @@ async def trigger_cooler_change(
         )
         self.async_write_ha_state()
         return
-    if _new_cooling_setpoint is not None and self.cool_target_temperature is None:
+    # A cooler that is off publishes whatever its integration shows for that
+    # state, often a placeholder such as Tado's 5 °C, and one whose mode
+    # changes with the same report publishes the setpoint of the mode it
+    # leaves or enters rather than one the user set. Only a report that stays
+    # in a cooling mode speaks for the cooling target: COOL, the mode BT
+    # drives the cooler in, or HEAT_COOL, whose upper bound is the cooling
+    # setpoint.
+    _cooler_off = new_state.state == HVACMode.OFF
+    _cooling_report = new_state.state in COOLING_MODES
+    _stays_cooling = _cooling_report and old_state.state == new_state.state
+    # A report on the cooler's answer to BT's last write is that write coming
+    # back, even where the device held it on a coarser grid than the step
+    # the echo window above allows for.
+    _answers_last_write = False
+    if _new_cooling_setpoint is not None and _cooling_report:
+        _settled = settle_cooler_reading(self, _new_cooling_setpoint.raw)
+        _answers_last_write = _settled is not None and abs(
+            _new_cooling_setpoint.raw - _settled
+        ) < setpoint_echo_window(_step)
+    if self.cool_target_temperature is None and _cooler_off:
+        if (
+            self._seed_cool_target_from_preset(entity_id, "is off")
+            and self.bt_hvac_mode != HVACMode.OFF
+        ):
+            _main_change = True
+    elif _new_cooling_setpoint is not None and self.cool_target_temperature is None:
         # An unknown cool target holds the cooler OFF on every control cycle,
         # and the gate below cannot lift it: that gate needs a setpoint in the
         # previous state, which a cooler that was away usually no longer
@@ -160,13 +189,14 @@ async def trigger_cooler_change(
     elif (
         _new_cooling_setpoint is not None
         and _old_cooling_setpoint is not None
+        and _stays_cooling
         and self.bt_hvac_mode != HVACMode.OFF
     ):
         _LOGGER.debug(
             "better_thermostat %s: trigger_cooler_change / "
             "_old_cooling_setpoint: %s - _new_cooling_setpoint: %s - "
             "cool_target_temperature: %s - last_sent: %s - step: %s - echo: %s - "
-            "contact_open: %s",
+            "answers_last_write: %s - contact_open: %s",
             self.device_name,
             _old_cooling_setpoint,
             _new_cooling_setpoint.value,
@@ -174,6 +204,7 @@ async def trigger_cooler_change(
             _last_sent,
             _step,
             _new_cooling_setpoint.is_echo,
+            _answers_last_write,
             self.contact_open,
         )
         # The cooler handler has no device-side gate of its own, so an event
@@ -197,6 +228,7 @@ async def trigger_cooler_change(
         # target. The TRV handler draws the same line.
         if (
             not _new_cooling_setpoint.is_echo
+            and not _answers_last_write
             and _reported_moved
             and self.contact_open is False
         ):
@@ -241,13 +273,14 @@ async def trigger_cooler_change(
             # instead of guesswork.
             _LOGGER.debug(
                 "better_thermostat %s: Cooler %s setpoint change %s -> %s NOT "
-                "adopted (echo=%s contact_open=%s cool_target_temperature=%s "
-                "last_sent=%s step=%s)",
+                "adopted (echo=%s answers_last_write=%s contact_open=%s "
+                "cool_target_temperature=%s last_sent=%s step=%s)",
                 self.device_name,
                 entity_id,
                 _old_cooling_setpoint,
                 _new_cooling_setpoint.value,
                 _new_cooling_setpoint.is_echo,
+                _answers_last_write,
                 self.contact_open,
                 self.cool_target_temperature,
                 _last_sent,

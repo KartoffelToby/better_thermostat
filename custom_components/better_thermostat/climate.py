@@ -4160,9 +4160,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         A device that carries both roles is the exception: the setpoint it
         reports belongs to whichever channel last wrote it, and at startup that
-        is the heating one, so it says nothing about cooling. The preset's own
-        cooling temperature is taken instead, which is a value the user can see
-        and change and a heating setpoint read off the device is not.
+        is the heating one, so it says nothing about cooling. A cooler that is
+        off is the other: many integrations publish a placeholder setpoint for
+        that state, Tado for instance the 5 °C minimum. In both cases the
+        preset's own cooling temperature is taken instead, which is a value the
+        user can see and change and a setpoint read off the device is not.
 
         Parameters
         ----------
@@ -4183,31 +4185,17 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             return False
         _shared_entity_id = dual_role_entity_id(self)
         if _shared_entity_id is not None:
-            cool_temperature = self._preset_cool_temperatures.get(
-                self.preset_mgr.mode or PRESET_NONE
+            return self._seed_cool_target_from_preset(
+                _shared_entity_id, "drives both channels"
             )
-            if not isinstance(cool_temperature, (int, float)):
-                return False
-            # A stored preset pair is re-injected verbatim, so the value takes
-            # the same bound every other re-injected target takes.
-            self.cool_target_temperature = self._bound_cool_target_to_range(
-                float(cool_temperature)
-            )
-            _LOGGER.info(
-                "better_thermostat %s: %s drives both channels, taking the "
-                "preset cooling temperature %s as the cool target",
-                self.device_name,
-                _shared_entity_id,
-                self.cool_target_temperature,
-            )
-            self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
-            return True
         cooler_state = self.hass.states.get(self.cooler_entity_id)
         if cooler_state is None or cooler_state.state in (
             STATE_UNAVAILABLE,
             STATE_UNKNOWN,
         ):
             return False
+        if cooler_state.state == HVACMode.OFF:
+            return self._seed_cool_target_from_preset(self.cooler_entity_id, "is off")
         setpoint = resolve_inbound_setpoint(
             self,
             cooler_state,
@@ -4220,6 +4208,52 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if setpoint is None:
             return False
         self._seed_cool_target(setpoint, self.cooler_entity_id)
+        return True
+
+    def _seed_cool_target_from_preset(self, entity_id: str, reason: str) -> bool:
+        """Fill an unknown cooling target with the preset's cooling temperature.
+
+        The fallback for a cooler whose reported setpoint says nothing about
+        cooling: a device that carries both roles reports the heating
+        channel's setpoint, and an air conditioner that is off reports
+        whatever its integration publishes for that state, which is often a
+        placeholder such as the 5 °C a Tado unit shows. The preset's cooling
+        temperature is a value the user can see and change; either reading
+        is not.
+
+        Parameters
+        ----------
+        entity_id : str
+            the cooler whose setpoint is passed over, for the log line
+        reason : str
+            why its setpoint is passed over, completing the log line after
+            the entity id
+
+        Returns
+        -------
+        bool
+            whether a cooling target was seeded; False when the active preset
+            carries no cooling temperature
+        """
+        cool_temperature = self._preset_cool_temperatures.get(
+            self.preset_mgr.mode or PRESET_NONE
+        )
+        if not isinstance(cool_temperature, (int, float)):
+            return False
+        # A stored preset pair is re-injected verbatim, so the value takes
+        # the same bound every other re-injected target takes.
+        self.cool_target_temperature = self._bound_cool_target_to_range(
+            float(cool_temperature)
+        )
+        _LOGGER.info(
+            "better_thermostat %s: %s %s, taking the preset cooling "
+            "temperature %s as the cool target",
+            self.device_name,
+            entity_id,
+            reason,
+            self.cool_target_temperature,
+        )
+        self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
         return True
 
     def _seed_cool_target(self, setpoint: InboundSetpoint, entity_id: str) -> None:

@@ -71,6 +71,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    COOLER_QUANTIZATION_TOLERANCE_K,
     COOLER_SETPOINT_KEYS,
     TRV_SETPOINT_KEYS,
     CoolerCommand,
@@ -92,6 +93,7 @@ from custom_components.better_thermostat.utils.helpers import (
     read_bound_celsius,
     read_setpoint_celsius,
     setpoint_echo_window,
+    settle_cooler_reading,
     state_temperature_unit,
     supports_single_target_temperature,
     supports_temperature_range,
@@ -182,10 +184,6 @@ COOLER_FAILURE_BACKOFF_MAX_RUN = 1 + math.ceil(
         COOLER_FAILURE_BACKOFF_FACTOR,
     )
 )
-# A cooler may snap a received setpoint onto its own step grid (e.g. 0.5 °C,
-# or a whole-°F grid). A post-send reading within this distance of the sent
-# value counts as that device-side quantization, not as an unapplied command.
-COOLER_QUANTIZATION_TOLERANCE_K = 0.5
 # Valve deviations below this are the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
 # Pause before re-queueing a cycle in which a TRV reported failure, so a
@@ -1738,15 +1736,8 @@ async def control_cooler(
     # device's answer; while it holds and the desired value is unchanged,
     # the command counts as converged.
     settled_temperature = last_sent.get("temperature_settled")
-    if (
-        not temperature_changed_since_last_send
-        and last_sent_setpoint is not None
-        and cooler_setpoint is not None
-        and settled_temperature is None
-        and abs(cooler_setpoint - last_sent_setpoint) <= COOLER_QUANTIZATION_TOLERANCE_K
-    ):
-        settled_temperature = cooler_setpoint
-        last_sent["temperature_settled"] = settled_temperature
+    if not temperature_changed_since_last_send and cooler_setpoint is not None:
+        settled_temperature = settle_cooler_reading(self, cooler_setpoint)
     temperature_to_send: float | None = None
     if desired_temperature is None:
         _LOGGER.debug(
