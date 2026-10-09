@@ -17,6 +17,7 @@ from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerUpdate,
     HeatLossTracker,
     HeatLossUpdate,
+    Reading,
     clamp,
     compute_env_factor,
     compute_weight_factor,
@@ -151,35 +152,29 @@ class TestHeatingPowerTrackerTransitions:
         t._prev_action = HVACAction.IDLE
         result = t.update(19.0, HVACAction.HEATING, _NOW)
 
-        assert t.start_temperature == 19.0
-        assert t.start_ts == _NOW
-        assert t.end_temperature is None
+        assert t.start == Reading(19.0, _NOW)
+        assert t.end is None
         assert result.action_changed is True
 
     def test_heating_to_idle_sets_end(self):
         """Test Heating to idle sets end."""
         t = HeatingPowerTracker()
         t._prev_action = HVACAction.HEATING
-        t.start_temperature = 19.0
-        t.start_ts = _NOW
+        t.start = Reading(19.0, _NOW)
 
         result = t.update(21.0, HVACAction.IDLE, _ts(10))
-        assert t.end_temperature == 21.0
-        assert t.end_ts == _ts(10)
+        assert t.end == Reading(21.0, _ts(10))
         assert result.action_changed is True
 
     def test_peak_tracking_temperature_still_rising(self):
         """Test Peak tracking temperature still rising."""
         t = HeatingPowerTracker()
         t._prev_action = HVACAction.IDLE
-        t.start_temperature = 19.0
-        t.start_ts = _NOW
-        t.end_temperature = 21.0
-        t.end_ts = _ts(10)
+        t.start = Reading(19.0, _NOW)
+        t.end = Reading(21.0, _ts(10))
 
         t.update(21.5, HVACAction.IDLE, _ts(12))
-        assert t.end_temperature == 21.5
-        assert t.end_ts == _ts(12)
+        assert t.end == Reading(21.5, _ts(12))
 
 
 class TestHeatingPowerTrackerFinalization:
@@ -244,7 +239,7 @@ class TestHeatingPowerTrackerFinalization:
         assert t.heating_power == 0.05  # unchanged
 
     def test_negative_temperature_diff_discarded(self):
-        """If end_temperature < start_temperature the cycle is discarded."""
+        """A cycle that ends below its start is discarded."""
         t = HeatingPowerTracker(heating_power=0.05)
         t.update(21.0, HVACAction.HEATING, _NOW)
         t.update(20.0, HVACAction.IDLE, _ts(5))
@@ -392,12 +387,75 @@ class TestHeatingPowerTrackerFinalization:
         assert t.heating_power != power_after_1
 
     def test_cycle_resets_state(self):
-        """After finalization, start/end temps and timestamps should be None."""
+        """After finalization neither a start nor an end is held."""
         t, _ = self._run_complete_cycle()
-        assert t.start_temperature is None
-        assert t.end_temperature is None
-        assert t.start_ts is None
-        assert t.end_ts is None
+        assert t.start is None
+        assert t.end is None
+
+
+class TestHeatingPowerTrackerAbortCycle:
+    """An aborted cycle teaches nothing, however it would have ended."""
+
+    def test_abort_while_heating_records_no_end(self):
+        """Without a start, neither the stop nor a rise afterwards is recorded."""
+        t = HeatingPowerTracker(heating_power=0.05)
+        t.update(19.0, HVACAction.HEATING, _NOW)
+        t.abort_cycle()
+
+        stop = t.update(21.0, HVACAction.IDLE, _ts(10))
+        rise = t.update(21.5, HVACAction.IDLE, _ts(12))
+        drop = t.update(20.0, HVACAction.IDLE, _ts(50))
+
+        assert t.start is None
+        assert t.end is None
+        assert (stop.cycle_result, rise.cycle_result, drop.cycle_result) == (
+            None,
+            None,
+            None,
+        )
+        assert t.heating_power == 0.05
+        assert not t.stats
+        assert not t.cycles
+
+    def test_abort_after_stop_keeps_the_end_until_it_times_out(self):
+        """A recorded end stays, and its timeout finalizes without learning."""
+        t = HeatingPowerTracker(heating_power=0.05)
+        t.update(19.0, HVACAction.HEATING, _NOW)
+        t.update(21.0, HVACAction.IDLE, _ts(10))
+        t.abort_cycle()
+
+        assert t.start is None
+        assert t.end == Reading(21.0, _ts(10))
+
+        # Neither a further rise nor a drop moves or finalizes it.
+        assert t.update(21.5, HVACAction.IDLE, _ts(12)).cycle_result is None
+        assert t.update(20.5, HVACAction.IDLE, _ts(20)).cycle_result is None
+        assert t.end == Reading(21.0, _ts(10))
+
+        timed_out = t.update(20.5, HVACAction.IDLE, _ts(41))
+
+        assert timed_out.cycle_result == CycleResult(power_changed=False)
+        assert t.end is None
+        assert t.heating_power == 0.05
+        assert not t.stats
+        assert not t.cycles
+
+    def test_next_heating_start_opens_a_fresh_cycle(self):
+        """A cycle started after the abort learns as usual."""
+        t = HeatingPowerTracker(heating_power=0.05)
+        t.update(19.0, HVACAction.HEATING, _NOW)
+        t.update(21.0, HVACAction.IDLE, _ts(10))
+        t.abort_cycle()
+
+        t.update(20.0, HVACAction.HEATING, _ts(15))
+        assert t.start == Reading(20.0, _ts(15))
+        assert t.end is None
+
+        t.update(22.0, HVACAction.IDLE, _ts(25))
+        result = t.update(21.9, HVACAction.IDLE, _ts(26), heat_target_temperature=22.0)
+
+        assert result.cycle_result == CycleResult(power_changed=True)
+        assert len(t.cycles) == 1
 
 
 # ===================================================================
@@ -411,16 +469,12 @@ class TestHeatLossTrackerWindowOpen:
     def test_window_open_resets_tracking(self):
         """Test Window open resets tracking."""
         t = HeatLossTracker()
-        t.start_temperature = 21.0
-        t.start_ts = _NOW
-        t.end_temperature = 20.0
-        t.end_ts = _ts(5)
+        t.start = Reading(21.0, _NOW)
+        t.end = Reading(20.0, _ts(5))
 
         result = t.update(19.0, HVACAction.IDLE, _ts(10), window_open=True)
-        assert t.start_temperature is None
-        assert t.start_ts is None
-        assert t.end_temperature is None
-        assert t.end_ts is None
+        assert t.start is None
+        assert t.end is None
         assert result.cycle_result is None
 
     def test_window_open_during_tracking(self):
@@ -429,7 +483,7 @@ class TestHeatLossTrackerWindowOpen:
         t.update(21.0, HVACAction.IDLE, _NOW)
         t.update(20.5, HVACAction.IDLE, _ts(5))
         t.update(20.0, HVACAction.IDLE, _ts(10), window_open=True)
-        assert t.start_temperature is None
+        assert t.start is None
 
 
 class TestHeatLossTrackerIdle:
@@ -439,9 +493,8 @@ class TestHeatLossTrackerIdle:
         """Test Idle starts tracking."""
         t = HeatLossTracker()
         t.update(21.0, HVACAction.IDLE, _NOW)
-        assert t.start_temperature == 21.0
-        assert t.start_ts == _NOW
-        assert t.end_temperature == 21.0
+        assert t.start == Reading(21.0, _NOW)
+        assert t.end.temperature == 21.0
 
     def test_tracks_lowest_temperature(self):
         """Test Tracks lowest temperature."""
@@ -449,7 +502,7 @@ class TestHeatLossTrackerIdle:
         t.update(21.0, HVACAction.IDLE, _NOW)
         t.update(20.5, HVACAction.IDLE, _ts(5))
         t.update(20.0, HVACAction.IDLE, _ts(10))
-        assert t.end_temperature == 20.0
+        assert t.end.temperature == 20.0
 
     def test_ignores_higher_temps(self):
         """Once tracking, a higher temperature should not update end_temperature."""
@@ -457,7 +510,7 @@ class TestHeatLossTrackerIdle:
         t.update(21.0, HVACAction.IDLE, _NOW)
         t.update(20.0, HVACAction.IDLE, _ts(5))
         t.update(20.5, HVACAction.IDLE, _ts(10))
-        assert t.end_temperature == 20.0  # still the lowest
+        assert t.end.temperature == 20.0  # still the lowest
 
 
 class TestHeatLossTrackerFinalization:
@@ -562,7 +615,5 @@ class TestHeatLossTrackerFinalization:
     def test_cycle_resets_state(self):
         """After finalization, tracking state should be cleared."""
         t, _ = self._run_complete_loss_cycle()
-        assert t.start_temperature is None
-        assert t.end_temperature is None
-        assert t.start_ts is None
-        assert t.end_ts is None
+        assert t.start is None
+        assert t.end is None

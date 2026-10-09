@@ -30,6 +30,7 @@ from custom_components.better_thermostat.utils.hvac_action import ToleranceHyste
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerTracker,
     HeatLossTracker,
+    Reading,
 )
 from tests.factories import ThermostatStandIn, make_state, trv_from_legacy_dict
 
@@ -438,8 +439,7 @@ class TestCalculateHeatingPower:
         mock_bt.clock = FakeClock(now_value=now)
         await self._call(mock_bt)
 
-        assert mock_bt._heating_tracker.start_temperature == 20.0
-        assert mock_bt._heating_tracker.start_ts == now
+        assert mock_bt._heating_tracker.start == Reading(20.0, now)
 
     @pytest.mark.asyncio
     async def test_heating_stop_sets_end(self, mock_bt):
@@ -451,9 +451,8 @@ class TestCalculateHeatingPower:
         mock_bt._hysteresis.last_action = HVACAction.HEATING
         mock_bt.old_attr_hvac_action = HVACAction.HEATING
         mock_bt._heating_tracker._prev_action = HVACAction.HEATING
-        mock_bt._heating_tracker.start_temperature = 20.0
-        mock_bt._heating_tracker.start_ts = now - timedelta(minutes=10)
-        mock_bt._heating_tracker.end_temperature = None
+        mock_bt._heating_tracker.start = Reading(20.0, now - timedelta(minutes=10))
+        mock_bt._heating_tracker.end = None
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
@@ -461,8 +460,7 @@ class TestCalculateHeatingPower:
         mock_bt.clock = FakeClock(now_value=now)
         await self._call(mock_bt)
 
-        assert mock_bt._heating_tracker.end_temperature == 22.0
-        assert mock_bt._heating_tracker.end_ts == now
+        assert mock_bt._heating_tracker.end == Reading(22.0, now)
 
     @pytest.mark.asyncio
     async def test_peak_tracking(self, mock_bt):
@@ -474,10 +472,8 @@ class TestCalculateHeatingPower:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.old_attr_hvac_action = HVACAction.IDLE
         mock_bt._heating_tracker._prev_action = HVACAction.IDLE
-        mock_bt._heating_tracker.start_temperature = 20.0
-        mock_bt._heating_tracker.start_ts = base - timedelta(minutes=15)
-        mock_bt._heating_tracker.end_temperature = 22.0
-        mock_bt._heating_tracker.end_ts = base - timedelta(minutes=5)
+        mock_bt._heating_tracker.start = Reading(20.0, base - timedelta(minutes=15))
+        mock_bt._heating_tracker.end = Reading(22.0, base - timedelta(minutes=5))
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
@@ -485,7 +481,7 @@ class TestCalculateHeatingPower:
         mock_bt.clock = FakeClock(now_value=base)
         await self._call(mock_bt)
 
-        assert mock_bt._heating_tracker.end_temperature == 22.5
+        assert mock_bt._heating_tracker.end.temperature == 22.5
 
     @pytest.mark.asyncio
     async def test_finalization_on_temperature_drop(self, mock_bt):
@@ -497,10 +493,8 @@ class TestCalculateHeatingPower:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.old_attr_hvac_action = HVACAction.IDLE
         mock_bt._heating_tracker._prev_action = HVACAction.IDLE
-        mock_bt._heating_tracker.start_temperature = 20.0
-        mock_bt._heating_tracker.start_ts = base - timedelta(minutes=10)
-        mock_bt._heating_tracker.end_temperature = 22.5
-        mock_bt._heating_tracker.end_ts = base - timedelta(minutes=2)
+        mock_bt._heating_tracker.start = Reading(20.0, base - timedelta(minutes=10))
+        mock_bt._heating_tracker.end = Reading(22.5, base - timedelta(minutes=2))
         mock_bt.heating_power = 0.05
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
@@ -510,8 +504,8 @@ class TestCalculateHeatingPower:
         await self._call(mock_bt)
 
         # Cycle reset after finalization
-        assert mock_bt._heating_tracker.start_temperature is None
-        assert mock_bt._heating_tracker.end_temperature is None
+        assert mock_bt._heating_tracker.start is None
+        assert mock_bt._heating_tracker.end is None
         # Power was updated (EMA smoothing)
         assert mock_bt.heating_power != 0.05
         assert len(mock_bt.last_heating_power_stats) == 1
@@ -526,10 +520,8 @@ class TestCalculateHeatingPower:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.old_attr_hvac_action = HVACAction.IDLE
         mock_bt._heating_tracker._prev_action = HVACAction.IDLE
-        mock_bt._heating_tracker.start_temperature = 20.0
-        mock_bt._heating_tracker.start_ts = base - timedelta(minutes=40)
-        mock_bt._heating_tracker.end_temperature = 22.5
-        mock_bt._heating_tracker.end_ts = base - timedelta(minutes=31)
+        mock_bt._heating_tracker.start = Reading(20.0, base - timedelta(minutes=40))
+        mock_bt._heating_tracker.end = Reading(22.5, base - timedelta(minutes=31))
         mock_bt.heating_power = 0.05
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
@@ -538,7 +530,7 @@ class TestCalculateHeatingPower:
         mock_bt.clock = FakeClock(now_value=base)
         await self._call(mock_bt)
 
-        assert mock_bt._heating_tracker.start_temperature is None
+        assert mock_bt._heating_tracker.start is None
         assert len(mock_bt.last_heating_power_stats) == 1
 
     @pytest.mark.asyncio
@@ -551,10 +543,10 @@ class TestCalculateHeatingPower:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.old_attr_hvac_action = HVACAction.IDLE
         mock_bt._heating_tracker._prev_action = HVACAction.IDLE
-        mock_bt._heating_tracker.start_temperature = 20.0
-        mock_bt._heating_tracker.start_ts = base - timedelta(seconds=30)  # 0.5 min
-        mock_bt._heating_tracker.end_temperature = 22.5
-        mock_bt._heating_tracker.end_ts = base - timedelta(seconds=5)
+        mock_bt._heating_tracker.start = Reading(
+            20.0, base - timedelta(seconds=30)
+        )  # 0.5 min
+        mock_bt._heating_tracker.end = Reading(22.5, base - timedelta(seconds=5))
         old_power = mock_bt.heating_power
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
@@ -576,10 +568,10 @@ class TestCalculateHeatingPower:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.old_attr_hvac_action = HVACAction.IDLE
         mock_bt._heating_tracker._prev_action = HVACAction.IDLE
-        mock_bt._heating_tracker.start_temperature = 21.0
-        mock_bt._heating_tracker.start_ts = base - timedelta(minutes=10)
-        mock_bt._heating_tracker.end_temperature = 20.0  # end < start → negative diff
-        mock_bt._heating_tracker.end_ts = base - timedelta(minutes=2)
+        mock_bt._heating_tracker.start = Reading(21.0, base - timedelta(minutes=10))
+        mock_bt._heating_tracker.end = Reading(
+            20.0, base - timedelta(minutes=2)
+        )  # end < start → negative diff
         old_power = mock_bt.heating_power
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
@@ -603,10 +595,8 @@ class TestCalculateHeatingPower:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.old_attr_hvac_action = HVACAction.IDLE
         mock_bt._heating_tracker._prev_action = HVACAction.IDLE
-        mock_bt._heating_tracker.start_temperature = 20.0
-        mock_bt._heating_tracker.start_ts = base - timedelta(minutes=10)
-        mock_bt._heating_tracker.end_temperature = 22.0
-        mock_bt._heating_tracker.end_ts = base - timedelta(minutes=2)
+        mock_bt._heating_tracker.start = Reading(20.0, base - timedelta(minutes=10))
+        mock_bt._heating_tracker.end = Reading(22.0, base - timedelta(minutes=2))
         mock_bt.heating_power = 0.05
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
@@ -633,10 +623,8 @@ class TestCalculateHeatingPower:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.old_attr_hvac_action = HVACAction.IDLE
         mock_bt._heating_tracker._prev_action = HVACAction.IDLE
-        mock_bt._heating_tracker.start_temperature = 20.0
-        mock_bt._heating_tracker.start_ts = base - timedelta(minutes=10)
-        mock_bt._heating_tracker.end_temperature = 22.0
-        mock_bt._heating_tracker.end_ts = base - timedelta(minutes=2)
+        mock_bt._heating_tracker.start = Reading(20.0, base - timedelta(minutes=10))
+        mock_bt._heating_tracker.end = Reading(22.0, base - timedelta(minutes=2))
         mock_bt.outdoor_sensor_entity_id = "sensor.outdoor"
         outdoor_state = MagicMock()
         outdoor_state.state = "5.0"
@@ -664,10 +652,8 @@ class TestCalculateHeatingPower:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.old_attr_hvac_action = HVACAction.IDLE
         mock_bt._heating_tracker._prev_action = HVACAction.IDLE
-        mock_bt._heating_tracker.start_temperature = 20.0
-        mock_bt._heating_tracker.start_ts = base - timedelta(minutes=10)
-        mock_bt._heating_tracker.end_temperature = 22.0
-        mock_bt._heating_tracker.end_ts = base - timedelta(minutes=2)
+        mock_bt._heating_tracker.start = Reading(20.0, base - timedelta(minutes=10))
+        mock_bt._heating_tracker.end = Reading(22.0, base - timedelta(minutes=2))
         mock_bt.heating_power = 0.0001  # very low → EMA result may be low
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
@@ -692,10 +678,8 @@ class TestCalculateHeatingPower:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.old_attr_hvac_action = HVACAction.IDLE
         mock_bt._heating_tracker._prev_action = HVACAction.IDLE
-        mock_bt._heating_tracker.start_temperature = 20.0
-        mock_bt._heating_tracker.start_ts = base - timedelta(minutes=10)
-        mock_bt._heating_tracker.end_temperature = 22.0
-        mock_bt._heating_tracker.end_ts = base - timedelta(minutes=2)
+        mock_bt._heating_tracker.start = Reading(20.0, base - timedelta(minutes=10))
+        mock_bt._heating_tracker.end = Reading(22.0, base - timedelta(minutes=2))
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
@@ -725,17 +709,15 @@ class TestCalculateHeatLoss:
         """Skip update when current temperature is None."""
         mock_bt.room_temperature = None
         await self._call(mock_bt)
-        assert mock_bt._loss_tracker.start_temperature is None
+        assert mock_bt._loss_tracker.start is None
 
     @pytest.mark.asyncio
     async def test_window_open_resets_tracking(self, mock_bt):
         """Window open → all tracking values reset."""
         mock_bt.window_open = True
         mock_bt.contact_open = True
-        mock_bt._loss_tracker.start_temperature = 21.0
-        mock_bt._loss_tracker.start_ts = datetime(2025, 1, 1, tzinfo=UTC)
-        mock_bt._loss_tracker.end_temperature = 20.5
-        mock_bt._loss_tracker.end_ts = datetime(2025, 1, 1, tzinfo=UTC)
+        mock_bt._loss_tracker.start = Reading(21.0, datetime(2025, 1, 1, tzinfo=UTC))
+        mock_bt._loss_tracker.end = Reading(20.5, datetime(2025, 1, 1, tzinfo=UTC))
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
@@ -743,8 +725,8 @@ class TestCalculateHeatLoss:
         mock_bt.clock = FakeClock(now_value=datetime(2025, 1, 1, 12, 0, tzinfo=UTC))
         await self._call(mock_bt)
 
-        assert mock_bt._loss_tracker.start_temperature is None
-        assert mock_bt._loss_tracker.end_temperature is None
+        assert mock_bt._loss_tracker.start is None
+        assert mock_bt._loss_tracker.end is None
 
     @pytest.mark.asyncio
     async def test_idle_starts_tracking(self, mock_bt):
@@ -753,7 +735,7 @@ class TestCalculateHeatLoss:
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt._loss_tracker.start_temperature = None
+        mock_bt._loss_tracker.start = None
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
@@ -762,8 +744,7 @@ class TestCalculateHeatLoss:
         mock_bt.clock = FakeClock(now_value=now)
         await self._call(mock_bt)
 
-        assert mock_bt._loss_tracker.start_temperature == 22.0
-        assert mock_bt._loss_tracker.start_ts == now
+        assert mock_bt._loss_tracker.start == Reading(22.0, now)
 
     @pytest.mark.asyncio
     async def test_tracks_lowest_temperature(self, mock_bt):
@@ -774,15 +755,15 @@ class TestCalculateHeatLoss:
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5  # threshold = 21.5, 21.6 >= 21.5 → IDLE
         mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt._loss_tracker.start_temperature = 22.0
-        mock_bt._loss_tracker.start_ts = now - timedelta(minutes=10)
-        mock_bt._loss_tracker.end_temperature = 21.8  # current (21.6) is lower
-        mock_bt._loss_tracker.end_ts = now - timedelta(minutes=5)
+        mock_bt._loss_tracker.start = Reading(22.0, now - timedelta(minutes=10))
+        mock_bt._loss_tracker.end = Reading(
+            21.8, now - timedelta(minutes=5)
+        )  # current (21.6) is lower
 
         mock_bt.clock = FakeClock(now_value=now)
         await self._call(mock_bt)
 
-        assert mock_bt._loss_tracker.end_temperature == 21.6
+        assert mock_bt._loss_tracker.end.temperature == 21.6
 
     @pytest.mark.asyncio
     async def test_finalization_on_heating_restart(self, mock_bt):
@@ -793,10 +774,8 @@ class TestCalculateHeatLoss:
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt._loss_tracker.start_temperature = 22.0
-        mock_bt._loss_tracker.start_ts = base - timedelta(minutes=10)
-        mock_bt._loss_tracker.end_temperature = 20.5
-        mock_bt._loss_tracker.end_ts = base - timedelta(minutes=2)
+        mock_bt._loss_tracker.start = Reading(22.0, base - timedelta(minutes=10))
+        mock_bt._loss_tracker.end = Reading(20.5, base - timedelta(minutes=2))
         mock_bt.heat_loss_rate = 0.01
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
@@ -806,8 +785,8 @@ class TestCalculateHeatLoss:
         await self._call(mock_bt)
 
         # Cycle finalized (reset)
-        assert mock_bt._loss_tracker.start_temperature is None
-        assert mock_bt._loss_tracker.end_temperature is None
+        assert mock_bt._loss_tracker.start is None
+        assert mock_bt._loss_tracker.end is None
         assert len(mock_bt.last_heat_loss_stats) == 1
 
     @pytest.mark.asyncio
@@ -818,10 +797,8 @@ class TestCalculateHeatLoss:
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt._loss_tracker.start_temperature = 22.0
-        mock_bt._loss_tracker.start_ts = base - timedelta(seconds=30)
-        mock_bt._loss_tracker.end_temperature = 21.0
-        mock_bt._loss_tracker.end_ts = base - timedelta(seconds=10)
+        mock_bt._loss_tracker.start = Reading(22.0, base - timedelta(seconds=30))
+        mock_bt._loss_tracker.end = Reading(21.0, base - timedelta(seconds=10))
         old_rate = mock_bt.heat_loss_rate
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
@@ -841,10 +818,10 @@ class TestCalculateHeatLoss:
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt._loss_tracker.start_temperature = 22.0
-        mock_bt._loss_tracker.start_ts = base - timedelta(minutes=10)
-        mock_bt._loss_tracker.end_temperature = 20.0  # 2°C drop in 10 min
-        mock_bt._loss_tracker.end_ts = base - timedelta(minutes=2)
+        mock_bt._loss_tracker.start = Reading(22.0, base - timedelta(minutes=10))
+        mock_bt._loss_tracker.end = Reading(
+            20.0, base - timedelta(minutes=2)
+        )  # 2°C drop in 10 min
         mock_bt.heat_loss_rate = 0.01
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
@@ -865,10 +842,8 @@ class TestCalculateHeatLoss:
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt._loss_tracker.start_temperature = 22.0
-        mock_bt._loss_tracker.start_ts = base - timedelta(minutes=5)
-        mock_bt._loss_tracker.end_temperature = 20.0
-        mock_bt._loss_tracker.end_ts = base - timedelta(minutes=2)
+        mock_bt._loss_tracker.start = Reading(22.0, base - timedelta(minutes=5))
+        mock_bt._loss_tracker.end = Reading(20.0, base - timedelta(minutes=2))
         mock_bt.heat_loss_rate = 0.0001  # very low
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
@@ -889,10 +864,8 @@ class TestCalculateHeatLoss:
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt._loss_tracker.start_temperature = 22.0
-        mock_bt._loss_tracker.start_ts = base - timedelta(minutes=10)
-        mock_bt._loss_tracker.end_temperature = 20.5
-        mock_bt._loss_tracker.end_ts = base - timedelta(minutes=2)
+        mock_bt._loss_tracker.start = Reading(22.0, base - timedelta(minutes=10))
+        mock_bt._loss_tracker.end = Reading(20.5, base - timedelta(minutes=2))
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
             BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
         )
