@@ -62,6 +62,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_report_is_unreadable,
     trv_state_unknown_as_available,
 )
+from custom_components.better_thermostat.trv import WithdrawnHvacMode
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
 from custom_components.better_thermostat.utils.const import (
@@ -2343,9 +2344,13 @@ async def control_trv(
                 # An unconfirmed command stays on the wire, and a slow device
                 # may still apply it, so it is remembered as withdrawn.
                 if _mode_trv.system_mode_received is False:
-                    _mode_trv.withdrawn_hvac_mode = _mode_trv.last_hvac_mode
-                    _mode_trv.withdrawn_hvac_mode_until = (
-                        self.clock.monotonic() + WRITE_CONFIRM_TIMEOUT_S
+                    _mode_trv.withdrawn_hvac_mode = (
+                        WithdrawnHvacMode(
+                            mode=_mode_trv.last_hvac_mode,
+                            until=self.clock.monotonic() + WRITE_CONFIRM_TIMEOUT_S,
+                        )
+                        if _mode_trv.last_hvac_mode is not None
+                        else None
                     )
                 _mode_trv.last_hvac_mode = _new_hvac_mode
             if (
@@ -2366,7 +2371,6 @@ async def control_trv(
                 _commanded_before = self.real_trvs[entity_id].last_hvac_mode
                 self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
                 self.real_trvs[entity_id].withdrawn_hvac_mode = None
-                self.real_trvs[entity_id].withdrawn_hvac_mode_until = None
                 _tvr_has_quirk = await override_set_hvac_mode(
                     self, entity_id, _new_hvac_mode
                 )

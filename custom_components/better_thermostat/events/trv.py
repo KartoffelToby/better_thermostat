@@ -582,17 +582,14 @@ async def trigger_trv_change(
             # Better Thermostat's own command landing late, not a press, for
             # as long as a device is given to apply a command.
             _withdrawn_command_landed = False
-            if trv.withdrawn_hvac_mode is not None:
-                _withdrawn_still_pending = (
-                    trv.withdrawn_hvac_mode_until is not None
-                    and self.clock.monotonic() < trv.withdrawn_hvac_mode_until
-                )
+            _withdrawn = trv.withdrawn_hvac_mode
+            if _withdrawn is not None:
+                _withdrawn_still_pending = self.clock.monotonic() < _withdrawn.until
                 _withdrawn_command_landed = _withdrawn_still_pending and (
-                    trv.withdrawn_hvac_mode == _org_trv_state.state
+                    _withdrawn.mode == _org_trv_state.state
                 )
                 if _withdrawn_command_landed or not _withdrawn_still_pending:
                     trv.withdrawn_hvac_mode = None
-                    trv.withdrawn_hvac_mode_until = None
             if (
                 not child_lock
                 and not _withdrawn_command_landed

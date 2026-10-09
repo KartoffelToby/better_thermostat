@@ -32,7 +32,7 @@ from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
     trigger_trv_change,
 )
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import Trv, WithdrawnHvacMode
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -4904,8 +4904,7 @@ class TestWithdrawnModeCommand:
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.hvac_mode = HVACMode.HEAT
         trv.last_hvac_mode = HVACMode.OFF
-        trv.withdrawn_hvac_mode = HVACMode.HEAT
-        trv.withdrawn_hvac_mode_until = 60.0
+        trv.withdrawn_hvac_mode = WithdrawnHvacMode(mode=HVACMode.HEAT, until=60.0)
 
         off = _make_state("off")
         mock_bt.hass.states.get.return_value = off
@@ -4915,7 +4914,9 @@ class TestWithdrawnModeCommand:
             await trigger_trv_change(
                 mock_bt, _make_event(mock_bt, new_state=off, old_state=_make_state())
             )
-            assert trv.withdrawn_hvac_mode == HVACMode.HEAT
+            assert trv.withdrawn_hvac_mode == WithdrawnHvacMode(
+                mode=HVACMode.HEAT, until=60.0
+            )
 
             mock_bt.clock.advance(10)
             heat = _make_state("heat")

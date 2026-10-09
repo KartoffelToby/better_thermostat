@@ -53,6 +53,23 @@ type WriteChannel = Literal["setpoint", "offset", "valve"]
 ECHO_SETPOINTS_LIMIT = 8
 
 
+@dataclass(frozen=True)
+class WithdrawnHvacMode:
+    """A mode command still on the wire that the room took back.
+
+    Attributes
+    ----------
+    mode : str
+        The mode the command carried, in the device's spelling
+    until : float
+        Monotonic deadline up to which a report of that mode is the command
+        landing late rather than a press at the device
+    """
+
+    mode: str
+    until: float
+
+
 @dataclass
 class PendingSetpoint:
     """A setpoint on the wire that the device has not confirmed yet.
@@ -174,10 +191,9 @@ class Trv:
     # again, so no newer command went out to replace it, and a slow device
     # may still apply it. Its report is Better Thermostat's own command
     # landing late, not a press at the device, until the monotonic deadline
-    # beside it: a device gets as long to apply it as the mode watchdog gives
+    # it carries: a device gets as long to apply it as the mode watchdog gives
     # any command, and a report after that is the user's again.
-    withdrawn_hvac_mode: str | None = None
-    withdrawn_hvac_mode_until: float | None = None
+    withdrawn_hvac_mode: WithdrawnHvacMode | None = None
     # Whether the device reported something while a control cycle held the
     # inbound handler off. The end of the cycle reads the device's state then,
     # before a later cycle can write over a press nobody has read.
