@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
+from enum import StrEnum
 import logging
 import math
 import random
@@ -117,6 +118,15 @@ class MpcOutput:
     debug: dict[str, object] = field(default_factory=dict)
 
 
+class TrvProfile(StrEnum):
+    """How a TRV's temperature answers a valve opening, as learned so far."""
+
+    UNKNOWN = "unknown"
+    THRESHOLD = "threshold"
+    LINEAR = "linear"
+    EXPONENTIAL = "exponential"
+
+
 @dataclass
 class _MpcState:
     last_percent: float | None = None
@@ -143,7 +153,7 @@ class _MpcState:
     last_room_temperature: float | None = None
     last_room_temperature_ts: float = 0.0
     perf_curve: dict[str, dict[str, float | int]] = field(default_factory=dict)
-    trv_profile: str = "unknown"
+    trv_profile: TrvProfile = TrvProfile.UNKNOWN
     profile_confidence: float = 0.0
     profile_samples: int = 0
     u_integral: float = 0.0
@@ -371,10 +381,10 @@ def _seed_state_from_siblings(
                 }
                 break
 
-    if state.trv_profile == "unknown" and state.profile_samples == 0:
+    if state.trv_profile == TrvProfile.UNKNOWN and state.profile_samples == 0:
         for _, sib in siblings:
             if (
-                sib.trv_profile != "unknown"
+                sib.trv_profile != TrvProfile.UNKNOWN
                 and sib.profile_samples > 0
                 and _all_finite(sib.profile_confidence)
                 and _all_finite(sib.profile_samples)
@@ -1706,17 +1716,17 @@ def _detect_trv_profile(
     prev_conf = state.profile_confidence
 
     if threshold_evidence > 0.5:
-        state.trv_profile = "threshold"
+        state.trv_profile = TrvProfile.THRESHOLD
         state.profile_confidence = min(1.0, state.profile_confidence + alpha)
 
     elif linear_evidence > 0.5:
-        state.trv_profile = "linear"
+        state.trv_profile = TrvProfile.LINEAR
         state.profile_confidence = min(
             1.0, state.profile_confidence + alpha * linear_evidence
         )
 
     elif exponential_evidence > 0.5:
-        state.trv_profile = "exponential"
+        state.trv_profile = TrvProfile.EXPONENTIAL
         state.profile_confidence = min(
             1.0, state.profile_confidence + alpha * exponential_evidence
         )
@@ -1740,7 +1750,7 @@ def _apply_profile_adjustments(state: _MpcState, params: MpcParams) -> None:
     # handled by dead-zone learning (raise/decay) so it can adapt and revert
     # if conditions change, and a linear TRV leaves the learned min opening
     # to dead-zone decay.
-    if state.trv_profile != "exponential":
+    if state.trv_profile != TrvProfile.EXPONENTIAL:
         return
     if state.gain_est is None:
         state.gain_est = params.mpc_thermal_gain
@@ -1929,7 +1939,10 @@ def _post_process_percent(
 
         # A threshold-like TRV is the case dead-zone learning exists for, so
         # evaluation continues once the profile is classified as one.
-        if time_delta >= eval_after and state.trv_profile in ("unknown", "threshold"):
+        if time_delta >= eval_after and state.trv_profile in (
+            TrvProfile.UNKNOWN,
+            TrvProfile.THRESHOLD,
+        ):
             tol = max(inp.tolerance_K, 0.0)
             needs_heat = delta_kelvin is not None and delta_kelvin > tol
             small_command = 0 < percent_out <= params.deadzone_threshold_percent

@@ -18,6 +18,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcOutput,
     MpcParams,
+    TrvProfile,
     _curve_bin_label,
     _detect_regime_change,
     _detect_trv_profile,
@@ -328,7 +329,7 @@ class TestStatePersistence:
         state.min_effective_percent = 12.0
         state.dead_zone_hits = 3
         state.is_calibration_active = True
-        state.trv_profile = "threshold"
+        state.trv_profile = TrvProfile.THRESHOLD
         state.profile_confidence = 0.85
 
         restored = deserialize_mpc(asdict(state))
@@ -1325,7 +1326,7 @@ class TestSeedFromSiblings:
         """A fresh bucket inherits a confirmed TRV profile from its nearest sibling."""
         params = _default_params()
         sibling = _MpcState()
-        sibling.trv_profile = "threshold"
+        sibling.trv_profile = TrvProfile.THRESHOLD
         sibling.profile_confidence = 0.82
         sibling.profile_samples = 17
         _STATES["uidB:climate.trv:t20.0"] = sibling
@@ -1376,7 +1377,7 @@ class TestSeedFromSiblings:
         params = _default_params()
         sibling = _MpcState()
         sibling.solar_gain_est = 0.040
-        sibling.trv_profile = "threshold"
+        sibling.trv_profile = TrvProfile.THRESHOLD
         sibling.profile_confidence = 0.9
         sibling.profile_samples = 30
         sibling.perf_curve = {"p10_12": {"count": 1, "avg_room_rate": 0.02}}
@@ -1384,7 +1385,7 @@ class TestSeedFromSiblings:
 
         already_trained = _MpcState()
         already_trained.solar_gain_est = 0.005
-        already_trained.trv_profile = "linear"
+        already_trained.trv_profile = TrvProfile.LINEAR
         already_trained.profile_confidence = 0.7
         already_trained.profile_samples = 11
         already_trained.perf_curve = {"p50_52": {"count": 8, "avg_room_rate": 0.05}}
@@ -1445,7 +1446,7 @@ class TestSeedFromSiblings:
         poisoned.perf_curve = {
             "p20_22": {"count": 3, "avg_room_rate": float("inf"), "avg_percent": 21.0}
         }
-        poisoned.trv_profile = "threshold"
+        poisoned.trv_profile = TrvProfile.THRESHOLD
         poisoned.profile_confidence = float("nan")
         poisoned.profile_samples = 9
         poisoned.solar_gain_est = float("nan")
@@ -1454,7 +1455,7 @@ class TestSeedFromSiblings:
         clean.perf_curve = {
             "p20_22": {"count": 6, "avg_room_rate": 0.03, "avg_percent": 21.0}
         }
-        clean.trv_profile = "linear"
+        clean.trv_profile = TrvProfile.LINEAR
         clean.profile_confidence = 0.8
         clean.profile_samples = 12
         clean.solar_gain_est = 0.02
@@ -1521,7 +1522,7 @@ class TestSeedFromSiblings:
         sibling = _MpcState()
         sibling.solar_gain_est = 0.022
         sibling.perf_curve = {"p20_22": {"count": 4, "avg_room_rate": 0.03}}
-        sibling.trv_profile = "threshold"
+        sibling.trv_profile = TrvProfile.THRESHOLD
         sibling.profile_confidence = 0.7
         sibling.profile_samples = 8
         _STATES["uidH:climate.trv:t20.0"] = sibling
@@ -2907,7 +2908,7 @@ class TestProfileAdjustments:
     def test_exponential_profile_raises_the_gain_by_ten_percent(self):
         """An exponential TRV starts from the configured gain, raised 10 %."""
         params = _default_params(mpc_thermal_gain=0.06, deadzone_threshold_percent=20.0)
-        state = self._confident(trv_profile="exponential")
+        state = self._confident(trv_profile=TrvProfile.EXPONENTIAL)
 
         _detect_trv_profile(state, 60.0, 1.5, 300.0, 1.0, params)
 
@@ -2918,7 +2919,7 @@ class TestProfileAdjustments:
     def test_exponential_gain_is_capped(self):
         """The raised gain stays within the configured maximum."""
         params = _default_params(mpc_gain_max=0.5, deadzone_threshold_percent=20.0)
-        state = self._confident(trv_profile="exponential", gain_est=0.48)
+        state = self._confident(trv_profile=TrvProfile.EXPONENTIAL, gain_est=0.48)
 
         _detect_trv_profile(state, 60.0, 1.5, 300.0, 1.0, params)
 
@@ -2928,7 +2929,7 @@ class TestProfileAdjustments:
         """At 19 samples the same exponential evidence leaves the gain."""
         params = _default_params(deadzone_threshold_percent=20.0)
         state = self._confident(
-            trv_profile="exponential", profile_samples=18, gain_est=0.1
+            trv_profile=TrvProfile.EXPONENTIAL, profile_samples=18, gain_est=0.1
         )
 
         _detect_trv_profile(state, 60.0, 1.5, 300.0, 1.0, params)
@@ -2938,7 +2939,7 @@ class TestProfileAdjustments:
 
     @pytest.mark.parametrize(
         ("percent", "trv_delta_K", "profile"),
-        [(10.0, 0.1, "threshold"), (50.0, 1.0, "linear")],
+        [(10.0, 0.1, TrvProfile.THRESHOLD), (50.0, 1.0, TrvProfile.LINEAR)],
     )
     def test_threshold_and_linear_profiles_leave_the_gain(
         self, percent, trv_delta_K, profile
