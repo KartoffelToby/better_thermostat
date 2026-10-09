@@ -928,6 +928,26 @@ async def test_the_duration_a_trigger_names_is_waited_out(hass, fake_trv, trigge
 @pytest.mark.parametrize(
     "trigger_type", ["current_temperature_changed", "current_humidity_changed"]
 )
+async def test_a_value_trigger_without_a_threshold_waits_out_its_duration(
+    hass, fake_trv, trigger_type
+):
+    """A value trigger with ``for`` and no threshold still waits that long."""
+    _entry, device_id = await _entry_with_device(hass)
+    trigger = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.TRIGGER, device_id
+        ),
+        trigger_type,
+    )
+
+    attached = await _attached_config(hass, {**trigger, "for": {"minutes": 5}})
+
+    assert attached["for"] == timedelta(minutes=5)
+
+
+@pytest.mark.parametrize(
+    "trigger_type", ["current_temperature_changed", "current_humidity_changed"]
+)
 async def test_a_value_trigger_takes_both_bounds(hass, fake_trv, trigger_type):
     """A value trigger can watch for a value leaving a band in either direction."""
     _entry, device_id = await _entry_with_device(hass)
