@@ -139,6 +139,7 @@ class TestTheLowestSetpointShim:
 
 
 ANSWERING_PREDICATES = [
+    "local_calibration_reverses_sign",
     "local_calibration_shifts_setpoint",
     "trv_state_unknown_as_available",
 ]

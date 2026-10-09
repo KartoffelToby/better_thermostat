@@ -65,6 +65,7 @@ OPTIONAL = (
     "maybe_set_external_temperature",
     "trv_state_unknown_as_available",
     "local_calibration_shifts_setpoint",
+    "local_calibration_reverses_sign",
 )
 SURFACE = REQUIRED + OPTIONAL
 
@@ -80,6 +81,7 @@ CALL_CONTRACT = {
     "lowest_setpoint": ((4.0,), float),
     "trv_state_unknown_as_available": ((), bool),
     "local_calibration_shifts_setpoint": ((), bool),
+    "local_calibration_reverses_sign": ((), bool),
 }
 
 

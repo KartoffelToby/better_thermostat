@@ -16,6 +16,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import ControlMod
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
     fix_target_temperature_calibration,
+    local_calibration_reverses_sign,
     local_calibration_shifts_setpoint,
 )
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
@@ -1333,14 +1334,20 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
     _current_trv_calibration = float(_current_trv_calibration)
     _calibration_step = float(_calibration_step)
 
-    # A device that adds the offset to its setpoint regulates on its reading
-    # minus the offset and reports the reading alone. Everything below works
-    # in the terms of a device that offsets its reading, so the stored offset
-    # and the reading are taken into those terms here, and the result goes
-    # back into the device's terms once it is final.
+    # Everything below works in the terms of a device that adds the offset
+    # to its reading and reports that sum. A device that subtracts it from
+    # its reading holds and reports the offset with the opposite sign. A
+    # device that adds it to its setpoint regulates on its reading minus the
+    # offset and reports the reading alone. The stored offset and the reading
+    # are taken into the common terms here, and the result goes back into
+    # the device's terms once it is final.
     _shifts_setpoint = local_calibration_shifts_setpoint(self, entity_id)
-    if _shifts_setpoint:
+    _reverses_sign = _shifts_setpoint or local_calibration_reverses_sign(
+        self, entity_id
+    )
+    if _reverses_sign:
         _current_trv_calibration = -_current_trv_calibration
+    if _shifts_setpoint:
         _cur_trv_temperature += _current_trv_calibration
 
     _new_trv_calibration = (
@@ -1483,7 +1490,7 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
         _log_current_calibration,
     )
 
-    if _shifts_setpoint:
+    if _reverses_sign:
         return -_new_trv_calibration
     return _new_trv_calibration
 
