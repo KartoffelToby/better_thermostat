@@ -20,6 +20,9 @@ from custom_components.better_thermostat.core.fsm.lifecycle import (
 from custom_components.better_thermostat.trv import Trv
 from tests.factories import ThermostatStandIn
 
+# The battery level and battery entity a thermostat records per entity.
+BatteryStates = dict[str, dict[str, str | None]]
+
 
 def _answers_with(value):
     """Answer every lookup with a real state carrying ``value``.
@@ -61,16 +64,18 @@ def mock_bt_instance(mock_hass):
         "climate.trv_1": Trv(entity_id="climate.trv_1"),
         "climate.trv_2": Trv(entity_id="climate.trv_2"),
     }
-    bt.devices_errors = []
+    bt.devices_errors = list[str]()
     # A MagicMock would answer .get() with another MagicMock, which the
     # battery reader would take for the entity id of a battery entity and the
     # retry pause would compare against a timestamp. No battery entity is
     # mapped by default.
-    bt.devices_states = {
-        "climate.trv_1": {"battery": None, "battery_id": None},
-        "climate.trv_2": {"battery": None, "battery_id": None},
-    }
-    bt._next_battery_read = {}
+    bt.devices_states = BatteryStates(
+        {
+            "climate.trv_1": {"battery": None, "battery_id": None},
+            "climate.trv_2": {"battery": None, "battery_id": None},
+        }
+    )
+    bt._next_battery_read = dict[str, float]()
     bt._degraded_warning_emitted = False
     bt._critical_grace_until = None
     bt.is_removed = False
@@ -286,7 +291,7 @@ class TestGetCriticalEntities:
             get_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {}
+        mock_bt_instance.real_trvs = dict[str, Trv]()
 
         result = get_critical_entities(mock_bt_instance)
 
@@ -478,7 +483,7 @@ class TestCheckCriticalEntities:
         )
 
         mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
-        mock_bt_instance.devices_errors = []
+        mock_bt_instance.devices_errors = list[str]()
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
             await check_critical_entities(mock_bt_instance)
@@ -536,7 +541,7 @@ class TestCheckCriticalEntitiesBattery:
         mock_bt_instance.hass.states.get.side_effect = lambda entity_id: State(
             entity_id, levels.get(entity_id, "heat")
         )
-        mock_bt_instance.devices_errors = []
+        mock_bt_instance.devices_errors = list[str]()
         return mock_bt_instance
 
     @staticmethod
@@ -608,10 +613,12 @@ class TestCheckCriticalEntitiesBattery:
     async def test_no_read_when_entity_has_no_battery(self, mock_bt_instance):
         """Entities without a battery id are never read in steady state."""
         bt = self._make_available(mock_bt_instance)
-        bt.devices_states = {
-            "climate.trv_1": {"battery_id": None, "battery": None},
-            "climate.trv_2": {},
-        }
+        bt.devices_states = BatteryStates(
+            {
+                "climate.trv_1": {"battery_id": None, "battery": None},
+                "climate.trv_2": {},
+            }
+        )
 
         assert await self._reads(bt) == 0
 
@@ -1190,7 +1197,7 @@ class TestCheckAndUpdateDegradedMode:
         ``get_battery_status`` returns immediately for an entity with no
         mapped battery, so asking for one yields nothing.
         """
-        mock_bt_instance.devices_states = {}
+        mock_bt_instance.devices_states = BatteryStates()
         self._all_sensors_reporting(mock_bt_instance)
         mock_bt_instance.unavailable_sensors = list(self.WATCHED_SENSORS)
 
@@ -1353,8 +1360,8 @@ class TestRoomSensorOutageWarning:
     @pytest.mark.asyncio
     async def test_a_lasting_outage_is_reported_once(self, mock_bt_instance, caplog):
         """An outage is one event, however many triggers arrive during it."""
-        mock_bt_instance.devices_states = {}
-        mock_bt_instance.unavailable_sensors = []
+        mock_bt_instance.devices_states = BatteryStates()
+        mock_bt_instance.unavailable_sensors = list[str]()
         self._room_sensor(mock_bt_instance, available=False)
 
         with caplog.at_level("WARNING"):
@@ -1366,8 +1373,8 @@ class TestRoomSensorOutageWarning:
     @pytest.mark.asyncio
     async def test_a_second_outage_is_reported_again(self, mock_bt_instance, caplog):
         """Reporting once is per outage, not once for the lifetime of the entity."""
-        mock_bt_instance.devices_states = {}
-        mock_bt_instance.unavailable_sensors = []
+        mock_bt_instance.devices_states = BatteryStates()
+        mock_bt_instance.unavailable_sensors = list[str]()
 
         with caplog.at_level("WARNING"):
             self._room_sensor(mock_bt_instance, available=False)
@@ -2067,7 +2074,7 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {}
+        mock_bt_instance.real_trvs = dict[str, Trv]()
 
         sleep_calls = []
 

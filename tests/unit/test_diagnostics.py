@@ -48,6 +48,19 @@ def _snapshot() -> WorldSnapshot:
     )
 
 
+def _section(value: object) -> dict[str, object]:
+    """Narrow one section of the download to the mapping it is."""
+    assert isinstance(value, dict)
+    return value
+
+
+def _thermostat_entry(
+    diagnostics: dict[str, object], entity_id: str
+) -> dict[str, object]:
+    """Return the thermostat section's entry for one TRV."""
+    return _section(_section(diagnostics["thermostat"])[entity_id])
+
+
 def _config_entry(bt=None, *, loaded=True):
     entry = MagicMock()
     entry.entry_id = "entry-1"
@@ -97,9 +110,9 @@ async def test_diagnostics_contains_the_basic_sections():
     """The download carries config info, TRV state, and the sensors."""
     diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry())
     assert "info" in diagnostics
-    assert CONF_THERMOSTAT not in diagnostics["info"]
-    assert diagnostics["thermostat"]["climate.trv"]["model"] == "TRVZB"
-    assert diagnostics["thermostat"]["climate.trv"]["bt_integration"] == "mqtt"
+    assert CONF_THERMOSTAT not in _section(diagnostics["info"])
+    assert _thermostat_entry(diagnostics, "climate.trv")["model"] == "TRVZB"
+    assert _thermostat_entry(diagnostics, "climate.trv")["bt_integration"] == "mqtt"
     assert "external_temperature_sensor" in diagnostics
     assert "window_sensor" in diagnostics
 
@@ -117,6 +130,7 @@ async def test_diagnostics_exports_the_flight_recorder():
 
     diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry(bt))
     exported = diagnostics["flight_recorder"]
+    assert isinstance(exported, list)
     assert len(exported) == 1
     assert exported[0]["snapshot"]["trvs"]["climate.trv"]["current_temperature"] == 20.0
     assert exported[0]["desired"]["call_for_heat"] is True
@@ -175,7 +189,7 @@ async def test_missing_integration_falls_back_to_unknown_adapter():
     entry = _config_entry()
     entry.data[CONF_THERMOSTAT][0]["integration"] = None
     diagnostics = await async_get_config_entry_diagnostics(_hass(), entry)
-    assert diagnostics["thermostat"]["climate.trv"]["bt_adapter"] == "unknown"
+    assert _thermostat_entry(diagnostics, "climate.trv")["bt_adapter"] == "unknown"
 
 
 @pytest.mark.asyncio
@@ -212,7 +226,7 @@ async def test_no_state_in_the_download_carries_its_context():
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
 
     for section in ("external_temperature_sensor", "window_sensor", "climate"):
-        assert "context" not in diagnostics[section]
+        assert "context" not in _section(diagnostics[section])
     assert "4711" not in repr(diagnostics)
 
 
@@ -258,7 +272,8 @@ async def test_diagnostics_leave_the_entry_data_untouched(
 
     assert dict(entry.data) == before
     assert "adapter" not in entry.data[CONF_THERMOSTAT][0]
-    assert diagnostics["thermostat"]["climate.trv"]["bt_adapter"] == expected_adapter
+    trv = _thermostat_entry(diagnostics, "climate.trv")
+    assert trv["bt_adapter"] == expected_adapter
 
 
 @pytest.mark.asyncio
@@ -283,7 +298,7 @@ async def test_an_entry_without_a_room_sensor_still_downloads(hass):
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
 
     assert diagnostics["external_temperature_sensor"] is None
-    assert "climate.trv" in diagnostics["thermostat"]
+    assert "climate.trv" in _section(diagnostics["thermostat"])
 
 
 @pytest.mark.asyncio
@@ -300,7 +315,7 @@ async def test_a_device_bundle_without_integration_or_model_still_downloads(hass
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
 
-    trv = diagnostics["thermostat"]["climate.trv"]
+    trv = _thermostat_entry(diagnostics, "climate.trv")
     assert trv["bt_adapter"] == "unknown"
     assert trv["bt_integration"] is None
     assert trv["model"] is None
@@ -329,7 +344,8 @@ async def test_a_valve_without_a_device_reports_its_integration_only(device_id):
         patch(f"{_DIAGNOSTICS}.dr.async_get", return_value=_devices(None)),
     ):
         diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry())
-    assert diagnostics["thermostat"]["climate.trv"]["device"] == {"integration": "zha"}
+    trv = _thermostat_entry(diagnostics, "climate.trv")
+    assert trv["device"] == {"integration": "zha"}
 
 
 @pytest.mark.asyncio
@@ -344,7 +360,8 @@ async def test_no_network_address_reaches_the_download(key):
 
     diagnostics = await async_get_config_entry_diagnostics(hass, _config_entry())
 
-    assert diagnostics["thermostat"]["climate.trv"]["attributes"][key] == "**REDACTED**"
+    attributes = _section(_thermostat_entry(diagnostics, "climate.trv")["attributes"])
+    assert attributes[key] == "**REDACTED**"
     assert "192.0.2.17" not in repr(diagnostics)
 
 
@@ -398,4 +415,4 @@ async def test_unknown_keys_stay_in_the_info_section(hass):
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
 
     assert diagnostics["info"] == {"balance_mode": 0, "fix_calibration": "yes"}
-    assert diagnostics["thermostat"]["climate.trv"]["bt_integration"] == "mqtt"
+    assert _thermostat_entry(diagnostics, "climate.trv")["bt_integration"] == "mqtt"

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from typing import override
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.exceptions import (
@@ -29,6 +30,7 @@ class _ServiceNotFound(ServiceNotFound):
     the running instance; the retry log line formats the error.
     """
 
+    @override
     def __str__(self) -> str:
         return "service not found"
 
@@ -36,6 +38,7 @@ class _ServiceNotFound(ServiceNotFound):
 class _ServiceNotSupported(ServiceNotSupported):
     """``ServiceNotSupported`` with a message that needs no running instance."""
 
+    @override
     def __str__(self) -> str:
         return "service not supported"
 

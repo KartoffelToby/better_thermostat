@@ -105,7 +105,7 @@ class TestTheSetpointShim:
 def _quirk_answering_lowest_setpoint(answer):
     """A loaded quirk module whose ``lowest_setpoint`` answers ``answer``."""
     module = ModuleType("lowest_setpoint_quirk")
-    module.lowest_setpoint = lambda _self, _entity_id, _min_temp: answer
+    vars(module)["lowest_setpoint"] = lambda _self, _entity_id, _min_temp: answer
     return module
 
 

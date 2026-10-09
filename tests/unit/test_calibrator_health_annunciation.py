@@ -34,7 +34,7 @@ def _strategy(percents):
     return BalanceStrategy(
         mode=CalibrationMode.PID_CALIBRATION,
         compute=lambda bt, eid: (next(feed), False),
-        percent_of=lambda result: result,
+        percent_of=lambda result: result if isinstance(result, float) else None,
     )
 
 
