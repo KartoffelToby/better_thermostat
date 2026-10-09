@@ -228,22 +228,33 @@ Better Thermostat climate entity:
 
 | Trigger type | Fires when |
 |---|---|
-| `heating_active` | `hvac_action` becomes `heating` |
-| `heating_stopped` | `hvac_action` leaves `heating` |
-| `window_opened` | `window_open` attribute becomes `true` |
-| `window_closed` | `window_open` attribute becomes `false` |
-| `humidity_high` | `current_humidity` attribute exceeds configured threshold |
-| `battery_low` | Minimum TRV battery drops below configured threshold |
-| `device_error` | `errors` attribute contains at least one error |
-| `target_temp_reached` | Current temperature is at or above the target temperature |
+| `heating_active` | `hvac_action` changes from another action to `heating` |
+| `heating_stopped` | `hvac_action` changes from `heating` to another action |
+| `window_opened` | `window_open` attribute changes from `false` to `true` |
+| `window_closed` | `window_open` attribute changes from `true` to `false` |
+| `humidity_high` | `current_humidity` attribute rises above the threshold |
+| `battery_low` | The lowest battery level of the TRVs drops below the threshold |
+| `device_error` | `errors` attribute goes from no error to at least one |
+| `target_temp_reached` | Current temperature becomes equal to or higher than the target temperature, because the room warmed up or the target was lowered |
 
 Three more triggers are available for your own automations:
 
 | Trigger type | Fires when |
 |---|---|
-| `hvac_mode_changed` | The HVAC mode changes |
-| `current_temperature_changed` | The current temperature changes |
-| `current_humidity_changed` | The current humidity changes |
+| `hvac_mode_changed` | The HVAC mode changes from another mode to the one set in `to` |
+| `current_temperature_changed` | The current temperature crosses the `above` or `below` value |
+| `current_humidity_changed` | The current humidity crosses the `above` or `below` value |
+
+`current_temperature_changed` and `current_humidity_changed` fire when the
+value crosses a threshold, not on every change: `current_temperature_changed` with `above: 22` fires when the room goes
+from 22 °C or less to more than 22 °C, and fires again only after the
+temperature has dropped back to 22 °C or below and risen once more. The same
+holds for `humidity_high`, `battery_low`, `device_error` and
+`target_temp_reached`. While the thermostat is `unavailable` these triggers
+reset, so they fire when it comes back with the value past the threshold. The
+triggers that watch a change of state, `heating_active`, `heating_stopped`,
+`window_opened`, `window_closed` and `hvac_mode_changed`, do not fire when the
+thermostat comes back from `unavailable`.
 
 `humidity_high` and `current_humidity_changed` appear only for a thermostat
 configured with a humidity sensor.
@@ -252,6 +263,67 @@ You can also use these triggers directly in your own automations via the
 **Automation editor → Add trigger → Device**. Select your Better Thermostat
 device and choose the desired trigger type from the list.
 
+### Trigger parameters
+
+Every trigger takes these keys:
+
+| Key | Required | Value |
+|---|---|---|
+| `trigger` | yes | `device` |
+| `domain` | yes | `better_thermostat` |
+| `device_id` | yes | The Better Thermostat device |
+| `type` | yes | One of the trigger types above |
+| `entity_id` | no | The Better Thermostat climate entity. Without it, the trigger watches the device's climate entity. |
+
+On top of these, each type takes its own fields:
+
+| Trigger type | Field | Required | Value | Default |
+|---|---|---|---|---|
+| `heating_active`, `heating_stopped`, `window_opened`, `window_closed`, `device_error`, `target_temp_reached` | `for` | no | Duration | none |
+| `humidity_high` | `above` | no | Humidity in % | `60` |
+| | `for` | no | Duration | none |
+| `battery_low` | `below` | no | Battery level in % | `20` |
+| | `for` | no | Duration | none |
+| `hvac_mode_changed` | `to` | yes | One HVAC mode of the thermostat: `heat` or `off`, with a cooling device `heat_cool` or `off` | none |
+| | `for` | no | Duration | none |
+| `current_temperature_changed` | `above`, `below` | at least one | Temperature in Home Assistant's unit | none |
+| | `for` | no | Duration | none |
+| `current_humidity_changed` | `above`, `below` | at least one | Humidity in % | none |
+| | `for` | no | Duration | none |
+
+`for` makes the trigger fire only once the new state has held that long. It is a
+mapping of `days`, `hours`, `minutes`, `seconds` or `milliseconds`, such as
+`for: {minutes: 5}`. Home Assistant rejects an automation that gives `for` as a
+string like `"00:05:00"`, or that sets a field the trigger does not have, such
+as `from` on `hvac_mode_changed`.
+
+A trigger that lacks its required field does not fire. `hvac_mode_changed`
+without `to` logs the error "names no mode to watch for" and leaves the
+automation's other triggers working. `current_temperature_changed` and
+`current_humidity_changed` without `above` or `below` make Home Assistant log an
+error when it sets up the automation.
+
+A complete automation with a classic trigger:
+
+```yaml
+alias: Living room switched off
+triggers:
+  - trigger: device
+    domain: better_thermostat
+    device_id: 0123456789abcdef0123456789abcdef
+    entity_id: climate.living_room
+    type: hvac_mode_changed
+    to: "off"
+    for:
+      minutes: 10
+actions:
+  - action: notify.notify
+    data:
+      message: The living room thermostat has been off for 10 minutes.
+```
+
+Quote `"off"`: unquoted, YAML reads it as `false`.
+
 ---
 
 ## Writing your own blueprint
@@ -259,19 +331,21 @@ device and choose the desired trigger type from the list.
 The trigger-based blueprints follow the same trigger pattern:
 
 ```yaml
-trigger:
-  - platform: device
+triggers:
+  - trigger: device
     domain: better_thermostat
     device_id: !input thermostat_device
     type: heating_active        # replace with any trigger type from the table above
 ```
 
-Threshold-based triggers (`humidity_high`, `battery_low`) additionally accept
-`above:` / `below:` fields and an optional `for:` duration, for example:
+The threshold triggers additionally accept their fields from
+[Trigger parameters](#trigger-parameters): `humidity_high` takes `above:`,
+`battery_low` takes `below:`, and both take an optional `for:` duration, for
+example:
 
 ```yaml
-trigger:
-  - platform: device
+triggers:
+  - trigger: device
     domain: better_thermostat
     device_id: !input thermostat_device
     type: humidity_high

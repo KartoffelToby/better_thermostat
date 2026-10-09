@@ -17,7 +17,7 @@ import pytest
 
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.hvac_action import ToleranceHysteresis
-from tests.factories import ThermostatStandIn, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -186,8 +186,10 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
 
         # Simulate TRV still reporting heating
         mock_bt.real_trvs = {
-            "climate.trv_1": trv_from_legacy_dict(
-                "climate.trv_1", {"hvac_action": "heating", "ignore_trv_states": False}
+            "climate.trv_1": Trv(
+                entity_id="climate.trv_1",
+                hvac_action="heating",
+                ignore_trv_states=False,
             )
         }
         mock_bt.hass = MagicMock()
@@ -207,8 +209,10 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
         temperature drops slightly → should NOT restart heating.
         """
         mock_bt.real_trvs = {
-            "climate.trv_1": trv_from_legacy_dict(
-                "climate.trv_1", {"hvac_action": "heating", "ignore_trv_states": False}
+            "climate.trv_1": Trv(
+                entity_id="climate.trv_1",
+                hvac_action="heating",
+                ignore_trv_states=False,
             )
         }
         mock_bt.hass = MagicMock()
