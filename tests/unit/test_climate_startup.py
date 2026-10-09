@@ -56,8 +56,9 @@ from custom_components.better_thermostat.utils.const import (
     MAX_HEATING_POWER,
     CalibrationOutput,
 )
+from custom_components.better_thermostat.utils.entry_schema import TrvSettings
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, make_trv
 
 SENSOR_ID = "sensor.room_temp"
 TRV_ID = "climate.test_trv"
@@ -123,8 +124,8 @@ def bt():
     mock.humidity_sensor_entity_id = None
     mock.window_sensor_entity_id = None
     mock.door_sensor_entity_id = None
-    mock.all_entities = []
-    mock.unavailable_sensors = []
+    mock.all_entities = list[str]()
+    mock.unavailable_sensors = list[str]()
     mock.degraded_mode = False
     mock.bt_min_temp = 5.0
     mock.bt_max_temp = 30.0
@@ -544,7 +545,7 @@ class TestOwnedBackgroundTasks:
     @pytest.mark.asyncio
     async def test_a_dispatched_reading_reaches_the_handler(self, hass, owned_task_bt):
         """A reading dispatched by a live entity is handled."""
-        readings = []
+        readings: list[object] = []
         _record_readings_into(owned_task_bt, readings)
         event = MagicMock()
 
@@ -560,7 +561,7 @@ class TestOwnedBackgroundTasks:
         Handling it writes the room temperature to TRVs the entity has
         already let go of, so the reading has to die with its entity.
         """
-        readings = []
+        readings: list[object] = []
         _record_readings_into(owned_task_bt, readings)
 
         await BetterThermostat._trigger_temperature_change(owned_task_bt, MagicMock())
@@ -687,7 +688,7 @@ class TestOwnedBackgroundTasks:
         Holding on to every task it ever started would grow without bound
         for the sake of a teardown that has nothing left to cancel.
         """
-        readings = []
+        readings: list[object] = []
         _record_readings_into(owned_task_bt, readings)
 
         await BetterThermostat._trigger_temperature_change(owned_task_bt, MagicMock())
@@ -705,7 +706,7 @@ class TestOwnedBackgroundTasks:
         state_mgr = MagicMock()
         state_mgr.load = AsyncMock()
         state_mgr.flush = AsyncMock()
-        owned_task_bt.all_trvs = []
+        owned_task_bt.all_trvs = list[TrvSettings]()
         owned_task_bt._unique_id = "uid"
         owned_task_bt._config_entry_id = "entry"
         owned_task_bt.entity_id = "climate.bt_test"
@@ -737,7 +738,7 @@ class TestOwnedBackgroundTasks:
         state_mgr = MagicMock()
         state_mgr.load = AsyncMock()
         state_mgr.flush = AsyncMock()
-        owned_task_bt.all_trvs = []
+        owned_task_bt.all_trvs = list[TrvSettings]()
         owned_task_bt._unique_id = "uid"
         owned_task_bt._config_entry_id = "entry"
         owned_task_bt.entity_id = "climate.bt_test"
@@ -758,7 +759,7 @@ class TestOwnedBackgroundTasks:
             for call in owned_task_bt.async_on_remove.call_args_list
             if getattr(call.args[0], "__name__", "") == "on_remove"
         )
-        readings = []
+        readings: list[object] = []
         _record_readings_into(owned_task_bt, readings)
         await BetterThermostat._trigger_temperature_change(owned_task_bt, MagicMock())
 
@@ -783,7 +784,7 @@ class TestOwnedBackgroundTasks:
         state_mgr = MagicMock()
         state_mgr.load = AsyncMock()
         state_mgr.flush = AsyncMock()
-        owned_task_bt.all_trvs = []
+        owned_task_bt.all_trvs = list[TrvSettings]()
         owned_task_bt._unique_id = "uid"
         owned_task_bt._config_entry_id = "entry"
         owned_task_bt.entity_id = "climate.bt_test"
@@ -1947,7 +1948,7 @@ class TestRestoreState:
             ATTR_TEMPERATURE: 21.0,
         }
         bt._saved_state = old
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
@@ -1982,7 +1983,7 @@ class TestRestoreState:
             },
         )
         bt._saved_state = old
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
         bt.state_mgr = MagicMock()
         bt.state_mgr.clamped_thermal.return_value = stored
         bt.heating_power, bt.heat_loss_rate = stored
@@ -2000,7 +2001,7 @@ class TestRestoreState:
         bt._saved_state = old
         bt.bt_min_temp = 5.0
         bt.bt_max_temp = 30.0
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
@@ -2016,7 +2017,7 @@ class TestRestoreState:
         bt._saved_state = old
         bt.bt_min_temp = 5.0
         bt.bt_max_temp = 30.0
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
@@ -2342,7 +2343,7 @@ class TestRestoreState:
         """
         bt = self._cooling_bt(bt, 16.0, 30.0)
         bt._preset_cool_temperatures = {"none": 24.0, "comfort": 24.0, "eco": 27.0}
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TARGET_TEMP_LOW: 20.0, ATTR_TARGET_TEMP_HIGH: 23.0}
@@ -2364,7 +2365,7 @@ class TestRestoreState:
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 22.5}
         bt._saved_state = old
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2381,7 +2382,7 @@ class TestRestoreState:
         """
         bt = self._cooling_bt(bt, 16.0, 30.0)
         bt._preset_cool_temperatures = {"none": 24.0, "comfort": 24.0, "eco": 27.0}
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 26.0})})
         old = MagicMock()
         old.state = "heat"
@@ -2405,7 +2406,7 @@ class TestRestoreState:
         """
         bt = self._cooling_bt(bt, 20.0, 30.0)
         bt._preset_cool_temperatures = {"none": 24.0, "comfort": 24.0, "eco": 27.0}
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TARGET_TEMP_LOW: 9.0, ATTR_TARGET_TEMP_HIGH: 10.0}
@@ -2429,7 +2430,7 @@ class TestRestoreState:
         bt = self._cooling_bt(bt, 16.0, 30.0)
         bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         bt._preset_cool_temperatures = {"none": 24.0, "comfort": 24.0, "eco": 27.0}
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TARGET_TEMP_LOW: 68.0, ATTR_TARGET_TEMP_HIGH: 73.4}
@@ -2450,7 +2451,7 @@ class TestRestoreState:
             ATTR_STATE_HEATING_POWER: "999.0",  # way above max
         }
         bt._saved_state = old
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
@@ -2479,7 +2480,7 @@ class TestRestoreState:
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_CALL_FOR_HEAT: False}
         bt._saved_state = old
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
         bt.call_for_heat = True
 
         states = [_make_trv_state()]
@@ -2494,7 +2495,7 @@ class TestRestoreState:
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_HEAT_LOSS: "5.0"}
         bt._saved_state = old
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
@@ -2506,9 +2507,9 @@ class TestRestoreState:
         """An old state lacking a target temperature falls back to the TRV mean."""
         old = MagicMock()
         old.state = "heat"
-        old.attributes = {}  # no ATTR_TEMPERATURE
+        old.attributes = dict[str, object]()  # no ATTR_TEMPERATURE
         bt._saved_state = old
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
 
         states = [
             _make_trv_state(attrs={ATTR_TEMPERATURE: 20.0}),
@@ -2526,7 +2527,7 @@ class TestRestoreState:
         old.attributes = {ATTR_TEMPERATURE: 21.0}
         bt._saved_state = old
         bt.bt_hvac_mode = None
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2540,7 +2541,7 @@ class TestRestoreState:
         old.attributes = {ATTR_TEMPERATURE: 21.0}
         bt._saved_state = old
         bt.bt_hvac_mode = None
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2613,7 +2614,7 @@ class TestStartupControlSync:
         sync before the flip would silently write nothing.
         """
         bt.is_removed = False
-        bt.all_entities = []
+        bt.all_entities = list[str]()
         bt.all_trvs = None
         gate_states = []
 
@@ -2634,7 +2635,7 @@ class TestStartupControlSync:
     @pytest.mark.asyncio
     async def test_startup_control_trvs_controls_each_trv(self, bt):
         """Every configured TRV receives one initial control call."""
-        bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
+        bt.real_trvs = {TRV_ID: make_trv(TRV_ID), TRV_ID_2: make_trv(TRV_ID_2)}
         with patch(f"{_CLIMATE}.control_trv", AsyncMock(return_value=True)) as ctl:
             await BetterThermostat._startup_control_trvs(bt)
 
@@ -2643,7 +2644,7 @@ class TestStartupControlSync:
     @pytest.mark.asyncio
     async def test_startup_control_trvs_computes_one_cycle_for_all(self, bt):
         """All TRVs are synced from one observation and decision."""
-        bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
+        bt.real_trvs = {TRV_ID: make_trv(TRV_ID), TRV_ID_2: make_trv(TRV_ID_2)}
         cycle = object()
         with (
             patch(f"{_CLIMATE}.compute_control_cycle", return_value=cycle) as compute,
@@ -2660,7 +2661,7 @@ class TestStartupControlSync:
     @pytest.mark.asyncio
     async def test_startup_control_trvs_survives_a_failing_trv(self, bt):
         """An error on one TRV must not stop the sync of the others."""
-        bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
+        bt.real_trvs = {TRV_ID: make_trv(TRV_ID), TRV_ID_2: make_trv(TRV_ID_2)}
         ctl = AsyncMock(side_effect=[RuntimeError("boom"), True])
         with patch(f"{_CLIMATE}.control_trv", ctl):
             await BetterThermostat._startup_control_trvs(bt)
@@ -2678,7 +2679,7 @@ class TestStartupControlSync:
         backoff. The write runs against a clock this test advances, so the
         ladder's delays elapse for the budget without costing wall time.
         """
-        bt.real_trvs = {TRV_ID: {}}
+        bt.real_trvs = {TRV_ID: make_trv(TRV_ID)}
         loop = asyncio.get_running_loop()
         clock = _AdvancingClock(loop)
         attempts: list[str] = []
@@ -2747,7 +2748,7 @@ class TestStartupStopsOnceTheEntityIsGone:
         start a recheck that outlives the call.
         """
 
-        async def removed_during_the_wait(_self):
+        async def removed_during_the_wait(_self) -> list[str]:
             _self.is_removed = True
             return []
 
@@ -3100,7 +3101,7 @@ class TestFinalizeStartupBatteryScan:
     async def test_scan_reaches_the_cooler(self, bt):
         """A configured cooler is asked for its battery entity."""
         bt.cooler_entity_id = COOLER_ID
-        bt.devices_states = {}
+        bt.devices_states = dict[str, dict[str, str | None]]()
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
         scanned = await self._scan(bt)
@@ -3113,7 +3114,7 @@ class TestFinalizeStartupBatteryScan:
         """A configured outdoor sensor is asked for its battery entity."""
         bt.cooler_entity_id = None
         bt.outdoor_sensor_entity_id = OUTDOOR_ID
-        bt.devices_states = {}
+        bt.devices_states = dict[str, dict[str, str | None]]()
 
         scanned = await self._scan(bt)
 
@@ -3127,7 +3128,7 @@ class TestFinalizeStartupBatteryScan:
         """Nothing is registered for a cooler or outdoor sensor that is absent."""
         bt.cooler_entity_id = None
         bt.outdoor_sensor_entity_id = None
-        bt.devices_states = {}
+        bt.devices_states = dict[str, dict[str, str | None]]()
 
         scanned = await self._scan(bt)
 
@@ -3332,8 +3333,7 @@ class TestFinalizeStartupOnADualRoleEntity:
         bt._preset_cool_temperatures = {PRESET_NONE: 24.0}
         return bt
 
-    @staticmethod
-    async def _run_capturing_subscriptions(bt):
+    async def _run_capturing_subscriptions(self, bt):
         """Run _finalize_startup and return the (entity ids, handler) pairs."""
         bt.is_removed = False
         bt.all_trvs = None
@@ -3939,7 +3939,7 @@ class TestRestoreStateFromNonScalarAttributes:
             ATTR_TEMPERATURE: 21.0,
         }
         bt._saved_state = old
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
         bt.room_temperature_ema = None
         bt.temperature_slope = None
 
@@ -3957,7 +3957,7 @@ class TestRestoreStateFromNonScalarAttributes:
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: raw}
         bt._saved_state = old
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
 
         states = [
             _make_trv_state(attrs={ATTR_TEMPERATURE: 20.0}),
@@ -3974,7 +3974,7 @@ class TestRestoreStateFromNonScalarAttributes:
         bt.cooler_entity_id = COOLER_ID
         bt.bt_target_temperature_step = 0.5
         bt._preset_cool_temperature = None
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TARGET_TEMP_LOW: 20.0, ATTR_TARGET_TEMP_HIGH: raw}
@@ -3997,7 +3997,7 @@ class TestRestoreStateFromNonScalarAttributes:
             ATTR_STATE_HEAT_LOSS: raw,
         }
         bt._saved_state = old
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
         bt.heat_loss_rate = 0.01
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])

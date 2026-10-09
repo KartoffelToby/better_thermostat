@@ -60,7 +60,9 @@ def _read_device_info(bt, er_reg, dr_reg):
         patch(f"{_CLIMATE}.er.async_get", return_value=er_reg),
         patch(f"{_CLIMATE}.dr.async_get", return_value=dr_reg),
     ):
-        return BetterThermostat.device_info.fget(bt)
+        getter = BetterThermostat.device_info.fget
+        assert getter is not None
+        return getter(bt)
 
 
 def _non_real_device_registries(kind, *, device_id="trv_device_id"):
