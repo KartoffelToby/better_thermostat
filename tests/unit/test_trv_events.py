@@ -45,7 +45,7 @@ from custom_components.better_thermostat.utils.helpers import (
     CoolerSendCache,
     mode_remap,
 )
-from tests.factories import ThermostatStandIn, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.test_trv"
 PEER_ID = "climate.test_trv_peer"
@@ -115,34 +115,31 @@ def mock_bt():
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
 
     bt.real_trvs = {
-        ENTITY_ID: trv_from_legacy_dict(
-            ENTITY_ID,
-            {
-                "hvac_mode": HVACMode.HEAT,
-                "hvac_modes": [HVACMode.OFF, HVACMode.HEAT],
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "current_temperature": 18.0,
-                "temperature": 19.0,
-                "commanded_setpoint": 19.0,
-                "last_hvac_mode": "heat",
-                "target_temperature_received": True,
-                "system_mode_received": True,
-                "calibration_received": True,
-                "calibration": 1,
-                "last_calibration": 0.0,
-                "ignore_trv_states": False,
-                "model": "SomeModel",
-                "model_quirks": None,
-                "hvac_action": "heating",
-                "valve_position": 50,
-                "advanced": {
-                    "calibration": CalibrationOutput.LOCAL_BASED,
-                    "calibration_mode": CalibrationMode.DEFAULT,
-                    "no_off_system_mode": False,
-                    "heat_auto_swapped": False,
-                    "child_lock": False,
-                },
+        ENTITY_ID: Trv(
+            entity_id=ENTITY_ID,
+            hvac_mode=HVACMode.HEAT,
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+            min_temp=5.0,
+            max_temp=30.0,
+            current_temperature=18.0,
+            commanded_setpoint=19.0,
+            last_hvac_mode="heat",
+            target_temperature_received=True,
+            system_mode_received=True,
+            calibration_received=True,
+            calibration=1,
+            last_calibration=0.0,
+            ignore_trv_states=False,
+            model="SomeModel",
+            model_quirks=None,
+            hvac_action="heating",
+            valve_position=50,
+            advanced={
+                "calibration": CalibrationOutput.LOCAL_BASED,
+                "calibration_mode": CalibrationMode.DEFAULT,
+                "no_off_system_mode": False,
+                "heat_auto_swapped": False,
+                "child_lock": False,
             },
         )
     }
@@ -185,35 +182,32 @@ def _add_homematicip_peer(bt):
     Returns the state the peer reports, so a caller can route
     ``hass.states.get`` to the right state per entity.
     """
-    peer = trv_from_legacy_dict(
-        PEER_ID,
-        {
-            "hvac_mode": HVACMode.HEAT,
-            "hvac_modes": [HVACMode.OFF, HVACMode.HEAT],
-            "min_temp": 5.0,
-            "max_temp": 30.0,
-            "current_temperature": 18.0,
-            "temperature": 19.0,
-            "commanded_setpoint": 19.0,
-            "last_hvac_mode": "heat",
-            "target_temperature_received": True,
-            "system_mode_received": True,
-            "calibration_received": True,
-            "calibration": 1,
-            "last_calibration": 0.0,
-            "ignore_trv_states": False,
-            "model": "SomeModel",
-            "model_quirks": None,
-            "hvac_action": "heating",
-            "valve_position": 50,
-            "advanced": {
-                "calibration": CalibrationOutput.LOCAL_BASED,
-                "calibration_mode": CalibrationMode.DEFAULT,
-                "no_off_system_mode": False,
-                "heat_auto_swapped": False,
-                "child_lock": False,
-                CONF_HOMEMATICIP: True,
-            },
+    peer = Trv(
+        entity_id=PEER_ID,
+        hvac_mode=HVACMode.HEAT,
+        hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+        min_temp=5.0,
+        max_temp=30.0,
+        current_temperature=18.0,
+        commanded_setpoint=19.0,
+        last_hvac_mode="heat",
+        target_temperature_received=True,
+        system_mode_received=True,
+        calibration_received=True,
+        calibration=1,
+        last_calibration=0.0,
+        ignore_trv_states=False,
+        model="SomeModel",
+        model_quirks=None,
+        hvac_action="heating",
+        valve_position=50,
+        advanced={
+            "calibration": CalibrationOutput.LOCAL_BASED,
+            "calibration_mode": CalibrationMode.DEFAULT,
+            "no_off_system_mode": False,
+            "heat_auto_swapped": False,
+            "child_lock": False,
+            CONF_HOMEMATICIP: True,
         },
     )
     bt.real_trvs[PEER_ID] = peer
@@ -3622,34 +3616,31 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}} for _ in entity_ids]
 
     bt.real_trvs = {
-        eid: trv_from_legacy_dict(
-            eid,
-            {
-                "hvac_mode": HVACMode.HEAT,
-                "hvac_modes": [HVACMode.OFF, HVACMode.HEAT],
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "current_temperature": 18.0,
-                "temperature": 19.0,
-                "commanded_setpoint": 19.0,
-                "last_hvac_mode": "heat",
-                "target_temperature_received": True,
-                "system_mode_received": True,
-                "calibration_received": True,
-                "calibration": 1,
-                "last_calibration": 0.0,
-                "ignore_trv_states": False,
-                "model": "SomeModel",
-                "model_quirks": None,
-                "hvac_action": "heating",
-                "valve_position": 50,
-                "advanced": {
-                    "calibration": CalibrationOutput.LOCAL_BASED,
-                    "calibration_mode": CalibrationMode.DEFAULT,
-                    "no_off_system_mode": no_off,
-                    "heat_auto_swapped": False,
-                    "child_lock": False,
-                },
+        eid: Trv(
+            entity_id=eid,
+            hvac_mode=HVACMode.HEAT,
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+            min_temp=5.0,
+            max_temp=30.0,
+            current_temperature=18.0,
+            commanded_setpoint=19.0,
+            last_hvac_mode="heat",
+            target_temperature_received=True,
+            system_mode_received=True,
+            calibration_received=True,
+            calibration=1,
+            last_calibration=0.0,
+            ignore_trv_states=False,
+            model="SomeModel",
+            model_quirks=None,
+            hvac_action="heating",
+            valve_position=50,
+            advanced={
+                "calibration": CalibrationOutput.LOCAL_BASED,
+                "calibration_mode": CalibrationMode.DEFAULT,
+                "no_off_system_mode": no_off,
+                "heat_auto_swapped": False,
+                "child_lock": False,
             },
         )
         for eid in entity_ids

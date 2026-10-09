@@ -12,36 +12,34 @@ from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.events.trv import accepts_user_setpoint
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationOutput,
 )
-from tests.factories import trv_from_legacy_dict
 
 
 @pytest.fixture
 def trv():
     """Build a TRV whose every flag permits adopting a reported setpoint."""
-    return trv_from_legacy_dict(
-        "climate.test_trv",
-        {
-            "hvac_mode": HVACMode.HEAT,
-            "hvac_modes": [HVACMode.OFF, HVACMode.HEAT],
-            "min_temp": 5.0,
-            "max_temp": 30.0,
-            "current_temperature": 18.0,
-            "commanded_setpoint": 19.0,
-            "target_temperature_received": True,
-            "system_mode_received": True,
-            "ignore_trv_states": False,
-            "advanced": {
-                "calibration": CalibrationOutput.LOCAL_BASED,
-                "calibration_mode": CalibrationMode.DEFAULT,
-                "no_off_system_mode": False,
-                "heat_auto_swapped": False,
-                "child_lock": False,
-            },
+    return Trv(
+        entity_id="climate.test_trv",
+        hvac_mode=HVACMode.HEAT,
+        hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+        min_temp=5.0,
+        max_temp=30.0,
+        current_temperature=18.0,
+        commanded_setpoint=19.0,
+        target_temperature_received=True,
+        system_mode_received=True,
+        ignore_trv_states=False,
+        advanced={
+            "calibration": CalibrationOutput.LOCAL_BASED,
+            "calibration_mode": CalibrationMode.DEFAULT,
+            "no_off_system_mode": False,
+            "heat_auto_swapped": False,
+            "child_lock": False,
         },
     )
 
@@ -80,7 +78,7 @@ class TestIgnoreTrvStates:
 
     def test_ignore_trv_states_default_is_false(self):
         """The ignore_trv_states flag defaults to False when not set."""
-        trv = trv_from_legacy_dict("climate.default_test", {})
+        trv = Trv(entity_id="climate.default_test")
 
         assert trv.ignore_trv_states is False
 

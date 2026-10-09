@@ -185,14 +185,7 @@
   "issues": {
     "missing_entity": {
       "title": "BT: {name} – zugehörige Entität fehlt",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Die zugehörige Entität {entity} fehlt",
-            "description": "Der Grund dafür ist, dass die Entität ({entity}) in Ihrem Home Assistant nicht verfügbar ist.\n\nSie können dies beheben, indem Sie prüfen, ob der Akku des Geräts voll ist, oder es erneut an HA anschließen. Stellen Sie sicher, dass sich die Entität wieder in HA befindet, bevor Sie fortfahren."
-          }
-        }
-      }
+      "description": "Der Grund dafür ist, dass die Entität ({entity}) in Ihrem Home Assistant nicht verfügbar ist.\n\nSie können dies beheben, indem Sie prüfen, ob der Akku des Geräts voll ist, oder es erneut an HA anschließen. Diese Meldung verschwindet von selbst, sobald die Entität wieder verfügbar ist oder aus den Einstellungen dieses Better Thermostat entfernt wurde."
     },
     "degraded_mode": {
       "title": "BT: {name} - Sensorfehler: {sensors} läuft im eingeschränkten Modus",
