@@ -13,6 +13,7 @@ entry: what was stored, and what the thermostat that came up from it drives.
 """
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import replace
 
 from homeassistant.components.climate import HVACMode
@@ -104,7 +105,7 @@ def _expected_calibration_options(profile: DeviceProfile) -> list[str]:
     control a valve channel — a number entity on the device, or the quirk
     module that drives the valve of this device's model.
     """
-    options = []
+    options: list[str] = []
     if profile.valve_channel is not ValveChannel.NONE:
         options.append(CalibrationOutput.DIRECT_VALVE_BASED)
     options.append(CalibrationOutput.TARGET_TEMP_BASED)
@@ -126,7 +127,7 @@ def _expected_calibration(profile: DeviceProfile) -> str:
     return CalibrationOutput.TARGET_TEMP_BASED
 
 
-def _user_step_input(thermostat: str, **overrides) -> dict:
+def _user_step_input(thermostat: str, **overrides) -> dict[str, object]:
     """Return a submission for the user step, naming the entities it wires."""
     return {
         "name": ENTRY_NAME,
@@ -203,9 +204,18 @@ def _entry_named(hass, name: str):
     return entry
 
 
-def _stored_trv(entry, index: int = 0) -> dict:
+def _stored_trv(entry, index: int = 0) -> Mapping[str, object]:
     """Return one device bundle out of an entry's stored thermostat list."""
-    return entry.options[CONF_THERMOSTAT][index]
+    bundle = entry.options[CONF_THERMOSTAT][index]
+    assert isinstance(bundle, Mapping)
+    return bundle
+
+
+def _stored_advanced(entry) -> Mapping[str, object]:
+    """Return the advanced settings of the entry's first stored device bundle."""
+    advanced = _stored_trv(entry)["advanced"]
+    assert isinstance(advanced, Mapping)
+    return advanced
 
 
 @pytest.mark.parametrize(
@@ -290,9 +300,7 @@ async def test_create_flow_ends_in_a_thermostat_driving_the_device(hass, fake_tr
     assert entry.state is ConfigEntryState.LOADED
     assert result["title"] == ENTRY_NAME
     assert _stored_trv(entry)["trv"] == profile.entity_id
-    assert _stored_trv(entry)["advanced"][CONF_CALIBRATION] == (
-        _expected_calibration(profile)
-    )
+    assert _stored_advanced(entry)[CONF_CALIBRATION] == _expected_calibration(profile)
 
     bt = await wait_for_startup(hass, entry)
     assert hass.states.get(BT_ENTITY) is not None
@@ -358,14 +366,14 @@ async def test_options_flow_keeps_the_settings_of_a_thermostat_left_alone(hass):
     )
     entry = _only_entry(hass)
     await wait_for_startup(hass, entry)
-    assert _stored_trv(entry)["advanced"][CONF_CHILD_LOCK] is True
+    assert _stored_advanced(entry)[CONF_CHILD_LOCK] is True
 
     advanced_form, _ = await _run_options_flow(
         hass, entry, _user_step_input(trv.entity_id, name="Renamed Room")
     )
 
     assert form_default(advanced_form, CONF_CHILD_LOCK) is True
-    assert _stored_trv(entry)["advanced"][CONF_CHILD_LOCK] is True
+    assert _stored_advanced(entry)[CONF_CHILD_LOCK] is True
     assert entry.options["name"] == "Renamed Room"
 
 

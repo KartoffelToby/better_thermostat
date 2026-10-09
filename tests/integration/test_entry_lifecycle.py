@@ -311,7 +311,7 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
 
     set_room_sensor(hass, 18.0)
     entry = make_entry(fake_trv.profile)
-    registered = []
+    registered: list[tuple[str, timedelta]] = []
     with _recording_intervals(registered):
         await setup_entry(hass, entry)
         bt = await wait_for_startup(hass, entry)

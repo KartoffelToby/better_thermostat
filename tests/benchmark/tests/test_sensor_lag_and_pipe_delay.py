@@ -14,6 +14,14 @@ from tests.benchmark.plant import (
 )
 from tests.benchmark.sensor import Sensor, SensorParams
 
+
+def _observed(sensor: Sensor, t_s: float, true_temperature: float) -> float:
+    """Read ``sensor`` outside any dropout window, where it always reports."""
+    reading = sensor.read(t_s, true_temperature)
+    assert reading is not None
+    return reading
+
+
 # ---------- Sensor thermal lag ----------
 
 
@@ -28,8 +36,9 @@ def test_sensor_thermal_lag_settles_to_steady_input():
     """With a steady input and enough time, the lagged reading equals T_true."""
     sensor = Sensor(SensorParams(sample_interval_s=0.0, thermal_lag_s=60.0))
     sensor.read(0.0, 20.0)  # initialise
+    reading = 0.0
     for t in range(1, 600):  # 10 min
-        reading = sensor.read(float(t), 20.0)
+        reading = _observed(sensor, float(t), 20.0)
     assert abs(reading - 20.0) < 1e-3
 
 
@@ -40,7 +49,7 @@ def test_sensor_thermal_lag_first_order_response_to_step():
     sensor.read(0.0, 20.0)
     sensor.read(0.001, 20.0)  # ensure lag-state is fully initialised at 20.0
     # Apply a step to 22.0 and check the reading at one time constant.
-    final = sensor.read(tau_s, 22.0)
+    final = _observed(sensor, tau_s, 22.0)
     # After one tau, first-order response reaches ≈63 % of step = 20 + 0.63*2 ≈ 21.26
     assert 21.10 < final < 21.45
 
@@ -51,7 +60,7 @@ def test_sensor_thermal_lag_lags_step():
     sensor.read(0.0, 20.0)
     sensor.read(0.1, 20.0)
     # 1 second after a 5 K step the reading must still be close to the old value
-    reading = sensor.read(1.1, 25.0)
+    reading = _observed(sensor, 1.1, 25.0)
     assert reading < 20.2  # large lag → barely moved
 
 

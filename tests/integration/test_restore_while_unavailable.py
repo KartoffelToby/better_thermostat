@@ -41,7 +41,7 @@ DRIVEN_VALVE_TRV = replace(
 )
 
 
-def _saved_unavailable(shown: State, **extra) -> tuple[State, dict]:
+def _saved_unavailable(shown: State, **extra) -> tuple[State, dict[str, object]]:
     """Return what Home Assistant saved for an entity unavailable at the stop."""
     return (
         State(shown.entity_id, STATE_UNAVAILABLE),

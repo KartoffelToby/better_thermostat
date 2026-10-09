@@ -50,7 +50,7 @@ end of this module as a test of its own. A longer search is a manual run, with m
         uv run pytest tests/integration/test_room_event_sequences.py -n auto
 """
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 import contextlib
 import copy
 from dataclasses import asdict, dataclass, field, replace
@@ -58,7 +58,7 @@ from datetime import timedelta
 import json
 import os
 import random
-from typing import ClassVar
+from typing import ClassVar, override
 from unittest.mock import patch
 
 from homeassistant.components.climate.const import (
@@ -290,7 +290,9 @@ class Room:
         head's range.
         """
         head = self.heads[index]
-        head_bias = head.current_temperature - self.room_temperature
+        head_reading = head.current_temperature
+        assert head_reading is not None
+        head_bias = head_reading - self.room_temperature
         profile = head.profile
         return min(max(target + head_bias, profile.min_temp), profile.max_temp)
 
@@ -357,15 +359,17 @@ class RoomEvent:
         """Let the event happen and record the user's word it carries."""
         raise NotImplementedError
 
-    def to_json(self) -> dict:
+    def to_json(self) -> dict[str, object]:
         """Return the event as a JSON object."""
         return {"kind": self.kind, **asdict(self)}
 
     @staticmethod
-    def from_json(data: dict) -> RoomEvent:
+    def from_json(data: Mapping[str, object]) -> RoomEvent:
         """Rebuild an event from its JSON object."""
         fields = dict(data)
-        return RoomEvent.kinds[fields.pop("kind")](**fields)
+        kind = fields.pop("kind")
+        assert isinstance(kind, str)
+        return RoomEvent.kinds[kind](**fields)
 
 
 @dataclass(frozen=True)
@@ -375,10 +379,12 @@ class Command(RoomEvent):
     kind: ClassVar[str] = "command"
     value: float
 
+    @override
     def possible(self, room: Room) -> bool:
         """An entity setpoint can always be set."""
         return True
 
+    @override
     async def happen(self, room: Room) -> None:
         """Call the entity's set_temperature service."""
         await _set_on_entity(room, self.value)
@@ -396,6 +402,7 @@ class Turn(RoomEvent):
     head: int
     value: float
 
+    @override
     def possible(self, room: Room) -> bool:
         """Only a reachable head can be turned, and only to a new value."""
         return (
@@ -403,6 +410,7 @@ class Turn(RoomEvent):
             and self.value != room.heads[self.head].target_temperature
         )
 
+    @override
     async def happen(self, room: Room) -> None:
         """Change the head's setpoint and publish it as the head's own report.
 
@@ -431,6 +439,7 @@ class TurnDuringCycle(RoomEvent):
     commanded: float
     turned_to: float
 
+    @override
     def possible(self, room: Room) -> bool:
         """The room heats, and both heads are reachable and written to."""
         return (
@@ -443,6 +452,7 @@ class TurnDuringCycle(RoomEvent):
             and _apart(room, self.turned, self.turned_to, self.commanded)
         )
 
+    @override
     async def happen(self, room: Room) -> None:
         """Hold the write to ``held``, turn ``turned`` meanwhile, then release."""
         head = room.heads[self.turned]
@@ -478,10 +488,12 @@ class Drop(RoomEvent):
     kind: ClassVar[str] = "drop"
     head: int
 
+    @override
     def possible(self, room: Room) -> bool:
         """A reachable head can drop as long as another one stays."""
         return self.head in room.available and len(room.available) >= 2
 
+    @override
     async def happen(self, room: Room) -> None:
         """Publish the head as unavailable."""
         room.heads[self.head].async_set_context(Context())
@@ -499,10 +511,12 @@ class BringBack(RoomEvent):
     kind: ClassVar[str] = "bring_back"
     head: int
 
+    @override
     def possible(self, room: Room) -> bool:
         """Only a head that is gone can come back."""
         return 0 <= self.head < len(room.heads) and self.head not in room.available
 
+    @override
     async def happen(self, room: Room) -> None:
         """Publish the head as available again."""
         room.heads[self.head].async_set_context(Context())
@@ -520,10 +534,12 @@ class SetMode(RoomEvent):
     kind: ClassVar[str] = "set_mode"
     mode: str
 
+    @override
     def possible(self, room: Room) -> bool:
         """Only a mode the room is not in yet is set."""
         return self.mode != room.mode
 
+    @override
     async def happen(self, room: Room) -> None:
         """Call the entity's set_hvac_mode service."""
         await room.hass.services.async_call(
@@ -552,6 +568,7 @@ class SwitchHead(RoomEvent):
     head: int
     mode: str
 
+    @override
     def possible(self, room: Room) -> bool:
         """Only a reachable head can be switched, and only to a new mode."""
         return (
@@ -560,6 +577,7 @@ class SwitchHead(RoomEvent):
             != room.heads[self.head].hvac_mode
         )
 
+    @override
     async def happen(self, room: Room) -> None:
         """Change the head's mode and publish it as the head's own report."""
         others_off = all(
@@ -588,6 +606,7 @@ class SwitchHeadAndReport(SwitchHead):
 
     kind: ClassVar[str] = "switch_head_and_report"
 
+    @override
     async def happen(self, room: Room) -> None:
         """Switch the head, then publish a second report right after."""
         await super().happen(room)
@@ -596,6 +615,7 @@ class SwitchHeadAndReport(SwitchHead):
         head.async_set_context(Context())
         head.async_write_ha_state()
 
+    @override
     def __str__(self) -> str:
         return f"head {self.head} switched {self.mode} at the device, reporting twice"
 
@@ -607,10 +627,12 @@ class Window(RoomEvent):
     kind: ClassVar[str] = "window"
     open: bool
 
+    @override
     def possible(self, room: Room) -> bool:
         """The window only moves to the position it is not in."""
         return self.open != room.window_open
 
+    @override
     async def happen(self, room: Room) -> None:
         """Publish the window sensor's new reading."""
         room.hass.states.async_set(WINDOW_ID, "on" if self.open else "off")
@@ -627,10 +649,12 @@ class RoomReads(RoomEvent):
     kind: ClassVar[str] = "room_reads"
     value: float
 
+    @override
     def possible(self, room: Room) -> bool:
         """Only a reading the sensor does not show yet is new."""
         return self.value != room.room_temperature
 
+    @override
     async def happen(self, room: Room) -> None:
         """Publish the reading."""
         set_room_sensor(room.hass, self.value, room.scale.unit)
@@ -649,6 +673,7 @@ class HeadReads(RoomEvent):
     head: int
     value: float
 
+    @override
     def possible(self, room: Room) -> bool:
         """A reachable head reports a reading it does not show yet."""
         return (
@@ -656,6 +681,7 @@ class HeadReads(RoomEvent):
             and self.value != room.heads[self.head].current_temperature
         )
 
+    @override
     async def happen(self, room: Room) -> None:
         """Publish the reading as the head's own report."""
         head = room.heads[self.head]
@@ -674,10 +700,12 @@ class Reload(RoomEvent):
 
     kind: ClassVar[str] = "reload"
 
+    @override
     def possible(self, room: Room) -> bool:
         """An entry can always be reloaded."""
         return True
 
+    @override
     async def happen(self, room: Room) -> None:
         """Reload the entry and pick up the thermostat it starts."""
         await room.hass.config_entries.async_reload(room.entry.entry_id)
@@ -700,10 +728,12 @@ class Restart(RoomEvent):
 
     kind: ClassVar[str] = "restart"
 
+    @override
     def possible(self, room: Room) -> bool:
         """Home Assistant can always restart."""
         return True
 
+    @override
     async def happen(self, room: Room) -> None:
         """Unload the entry, then set it up again during a boot."""
         hass = room.hass
@@ -1009,8 +1039,8 @@ async def assert_surfaces(room: Room) -> None:
     numbers = _preset_numbers(room)
     assert numbers, f"[surfaces] the room has no preset number\n{room.describe()}"
 
-    def offered_ranges() -> dict[str, tuple]:
-        ranges = {}
+    def offered_ranges() -> dict[str, tuple[object, object]]:
+        ranges: dict[str, tuple[object, object]] = {}
         for entity_id in numbers:
             state = room.hass.states.get(entity_id)
             if state is not None:
@@ -1207,6 +1237,7 @@ async def test_a_head_turned_while_the_window_is_open_does_not_move_the_room(has
     async with running_room(hass, SINGLE_HEAD, no_off_system_mode=True) as room:
         bt, head = room.bt, room.heads[0]
         target = bt.heat_target_temperature
+        assert target is not None
         await Window(True).happen(room)
         await _quiet(room)
         assert await wait_for(room.hass, lambda: bt.window_open, CONVERGE_S)

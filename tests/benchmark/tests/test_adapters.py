@@ -9,6 +9,8 @@ These verify that each adapter:
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from tests.benchmark.adapters.base import BenchmarkContext, BenchmarkOutput
@@ -237,7 +239,7 @@ def test_mpc_v2_adapter_reports_the_previous_plant_valve_as_applied():
 
     controller.set_applied_u = _record
     ctx = _ctx_at(30.0)
-    adapter.step(BenchmarkContext(**{**ctx.__dict__, "last_valve_percent": 73.0}))
+    adapter.step(replace(ctx, last_valve_percent=73.0))
     assert applied == [pytest.approx(0.73)]
 
 
@@ -245,9 +247,5 @@ def test_mpc_v2_adapter_closes_the_valve_while_the_window_is_open():
     """An early exit maps to a closed valve, not to the previous command."""
     adapter = MpcV2Adapter()
     ctx = _ctx_at(0.0, target=22.0, current=18.0)
-    out = adapter.step(
-        BenchmarkContext(
-            **{**ctx.__dict__, "window_open": True, "last_valve_percent": 60.0}
-        )
-    )
+    out = adapter.step(replace(ctx, window_open=True, last_valve_percent=60.0))
     assert out.valve_percent == 0.0

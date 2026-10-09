@@ -128,7 +128,7 @@ def test_oracle_scores_near_one(
 
 @pytest.mark.parametrize("name", _SMART_CONTROLLERS)
 def test_smart_controllers_above_floor(
-    name: str, mean_overall_scores: dict[str, float]
+    name: str, mean_overall_scores: dict[str, dict[str, float]]
 ) -> None:
     """Each smart controller must stay above the regression floor."""
     score = statistics.mean(mean_overall_scores[name].values())

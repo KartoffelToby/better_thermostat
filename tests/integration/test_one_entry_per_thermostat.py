@@ -6,11 +6,12 @@ already share one keep running; setup names the overlap in the log and in a
 repair issue, which goes away once the overlap is gone.
 """
 
+from collections.abc import Mapping
 import json
 import logging
 from pathlib import Path
 
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import ConfigEntryState, ConfigFlowResult
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import issue_registry as ir
@@ -77,7 +78,7 @@ async def _set_up(hass, *entries: MockConfigEntry) -> None:
         await wait_for_startup(hass, entry)
 
 
-def _user_step(name: str, *trv_entity_ids: str) -> dict:
+def _user_step(name: str, *trv_entity_ids: str) -> dict[str, object]:
     return {
         "name": name,
         CONF_THERMOSTAT: list(trv_entity_ids),
@@ -182,6 +183,7 @@ async def test_an_existing_overlap_is_named_at_setup(hass, devices, caplog):
     issues = _shared_issues(hass)
     assert list(issues) == [f"shared_trv_{TRV_ID}"]
     placeholders = issues[f"shared_trv_{TRV_ID}"].translation_placeholders
+    assert placeholders is not None
     assert placeholders["trv"] == TRV_ID
     assert "Room A" in placeholders["entries"]
     assert "Room B" in placeholders["entries"]
@@ -236,7 +238,9 @@ async def test_the_overlap_issue_names_only_the_entries_that_remain(hass, device
 
     issues = _shared_issues(hass)
     assert list(issues) == [f"shared_trv_{TRV_ID}"]
-    entries = issues[f"shared_trv_{TRV_ID}"].translation_placeholders["entries"]
+    placeholders = issues[f"shared_trv_{TRV_ID}"].translation_placeholders
+    assert placeholders is not None
+    entries = placeholders["entries"]
     assert "Room A" in entries
     assert "Room B" in entries
     assert "Room C" not in entries
@@ -247,7 +251,9 @@ async def test_the_overlap_issue_names_only_the_entries_that_remain(hass, device
     assert _shared_issues(hass) == {}
 
 
-async def _finish(hass, flows, flow_id: str, advanced: dict | None = None) -> dict:
+async def _finish(
+    hass, flows, flow_id: str, advanced: Mapping[str, object] | None = None
+) -> ConfigFlowResult:
     """Submit ``advanced`` on every form ``flows`` shows until it ends.
 
     Without ``advanced`` every form keeps its defaults.
@@ -258,12 +264,12 @@ async def _finish(hass, flows, flow_id: str, advanced: dict | None = None) -> di
     return result
 
 
-def _record_config_changes(hass, entry: MockConfigEntry) -> list[dict]:
+def _record_config_changes(hass, entry: MockConfigEntry) -> list[dict[str, str]]:
     """Return the payloads of the calibration-change signal sent for ``entry``."""
-    received: list[dict] = []
+    received: list[dict[str, str]] = []
 
     @callback
-    def _receive(payload: dict) -> None:
+    def _receive(payload: dict[str, str]) -> None:
         received.append(payload)
 
     async_dispatcher_connect(hass, f"bt_config_changed_{entry.entry_id}", _receive)
@@ -322,8 +328,10 @@ async def test_the_settings_cannot_save_a_thermostat_taken_while_they_were_open(
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
     assert result["errors"] == {CONF_THERMOSTAT: "trv_in_use"}
-    assert result["description_placeholders"]["trv"] == TRV_ID
-    assert result["description_placeholders"]["entry"] == "Room C"
+    placeholders = result.get("description_placeholders")
+    assert placeholders is not None
+    assert placeholders["trv"] == TRV_ID
+    assert placeholders["entry"] == "Room C"
     assert [bundle["trv"] for bundle in room_b.options[CONF_THERMOSTAT]] == [SPARE_ID]
     assert config_changes == []
 

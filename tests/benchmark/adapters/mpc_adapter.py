@@ -55,20 +55,23 @@ class MpcAdapter:
         self._key = key if key is not None else f"bench{next(_KEY_COUNTER)}:trv"
         self._sim_time_s: float = 0.0
         self._original_time = mpc_mod.time
-        # Deterministic stand-in for the module-global ``random`` that
-        # mpc.py uses for its hybrid-learning forced calibration.
+        # Deterministic generator whose state is swapped into the global
+        # ``random`` module that mpc.py draws its hybrid-learning forced
+        # calibration from.
         self._rng = random.Random(_MPC_RNG_SEED)
-        self._original_random = mpc_mod.random
+        self._original_random_state = random.getstate()
 
     def _virtualise(self) -> None:
-        """Swap the mpc module's time + random for deterministic stand-ins."""
+        """Swap the mpc module's time + random state for deterministic stand-ins."""
         mpc_mod.time = lambda: self._sim_time_s
-        mpc_mod.random = self._rng
+        self._original_random_state = random.getstate()
+        random.setstate(self._rng.getstate())
 
     def _restore(self) -> None:
-        """Restore the mpc module's real time + random symbols."""
+        """Restore the mpc module's real time + random state."""
         mpc_mod.time = self._original_time
-        mpc_mod.random = self._original_random
+        self._rng.setstate(random.getstate())
+        random.setstate(self._original_random_state)
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
         """Reset the adapter, optionally rehydrating persisted state.
