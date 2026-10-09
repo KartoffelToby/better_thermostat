@@ -36,6 +36,14 @@ runtime filters (temperature EMA, slope). The entity pushes its held
 values into the store through one seam before every debounced save,
 and hydrates from it at startup.
 
+The filters describe the room only for as long as the downtime is short.
+The EMA is stored with the wall-clock time of its last update, and the
+first live reading after a restart is blended in over the real interval,
+so a long stop hands the filter to that reading. The slope comes back
+only when the stop was shorter than the EMA's time constant. A filter
+stored without that time has an unknown age and is not restored; the
+first live reading seeds it.
+
 The PID parameter numbers and the PID auto-tune switch read their value
 from the PID controller state in the store and write changes back
 through it; they do not restore Home Assistant's last state, so their
@@ -45,9 +53,10 @@ values come back once the climate entity has loaded the store.
 the climate entity's target/mode and the user inputs on the preset,
 valve max opening and child-lock helpers. The legacy attribute fallback in the
 restore path stays as a migration window for installations that predate
-the store. It works per field: each old entity attribute (temperature
-EMA, slope, heating power, heat loss) is read only when the store holds
-no value for that field.
+the store. It works per field: each old entity attribute (heating power,
+heat loss) is read only when the store holds no value for that field. The
+temperature EMA and slope are not read from attributes, since an
+attribute carries no time to judge their age by.
 
 ## Poison resistance
 

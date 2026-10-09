@@ -43,6 +43,8 @@ The save happens on the way *into* a preset, and only from `none`:
 
 The stored value is published as the `preset_temperature` state attribute and read back at startup, so a restart in the middle of an away period does not lose your normal target.
 
+If the preset that was active is no longer enabled when the thermostat starts, for example because you removed it from the presets in the options, the thermostat comes back on `none` with the stored target, as if you had switched back to `none` yourself. A restart outside a preset keeps no stored target.
+
 ## Boost is the one exception
 
 Every other preset is only a temperature. Boost also changes how the valve is driven, but only where Better Thermostat can drive it directly: with calibration type *Direct Valve Based*, Boost holds the valve at its *Valve Max Opening* (100 % unless you have capped that TRV) for as long as the room is below target, rather than modulating towards it. On the other calibration types Boost is its temperature and nothing more.
