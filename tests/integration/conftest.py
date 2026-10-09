@@ -15,6 +15,7 @@ flattened by accident.
 import asyncio
 import contextlib
 from dataclasses import dataclass
+from typing import override
 from unittest.mock import PropertyMock, patch
 
 import pytest
@@ -55,6 +56,9 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_conversion import TemperatureConverter
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+
+from custom_components.better_thermostat import BetterThermostatConfigEntry
+from custom_components.better_thermostat.climate import BetterThermostat
 
 from .device_profiles import (
     GENERIC_HEAT_TRV,
@@ -209,7 +213,8 @@ class SimulatedClimate(ClimateEntity):
         self._attr_available = available
         self.async_write_ha_state()
 
-    async def async_set_temperature(self, **kwargs) -> None:
+    @override
+    async def async_set_temperature(self, **kwargs: object) -> None:
         """Apply and confirm a setpoint write.
 
         The write is always recorded; with ``drop_next_setpoint_write``
@@ -221,6 +226,7 @@ class SimulatedClimate(ClimateEntity):
         if temperature is None:
             low = kwargs.get(ATTR_TARGET_TEMP_LOW)
             high = kwargs.get(ATTR_TARGET_TEMP_HIGH)
+            assert isinstance(low, float) and isinstance(high, float)
             self.set_temperature_calls.append(
                 {ATTR_TARGET_TEMP_LOW: low, ATTR_TARGET_TEMP_HIGH: high}
             )
@@ -231,6 +237,7 @@ class SimulatedClimate(ClimateEntity):
             self._attr_target_temperature_high = high
             self.async_write_ha_state()
             return
+        assert isinstance(temperature, float)
         self.set_temperature_calls.append(temperature)
         if self.drop_next_setpoint_write:
             self.drop_next_setpoint_write = False
@@ -238,6 +245,7 @@ class SimulatedClimate(ClimateEntity):
         self._attr_target_temperature = temperature
         self.async_write_ha_state()
 
+    @override
     async def async_set_hvac_mode(self, hvac_mode) -> None:
         """Apply and confirm a mode write."""
         self.set_hvac_mode_calls.append(str(hvac_mode))
@@ -270,6 +278,7 @@ class _SimulatedNumber(NumberEntity):
         self.set_value_calls: list[float] = []
         self.drop_next_write = False
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Apply and confirm a write, unless this one is to be lost."""
         self.set_value_calls.append(value)
@@ -400,8 +409,8 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
     if unit is UnitOfTemperature.FAHRENHEIT:
         hass.config.units = US_CUSTOMARY_SYSTEM
 
-    entities = []
-    numbers = []
+    entities: list[SimulatedClimate] = []
+    numbers: list[_SimulatedNumber] = []
     for profile in profiles:
         entity = SimulatedClimate(profile)
         # Pinned before adding: without it a device-backed entity is
@@ -623,7 +632,9 @@ async def wait_for(hass, predicate, timeout_seconds=10.0) -> bool:
     return predicate()
 
 
-async def wait_for_startup(hass, entry):
+async def wait_for_startup(
+    hass, entry: BetterThermostatConfigEntry
+) -> BetterThermostat:
     """Return the BT entity once its startup task has fully finished.
 
     The startup background task keeps running after the entry setup
@@ -632,6 +643,7 @@ async def wait_for_startup(hass, entry):
     registration block at the end of the sequence.
     """
     bt = entry.runtime_data.climate
+    assert bt is not None
     assert await wait_for(
         hass,
         lambda: not bt.startup_running and bt._async_unsub_state_changed is not None,
@@ -768,7 +780,7 @@ def mode_commands(events, entity_id: str) -> list[str]:
     ]
 
 
-def setpoint_commands(events, entity_id: str) -> list[dict]:
+def setpoint_commands(events, entity_id: str) -> list[dict[str, object]]:
     """The setpoint payloads dispatched at ``entity_id``, whatever became of them.
 
     Read off the bus for the same reason as ``mode_commands``, and for one

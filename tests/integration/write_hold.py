@@ -63,8 +63,8 @@ class DeferredWrite:
     """One write the device has accepted and not yet applied."""
 
     apply: Callable[[], Awaitable[None]] | None = None
-    arguments: tuple = ()
-    keyword_arguments: dict = field(default_factory=dict)
+    arguments: tuple[object, ...] = ()
+    keyword_arguments: dict[str, object] = field(default_factory=dict)
 
     async def land(self) -> None:
         """Apply the write on the device now, and publish it."""
@@ -79,8 +79,8 @@ class HeldWrite:
 
     reached: asyncio.Event = field(default_factory=asyncio.Event)
     released: asyncio.Event = field(default_factory=asyncio.Event)
-    arguments: tuple = ()
-    keyword_arguments: dict = field(default_factory=dict)
+    arguments: tuple[object, ...] = ()
+    keyword_arguments: dict[str, object] = field(default_factory=dict)
 
     async def wait_reached(self, hass) -> None:
         """Return once the write has arrived and been applied, or fail."""

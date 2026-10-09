@@ -23,7 +23,7 @@ def _stored_keys(hass_storage, entry) -> list[str]:
     return sorted(key for key in hass_storage if entry.entry_id in key)
 
 
-def _seed(hass_storage, key: str, data: dict) -> None:
+def _seed(hass_storage, key: str, data: dict[str, object]) -> None:
     hass_storage[key] = {"version": 1, "minor_version": 1, "key": key, "data": data}
 
 

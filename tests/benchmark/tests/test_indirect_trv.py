@@ -8,7 +8,7 @@ tests verify each of those stages in isolation.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any
+from typing import Any, override
 
 import pytest
 
@@ -258,16 +258,16 @@ class _FakeOffsetAdapter:
     """Inner adapter that emits a non-valve (offset) output."""
 
     name = "fake_offset"
-    family = "offset"
+    family: ControllerFamily = "offset"
 
-    def reset(self, prior=None) -> None:
+    def reset(self, prior: dict[str, object] | None = None) -> None:
         _ = prior
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         _ = ctx
         return BenchmarkOutput(setpoint_offset_K=1.0)
 
-    def export_state(self) -> dict:
+    def export_state(self) -> dict[str, object]:
         return {}
 
 
@@ -301,6 +301,7 @@ class _RecordingValveAdapter(_FakeValveAdapter):
         super().__init__(percent)
         self.seen: list[BenchmarkContext] = []
 
+    @override
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         self.seen.append(ctx)
         return super().step(ctx)

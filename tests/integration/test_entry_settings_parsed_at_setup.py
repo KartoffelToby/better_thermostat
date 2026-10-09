@@ -38,7 +38,7 @@ def _every_shape_the_suite_names() -> list[
         for value in vars(module).values():
             if isinstance(value, dict):
                 candidates = list(value.values())
-            elif isinstance(value, tuple | list):
+            elif isinstance(value, (tuple, list)):
                 candidates = list(value)
             else:
                 candidates = [value]

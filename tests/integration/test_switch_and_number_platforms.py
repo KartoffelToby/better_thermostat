@@ -172,6 +172,7 @@ async def test_the_auto_tune_switch_sets_the_learned_flag(hass):
     entry = make_entry(PID_TRV)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
+    assert bt.state_mgr is not None
     switch = _auto_tune_switch(hass, entry)
     key = build_pid_key(bt, PID_TRV.entity_id)
 
@@ -196,6 +197,7 @@ async def test_the_auto_tune_switch_is_kept_after_a_pid_reset(hass):
     entry = make_entry(PID_TRV)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
+    assert bt.state_mgr is not None
     switch = _auto_tune_switch(hass, entry)
     bt.state_mgr.reset_pid_states(f"{resolve_unique_id(bt)}:{PID_TRV.entity_id}:")
 
