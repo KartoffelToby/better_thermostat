@@ -1958,7 +1958,12 @@ async def control_cooler(
         # errors such as ConnectionError) so the hvac_mode command below still
         # runs. A command the device's client library cancelled counts as such
         # a failure; a cancellation of this task itself propagates.
+        # The settled reading answers the recorded write, so it is dropped
+        # together with it: an answer arriving in flight then settles against
+        # this write rather than being measured against the previous one, and
+        # a later press near this write is not taken for its answer.
         _previous_send = last_sent.get("temperature")
+        _previous_settled = last_sent.pop("temperature_settled", None)
         last_sent["temperature"] = (temperature_to_send, now_monotonic)
         try:
             with command_cancellation_as_disconnect():
@@ -1974,6 +1979,10 @@ async def control_cooler(
                 last_sent.pop("temperature", None)
             else:
                 last_sent["temperature"] = _previous_send
+            if _previous_settled is None:
+                last_sent.pop("temperature_settled", None)
+            else:
+                last_sent["temperature_settled"] = _previous_settled
             _record_cooler_failure(
                 last_sent, "temperature", _temperature_wanted, now_monotonic
             )
@@ -1986,11 +1995,9 @@ async def control_cooler(
             )
         else:
             last_sent.pop("temperature_failed", None)
-            # A fresh send invalidates the settled reading of the channels it
-            # carried; the device answers those anew. A single-setpoint
-            # payload carries no lower bound, so it says nothing about the
-            # bound's settled reading.
-            last_sent.pop("temperature_settled", None)
+            # A fresh send invalidates the lower bound's settled reading as
+            # well; the device answers it anew. A single-setpoint payload
+            # carries no lower bound, so it says nothing about that reading.
             if _write_range:
                 last_sent["target_temp_low"] = (_low_to_set_c, now_monotonic)
                 last_sent.pop("target_temp_low_settled", None)

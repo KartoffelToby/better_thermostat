@@ -14,6 +14,7 @@ from homeassistant.core import State
 
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
+    cooler_send_cache,
     device_setpoint_step,
     dual_role_entity_id,
     last_sent_cooler_temperature,
@@ -70,6 +71,40 @@ def cooling_writes_as_held(
     )
 
 
+def settle_on_own_write_report(
+    self: BetterThermostat, event: Event[EventStateChangedData]
+) -> None:
+    """Take a report caused by BT's own write as the cooler's answer to it.
+
+    Such a report carries BT's context and is otherwise passed over as BT's
+    own doing, but the setpoint in it is what the device made of the write:
+    the value sent, or the value on the coarser grid the device holds. Kept as
+    the settled reading, it is what a later report is compared with, so a
+    press within the device's quantization of the write is told apart from
+    the answer. A device that carries both roles is left out, because its
+    reports also answer the heating channel's writes.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    event : Event[EventStateChangedData]
+        the cooler's state change, caused by BT's own service call
+    """
+    new_state = event.data.get("new_state")
+    if (
+        not isinstance(new_state, State)
+        or new_state.state not in COOLING_MODES
+        or event.data.get("entity_id") == dual_role_entity_id(self)
+    ):
+        return
+    reading = read_setpoint_celsius(
+        self, new_state, COOLER_SETPOINT_KEYS, "settle_on_own_write_report()"
+    )
+    if reading is not None:
+        settle_cooler_reading(self, reading)
+
+
 async def trigger_cooler_change(
     self: BetterThermostat, event: Event[EventStateChangedData]
 ) -> None:
@@ -79,6 +114,8 @@ async def trigger_cooler_change(
     if self.control_queue_task is None:
         return
 
+    if event.context == self.context:
+        settle_on_own_write_report(self, event)
     resolved_event = resolve_state_change_event(self, event, "Cooler")
     if resolved_event is None:
         return
@@ -153,10 +190,11 @@ async def trigger_cooler_change(
     # state, often a placeholder such as Tado's 5 °C, and one whose mode
     # changes with the same report publishes the setpoint of the mode it
     # leaves or enters rather than one the user set. Only a report that stays
-    # in a cooling mode speaks for the cooling target: COOL, the mode BT
-    # drives the cooler in, or HEAT_COOL, whose upper bound is the cooling
-    # setpoint.
-    _cooler_off = new_state.state == HVACMode.OFF
+    # in a cooling mode speaks for a change of the cooling target: COOL, the
+    # mode BT drives the cooler in, or HEAT_COOL, whose upper bound is the
+    # cooling setpoint. A report in one of them, whatever the mode before,
+    # carries a cooling setpoint and can seed a target that is unknown; any
+    # other mode leaves the seed to the preset.
     _cooling_report = new_state.state in COOLING_MODES
     _stays_cooling = _cooling_report and old_state.state == new_state.state
     # A report on the cooler's answer to BT's last write is that write coming
@@ -168,9 +206,11 @@ async def trigger_cooler_change(
         _answers_last_write = _settled is not None and abs(
             _new_cooling_setpoint.raw - _settled
         ) < setpoint_echo_window(_step)
-    if self.cool_target_temperature is None and _cooler_off:
+    if self.cool_target_temperature is None and not _cooling_report:
         if (
-            self._seed_cool_target_from_preset(entity_id, "is off")
+            self._seed_cool_target_from_preset(
+                entity_id, f"reports mode {new_state.state}"
+            )
             and self.bt_hvac_mode != HVACMode.OFF
         ):
             _main_change = True
@@ -257,6 +297,15 @@ async def trigger_cooler_change(
                     _adopted_cooling_setpoint,
                 )
             self.cool_target_temperature = _adopted_cooling_setpoint
+            # The press takes the place of BT's last write as what the device
+            # holds, and the reading is the device's answer to it: a later
+            # press back to the answer of the replaced write is a press again,
+            # and the next one near this reading is not taken for its answer.
+            # The press was not sent, so it carries no send time for the
+            # resend throttle.
+            _cooler_sent = cooler_send_cache(self)
+            _cooler_sent["temperature"] = (_new_cooling_setpoint.raw, None)
+            _cooler_sent["temperature_settled"] = _new_cooling_setpoint.raw
             # The clamp leaves the heating target alone, so this only settles
             # the degenerate case where no cooling value above the heating
             # target exists inside the range: at a heating target resting on

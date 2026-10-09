@@ -36,9 +36,9 @@ When a TRV reports a new target temperature that Better Thermostat did not send,
 
 ### Changes made on the cooler
 
-A new target temperature that the cooler reports while it stays in cooling mode (`cool`, or the upper bound in `heat_cool`) becomes your new cooling target. Better Thermostat ignores a target temperature that the cooler reports while it is off or in the same update that changes its mode: many integrations show a placeholder for an air conditioner that is off. Tado, for example, shows 5 °C. A cooler can also hold a target on a coarser grid than it reports, for example 22 °C after Better Thermostat sent 22.5 °C. Its first report within 0.5 °C of the value Better Thermostat sent counts as that answer and not as your input, even when it arrives later from a poll. A change on the cooler after that answer is your input again.
+A new target temperature that the cooler reports while it stays in cooling mode (`cool`, or the upper bound in `heat_cool`) becomes your new cooling target. Better Thermostat ignores a target temperature that the cooler reports while it is off or in the same update that changes its mode: many integrations show a placeholder for an air conditioner that is off. Tado, for example, shows 5 °C. A cooler can also hold a target on a coarser grid than it reports, for example 22 °C after Better Thermostat sent 22.5 °C. Its first report within 0.5 °C of the value Better Thermostat sent counts as that answer and not as your input, even when it arrives later from a poll or while Better Thermostat is still sending. A change on the cooler after that answer is your input again, and so is a change you make after your own last change on the cooler.
 
-At the first start, Better Thermostat takes the cooling target from the cooler. If the cooler is off, it takes the cooling temperature of the active preset instead.
+While the cooling target is still unknown, at the first start or after the cooler was unavailable, Better Thermostat takes it from the cooler when the cooler reports `cool` or `heat_cool`. In any other mode, `off` included, it takes the cooling temperature of the active preset instead.
 
 ## Control cycles
 

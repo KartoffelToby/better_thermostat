@@ -2914,6 +2914,38 @@ class TestCoolerTargetReadAtListenerRegistration:
         bt._seed_cool_target.assert_not_called()
         assert bt.control_queue_task.qsize() == 1
 
+    @pytest.mark.parametrize("mode", [HVACMode.HEAT, HVACMode.DRY, HVACMode.FAN_ONLY])
+    @pytest.mark.asyncio
+    async def test_cooler_outside_the_cooling_modes_seeds_the_preset(self, bt, mode):
+        """A cooler in another mode reports that mode's setpoint, not a cooling one."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt._preset_cool_temperatures = {"none": 24.0}
+        _install_states(
+            bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 26.0}, state=mode)}
+        )
+
+        await _run_finalize_startup(bt)
+
+        assert bt.cool_target_temperature == 24.0
+        bt._seed_cool_target.assert_not_called()
+
+    @pytest.mark.parametrize("mode", [HVACMode.COOL, HVACMode.HEAT_COOL])
+    @pytest.mark.asyncio
+    async def test_cooler_in_a_cooling_mode_seeds_its_setpoint(self, bt, mode):
+        """A cooler in a cooling mode reports the cooling setpoint it holds."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt._preset_cool_temperatures = {"none": 24.0}
+        _install_states(
+            bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 26.0}, state=mode)}
+        )
+
+        await _run_finalize_startup(bt)
+
+        assert bt.cool_target_temperature == 26.0
+        bt._seed_cool_target.assert_called_once()
+
     @pytest.mark.asyncio
     async def test_unavailable_cooler_leaves_the_cool_target_unknown(self, bt):
         """Attributes an unavailable cooler carries are not a reading.

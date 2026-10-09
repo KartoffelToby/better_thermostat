@@ -108,7 +108,7 @@ from .entity import (
     announce_learned_state,
     publish_when_availability_changed,
 )
-from .events.cooler import trigger_cooler_change
+from .events.cooler import COOLING_MODES, trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
     EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S,
@@ -4160,9 +4160,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         A device that carries both roles is the exception: the setpoint it
         reports belongs to whichever channel last wrote it, and at startup that
-        is the heating one, so it says nothing about cooling. A cooler that is
-        off is the other: many integrations publish a placeholder setpoint for
-        that state, Tado for instance the 5 °C minimum. In both cases the
+        is the heating one, so it says nothing about cooling. A cooler outside
+        the cooling modes is the other: one that is off often publishes a
+        placeholder, Tado for instance its 5 °C minimum, and one in any other
+        mode publishes that mode's setpoint. In both cases the
         preset's own cooling temperature is taken instead, which is a value the
         user can see and change and a setpoint read off the device is not.
 
@@ -4194,8 +4195,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             STATE_UNKNOWN,
         ):
             return False
-        if cooler_state.state == HVACMode.OFF:
-            return self._seed_cool_target_from_preset(self.cooler_entity_id, "is off")
+        if cooler_state.state not in COOLING_MODES:
+            return self._seed_cool_target_from_preset(
+                self.cooler_entity_id, f"reports mode {cooler_state.state}"
+            )
         setpoint = resolve_inbound_setpoint(
             self,
             cooler_state,
@@ -4215,11 +4218,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         The fallback for a cooler whose reported setpoint says nothing about
         cooling: a device that carries both roles reports the heating
-        channel's setpoint, and an air conditioner that is off reports
-        whatever its integration publishes for that state, which is often a
-        placeholder such as the 5 °C a Tado unit shows. The preset's cooling
-        temperature is a value the user can see and change; either reading
-        is not.
+        channel's setpoint, an air conditioner that is off reports whatever
+        its integration publishes for that state, which is often a
+        placeholder such as the 5 °C a Tado unit shows, and one in a mode
+        other than cooling reports that mode's setpoint. The preset's cooling
+        temperature is a value the user can see and change; none of these
+        readings is.
 
         Parameters
         ----------
