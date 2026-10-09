@@ -14,7 +14,6 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, Platform, UnitOfTemperature, UnitOfTime
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -110,7 +109,7 @@ async def async_setup_entry(
 
 async def _setup_algorithm_sensors(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: BetterThermostatConfigEntry,
     bt_climate: BetterThermostat,
     algorithms_to_create: set[CalibrationMode] | None = None,
 ) -> list[SensorEntity]:
@@ -126,7 +125,7 @@ async def _setup_algorithm_sensors(
     ----------
     hass : HomeAssistant
         Home Assistant instance.
-    entry : ConfigEntry
+    entry : BetterThermostatConfigEntry
         Config entry the sensors belong to.
     bt_climate : BetterThermostat
         Better Thermostat climate entity the sensors report on.
@@ -267,7 +266,7 @@ def _adopt_shared_mpc_v2_registry_entries(
 
 async def _register_dynamic_entity_callback(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: BetterThermostatConfigEntry,
     bt_climate: BetterThermostat,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
@@ -302,7 +301,7 @@ async def _register_dynamic_entity_callback(
 
 async def _handle_dynamic_entity_update(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: BetterThermostatConfigEntry,
     bt_climate: BetterThermostat,
     async_add_entities: AddEntitiesCallback,
 ) -> None:

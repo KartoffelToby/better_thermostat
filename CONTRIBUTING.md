@@ -519,14 +519,16 @@ Three more checks run on every pull request:
 
 - **Types:** `uv run pyrefly check`. Every module under
   `custom_components/better_thermostat` is checked at the strictness
-  `[tool.pyrefly]` in `pyproject.toml` declares. The `sub-config` entries below
-  it name the files that do not meet it yet and the rules each is exempt from.
-  That list only shrinks: a new file is strict from the start, and
-  `tests/gates/test_type_strictness_exemptions.py` holds it to the recorded
-  (file, rule) pairs. `scripts/` is checked the same way. The directories of `tests/` that
+  `[tool.pyrefly]` in `pyproject.toml` declares, and no file outside `tests/`
+  is exempt from any of it: a new file is strict from the start, and
+  `tests/gates/test_type_strictness_exemptions.py` keeps it that way.
+  `scripts/` is checked the same way. The directories of `tests/` that
   `project-includes` lists are too, except that a test may leave its parameters
   unannotated, since pytest hands fixtures in by name; the rest of `tests/`
-  joins that list one directory at a time. `typing.Any` is allowed in two places only: `**kwargs: Any` on an
+  joins that list one directory at a time. pyrefly infers a return type
+  nobody wrote, so `uv run ruff check` adds flake8-annotations (`ANN`): every
+  function outside `tests/` annotates each parameter and its return type,
+  `-> None` included. `typing.Any` is allowed in two places only: `**kwargs: Any` on an
   `@override` that Home Assistant declares that way, and the yield and send
   slots of `Coroutine[Any, Any, T]`. Read untyped data as `object` or
   `Mapping[str, object]` and narrow it.
