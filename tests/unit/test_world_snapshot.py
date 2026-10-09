@@ -276,14 +276,16 @@ class TestWorldSnapshotType:
     def test_snapshot_is_frozen(self):
         """Snapshot fields cannot be reassigned."""
         snapshot = build_snapshot(_make_bt())
+        field_name = "room_temperature"
         with pytest.raises(FrozenInstanceError):
-            snapshot.room_temperature = 99.0
+            setattr(snapshot, field_name, 99.0)
 
     def test_trv_reported_is_frozen(self):
         """TrvReported fields cannot be reassigned."""
         trv = TrvReported(entity_id="climate.trv")
+        field_name = "current_temperature"
         with pytest.raises(FrozenInstanceError):
-            trv.current_temperature = 99.0
+            setattr(trv, field_name, 99.0)
 
 
 class TestParseHvacMode:

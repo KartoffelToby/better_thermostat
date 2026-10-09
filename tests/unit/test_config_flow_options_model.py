@@ -38,11 +38,15 @@ class _Caller:
 
 def _make_config_entry():
     entry = MagicMock()
+    stored_trv: dict[str, object] = {
+        "trv": STORED_TRV,
+        "integration": "mqtt",
+        "model": "TRVZB",
+        "advanced": {},
+    }
     entry.data = {
         CONF_NAME: "Living Room",
-        CONF_THERMOSTAT: [
-            {"trv": STORED_TRV, "integration": "mqtt", "model": "TRVZB", "advanced": {}}
-        ],
+        CONF_THERMOSTAT: [stored_trv],
         CONF_TEMPERATURE_SENSOR: "sensor.living_room_temperature",
     }
     return entry
@@ -79,7 +83,7 @@ def _patch_empty_registries():
     )
 
 
-def _submission():
+def _submission() -> dict[str, object]:
     return {
         CONF_NAME: "Living Room",
         CONF_THERMOSTAT: [GENERIC_TRV],

@@ -142,10 +142,11 @@ def _setpoint_on_a_celsius_system(state) -> float | None:
 
 def _ha_state(
     state: str = "heat", temperature: float = 21.0, hvac_modes: list[str] | None = None
-):
-    """Mimic a HA State object."""
-    return SimpleNamespace(
-        state=state,
+) -> State:
+    """A TRV's HA state carrying its setpoint and HVAC modes."""
+    return State(
+        "climate.trv",
+        state,
         attributes={
             "temperature": temperature,
             "hvac_modes": ["off", "heat"] if hvac_modes is None else hvac_modes,
@@ -1191,9 +1192,9 @@ class TestRestoreLeavesAnUnmovedModeAlone:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _unreadable_ha_state(state: str):
+def _unreadable_ha_state(state: str) -> State:
     """A TRV state carrying no attributes, as an offline device publishes."""
-    return SimpleNamespace(state=state, attributes={})
+    return State("climate.trv1", state)
 
 
 class TestUnreadableTrvStates:
