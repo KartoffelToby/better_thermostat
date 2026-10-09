@@ -216,17 +216,6 @@ class SetpointOffsetQuirk(Protocol):
 
 
 @runtime_checkable
-class ReversedOffsetQuirk(Protocol):
-    """A quirk that knows its device applies the offset with the opposite sign."""
-
-    def local_calibration_reverses_sign(
-        self, host: ModelFixHost, entity_id: str, /
-    ) -> bool:
-        """Whether the device subtracts the offset from its reading."""
-        ...
-
-
-@runtime_checkable
 class ValveQuirk(Protocol):
     """A quirk that drives its device's valve itself."""
 
@@ -275,7 +264,6 @@ __all__ = [
     "ModelQuirks",
     "QuirkLoaderHost",
     "QuirkScratchpad",
-    "ReversedOffsetQuirk",
     "SetpointOffsetQuirk",
     "UnknownStateQuirk",
     "ValveChannelQuirk",

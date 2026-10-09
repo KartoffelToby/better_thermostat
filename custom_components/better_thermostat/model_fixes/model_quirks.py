@@ -20,7 +20,6 @@ from custom_components.better_thermostat.model_fixes.types import (
     ModelFixHost,
     ModelQuirks,
     QuirkLoaderHost,
-    ReversedOffsetQuirk,
     SetpointOffsetQuirk,
     UnknownStateQuirk,
     ValveQuirk,
@@ -198,35 +197,6 @@ def local_calibration_shifts_setpoint(self: ModelFixHost, entity_id: str) -> boo
     if not isinstance(quirks, SetpointOffsetQuirk):
         return False
     return quirks.local_calibration_shifts_setpoint(self, entity_id)
-
-
-def local_calibration_reverses_sign(self: ModelFixHost, entity_id: str) -> bool:
-    """Answer whether a TRV applies its calibration offset with the opposite sign.
-
-    Most devices add the offset to the temperature they measure and report
-    that sum. Some subtract it instead and report the difference, so an
-    offset meant to lower the reading raises it. Such a device reads the
-    offset back in its own sign as well. Only the model's own quirk module
-    knows which kind a device is; a device without that answer adds the
-    offset to its reading.
-
-    Parameters
-    ----------
-    self :
-        self instance of better_thermostat
-    entity_id : str
-        Entity id of the TRV the offset is written to
-
-    Returns
-    -------
-    bool
-        True when the device subtracts the offset from its reading
-    """
-    trv = self.real_trvs.get(entity_id)
-    quirks: object = trv.model_quirks if trv is not None else None
-    if not isinstance(quirks, ReversedOffsetQuirk):
-        return False
-    return quirks.local_calibration_reverses_sign(self, entity_id)
 
 
 def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:

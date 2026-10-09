@@ -1,10 +1,9 @@
-"""The AVATTO ME167 applies its local calibration with the opposite sign.
+"""The AVATTO ME167 applies its local calibration like most devices.
 
-The device subtracts the offset it holds from the temperature it measures,
-reports that difference, and reports the offset as it was written. A device
-that offsets its reading the common way adds the offset and reports the sum.
-The local calibration has to land either device on the room temperature, and
-has to stay there from one control cycle to the next.
+The device adds the offset it holds to the temperature it measures, reports
+that sum, and reports the offset as it was written. The local calibration has
+to land it on the room temperature and keep it there from one control cycle
+to the next.
 """
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ import pytest
 from custom_components.better_thermostat.calibration import calculate_calibration_local
 from custom_components.better_thermostat.model_fixes import ME167, default
 from custom_components.better_thermostat.model_fixes.model_quirks import (
-    local_calibration_reverses_sign,
     local_calibration_shifts_setpoint,
 )
 from custom_components.better_thermostat.utils.const import (
@@ -35,19 +33,14 @@ CYCLES = 6
 
 @dataclass
 class SimulatedTrv:
-    """A TRV that applies the offset it holds to what it measures.
+    """A TRV that adds the offset it holds to what it measures and reports the sum."""
 
-    ``sign`` is +1 for a device that adds the offset to its reading and -1
-    for one that subtracts it. Either one reports the offset as written.
-    """
-
-    sign: float
     measured: float = MEASURED
     held_offset: float = 0.0
 
     @property
     def reported(self) -> float:
-        return self.measured + self.sign * self.held_offset
+        return self.measured + self.held_offset
 
 
 def _host(
@@ -108,48 +101,40 @@ def _run_cycles(bt: ThermostatStandIn, device: SimulatedTrv) -> list[float]:
     return reported
 
 
-class TestTheMe167IsDeclaredReversed:
-    def test_the_me167_answers_that_it_reverses_the_sign(self):
-        bt = _host(SimulatedTrv(sign=-1.0))
-        assert local_calibration_reverses_sign(bt, ENTITY_ID) is True
-
+class TestTheMe167OffsetsItsReading:
     def test_the_me167_offsets_its_reading_not_its_setpoint(self):
-        bt = _host(SimulatedTrv(sign=-1.0))
+        bt = _host(SimulatedTrv())
         assert local_calibration_shifts_setpoint(bt, ENTITY_ID) is False
 
-    def test_a_module_without_the_answer_keeps_the_sign(self):
-        bt = _host(SimulatedTrv(sign=1.0), quirks=default)
-        assert local_calibration_reverses_sign(bt, ENTITY_ID) is False
-
-    def test_a_trv_without_a_loaded_module_keeps_the_sign(self):
-        bt = _host(SimulatedTrv(sign=1.0), quirks=None)
-        assert local_calibration_reverses_sign(bt, ENTITY_ID) is False
+    def test_the_me167_writes_the_offset_it_is_given(self):
+        bt = _host(SimulatedTrv())
+        assert ME167.fix_local_calibration(bt, ENTITY_ID, -2.5) == -2.5
 
 
 class TestTheReadingSettlesOnTheRoomTemperature:
     def test_the_me167_reports_the_room_temperature_on_every_cycle(self):
-        device = SimulatedTrv(sign=-1.0)
+        device = SimulatedTrv()
         bt = _host(device)
 
         assert _run_cycles(bt, device) == pytest.approx([ROOM] * CYCLES)
 
-    def test_the_me167_holds_the_offset_in_its_own_sign(self):
-        """Lifting the reading by 2 K takes an offset of -2 on this device."""
-        device = SimulatedTrv(sign=-1.0)
+    def test_the_me167_holds_the_offset_that_lifts_the_reading(self):
+        """Lifting the reading by 2 K takes an offset of +2 on this device."""
+        device = SimulatedTrv()
         bt = _host(device)
         _run_cycles(bt, device)
 
-        assert device.held_offset == pytest.approx(MEASURED - ROOM)
+        assert device.held_offset == pytest.approx(ROOM - MEASURED)
 
     def test_the_me167_settles_from_an_offset_it_already_holds(self):
         """A restart finds the offset of an earlier run on the device."""
-        device = SimulatedTrv(sign=-1.0, held_offset=3.0)
+        device = SimulatedTrv(held_offset=3.0)
         bt = _host(device)
 
         assert _run_cycles(bt, device) == pytest.approx([ROOM] * CYCLES)
 
     def test_a_device_adding_the_offset_settles_with_the_default_module(self):
-        device = SimulatedTrv(sign=1.0)
+        device = SimulatedTrv()
         bt = _host(device, quirks=default)
 
         assert _run_cycles(bt, device) == pytest.approx([ROOM] * CYCLES)
@@ -162,10 +147,10 @@ class TestTheAdjustmentsActInTheRoomDirection:
 
         The room is 0.5 K above 21 °C + 0.5 K, which the protection weighs
         eight times, so the reported reading rises by 4 K from 22 °C to
-        26 °C. For the ME167 that is a negative device offset.
+        26 °C.
         """
-        plain_device = SimulatedTrv(sign=-1.0)
-        protected_device = SimulatedTrv(sign=-1.0)
+        plain_device = SimulatedTrv()
+        protected_device = SimulatedTrv()
         plain = _host(plain_device, mode=CalibrationMode.AGGRESSIVE_CALIBRATION)
         protected = _host(
             protected_device,
@@ -191,7 +176,7 @@ class TestTheAdjustmentsActInTheRoomDirection:
         Idle rounds towards the higher reported reading, 22.5 °C, which
         closes the valve; heating rounds towards 22.0 °C, which opens it.
         """
-        device = SimulatedTrv(sign=-1.0)
+        device = SimulatedTrv()
         bt = _host(device, step=0.5)
         bt.room_temperature = 22.3
         bt.hvac_action = action

@@ -1,8 +1,7 @@
 """Model quirks for the AVATTO ME167 Zigbee thermostat.
 
-The ME167 applies its local temperature calibration with the opposite sign
-of most devices: it subtracts the offset from the temperature it measures,
-reports that difference, and reports the offset as it was written.
+The ME167 adds its local temperature calibration to the temperature it
+measures, like most devices, so every hook here passes its input through.
 """
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ import logging
 from custom_components.better_thermostat.model_fixes.types import (
     ModelFixHost,
     ModelQuirks,
-    ReversedOffsetQuirk,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,24 +36,6 @@ def fix_local_calibration(
         The unchanged local calibration offset.
     """
     return calibration_offset
-
-
-def local_calibration_reverses_sign(self: ModelFixHost, entity_id: str) -> bool:
-    """Report that the ME167 subtracts its calibration offset from its reading.
-
-    Parameters
-    ----------
-    self : ModelFixHost
-        Better Thermostat host providing device state and HA access.
-    entity_id : str
-        Entity id of the TRV the offset is written to.
-
-    Returns
-    -------
-    bool
-        Always True.
-    """
-    return True
 
 
 def fix_target_temperature_calibration(
@@ -139,8 +119,6 @@ class _Surface:
     )
     override_set_hvac_mode = staticmethod(override_set_hvac_mode)
     override_set_temperature = staticmethod(override_set_temperature)
-    local_calibration_reverses_sign = staticmethod(local_calibration_reverses_sign)
 
 
 _MODEL_QUIRKS: ModelQuirks = _Surface()
-_REVERSED_OFFSET_QUIRK: ReversedOffsetQuirk = _Surface()
