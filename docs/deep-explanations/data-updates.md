@@ -15,8 +15,8 @@ Better Thermostat does not poll. It listens for state changes of the configured 
 | Room temperature sensor | The room temperature | Every state change, through the filter described below |
 | Humidity sensor | The humidity, shown on the thermostat and available to device triggers; the control does not use it | Every state change |
 | Window and door sensors | Open or closed | Every state change, then after the open and close delays you configured |
-| Outdoor temperature sensor | The mean of the daily averages of today and yesterday, read from the recorder history | At startup, every day at 5:00 and on every state change; the history is read again at most every 15 minutes |
-| Weather entity | The forecast for roughly the next two days and the current temperature | Once an hour |
+| Outdoor temperature sensor | A damped outdoor temperature: each reading counts for as long as it was current, until the next one arrives, and older readings fade out exponentially with a time constant of 24 hours instead of dropping out after a day. The first check that finds the sensor available fills it from the last 72 hours of the sensor's recorder history when the recorder holds any; without history it starts at the current reading. See [Summer mode](/deep-explanations/summer-mode/) | Every state change adds the reading. The summer-mode decision is checked at startup, on every state change, once an hour and every day at 5:00. If reading the history fails, it is tried again at the first check that comes at least 15 minutes later; until then the live readings alone are damped |
+| Weather entity | The forecast for roughly the next two days, and the current temperature, damped like the outdoor sensor's readings | At startup and once an hour |
 | Cooler (`climate`) | Its mode and target temperature | Every state change |
 
 ### The room temperature filter
@@ -49,8 +49,8 @@ Some work does not wait for a state change:
 | Every 5 minutes | Each TRV's reported state is compared with what Better Thermostat last sent it, and a write that got lost is sent again. |
 | Every 5 minutes | If valve maintenance is enabled for a TRV, the thermostat checks whether a maintenance run is due. |
 | Every 30 minutes | The room temperature is sent again to TRVs that accept an external temperature, so that a TRV that waits for regular updates gets one even while the room temperature does not change. |
-| Every hour | The weather entity's forecast is read. |
-| Every day at 5:00 | The outdoor temperature average is checked. |
+| Every hour | The weather entity's forecast and current temperature are read, and the summer-mode decision is checked again. |
+| Every day at 5:00 | The outdoor sensor's damped temperature is checked. |
 
 After a restart, Better Thermostat waits for slow integrations before it reports a missing sensor: the degraded mode repair issue stays back for the first five minutes.
 

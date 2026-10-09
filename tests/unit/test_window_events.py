@@ -214,6 +214,7 @@ class TestTriggerWindowChange:
         had is exactly the case that would leave the warning standing.
         """
         bt = _make_bt(sensor_state="banana")
+        bt._unique_id = "entry_1"
         with (
             patch(f"{_CONTACT}.ir.async_create_issue"),
             patch(f"{_CONTACT}.ir.async_delete_issue") as delete,
@@ -224,7 +225,7 @@ class TestTriggerWindowChange:
             bt.hass.states.get.return_value.state = reading
             await trigger_window_change(bt, _event(reading))
 
-        delete.assert_called_once_with(bt.hass, DOMAIN, "invalid_window_state_Test BT")
+        delete.assert_called_once_with(bt.hass, DOMAIN, "entry_1_invalid_window_state")
 
     @pytest.mark.asyncio
     async def test_missing_sensor_state_returns_early(self):

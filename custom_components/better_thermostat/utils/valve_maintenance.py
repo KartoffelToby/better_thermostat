@@ -7,7 +7,7 @@ receive) and can be tested without Home Assistant.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
@@ -129,17 +129,11 @@ def mode_needs_restoring(
     return state.state != info.cur_mode
 
 
-def _get_advanced(info: Trv) -> Mapping[str, object]:
-    """Safely extract the ``advanced`` dict from a Trv entry."""
-    adv = info.advanced
-    return adv if isinstance(adv, dict) else {}
-
-
 def collect_maintenance_trvs(real_trvs: TrvMap) -> list[str]:
     """Return entity-ids of TRVs that have valve maintenance enabled."""
     result: list[str] = []
     for entity_id, info in real_trvs.items():
-        adv = _get_advanced(info)
+        adv = info.advanced
         if advanced_flag(adv, CONF_VALVE_MAINTENANCE):
             result.append(entity_id)
     return result
@@ -267,7 +261,7 @@ def build_trv_snapshots(
             )
             continue
         support_valve = trv.capabilities().supports_valve_write
-        adv = _get_advanced(trv)
+        adv = trv.advanced
         use_direct = (
             support_valve
             and configured_calibration_output(adv)
