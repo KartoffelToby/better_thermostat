@@ -19,15 +19,23 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plan
 )
 
 
-def _sample(t_s: float, T_room: float, u: float, **kw: object) -> ReidSample:
+def _sample(
+    t_s: float,
+    T_room: float,
+    u: float,
+    *,
+    outdoor: float | None = 5.0,
+    trv: float | None = None,
+    window: bool = False,
+) -> ReidSample:
     """Build a ReidSample with sane defaults for outdoor/window."""
     return ReidSample(
         t_s=t_s,
         T_room=T_room,
         u_frac=u,
-        T_outdoor=kw.get("outdoor", 5.0),
-        T_trv=kw.get("trv"),
-        window_open=bool(kw.get("window", False)),
+        T_outdoor=outdoor,
+        T_trv=trv,
+        window_open=window,
     )
 
 
