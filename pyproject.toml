@@ -198,16 +198,9 @@ project-includes = ["custom_components/better_thermostat", "scripts", "tests/gat
 min-severity = "error"
 errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true, unnecessary-type-conversion = "error" }
 
-# Every file under project-includes is checked at the strictness declared above.
-# The entries below name the files that do not meet it yet and list exactly the
-# rules each one is exempt from; a rule not listed applies to that file too.
-# The list only ever shrinks: an entry is removed once its file is annotated,
-# and no new entry is added — a new file is strict from the start. That shape is
-# held by tests/gates/test_type_strictness_exemptions.py.
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/number.py"
-errors = { bad-override-mutable-attribute = false }
+# Every file under project-includes is checked at the strictness declared above,
+# and no file outside tests/ is exempt from any of it: a new file is strict from
+# the start. tests/gates/test_type_strictness_exemptions.py keeps it that way.
 
 # Tests are held to the same rules with one exception: a parameter may go
 # unannotated, because pytest hands fixtures in by name and the type lives on
