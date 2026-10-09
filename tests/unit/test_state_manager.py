@@ -407,6 +407,15 @@ class TestDeserializeMpcFieldSpellings:
         raw = {"last_target_C": 22.0, "last_target_temperature": 18.0}
         assert deserialize_mpc(raw).last_target_temperature == 22.0
 
+    def test_an_entry_from_an_earlier_release_keeps_its_other_fields(self, caplog):
+        """``last_temp``, which earlier releases stored, is skipped without a report."""
+        raw = {"last_temp": 20.75, "last_time": 1700000002.0, "gain_est": 0.05}
+        with caplog.at_level(logging.DEBUG):
+            restored = deserialize_mpc(raw, key="bt:room")
+        assert restored.last_time == 1700000002.0
+        assert restored.gain_est == 0.05
+        assert "last_temp" not in caplog.text
+
 
 class TestDeserializeMpcTypeCoercion:
     """deserialize_mpc should coerce types correctly."""
