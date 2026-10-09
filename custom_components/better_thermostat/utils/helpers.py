@@ -1834,14 +1834,18 @@ def state_says_nothing(state: State | None) -> bool:
 
 
 def resolve_state_change_event(
-    self: BetterThermostat, event: Event[EventStateChangedData], device_label: str
+    self: BetterThermostat,
+    event: Event[EventStateChangedData],
+    device_label: str,
+    *,
+    skip_own_context: bool = True,
 ) -> tuple[State, State, str] | None:
     """Return the states of a device event worth acting on, or None.
 
     Shared prologue of the device event handlers: an event is actionable when
     it carries both states, both are States with attributes, it names an
-    entity, and it was not caused by BT's own service call — those carry
-    ``self.context``.
+    entity, and, unless ``skip_own_context`` is False, it does not carry
+    ``self.context``, the context of BT's own service calls.
 
     Parameters
     ----------
@@ -1851,6 +1855,9 @@ def resolve_state_change_event(
             the state change event to inspect
     device_label : str
             role of the device in log messages, e.g. ``"TRV"`` or ``"Cooler"``
+    skip_own_context : bool
+            whether an event under BT's own context is skipped; a caller that
+            tells BT's writes apart from a press by their values passes False
 
     Returns
     -------
@@ -1898,7 +1905,7 @@ def resolve_state_change_event(
         )
         return None
 
-    if self.context == event.context:
+    if skip_own_context and self.context == event.context:
         return None
 
     return old_state, new_state, entity_id

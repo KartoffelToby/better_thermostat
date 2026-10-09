@@ -48,6 +48,8 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.controlling import (
     HOMEMATICIP_MIN_WRITE_INTERVAL_S,
     MIN_WRITE_INTERVAL_S,
+    _mode_switched_during_cycle,
+    _setpoint_turned_during_cycle,
     check_calibration,
     check_target_temperature,
     control_trv,
@@ -4589,3 +4591,52 @@ class TestHomematicIPWritePacing:
         mock_self.clock.advance(delays[0])
         await self._cycle(mock_self, [self.HMIP], 24.0, written)
         assert written[1:] == [(self.HMIP, 24.0)]
+
+
+class TestPressesDuringACycle:
+    """A press held during the cycle keeps the cycle's write off the device."""
+
+    @staticmethod
+    def _pressed_trv(*, child_lock: bool = False, before: str = HVACMode.OFF):
+        trv = _default_trv_config(last_hvac_mode=HVACMode.OFF, hvac_mode=HVACMode.OFF)
+        trv.advanced = {**(trv.advanced or {}), "child_lock": child_lock}
+        trv.report_unread = True
+        trv.state_before_held_report = State(
+            "climate.trv1", before, attributes={"temperature": 20.0}
+        )
+        return trv
+
+    def test_a_switch_at_the_device_is_left_for_the_end_of_the_cycle(self):
+        """A mode neither reported before nor sent is a switch at the device."""
+        mock_self = _make_mock_self()
+        trv = self._pressed_trv()
+        assert _mode_switched_during_cycle(mock_self, trv, HVACMode.HEAT) is True
+
+    def test_a_locked_device_is_switched_back(self):
+        """A child lock turns a switch at the device back at once."""
+        mock_self = _make_mock_self()
+        trv = self._pressed_trv(child_lock=True)
+        assert _mode_switched_during_cycle(mock_self, trv, HVACMode.HEAT) is False
+
+    @pytest.mark.parametrize(
+        ("before", "reported"),
+        [
+            pytest.param(STATE_UNAVAILABLE, HVACMode.HEAT, id="came_back"),
+            pytest.param(HVACMode.OFF, STATE_UNKNOWN, id="reports_no_mode"),
+        ],
+    )
+    def test_a_mode_the_device_did_not_switch_to_is_written(self, before, reported):
+        """A device that came back, or that names no mode, was not switched."""
+        mock_self = _make_mock_self()
+        trv = self._pressed_trv(before=before)
+        assert _mode_switched_during_cycle(mock_self, trv, reported) is False
+
+    def test_a_locked_device_is_turned_back(self):
+        """A child lock turns a setpoint turned at the device back at once."""
+        trv = self._pressed_trv(child_lock=True)
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 25.0},
+            real_trvs={"climate.trv1": trv},
+        )
+        assert _setpoint_turned_during_cycle(mock_self, "climate.trv1") is False

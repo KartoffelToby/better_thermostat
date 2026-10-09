@@ -148,6 +148,9 @@ def _hold_report(
     reference was set to off, makes the state before that move the reference
     and its mode the mode it is judged against: outside a cycle the handler
     has cached the device as on by then, and reads the move as a press.
+    Any report that moves the setpoint of a device that is on is kept as
+    the held turn, for the end of the cycle to read when a later report
+    switches the device off or brings it back.
     """
     previous_setpoint = _held_setpoint(self, old_state)
     returned = previous_setpoint is None
@@ -176,7 +179,78 @@ def _hold_report(
     if pressed_after_switch_on and old_state is not None:
         trv.state_before_held_report = old_state
         trv.hvac_mode_before_held_report = old_state.state
+    if (
+        old_state is not None
+        and new_state is not None
+        and _reports_on(old_state)
+        and _reports_on(new_state)
+        and previous_setpoint is not None
+        and _held_setpoint(self, new_state) not in (None, previous_setpoint)
+    ):
+        trv.held_turn = (old_state, new_state)
     trv.report_unread = True
+
+
+def reports_written_setpoint(
+    self: BetterThermostat, entity_id: str, trv: Trv, state: State | None
+) -> bool | None:
+    """Return whether a TRV state carries a setpoint Better Thermostat wrote.
+
+    The setpoint counts as written when it lies within the echo window of the
+    last command, the setpoint the device last confirmed, or a write since,
+    and on the device that also serves as the cooler, of the cooling
+    channel's writes as the device holds them.
+
+    Returns
+    -------
+    bool | None
+        None when the state carries no setpoint or nothing has been written
+        to compare it with, else whether the setpoint is one of those writes.
+    """
+    reported = read_setpoint_celsius(
+        self, state, TRV_SETPOINT_KEYS, "reports_written_setpoint()"
+    )
+    known: list[float | None] = [
+        trv.commanded_setpoint,
+        trv.confirmed_setpoint,
+        *trv.echo_setpoint_values(),
+    ]
+    if state is not None and entity_id == dual_role_entity_id(self):
+        known += cooling_writes_as_held(self, state)
+    written = [value for value in known if value is not None]
+    if reported is None or not written:
+        return None
+    window = setpoint_echo_window(
+        normalize_step(trv.target_temp_step or self.bt_target_temperature_step)
+    )
+    return any(abs(reported - value) < window for value in written)
+
+
+def _reports_only_own_writes(
+    self: BetterThermostat, trv: Trv, entity_id: str, old_state: State, new_state: State
+) -> bool:
+    """Return whether a report under BT's own context carries only BT's writes.
+
+    Home Assistant stamps every state an entity writes for a few seconds after
+    a service call with the context of that call, and an integration that
+    receives the device's reports over a radio or a broker sets no context of
+    its own. A press at the device inside those seconds therefore reaches the
+    handler under BT's context as well, so the context alone does not say the
+    report is BT's write coming back. The values do: a report is BT's own when
+    its mode is the one the device already reported or the one BT last sent
+    it, and its setpoint is the one the device already reported or one BT
+    wrote to it.
+    """
+    if new_state.state not in (old_state.state, trv.last_hvac_mode):
+        return False
+    reported = read_setpoint_celsius(
+        self, new_state, TRV_SETPOINT_KEYS, "_reports_only_own_writes()"
+    )
+    if reported is None or reported == read_setpoint_celsius(
+        self, old_state, TRV_SETPOINT_KEYS, "_reports_only_own_writes()"
+    ):
+        return True
+    return reports_written_setpoint(self, entity_id, trv, new_state) is True
 
 
 def _reports_on(state: State | None) -> bool:
@@ -319,7 +393,9 @@ async def trigger_trv_change(
     if self.bt_update_lock:
         return
     _main_change = False
-    resolved_event = resolve_state_change_event(self, event, "TRV")
+    resolved_event = resolve_state_change_event(
+        self, event, "TRV", skip_own_context=False
+    )
     if resolved_event is None:
         return
     old_state, new_state, entity_id = resolved_event
@@ -339,6 +415,10 @@ async def trigger_trv_change(
             self.device_name,
             entity_id,
         )
+        return
+    if event.context == self.context and _reports_only_own_writes(
+        self, trv, entity_id, old_state, new_state
+    ):
         return
 
     if trv_report_is_unreadable(self, entity_id, _org_trv_state):

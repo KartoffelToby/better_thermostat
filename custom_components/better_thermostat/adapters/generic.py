@@ -366,6 +366,12 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> No
     )
 
 
+def _reported_mode(self: AdapterHost, entity_id: str) -> str | None:
+    """Return the mode the TRV currently reports, or None without a state."""
+    state = self.hass.states.get(entity_id)
+    return None if state is None else state.state
+
+
 async def set_calibration_offset(
     self: AdapterHost, entity_id: str, calibration_offset: float
 ) -> bool:
@@ -395,6 +401,7 @@ async def set_calibration_offset(
         calibration_offset = max(min_calibration, calibration_offset)
 
         entity_state = self.hass.states.get(calibration_entity)
+        mode_before_offset = _reported_mode(self, entity_id)
 
         # Derive domain safely - from entity_state if available, otherwise from entity_id
         domain = (
@@ -466,8 +473,11 @@ async def set_calibration_offset(
             await asyncio.sleep(3)
             # The offset is on the wire whatever happens to the mode after
             # it. The mode goes out through the mode channel, which retries,
-            # reports and paces a refusal like any other mode write.
-            await delegate_set_hvac_mode(self, entity_id, last_hvac_mode)
+            # reports and paces a refusal like any other mode write. A device
+            # switched to another mode meanwhile was switched at the device,
+            # and the mode is left for the inbound handler to read.
+            if _reported_mode(self, entity_id) == mode_before_offset:
+                await delegate_set_hvac_mode(self, entity_id, last_hvac_mode)
 
         return True
     else:
