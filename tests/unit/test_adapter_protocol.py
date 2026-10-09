@@ -66,13 +66,14 @@ def test_every_ecosystem_adapter_passes_the_runtime_check(name):
 @pytest.mark.parametrize("member", ["CAPABILITIES", "set_valve", "get_info"])
 def test_a_module_lacking_a_member_fails_the_runtime_check(member):
     """The check reads every member of the protocol, constants included."""
-    assert not isinstance(_without(mqtt, member), TrvAdapter)
+    module: object = _without(mqtt, member)
+    assert not isinstance(module, TrvAdapter)
 
 
 def test_helper_modules_are_no_adapters():
     """The delegate and the shared helpers do not pass for an ecosystem."""
     for name in ("base", "delegate", "types", "valve_entity"):
-        module = importlib.import_module(f"{adapters.__name__}.{name}")
+        module: object = importlib.import_module(f"{adapters.__name__}.{name}")
         assert not isinstance(module, TrvAdapter), name
 
 
