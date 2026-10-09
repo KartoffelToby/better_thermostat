@@ -25,6 +25,12 @@ def _up(state, now):
     )
 
 
+def _pending_target(state: ControlModeState) -> ControlMode:
+    """Return the rung the running window commits to."""
+    assert state.pending is not None
+    return state.pending.target
+
+
 def test_initial_state_is_optimal():
     """A fresh ladder sits on OPTIMAL."""
     assert ControlModeState().mode == ControlMode.OPTIMAL
@@ -97,15 +103,15 @@ def test_escalation_mid_debounce_commits_the_shallowest_observed_rung():
     observed throughout — HOLD must then earn its own full debounce.
     """
     state = _down(ControlModeState(), now=0.0)
-    assert state.pending.target == ControlMode.SENSOR_FALLBACK
+    assert _pending_target(state) == ControlMode.SENSOR_FALLBACK
     state = _down(state, now=119.0, trv_ok=False)
     assert state.mode == ControlMode.OPTIMAL
-    assert state.pending.target == ControlMode.SENSOR_FALLBACK
+    assert _pending_target(state) == ControlMode.SENSOR_FALLBACK
     # The window elapses with only SENSOR_FALLBACK continuously
     # supported; the deeper HOLD pressure starts its own window.
     state = _down(state, now=120.0, trv_ok=False)
     assert state.mode == ControlMode.SENSOR_FALLBACK
-    assert state.pending.target == ControlMode.HOLD
+    assert _pending_target(state) == ControlMode.HOLD
     state = _down(state, now=239.0, trv_ok=False)
     assert state.mode == ControlMode.SENSOR_FALLBACK
     state = _down(state, now=240.0, trv_ok=False)
@@ -123,15 +129,15 @@ def test_second_recovery_commits_the_deepest_observed_rung_first():
     """
     state = ControlModeState(mode=ControlMode.HOLD, degraded_since=0.0)
     state = _down(state, now=1000.0, trv_ok=True)
-    assert state.pending.target == ControlMode.SENSOR_FALLBACK
+    assert _pending_target(state) == ControlMode.SENSOR_FALLBACK
     state = _up(state, now=1250.0)
     assert state.mode == ControlMode.HOLD
-    assert state.pending.target == ControlMode.SENSOR_FALLBACK
+    assert _pending_target(state) == ControlMode.SENSOR_FALLBACK
     # The window elapses with only SENSOR_FALLBACK continuously
     # supported; the shallower OPTIMAL pressure starts its own window.
     state = _up(state, now=1300.0)
     assert state.mode == ControlMode.SENSOR_FALLBACK
-    assert state.pending.target == ControlMode.OPTIMAL
+    assert _pending_target(state) == ControlMode.OPTIMAL
     state = _up(state, now=1599.0)
     assert state.mode == ControlMode.SENSOR_FALLBACK
     state = _up(state, now=1600.0)

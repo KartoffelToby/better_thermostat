@@ -14,6 +14,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
 )
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
 from custom_components.better_thermostat.core.recorder import (
+    ExportedDecision,
     FlightRecorder,
     Json,
     replay,
@@ -166,7 +167,7 @@ class TestReplay:
         entry = json.loads(json.dumps(recorder.export()))[0]
 
         assert snapshot_from_dict(entry["snapshot"]) == snapshot
-        rebuilt = state_from_dict(entry["state"])
+        rebuilt = state_from_dict(_json_object(entry["state"]))
         assert rebuilt == running_kernel_state()
 
 
@@ -288,7 +289,7 @@ def test_replay_roundtrips_reachability_and_null_window_state():
     entry = json.loads(json.dumps(recorder.export()))[1]
     matches, _ = replay(entry)
     assert matches is True
-    rebuilt = state_from_dict(entry["state"])
+    rebuilt = state_from_dict(_json_object(entry["state"]))
     assert rebuilt.reachability["climate.t"].online is False
 
 
@@ -312,7 +313,7 @@ def test_exported_online_flag_is_ignored_on_import():
             "retry_at": None,
         },
     }
-    rebuilt = state_from_dict(entry["state"])
+    rebuilt = state_from_dict(_json_object(entry["state"]))
     assert rebuilt.reachability["climate.a"].online is False
     assert rebuilt.reachability["climate.b"].online is True
 
@@ -336,7 +337,7 @@ def test_restored_running_maintenance_without_timestamp_never_blocks():
         "next_due": None,
         "running_since": None,
     }
-    rebuilt = state_from_dict(entry["state"])
+    rebuilt = state_from_dict(_json_object(entry["state"]))
     assert rebuilt.maintenance.phase == MaintenancePhase.IDLE
     assert rebuilt.maintenance.is_blocking(now_monotonic=0.0) is False
     assert rebuilt.maintenance.is_blocking(now_monotonic=99_999.0) is False
@@ -359,12 +360,12 @@ def test_restored_start_timestamp_outside_running_is_dropped():
         "next_due": None,
         "running_since": 900.0,
     }
-    rebuilt = state_from_dict(entry["state"])
+    rebuilt = state_from_dict(_json_object(entry["state"]))
     assert rebuilt.maintenance.phase == MaintenancePhase.DUE
     assert rebuilt.maintenance.running_since is None
 
 
-def _split_pending_entry(control_mode: dict) -> dict:
+def _split_pending_entry(control_mode: dict[str, Json]) -> ExportedDecision:
     """Export one decision, then swap in a ``control_mode`` of the split shape.
 
     The split shape carries the ladder window as ``down_pending_since``,
@@ -374,8 +375,8 @@ def _split_pending_entry(control_mode: dict) -> dict:
     recorder = FlightRecorder()
     desired, _ = decide(_snapshot(), running_kernel_state())
     recorder.record(_snapshot(), running_kernel_state(), desired)
-    entry = json.loads(json.dumps(recorder.export()))[0]
-    entry["state"]["control_mode"] = {
+    entry: ExportedDecision = json.loads(json.dumps(recorder.export()))[0]
+    _json_object(entry["state"])["control_mode"] = {
         "mode": "optimal",
         "unavailable_sensors": [],
         "degraded_since": None,
@@ -428,7 +429,7 @@ def _split_pending_entry(control_mode: dict) -> dict:
 def test_split_pending_fields_load_as_one_window(control_mode, expected):
     """An export carrying the window as three fields loads and replays."""
     entry = _split_pending_entry(control_mode)
-    rebuilt = state_from_dict(entry["state"])
+    rebuilt = state_from_dict(_json_object(entry["state"]))
     assert rebuilt.control_mode.pending == expected
     matches, _ = replay(entry)
     assert matches is True
@@ -444,7 +445,7 @@ def test_split_pending_fields_in_both_directions_are_rejected():
         }
     )
     with pytest.raises(ValueError, match="both directions"):
-        state_from_dict(entry["state"])
+        state_from_dict(_json_object(entry["state"]))
 
 
 def test_pending_window_without_start_time_loads_as_no_window():
@@ -452,7 +453,7 @@ def test_pending_window_without_start_time_loads_as_no_window():
     entry = _split_pending_entry(
         {"pending": {"deeper": True, "since": None, "target": "hold"}}
     )
-    assert state_from_dict(entry["state"]).control_mode.pending is None
+    assert state_from_dict(_json_object(entry["state"])).control_mode.pending is None
 
 
 def test_pending_window_exports_as_one_mapping():
@@ -628,5 +629,5 @@ class TestRoundtripCompleteness:
         entry = json.loads(json.dumps(recorder.export()))[0]
 
         assert snapshot_from_dict(entry["snapshot"]) == snapshot
-        assert state_from_dict(entry["state"]) == state
+        assert state_from_dict(_json_object(entry["state"])) == state
         assert desired_from_dict(entry["desired"]) == desired
