@@ -12,6 +12,7 @@ from homeassistant.components.climate import (
     DOMAIN as CLIMATE_DOMAIN,
     SERVICE_SET_TEMPERATURE,
 )
+from homeassistant.core import Context
 
 from custom_components.better_thermostat.utils import controlling
 
@@ -83,14 +84,21 @@ async def test_a_failing_cycle_still_reads_what_the_trvs_reported(hass, fake_trv
     set_room_sensor(hass, 18.0)
     entry = make_entry(fake_trv.profile)
     await setup_entry(hass, entry)
-    await wait_for_startup(hass, entry)
+    bt = await wait_for_startup(hass, entry)
 
     refresh = controlling.refresh_cached_trv_modes
     read_held = controlling.read_reports_held_during_cycle
     failures: list[int] = []
     settled_after_the_failure: list[str] = []
+    turned_inside_the_cycle: list[bool] = []
 
     def fails_once(*_args):
+        if not failures:
+            # A turn at the device while the cycle holds the handler off.
+            turned_inside_the_cycle.append(bt.ignore_states)
+            fake_trv._attr_target_temperature = 25.0
+            fake_trv.async_set_context(Context())
+            fake_trv.async_write_ha_state()
         failures.append(1)
         raise RuntimeError("helper failed at the end of a cycle")
 
@@ -122,6 +130,8 @@ async def test_a_failing_cycle_still_reads_what_the_trvs_reported(hass, fake_trv
         )
 
     assert settled_after_the_failure[:2] == ["modes", "reports"]
+    assert turned_inside_the_cycle == [True]
+    assert await wait_for(hass, lambda: bt.heat_target_temperature == 25.0)
 
 
 async def test_reading_the_held_reports_may_fail_as_well(hass, fake_trv, caplog):
