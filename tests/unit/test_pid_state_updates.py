@@ -182,6 +182,16 @@ class TestStandbyObservation:
         weight = 1.0 - 0.5 ** (1.0 / D_SMOOTHING_INTERVAL_S)
         assert state.pid_last_meas == pytest.approx(20.0 + weight)
 
+    def test_a_reading_a_tenth_of_a_second_later_moves_it_a_tenth_s_worth(self):
+        """An interval shorter than a second is not rounded up to one."""
+        params = PIDParams(auto_tune=False, d_smoothing_alpha=0.5)
+        state = PIDState(pid_last_meas=20.0, pid_last_time=900.0)
+
+        observe_standby(params, state, 21.0, now=900.1)
+
+        weight = 1.0 - 0.5 ** (0.1 / D_SMOOTHING_INTERVAL_S)
+        assert state.pid_last_meas == pytest.approx(20.0 + weight)
+
 
 class TestDebugRecord:
     """The debug record of a cycle."""

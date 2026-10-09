@@ -220,9 +220,20 @@ def _cycle_interval_s(state: PIDState, now: float) -> float:
     later) would otherwise produce a huge interval and wind the integrator
     up in one step.
     """
-    dt = now - state.pid_last_time if state.pid_last_time > 0 else 0.0
-    dt = max(dt, 1.0)
-    return min(dt, MAX_DT_S)
+    return min(max(_elapsed_s(state, now), 1.0), MAX_DT_S)
+
+
+def _elapsed_s(state: PIDState, now: float) -> float:
+    """Return the seconds since the previous cycle, zero without one.
+
+    Unlike :func:`_cycle_interval_s` the interval is not raised to a
+    second: the smoothing of the D channel advances by the time that
+    actually passed, so cycles a fraction of a second apart move it by
+    that fraction.
+    """
+    if state.pid_last_time <= 0:
+        return 0.0
+    return max(0.0, now - state.pid_last_time)
 
 
 def _smoothed_measurement(
@@ -300,7 +311,7 @@ def observe_standby(
     _forget_stamps_from_a_previous_uptime(state, now)
     if params.d_on_measurement:
         state.pid_last_meas = _smoothed_measurement(
-            params, state, room_temperature, _cycle_interval_s(state, now)
+            params, state, room_temperature, _elapsed_s(state, now)
         )
     else:
         state.pid_last_meas = room_temperature
@@ -424,7 +435,7 @@ def compute_pid(
     if params.d_on_measurement:
         # Use effective current temperature (EMA) for derivative
         meas_now = room_temperature
-        smoothed = _smoothed_measurement(params, st, meas_now, dt)
+        smoothed = _smoothed_measurement(params, st, meas_now, _elapsed_s(st, now))
         prev = st.pid_last_meas
         if prev is not None and st.pid_last_time > 0:
             d_meas = (smoothed - prev) / dt
@@ -639,12 +650,18 @@ def _auto_tune_pid(
     An overshoot is the room turning up beyond the threshold on the other
     side. An approach that enters the steady-state band without crossing
     the target is not one.
+
+    The side is observed on every call. Inside the minimum interval a first
+    side is recorded, and a crossing to the other side is left pending: the
+    recorded side stays until the interval has passed, so the crossing
+    still counts on the first call that may tune.
     """
-    # Minimum interval
-    if (now_ts - st.last_tune_ts) < params.tune_min_interval_s:
-        return
     threshold = params.overshoot_threshold_K
     side = 1 if delta_kelvin > threshold else (-1 if delta_kelvin < -threshold else 0)
+    if (now_ts - st.last_tune_ts) < params.tune_min_interval_s:
+        if st.last_delta_sign is None and side != 0:
+            st.last_delta_sign = side
+        return
     overshoot = side != 0 and st.last_delta_sign == -side
     if side != 0:
         st.last_delta_sign = side

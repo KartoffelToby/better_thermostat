@@ -811,14 +811,21 @@ class TestPidDerivativeSmoothing:
             assert abs(d_term) <= abs(step_d_term)
             assert abs(percent - step_percent) <= 2
 
-    def test_the_smoothed_value_depends_on_elapsed_time_not_on_cycle_count(self):
-        """Five minutes of readings smooth alike in one cycle or in many."""
+    @pytest.mark.parametrize("cycles_per_second", [1, 10])
+    def test_the_smoothed_value_depends_on_elapsed_time_not_on_cycle_count(
+        self, cycles_per_second
+    ):
+        """Five minutes of readings smooth alike in one cycle or in many.
+
+        Cycles closer together than a second advance the smoothing by the
+        fraction of a second that passed, not by a whole second each.
+        """
         params = PIDParams(auto_tune=False, min_hold_time_s=0.0)
         one_cycle = PIDState(pid_last_meas=20.0, pid_last_time=1000.0)
         many_cycles = PIDState(pid_last_meas=20.0, pid_last_time=1000.0)
 
         compute_pid(params, 22.0, 21.0, 21.0, 0.0, "k", state=one_cycle, now=1300.0)
-        for second in range(1, 301):
+        for cycle in range(1, 300 * cycles_per_second + 1):
             compute_pid(
                 params,
                 22.0,
@@ -827,7 +834,7 @@ class TestPidDerivativeSmoothing:
                 0.0,
                 "k",
                 state=many_cycles,
-                now=1000.0 + second,
+                now=1000.0 + cycle / cycles_per_second,
             )
 
         assert one_cycle.pid_last_meas == pytest.approx(20.5)

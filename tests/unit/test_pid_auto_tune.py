@@ -93,6 +93,49 @@ class TestOvershootDetection:
         assert state.pid_kd == pytest.approx(DEFAULT_PID_KD * params.kd_step_mul**2)
         assert state.last_delta_sign == 1
 
+    def test_a_side_seen_inside_the_tuning_interval_still_counts(self):
+        """A crossing is counted though the room was first seen before tuning may run.
+
+        Below the target 200 s into the uptime, inside the five-minute
+        tuning interval, and beyond the threshold above it at 301 s: the
+        first observation records the side, so the second is an overshoot.
+        """
+        params = PIDParams()
+        state = PIDState()
+
+        compute_pid(
+            params, 21.0, 20.0, 20.0, _MOVING_SLOPE, "k", state=state, now=200.0
+        )
+        compute_pid(
+            params, 21.0, 21.3, 21.3, _MOVING_SLOPE, "k", state=state, now=301.0
+        )
+
+        assert state.pid_kp == pytest.approx(DEFAULT_PID_KP * params.kp_step_mul)
+        assert state.last_delta_sign == -1
+
+    def test_a_crossing_inside_the_tuning_interval_waits_for_it(self):
+        """A crossing that lands while tuning is on hold is counted once it may run."""
+        params = PIDParams()
+        state = _run([20.0, 21.3], params=params)
+        tuned_at = state.last_tune_ts
+        kd_after_first = state.pid_kd
+        assert kd_after_first is not None
+
+        for seconds_after_tuning, reading in ((60.0, 20.7), (360.0, 20.7)):
+            compute_pid(
+                params,
+                21.0,
+                reading,
+                reading,
+                _MOVING_SLOPE,
+                "k",
+                state=state,
+                now=tuned_at + seconds_after_tuning,
+            )
+
+        assert state.pid_kd == pytest.approx(kd_after_first * params.kd_step_mul)
+        assert state.last_delta_sign == 1
+
     def test_a_new_target_is_not_read_as_a_crossing(self):
         """Lowering the target past the room does not count as an overshoot.
 
