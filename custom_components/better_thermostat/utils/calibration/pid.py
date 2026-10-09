@@ -263,10 +263,7 @@ def observe_standby(
 
     _forget_stamps_from_a_previous_uptime(state, now)
     if params.d_on_measurement:
-        try:
-            a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-        except TypeError, ValueError:
-            a = 0.5
+        a = max(0.0, min(1.0, params.d_smoothing_alpha))
         prev = state.pid_last_meas
         state.pid_last_meas = (
             room_temperature
@@ -402,10 +399,7 @@ def compute_pid(
         # Use effective current temperature (EMA) for derivative
         meas_now = room_temperature
         # EMA smoothing for the D channel only
-        try:
-            a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-        except TypeError, ValueError:
-            a = 0.5
+        a = max(0.0, min(1.0, params.d_smoothing_alpha))
         prev = st.pid_last_meas
         smoothed = meas_now if prev is None else ((1.0 - a) * prev + a * meas_now)
         if prev is not None:
@@ -420,17 +414,12 @@ def compute_pid(
         d_term = float(st.pid_kd) * d_err
 
     # Update the slope EMA in PID mode too (for logging/diagnostics)
-    try:
-        s_in = inp_temperature_slope_K_per_min
-        if s_in is not None:
-            if st.ema_slope is None:
-                st.ema_slope = s_in
-            else:
-                st.ema_slope = 0.6 * st.ema_slope + 0.4 * s_in
-    except TypeError:
-        _LOGGER.debug(
-            "better_thermostat PID: slope EMA update skipped for %s", key, exc_info=True
-        )
+    s_in = inp_temperature_slope_K_per_min
+    if s_in is not None:
+        if st.ema_slope is None:
+            st.ema_slope = s_in
+        else:
+            st.ema_slope = 0.6 * st.ema_slope + 0.4 * s_in
 
     # Proportional term
     p_term = float(st.pid_kp) * e
@@ -457,23 +446,16 @@ def compute_pid(
     # Integrator relief near setpoint: when the error changes sign and we are
     # within the near band, reduce the integrator slightly so the valve opens
     # or closes earlier.
-    try:
-        cur_sign = 1 if e > 0 else (-1 if e < 0 else 0)
-        if (
-            st.last_error_sign is not None
-            and st.last_error_sign != 0
-            and cur_sign not in (0, st.last_error_sign)
-            and abs(delta_kelvin or 0.0) <= params.steady_state_band_K
-        ):
-            decay = 0.8  # 20% relief
-            i_term *= decay
-            i_relief = True
-    except TypeError:
-        _LOGGER.debug(
-            "better_thermostat PID: integrator relief skipped for %s",
-            key,
-            exc_info=True,
-        )
+    cur_sign = 1 if e > 0 else (-1 if e < 0 else 0)
+    if (
+        st.last_error_sign is not None
+        and st.last_error_sign != 0
+        and cur_sign not in (0, st.last_error_sign)
+        and abs(delta_kelvin or 0.0) <= params.steady_state_band_K
+    ):
+        decay = 0.8  # 20% relief
+        i_term *= decay
+        i_relief = True
 
     # Final control output
     u = p_term + i_term + d_term  # PID
@@ -535,10 +517,7 @@ def compute_pid(
     # Update PID state (store the measurement for the D term)
     if params.d_on_measurement:
         base = room_temperature
-        try:
-            a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-        except TypeError, ValueError:
-            a = 0.5
+        a = max(0.0, min(1.0, params.d_smoothing_alpha))
         prev = st.pid_last_meas
         st.pid_last_meas = base if prev is None else ((1.0 - a) * prev + a * base)
     else:
@@ -628,58 +607,54 @@ def _auto_tune_pid(
     - In quasi-steady state (|ΔT| < steady_state_band and small percent): lower ki a bit to avoid drift.
     - Minimum interval between adjustments (tune_min_interval_s), clamp the gains within limits.
     """
-    try:
-        # Minimum interval
-        if (now_ts - st.last_tune_ts) < params.tune_min_interval_s:
-            return
-        sign = 1 if delta_kelvin > 0 else (-1 if delta_kelvin < 0 else 0)
-        overshoot = False
-        # Harden overshoot detection: only when previous abs(error) > band and new abs(error) < band
-        if (
-            st.previous_abs_error is not None
-            and st.previous_abs_error > params.steady_state_band_K
-            and abs(delta_kelvin) < params.steady_state_band_K
-        ):
-            overshoot = True
-        st.last_delta_sign = sign if sign != 0 else st.last_delta_sign
-
-        tuned = False
-        kp = params.kp if st.pid_kp is None else float(st.pid_kp)
-        ki = params.ki if st.pid_ki is None else float(st.pid_ki)
-        kd = params.kd if st.pid_kd is None else float(st.pid_kd)
-
-        # 1) Overshoot: kp slightly down, kd slightly up, ki slightly down
-        if overshoot:
-            kp = max(params.kp_min, kp * params.kp_step_mul)
-            kd = min(params.kd_max, kd * params.kd_step_mul)
-            ki = max(params.ki_min, ki * params.ki_step_mul_down)
-            tuned = True
-
-        # 2) Sluggishness: ΔT clearly > band_near, but slope very small -> Ki up, Kp up
-        # Use EMA slope if available for more stable tuning
-        check_slope = st.ema_slope if st.ema_slope is not None else slope
-        if (
-            delta_kelvin > params.steady_state_band_K
-            and abs(check_slope) < params.sluggish_slope_threshold_K_min
-            and percent < 95.0
-        ):
-            ki = min(params.ki_max, max(params.ki_min, ki * params.ki_step_mul_up))
-            kp = min(params.kp_max, max(params.kp_min, kp * params.kp_step_mul_up))
-            tuned = True
-
-        # 3) Quasi-steady state: |ΔT| < steady_state_band and small control output -> Ki slightly down
-        if abs(delta_kelvin) < params.steady_state_band_K and percent < 20.0:
-            ki = max(params.ki_min, min(params.ki_max, ki * params.ki_step_mul_down))
-            tuned = True
-
-        if tuned:
-            st.pid_kp = kp
-            st.pid_ki = ki
-            st.pid_kd = kd
-            st.last_tune_ts = now_ts
-    except ValueError, TypeError:
-        # Best-effort: numerische Probleme ignorieren
+    # Minimum interval
+    if (now_ts - st.last_tune_ts) < params.tune_min_interval_s:
         return
+    sign = 1 if delta_kelvin > 0 else (-1 if delta_kelvin < 0 else 0)
+    overshoot = False
+    # Harden overshoot detection: only when previous abs(error) > band and new abs(error) < band
+    if (
+        st.previous_abs_error is not None
+        and st.previous_abs_error > params.steady_state_band_K
+        and abs(delta_kelvin) < params.steady_state_band_K
+    ):
+        overshoot = True
+    st.last_delta_sign = sign if sign != 0 else st.last_delta_sign
+
+    tuned = False
+    kp = params.kp if st.pid_kp is None else float(st.pid_kp)
+    ki = params.ki if st.pid_ki is None else float(st.pid_ki)
+    kd = params.kd if st.pid_kd is None else float(st.pid_kd)
+
+    # 1) Overshoot: kp slightly down, kd slightly up, ki slightly down
+    if overshoot:
+        kp = max(params.kp_min, kp * params.kp_step_mul)
+        kd = min(params.kd_max, kd * params.kd_step_mul)
+        ki = max(params.ki_min, ki * params.ki_step_mul_down)
+        tuned = True
+
+    # 2) Sluggishness: ΔT clearly > band_near, but slope very small -> Ki up, Kp up
+    # Use EMA slope if available for more stable tuning
+    check_slope = st.ema_slope if st.ema_slope is not None else slope
+    if (
+        delta_kelvin > params.steady_state_band_K
+        and abs(check_slope) < params.sluggish_slope_threshold_K_min
+        and percent < 95.0
+    ):
+        ki = min(params.ki_max, max(params.ki_min, ki * params.ki_step_mul_up))
+        kp = min(params.kp_max, max(params.kp_min, kp * params.kp_step_mul_up))
+        tuned = True
+
+    # 3) Quasi-steady state: |ΔT| < steady_state_band and small control output -> Ki slightly down
+    if abs(delta_kelvin) < params.steady_state_band_K and percent < 20.0:
+        ki = max(params.ki_min, min(params.ki_max, ki * params.ki_step_mul_down))
+        tuned = True
+
+    if tuned:
+        st.pid_kp = kp
+        st.pid_ki = ki
+        st.pid_kd = kd
+        st.last_tune_ts = now_ts
 
 
 def sanitize_pid_state(
