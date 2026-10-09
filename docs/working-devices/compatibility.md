@@ -41,7 +41,9 @@ Better Thermostat includes specific fixes and optimizations for the following de
 - COZB0001 (Eurotronic Comet Zigbee)
 - ME167 (Avatto)
 - SEA801-Zigbee / SEA802-Zigbee
+- SHTRV-01 (Shelly TRV, Gen1)
 - SPZB0001 (Eurotronic Spirit Zigbee)
+- TRV-ZBT (Sonoff TRV-ZBT)
 - TRVZB (Sonoff TRVZB)
 - TS0601
 - TS0601_thermostat

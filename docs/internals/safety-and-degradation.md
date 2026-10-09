@@ -63,9 +63,9 @@ a returning room sensor lifts HOLD straight to OPTIMAL.
   heating is active and a suppression (open window, no heat demand)
   forces the TRV to OFF, a direct-valve TRV gets its valve closed to 0 %.
 
-Downgrades are debounced (`down_debounce_s`, 120 s) so a flapping sensor
+Downgrades are debounced (`down_debounce_seconds`, 120 s) so a flapping sensor
 does not flip behavior; upgrades require sustained recovery
-(`up_stability_s`, 300 s). A sensor that stops reporting produces no
+(`up_stability_seconds`, 300 s). A sensor that stops reporting produces no
 events, so a periodic ladder tick (`LADDER_TICK_S`, 60 s) evaluates the
 ladder in every configuration, and a rung commits at most one tick after
 its window has elapsed. The rung is visible as the `control_mode`
