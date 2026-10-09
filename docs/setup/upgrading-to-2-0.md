@@ -8,43 +8,47 @@ description: What carries over from Better Thermostat 1.9, what you may need to 
 Your rooms, entities and learned values carry over to 2.0. You don't need
 to set anything up again. Most of the changes are in how Better Thermostat
 reacts when a sensor, a thermostat or the weather service stops answering.
-This page compares 2.0 with 1.9.2, the last 1.9 release.
+This page compares 2.0 with 1.9.3, the last 1.9 release. If you are on
+1.9.2 or older, also read [Already in 1.9.3](#already-in-193): those
+changes reach you with this upgrade as well.
 
 ## Before you upgrade
 
-- **Home Assistant 2026.9.0 or newer is required.** 1.9.2 ran on
-  2026.7.2. Update Home Assistant first.
+- **Home Assistant 2026.9.0 or newer is required**, the same as for
+  1.9.3. 1.9.2 and older ran on 2026.7.2; update Home Assistant first.
 - **Take a Home Assistant backup.** You can go back to 1.9.3 without one
   (see [Going back to 1.9](#going-back-to-19)), but a backup is the
-  safe way back.
+  safer option.
 
 ## What carries over
 
-- **Configuration:** every room keeps its settings. 2.0 does not rewrite
-  the stored configuration when it starts.
-- **Entities:** entity ids and their history stay the same.
+- **Configuration:** every room keeps its settings. When 2.0 first starts,
+  it moves each room's settings from the entry's data into its options; the
+  values stay the same. Only 1.9.3 and newer read them there, see
+  [Going back to 1.9](#going-back-to-19).
+- **Entities:** entity ids and their history stay the same, except for the
+  sensors listed under [Removed sensors](#removed-sensors).
 - **Learned values:** heating power, heat loss, and the PID, TPI, MPC and
-  MPC v2 state continue where 1.9.2 left off.
+  MPC v2 state continue where 1.9 left off.
 - **Services:** the same three services exist with the same fields.
 - **Calibration modes:** the list of modes and the default (AI Time Based)
   are the same. Your selected mode stays selected.
 
 ## What you may need to change
 
-### A thermostat in more than one room
+### Removed sensors
 
-A thermostat (TRV) can now belong to only one Better Thermostat. Two
-entries writing to the same valve fight each other, so 2.0 no longer lets
-you set that up:
+2.0 removes these sensors when it first starts:
 
-- Creating a room or adding a thermostat to one is refused when another
-  Better Thermostat already controls that thermostat.
-- A setup that already shares a thermostat keeps running, but Home
-  Assistant shows a repair issue, "controlled by more than one Better
-  Thermostat".
+- **Sun Intensity Heatup**, the diagnostic solar intensity sensor every
+  thermostat had. No controller reads it, and 2.0 has no replacement.
+- **PID Kp, PID Ki and PID Kd**, the sensors of a thermostat on the PID
+  calibration mode. The number entities *PID Kp (Proportional)*, *PID Ki
+  (Integral)* and *PID Kd (Derivative)* show the same gains and stay.
 
-Remove the thermostat from every room but one. The repair issue clears by
-itself.
+A dashboard card, template or automation that uses one of these sensors
+shows it as unavailable. Point the PID ones at the number entities and
+remove the solar intensity sensor.
 
 ### Templates and automations
 
@@ -52,17 +56,10 @@ itself.
   attribute. Nothing in 1.9 set it, so it only ever held an old value or
   nothing. The temperature a preset returns to is still in
   `preset_temperature`.
-- **Device triggers fire less often.** "Thermostat switches to heating",
-  "Thermostat stops heating", "Window opened" and "Window closed" now fire
-  only on a real change. A thermostat or sensor that goes unavailable and
-  comes back no longer fires them. If an automation relied on that, trigger on
-  availability instead.
 - **Invalid service calls now fail.** Setting an HVAC mode other than heat,
   heat/cool or off, or a temperature that isn't a number, raises an error.
-  1.9.2 logged these calls and ignored them. An automation that sent such
+  1.9 logged these calls and ignored them. An automation that sent such
   values now shows the error in its trace.
-- **Fahrenheit systems:** `target_temp_step` is now Home Assistant's own
-  attribute, in °F. 1.9.2 overwrote it with the step in °C.
 - **Keys in the learning attributes are renamed.** In `heating_cycle_last`,
   `delta_t` is now `delta_kelvin`, `temp_start` `start_temperature`,
   `temp_peak` `peak_temperature` and `rate_c_min` `rate_kelvin_per_min`. In
@@ -106,18 +103,11 @@ failed command is retried with its own growing pause, from 30 seconds up to
 30 minutes. You don't need to do anything; a
 value you set before is ignored.
 
-### Entities of a calibration mode you no longer use
-
-When you switch a thermostat to another calibration mode, 2.0 removes the
-old mode's entities, such as the PID numbers and switches. 1.9.2 left them
-behind as unavailable. Automations or dashboards that still point at such
-an entity lose it.
-
 ## What behaves differently
 
 ### A window or door sensor stops reporting
 
-1.9.2 treated an unavailable window or door sensor as **open**: heating
+1.9 treated an unavailable window or door sensor as **open**: heating
 paused until the sensor came back. 2.0 treats it as **closed**, so the
 room keeps heating, and reports the sensor through the
 [degraded mode](/faq/degraded-mode/) repair issue.
@@ -127,7 +117,10 @@ relied on that, keep an eye on your battery levels.
 
 ### The room temperature sensor stops reporting
 
-1.9.2 kept controlling on the last reading it had. 2.0 steps down:
+1.9.3 switched to the first thermostat's own temperature after two minutes
+without a reading and went back as soon as the room sensor reported again.
+With no thermostat temperature either, it kept controlling on the last
+reading. 2.0 steps down:
 
 1. After about two minutes without a reading, it controls on the average
    of the thermostats' own temperatures.
@@ -141,24 +134,9 @@ The climate entity shows the current step in `control_mode` (`optimal`,
 `degraded_for_seconds`. A thermostat's own sensor sits next to the hot valve, so
 control is less accurate while the fallback runs.
 
-### A thermostat doesn't come back after a restart
-
-In 1.9.2 a room waited for every thermostat. One that never came back left
-the whole room uncontrolled, windows and sensors included. In 2.0 the room
-starts with the thermostats that answer after a two-minute grace period.
-The missing one joins when it reports.
-
-### The weather service fails
-
-Without an outdoor sensor, Better Thermostat uses the weather forecast to
-decide whether the room needs heat. 1.9.2 switched heating on as soon as a
-forecast failed. 2.0 keeps its last decision for three hours. If that
-decision was not to heat, it then resumes heating with the logbook entry
-"resumed heating because the weather forecast is unavailable".
-
 ### Summer mode with an outdoor sensor
 
-1.9.2 averaged the outdoor sensor's readings per calendar day, for today
+1.9 averaged the outdoor sensor's readings per calendar day, for today
 and yesterday. Every reading counted once, so a sensor that reports often
 while the sun heats it pulled the average up, and the average jumped at
 midnight. 2.0 averages over roughly the last day by time: each reading
@@ -167,32 +145,21 @@ heating off on its own, and a single warm reading takes hours to show.
 
 Summer mode also has a switch-back margin now. It starts when the outdoor
 temperature reaches the threshold and ends once it is 1 °C (1.8 °F) below
-it, for the outdoor sensor and the weather entity alike. 1.9.2 switched
+it, for the outdoor sensor and the weather entity alike. 1.9 switched
 back at the threshold itself. See [Summer mode](/deep-explanations/summer-mode/).
 
-The weather entity changes the same way. 1.9.2 compared its current
+The weather entity changes the same way. 1.9 compared its current
 temperature as it was, so a cold night resumed heating and the afternoon
 stopped it again; 2.0 damps it like an outdoor sensor's readings. And
-1.9.2 averaged a daily forecast's highs only, which reads several degrees
+1.9 averaged a daily forecast's highs only, which reads several degrees
 too warm; 2.0 takes the mean of each day's high and low. Both numbers now
 stand for whole days, nights included, and read several degrees lower than
 before. With the threshold you had, summer mode starts later in spring and
 ends earlier in autumn. If the room now heats on days you count as warm,
 lower the threshold.
 
-### A thermostat keeps rejecting commands
-
-1.9.2 retried a failed control cycle right away, over and over. 2.0 doubles
-the pause after each failure, up to five minutes. With the HomematicIP
-option, its ten minutes between writes can make a retry wait longer. A
-retry that gets through, a new target temperature or a new HVAC mode resets
-the pause. Your logs get much quieter.
-
 ### Smaller changes
 
-- **Target temperatures** are clamped to the room's range and rounded to
-  its step when you set them.
-- **Fahrenheit systems** show tenths of a degree.
 - **`min_temp` and `max_temp`** on the climate entity now cover the heating
   and the cooling range together.
 
@@ -204,7 +171,54 @@ the pause. Your logs get much quieter.
 - **Climate attributes:** `control_mode` and `degraded_for_seconds` (see above),
   and `calibrator_health`, which reports per thermostat whether its
   controller is healthy.
-- **Direct valve control** is now also offered for a Sonoff TRVZB outside
+
+## Already in 1.9.3
+
+1.9.3 brought these changes to the 1.9 line. If you upgrade from 1.9.2 or
+older, you get them with 2.0.
+
+- **A thermostat in more than one room.** A thermostat (TRV) can belong to
+  only one Better Thermostat. Creating a room or adding a thermostat to one
+  is refused when another Better Thermostat already controls that
+  thermostat. A setup that already shares one keeps running, but Home
+  Assistant shows a repair issue, "controlled by more than one Better
+  Thermostat". Remove the thermostat from every room but one; the repair
+  issue clears by itself.
+- **Device triggers fire less often.** "Thermostat switches to heating",
+  "Thermostat stops heating", "Window opened" and "Window closed" fire only
+  on a real change. A thermostat or sensor that goes unavailable and comes
+  back no longer fires them. If an automation relied on that, trigger on
+  availability instead.
+- **Entities of a calibration mode you no longer use are removed.** When
+  you switch a thermostat to another calibration mode, the old mode's
+  entities, such as the PID numbers and switches, go away. 1.9.2 left them
+  behind as unavailable.
+- **The room temperature sensor stops reporting.** After two minutes
+  without a reading, the room controls on a thermostat's own temperature.
+  1.9.2 kept controlling on the last reading. 2.0 refines this further, see
+  [above](#the-room-temperature-sensor-stops-reporting).
+- **A thermostat doesn't come back after a restart.** 1.9.2 waited for
+  every thermostat, so one that never came back left the whole room
+  uncontrolled, windows and sensors included. The room now starts with the
+  thermostats that answer after a two-minute grace period; the missing one
+  joins when it reports.
+- **The weather service fails.** 1.9.2 switched heating on as soon as a
+  forecast failed. Better Thermostat now keeps its last decision for three
+  hours. If that decision was not to heat, it then resumes heating with the
+  logbook entry "resumed heating because the weather forecast is
+  unavailable".
+- **A thermostat keeps rejecting commands.** 1.9.2 retried a failed control
+  cycle right away, over and over. Better Thermostat now doubles the pause
+  after each failure, up to five minutes. With the HomematicIP option, its
+  ten minutes between writes can make a retry wait longer. A retry that
+  gets through, a new target temperature or a new HVAC mode resets the
+  pause.
+- **Target temperatures** are clamped to the room's range and rounded to
+  its step when you set them.
+- **Fahrenheit systems** show tenths of a degree, and `target_temp_step` is
+  Home Assistant's own attribute, in °F. 1.9.2 overwrote it with the step
+  in °C.
+- **Direct valve control** is also offered for a Sonoff TRVZB outside
   Zigbee2MQTT, for example one paired through ZHA, as long as its valve
   opening shows up as an enabled number entity on the same device.
 
