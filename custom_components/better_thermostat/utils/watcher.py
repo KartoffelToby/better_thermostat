@@ -15,7 +15,7 @@ from dataclasses import replace
 from datetime import timedelta
 import logging
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, State
@@ -58,12 +58,17 @@ STARTUP_DEGRADED_GRACE_PERIOD = timedelta(minutes=5)
 STARTUP_CRITICAL_GRACE_PERIOD = timedelta(minutes=2)
 
 # States considered unavailable
-UNAVAILABLE_STATES = (STATE_UNAVAILABLE, None, "missing", "unavail", "unavailable")
+UNAVAILABLE_STATES: Final[frozenset[str | None]] = frozenset(
+    {STATE_UNAVAILABLE, None, "missing", "unavail"}
+)
 
 # Held apart from the above because a TRV can report ``unknown`` while it is
 # reachable and taking commands: the mode it is driven through is not one its
 # climate entity describes.
-UNKNOWN_STATES = (STATE_UNKNOWN, "unknown")
+UNKNOWN_STATES: Final[frozenset[str | None]] = frozenset({STATE_UNKNOWN})
+
+# States in which an entity reports nothing usable.
+UNAVAILABLE_OR_UNKNOWN_STATES: Final = UNAVAILABLE_STATES | UNKNOWN_STATES
 
 # Seconds a battery entity that had nothing to report is left alone before it
 # is read again. Both availability checks run on nearly every event, so
@@ -100,7 +105,7 @@ def is_entity_available(
         return False
     if state_unknown_as_available:
         return entity_states.state not in UNAVAILABLE_STATES
-    return entity_states.state not in UNAVAILABLE_STATES + UNKNOWN_STATES
+    return entity_states.state not in UNAVAILABLE_OR_UNKNOWN_STATES
 
 
 def is_trv_available(self: BetterThermostat, entity_id: str) -> bool:
@@ -143,7 +148,7 @@ def room_sensor_reading(self: BetterThermostat, state: State | None) -> float | 
         The room temperature in Celsius, or ``None`` when the state carries
         no plausible one
     """
-    if state is None or state.state in UNAVAILABLE_STATES + UNKNOWN_STATES:
+    if state is None or state.state in UNAVAILABLE_OR_UNKNOWN_STATES:
         return None
     value = convert_to_float_celsius(
         state.state,
@@ -224,7 +229,7 @@ def get_battery_status(self: BetterThermostat, entity: str) -> None:
 
     battery_state = self.hass.states.get(battery_id)
     level = None if battery_state is None else battery_state.state
-    if level in UNAVAILABLE_STATES + UNKNOWN_STATES:
+    if level in UNAVAILABLE_OR_UNKNOWN_STATES:
         self._next_battery_read[entity] = (
             self.clock.monotonic() + BATTERY_REREAD_DELAY_SECONDS
         )
@@ -285,7 +290,7 @@ def refresh_battery_reading(
             # standing.
             battery_state = self.hass.states.get(info["battery_id"])
             level = None if battery_state is None else battery_state.state
-            if level == info["battery"] or level in UNAVAILABLE_STATES + UNKNOWN_STATES:
+            if level == info["battery"] or level in UNAVAILABLE_OR_UNKNOWN_STATES:
                 return
 
     get_battery_status(self, entity)
@@ -652,7 +657,7 @@ async def check_and_update_degraded_mode(
             room_sensor_state = self.hass.states.get(sensor_entity_id)
         sensor_available = (
             room_sensor_state is not None
-            and room_sensor_state.state not in UNAVAILABLE_STATES + UNKNOWN_STATES
+            and room_sensor_state.state not in UNAVAILABLE_OR_UNKNOWN_STATES
         )
         if not sensor_available:
             unavailable.append(sensor_entity_id)

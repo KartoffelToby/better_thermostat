@@ -108,8 +108,7 @@ from custom_components.better_thermostat.utils.retry import (
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
 from custom_components.better_thermostat.utils.watcher import (
-    UNAVAILABLE_STATES,
-    UNKNOWN_STATES,
+    UNAVAILABLE_OR_UNKNOWN_STATES,
 )
 
 if TYPE_CHECKING:
@@ -1046,7 +1045,7 @@ def refresh_cached_trv_modes(self: BetterThermostat) -> None:
     """
     for entity_id, trv in self.real_trvs.items():
         state = self.hass.states.get(entity_id)
-        if state is None or state.state in UNAVAILABLE_STATES + UNKNOWN_STATES:
+        if state is None or state.state in UNAVAILABLE_OR_UNKNOWN_STATES:
             continue
         if advanced_flag(trv.advanced, CONF_CHILD_LOCK):
             continue
