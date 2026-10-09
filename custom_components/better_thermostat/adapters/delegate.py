@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 import logging
 import math
 import time
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 
 from homeassistant.helpers.importlib import async_import_module
 from homeassistant.util import dt as dt_util
@@ -331,6 +331,13 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> bo
     return True
 
 
+# A path a TRV write goes out through, the key its reachability is kept
+# under. The two valve paths are tried one after the other for the same
+# position, so each keeps a reachability of its own.
+type WritePath = Literal[
+    "temperature", "hvac_mode", "offset", "valve override", "valve adapter"
+]
+
 # How often an outage that goes on is named again in the log.
 OUTAGE_REPORT_INTERVAL_S: Final = 3600.0
 
@@ -354,7 +361,7 @@ class WriteOutage:
 async def _write_on_channel[H: AdapterHost, T, R](
     self: H,
     entity_id: str,
-    channel: str,
+    channel: WritePath,
     what: str,
     write: Callable[[H, str, T], Awaitable[R]],
     value: T,
@@ -379,8 +386,9 @@ async def _write_on_channel[H: AdapterHost, T, R](
         The Better Thermostat climate entity instance
     entity_id : str
         Entity ID of the TRV to write to
-    channel : str
-        Name of the write channel, the key its reachability is kept under
+    channel : WritePath
+        The path the write goes out through, the key its reachability is
+        kept under
     what : str
         The command as the log names it
     write : Callable
@@ -555,10 +563,35 @@ async def set_calibration_offset(
 
 type ValveWrite = Callable[[BetterThermostat, str, int], Awaitable[bool | None]]
 
+# Who writes a valve position: the model quirk's override or the adapter.
+type ValveMethod = Literal["override", "adapter"]
 
-def _valve_channels(
-    self: BetterThermostat, entity_id: str
-) -> list[tuple[str, ValveWrite, bool]]:
+_VALVE_WRITE_PATHS: Final[Mapping[ValveMethod, WritePath]] = {
+    "override": "valve override",
+    "adapter": "valve adapter",
+}
+
+
+class ValveChannel(NamedTuple):
+    """One channel a valve position can go out through.
+
+    Attributes
+    ----------
+    method : ValveMethod
+        Who writes through the channel
+    write : ValveWrite
+        The write, called as ``write(self, entity_id, percent)``
+    answer_decides : bool
+        Whether the write's answer says if the position was taken; a quirk
+        answers that, while an adapter call that returns is the write
+    """
+
+    method: ValveMethod
+    write: ValveWrite
+    answer_decides: bool
+
+
+def _valve_channels(self: BetterThermostat, entity_id: str) -> list[ValveChannel]:
     """List the channels a valve position can go out through, in the order tried."""
     trv_state = self.real_trvs.get(entity_id)
 
@@ -590,13 +623,13 @@ def _valve_channels(
     # A quirk that can tell whether its device offers a valve to write to
     # answers ``has_valve_channel``; one that cannot is taken at its word
     # that ``override_set_valve`` is a channel.
-    channels: list[tuple[str, ValveWrite, bool]] = []
+    channels: list[ValveChannel] = []
     model_quirks = trv_state.model_quirks if trv_state is not None else None
     if isinstance(model_quirks, ValveQuirk) and (
         not isinstance(model_quirks, ValveChannelQuirk)
         or model_quirks.has_valve_channel(self, entity_id)
     ):
-        channels.append(("override", model_quirks.override_set_valve, True))
+        channels.append(ValveChannel("override", model_quirks.override_set_valve, True))
     # A valve entity disabled in Home Assistant since it was adopted drops
     # every write, so it is no channel until it is enabled again.
     if (
@@ -611,7 +644,7 @@ def _valve_channels(
             )
         )
     ):
-        channels.append(("adapter", adapter_write, False))
+        channels.append(ValveChannel("adapter", adapter_write, False))
     return channels
 
 
@@ -677,23 +710,24 @@ async def set_valve(self: BetterThermostat, entity_id: str, valve: float) -> boo
 
     # A channel that raised leaves the position to the next channel, as one
     # that declined it does.
-    for method, write, answer_decides in channels:
+    for channel in channels:
         try:
             answer = await _write_on_channel(
                 self,
                 entity_id,
-                f"valve {method}",
-                f"valve position {target_percent}% through the {method} channel",
-                write,
+                _VALVE_WRITE_PATHS[channel.method],
+                f"valve position {target_percent}% through the {channel.method} "
+                "channel",
+                channel.write,
                 target_percent,
             )
         except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
             continue
-        if answer_decides and not answer:
+        if channel.answer_decides and not answer:
             continue
         # A channel exists only for a TRV the thermostat holds.
         trv = self.real_trvs[entity_id]
         trv.last_valve_percent = target_percent
-        trv.last_valve_method = method
+        trv.last_valve_method = channel.method
         return True
     return False

@@ -1833,7 +1833,7 @@ class TestBoostModeSafetyOverride:
         )
         # A valve write 10 s ago keeps the budget closed for the boost
         # 100% write; only the safety reset may run.
-        mock_self.real_trvs["climate.trv1"].last_valve_write_monotonic = 0.0
+        mock_self.real_trvs["climate.trv1"].last_write_monotonic["valve"] = 0.0
         mock_self.clock.advance(10.0)
 
         set_valve_calls = []
@@ -1859,7 +1859,7 @@ class TestBoostModeSafetyOverride:
 
         assert result is True
         assert [call[2] for call in set_valve_calls] == [0]
-        assert mock_self.real_trvs["climate.trv1"].last_valve_write_monotonic == 10.0
+        assert mock_self.real_trvs["climate.trv1"].last_write_monotonic["valve"] == 10.0
 
     @pytest.mark.asyncio
     async def test_failed_safety_reset_schedules_a_retry_cycle(self):
@@ -2862,7 +2862,7 @@ class TestRaceConditionLockCoverage:
         )
         # A setpoint write 10 s ago keeps the budget closed, so the
         # differing target below is deferred rather than written.
-        mock_self.real_trvs["climate.trv1"].last_write_monotonic = 0.0
+        mock_self.real_trvs["climate.trv1"].last_write_monotonic["setpoint"] = 0.0
         mock_self.clock.advance(10.0)
 
         lock_held_during_sleep = []
@@ -3467,7 +3467,7 @@ class TestOffsetWriteGate:
                 )
                 set_calibration_offset.assert_not_awaited()
                 get_offset.assert_not_called()
-        assert mock_self.real_trvs["climate.trv1"].last_offset_write_monotonic is None
+        assert "offset" not in mock_self.real_trvs["climate.trv1"].last_write_monotonic
         assert "bt_budget_retry_climate.trv1" not in captured
 
         with patch(f"{_HELPERS}.er.async_get", return_value=enabled):

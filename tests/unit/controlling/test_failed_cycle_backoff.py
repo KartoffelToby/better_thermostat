@@ -328,7 +328,9 @@ async def test_the_first_retry_waits_for_the_setpoint_budget():
     writes nothing and would read as the device accepting the command.
     """
     entity = _make_self()
-    entity.real_trvs[_TRV].last_write_monotonic = entity.clock.monotonic() - 5.0
+    entity.real_trvs[_TRV].last_write_monotonic["setpoint"] = (
+        entity.clock.monotonic() - 5.0
+    )
     async with _Queue(entity, lambda _n: ServiceValidationError("x")) as queue:
         await queue.until_calls(1)
 

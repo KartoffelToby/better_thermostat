@@ -113,7 +113,7 @@ from custom_components.better_thermostat.utils.watcher import (
 
 if TYPE_CHECKING:
     from custom_components.better_thermostat.climate import BetterThermostat
-    from custom_components.better_thermostat.trv import Trv
+    from custom_components.better_thermostat.trv import Trv, WriteChannel
     from custom_components.better_thermostat.utils.telemetry import ValveCommand
 
 _LOGGER = logging.getLogger(__name__)
@@ -218,10 +218,6 @@ TRV_STATE_SETTLE_S = 3.0
 WRITE_CONFIRM_TIMEOUT_S = 360
 
 
-# A TRV write channel with its own write budget.
-type WriteChannel = Literal["setpoint", "offset", "valve"]
-
-
 def _write_interval_seconds(
     self: BetterThermostat, trv: Trv, channel: WriteChannel
 ) -> float:
@@ -235,7 +231,7 @@ def _write_interval_seconds(
     if not advanced_flag(trv.advanced, CONF_HOMEMATICIP):
         return MIN_WRITE_INTERVAL_S
     user_change = self.last_user_change_monotonic
-    last_write = trv.last_write_monotonic
+    last_write = trv.last_write_monotonic.get("setpoint")
     if (
         channel == "setpoint"
         and user_change is not None
@@ -250,28 +246,6 @@ def _budget_open(
 ) -> bool:
     """Whether a channel's write-budget slot is free again."""
     return now_monotonic - last_write >= interval_seconds
-
-
-def _budget_stamp(trv: Trv, channel: WriteChannel) -> float | None:
-    """Monotonic time of the last write on ``channel`` to this TRV."""
-    match channel:
-        case "setpoint":
-            return trv.last_write_monotonic
-        case "offset":
-            return trv.last_offset_write_monotonic
-        case "valve":
-            return trv.last_valve_write_monotonic
-
-
-def _set_budget_stamp(trv: Trv, channel: WriteChannel, now_monotonic: float) -> None:
-    """Record a write on ``channel`` to this TRV at ``now_monotonic``."""
-    match channel:
-        case "setpoint":
-            trv.last_write_monotonic = now_monotonic
-        case "offset":
-            trv.last_offset_write_monotonic = now_monotonic
-        case "valve":
-            trv.last_valve_write_monotonic = now_monotonic
 
 
 def _consume_budget(
@@ -289,7 +263,7 @@ def _consume_budget(
     """
     trv = self.real_trvs[entity_id]
     now = self.clock.monotonic()
-    last = _budget_stamp(trv, channel)
+    last = trv.last_write_monotonic.get(channel)
     if (
         not bypass
         and last is not None
@@ -304,7 +278,7 @@ def _consume_budget(
             now - last,
         )
         return False
-    _set_budget_stamp(trv, channel, now)
+    trv.last_write_monotonic[channel] = now
     return True
 
 
@@ -313,7 +287,7 @@ def _budget_remaining(
 ) -> float:
     """Seconds until a channel's write-budget slot reopens."""
     trv = self.real_trvs[entity_id]
-    last = _budget_stamp(trv, channel)
+    last = trv.last_write_monotonic.get(channel)
     if last is None:
         # Never written on this channel, so the slot is already open.
         # Subtracting a monotonic clock from zero would yield a large
