@@ -2,13 +2,31 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from enum import StrEnum
+from types import MappingProxyType
+from typing import Final
 
 from ..mpc_v2_internals.dob import DobParams
 from ..mpc_v2_internals.governor import GovernorParams
 from ..mpc_v2_internals.kalman import KalmanParams
 from ..mpc_v2_internals.plant import TAU_ROOM_BOUNDS_MIN, PlantParams
 from ..mpc_v2_internals.qp_optimiser import QpParams
+
+
+class MpcV2PlantPreset(StrEnum):
+    """Plant-prior presets for MPC v2.
+
+    ``AUTO`` lets ``make_plant_prior`` derive ``tau_room_min`` from BT's
+    learned ``heat_loss_rate``; the other three presets are static
+    overrides keyed roughly to room size / envelope speed.
+    """
+
+    AUTO = "auto"
+    SMALL_ROOM = "small_room"
+    MEDIUM_ROOM = "medium_room"
+    LARGE_ROOM = "large_room"
 
 
 @dataclass
@@ -35,36 +53,39 @@ class MpcV2Params:
 # time constant and coupling stay at the robust default: across realistic
 # plant profiles ``gain_heater`` does not correlate with room size, so a
 # single ~2.0 prior is more robust than size-scaled values.
-PLANT_PRESETS: dict[str, PlantParams] = {
-    "small_room": PlantParams(
-        tau_room_min=180.0, tau_rad_min=15.0, gain_heater=2.0, coupling_rad_room=1.0
-    ),
-    "medium_room": PlantParams(
-        tau_room_min=480.0, tau_rad_min=15.0, gain_heater=2.0, coupling_rad_room=1.0
-    ),
-    "large_room": PlantParams(
-        tau_room_min=720.0, tau_rad_min=15.0, gain_heater=2.0, coupling_rad_room=1.0
-    ),
-}
+PLANT_PRESETS: Final[Mapping[MpcV2PlantPreset, PlantParams]] = MappingProxyType(
+    {
+        MpcV2PlantPreset.SMALL_ROOM: PlantParams(
+            tau_room_min=180.0, tau_rad_min=15.0, gain_heater=2.0, coupling_rad_room=1.0
+        ),
+        MpcV2PlantPreset.MEDIUM_ROOM: PlantParams(
+            tau_room_min=480.0, tau_rad_min=15.0, gain_heater=2.0, coupling_rad_room=1.0
+        ),
+        MpcV2PlantPreset.LARGE_ROOM: PlantParams(
+            tau_room_min=720.0, tau_rad_min=15.0, gain_heater=2.0, coupling_rad_room=1.0
+        ),
+    }
+)
 
 
 def make_plant_prior(
     heating_power: float | None = None,
     heat_loss_rate: float | None = None,
     typical_delta_K: float = 15.0,
-    preset: str | None = None,
+    preset: MpcV2PlantPreset | None = None,
 ) -> PlantParams:
     """Build an RC2 plant prior.
 
     Resolution order:
 
-    1. If ``preset`` matches one of :data:`PLANT_PRESETS`, return that
-       prior verbatim — the user explicitly opted out of auto-derivation.
+    1. If ``preset`` is one of :data:`PLANT_PRESETS`, return that prior
+       verbatim — the user explicitly opted out of auto-derivation.
+       ``MpcV2PlantPreset.AUTO`` and ``None`` continue below.
     2. Otherwise derive ``tau_room_min`` from ``heat_loss_rate`` (assumed
        at ``typical_delta_K`` outdoor delta), clamped to a plausible range.
     3. Fall back to ``PlantParams()`` defaults when neither input applies.
     """
-    if preset and preset in PLANT_PRESETS:
+    if preset is not None and preset in PLANT_PRESETS:
         return replace(PLANT_PRESETS[preset])
     params = PlantParams()
     if heat_loss_rate is not None and heat_loss_rate > 0.0:

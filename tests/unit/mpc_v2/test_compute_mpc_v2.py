@@ -18,6 +18,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Controller,
     MpcV2Input,
     MpcV2Params,
+    MpcV2PlantPreset,
     MpcV2State,
     compute_mpc_v2,
     export_mpc_v2_state,
@@ -296,11 +297,11 @@ def test_make_plant_prior_clamps_extreme_heat_loss() -> None:
 def test_make_plant_prior_preset_overrides_learnings() -> None:
     """A named preset overrides the learned derivation and copies independently."""
     # Preset wins even when heat_loss_rate would otherwise derive a value.
-    prior = make_plant_prior(heat_loss_rate=0.03, preset="small_room")
-    assert prior.tau_room_min == PLANT_PRESETS["small_room"].tau_room_min
+    prior = make_plant_prior(heat_loss_rate=0.03, preset=MpcV2PlantPreset.SMALL_ROOM)
+    assert prior.tau_room_min == PLANT_PRESETS[MpcV2PlantPreset.SMALL_ROOM].tau_room_min
     # And presets are independent copies, not the shared singleton.
     prior.tau_room_min = 999.0
-    assert PLANT_PRESETS["small_room"].tau_room_min != 999.0
+    assert PLANT_PRESETS[MpcV2PlantPreset.SMALL_ROOM].tau_room_min != 999.0
 
 
 def test_make_plant_prior_unknown_preset_falls_back_to_derivation() -> None:
@@ -315,7 +316,7 @@ def test_plant_signature_change_rebuilds_controller(caplog) -> None:
     state: MpcV2State | None = None
     out, state = compute_mpc_v2(
         _baseline_input(key="preset-test-key"),
-        MpcV2Params(plant=make_plant_prior(preset="small_room")),
+        MpcV2Params(plant=make_plant_prior(preset=MpcV2PlantPreset.SMALL_ROOM)),
         state,
     )
     assert out is not None
@@ -324,7 +325,7 @@ def test_plant_signature_change_rebuilds_controller(caplog) -> None:
     with caplog.at_level("INFO"):
         out, state = compute_mpc_v2(
             _baseline_input(key="preset-test-key"),
-            MpcV2Params(plant=make_plant_prior(preset="large_room")),
+            MpcV2Params(plant=make_plant_prior(preset=MpcV2PlantPreset.LARGE_ROOM)),
             state,
         )
     assert state.controller is not original_ctrl

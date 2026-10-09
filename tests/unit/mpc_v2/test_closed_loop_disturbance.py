@@ -36,6 +36,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Controller,
     MpcV2Input,
     MpcV2Params,
+    MpcV2PlantPreset,
     MpcV2State,
     compute_mpc_v2,
 )
@@ -338,7 +339,7 @@ def test_cold_room_below_a_high_setpoint_keeps_heating(free_heat: float) -> None
     and no cycle after the first hour may close the valve while the room is
     more than half a kelvin below the setpoint.
     """
-    plant = replace(PLANT_PRESETS["large_room"])
+    plant = replace(PLANT_PRESETS[MpcV2PlantPreset.LARGE_ROOM])
     trace = _simulate(
         plant=plant,
         outdoor=HARD_OUTDOOR_TEMPERATURE,

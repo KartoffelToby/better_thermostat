@@ -13,6 +13,10 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.config_validation import make_entity_service_schema
 import voluptuous as vol
 
+# MPC v2 stays free of Home Assistant imports, so the preset enum lives there
+# and is re-exported here next to the configuration key that stores it.
+from .calibration.mpc_v2.params import MpcV2PlantPreset  # noqa: F401
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -168,20 +172,6 @@ class CalibrationOutput(StrEnum):
     TARGET_TEMP_BASED = "target_temp_based"
     LOCAL_BASED = "local_calibration_based"
     DIRECT_VALVE_BASED = "direct_valve_based"
-
-
-class MpcV2PlantPreset(StrEnum):
-    """Plant-prior presets for MPC v2.
-
-    ``AUTO`` lets ``make_plant_prior`` derive ``tau_room_min`` from BT's
-    learned ``heat_loss_rate``; the other three presets are static
-    overrides keyed roughly to room size / envelope speed.
-    """
-
-    AUTO = "auto"
-    SMALL_ROOM = "small_room"
-    MEDIUM_ROOM = "medium_room"
-    LARGE_ROOM = "large_room"
 
 
 class CalibrationMode(StrEnum):

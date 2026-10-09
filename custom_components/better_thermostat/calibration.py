@@ -816,7 +816,7 @@ def _compute_mpc_v2_balance(
         plant_prior = make_plant_prior(
             heating_power=self.heating_power,
             heat_loss_rate=self.heat_loss_rate,
-            preset=None if preset == MpcV2PlantPreset.AUTO else preset.value,
+            preset=preset,
         )
     v2_params = MpcV2Params(plant=plant_prior)
 
