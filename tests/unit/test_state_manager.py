@@ -71,6 +71,7 @@ from custom_components.better_thermostat.utils.state_manager import (
     deserialize_mpc_v2_reid,
     deserialize_pid,
     deserialize_tpi,
+    thermostat_of_key,
 )
 from custom_components.better_thermostat.utils.stored_values import (
     MAX_STORED_INT,
@@ -1974,6 +1975,21 @@ class TestMoveThermostat:
         assert set(mgr.state.pid) == {"uid:climate.new:t21.0"}
         assert mgr.state.pid["uid:climate.new:t21.0"].pid_kp == 77.0
 
+    def test_a_pid_loop_entry_moves_with_its_buckets(self):
+        """A TRV's PID loop entry carries no bucket and moves all the same."""
+        mgr = _make_manager()
+        mgr.set_pid("uid:climate.old", PIDState(pid_kp=77.0, pid_integral=4.0))
+        mgr.set_pid("uid:climate.old:t21.0", PIDState())
+        mgr._dirty = False
+
+        moved = mgr.move_thermostat("climate.old", "climate.new")
+
+        assert moved == 2
+        assert set(mgr.state.pid) == {"uid:climate.new", "uid:climate.new:t21.0"}
+        assert mgr.state.pid["uid:climate.new"].pid_kp == 77.0
+        assert mgr.state.pid["uid:climate.new"].pid_integral == 4.0
+        assert mgr.dirty is True
+
 
 class TestForgetThermostatsExcept:
     """State learned for a thermostat the entry no longer controls is dropped."""
@@ -2005,6 +2021,38 @@ class TestForgetThermostatsExcept:
         assert dropped == 0
         assert set(mgr.state.mpc) == kept
         assert mgr.dirty is False
+
+    def test_the_pid_loop_entry_of_an_unconfigured_thermostat_is_dropped(self):
+        mgr = _make_manager()
+        mgr.set_pid("uid:climate.removed", PIDState(pid_kp=77.0))
+        mgr.set_pid("uid:climate.kept", PIDState(pid_kp=5.0))
+        mgr._dirty = False
+
+        dropped = mgr.forget_thermostats_except(["climate.kept"])
+
+        assert dropped == 1
+        assert set(mgr.state.pid) == {"uid:climate.kept"}
+        assert mgr.dirty is True
+
+
+@pytest.mark.parametrize(
+    ("key", "thermostat"),
+    [
+        ("uid:climate.trv:t21.0", "climate.trv"),
+        ("uid:climate.trv:t-0.5", "climate.trv"),
+        ("uid:climate.trv:tunknown", "climate.trv"),
+        ("uid:group:t21.0", "group"),
+        ("uid:climate.trv", "climate.trv"),
+        ("uid:with:colons:climate.trv", "climate.trv"),
+        ("uid:with:colons:climate.trv:t21.0", "climate.trv"),
+        ("uid:reid", None),
+        ("uid:group", None),
+        ("uid:t21.0", None),
+        ("climate.trv", None),
+    ],
+)
+def test_thermostat_of_key_reads_every_per_thermostat_key_shape(key, thermostat):
+    assert thermostat_of_key(key) == thermostat
 
 
 # ---------------------------------------------------------------------------

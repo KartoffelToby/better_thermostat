@@ -1319,25 +1319,60 @@ def _quarantine_key(entry_id: str, copy: int = 0) -> str:
 GROUP_KEY_SEGMENT = "group"
 
 
+def _is_bucket_tag(part: str) -> bool:
+    """Return whether ``part`` is a target bucket tag such as ``t21.0``."""
+    if part == "tunknown":
+        return True
+    if not part.startswith("t"):
+        return False
+    try:
+        float(part[1:])
+    except ValueError:
+        return False
+    return True
+
+
+def _split_thermostat_key(key: str) -> tuple[str, str, str] | None:
+    """Split a per-thermostat key into its head, thermostat segment and tail.
+
+    Learned state is keyed ``<unique_id>:<segment>:t<bucket>``, where the
+    segment is a thermostat's entity id or :data:`GROUP_KEY_SEGMENT`, and a
+    TRV's PID loop entry is keyed ``<unique_id>:<entity_id>``. The tail is
+    ``:t<bucket>`` for the first shape and empty for the second. A key of any
+    other shape, such as the shared ``<unique_id>:reid``, returns ``None``.
+    Entity ids hold no colon but a dot between domain and object id, so the
+    segment is read from the right.
+    """
+    head, separator, last = key.rpartition(":")
+    if not separator:
+        return None
+    if _is_bucket_tag(last):
+        unique_id, separator, segment = head.rpartition(":")
+        if not separator:
+            return None
+        return unique_id, segment, f":{last}"
+    if "." in last:
+        return head, last, ""
+    return None
+
+
 def thermostat_of_key(key: str) -> str | None:
     """Return the thermostat segment of a learned-state key, or ``None``.
 
-    Learned state is keyed ``<unique_id>:<segment>:t<bucket>``, where the
-    segment is a thermostat's entity id or :data:`GROUP_KEY_SEGMENT`. A key of
-    any other shape, such as the shared ``<unique_id>:reid``, belongs to no
-    thermostat. Entity ids hold no colon, so the segment is read from the
-    right.
+    See :func:`_split_thermostat_key` for the key shapes that name a
+    thermostat.
     """
-    parts = key.rsplit(":", 2)
-    if len(parts) != 3 or not parts[2].startswith("t"):
-        return None
-    return parts[1]
+    parts = _split_thermostat_key(key)
+    return None if parts is None else parts[1]
 
 
 def _key_for_thermostat(key: str, entity_id: str) -> str:
     """Return ``key`` with its thermostat segment replaced by ``entity_id``."""
-    unique_id, _, bucket = key.rsplit(":", 2)
-    return f"{unique_id}:{entity_id}:{bucket}"
+    parts = _split_thermostat_key(key)
+    if parts is None:
+        return key
+    unique_id, _, tail = parts
+    return f"{unique_id}:{entity_id}{tail}"
 
 
 # Migration
