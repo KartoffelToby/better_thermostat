@@ -166,7 +166,7 @@ def test_command_latency_delays_setpoint_change():
     assert len(adapter._pending_setpoints) <= params.command_latency_steps + 1
 
 
-def test_inversion_mapping_uses_current_temp():
+def test_inversion_mapping_uses_current_temperature():
     """Inversion mapping uses current temperature."""
     params = IndirectTrvParams(
         setpoint_step_K=0.5,
@@ -182,7 +182,7 @@ def test_inversion_mapping_uses_current_temp():
     assert sp >= 19.0
 
 
-def test_heuristic_mapping_uses_target_temp():
+def test_heuristic_mapping_uses_target_temperature():
     """Heuristic mapping uses target temperature."""
     params = IndirectTrvParams(
         setpoint_step_K=0.5,
@@ -246,12 +246,12 @@ def test_reset_restores_exported_state():
     adapter.reset(snapshot)
     assert adapter._last_quantised_setpoint == snapshot["last_quantised_setpoint"]
     assert adapter._pending_setpoints == snapshot["pending_setpoints"]
-    assert adapter._last_inner_valve_pct == 100.0
+    assert adapter._last_inner_valve_percent == 100.0
 
     adapter.reset()
     assert adapter._last_quantised_setpoint is None
     assert adapter._pending_setpoints == []
-    assert adapter._last_inner_valve_pct == 0.0
+    assert adapter._last_inner_valve_percent == 0.0
 
 
 class _FakeOffsetAdapter:

@@ -198,7 +198,9 @@ class TestFallbackModeSystemMode:
 class TestFallbackModeTemperature:
     """Tests for temperature handling in fallback mode."""
 
-    def test_fallback_mode_uses_target_temp(self, mock_bt_instance_no_calibration):
+    def test_fallback_mode_uses_target_temperature(
+        self, mock_bt_instance_no_calibration
+    ):
         """Test that fallback mode correctly uses heat_target_temperature."""
         from custom_components.better_thermostat.events.trv import (
             convert_outbound_states,

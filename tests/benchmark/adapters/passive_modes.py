@@ -112,9 +112,10 @@ class AggressiveCalibrationAdapter:
         # use ``error_K > 0`` (room below target) as the proxy for the
         # production ``HVACAction.HEATING`` trigger.
         boost = self._params.p_gain * _AGGRESSIVE_BOOST_K if error_K > 0.0 else 0.0
-        raw_pct = self._params.p_gain * error_K + boost
+        raw_percent = self._params.p_gain * error_K + boost
         valve = max(
-            self._params.clamp_min_percent, min(self._params.clamp_max_percent, raw_pct)
+            self._params.clamp_min_percent,
+            min(self._params.clamp_max_percent, raw_percent),
         )
         return BenchmarkOutput(
             valve_percent=valve,

@@ -412,9 +412,8 @@ spellings in `glossary.toml`, a leading underscore included (`_offset` spells
 `offset`), and the words between their underscores against its `[[word]]` and
 `[[modifier]]` rejections, and CI runs it. Unit suffixes are SI symbols the
 control-theory notation writes, so they are not judged under its
-`notation-paths`, nor where other code reads a name the notation spells. Whole
-names are clean; the word parts carry a backlog in `.naming-budget.json`, and
-outside it a single rejected spelling fails the check:
+`notation-paths`, nor where other code reads a name the notation spells. The
+tree carries no rejected spelling, so a single one fails the check:
 
 ```bash
 uv run python scripts/check_naming.py list <path>    # what a file carries

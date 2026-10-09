@@ -35,8 +35,8 @@ jobs:
       - name: Check the blind exception handler budget
         run: uv run --locked --only-group dev python scripts/blind_except_budget.py check
       # glossary.toml lists the spellings each term replaces and the word parts
-      # it rejects (`temp`, `_s`, ...). Whole names are clean; the word parts
-      # carry a per-file backlog in .naming-budget.json that only falls.
+      # it rejects (`temp`, `_s`, ...). The tree carries none; a new term that
+      # rejects a spelling still in use records it in .naming-budget.json.
       - name: Check for rejected names
         run: uv run --locked --only-group dev python scripts/check_naming.py check
       # Ruff accepts the control-theory notation everywhere and ignores

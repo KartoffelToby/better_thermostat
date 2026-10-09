@@ -208,11 +208,11 @@ def actuator_score(metrics: MetricValues, oracle: MetricValues) -> float:
     float
         Actuator score in 0..1.
     """
-    if oracle.total_valve_travel_pct < 1.0:
+    if oracle.total_valve_travel_percent < 1.0:
         # Oracle barely moved. Compare against a floor so a low-activity
         # controller still scores around 1.0.
-        return _clamp_01(1.0 - metrics.total_valve_travel_pct / 500.0)
-    ratio = metrics.total_valve_travel_pct / oracle.total_valve_travel_pct
+        return _clamp_01(1.0 - metrics.total_valve_travel_percent / 500.0)
+    ratio = metrics.total_valve_travel_percent / oracle.total_valve_travel_percent
     penalty = max(0.0, (ratio - 1.0) / 4.0)  # 1× → 0, 5× → 1
     return _clamp_01(1.0 - penalty)
 
@@ -243,15 +243,20 @@ def energy_score(metrics: MetricValues, oracle: MetricValues) -> float:
     float
         Energy score in 0..1.
     """
-    if oracle.integral_valve_pct_min < _ENERGY_FLOOR_PCT_MIN:
+    if oracle.integral_valve_percent_minutes < _ENERGY_FLOOR_PCT_MIN:
         # Oracle barely moved, so the ratio is ill-conditioned. Score the
         # candidate's absolute deviation from the oracle against the floor
         # rather than treating every candidate as oracle-equivalent. The
         # deviation is symmetric, matching the ratio path below: both
         # gross over-heating and under-heating are penalised here.
-        deviation = abs(metrics.integral_valve_pct_min - oracle.integral_valve_pct_min)
+        deviation = abs(
+            metrics.integral_valve_percent_minutes
+            - oracle.integral_valve_percent_minutes
+        )
         return _clamp_01(1.0 - deviation / _ENERGY_FLOOR_PCT_MIN)
-    ratio = metrics.integral_valve_pct_min / oracle.integral_valve_pct_min
+    ratio = (
+        metrics.integral_valve_percent_minutes / oracle.integral_valve_percent_minutes
+    )
     deviation = abs(ratio - 1.0)
     return _clamp_01(1.0 - deviation)
 

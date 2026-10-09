@@ -67,7 +67,7 @@ class DeviceProfile:
     discovery channels exist, so a profile that left them implicit would
     describe a different device than its docstring claims.
 
-    ``configured_target_temp_step`` is the config entry's step string, where
+    ``configured_target_temperature_step`` is the config entry's step string, where
     ``"0.0"`` means "not configured". A configured step overrides the device's
     own grid for every child, so a profile that varies the device step keeps
     this at ``"0.0"``.
@@ -108,7 +108,7 @@ class DeviceProfile:
     supported_features: ClimateEntityFeature = _SETPOINT_FEATURES
     precision: float | None = None
     calibration_mode: str = "default"
-    configured_target_temp_step: str = "0.0"
+    configured_target_temperature_step: str = "0.0"
     offset_channel: OffsetChannel = OffsetChannel.NONE
     valve_channel: ValveChannel = ValveChannel.NONE
     system_unit: UnitOfTemperature | None = None
@@ -201,7 +201,7 @@ GENERIC_HEAT_TRV = DeviceProfile(
     integration="generic_thermostat",
     calibration="target_temp_based",
     has_device_registry_entry=False,
-    configured_target_temp_step="0.5",
+    configured_target_temperature_step="0.5",
 )
 """A device-less climate helper offering heat and off on half degrees Celsius.
 
@@ -217,7 +217,7 @@ SPARE_HEAT_TRV = DeviceProfile(
     has_device_registry_entry=False,
     entity_id=SPARE_TRV_ID,
     entity_name="spare trv",
-    configured_target_temp_step="0.5",
+    configured_target_temperature_step="0.5",
 )
 """A second device-less helper, for a room whose thermostat is swapped.
 
@@ -389,7 +389,7 @@ RANGE_ONLY_HEAT_TRV = DeviceProfile(
     integration="generic_thermostat",
     calibration="target_temp_based",
     has_device_registry_entry=False,
-    configured_target_temp_step="0.5",
+    configured_target_temperature_step="0.5",
     target_temperature=None,
     target_temperature_low=18.0,
     target_temperature_high=25.0,
@@ -467,7 +467,7 @@ def _group_member(letter: str) -> DeviceProfile:
         has_device_registry_entry=False,
         entity_id=f"climate.group_trv_{letter}",
         entity_name=f"group trv {letter}",
-        configured_target_temp_step="0.5",
+        configured_target_temperature_step="0.5",
     )
 
 
