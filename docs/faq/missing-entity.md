@@ -23,5 +23,11 @@ sensor, raise a [degraded mode](/faq/degraded-mode) issue instead.
    the issue. Check the device's battery and reconnect it if necessary.
 2. If the device was replaced by one with a different entity id, select
    the new entity in the Better Thermostat options.
-3. Once the entity is back, confirm the repair issue — it also clears on
-   its own when the entity becomes available again.
+3. If the TRV is gone for good, remove it from the Better Thermostat
+   configuration.
+
+The issue clears on its own when the entity is available again, or when it
+is removed from the Better Thermostat configuration. When Home Assistant
+starts or the Better Thermostat entry reloads, for example after its
+settings were saved, a TRV gets a few minutes to come up before the issue is
+raised again.
