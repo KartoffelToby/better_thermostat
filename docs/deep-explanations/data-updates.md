@@ -34,6 +34,8 @@ A reading that comes too soon is not lost: it is taken as soon as the 5 seconds 
 
 When a TRV reports a new target temperature that Better Thermostat did not send, Better Thermostat takes it as your new target for the whole room. It does not do this while the child lock option is on, while a window or door is open, or while the TRV is off. Values Better Thermostat wrote itself and that the TRV reports back are recognised and not taken as your input.
 
+This holds for a change made right after Better Thermostat wrote to the TRV and for one made while a control cycle runs. Better Thermostat tells its own writes from yours by their values, not by when they arrive. A cycle that finds a TRV turned or switched since the cycle began does not write over the change, and reads it once the cycle is over. A turn is taken even when the TRV is switched off or drops off the network right after it.
+
 ## Control cycles
 
 Every change that matters, whether from a sensor, from a TRV or from you on the thermostat entity, asks for a control cycle. A cycle reads the current state of all entities, decides what each TRV should do and writes only what differs from what the TRV already has. Requests that arrive while a cycle is waiting are folded into it, so a burst of changes leads to one decision.
