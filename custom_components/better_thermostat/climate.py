@@ -4813,8 +4813,28 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
         # force immediate run
         self.next_valve_maintenance = self.clock.now()
+        # The run belongs to the thermostat, not to the service call, so
+        # unloading or removing the thermostat stops it, and it puts the TRVs
+        # back on the way out. The call waits for it either way; a run the
+        # removal stopped ends the call without an error.
+        run = self._spawn_owned(
+            self._run_valve_maintenance(trvs_to_service),
+            name=f"bt_valve_maintenance_{self.device_name}",
+        )
+        if run is None:
+            return
         try:
-            await self._run_valve_maintenance(trvs_to_service)
+            await run
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if not run.cancelled() or (
+                current is not None and current.cancelling() > 0
+            ):
+                raise
+            _LOGGER.info(
+                "better_thermostat %s: valve maintenance stopped with the thermostat",
+                self.device_name,
+            )
         except Exception as err:
             _LOGGER.exception(
                 "better_thermostat %s: valve maintenance failed", self.device_name
