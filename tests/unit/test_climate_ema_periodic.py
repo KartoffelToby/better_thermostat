@@ -43,7 +43,7 @@ async def test_skips_while_startup_running(bt):
 
 
 @pytest.mark.asyncio
-async def test_skips_without_last_known_temp(bt):
+async def test_skips_without_last_known_temperature(bt):
     """Without a last known external temperature, nothing is updated."""
     bt.last_known_external_temperature = None
     with patch(_EMA) as ema:

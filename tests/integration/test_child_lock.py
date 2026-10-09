@@ -86,7 +86,7 @@ async def test_a_locked_knob_turn_is_turned_back_at_once(hass, turn):
     _press(device, temperature=commanded + turn)
 
     assert await wait_for(
-        hass, lambda: device.target_temperature == commanded, timeout_s=2.0
+        hass, lambda: device.target_temperature == commanded, timeout_seconds=2.0
     )
     assert bt.heat_target_temperature == 21.0
 
@@ -108,6 +108,6 @@ async def test_a_locked_mode_press_is_turned_back_at_once(hass, offered, pressed
     _press(device, hvac_mode=pressed)
 
     assert await wait_for(
-        hass, lambda: device.hvac_mode == HVACMode.HEAT, timeout_s=2.0
+        hass, lambda: device.hvac_mode == HVACMode.HEAT, timeout_seconds=2.0
     )
     assert bt.bt_hvac_mode == HVACMode.HEAT

@@ -81,7 +81,7 @@ def test_valve_cycle_count():
     assert m.valve_cycle_count == 3
 
 
-def test_integral_valve_pct_min():
+def test_integral_valve_percent_minutes():
     """A 60-minute window at 50 percent yields 3000 percent·min by trapezoidal integration."""
     n = 61  # samples
     series = TimeSeries(
@@ -91,7 +91,7 @@ def test_integral_valve_pct_min():
         valve_percent=[50.0] * n,
     )
     m = compute_metrics(series, transient_start_s=0.0)
-    assert abs(m.integral_valve_pct_min - 3000.0) < 1e-6
+    assert abs(m.integral_valve_percent_minutes - 3000.0) < 1e-6
 
 
 def test_timeseries_rejects_mismatched_lengths():

@@ -155,7 +155,7 @@ async def test_a_refused_setpoint_is_retried_at_a_growing_distance(hass, refusin
     _bt, _trv, log = refusing_room
     await _set_target(hass, _REFUSED_TARGET)
 
-    assert await wait_for(hass, lambda: len(log.rounds) >= 11, timeout_s=20.0)
+    assert await wait_for(hass, lambda: len(log.rounds) >= 11, timeout_seconds=20.0)
 
     times = [t for t, _ in log.rounds[:11]]
     gaps = [later - earlier for earlier, later in zip(times, times[1:], strict=False)]
@@ -173,7 +173,7 @@ async def test_a_refused_setpoint_logs_its_traceback_once(hass, refusing_room):
     _bt, _trv, log = refusing_room
     await _set_target(hass, _REFUSED_TARGET)
 
-    assert await wait_for(hass, lambda: len(log.rounds) >= 6, timeout_s=20.0)
+    assert await wait_for(hass, lambda: len(log.rounds) >= 6, timeout_seconds=20.0)
 
     records = [record for _, record in log.rounds]
     assert [bool(r.exc_info) for r in records[:6]] == [True] + [False] * 5
@@ -191,14 +191,14 @@ async def test_a_target_the_trv_takes_reaches_it_after_a_refused_one(
     """
     bt, trv, log = refusing_room
     await _set_target(hass, _REFUSED_TARGET)
-    assert await wait_for(hass, lambda: len(log.rounds) >= 8, timeout_s=20.0)
+    assert await wait_for(hass, lambda: len(log.rounds) >= 8, timeout_seconds=20.0)
 
     await _set_target(hass, _TAKEN_TARGET)
 
     assert await wait_for(
         hass,
         lambda: (trv.target_temperature or 99.0) <= _DEVICE_TAKES_UP_TO,
-        timeout_s=20.0,
+        timeout_seconds=20.0,
     ), trv.set_temperature_calls[-5:]
     assert bt.heat_target_temperature == _TAKEN_TARGET
 
@@ -209,7 +209,7 @@ async def test_a_target_the_trv_takes_reaches_it_after_a_refused_one(
     settled_rounds = len(log.rounds)
     settled_writes = len(trv.set_temperature_calls)
     assert not await wait_for(
-        hass, lambda: len(log.rounds) > settled_rounds, timeout_s=0.5
+        hass, lambda: len(log.rounds) > settled_rounds, timeout_seconds=0.5
     ), [record.getMessage() for _, record in log.rounds[settled_rounds:]]
     assert all(
         temperature <= _DEVICE_TAKES_UP_TO

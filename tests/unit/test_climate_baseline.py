@@ -174,7 +174,7 @@ class TestShouldHeatWithTolerance:
     def _call(self, bt, previous_action, tol):
         return BetterThermostat._should_heat_with_tolerance(bt, previous_action, tol)
 
-    def test_target_temp_none(self, mock_bt):
+    def test_target_temperature_none(self, mock_bt):
         """Return False when target temperature is None."""
         mock_bt.heat_target_temperature = None
         assert self._call(mock_bt, HVACAction.IDLE, 0.5) is False
@@ -247,7 +247,7 @@ class TestComputeHvacAction:
     def _call(self, bt):
         return BetterThermostat._compute_hvac_action(bt)
 
-    def test_target_temp_none_returns_idle(self, mock_bt):
+    def test_target_temperature_none_returns_idle(self, mock_bt):
         """Return IDLE when target temperature is None."""
         mock_bt.heat_target_temperature = None
         assert self._call(mock_bt) == HVACAction.IDLE
@@ -488,7 +488,7 @@ class TestCalculateHeatingPower:
         assert mock_bt._heating_tracker.end_temperature == 22.5
 
     @pytest.mark.asyncio
-    async def test_finalization_on_temp_drop(self, mock_bt):
+    async def test_finalization_on_temperature_drop(self, mock_bt):
         """Temperature falls below peak → cycle finalized, power updated."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
         mock_bt.room_temperature = 21.8  # below peak of 22.5
@@ -567,7 +567,7 @@ class TestCalculateHeatingPower:
         assert len(mock_bt.last_heating_power_stats) == 0
 
     @pytest.mark.asyncio
-    async def test_negative_temp_diff_discarded(self, mock_bt):
+    async def test_negative_temperature_diff_discarded(self, mock_bt):
         """Negative temperature diff (end < start) is discarded."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
         mock_bt.room_temperature = 19.0  # below peak → finalize
@@ -766,7 +766,7 @@ class TestCalculateHeatLoss:
         assert mock_bt._loss_tracker.start_ts == now
 
     @pytest.mark.asyncio
-    async def test_tracks_lowest_temp(self, mock_bt):
+    async def test_tracks_lowest_temperature(self, mock_bt):
         """While idle, end_temperature tracks the lowest temperature."""
         now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
         # room_temperature must yield IDLE (>= target - tol) AND be below loss_end_temp
@@ -1063,7 +1063,7 @@ class TestAsyncSetPresetMode:
         assert mock_bt.heat_target_temperature == 20.0
 
     @pytest.mark.asyncio
-    async def test_manual_cool_temp_preserved_across_preset(self, mock_bt):
+    async def test_manual_cool_temperature_preserved_across_preset(self, mock_bt):
         """NONE→Comfort→NONE restores the manual cooling target, not the preset's."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
@@ -1162,7 +1162,7 @@ class TestAsyncSetPresetMode:
         assert mock_bt.cool_target_temperature > mock_bt.heat_target_temperature
 
     @pytest.mark.asyncio
-    async def test_preset_temp_clamped_to_max(self, mock_bt):
+    async def test_preset_temperature_clamped_to_maximum(self, mock_bt):
         """Preset temperature above max → clamped to max_temp."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
         mock_bt.preset_mgr.mode = PRESET_NONE
@@ -1402,7 +1402,7 @@ class TestAsyncSetTemperature:
         assert mock_bt.heat_target_temperature == 5.0
 
     @pytest.mark.asyncio
-    async def test_preset_none_stored_temp_updated(self, mock_bt):
+    async def test_preset_none_stored_temperature_updated(self, mock_bt):
         """In PRESET_NONE, stored temperature is updated on manual change."""
         mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.heat_target_temperature = 20.0
@@ -1463,7 +1463,9 @@ class TestAsyncSetTemperature:
         assert mock_bt.preset_mgr.temperatures[PRESET_COMFORT] == 21.0
 
     @pytest.mark.asyncio
-    async def test_active_preset_kept_when_new_temp_matches_stored(self, mock_bt):
+    async def test_active_preset_kept_when_new_temperature_matches_stored(
+        self, mock_bt
+    ):
         """Setting temperature to the preset's stored value (e.g. from its Number entity) keeps the preset active."""
         mock_bt.preset_mgr.mode = PRESET_COMFORT
         mock_bt.preset_mgr.saved_temperature = 20.0
@@ -1846,7 +1848,7 @@ class TestEnforceHeatBelowCool:
             "target 22.00" in caplog.text
         )
 
-    def test_result_is_clamped_to_min_temp(self, mock_bt, caplog):
+    def test_result_is_clamped_to_min_temperature(self, mock_bt, caplog):
         """The heat target never drops below the configured minimum.
 
         A cool target resting on the minimum leaves no value below it inside the

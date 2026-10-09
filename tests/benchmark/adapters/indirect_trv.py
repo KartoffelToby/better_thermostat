@@ -195,7 +195,7 @@ class IndirectTrvAdapter:
         self.name = f"{inner.name}+indirect_trv"
         self._last_quantised_setpoint: float | None = None
         self._pending_setpoints: list[float] = []
-        self._last_inner_valve_pct = 0.0
+        self._last_inner_valve_percent = 0.0
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
         """Reset wrapped controller and the TRV layer.
@@ -213,7 +213,7 @@ class IndirectTrvAdapter:
         pending = prior.get("pending_setpoints") if prior is not None else None
         self._pending_setpoints = list(pending) if isinstance(pending, list) else []
         last_inner = prior.get("last_inner_valve_pct") if prior is not None else None
-        self._last_inner_valve_pct = (
+        self._last_inner_valve_percent = (
             float(last_inner) if isinstance(last_inner, (int, float)) else 0.0
         )
 
@@ -225,11 +225,11 @@ class IndirectTrvAdapter:
         return room + self.params.trv_sensor_rad_fraction * (ctx.trv_temperature - room)
 
     def _production_setpoint(
-        self, ctx: BenchmarkContext, trv_reading: float, bt_valve_pct: float
+        self, ctx: BenchmarkContext, trv_reading: float, bt_valve_percent: float
     ) -> float:
         """Map ``u`` onto a TRV setpoint the way ``calibration.py`` does."""
         p = self.params
-        fraction = max(0.0, min(1.0, bt_valve_pct / 100.0))
+        fraction = max(0.0, min(1.0, bt_valve_percent / 100.0))
         setpoint = trv_reading + (p.max_setpoint - trv_reading) * fraction
         if fraction == 0.0 and setpoint >= trv_reading:
             # ``_compute_zero_open_offset``: push the setpoint below the
@@ -259,7 +259,7 @@ class IndirectTrvAdapter:
                 last_valve_percent=(
                     ctx.last_valve_percent
                     if self.params.reports_valve_position
-                    else self._last_inner_valve_pct
+                    else self._last_inner_valve_percent
                 ),
             )
         inner_out = self.inner.step(inner_ctx)
@@ -268,8 +268,8 @@ class IndirectTrvAdapter:
                 f"{self.name}: inner adapter {self.inner.name} produced no "
                 "valve_percent; IndirectTrvAdapter only wraps valve-family controllers"
             )
-        bt_valve_pct = inner_out.valve_percent
-        self._last_inner_valve_pct = bt_valve_pct
+        bt_valve_percent = inner_out.valve_percent
+        self._last_inner_valve_percent = bt_valve_percent
         if ctx.window_open or inner_out.diagnostics.get("early_exit"):
             # An open window turns the TRV off, and an inner controller that
             # stood down asks for a closed valve. Either way BT pushes no
@@ -285,23 +285,25 @@ class IndirectTrvAdapter:
         #
         # "inversion": invert the TRV's own P-loop exactly. The TRV
         # computes ``u_trv = p_gain · (T_set − T_room)``; to request a
-        # ``u_trv == bt_valve_pct`` we set ``T_set = T_room +
-        # bt_valve_pct / p_gain``. Physically well-founded but degrades
+        # ``u_trv == bt_valve_percent`` we set ``T_set = T_room +
+        # bt_valve_percent / p_gain``. Physically well-founded but degrades
         # under heavy setpoint quantisation.
         #
         # "heuristic": scale a fixed headroom band against the
         # user target, ignoring T_room entirely. Less principled but
         # tracks better on quantised TRVs (0.5 K / 1 K setpoint steps).
         if production:
-            desired_setpoint = self._production_setpoint(ctx, trv_reading, bt_valve_pct)
+            desired_setpoint = self._production_setpoint(
+                ctx, trv_reading, bt_valve_percent
+            )
         elif self.params.setpoint_mapping == "heuristic":
             headroom_K = self.params.max_calibration_headroom_K
             desired_setpoint = ctx.target_temperature + headroom_K * (
-                bt_valve_pct / 100.0
+                bt_valve_percent / 100.0
             )
         else:
             p_gain = max(self.params.internal_p_gain, 1e-6)
-            desired_setpoint = ctx.room_temperature + bt_valve_pct / p_gain
+            desired_setpoint = ctx.room_temperature + bt_valve_percent / p_gain
 
         # Quantise to TRV's setpoint resolution. ``_production_setpoint``
         # already rounds with production's direction and then clamps to the
@@ -339,10 +341,10 @@ class IndirectTrvAdapter:
         error_K = applied_setpoint - (
             trv_reading if production else ctx.room_temperature
         )
-        u_pct = max(0.0, min(100.0, self.params.internal_p_gain * error_K))
+        u_percent = max(0.0, min(100.0, self.params.internal_p_gain * error_K))
 
         return BenchmarkOutput(
-            valve_percent=u_pct,
+            valve_percent=u_percent,
             diagnostics={
                 **inner_out.diagnostics,
                 "indirect_setpoint": applied_setpoint,
@@ -356,5 +358,5 @@ class IndirectTrvAdapter:
             "inner": self.inner.export_state(),
             "last_quantised_setpoint": self._last_quantised_setpoint,
             "pending_setpoints": list(self._pending_setpoints),
-            "last_inner_valve_pct": self._last_inner_valve_pct,
+            "last_inner_valve_pct": self._last_inner_valve_percent,
         }

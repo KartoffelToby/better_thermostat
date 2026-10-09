@@ -1790,13 +1790,13 @@ class TestClampedThermal:
             heating_power=hp, heat_loss_rate=hl
         )
 
-    def test_heating_power_clamped_to_max(self):
+    def test_heating_power_clamped_to_maximum(self):
         """A heating_power above the max is clamped down."""
         mgr = _make_manager()
         mgr.thermal = ThermalStats(heating_power=MAX_HEATING_POWER * 10)
         assert mgr.clamped_thermal().heating_power == MAX_HEATING_POWER
 
-    def test_heating_power_clamped_to_min(self):
+    def test_heating_power_clamped_to_minimum(self):
         """A heating_power below the min is clamped up."""
         mgr = _make_manager()
         mgr.thermal = ThermalStats(heating_power=-5.0)
