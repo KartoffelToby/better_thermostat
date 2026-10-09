@@ -13,6 +13,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 import math
+from typing import NamedTuple, TypedDict
 
 from .decide import KernelState, decide
 from .desired import DesiredState, Suppression, TrvDesired
@@ -42,6 +43,22 @@ type _Recordable = (
     | Mapping[str, "_Recordable"]
     | Sequence["_Recordable"]
 )
+
+
+class DecisionRecord(NamedTuple):
+    """One recorded decision: the inputs of ``decide()`` and its output."""
+
+    snapshot: WorldSnapshot
+    state: KernelState
+    desired: DesiredState
+
+
+class ExportedDecision(TypedDict):
+    """JSON form of one :class:`DecisionRecord`."""
+
+    snapshot: Json
+    state: Json
+    desired: Json
 
 
 def _json_safe(value: _Recordable) -> Json:
@@ -164,9 +181,7 @@ class FlightRecorder:
     """Bounded ring buffer of decision tuples."""
 
     capacity: int = DEFAULT_CAPACITY
-    _entries: deque[tuple[WorldSnapshot, KernelState, DesiredState]] = field(
-        default_factory=deque, repr=False
-    )
+    _entries: deque[DecisionRecord] = field(default_factory=deque, repr=False)
 
     def __post_init__(self) -> None:
         """Validate the configured capacity and trim any over-capacity entries.
@@ -196,21 +211,21 @@ class FlightRecorder:
         recorded reference cannot be mutated by a later cycle and needs
         no defensive copy.
         """
-        self._entries.append((snapshot, state, desired))
+        self._entries.append(DecisionRecord(snapshot, state, desired))
 
     def __len__(self) -> int:
         """Return the number of recorded tuples."""
         return len(self._entries)
 
-    def export(self) -> list[dict[str, Json]]:
+    def export(self) -> list[ExportedDecision]:
         """Serialize the buffer to JSON-safe dicts (oldest first)."""
         return [
-            {
-                "snapshot": _json_safe(asdict(snapshot)),
-                "state": _json_safe(_state_asdict(state)),
-                "desired": _json_safe(asdict(desired)),
-            }
-            for snapshot, state, desired in self._entries
+            ExportedDecision(
+                snapshot=_json_safe(asdict(record.snapshot)),
+                state=_json_safe(_state_asdict(record.state)),
+                desired=_json_safe(asdict(record.desired)),
+            )
+            for record in self._entries
         ]
 
 
@@ -391,7 +406,7 @@ def desired_from_dict(data: dict[str, Json]) -> DesiredState:
     return DesiredState(call_for_heat=_bool_of(data["call_for_heat"]), trvs=trvs)
 
 
-def replay(entry: dict[str, Json]) -> tuple[bool, DesiredState]:
+def replay(entry: ExportedDecision) -> tuple[bool, DesiredState]:
     """Re-run one exported decision tuple through the kernel.
 
     Returns ``(matches, recomputed_desired)`` — ``matches`` is True when
