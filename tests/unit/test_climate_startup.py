@@ -59,6 +59,7 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.entry_schema import TrvSettings
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
 from custom_components.better_thermostat.utils.state_manager import ThermalStats
+from custom_components.better_thermostat.utils.watcher import BatteryReading
 from tests.factories import ThermostatStandIn, make_trv
 
 SENSOR_ID = "sensor.room_temp"
@@ -2555,7 +2556,7 @@ class TestRestoreState:
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_MAIN_MODE: "heat_cool"}
         bt._saved_state = old
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2568,7 +2569,7 @@ class TestRestoreState:
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_MAIN_MODE: "warm"}
         bt._saved_state = old
-        bt.preset_mgr.temperatures = {}
+        bt.preset_mgr.temperatures = dict[str, float]()
 
         with caplog.at_level(logging.WARNING):
             await BetterThermostat._restore_state(bt, [_make_trv_state()])
@@ -3170,7 +3171,7 @@ class TestFinalizeStartupBatteryScan:
         bt.cooler_entity_id = None
         bt.outdoor_sensor_entity_id = OUTDOOR_ID
         bt.all_entities = dict.fromkeys([OUTDOOR_ID])
-        bt.devices_states = {}
+        bt.devices_states = dict[str, BatteryReading]()
 
         scanned = await self._scan(bt)
 
