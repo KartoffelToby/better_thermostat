@@ -194,7 +194,7 @@ pythonVersion = "3.14"
 
 [tool.pyrefly]
 python-version = "3.14"
-project-includes = ["custom_components/better_thermostat", "scripts", "tests/gates", "tests/integration", "tests/benchmark"]
+project-includes = ["custom_components/better_thermostat", "scripts", "tests/gates", "tests/integration", "tests/benchmark", "tests/unit"]
 min-severity = "error"
 errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true, unnecessary-type-conversion = "error" }
 
