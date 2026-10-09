@@ -265,7 +265,7 @@ class TestMPCController:
 
         st = _STATES[key]
         st.last_percent = 100.0
-        st.last_learn_temp = inp1.room_temperature
+        st.last_learn_temperature = inp1.room_temperature
         st.last_learn_time = time() - 300.0  # >=180s, but <600s (no steady-state gain)
         assert st.gain_est is not None
         gain_before = float(st.gain_est)
@@ -305,7 +305,7 @@ class TestMPCController:
         st.gain_est = 0.1
         st.loss_est = 0.01
         st.last_percent = 90.0
-        st.last_learn_temp = 21.5
+        st.last_learn_temperature = 21.5
         st.last_learn_time = time() - 900.0  # 15min -> in steady-state learning window
         st.last_residual_time = st.last_learn_time  # align residual window
 
@@ -344,7 +344,7 @@ class TestMPCController:
         st.gain_est = 0.12
         st.loss_est = 0.01
         st.last_percent = 36.0
-        st.last_learn_temp = 21.8
+        st.last_learn_temperature = 21.8
         st.last_learn_time = time() - 360.0  # 6min: >=180s and in residual window
         st.last_residual_time = st.last_learn_time  # align residual window
 
@@ -448,7 +448,7 @@ class TestMPCController:
             # The controller records the room after post-processing, as
             # the performance curve does once per window.
             state.last_room_temperature = room
-            state.last_room_temp_ts = now
+            state.last_room_temperature_ts = now
 
         assert state.dead_zone_hits == 0
         assert state.min_effective_percent is None
@@ -737,7 +737,7 @@ class TestMPCController:
         assert first.valve_percent == 0
 
         state = _STATES[key]
-        v1 = state.virtual_temp
+        v1 = state.virtual_temperature
         assert v1 is not None
 
         second, _ = compute_mpc(
@@ -749,7 +749,7 @@ class TestMPCController:
         assert second is not None
         assert second.valve_percent == 0
 
-        v2 = state.virtual_temp
+        v2 = state.virtual_temperature
         assert v2 is not None
         assert v2 < v1
 
@@ -790,7 +790,7 @@ class TestMPCController:
             valve_percent = result.valve_percent
             dbg = result.debug or {}
 
-            vtemp = _STATES[key].virtual_temp if key in _STATES else None
+            vtemp = _STATES[key].virtual_temperature if key in _STATES else None
 
             error = target - current
             results.append((current, valve_percent))

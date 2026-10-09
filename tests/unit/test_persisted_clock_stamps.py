@@ -71,12 +71,12 @@ CLOCK_OF_PERSISTED_STAMP = {
     (TpiState, "last_update_ts"): MONOTONIC,
     (MpcState, "last_update_ts"): WALL,
     (MpcState, "last_time"): WALL,
-    (MpcState, "last_trv_temp_ts"): WALL,
+    (MpcState, "last_trv_temperature_ts"): WALL,
     (MpcState, "last_window_open_ts"): WALL,
     (MpcState, "last_learn_time"): WALL,
     (MpcState, "last_residual_time"): WALL,
-    (MpcState, "virtual_temp_ts"): WALL,
-    (MpcState, "last_room_temp_ts"): WALL,
+    (MpcState, "virtual_temperature_ts"): WALL,
+    (MpcState, "last_room_temperature_ts"): WALL,
     (MpcState, "last_integration_ts"): WALL,
     (MpcState, "created_ts"): WALL,
     (MpcV2StateData, "last_compute_ts"): WALL,
@@ -166,7 +166,7 @@ def _state_at_shutdown(**overrides) -> PIDState:
         last_tune_ts=_PREVIOUS_UPTIME_S - 60.0,
         last_percent=40.0,
         last_output_change_ts=_PREVIOUS_UPTIME_S - 60.0,
-        last_target_temp=21.0,
+        last_target_temperature=21.0,
     )
     for name, value in overrides.items():
         setattr(state, name, value)
@@ -461,7 +461,9 @@ def test_every_mpc_stamp_ahead_of_the_clock_is_taken_as_absent():
     the clock stepped back; one cycle later none lies ahead of the clock.
     """
     ahead = _WALL_START_S + 86400.0
-    state = MpcState(last_percent=100.0, last_temp=20.0, last_trv_temp=21.0)
+    state = MpcState(
+        last_percent=100.0, last_temperature=20.0, last_trv_temperature=21.0
+    )
     for name in _wall_fields(MpcState):
         setattr(state, name, ahead)
 

@@ -266,7 +266,7 @@ class TestSerializeDeserializeRoundtrip:
         original = RuntimeState(
             mpc_v2_reid={
                 "k1": MpcV2ReidData(
-                    tau_room_min=240.0,
+                    tau_room_minutes=240.0,
                     gain_heater=3.0,
                     rmse_prior_kelvin=0.4,
                     rmse_fit_kelvin=0.1,
@@ -498,7 +498,7 @@ class TestDeserializeMpcV2Reid:
         }
         reid = deserialize_mpc_v2_reid(raw)
         assert reid is not None
-        assert reid.tau_room_min == 240.0
+        assert reid.tau_room_minutes == 240.0
         assert reid.gain_heater == 3.0
         assert reid.fitted_ts == 1000.0
         assert reid.rmse_prior_kelvin == 0.4
@@ -525,7 +525,7 @@ class TestDeserializeMpcV2Reid:
         raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "rmse_fit_K": "later"}
         reid = deserialize_mpc_v2_reid(raw)
         assert reid is not None
-        assert reid.tau_room_min == 240.0
+        assert reid.tau_room_minutes == 240.0
         assert reid.rmse_fit_kelvin == 0.0
 
     def test_wrong_type_only_skips_the_segment_count(self):
@@ -583,7 +583,7 @@ class TestDeserializeMpcV2Reid:
         }
         restored = _deserialize(raw)
         assert "bad" not in restored.mpc_v2_reid
-        assert restored.mpc_v2_reid["good"].tau_room_min == 240.0
+        assert restored.mpc_v2_reid["good"].tau_room_minutes == 240.0
 
     def test_tiny_positive_time_constant_is_rejected(self):
         """A positive time constant this small still divides the room dynamics."""
@@ -606,18 +606,18 @@ class TestDeserializeMpcV2Reid:
         assert deserialize_mpc_v2_reid(raw) is None
 
     @pytest.mark.parametrize(
-        ("tau_room_min", "gain_heater"),
+        ("tau_room_minutes", "gain_heater"),
         [
             (TAU_ROOM_BOUNDS_MIN[0], GAIN_HEATER_BOUNDS[0]),
             (TAU_ROOM_BOUNDS_MIN[1], GAIN_HEATER_BOUNDS[1]),
         ],
     )
-    def test_band_edges_are_kept(self, tau_room_min, gain_heater):
+    def test_band_edges_are_kept(self, tau_room_minutes, gain_heater):
         """The band is inclusive, so a value the fit can emit still restores."""
-        raw = {"tau_room_min": tau_room_min, "gain_heater": gain_heater}
+        raw = {"tau_room_min": tau_room_minutes, "gain_heater": gain_heater}
         reid = deserialize_mpc_v2_reid(raw)
         assert reid is not None
-        assert reid.tau_room_min == tau_room_min
+        assert reid.tau_room_minutes == tau_room_minutes
         assert reid.gain_heater == gain_heater
 
     def test_out_of_band_entry_is_absent_after_a_full_load(self):
@@ -629,7 +629,7 @@ class TestDeserializeMpcV2Reid:
         }
         restored = _deserialize(raw)
         assert "bad" not in restored.mpc_v2_reid
-        assert restored.mpc_v2_reid["good"].tau_room_min == 240.0
+        assert restored.mpc_v2_reid["good"].tau_room_minutes == 240.0
 
     def test_infinite_segment_count_falls_back_to_zero(self):
         """An unconvertible segment count must not abort the whole load."""
@@ -714,7 +714,7 @@ class TestDeserializeMpcV2Reid:
         }
         restored = _deserialize(raw)
         assert "bad" not in restored.mpc_v2_reid
-        assert restored.mpc_v2_reid["good"].tau_room_min == 240.0
+        assert restored.mpc_v2_reid["good"].tau_room_minutes == 240.0
 
 
 class TestStorableIntegerBound:

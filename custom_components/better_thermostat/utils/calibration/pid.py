@@ -89,7 +89,7 @@ class PIDState:
     last_percent: float = 0.0
     # Hold-time
     last_output_change_ts: float = 0.0
-    last_target_temp: float | None = None
+    last_target_temperature: float | None = None
 
 
 # --- PID Parameters -----------------------------------------------
@@ -486,11 +486,11 @@ def compute_pid(
     # 3. Check Target Change
     target_changed = False
     if (
-        st.last_target_temp is not None
-        and abs(inp_target_temperature - st.last_target_temp) > 0.05
+        st.last_target_temperature is not None
+        and abs(inp_target_temperature - st.last_target_temperature) > 0.05
     ):
         target_changed = True
-    st.last_target_temp = inp_target_temperature
+    st.last_target_temperature = inp_target_temperature
 
     # 4. Hold-Time Check
     time_since_change = now - st.last_output_change_ts
