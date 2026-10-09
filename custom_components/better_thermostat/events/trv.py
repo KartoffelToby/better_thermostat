@@ -811,6 +811,25 @@ async def trigger_trv_change(
                 _new_heating_setpoint,
             )
             _main_change = True
+        elif (
+            _is_no_off_device
+            and self.contact_open
+            and not _is_echo
+            and abs(_raw_heating_setpoint - _old_heating_setpoint)
+            >= setpoint_echo_window(_step)
+        ):
+            # BT holds a device without an off mode at its minimum while a
+            # contact is open. A turn there is not adopted and switches the
+            # room neither on nor off, and the cycle requested for it writes
+            # the minimum back over it.
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s turned to %s while a window or "
+                "door is open, turning it back",
+                self.device_name,
+                entity_id,
+                _new_heating_setpoint,
+            )
+            _main_change = True
         elif _new_heating_setpoint != _old_heating_setpoint:
             # A setpoint change arrived from the TRV but was not adopted as user
             # intent. Record which guard suppressed it so intermittent "change
