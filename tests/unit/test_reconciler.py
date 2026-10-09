@@ -200,7 +200,7 @@ class TestReconcileTick:
     def _state(self, value):
         state = Mock()
         state.state = value
-        state.attributes = {}
+        state.attributes = dict[str, object]()
         return state
 
     @pytest.mark.asyncio
@@ -874,7 +874,7 @@ class TestOffsetReconcileHandoff:
         trv_state = bt.hass.states.get.return_value
         offset_state = Mock()
         offset_state.state = "0.0"
-        offset_state.attributes = {}
+        offset_state.attributes = dict[str, object]()
         bt.hass.states.get.side_effect = lambda entity_id: (
             offset_state if entity_id == "number.offset" else trv_state
         )

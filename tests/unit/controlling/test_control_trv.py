@@ -13,6 +13,7 @@ Absorbed tests from:
 """
 
 import asyncio
+from collections.abc import Coroutine
 from dataclasses import replace
 import inspect
 from types import SimpleNamespace
@@ -1145,7 +1146,7 @@ class TestControlTrvAvailablePath:
         """
         offline_state = Mock()
         offline_state.state = STATE_UNAVAILABLE
-        offline_state.attributes = {}
+        offline_state.attributes = dict[str, object]()
 
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT,
@@ -1412,6 +1413,7 @@ class TestControlTrvAvailablePath:
             await control_trv(mock_self, "climate.trv1")
 
             mock_set_hvac.assert_awaited_once()
+            assert mock_set_hvac.await_args is not None
             assert mock_set_hvac.await_args[0][2] == HVACMode.OFF
             for call in mock_set_temp.call_args_list:
                 assert call[0][2] != 5.0
@@ -1889,7 +1891,7 @@ class TestBoostModeSafetyOverride:
             },
         )
 
-        captured = []
+        captured: list[tuple[Coroutine[object, object, object], str | None]] = []
         mock_self.task_manager.create_task = Mock(
             side_effect=lambda coro, name=None: captured.append((coro, name)) or Mock()
         )
@@ -2291,7 +2293,8 @@ class TestValveWriteResult:
 
     async def _cycles(self, mock_self, registry, count):
         """Run ``count`` cycles through the real valve write; collect their tasks."""
-        calls, task_names = 0, []
+        calls = 0
+        task_names: list[str | None] = []
         with patch(f"{_HELPERS}.er.async_get", return_value=registry):
             for _ in range(count):
                 mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
@@ -3445,7 +3448,7 @@ class TestOffsetWriteGate:
         is enabled again, the next cycle writes the offset.
         """
         mock_self = _make_offset_self()
-        captured = []
+        captured: list[str | None] = []
         mock_self.task_manager.create_task = Mock(
             side_effect=lambda coro, name=None: (
                 (coro.close(), captured.append(name)) and Mock()
@@ -3495,7 +3498,7 @@ class TestOffsetWriteGate:
     async def test_write_arms_the_confirmation_watchdog(self):
         """A write closes the gate and schedules the release that reopens it."""
         mock_self = _make_offset_self(calibration_received=False, last_calibration=0.0)
-        tasks = []
+        tasks: list[str | None] = []
         mock_self.task_manager.create_task = Mock(
             side_effect=lambda coro, name=None: (
                 (coro.close(), tasks.append(name)) and Mock()
@@ -3675,7 +3678,7 @@ class TestOffsetWriteGate:
     async def test_failed_write_keeps_the_gate_open_and_retries(self):
         """A write the adapter refused arms nothing and is retried."""
         mock_self = _make_offset_self(calibration_received=True, last_calibration=0.0)
-        tasks = []
+        tasks: list[str | None] = []
         mock_self.task_manager.create_task = Mock(
             side_effect=lambda coro, name=None: (
                 (coro.close(), tasks.append(name)) and Mock()
@@ -3691,7 +3694,9 @@ class TestOffsetWriteGate:
         )
 
         assert mock_self.real_trvs["climate.trv1"].calibration_received is True
-        assert not [name for name in tasks if name.startswith("bt_check_calibration")]
+        assert not [
+            name for name in tasks if (name or "").startswith("bt_check_calibration")
+        ]
 
         mock_self.clock.advance(31.0)
         await _run_offset_cycle(
@@ -3715,7 +3720,7 @@ class TestOffsetWriteGate:
                 "no_off_system_mode": False,
             },
         )
-        tasks = []
+        tasks: list[str | None] = []
         mock_self.task_manager.create_task = Mock(
             side_effect=lambda coro, name=None: (
                 (coro.close(), tasks.append(name)) and Mock()
@@ -3728,7 +3733,9 @@ class TestOffsetWriteGate:
 
         set_calibration_offset.assert_not_awaited()
         get_offset.assert_not_awaited()
-        assert not [name for name in tasks if name.startswith("bt_check_calibration")]
+        assert not [
+            name for name in tasks if (name or "").startswith("bt_check_calibration")
+        ]
 
     @pytest.mark.asyncio
     async def test_off_mode_leaves_the_channel_alone(self):
@@ -4462,7 +4469,7 @@ class TestHomematicIPWritePacing:
         """
         mock_self, created = self._room({self.PLAIN: False, self.HMIP: True})
         heads = [self.PLAIN, self.HMIP]
-        written = []
+        written: list[tuple[str, float]] = []
 
         await self._cycle(mock_self, heads, 22.0, written)
         assert written == [(self.PLAIN, 22.0), (self.HMIP, 22.0)]
@@ -4488,7 +4495,7 @@ class TestHomematicIPWritePacing:
         """Every HomematicIP head waits its own interval between writes."""
         mock_self, created = self._room({self.HMIP: True, self.HMIP_PEER: True})
         heads = [self.HMIP, self.HMIP_PEER]
-        written = []
+        written: list[tuple[str, float]] = []
 
         await self._cycle(mock_self, heads, 22.0, written)
         mock_self.clock.advance(HOMEMATICIP_MIN_WRITE_INTERVAL_S - 1)
@@ -4509,7 +4516,7 @@ class TestHomematicIPWritePacing:
         recomputation a minute later waits for the head's own interval again.
         """
         mock_self, created = self._room({self.HMIP: True})
-        written = []
+        written: list[tuple[str, float]] = []
 
         await self._cycle(mock_self, [self.HMIP], 22.0, written)
         mock_self.clock.advance(60.0)
@@ -4532,7 +4539,7 @@ class TestHomematicIPWritePacing:
         interval after the first write has passed.
         """
         mock_self, created = self._room({self.HMIP: True})
-        written = []
+        written: list[tuple[str, float]] = []
 
         await self._cycle(mock_self, [self.HMIP], 22.0, written)
         mock_self.clock.advance(60.0)
@@ -4561,7 +4568,7 @@ class TestHomematicIPWritePacing:
         the normal spacing has passed, not when the controller's slot opens.
         """
         mock_self, created = self._room({self.HMIP: True})
-        written = []
+        written: list[tuple[str, float]] = []
 
         await self._cycle(mock_self, [self.HMIP], 22.0, written)
         await self._retry_delays(created, "")
