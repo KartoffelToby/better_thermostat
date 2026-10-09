@@ -139,7 +139,6 @@ from .utils.const import (
     ATTR_STATE_ERRORS,
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
-    ATTR_STATE_LAST_CHANGE,
     ATTR_STATE_MAIN_MODE,
     ATTR_STATE_OFF_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURE,
@@ -1083,7 +1082,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.call_for_heat = True
         self.ignore_states = False
         self.version = VERSION
-        self.last_change: datetime = self.clock.now() - timedelta(hours=2)
         # Monotonic time of the user's last change of the room target or mode.
         self.last_user_change_monotonic: float | None = None
         self.last_external_sensor_change: datetime = self.clock.now() - timedelta(
@@ -3754,7 +3752,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             ATTR_STATE_WINDOW_OPEN: self.window_open,
             ATTR_STATE_DOOR_OPEN: self.door_open,
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
-            ATTR_STATE_LAST_CHANGE: self.last_change.isoformat(),
             ATTR_STATE_PRESET_TEMPERATURE: self.preset_mgr.saved_temperature,
             ATTR_STATE_PRESET_COOL_TEMPERATURE: self._preset_cool_temperature,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
