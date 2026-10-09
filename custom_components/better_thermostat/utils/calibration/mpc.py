@@ -10,7 +10,7 @@ import logging
 import math
 import random
 from time import time
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, NamedTuple, TypedDict, overload
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
@@ -116,14 +116,6 @@ class MpcInput:
     max_opening_percent: float | None = None
 
 
-@dataclass
-class MpcOutput:
-    """Output result from MPC calibration calculation."""
-
-    valve_percent: int
-    debug: dict[str, object] = field(default_factory=dict)
-
-
 class TrvProfile(StrEnum):
     """How a TRV's temperature answers a valve opening, as learned so far."""
 
@@ -131,6 +123,125 @@ class TrvProfile(StrEnum):
     THRESHOLD = "threshold"
     LINEAR = "linear"
     EXPONENTIAL = "exponential"
+
+
+# Debug information from one MPC cycle. The keys become state attributes and
+# sensor lookups, so they stay as they are; the functional syntax keeps them
+# as strings rather than identifiers, so the naming checks never see a debug
+# key as a new attribute.
+MpcDebugInfo = TypedDict(  # noqa: UP013
+    "MpcDebugInfo",
+    {
+        # Tolerance hold
+        "mpc_tolerance_hold_resume": bool,
+        "mpc_tolerance_hold_active": bool,
+        "mpc_tolerance_K": float,
+        "mpc_tolerance_restart_C": float,
+        # Virtual temperature observer
+        "kalman_phase": Literal["init"],
+        "kalman_predict_dT": float,
+        "kalman_P_predict": float,
+        "kalman_K": float,
+        "kalman_innovation": float,
+        "kalman_P_update": float,
+        "kalman_update": Literal["skipped_sensor_unchanged"],
+        "calib_active": bool,
+        # Adaptation
+        "regime_boost_activated": bool,
+        "regime_boost_active": bool,
+        "regime_boost_reset": bool,
+        "loss_skipped_high_rate": bool,
+        "loss_skipped_insufficient_heat": bool,
+        "gain_boosted_insuff": bool,
+        "gain_recovery": bool,
+        "id_dt_min": float,
+        "id_delta_T": float,
+        "id_implied_delta_T": float,
+        "id_temp_changed": bool,
+        "id_learn_signal": bool,
+        "id_temp_change_threshold_C": float,
+        "id_rate": float,
+        "id_rate_delta": float,
+        "id_rate_ss": float,
+        "id_rate_source": str,
+        "id_slope_rejected": bool,
+        "id_rate_ok": bool,
+        "id_u_last": float,
+        "id_target_changed": bool,
+        "id_gain_method": GainMethod | None,
+        "id_gain_updated": bool,
+        "id_gain_ss_applied": bool,
+        "id_gain_ss_candidate": float | None,
+        "id_gain_ss_rate_limited": bool,
+        "id_loss_updated": bool,
+        "id_loss_method": LossMethod | None,
+        "id_loss_ss_rate_thr": float,
+        "id_residual_ok": bool,
+        "id_residual_rate_limited": bool,
+        "id_residual_block_jump": bool,
+        # Optimiser
+        "mpc_gain": float,
+        "mpc_loss": float,
+        "mpc_ka": float | None,
+        "mpc_u0_pct": float,
+        "mpc_du_pct": float,
+        "mpc_u_abs_pct": float,
+        "mpc_horizon": int,
+        "mpc_eval_count": int,
+        "mpc_step_minutes": float,
+        "mpc_temp_cost_C": float,
+        "mpc_sensor_temp_C": float | None,
+        "mpc_temp_cost_source": Literal["raw", "filtered"],
+        "mpc_control_pen": float,
+        "mpc_change_pen": float,
+        "mpc_overshoot_pen": float,
+        # Three decimals as text, as the virtual temperature sensor reads it.
+        "mpc_virtual_temp": str | None,
+        "mpc_e0": float,
+        "mpc_analytical": bool,
+        "mpc_cost": float,
+        "mpc_last_percent": float,
+        # Post-processing
+        "raw_percent": float,
+        "smooth_percent": float,
+        "too_soon": bool,
+        "target_changed": bool,
+        "delta_T": float | None,
+        "min_effective_percent": float | None,
+        "dead_zone_hits": int,
+        "trv_profile": TrvProfile,
+        "trv_profile_conf": float,
+        "trv_profile_samples": int,
+        "trv_temp_delta": float | None,
+        "trv_time_delta_s": float | None,
+        "mpc_created_ts": float,
+        "slope_ema": float,
+        "hold_block": bool,
+        "hold_remaining_s": int,
+        "max_opening_pct": float,
+        "max_opening_clamped": bool,
+        "perf_curve_bin": str,
+        "perf_room_rate": float,
+        "percent_out": int,
+    },
+    total=False,
+)
+
+
+@dataclass
+class MpcOutput:
+    """Output result from MPC calibration calculation."""
+
+    valve_percent: int
+    debug: MpcDebugInfo = field(default_factory=MpcDebugInfo)
+
+
+class _PostProcessed(NamedTuple):
+    """The valve command after post-processing, with its debug information."""
+
+    valve_percent: int
+    debug: MpcDebugInfo
+    delta_kelvin: float | None
 
 
 @dataclass
@@ -222,7 +333,7 @@ def _update_perf_curve(
     inp: MpcInput,
     params: MpcParams,
     now: float,
-    extra_debug: dict[str, object],
+    extra_debug: MpcDebugInfo,
 ) -> None:
     if inp.room_temperature is None:
         return
@@ -303,12 +414,12 @@ def _update_perf_curve(
     state.last_room_temperature_ts = now
 
 
-def _split_mpc_key(key: str) -> tuple[str | None, str | None, str | None]:
+def _split_mpc_key(key: str) -> tuple[str, str, str] | None:
     try:
         uid, entity, bucket = key.split(":", 2)
-        return uid, entity, bucket
     except ValueError:
-        return None, None, None
+        return None
+    return uid, entity, bucket
 
 
 def _parse_bucket(bucket: str | None) -> float | None:
@@ -346,7 +457,10 @@ def _seed_state_from_siblings(
     heals) is skipped for that field and the next-nearest sibling is
     tried, so seeding cannot re-poison a freshly sanitized state.
     """
-    uid, entity, bucket = _split_mpc_key(key)
+    own_parts = _split_mpc_key(key)
+    if own_parts is None:
+        return
+    uid, entity, bucket = own_parts
     if not uid or not entity:
         return
     own_target = _parse_bucket(bucket)
@@ -354,7 +468,10 @@ def _seed_state_from_siblings(
     for other_key, other_state in all_states.items():
         if other_key == key:
             continue
-        ouid, oentity, obucket = _split_mpc_key(other_key)
+        other_parts = _split_mpc_key(other_key)
+        if other_parts is None:
+            continue
+        ouid, oentity, obucket = other_parts
         if ouid != uid or oentity != entity:
             continue
         other_target = _parse_bucket(obucket)
@@ -562,9 +679,21 @@ def _detect_regime_change(recent_errors: deque[float] | list[float]) -> bool:
     return t_stat > 2.0
 
 
-def _round_for_debug(value: object, digits: int = 3) -> object:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return value
+@overload
+def _round_for_debug(value: float, digits: int = 3) -> float: ...
+
+
+@overload
+def _round_for_debug(value: None, digits: int = 3) -> None: ...
+
+
+@overload
+def _round_for_debug(value: float | None, digits: int = 3) -> float | None: ...
+
+
+def _round_for_debug(value: float | None, digits: int = 3) -> float | None:
+    if value is None:
+        return None
     return round(float(value), digits)
 
 
@@ -667,7 +796,7 @@ def compute_mpc(
             state.time_integral += dt_int
     state.last_integration_ts = now
 
-    extra_debug: dict[str, object] = {}
+    extra_debug: MpcDebugInfo = {}
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
     percent: float = 0.0
@@ -931,7 +1060,7 @@ def compute_mpc(
 
     _update_perf_curve(state=state, inp=inp, params=params, now=now, extra_debug=debug)
 
-    debug.update({"percent_out": percent_out})
+    debug["percent_out"] = percent_out
 
     summary_delta = delta_kelvin if delta_kelvin is not None else initial_delta_kelvin
     min_eff = state.min_effective_percent
@@ -973,7 +1102,7 @@ def compute_mpc(
 
 def _compute_predictive_percent(
     inp: MpcInput, params: MpcParams, state: _MpcState, now: float, delta_kelvin: float
-) -> tuple[float, dict[str, object]]:
+) -> tuple[float, MpcDebugInfo]:
     """Core MPC minimisation routine.
 
     The plant model is temperature-forward and carries physical units:
@@ -997,7 +1126,7 @@ def _compute_predictive_percent(
     # Determine which temperature to use for the cost function (Raw vs Filtered)
     # Default to filtered (EMA) for stability.
     cost_room_temperature = room_temperature
-    cost_temperature_source = "raw"
+    cost_temperature_source: Literal["raw", "filtered"] = "raw"
 
     if inp.room_temperature_filtered is not None:
         try:
@@ -1060,7 +1189,7 @@ def _compute_predictive_percent(
 
     # ---- ADAPTATION (rate-based identification) ----
     # Model: dT/dt ~= gain * u - loss, where gain/loss are in °C/min and u in [0..1]
-    adapt_debug: dict[str, object] = {}
+    adapt_debug: MpcDebugInfo = {}
     if (
         params.mpc_adapt
         and state.last_learn_temperature is not None
@@ -1643,7 +1772,7 @@ def _compute_predictive_percent(
     state.last_time = now
 
     # build debug
-    mpc_debug: dict[str, object] = {
+    mpc_debug: MpcDebugInfo = {
         "mpc_gain": _round_for_debug(gain, 4),
         "mpc_loss": _round_for_debug(loss, 4),
         "mpc_ka": _round_for_debug(state.ka_est, 5)
@@ -1820,7 +1949,7 @@ def _post_process_percent(
     now: float,
     raw_percent: float,
     delta_kelvin: float | None,
-) -> tuple[int, dict[str, object], float | None]:
+) -> _PostProcessed:
     """Apply smoothing, hysteresis, min-effective, du_max, dead-zone detection and produce debug info."""
 
     name = inp.bt_name or "BT"
@@ -2037,7 +2166,7 @@ def _post_process_percent(
         state.last_trv_temperature = inp.trv_temperature
         state.last_trv_temperature_ts = now
     # 7) DEBUG INFO
-    debug: dict[str, object] = {
+    debug: MpcDebugInfo = {
         "raw_percent": _round_for_debug(raw_percent, 2),
         "smooth_percent": _round_for_debug(smooth, 2),
         "too_soon": too_soon,
@@ -2116,4 +2245,4 @@ def _post_process_percent(
         state.last_percent = float(percent_out)
         state.last_update_ts = now
 
-    return percent_out, debug, delta_kelvin
+    return _PostProcessed(percent_out, debug, delta_kelvin)

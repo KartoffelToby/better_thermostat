@@ -180,9 +180,11 @@ class TestRoundForDebug:
         """Test that None input passes through unchanged."""
         assert _round_for_debug(None) is None
 
-    def test_returns_string_for_string(self):
-        """Test that string input passes through unchanged."""
-        assert _round_for_debug("hello") == "hello"
+    def test_returns_float_for_int(self):
+        """Test that an integer comes back as a float."""
+        result = _round_for_debug(7, 2)
+        assert result == 7.0
+        assert isinstance(result, float)
 
     def test_handles_inf(self):
         """Test that infinity passes through without error."""
@@ -199,22 +201,26 @@ class TestSplitMpcKey:
 
     def test_valid_key(self):
         """Test splitting a valid three-part MPC key."""
-        uid, entity, bucket = _split_mpc_key("abc:climate.trv:t22.0")
+        parts = _split_mpc_key("abc:climate.trv:t22.0")
+        assert parts is not None
+        uid, entity, bucket = parts
         assert uid == "abc"
         assert entity == "climate.trv"
         assert bucket == "t22.0"
 
     def test_invalid_key_no_colons(self):
-        """Test that a key without colons returns all None."""
-        assert _split_mpc_key("nocolons") == (None, None, None)
+        """Test that a key without colons returns None."""
+        assert _split_mpc_key("nocolons") is None
 
     def test_key_with_one_colon(self):
-        """Test that a key with only one colon returns all None."""
-        assert _split_mpc_key("one:two") == (None, None, None)
+        """Test that a key with only one colon returns None."""
+        assert _split_mpc_key("one:two") is None
 
     def test_key_with_extra_colons(self):
         """Test that extra colons are kept in the bucket part."""
-        uid, entity, bucket = _split_mpc_key("a:b:c:d:e")
+        parts = _split_mpc_key("a:b:c:d:e")
+        assert parts is not None
+        uid, entity, bucket = parts
         assert uid == "a"
         assert entity == "b"
         assert bucket == "c:d:e"
