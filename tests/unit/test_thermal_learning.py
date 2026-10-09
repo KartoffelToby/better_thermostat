@@ -494,7 +494,7 @@ class TestHeatLossTrackerIdle:
         t = HeatLossTracker()
         t.update(21.0, HVACAction.IDLE, _NOW)
         assert t.start == Reading(21.0, _NOW)
-        assert t.end.temperature == 21.0
+        assert t.end is not None and t.end.temperature == 21.0
 
     def test_tracks_lowest_temperature(self):
         """Test Tracks lowest temperature."""
@@ -502,7 +502,7 @@ class TestHeatLossTrackerIdle:
         t.update(21.0, HVACAction.IDLE, _NOW)
         t.update(20.5, HVACAction.IDLE, _ts(5))
         t.update(20.0, HVACAction.IDLE, _ts(10))
-        assert t.end.temperature == 20.0
+        assert t.end is not None and t.end.temperature == 20.0
 
     def test_ignores_higher_temps(self):
         """Once tracking, a higher temperature should not update end_temperature."""
@@ -510,7 +510,7 @@ class TestHeatLossTrackerIdle:
         t.update(21.0, HVACAction.IDLE, _NOW)
         t.update(20.0, HVACAction.IDLE, _ts(5))
         t.update(20.5, HVACAction.IDLE, _ts(10))
-        assert t.end.temperature == 20.0  # still the lowest
+        assert t.end is not None and t.end.temperature == 20.0  # still the lowest
 
 
 class TestHeatLossTrackerFinalization:
