@@ -122,6 +122,7 @@ class TestHvacActionPrecision:
 
         # convert_to_float preserves precision
         room_temperature = convert_to_float(sensor_reading, "test", "test")
+        assert room_temperature is not None
 
         # Heating threshold calculation
         heat_on_threshold = heat_target_temperature - tolerance
@@ -146,6 +147,7 @@ class TestHvacActionPrecision:
         sensor_reading = "19.97"
 
         room_temperature = convert_to_float(sensor_reading, "test", "test")
+        assert room_temperature is not None
 
         # Tolerance check as done in calibration.py
         within_tolerance = (
@@ -246,6 +248,8 @@ class TestDirectionAwareRounding:
         value = 19.975
         down = round_by_step(value, 0.01, Rounding.down)
         up = round_by_step(value, 0.01, Rounding.up)
+        assert down is not None
+        assert up is not None
         assert down == pytest.approx(19.97, abs=0.001)
         assert up == pytest.approx(19.98, abs=0.001)
         # Difference between up and down is at most one step

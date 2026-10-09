@@ -35,7 +35,7 @@ def _bt_without_sensor():
     mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, advanced={})}
     mock.entity_ids = [TRV_ID]
     mock.all_trvs = None
-    mock.all_entities = []
+    mock.all_entities = list[str]()
     mock.sensor_entity_id = None
     mock.humidity_sensor_entity_id = None
     mock.window_sensor_entity_id = None
@@ -43,7 +43,7 @@ def _bt_without_sensor():
     mock.cooler_entity_id = None
     mock.outdoor_sensor_entity_id = None
     mock.weather_entity_id = None
-    mock.unavailable_sensors = []
+    mock.unavailable_sensors = list[str]()
     mock._degraded_warning_emitted = False
     mock._degraded_grace_until = None
     mock._async_unsub_state_changed = None

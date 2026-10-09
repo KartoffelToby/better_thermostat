@@ -20,9 +20,10 @@ from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode,
 )
 from custom_components.better_thermostat.model_fixes import ZWA021
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationOutput
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
-from tests.factories import ThermostatStandIn, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn
 
 
 def _make_bt() -> MagicMock:
@@ -52,16 +53,14 @@ def _make_bt() -> MagicMock:
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
     bt.real_trvs = {
-        "climate.trv": trv_from_legacy_dict(
-            "climate.trv",
-            {
-                "hvac_mode": "heat",
-                "current_temperature": 21.0,
-                "commanded_setpoint": 22.0,
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "valve_max_opening": 80.0,
-            },
+        "climate.trv": Trv(
+            entity_id="climate.trv",
+            hvac_mode="heat",
+            current_temperature=21.0,
+            commanded_setpoint=22.0,
+            min_temp=5.0,
+            max_temp=30.0,
+            valve_max_opening=80.0,
         )
     }
     bt.hass.states.get.return_value = State("climate.trv", "heat")
@@ -276,14 +275,16 @@ class TestWorldSnapshotType:
     def test_snapshot_is_frozen(self):
         """Snapshot fields cannot be reassigned."""
         snapshot = build_snapshot(_make_bt())
+        field_name = "room_temperature"
         with pytest.raises(FrozenInstanceError):
-            snapshot.room_temperature = 99.0
+            setattr(snapshot, field_name, 99.0)
 
     def test_trv_reported_is_frozen(self):
         """TrvReported fields cannot be reassigned."""
         trv = TrvReported(entity_id="climate.trv")
+        field_name = "current_temperature"
         with pytest.raises(FrozenInstanceError):
-            trv.current_temperature = 99.0
+            setattr(trv, field_name, 99.0)
 
 
 class TestParseHvacMode:

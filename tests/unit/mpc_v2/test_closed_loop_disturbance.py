@@ -28,6 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from functools import cache
 
+from _pytest.mark.structures import ParameterSet
 import numpy as np
 import pytest
 
@@ -198,7 +199,7 @@ def _reachable(outdoor: float, free_heat: float) -> bool:
     return _ceiling(PlantParams(), outdoor, free_heat) >= SETPOINT + 0.5
 
 
-def _cells() -> list:
+def _cells() -> list[ParameterSet]:
     """Return the outdoor × free-heat grid as test parameters."""
     return [
         pytest.param(

@@ -148,9 +148,11 @@ async def test_the_cap_of_a_head_not_built_is_the_full_opening() -> None:
     Its entity stays registered so it comes back once the head is built.
     """
     entity, _, bt_climate = _make_entity()
-    bt_climate.real_trvs = {}
+    write_state = MagicMock()
+    entity.async_write_ha_state = write_state
+    bt_climate.real_trvs = dict[str, Trv]()
 
     await entity.async_set_native_value(40.0)
 
     assert entity.native_value == 100.0
-    entity.async_write_ha_state.assert_called_once()
+    write_state.assert_called_once()

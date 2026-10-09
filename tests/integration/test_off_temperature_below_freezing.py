@@ -116,3 +116,15 @@ async def test_a_threshold_that_acts_as_meant_stays_quiet(
 
     assert _threshold_warnings(caplog) == []
     assert _refused_writes(caplog) == []
+
+
+async def test_an_unreadable_threshold_is_not_taken_for_one_below_freezing(
+    hass, caplog
+):
+    """A stored threshold that is no number is reported as invalid, not as cold."""
+    caplog.set_level(logging.INFO)
+    await _start(hass, US_CUSTOMARY_SYSTEM, "unset", "outdoor_sensor")
+
+    warnings = _threshold_warnings(caplog)
+    assert any("invalid off_temperature 'unset'" in w for w in warnings), warnings
+    assert not any("warmer than that outside" in w for w in warnings), warnings

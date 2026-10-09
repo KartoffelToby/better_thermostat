@@ -185,14 +185,7 @@
   "issues": {
     "missing_entity": {
       "title": "BT: {name} - brak podmiotu powiązanego",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Brak {entity} powiązanej",
-            "description": "Powodem tego jest to, że podmiot ({entity}) nie jest dostępny w Twoim Home Assistant.\n\nMożesz to naprawić, sprawdzając, czy bateria urządzenia jest pełna lub ponownie podłączając je do HA. Zanim przejdziesz dalej, upewnij się, że jednostka wróciła do HA."
-          }
-        }
-      }
+      "description": "Powodem tego jest to, że podmiot ({entity}) nie jest dostępny w Twoim Home Assistant.\n\nMożesz to naprawić, sprawdzając, czy bateria urządzenia jest pełna lub ponownie podłączając je do HA. To powiadomienie zniknie samo, gdy encja będzie ponownie dostępna lub zostanie usunięta z ustawień tego Better Thermostat."
     },
     "degraded_mode": {
       "title": "BT: {name} - błąd czujnika: {sensors} działa w trybie ograniczonym",

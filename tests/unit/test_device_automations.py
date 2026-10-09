@@ -41,11 +41,11 @@ from custom_components.better_thermostat.utils.const import CONF_HUMIDITY_SENSOR
 # entry created without one never carries the key; clearing the selector in
 # the options flow writes it back as None, because `_normalize` keeps every
 # optional key the form submitted. Both have to read as "no humidity".
-NO_HUMIDITY_ENTRIES = ({}, {CONF_HUMIDITY_SENSOR: None})
+NO_HUMIDITY_ENTRIES: tuple[dict[str, object], ...] = ({}, {CONF_HUMIDITY_SENSOR: None})
 
 # Values no reader can use as an entity id, stored by hand or by a broken
 # entry; the humidity pair is left out for them as well.
-UNUSABLE_HUMIDITY_ENTRIES = (
+UNUSABLE_HUMIDITY_ENTRIES: tuple[dict[str, object], ...] = (
     {CONF_HUMIDITY_SENSOR: ""},
     {CONF_HUMIDITY_SENSOR: 3},
     {CONF_HUMIDITY_SENSOR: ["sensor.room_humidity"]},
@@ -53,7 +53,7 @@ UNUSABLE_HUMIDITY_ENTRIES = (
 
 
 def _create_device(
-    hass: HomeAssistant, *, entry_data: dict | None = None
+    hass: HomeAssistant, *, entry_data: dict[str, object] | None = None
 ) -> dr.DeviceEntry:
     """Register a device attached to a mock config entry.
 
@@ -141,7 +141,7 @@ async def test_get_triggers_lists_all_types_for_bt_climate_entity(
     ids=("absent", "none", "empty", "number", "list"),
 )
 async def test_get_triggers_omits_the_humidity_pair_without_that_sensor(
-    hass: HomeAssistant, entry_data: dict
+    hass: HomeAssistant, entry_data: dict[str, object]
 ) -> None:
     """A thermostat with no humidity sensor publishes no humidity to watch.
 

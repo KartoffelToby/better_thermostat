@@ -29,6 +29,7 @@ from custom_components.better_thermostat.model_fixes.types import (
 from custom_components.better_thermostat.utils.const import DOMAIN
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
+    entry_issue_id,
     is_reasonable_temperature,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
@@ -402,8 +403,11 @@ async def trigger_temperature_change(
         ir.async_create_issue(
             hass=self.hass,
             domain=DOMAIN,
-            issue_id=f"invalid_external_temperature_{self.device_name}",
+            issue_id=entry_issue_id(
+                self._config_entry_id, "invalid_external_temperature"
+            ),
             is_fixable=False,
+            is_persistent=False,
             severity=ir.IssueSeverity.ERROR,
             translation_key="invalid_external_temperature",
             learn_more_url="https://better-thermostat.org/faq/invalid-external-temperature",
@@ -417,7 +421,9 @@ async def trigger_temperature_change(
     # A plausible reading clears the repair issue an implausible one raised,
     # so a sensor that recovers does not leave the warning standing.
     ir.async_delete_issue(
-        self.hass, DOMAIN, f"invalid_external_temperature_{self.device_name}"
+        self.hass,
+        DOMAIN,
+        entry_issue_id(self._config_entry_id, "invalid_external_temperature"),
     )
 
     _now = dt_util.now()

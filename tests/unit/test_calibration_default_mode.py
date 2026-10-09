@@ -12,8 +12,9 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
-from tests.factories import ThermostatStandIn, make_state, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn, make_state
 
 
 @pytest.fixture
@@ -37,20 +38,18 @@ def bt_default_mode():
     )
 
     bt.real_trvs = {
-        "climate.trv": trv_from_legacy_dict(
-            "climate.trv",
-            {
-                "advanced": {"calibration_mode": CalibrationMode.DEFAULT},
-                "current_temperature": 22.0,
-                "last_calibration": 2.0,
-                "local_calibration_step": 0.1,
-                "min_local_calibration": -5.0,
-                "max_local_calibration": 5.0,
-                "target_temp_step": 0.5,
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "model_quirks": quirks,
-            },
+        "climate.trv": Trv(
+            entity_id="climate.trv",
+            advanced={"calibration_mode": CalibrationMode.DEFAULT},
+            current_temperature=22.0,
+            last_calibration=2.0,
+            local_calibration_step=0.1,
+            min_local_calibration=-5.0,
+            max_local_calibration=5.0,
+            target_temp_step=0.5,
+            min_temp=5.0,
+            max_temp=30.0,
+            model_quirks=quirks,
         )
     }
     return bt

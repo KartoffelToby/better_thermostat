@@ -171,7 +171,9 @@ def test_a_flag_stored_as_none_is_left_out_so_each_reader_keeps_its_default():
     advanced = parse_settings(raw)["thermostat"][0]["advanced"]
 
     assert advanced == {}
-    stored = raw["thermostat"][0]["advanced"]
+    stored_trvs = raw["thermostat"]
+    assert isinstance(stored_trvs, list)
+    stored = stored_trvs[0]["advanced"]
     for default in (False, True):
         for key in ("child_lock", "protect_overheating"):
             assert advanced_flag(advanced, key, default) == advanced_flag(
@@ -207,7 +209,9 @@ def test_parsing_leaves_the_stored_settings_unchanged_and_shares_nothing():
     parsed = parse_settings(raw)
     parsed["thermostat"][0].setdefault("advanced", {})["child_lock"] = True
     parsed["thermostat"].append({"trv": "climate.other", "integration": "zha"})
-    parsed.setdefault("presets", []).append("boost")
+    presets = parsed.get("presets")
+    assert presets is not None
+    presets.append("boost")
 
     assert raw == stored
 

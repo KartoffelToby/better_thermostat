@@ -16,7 +16,8 @@ def _following(entity_id: str | None):
     entity = FollowsThermostat()
     entity._bt_climate = bt_climate
     entity.hass = MagicMock()
-    entity.async_on_remove = MagicMock()
+    on_remove = MagicMock()
+    entity.async_on_remove = on_remove
     with (
         patch(
             "custom_components.better_thermostat.entity.async_track_state_change_event"
@@ -26,7 +27,7 @@ def _following(entity_id: str | None):
         ) as connect,
     ):
         entity._follow_thermostat()
-    return entity, track, connect
+    return on_remove, track, connect
 
 
 def test_the_entity_is_not_polled():
@@ -34,17 +35,17 @@ def test_the_entity_is_not_polled():
 
 
 def test_the_entity_follows_the_thermostat_state_and_its_announcements():
-    entity, track, connect = _following("climate.bt")
+    on_remove, track, connect = _following("climate.bt")
 
     assert track.call_args.args[1] == ["climate.bt"]
     assert connect.call_args.args[1] == LEARNED_STATE_SIGNAL.format("test_bt")
-    assert entity.async_on_remove.call_count == 2
+    assert on_remove.call_count == 2
 
 
 def test_a_thermostat_without_an_entity_id_still_announces_to_the_entity():
     """Before the thermostat is registered only its announcements can reach it."""
-    entity, track, connect = _following(None)
+    on_remove, track, connect = _following(None)
 
     track.assert_not_called()
     assert connect.call_args.args[1] == LEARNED_STATE_SIGNAL.format("test_bt")
-    assert entity.async_on_remove.call_count == 1
+    assert on_remove.call_count == 1

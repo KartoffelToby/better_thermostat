@@ -13,6 +13,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     PIDState,
@@ -160,7 +161,7 @@ async def test_seeding_preserves_other_state_fields(bt):
 @pytest.mark.asyncio
 async def test_no_trvs_seeds_nothing(bt):
     """With no TRVs, nothing is seeded and the control loop is not kicked."""
-    bt.real_trvs = {}
+    bt.real_trvs = dict[str, Trv]()
     await BetterThermostat.reset_pid_learnings_service(bt, apply_pid_defaults=True)
     assert bt.state_mgr.pid == {}
     bt.control_queue_task.put_nowait.assert_not_called()

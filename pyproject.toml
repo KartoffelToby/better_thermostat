@@ -196,7 +196,7 @@ pythonVersion = "3.14"
 
 [tool.pyrefly]
 python-version = "3.14"
-project-includes = ["custom_components/better_thermostat", "scripts", "tests/gates", "tests/integration", "tests/benchmark"]
+project-includes = ["custom_components/better_thermostat", "scripts", "tests"]
 min-severity = "error"
 errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true, unnecessary-type-conversion = "error" }
 
@@ -206,9 +206,9 @@ errors = { implicit-any-parameter = true, implicit-any-attribute = true, implici
 
 # Tests are held to the same rules with one exception: a parameter may go
 # unannotated, because pytest hands fixtures in by name and the type lives on
-# the fixture. A directory under tests/ joins project-includes once it checks
-# clean. tests/gates/test_type_strictness_exemptions.py keeps this block to that
-# one rule.
+# the fixture. All of tests/ is in project-includes.
+# tests/gates/test_type_strictness_exemptions.py keeps this block to that one
+# rule.
 
 [[tool.pyrefly.sub-config]]
 matches = "tests/**"

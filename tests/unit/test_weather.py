@@ -12,10 +12,10 @@ The module has three public coroutines:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 import logging
 import math
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.recorder import history
@@ -25,7 +25,9 @@ from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
 import pytest
 from sqlalchemy.exc import OperationalError
 
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.containers import BtConfig, BtRuntime
 from custom_components.better_thermostat.core.outdoor import add_reading, start_damping
 from custom_components.better_thermostat.utils.weather import (
     FORECAST_CALL_TIMEOUT,
@@ -57,7 +59,8 @@ def make_state(state="20.0", attrs=None, last_updated=NOW):
     """Build a minimal stand-in for a HA State with state and attributes."""
     s = MagicMock()
     s.state = state
-    s.attributes = attrs if attrs is not None else {}
+    attributes: Mapping[str, object] = attrs if attrs is not None else {}
+    s.attributes = attributes
     s.last_updated = last_updated
     return s
 
@@ -72,29 +75,49 @@ def make_hass(states=None, forecast_response=None, components=None):
     return hass
 
 
-def make_bt(hass, **kw):
-    """Build a BetterThermostat stand-in carrying the attrs weather.py touches."""
-    bt = SimpleNamespace(
-        hass=hass,
-        entity_id="climate.test_bt",
+def make_bt(
+    hass: MagicMock,
+    *,
+    weather_entity_id: str | None = None,
+    outdoor_sensor_entity_id: str | None = None,
+    off_temperature: float | None = 10.0,
+    damped_outdoor_temperature: float | None = None,
+    call_for_heat: bool = True,
+    outdoor_source: DampedSource | None = None,
+) -> BetterThermostat:
+    """Build a BetterThermostat shell carrying the state weather.py touches."""
+    bt = object.__new__(BetterThermostat)
+    bt.config = BtConfig(
         device_name="Test BT",
-        weather_entity_id=None,
-        outdoor_sensor_entity_id=None,
-        off_temperature=10.0,
-        damped_outdoor_temperature=None,
-        call_for_heat=True,
-        clock=FakeClock(),
-        weather_verdict_missing_since=None,
-        weather_fallback_active=False,
-        outdoor_source=DampedSource(),
-        weather_source=DampedSource(),
-        damped_weather_temperature=None,
-        forecast_temperature=None,
-        _outdoor_check_lock=None,
+        weather_entity_id=weather_entity_id,
+        outdoor_sensor_entity_id=outdoor_sensor_entity_id,
+        off_temperature=off_temperature,
     )
-    for k, v in kw.items():
-        setattr(bt, k, v)
+    bt.runtime = BtRuntime(call_for_heat=call_for_heat)
+    bt.hass = hass
+    bt.entity_id = "climate.test_bt"
+    bt.clock = FakeClock()
+    bt.damped_outdoor_temperature = damped_outdoor_temperature
+    bt.weather_verdict_missing_since = None
+    bt.weather_fallback_active = False
+    bt.outdoor_source = outdoor_source if outdoor_source is not None else DampedSource()
+    bt.weather_source = DampedSource()
+    bt.damped_weather_temperature = None
+    bt.forecast_temperature = None
+    bt._outdoor_check_lock = None
     return bt
+
+
+def fake_clock(bt: BetterThermostat) -> FakeClock:
+    """Return the FakeClock ``make_bt`` installs on the thermostat."""
+    assert isinstance(bt.clock, FakeClock)
+    return bt.clock
+
+
+def hass_mock(bt: BetterThermostat) -> MagicMock:
+    """Return the hass mock ``make_bt`` installs on the thermostat."""
+    assert isinstance(bt.hass, MagicMock)
+    return bt.hass
 
 
 async def hanging_service_call(*_args, **_kwargs):
@@ -553,8 +576,8 @@ class TestCheckAmbientAirTemperature:
             off_temperature=10.0,
         )
         await check_ambient_air_temperature(bt)
-        bt.clock.advance(HOUR_S)
-        bt.hass.states.get = MagicMock(
+        fake_clock(bt).advance(HOUR_S)
+        hass_mock(bt).states.get = MagicMock(
             return_value=make_state(
                 state="18.0",
                 attrs={"unit_of_measurement": "°C"},
@@ -634,6 +657,7 @@ class TestCheckAmbientAirTemperature:
             self._hist_item("20.0", NOW - timedelta(hours=24)),
         ]
         query = await self._check_with_history(bt, items)
+        assert query.await_args is not None
         _hass, start, end, entity_id = query.await_args.args[1:]
         assert (end - start, entity_id) == (timedelta(hours=72), OUTDOOR_ID)
         assert OUTDOOR_HISTORY_WINDOW == timedelta(hours=72)
@@ -700,7 +724,7 @@ class TestCheckAmbientAirTemperature:
         """A recorded state that lost its unit attribute is read in the sensor's unit."""
         day_ago = NOW - timedelta(hours=24)
         item = self._hist_item("50.0", day_ago)
-        item.attributes = {}
+        item.attributes = dict[str, object]()
         bt = make_bt(
             make_hass(
                 states={
@@ -745,6 +769,7 @@ class TestCheckAmbientAirTemperature:
         bt = self._recorder_bt(reading="9.6", last_updated=NOW - timedelta(hours=1))
         assert bt.call_for_heat is True
         await self._check_with_history(bt, items)
+        assert bt.damped_outdoor_temperature is not None
         assert 9.0 < bt.damped_outdoor_temperature < 10.0
         assert bt.call_for_heat is expected
 
@@ -790,8 +815,8 @@ class TestCheckAmbientAirTemperature:
             query = AsyncMock(return_value={OUTDOOR_ID: []})
             gi.return_value.async_add_executor_job = query
             await check_ambient_air_temperature(bt)
-            bt.clock.advance(OUTDOOR_HISTORY_RETRY.total_seconds() * 10)
-            bt.hass.states.get = MagicMock(
+            fake_clock(bt).advance(OUTDOOR_HISTORY_RETRY.total_seconds() * 10)
+            hass_mock(bt).states.get = MagicMock(
                 return_value=make_state(
                     state="18.0",
                     attrs={"unit_of_measurement": "°C"},
@@ -800,7 +825,9 @@ class TestCheckAmbientAirTemperature:
             )
             await check_ambient_air_temperature(bt)
         assert query.await_count == 1
-        assert bt.outdoor_source.damping.reading == pytest.approx(18.0)
+        damping = bt.outdoor_source.damping
+        assert damping is not None
+        assert damping.reading == pytest.approx(18.0)
         assert bt.damped_outdoor_temperature == pytest.approx(5.0)
 
     def _failing_query(self, *responses):
@@ -818,7 +845,7 @@ class TestCheckAmbientAirTemperature:
             gi.return_value.async_add_executor_job = query
             with caplog.at_level(logging.WARNING, logger=WEATHER_MOD):
                 await check_ambient_air_temperature(bt)
-                bt.clock.advance(OUTDOOR_HISTORY_RETRY.total_seconds())
+                fake_clock(bt).advance(OUTDOOR_HISTORY_RETRY.total_seconds())
                 await check_ambient_air_temperature(bt)
         assert query.await_count == 2
         assert bt.damped_outdoor_temperature == pytest.approx(18.0)
@@ -833,7 +860,7 @@ class TestCheckAmbientAirTemperature:
             query = self._failing_query(RuntimeError("no database"), {OUTDOOR_ID: []})
             gi.return_value.async_add_executor_job = query
             await check_ambient_air_temperature(bt)
-            bt.clock.advance(OUTDOOR_HISTORY_RETRY.total_seconds() - 1)
+            fake_clock(bt).advance(OUTDOOR_HISTORY_RETRY.total_seconds() - 1)
             await check_ambient_air_temperature(bt)
         assert query.await_count == 1
         assert bt.outdoor_source.history_damped is False
@@ -850,7 +877,7 @@ class TestCheckAmbientAirTemperature:
             gi.return_value.async_add_executor_job = query
             await check_ambient_air_temperature(bt)
             assert bt.call_for_heat is False
-            bt.clock.advance(OUTDOOR_HISTORY_RETRY.total_seconds())
+            fake_clock(bt).advance(OUTDOOR_HISTORY_RETRY.total_seconds())
             await check_ambient_air_temperature(bt)
         assert query.await_count == 2
         assert bt.outdoor_source.history_damped is True
@@ -1031,7 +1058,7 @@ class TestCheckWeather:
         )
         heating_from = None
         for hour in range(1, 25):
-            bt.clock.advance(HOUR_S)
+            fake_clock(bt).advance(HOUR_S)
             await check_weather(bt)
             if bt.call_for_heat and heating_from is None:
                 heating_from = hour
@@ -1179,7 +1206,7 @@ async def _hourly_checks(bt, verdicts, clock_steps=None):
     ):
         for index, _ in enumerate(verdicts):
             await check_weather(bt)
-            bt.clock.advance(HOUR_S)
+            fake_clock(bt).advance(HOUR_S)
             if clock_steps and index in clock_steps:
                 clock_steps[index](bt.clock)
 
@@ -1223,7 +1250,7 @@ class TestForecastOutage:
         ):
             for _ in range(6):
                 await check_weather(bt)
-                bt.clock.advance(HOUR_S)
+                fake_clock(bt).advance(HOUR_S)
 
         assert [c.args[1] for c in logbook.await_args_list] == [
             "summer_mode_on",
@@ -1427,8 +1454,8 @@ class TestWeatherDamping:
         """The current temperature counts from when it arrives, like a sensor's."""
         bt = self._weather_bt(8.0, forecast_resp(WEATHER_ID, [20.0, 20.0]))
         await check_weather_prediction(bt)
-        bt.clock.advance(HOUR_S)
-        bt.hass.states.get = MagicMock(
+        fake_clock(bt).advance(HOUR_S)
+        hass_mock(bt).states.get = MagicMock(
             return_value=make_state(
                 state="sunny",
                 attrs={
@@ -1475,6 +1502,7 @@ class TestWeatherDamping:
             query = AsyncMock(return_value={WEATHER_ID: []})
             gi.return_value.async_add_executor_job = query
             await check_weather_prediction(bt)
+        assert query.await_args is not None
         (job,) = query.await_args.args
         assert job.func is history.get_significant_states
         assert job.args[3] == [WEATHER_ID]
@@ -1514,6 +1542,7 @@ class TestWeatherDamping:
                 return_value={WEATHER_ID: items}
             )
             await check_weather_prediction(bt)
+        assert bt.damped_weather_temperature is not None
         assert 14.0 < bt.damped_weather_temperature < 15.0
         assert bt.call_for_heat is expected
 

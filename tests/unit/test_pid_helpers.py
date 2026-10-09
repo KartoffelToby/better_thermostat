@@ -46,10 +46,6 @@ class TestBucketHelpers:
         """An already-aligned value is unchanged."""
         assert round_to_bucket(21.5) == 21.5
 
-    def test_round_accepts_numeric_string(self):
-        """A numeric string is coerced before rounding."""
-        assert round_to_bucket("21.4") == 21.5
-
     def test_format(self):
         """format_bucket renders a one-decimal t-tag."""
         assert format_bucket(21.0) == "t21.0"

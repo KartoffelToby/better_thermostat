@@ -12,20 +12,21 @@ the outdoor decision.
 ## With an outdoor sensor
 
 Better Thermostat does not compare the sensor's current reading with the threshold. It uses a
-damped outdoor temperature, the way central heating controllers do: a running average over
-roughly the last day.
+damped outdoor temperature, the way central heating controllers do: older readings fade out
+exponentially with a time constant of 24 hours.
 
 - **Each reading counts for as long as it was current.** A sensor reports when its value
   changes, so it sends many readings while the temperature moves and few while it holds. A
   reading that held for six hours of night weighs six hours; fifty readings during a sunny
   quarter of an hour weigh a quarter of an hour.
 - **A change takes time to show.** After a day of steady warm weather the damped temperature
-  has covered about two thirds of the way to it, after two days about 86 %. A single warm
-  afternoon moves it a few degrees at most.
-- **It is filled from history at startup.** When Better Thermostat starts, it runs the last three
-  days of the sensor's recorded history through the average. Without recorded history, for
-  example right after adding a new sensor or with the recorder disabled, it starts at the
-  current reading and builds up from there.
+  has covered about two thirds of the way to it, after two days about 86 %. Four warm hours
+  move it about 15 % of the way to the warm reading.
+- **It is filled from history at the first check that finds the sensor.** That is at startup,
+  or later if the sensor is unavailable then; until it reports, the room heats. The check runs
+  the last three days of the sensor's recorded history through the damping. Without recorded
+  history, for example right after adding a new sensor or with the recorder disabled, it starts
+  at the current reading and builds up from there.
 
 ### Where to mount the sensor
 
@@ -42,9 +43,10 @@ Without an outdoor sensor, Better Thermostat uses two numbers from the weather e
 room heats while either one is below the threshold:
 
 - **The damped current temperature.** The entity's current temperature passes through the same
-  running average as an outdoor sensor's readings, filled from its recorded history at startup.
-  A cold night reading therefore does not resume heating in May, and a warm afternoon does not
-  stop it in October.
+  damping as an outdoor sensor's readings, filled from its recorded history at the first check
+  when the recorder holds any. A cold night reading or a warm afternoon therefore moves it only
+  a little, though a large or lasting change, or a value already close to the threshold, can
+  still switch the heating.
 - **The forecast for roughly the next two days.** A daily forecast gives each day's high and low;
   their mean stands for the day. Hourly and twice-daily forecasts are averaged as they come.
 

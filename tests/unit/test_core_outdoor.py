@@ -1,5 +1,6 @@
 """Pure tests for the damped outdoor temperature and the summer-mode switch."""
 
+from collections.abc import Iterable
 import math
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from custom_components.better_thermostat.core.outdoor import (
     OUTDOOR_DAMPING_TIME_CONSTANT,
     SUMMER_MODE_HYSTERESIS_KELVIN,
+    DampedOutdoorTemperature,
     add_reading,
     damped_value_at,
     heat_threshold,
@@ -72,10 +74,11 @@ def _report_on_change(days: float, step: float) -> list[tuple[float, float]]:
     return reports
 
 
-def _damp(reports):
-    state = None
+def _damp(reports: Iterable[tuple[float, float]]) -> DampedOutdoorTemperature:
+    state: DampedOutdoorTemperature | None = None
     for at, reading in reports:
         state = add_reading(state, reading, at)
+    assert state is not None
     return state
 
 
@@ -84,6 +87,7 @@ class TestFilter:
 
     def test_the_first_reading_starts_the_filter(self):
         state = add_reading(None, 7.5, 100.0)
+        assert state is not None
         assert state == start_damping(7.5, 100.0)
         assert damped_value_at(state, 100.0) == 7.5
 
@@ -160,6 +164,7 @@ class TestReportingRate:
             while pending is not None and pending[0] <= at:
                 state = add_reading(state, pending[1], pending[0])
                 pending = next(reports, None)
+            assert state is not None
             damped = damped_value_at(state, at)
             call_for_heat = damped < heat_threshold(18.0, call_for_heat)
             assert call_for_heat, (hour, damped)

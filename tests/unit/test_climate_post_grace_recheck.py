@@ -49,6 +49,7 @@ class TestPostGraceRecheck:
                 bt, grace_until, climate_module.check_critical_entities
             )
         sleep.assert_awaited_once()
+        assert sleep.await_args is not None
         assert 0 < sleep.await_args.args[0] <= GRACE_SECONDS
         check.assert_awaited_once_with(bt)
 

@@ -13,6 +13,7 @@ from homeassistant.components.climate.const import PRESET_HOME, HVACMode
 from homeassistant.const import UnitOfTemperature
 import pytest
 
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.number import (
     BetterThermostatPresetCoolNumber,
     BetterThermostatPresetNumber,
@@ -51,7 +52,7 @@ def _thermostat_with_a_pending_cycle():
     bt_climate.preset_mgr = PresetManager(mode=PRESET_HOME)
     bt_climate.preset_mode = bt_climate.preset_mgr.mode
     bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL
-    queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+    queue: asyncio.Queue[BetterThermostat | None] = asyncio.Queue(maxsize=1)
     queue.put_nowait(bt_climate)
     bt_climate.control_queue_task = queue
     return bt_climate

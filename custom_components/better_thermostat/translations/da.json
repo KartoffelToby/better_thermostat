@@ -185,14 +185,7 @@
   "issues": {
     "missing_entity": {
       "title": "BT: {name} - relateret enhed mangler",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Den relaterede {entity} mangler",
-            "description": "Årsagen til dette er, at entiteten ({entity}) ikke er tilgængelig i din Home Assistant.\n\nDu kan rette op på dette ved at kontrollere, om enhedens batteri er fuld, eller tilslutte den til HA igen. Sørg for, at entiteten er tilbage i HA, før du fortsætter."
-          }
-        }
-      }
+      "description": "Årsagen til dette er, at entiteten ({entity}) ikke er tilgængelig i din Home Assistant.\n\nDu kan rette op på dette ved at kontrollere, om enhedens batteri er fuld, eller tilslutte den til HA igen. Denne meddelelse forsvinder af sig selv, når entiteten er tilgængelig igen eller er fjernet fra indstillingerne for denne Better Thermostat."
     },
     "degraded_mode": {
       "title": "BT: {name} - sensorfejl: {sensors} kører i nedsat tilstand",

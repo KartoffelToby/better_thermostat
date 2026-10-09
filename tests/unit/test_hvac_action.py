@@ -35,7 +35,7 @@ def _default_kwargs(**overrides):
         "window_open": False,
         "tolerance": 0.5,
         "ignore_states": False,
-        "trv_snapshots": [],
+        "trv_snapshots": list[TrvSnapshot](),
         "device_name": "Test",
     }
     base.update(overrides)
@@ -415,7 +415,7 @@ class TestComputeHvacAction:
         """Test Result is frozen."""
         r = compute_hvac_action(**_default_kwargs())
         with pytest.raises(AttributeError):
-            r.action = HVACAction.OFF  # type: ignore[misc]
+            setattr(r, "action", HVACAction.OFF)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

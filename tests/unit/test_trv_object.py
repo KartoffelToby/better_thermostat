@@ -1,16 +1,17 @@
 """Tests for the Trv domain object."""
 
-import importlib
-
 import pytest
 
-from custom_components.better_thermostat.model_fixes import default as default_quirk
+from custom_components.better_thermostat.model_fixes import (
+    TRVZB,
+    ZWA021,
+    default as default_quirk,
+)
 from custom_components.better_thermostat.trv import (
     ECHO_SETPOINTS_LIMIT,
     PendingSetpoint,
     Trv,
 )
-from tests.factories import trv_from_legacy_dict
 
 
 def _make() -> Trv:
@@ -58,56 +59,21 @@ class TestExtraScratchpad:
         trv.extra["_trvzb_valve_bump_seq"] = 7
         assert trv.extra.get("_trvzb_valve_bump_seq") == 7
 
-    def test_from_legacy_dict_splits_fields_and_extras(self):
-        """Known keys become fields; unknown keys land in ``extra``."""
-        trv = trv_from_legacy_dict(
-            "climate.trv",
-            {
-                "current_temperature": 21.0,
-                "_quirk_scratch": 3,
-                "advanced": {"child_lock": True},
-            },
-        )
-        assert trv.current_temperature == 21.0
-        assert trv.advanced == {"child_lock": True}
-        assert trv.extra == {"_quirk_scratch": 3}
-
-    def test_from_legacy_dict_maps_the_requested_calibration(self):
+    def test_the_requested_calibration_is_a_typed_field(self):
         """The pre-clamp offset intent is a typed field, not a scratch key."""
-        trv = trv_from_legacy_dict(
-            "climate.trv",
-            {"last_calibration": -3.0, "last_calibration_requested": -5.0},
+        trv = Trv(
+            entity_id="climate.trv",
+            last_calibration=-3.0,
+            last_calibration_requested=-5.0,
         )
         assert trv.last_calibration == -3.0
         assert trv.last_calibration_requested == -5.0
         assert trv.extra == {}
 
-    def test_from_legacy_dict_explicit_entity_id_wins(self):
-        """An ``entity_id`` key in the dict yields to the explicit argument."""
-        trv = trv_from_legacy_dict(
-            "climate.trv", {"entity_id": "climate.stale", "current_temperature": 21.0}
-        )
-        assert trv.entity_id == "climate.trv"
-        assert trv.current_temperature == 21.0
-        assert trv.extra == {}
-
-    def test_from_legacy_dict_merges_extra_key(self):
-        """An ``extra`` key is merged into the scratchpad, not nested under it."""
-        trv = trv_from_legacy_dict(
-            "climate.trv", {"extra": {"_quirk_scratch": 3}, "_other_scratch": 7}
-        )
-        assert trv.extra == {"_quirk_scratch": 3, "_other_scratch": 7}
-
-    def test_from_legacy_dict_keeps_non_dict_extra_value(self):
-        """A non-dict legacy ``extra`` value survives under the ``extra`` key."""
-        trv = trv_from_legacy_dict("climate.trv", {"extra": 42})
-        assert trv.extra == {"extra": 42}
-
     def test_no_dict_protocol(self):
         """Trv does not speak the dict protocol: attribute access only."""
         trv = _make()
-        with pytest.raises(TypeError):
-            trv["current_temperature"]
+        assert not hasattr(type(trv), "__getitem__")
         assert not hasattr(trv, "get")
 
     def test_truthiness(self):
@@ -322,12 +288,12 @@ class TestEchoSetpoints:
         trv.remember_setpoint_held(20.0)
         assert trv.echo_setpoint_values() == [23.0]
 
-    def test_from_legacy_dict_fills_the_writes_from_the_dict(self):
+    def test_the_writes_are_a_typed_field_with_its_own_default(self):
         """The list is a typed field like the rest, with its own default."""
-        seeded = trv_from_legacy_dict(
-            "climate.trv", {"pending_setpoints": [PendingSetpoint(26.0, 1)]}
+        seeded = Trv(
+            entity_id="climate.trv", pending_setpoints=[PendingSetpoint(26.0, 1)]
         )
-        bare = trv_from_legacy_dict("climate.trv", {})
+        bare = Trv(entity_id="climate.trv")
         assert seeded.echo_setpoint_values() == [26.0]
         assert bare.echo_setpoint_values() == []
 
@@ -425,7 +391,7 @@ class TestTrvCapabilities:
     def test_valve_capability_from_quirk_override(self):
         """A quirk-provided override_set_valve enables valve writes."""
 
-        class _Quirk:
+        class _Quirk(default_quirk._Surface):
             @staticmethod
             async def override_set_valve(bt, entity_id, percent):
                 return True
@@ -446,11 +412,9 @@ class TestTrvCapabilities:
         trv.valve_position_entity = None
         assert trv.capabilities().supports_valve_write is False
 
-    @pytest.mark.parametrize("model", ["TRVZB", "ZWA021"])
-    def test_a_model_that_drives_its_valve_keeps_the_capability(self, model):
+    @pytest.mark.parametrize("quirks", [TRVZB, ZWA021], ids=["TRVZB", "ZWA021"])
+    def test_a_model_that_drives_its_valve_keeps_the_capability(self, quirks):
         """The modules that do command a valve still report one."""
         trv = _make()
-        trv.model_quirks = importlib.import_module(
-            f"custom_components.better_thermostat.model_fixes.{model}"
-        )
+        trv.model_quirks = quirks
         assert trv.capabilities().supports_valve_write is True

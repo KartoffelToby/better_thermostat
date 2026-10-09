@@ -55,11 +55,11 @@ def _make_entity():
     return entity, bt_climate
 
 
-def _last_state(state_value, unit):
-    ls = MagicMock()
-    ls.state = state_value
-    ls.attributes = {"unit_of_measurement": unit} if unit is not None else {}
-    return ls
+def _last_state(state_value: str, unit: str | None) -> State:
+    attributes: dict[str, object] = (
+        {"unit_of_measurement": unit} if unit is not None else {}
+    )
+    return State("number.test_bt_preset_home", state_value, attributes)
 
 
 class TestPresetNumberRestoreUnitConversion:
@@ -242,7 +242,7 @@ class TestPresetCoolNumber:
         bt_climate.cool_max_temperature = None
         bt_climate.target_temperature_step = 0.5
         bt_climate.cooler_entity_id = "climate.cooler"
-        bt_climate._preset_cool_temperatures = {}
+        bt_climate._preset_cool_temperatures = dict[str, float]()
 
         entity = BetterThermostatPresetCoolNumber(bt_climate, PRESET_HOME)
         entity.async_get_last_state = AsyncMock(return_value=None)

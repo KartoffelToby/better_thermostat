@@ -33,7 +33,7 @@ def _bt() -> MagicMock:
     return bt
 
 
-def _fired(bt: MagicMock) -> dict:
+def _fired(bt: MagicMock) -> dict[str, object]:
     """Return the payload of the single fired logbook event."""
     bt.hass.bus.async_fire.assert_called_once()
     return bt.hass.bus.async_fire.call_args[0][1]

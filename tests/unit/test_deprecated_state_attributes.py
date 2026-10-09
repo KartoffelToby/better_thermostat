@@ -7,6 +7,7 @@ after a rollback. Restoring from either name is covered next to the other
 restore tests in ``test_climate_startup.py``.
 """
 
+from dataclasses import replace
 import json
 
 import pytest
@@ -19,7 +20,7 @@ from custom_components.better_thermostat.utils.const import (
     DEPRECATED_STATE_ATTRIBUTES,
 )
 from custom_components.better_thermostat.utils.telemetry import TELEMETRY_ATTRIBUTES
-from tests.factories import make_state_attributes_bt, make_trv
+from tests.factories import make_calibration_balance, make_state_attributes_bt, make_trv
 
 
 def test_every_deprecated_attribute_is_published_with_the_current_value():
@@ -32,7 +33,7 @@ def test_every_deprecated_attribute_is_published_with_the_current_value():
     )
     entity.preset_mgr.temperatures = {"comfort": 21.0}
 
-    attrs = BetterThermostat.extra_state_attributes.fget(entity)
+    attrs = BetterThermostat.extra_state_attributes.__get__(entity)
 
     assert attrs[ATTR_STATE_PRESET_COOL_TEMPERATURE] == 24.5
     assert json.loads(attrs[ATTR_STATE_PRESET_HEAT_TEMPERATURES]) == {"comfort": 21.0}
@@ -71,7 +72,9 @@ def test_the_table_holds_every_name_1_9_published():
 
 
 def _trv(debug: dict[str, object]) -> Trv:
-    return make_trv(calibration_balance={"debug": debug})
+    return replace(
+        make_trv(), calibration_balance=make_calibration_balance(debug=debug)
+    )
 
 
 _PID_DEBUG = {
@@ -100,7 +103,7 @@ def test_controller_telemetry_is_published_under_both_names(debug, renamed):
     """A controller's telemetry carries its deprecated names with the same values."""
     entity = make_state_attributes_bt(real_trvs={"climate.trv": _trv(debug)})
 
-    attrs = BetterThermostat.extra_state_attributes.fget(entity)
+    attrs = BetterThermostat.extra_state_attributes.__get__(entity)
 
     mirrored = [
         name

@@ -20,6 +20,7 @@ instance.
 
 from ast import literal_eval
 import asyncio
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -62,14 +63,18 @@ _BlueprintLoader.add_constructor(
 )
 
 
-def _load(path: Path) -> dict:
+def _load(path: Path) -> dict[str, object]:
     """Parse a blueprint YAML file, keeping ``!input`` tags as ``_Input``."""
-    return yaml.load(path.read_text(encoding="utf-8"), Loader=_BlueprintLoader)
+    document = yaml.load(path.read_text(encoding="utf-8"), Loader=_BlueprintLoader)
+    assert isinstance(document, dict)
+    return document
 
 
 def _placeholder_for(spec) -> object:
     """Return a valid stand-in value for a required input (one without a default)."""
-    selector = (spec.get("selector") or {}) if isinstance(spec, dict) else {}
+    selector: Mapping[str, object] = (
+        (spec.get("selector") or {}) if isinstance(spec, dict) else {}
+    )
     if "target" in selector:
         return {"entity_id": "climate.bt_test"}
     if "device" in selector:
@@ -85,10 +90,14 @@ def _placeholder_for(spec) -> object:
     return "bt_test"
 
 
-def _resolve_inputs(blueprint: dict) -> dict:
+def _resolve_inputs(blueprint: Mapping[str, object]) -> dict[str, object]:
     """Map every input to its declared default (or a placeholder if required)."""
-    resolved = {}
-    for name, spec in blueprint["blueprint"]["input"].items():
+    metadata = blueprint["blueprint"]
+    assert isinstance(metadata, dict)
+    declared = metadata["input"]
+    assert isinstance(declared, dict)
+    resolved: dict[str, object] = {}
+    for name, spec in declared.items():
         if isinstance(spec, dict) and "default" in spec:
             resolved[name] = spec["default"]
         else:
@@ -96,7 +105,7 @@ def _resolve_inputs(blueprint: dict) -> dict:
     return resolved
 
 
-def _substitute(value, inputs):
+def _substitute(value: object, inputs: Mapping[str, object]) -> object:
     """Recursively replace every ``_Input`` with its resolved value."""
     if isinstance(value, _Input):
         return inputs[value.name]
@@ -284,7 +293,9 @@ async def test_weekly_schedule_rejects_an_empty_string_input(hass):
 # ── Runtime behaviour of the presence / pause variables ──────────────────────
 
 
-def _render(template_text: str, context: dict, states: dict):
+def _render(
+    template_text: str, context: Mapping[str, object], states: Mapping[str, str]
+) -> object:
     """Render a blueprint variable the way Home Assistant would.
 
     Home Assistant strips a rendered `variables:` entry and then runs
@@ -294,10 +305,14 @@ def _render(template_text: str, context: dict, states: dict):
     which is truthy -- so the value a template produces has to be a Python
     literal, not just look like one.
     """
-    env = jinja2.Environment()
-    env.globals["states"] = lambda entity: states.get(entity, "unknown")
-    env.globals["is_state"] = lambda entity, value: states.get(entity) == value
-    rendered = env.from_string(template_text).render(**context).strip()
+    template = jinja2.Environment().from_string(
+        template_text,
+        globals={
+            "states": lambda entity: states.get(entity, "unknown"),
+            "is_state": lambda entity, value: states.get(entity) == value,
+        },
+    )
+    rendered = template.render(**context).strip()
     try:
         return literal_eval(rendered)
     except ValueError, TypeError, SyntaxError, MemoryError:
@@ -539,11 +554,12 @@ def test_pause_off_does_not_resume_while_another_switch_holds_the_pause(
 # saves at all.
 
 
-def _bt_device_triggers(blueprint: dict) -> list[dict]:
+def _bt_device_triggers(blueprint: Mapping[str, object]) -> list[dict[str, object]]:
     """Return the Better Thermostat device triggers a blueprint declares."""
-    triggers = blueprint.get("trigger") or blueprint.get("triggers") or []
+    triggers: object = blueprint.get("trigger") or blueprint.get("triggers") or []
     if isinstance(triggers, dict):
         triggers = [triggers]
+    assert isinstance(triggers, list)
     return [
         trigger
         for trigger in triggers
@@ -577,6 +593,7 @@ def test_bundled_device_triggers_pass_the_trigger_schema(path):
 
     for trigger in _bt_device_triggers(blueprint):
         resolved = _substitute(trigger, inputs)
+        assert isinstance(resolved, dict)
         try:
             TRIGGER_SCHEMA(resolved)
         except vol.Invalid as err:

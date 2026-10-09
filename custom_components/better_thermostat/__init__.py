@@ -21,18 +21,13 @@ import voluptuous as vol
 from .utils.const import (
     BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     CONF_CALIBRATION_MODE,
-    CONF_COOLER,
-    CONF_DOOR_SENSORS,
-    CONF_HUMIDITY_SENSOR,
     CONF_NO_OFF_SYSTEM_MODE,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
-    CONF_TEMPERATURE_SENSOR,
     CONF_THERMOSTAT,
     CONF_WEATHER,
     CONF_WINDOW_OFF_DELAY,
     CONF_WINDOW_OFF_DELAY_AFTER,
-    CONF_WINDOW_SENSORS,
     DOMAIN,
     GENERIC_MODEL,
     NORMALIZED_ID_NAMES,
@@ -43,6 +38,7 @@ from .utils.const import (
 )
 from .utils.entry_schema import BtSettings, InvalidSettingsError, parse_settings
 from .utils.helpers import (
+    async_delete_entry_issues,
     entry_name,
     entry_settings,
     get_device_model,
@@ -332,8 +328,16 @@ async def config_entry_update_listener(
 async def async_unload_entry(
     hass: HomeAssistant, entry: BetterThermostatConfigEntry
 ) -> bool:
-    """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    """Unload a config entry and delete the repair issues it raised.
+
+    A reload after an options change unloads the entry too. An issue whose
+    entity was taken out of the entry goes with the unload, and one that
+    still applies is raised again by the reloaded thermostat.
+    """
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        async_delete_entry_issues(hass, entry.entry_id)
+    return unloaded
 
 
 async def async_remove_entry(
@@ -341,11 +345,11 @@ async def async_remove_entry(
 ) -> None:
     """Clean up everything this Better Thermostat instance left behind.
 
-    Repair-registry issues are scoped by ``device_name`` or by individual
-    ``entity_id`` and persist until explicitly deleted; the unified state
-    store is a per-entry file that would otherwise be orphaned. The reload
-    lock and the recorded entity-id names outlive the entry's unload by
-    design, so removal is where they are dropped.
+    The repair issues of the entry go with it, also when the entry is
+    removed without having been loaded; the unified state store is a
+    per-entry file that would otherwise be orphaned. The reload lock and the
+    recorded entity-id names outlive the entry's unload by design, so
+    removal is where they are dropped.
 
     Parameters
     ----------
@@ -356,10 +360,9 @@ async def async_remove_entry(
     """
     # Runtime import: config_flow and the three device-automation modules
     # execute this package for DOMAIN alone, on installs that may have no
-    # entry set up. A module-level import would put the state store and the
-    # contact handling, and the control kernel, calibration models and numpy
-    # behind them, on those paths.
-    from .events.contact import CONTACT_ROLES, contact_issue_id  # noqa: PLC0415
+    # entry set up. A module-level import would put the state store, and
+    # the control kernel, calibration models and numpy behind it, on those
+    # paths.
     from .utils.state_manager import StateManager  # noqa: PLC0415
 
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
@@ -373,31 +376,7 @@ async def async_remove_entry(
             entry.entry_id,
         )
 
-    settings = entry_settings(entry)
-    device_name = entry_name(entry)
-
-    for issue_id in (
-        f"invalid_external_temperature_{device_name}",
-        *(contact_issue_id(role, device_name) for role in CONTACT_ROLES),
-        f"degraded_mode_{device_name}",
-    ):
-        ir.async_delete_issue(hass, DOMAIN, issue_id)
-
-    entity_ids: list[str] = trv_entity_ids(entry)
-    for conf_key in (
-        CONF_TEMPERATURE_SENSOR,
-        CONF_HUMIDITY_SENSOR,
-        CONF_WINDOW_SENSORS,
-        CONF_DOOR_SENSORS,
-        CONF_OUTDOOR_SENSOR,
-        CONF_COOLER,
-    ):
-        eid = setting_str(settings, conf_key)
-        if eid:
-            entity_ids.append(eid)
-
-    for eid in entity_ids:
-        ir.async_delete_issue(hass, DOMAIN, f"missing_entity_{eid}")
+    async_delete_entry_issues(hass, entry.entry_id)
 
     for trv_entity_id in trv_entity_ids(entry):
         remaining = other_entries_controlling(hass, trv_entity_id, entry.entry_id)

@@ -8,29 +8,30 @@ re-queued when ``call_for_heat`` actually flips, to avoid spamming the queue
 on every outdoor reading.
 """
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from tests.factories import ThermostatStandIn
 
 CLIMATE_MOD = "custom_components.better_thermostat.climate"
 
 
-def _make_self(*, call_for_heat_after, last_call_for_heat, in_maintenance=False):
+def _make_self(
+    *, call_for_heat_after, last_call_for_heat, in_maintenance=False
+) -> ThermostatStandIn:
     """Build a BetterThermostat stand-in for the outdoor-change handler."""
-    bt = SimpleNamespace(
-        hass=MagicMock(),
-        entity_id="climate.test_bt",
-        device_name="Test BT",
-        in_maintenance=in_maintenance,
-        call_for_heat=last_call_for_heat,
-        _last_call_for_heat=last_call_for_heat,
-        async_write_ha_state=MagicMock(),
-        devices_errors=[],
-        control_queue_task=MagicMock(put=AsyncMock()),
-    )
+    bt = ThermostatStandIn()
+    bt.hass = MagicMock()
+    bt.entity_id = "climate.test_bt"
+    bt.device_name = "Test BT"
+    bt.in_maintenance = in_maintenance
+    bt.call_for_heat = last_call_for_heat
+    bt._last_call_for_heat = last_call_for_heat
+    bt.async_write_ha_state = MagicMock()
+    bt.devices_errors = list[str]()
+    bt.control_queue_task = MagicMock(put=AsyncMock())
     # The new outdoor reading drives call_for_heat to this value.
     bt._call_for_heat_after = call_for_heat_after
     return bt

@@ -10,7 +10,6 @@ dies while the window is open strands the thermostat with heating off.
 """
 
 import logging
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,19 +19,19 @@ from custom_components.better_thermostat.climate import (
     _configured_delay,
 )
 from custom_components.better_thermostat.utils.const import CONF_WINDOW_OFF_DELAY
+from tests.factories import ThermostatStandIn
 
 CLIMATE_MOD = "custom_components.better_thermostat.climate"
 
 
 def _make_self():
     """Build a BetterThermostat stand-in for the window dispatcher."""
-    ns = SimpleNamespace(
-        device_name="Test BT",
-        window_sensor_entity_id="binary_sensor.window",
-        hass=MagicMock(),
-        async_set_context=MagicMock(),
-        _spawn_owned=MagicMock(),
-    )
+    ns = ThermostatStandIn()
+    ns.device_name = "Test BT"
+    ns.window_sensor_entity_id = "binary_sensor.window"
+    ns.hass = MagicMock()
+    ns.async_set_context = MagicMock()
+    ns._spawn_owned = MagicMock()
     # ``_trigger_window_change`` delegates to the shared contact dispatcher;
     # bind it so the stand-in resolves the method call.
     ns._trigger_contact_change = BetterThermostat._trigger_contact_change.__get__(ns)
@@ -75,7 +74,7 @@ async def test_event_without_new_state_is_dropped():
     """An event carrying no new state dispatches nothing."""
     bt = _make_self()
     event = MagicMock()
-    event.data = {"new_state": None}
+    event.data = dict[str, object](new_state=None)
 
     with _patch_checks():
         await BetterThermostat._trigger_window_change(bt, event)

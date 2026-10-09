@@ -12,6 +12,7 @@ The fix:
 
 from unittest.mock import MagicMock, patch
 
+from homeassistant.core import State
 import pytest
 
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
@@ -94,8 +95,7 @@ class TestFindBatteryEntity:
         mock_registry = make_entity_registry(mock_entity)
 
         # State has no entity_id attribute (not a group)
-        mock_state = MagicMock()
-        mock_state.attributes = {}
+        mock_state = State("binary_sensor.virtual", "off")
         mock_bt_instance.hass.states.get.return_value = mock_state
 
         with patch(

@@ -28,7 +28,9 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_temperature as delegate_set_temperature,
 )
 from custom_components.better_thermostat.model_fixes import default as default_quirk
+from custom_components.better_thermostat.model_fixes.types import ModelQuirks
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.entry_schema import parse_settings
 from custom_components.better_thermostat.utils.valve_maintenance import (
     MaintenanceTrvInfo,
     build_trv_snapshots,
@@ -43,7 +45,7 @@ from custom_components.better_thermostat.utils.valve_maintenance import (
     run_valve_maintenance,
     wake_step,
 )
-from tests.factories import ThermostatStandIn, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn
 
 _MAINTENANCE_LOGGER = "custom_components.better_thermostat.utils.valve_maintenance"
 
@@ -52,25 +54,23 @@ _MAINTENANCE_LOGGER = "custom_components.better_thermostat.utils.valve_maintenan
 
 def _trv(
     *,
-    maintenance: object = False,
+    maintenance: bool = False,
     max_temp: float = 30,
     min_temp: float = 5,
-    quirks: object | None = None,
+    quirks: ModelQuirks | None = None,
     valve_entity: str | None = None,
     valve_writable: bool = True,
     calibration: str | None = None,
 ) -> Trv:
     """Build a ``real_trvs[entity_id]`` entry for testing."""
-    return trv_from_legacy_dict(
-        "climate.trv",
-        {
-            "advanced": {"valve_maintenance": maintenance, "calibration": calibration},
-            "max_temp": max_temp,
-            "min_temp": min_temp,
-            "model_quirks": quirks,
-            "valve_position_entity": valve_entity,
-            "valve_position_writable": valve_writable,
-        },
+    return Trv(
+        entity_id="climate.trv",
+        advanced={"valve_maintenance": maintenance, "calibration": calibration},
+        max_temp=max_temp,
+        min_temp=min_temp,
+        model_quirks=quirks,
+        valve_position_entity=valve_entity,
+        valve_position_writable=valve_writable,
     )
 
 
@@ -142,10 +142,11 @@ def _setpoint_on_a_celsius_system(state) -> float | None:
 
 def _ha_state(
     state: str = "heat", temperature: float = 21.0, hvac_modes: list[str] | None = None
-):
-    """Mimic a HA State object."""
-    return SimpleNamespace(
-        state=state,
+) -> State:
+    """A TRV's HA state carrying its setpoint and HVAC modes."""
+    return State(
+        "climate.trv",
+        state,
         attributes={
             "temperature": temperature,
             "hvac_modes": ["off", "heat"] if hvac_modes is None else hvac_modes,
@@ -193,17 +194,25 @@ class TestCollectMaintenanceTrvs:
         self, stored, enabled
     ):
         """An older entry's ``"false"`` keeps the valve maintenance off."""
-        trvs = {"trv1": _trv(maintenance=stored)}
+        settings = parse_settings(
+            {
+                "name": "bt",
+                "thermostat": [
+                    {
+                        "trv": "trv1",
+                        "integration": "mqtt",
+                        "advanced": {"valve_maintenance": stored},
+                    }
+                ],
+            }
+        )
+        advanced = settings["thermostat"][0].get("advanced", {})
+        trvs = {"trv1": Trv(entity_id="trv1", advanced=advanced)}
         assert collect_maintenance_trvs(trvs) == (["trv1"] if enabled else [])
 
     def test_missing_advanced_key(self):
         """TRV dict without 'advanced' should not crash."""
-        trvs = {"trv1": trv_from_legacy_dict("trv1", {"max_temp": 30})}
-        assert collect_maintenance_trvs(trvs) == []
-
-    def test_advanced_is_none(self):
-        """advanced=None should not crash."""
-        trvs = {"trv1": trv_from_legacy_dict("trv1", {"advanced": None})}
+        trvs = {"trv1": Trv(entity_id="trv1", max_temp=30)}
         assert collect_maintenance_trvs(trvs) == []
 
 
@@ -1191,9 +1200,9 @@ class TestRestoreLeavesAnUnmovedModeAlone:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _unreadable_ha_state(state: str):
+def _unreadable_ha_state(state: str) -> State:
     """A TRV state carrying no attributes, as an offline device publishes."""
-    return SimpleNamespace(state=state, attributes={})
+    return State("climate.trv1", state)
 
 
 class TestUnreadableTrvStates:

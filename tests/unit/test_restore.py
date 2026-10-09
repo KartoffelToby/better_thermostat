@@ -29,7 +29,7 @@ DEV = "Test BT"
 
 def _trv(temperature, unit=None, entity_id="climate.trv"):
     """Build a TRV State carrying a target temperature (and optional unit)."""
-    attrs: dict = {}
+    attrs: dict[str, object] = {}
     if temperature is not None:
         attrs[ATTR_TEMPERATURE] = temperature
     if unit is not None:

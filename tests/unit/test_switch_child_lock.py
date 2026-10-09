@@ -15,9 +15,45 @@ from custom_components.better_thermostat.switch import (
     _switch_state_wins,
 )
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.entry_schema import (
+    TrvAdvanced,
+    TrvSettings,
+    parse_settings,
+)
 from tests.factories import ThermostatStandIn
 
 TRV_ID = "climate.trv_kitchen"
+
+
+def _parsed_trv(child_lock: object) -> TrvSettings:
+    """Return the thermostat entry the entry parser reads from a stored lock."""
+    settings = parse_settings(
+        {
+            "name": "Kitchen",
+            "thermostat": [
+                {
+                    "trv": TRV_ID,
+                    "integration": "generic",
+                    "advanced": {"child_lock": child_lock},
+                }
+            ],
+        }
+    )
+    return settings["thermostat"][0]
+
+
+def _parsed_advanced(child_lock: object) -> TrvAdvanced:
+    """Return the advanced options the entry parser reads from a stored lock."""
+    advanced = _parsed_trv(child_lock).get("advanced")
+    assert advanced is not None
+    return advanced
+
+
+def _state_writes(switch: BetterThermostatChildLockSwitch) -> MagicMock:
+    """Return the recorder standing in for the switch's state write."""
+    writes = switch.async_write_ha_state
+    assert isinstance(writes, MagicMock)
+    return writes
 
 
 def _make_switch(trv: Trv) -> BetterThermostatChildLockSwitch:
@@ -37,7 +73,7 @@ def test_update_state_writes_child_lock_flag():
     switch._update_state(True)
 
     assert trv.advanced["child_lock"] is True
-    switch.async_write_ha_state.assert_called_once()
+    _state_writes(switch).assert_called_once()
 
 
 @pytest.mark.parametrize("state", [True, False])
@@ -65,7 +101,7 @@ def test_is_on_reads_a_stored_spelling_as_the_options_flow_saves_it(stored, expe
 def test_the_configured_option_reads_a_stored_spelling(stored, expected):
     """The option recorded next to the switch state reads ``"false"`` as off."""
     switch = _make_switch(Trv(entity_id=TRV_ID))
-    switch._bt_climate.all_trvs = [{"trv": TRV_ID, "advanced": {"child_lock": stored}}]
+    switch._bt_climate.all_trvs = [_parsed_trv(stored)]
 
     assert switch._configured_child_lock() is expected
 
@@ -73,7 +109,7 @@ def test_the_configured_option_reads_a_stored_spelling(stored, expected):
 @pytest.mark.asyncio
 async def test_a_restored_off_matching_a_stored_false_sends_nothing():
     """A TRV holding ``"false"`` already holds the restored off."""
-    trv = Trv(entity_id=TRV_ID, advanced={"child_lock": "false"})
+    trv = Trv(entity_id=TRV_ID, advanced=_parsed_advanced("false"))
     switch = _make_switch(trv)
     switch._bt_climate.all_trvs = []
     switch.async_get_last_available_state = AsyncMock(
@@ -100,7 +136,7 @@ def test_a_switch_of_a_head_not_built_shows_off_and_publishes_nothing():
     assert switch.is_on is False
     switch._update_state(True)
 
-    switch.async_write_ha_state.assert_not_called()
+    _state_writes(switch).assert_not_called()
 
 
 _UNAVAILABLE = State("switch.child_lock", "unavailable")

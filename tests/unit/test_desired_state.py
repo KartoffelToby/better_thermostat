@@ -48,9 +48,9 @@ class TestDesiredState:
         """DesiredState and TrvDesired fields cannot be reassigned."""
         desired = _sample()
         with pytest.raises(FrozenInstanceError):
-            desired.call_for_heat = False
+            setattr(desired, "call_for_heat", False)
         with pytest.raises(FrozenInstanceError):
-            desired.trvs["climate.trv"].setpoint = 5.0
+            setattr(desired.trvs["climate.trv"], "setpoint", 5.0)
 
     def test_serializable_for_flight_recorder(self):
         """asdict() output survives json round-tripping."""

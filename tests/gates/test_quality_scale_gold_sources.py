@@ -335,3 +335,28 @@ def test_every_repair_issue_has_a_translated_message():
         if "title" not in issue or not {"description", "fix_flow"} & set(issue)
     ]
     assert unexplained == []
+
+
+@pytest.mark.quality_rule("repair-issues")
+def test_an_issue_offers_a_fix_only_with_a_flow_that_fixes_it():
+    """An issue is fixable only where a repairs platform fixes it.
+
+    Without ``repairs.py`` Home Assistant answers a fixable issue with a bare
+    confirm dialog, whose Submit deletes the issue and repairs nothing. Each
+    issue therefore passes ``is_fixable=False`` and its strings carry no fix
+    flow, until the integration ships a platform that does the repair.
+    """
+    assert not (COMPONENT / "repairs.py").exists(), "revisit this rule"
+    fixable = [
+        where
+        for where, call in _issue_calls()
+        if not (
+            isinstance(value := _keyword(call, "is_fixable"), ast.Constant)
+            and value.value is False
+        )
+    ]
+    assert fixable == []
+    with_fix_flow = [
+        key for key, issue in _strings()["issues"].items() if "fix_flow" in issue
+    ]
+    assert with_fix_flow == []
