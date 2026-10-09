@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 from types import SimpleNamespace
 from typing import Any, override
@@ -724,8 +725,9 @@ class _PendingFuture(_FakeFuture):
 
     def __init__(self, result: object) -> None:
         super().__init__(result)
-        self._callbacks: list = []
+        self._callbacks: list[Callable[[_FakeFuture], object]] = []
 
+    @override
     def add_done_callback(self, cb) -> None:
         """Hold the callback until :meth:`resolve`."""
         self._callbacks.append(cb)
