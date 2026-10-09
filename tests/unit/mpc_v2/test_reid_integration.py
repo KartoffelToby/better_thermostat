@@ -173,6 +173,7 @@ def _make_bt(preset: MpcV2PlantPreset = MpcV2PlantPreset.AUTO) -> Any:
         state_mgr=_make_manager(),
         clock=FakeClock(monotonic_value=1_000_000.0),
         schedule_save_state=MagicMock(),
+        is_removed=False,
     )
 
 
@@ -706,6 +707,56 @@ def test_a_rejected_fit_leaves_the_prior_alone(monkeypatch) -> None:
     cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
 
     assert bt.state_mgr.get_mpc_v2_reid(key) is None
+    assert runtime.fit_inflight is False
+
+
+class _PendingFuture(_FakeFuture):
+    """Future double that resolves only when the test says so."""
+
+    def __init__(self, result: object) -> None:
+        super().__init__(result)
+        self._callbacks: list = []
+
+    def add_done_callback(self, cb) -> None:
+        """Hold the callback until :meth:`resolve`."""
+        self._callbacks.append(cb)
+
+    def resolve(self) -> None:
+        """Run the held callbacks, as the loop does once the job returns."""
+        for cb in self._callbacks:
+            cb(self)
+
+
+def test_a_fit_finishing_after_the_removal_is_not_adopted(monkeypatch) -> None:
+    """A thermostat removed while its fit runs adopts and saves nothing.
+
+    The fit runs in the executor, where the removal cannot stop it. Its
+    result belongs to a thermostat whose final save is already written.
+    """
+    from custom_components.better_thermostat import calibration as cal
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import ReidOutcome
+
+    outcome = ReidOutcome(
+        status="accepted",
+        tau_room_min=_REID.tau_room_minutes,
+        gain_heater=_REID.gain_heater,
+        rmse_prior_K=0.4,
+        rmse_fit_K=0.1,
+        n_segments=4,
+        n_samples=300,
+    )
+    pending = _PendingFuture(outcome)
+    bt = _make_bt()
+    bt.hass = SimpleNamespace(async_add_executor_job=lambda func, *args: pending)
+    key, runtime = _due_fit(bt)
+    bt.schedule_save_state.reset_mock()
+
+    cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
+    bt.is_removed = True
+    pending.resolve()
+
+    assert bt.state_mgr.get_mpc_v2_reid(key) is None
+    bt.schedule_save_state.assert_not_called()
     assert runtime.fit_inflight is False
 
 

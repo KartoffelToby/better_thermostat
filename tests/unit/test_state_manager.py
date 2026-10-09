@@ -1724,6 +1724,32 @@ class TestScheduleDelaySave:
         assert isinstance(data, dict)
         assert mgr.dirty is True
 
+    async def test_a_closed_manager_does_not_recreate_a_removed_store(
+        self, hass, hass_storage
+    ):
+        """No write reaches the store once the entity's final save is made.
+
+        Removing an entry deletes its store after the entity's final flush.
+        A save scheduled later, by work that finished after the removal,
+        would write the file back for an entry that no longer exists.
+        """
+        key = "better_thermostat_gone_entry_state"
+        mgr = StateManager(hass, "gone_entry")
+        await mgr.load()
+        mgr.get_pid("k").pid_kp = 11.0
+        mgr.mark_dirty()
+        mgr.close()
+        await mgr.flush()
+        await StateManager.async_remove_store(hass, "gone_entry")
+        assert key not in hass_storage
+
+        mgr.mark_dirty()
+        mgr.schedule_delay_save()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=60))
+        await hass.async_block_till_done()
+
+        assert key not in hass_storage
+
 
 # ---------------------------------------------------------------------------
 # StateManager — state property

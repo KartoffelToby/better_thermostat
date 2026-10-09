@@ -1379,6 +1379,8 @@ class StateManager:
         # The last runtime save skipped while the copy is pending, as
         # ``(pre_save, delay_seconds)``; the timer schedules it once the copy exists.
         self._held_save: tuple[Callable[[], None] | None, float] | None = None
+        # Set by close(); a closed manager schedules no delayed save.
+        self._closed = False
 
     @staticmethod
     async def async_remove_store(hass: HomeAssistant, entry_id: str) -> None:
@@ -1655,6 +1657,11 @@ class StateManager:
         write time, so the earliest deadline already covers later
         changes — and a steady trigger stream cannot starve the save.
 
+        A closed manager schedules nothing: ``flush()`` makes its final
+        write, and a delayed one landing after it would recreate a store
+        that removing the entry deletes, or overwrite the one a reloaded
+        entity has written meanwhile.
+
         Parameters
         ----------
         pre_save : callable or None
@@ -1663,7 +1670,7 @@ class StateManager:
         delay_seconds : float
             Coalescing window in seconds before the disk write fires.
         """
-        if self._delay_save_pending:
+        if self._delay_save_pending or self._closed:
             return
         if self._payload_awaiting_copy is not None:
             # The delayed write cannot take the copy first. Once the retry is
@@ -1719,13 +1726,15 @@ class StateManager:
         return self._payload_awaiting_copy is not None
 
     def close(self) -> None:
-        """Stop trying the copy on a timer; call when the entity is removed.
+        """Stop scheduling saves of its own; call when the entity is removed.
 
-        ``flush()`` and ``save()`` still try the copy, but no timer is left
-        behind, and a copy already under way schedules no save afterwards, so
-        it cannot write into a store that removal deletes or another entity
-        owns by then.
+        ``flush()`` and ``save()`` still try the copy and write, but no timer
+        is left behind, a copy already under way schedules no save
+        afterwards, and ``schedule_delay_save()`` schedules nothing, so no
+        write lands in a store that removal deletes or another entity owns by
+        then.
         """
+        self._closed = True
         self._copy_retry_timed = False
         self._held_save = None
         self._cancel_copy_retry_timer()

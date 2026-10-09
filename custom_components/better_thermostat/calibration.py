@@ -685,6 +685,12 @@ def _maybe_start_mpc_v2_reid_fit(
                 exc_info=True,
             )
             return
+        # The fit runs in the executor and nothing cancels it on removal. A
+        # result arriving after the removal belongs to a thermostat whose
+        # final save is already written; adopting it would only hand its
+        # store a write after that.
+        if self.is_removed:
+            return
         if (
             outcome.status == "accepted"
             and outcome.tau_room_min is not None
