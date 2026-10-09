@@ -9,8 +9,6 @@ cycle.
 
 from __future__ import annotations
 
-import logging
-
 import pytest
 
 from custom_components.better_thermostat.utils.calibration.pid import (
@@ -23,20 +21,6 @@ from custom_components.better_thermostat.utils.calibration.pid import (
 
 _PID_LOGGER = "custom_components.better_thermostat.utils.calibration.pid"
 _PARAMS = PIDParams(auto_tune=False, min_hold_time_s=0.0)
-
-
-class _RefusesComparison:
-    """A band that cannot be compared to a temperature difference."""
-
-    def __ge__(self, other):
-        return NotImplemented
-
-
-class _FailsComparison:
-    """A band whose comparison fails for a reason other than its type."""
-
-    def __ge__(self, other):
-        raise ValueError("boom")
 
 
 class _RefusesSlopeWrite(PIDState):
@@ -74,16 +58,6 @@ class TestSlopeEma:
         _, _, state = _compute(_PARAMS, PIDState(ema_slope=0.07))
         assert state.ema_slope == pytest.approx(0.6 * 0.07 + 0.4 * 0.02)
 
-    def test_non_numeric_stored_value_is_traced(self, caplog):
-        """A stored value that is not a number skips the blend and is recorded."""
-        state = PIDState()
-        state.ema_slope = "warm"  # type: ignore[assignment]
-        with caplog.at_level(logging.DEBUG, logger=_PID_LOGGER):
-            percent, _, out = _compute(_PARAMS, state)
-        assert percent >= 0.0
-        assert out.ema_slope == "warm"
-        assert "slope EMA update skipped for bt:climate.trv" in caplog.text
-
     def test_unexpected_write_failure_propagates(self):
         """A failure that is not a type mismatch reaches the caller."""
         with pytest.raises(ValueError):
@@ -119,22 +93,6 @@ class TestIntegratorRelief:
         state = PIDState(last_error_sign=-1, pid_integral=40.0, pid_last_time=990.0)
         _, debug, _ = self._flip_cycle(_PARAMS, state)
         assert debug["i_relief"] is False
-
-    def test_non_numeric_band_is_traced(self, caplog):
-        """A band that is not a number skips the relief and is recorded."""
-        params = PIDParams(auto_tune=False, min_hold_time_s=0.0)
-        params.steady_state_band_K = _RefusesComparison()  # type: ignore[assignment]
-        with caplog.at_level(logging.DEBUG, logger=_PID_LOGGER):
-            _, debug, _ = self._flip_cycle(params, self._flipped_state())
-        assert debug["i_relief"] is False
-        assert "integrator relief skipped for bt:climate.trv" in caplog.text
-
-    def test_unexpected_band_failure_propagates(self):
-        """A failure that is not a type mismatch reaches the caller."""
-        params = PIDParams(auto_tune=False, min_hold_time_s=0.0)
-        params.steady_state_band_K = _FailsComparison()  # type: ignore[assignment]
-        with pytest.raises(ValueError):
-            self._flip_cycle(params, self._flipped_state())
 
 
 class TestErrorSign:
@@ -205,15 +163,6 @@ class TestStandbyObservation:
 
         assert (state.pid_last_meas, state.pid_last_time) == (21.0, 1000.0)
 
-    def test_an_unusable_smoothing_factor_blends_half_and_half(self):
-        """A smoothing factor that is not a number falls back to 0.5."""
-        params = PIDParams(auto_tune=False, d_smoothing_alpha="fast")
-        state = PIDState(pid_last_meas=20.0, pid_last_time=900.0)
-
-        observe_standby(params, state, 21.0, now=900.0 + D_SMOOTHING_INTERVAL_S)
-
-        assert state.pid_last_meas == pytest.approx(20.5)
-
     def test_the_smoothing_factor_weights_the_new_reading(self):
         """A valid smoothing factor sets the weight of the new reading."""
         params = PIDParams(auto_tune=False, d_smoothing_alpha=0.25)
@@ -232,3 +181,21 @@ class TestStandbyObservation:
 
         weight = 1.0 - 0.5 ** (1.0 / D_SMOOTHING_INTERVAL_S)
         assert state.pid_last_meas == pytest.approx(20.0 + weight)
+
+
+class TestDebugRecord:
+    """The debug record of a cycle."""
+
+    def test_a_record_that_cannot_be_built_is_marked_and_the_output_kept(self):
+        """An infinite hold time has no whole number of remaining seconds.
+
+        The cycle still computes its output; only the debug record falls back
+        to saying it could not be built.
+        """
+        params = PIDParams(auto_tune=False, min_hold_time_s=float("inf"))
+
+        percent, debug, state = _compute(params, PIDState())
+
+        assert percent > 0.0
+        assert state.last_output_change_ts == 1000.0
+        assert debug == {"mode": "pid", "error": "debug_failed"}
