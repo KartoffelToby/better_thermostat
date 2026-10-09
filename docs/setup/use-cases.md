@@ -27,7 +27,7 @@ Add a window sensor, or a group of window sensors. When it reports open, Better 
 
 In spring and autumn the heating does not need to run on a mild day.
 
-Add an outdoor temperature sensor or a weather entity and set **The outdoor temperature when the thermostat should turn off**. While it is warmer outside than that, the room does not heat. With an outdoor sensor, Better Thermostat compares the daily averages of today and yesterday, so one warm afternoon does not stop the heating.
+Add an outdoor temperature sensor or a weather entity and set **The outdoor temperature when the thermostat should turn off**. While it is warmer outside than that, the room does not heat. Better Thermostat does not compare the current reading but a damped outdoor temperature: a running average over roughly the last day, in which each reading counts for as long as it was current. One warm afternoon therefore does not stop the heating. See [Summer mode](/deep-explanations/summer-mode/).
 
 ## Heating and cooling in the same room
 
