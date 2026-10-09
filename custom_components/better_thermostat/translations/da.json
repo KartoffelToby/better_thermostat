@@ -189,7 +189,7 @@
         "step": {
           "confirm": {
             "title": "Den relaterede {entity} mangler",
-            "description": "Årsagen til dette er, at entiteten ({entity}) ikke er tilgængelig i din Home Assistant.\n\nDu kan rette op på dette ved at kontrollere, om enhedens batteri er fuld, eller tilslutte den til HA igen. Sørg for, at entiteten er tilbage i HA, før du fortsætter."
+            "description": "Årsagen til dette er, at entiteten ({entity}) ikke er tilgængelig i din Home Assistant.\n\nDu kan rette op på dette ved at kontrollere, om enhedens batteri er fuld, eller tilslutte den til HA igen. Sørg for, at entiteten er tilbage i HA, før du fortsætter.\n\nHvis entiteten er blevet omdøbt eller enheden udskiftet, er dens entitets-ID ændret, og Better Thermostat leder stadig efter {entity}. Åbn indstillingerne for denne Better Thermostat (Indstillinger → Enheder og tjenester → Better Thermostat → Konfigurer) og vælg den nye entitet. Dette problem forsvinder af sig selv, når entiteten er tilgængelig igen, eller når ingen Better Thermostat længere bruger den."
           }
         }
       }

@@ -189,7 +189,7 @@
         "step": {
           "confirm": {
             "title": "Brak {entity} powiązanej",
-            "description": "Powodem tego jest to, że podmiot ({entity}) nie jest dostępny w Twoim Home Assistant.\n\nMożesz to naprawić, sprawdzając, czy bateria urządzenia jest pełna lub ponownie podłączając je do HA. Zanim przejdziesz dalej, upewnij się, że jednostka wróciła do HA."
+            "description": "Powodem tego jest to, że podmiot ({entity}) nie jest dostępny w Twoim Home Assistant.\n\nMożesz to naprawić, sprawdzając, czy bateria urządzenia jest pełna lub ponownie podłączając je do HA. Zanim przejdziesz dalej, upewnij się, że jednostka wróciła do HA.\n\nJeśli encja została przemianowana lub urządzenie wymienione, jej identyfikator encji się zmienił, a Better Thermostat nadal szuka {entity}. Otwórz ustawienia tego Better Thermostat (Ustawienia → Urządzenia oraz usługi → Better Thermostat → Konfiguruj) i wybierz nową encję. Ten problem zniknie sam, gdy encja znów będzie dostępna lub gdy żaden Better Thermostat nie będzie jej już używał."
           }
         }
       }

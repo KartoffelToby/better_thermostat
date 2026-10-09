@@ -189,7 +189,7 @@
         "step": {
           "confirm": {
             "title": "L'entité associée {entity} est manquante",
-            "description": "La raison en est que l'entité ({entity}) n'est pas disponible dans votre Home Assistant.\n\nVous pouvez résoudre ce problème en vérifiant si la batterie du dispositif est pleine ou en le reconnectant à HA. Assurez-vous que l'entité est de retour dans HA avant de continuer."
+            "description": "La raison en est que l'entité ({entity}) n'est pas disponible dans votre Home Assistant.\n\nVous pouvez résoudre ce problème en vérifiant si la batterie du dispositif est pleine ou en le reconnectant à HA. Assurez-vous que l'entité est de retour dans HA avant de continuer.\n\nSi l'entité a été renommée ou l'appareil remplacé, son identifiant d'entité a changé et Better Thermostat cherche toujours {entity}. Ouvrez les paramètres de ce Better Thermostat (Paramètres → Appareils et services → Better Thermostat → Configurer) et sélectionnez la nouvelle entité. Ce problème disparaît de lui-même dès que l'entité est de nouveau disponible ou qu'aucun Better Thermostat ne l'utilise plus."
           }
         }
       }
