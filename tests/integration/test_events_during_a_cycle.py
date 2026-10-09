@@ -99,6 +99,20 @@ TWO_HEADS = GroupScenario(
 )
 """Two identical heads: one to hold a write on, one to operate meanwhile."""
 
+TWO_ALWAYS_ON_HEADS = GroupScenario(
+    name="two_always_on_heads",
+    profiles=(
+        ALWAYS_ON_HEAD,
+        replace(
+            GROUP_OF_THREE.profiles[2],
+            name="second_always_on_head",
+            hvac_modes=(HVACMode.HEAT,),
+            supported_features=ClimateEntityFeature.TARGET_TEMPERATURE,
+        ),
+    ),
+)
+"""Two heads without an off mode, which an off room parks on their minimum."""
+
 # Long enough for a watchdog that is going to end on the device's answer to
 # have ended many times over; the confirmation timeout is out of reach while
 # it runs, so nothing else can end it.
@@ -530,15 +544,13 @@ async def test_a_head_switched_on_before_the_cycle_writes_it_is_adopted(hass):
     assert bt.bt_hvac_mode == HVACMode.HEAT
 
 
-async def test_a_head_switched_off_during_its_offset_write_is_not_switched_back_on(
-    hass,
-):
-    """A head switched off while its offset is written stays off.
+async def test_a_head_that_leaves_its_mode_during_an_offset_write_is_put_back(hass):
+    """A head that leaves its mode while its offset is written gets the mode back.
 
-    Better Thermostat sends the head's mode again a few seconds after an
-    offset write. A head switched off at the device in those seconds was
-    switched by the user, and sending the mode again would undo that before
-    the end of the cycle reads it.
+    Some heads drop out of their mode when their offset is written, so Better
+    Thermostat sends the mode again a few seconds after an offset write. The
+    head reports nothing that tells that drop from a switch at the device, so
+    the mode goes out whatever the head reports by then.
     """
     bt, (fake_trv,) = await _start(hass, MQTT_OFFSET_TRV)
     assert fake_trv.offset_number is not None
@@ -553,14 +565,14 @@ async def test_a_head_switched_off_during_its_offset_write_is_not_switched_back_
             await held.wait_reached(hass)
 
             _operate(fake_trv, hvac_mode=HVACMode.OFF)
-            assert bt.ignore_states, "the press has to land inside the cycle"
+            assert bt.ignore_states, "the drop has to land inside the cycle"
             held.release()
             assert await poll_until(hass, lambda: not bt.ignore_states)
         await _handled(hass, bt)
 
-    assert fake_trv.set_hvac_mode_calls[written_before:] == []
-    assert fake_trv.hvac_mode == HVACMode.OFF
-    assert bt.bt_hvac_mode == HVACMode.OFF
+    assert fake_trv.set_hvac_mode_calls[written_before:] == [HVACMode.HEAT]
+    assert fake_trv.hvac_mode == HVACMode.HEAT
+    assert bt.bt_hvac_mode == HVACMode.HEAT
 
 
 @pytest.mark.parametrize("then", ["switched_off", "dropped_off_the_air"])
@@ -681,6 +693,181 @@ async def test_a_head_turned_while_a_window_opens_is_parked_all_the_same(hass):
         await _handled(hass, bt)
 
     assert parked.target_temperature == pytest.approx(TWO_HEADS.profiles[1].min_temp)
+
+
+async def test_a_head_switched_on_by_the_cycle_gets_the_room_setpoint_in_that_cycle(
+    hass,
+):
+    """The cycle that switches a head on writes the room's setpoint to it as well.
+
+    Some heads report a placeholder setpoint while they are off and a
+    setpoint of their own when the cycle switches them on. That report is the
+    cycle's own mode write coming back, not a turn, so the setpoint the cycle
+    decided on goes out after it.
+    """
+    bt, (fake_trv,) = await _start(hass, GENERIC_HEAT_TRV)
+    with patch(WRITE_BUDGET, 0.0):
+        await _command(hass, hvac_mode=HVACMode.OFF)
+        assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.OFF)
+        await _settle(hass, bt)
+        _operate(fake_trv, temperature=GENERIC_HEAT_TRV.min_temp)
+        await _handled(hass, bt)
+        await _settle(hass, bt)
+
+    own_setpoint = 17.0
+    switch_mode = fake_trv.async_set_hvac_mode
+
+    async def switch_on_to_own_setpoint(hvac_mode) -> None:
+        if hvac_mode != HVACMode.OFF:
+            fake_trv._attr_target_temperature = own_setpoint
+        await switch_mode(hvac_mode)
+
+    real_control_trv = controlling.control_trv
+    held_after_each_cycle: list[float | None] = []
+
+    async def recorded(self, entity_id, cycle=None):
+        result = await real_control_trv(self, entity_id, cycle=cycle)
+        held_after_each_cycle.append(fake_trv.target_temperature)
+        return result
+
+    with (
+        patch.object(fake_trv, "async_set_hvac_mode", switch_on_to_own_setpoint),
+        patch.object(controlling, "control_trv", recorded),
+        patch(WRITE_BUDGET, 0.0),
+    ):
+        await _command(hass, hvac_mode=HVACMode.HEAT)
+        assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.HEAT)
+        await _settle(hass, bt)
+
+    assert held_after_each_cycle
+    assert held_after_each_cycle[0] != pytest.approx(own_setpoint)
+    assert fake_trv.target_temperature != pytest.approx(own_setpoint)
+
+
+async def _start_room_without_off_modes(hass, *, carries_room_mode: bool):
+    """Return an off room of two heads without an off mode, settled.
+
+    With ``carries_room_mode`` the second head is configured to carry the
+    room's mode on its setpoint, so a turn on it switches the room on.
+    """
+    bt, (held_head, turned) = await _start(hass, TWO_ALWAYS_ON_HEADS)
+    if carries_room_mode:
+        _without_off_mode(bt, turned)
+    with patch(WRITE_BUDGET, 0.0):
+        await _command(hass, hvac_mode=HVACMode.OFF)
+        for device in (held_head, turned):
+            assert await wait_for(
+                hass,
+                lambda device=device: (
+                    device.target_temperature == ALWAYS_ON_HEAD.min_temp
+                ),
+            )
+        await _settle(hass, bt)
+    assert bt.bt_hvac_mode == HVACMode.OFF
+    return bt, held_head, turned
+
+
+async def _turn_during_an_off_cycle(hass, bt, held_head, turned) -> None:
+    """Turn ``turned`` to 25 while a cycle of the off room parks ``held_head``."""
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(held_head, "async_set_temperature") as held:
+            _operate(held_head, temperature=20.0)
+            set_room_sensor(hass, 18.2)
+            await held.wait_reached(hass)
+            assert bt.ignore_states
+
+            _operate(turned, temperature=25.0)
+            assert bt.ignore_states, "the turn has to land inside the cycle"
+            held.release()
+            assert await poll_until(hass, lambda: not bt.ignore_states)
+        await _handled(hass, bt)
+
+
+async def test_a_head_turned_while_the_room_is_off_is_parked_all_the_same(hass):
+    """A head without an off mode is parked on its minimum while the room is off.
+
+    A turn on that head does not switch the room on, so the cycle that parks
+    it writes over the turn instead of leaving the head on it.
+    """
+    bt, held_head, turned = await _start_room_without_off_modes(
+        hass, carries_room_mode=False
+    )
+
+    await _turn_during_an_off_cycle(hass, bt, held_head, turned)
+
+    assert turned.target_temperature == pytest.approx(ALWAYS_ON_HEAD.min_temp)
+    assert bt.bt_hvac_mode == HVACMode.OFF
+
+
+async def test_a_head_carrying_the_room_mode_turned_while_the_room_is_off_switches_it_on(
+    hass,
+):
+    """A turn on a head that carries the room's mode switches an off room on.
+
+    That head is switched off by parking it on its minimum, so a turn off the
+    minimum is a press that switches the room on, during a cycle as outside
+    one, and the cycle does not park the head before the press is read.
+    """
+    bt, held_head, turned = await _start_room_without_off_modes(
+        hass, carries_room_mode=True
+    )
+
+    await _turn_during_an_off_cycle(hass, bt, held_head, turned)
+
+    assert bt.bt_hvac_mode == HVACMode.HEAT
+    assert bt.heat_target_temperature == pytest.approx(25.0)
+
+
+async def test_a_head_switched_to_auto_while_a_window_opens_is_switched_off(hass):
+    """A head switched to a mode Better Thermostat ignores is switched off all the same.
+
+    An open window switches the room off whatever was switched on a head
+    meanwhile, and the end of the cycle reads nothing from a mode it ignores.
+    """
+    switched, other = await build_devices(hass, *TWO_HEADS.profiles)
+    set_room_sensor(hass, 18.0)
+    hass.states.async_set(WINDOW_ID, "off")
+    entry = make_entry(TWO_HEADS, with_window=True)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await _settle(hass, bt)
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(switched, "async_set_hvac_mode") as held:
+            hass.states.async_set(WINDOW_ID, "on")
+            await held.wait_reached(hass)
+
+            _operate(other, hvac_mode=HVACMode.AUTO)
+            assert bt.ignore_states, "the switch has to land inside the cycle"
+            held.release()
+            assert await poll_until(hass, lambda: not bt.ignore_states)
+        await _handled(hass, bt)
+
+    assert other.hvac_mode == HVACMode.OFF
+
+
+async def test_a_head_switched_to_auto_while_the_room_is_switched_off_is_switched_off(
+    hass,
+):
+    """A head switched to a mode Better Thermostat ignores does not keep the room on.
+
+    The end of the cycle reads nothing from that mode and asks for no cycle,
+    so a write skipped for it would leave the head heating in an off room.
+    """
+    bt, (held_head, switched) = await _start(hass, TWO_HEADS)
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(held_head, "async_set_hvac_mode") as held:
+            hass.async_create_task(_command(hass, hvac_mode=HVACMode.OFF))
+            await held.wait_reached(hass)
+
+            _operate(switched, hvac_mode=HVACMode.AUTO)
+            assert bt.ignore_states, "the switch has to land inside the cycle"
+            held.release()
+            assert await poll_until(hass, lambda: not bt.ignore_states)
+        await _handled(hass, bt)
+
+    assert switched.hvac_mode == HVACMode.OFF
 
 
 async def _count_cycles(hass, bt, *, answer=None, window_seconds: float = 3.0) -> int:

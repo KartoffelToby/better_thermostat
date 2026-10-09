@@ -4610,13 +4610,19 @@ class TestPressesDuringACycle:
         """A mode neither reported before nor sent is a switch at the device."""
         mock_self = _make_mock_self()
         trv = self._pressed_trv()
-        assert _mode_switched_during_cycle(mock_self, trv, HVACMode.HEAT) is True
+        assert (
+            _mode_switched_during_cycle(mock_self, "climate.trv1", trv, HVACMode.HEAT)
+            is True
+        )
 
     def test_a_locked_device_is_switched_back(self):
         """A child lock turns a switch at the device back at once."""
         mock_self = _make_mock_self()
         trv = self._pressed_trv(child_lock=True)
-        assert _mode_switched_during_cycle(mock_self, trv, HVACMode.HEAT) is False
+        assert (
+            _mode_switched_during_cycle(mock_self, "climate.trv1", trv, HVACMode.HEAT)
+            is False
+        )
 
     @pytest.mark.parametrize(
         ("before", "reported"),
@@ -4629,7 +4635,10 @@ class TestPressesDuringACycle:
         """A device that came back, or that names no mode, was not switched."""
         mock_self = _make_mock_self()
         trv = self._pressed_trv(before=before)
-        assert _mode_switched_during_cycle(mock_self, trv, reported) is False
+        assert (
+            _mode_switched_during_cycle(mock_self, "climate.trv1", trv, reported)
+            is False
+        )
 
     def test_a_locked_device_is_turned_back(self):
         """A child lock turns a setpoint turned at the device back at once."""
@@ -4640,3 +4649,64 @@ class TestPressesDuringACycle:
             real_trvs={"climate.trv1": trv},
         )
         assert _setpoint_turned_during_cycle(mock_self, "climate.trv1") is False
+
+    def test_a_mode_the_handler_ignores_is_written_over(self):
+        """A switch to a mode the end of the cycle ignores leaves nothing to read."""
+        mock_self = _make_mock_self()
+        trv = self._pressed_trv(before=HVACMode.HEAT)
+        assert (
+            _mode_switched_during_cycle(mock_self, "climate.trv1", trv, HVACMode.AUTO)
+            is False
+        )
+
+    def test_a_setpoint_a_device_switched_on_with_is_not_a_turn(self):
+        """The setpoint a device switches on with is its own, not a turn."""
+        trv = self._pressed_trv(before=HVACMode.OFF)
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 25.0},
+            real_trvs={"climate.trv1": trv},
+        )
+        assert _setpoint_turned_during_cycle(mock_self, "climate.trv1") is False
+
+    def test_a_turn_on_a_device_that_is_on_is_a_turn(self):
+        """A setpoint neither held before nor written is a turn at the device."""
+        trv = self._pressed_trv(before=HVACMode.HEAT)
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 25.0},
+            real_trvs={"climate.trv1": trv},
+        )
+        assert _setpoint_turned_during_cycle(mock_self, "climate.trv1") is True
+
+    @pytest.mark.asyncio
+    async def test_an_open_window_switches_off_a_device_switched_on_meanwhile(self):
+        """An open window writes off over a device switched on during the cycle."""
+        trv = self._pressed_trv(before=HVACMode.OFF)
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            window_open=True,
+            real_trvs={"climate.trv1": trv},
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            assert await control_trv(mock_self, "climate.trv1") is True
+
+        mock_set_hvac.assert_called_once()
+        assert mock_set_hvac.call_args[0][2] == HVACMode.OFF
