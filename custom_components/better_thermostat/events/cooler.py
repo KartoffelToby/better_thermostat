@@ -18,7 +18,6 @@ from custom_components.better_thermostat.utils.helpers import (
     dual_role_entity_id,
     last_sent_cooler_temperature,
     on_cooler_grid,
-    published_setpoint_grid,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
@@ -101,11 +100,7 @@ async def trigger_cooler_change(
         return
 
     _main_change = False
-    _step = published_setpoint_grid(
-        device_setpoint_step(self, new_state, "trigger_cooler_change()"),
-        new_state,
-        self.hass.config.units.temperature_unit,
-    )
+    _step = device_setpoint_step(self, new_state, "trigger_cooler_change()")
     # The previous state only answers whether the cooler was publishing a
     # setpoint at all, so it is read without clamping or echo detection.
     _old_cooling_setpoint = read_setpoint_celsius(

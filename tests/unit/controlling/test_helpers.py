@@ -1095,32 +1095,6 @@ class TestReconcileTolerance:
         )
         assert tolerance == pytest.approx(0.25, abs=1e-5)
 
-    def test_a_state_in_whole_fahrenheit_degrees_allows_their_rounding(self):
-        """71.5 °F commanded and 72 °F reported is the device holding the command.
-
-        A head working in Celsius publishes a half-degree step that reads as
-        half a degree Fahrenheit, and Home Assistant rounds its setpoint to a
-        whole degree on the way out.
-        """
-        state = State(
-            "climate.trv",
-            "heat",
-            {
-                "min_temp": 39,
-                "max_temp": 87,
-                "current_temperature": 68,
-                "temperature": 72,
-                "target_temp_step": 0.5,
-            },
-        )
-        tolerance = _reconcile_tolerance(
-            self._mock_self(UnitOfTemperature.FAHRENHEIT), state
-        )
-        commanded = (71.5 - 32.0) * 5.0 / 9.0
-        reported = round((72.0 - 32.0) * 5.0 / 9.0, 2)
-        assert abs(commanded - reported) <= tolerance
-        assert tolerance < 5.0 / 9.0
-
 
 # ---------------------------------------------------------------------------
 # advance_hvac_action

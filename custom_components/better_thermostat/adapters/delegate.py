@@ -14,6 +14,8 @@ from homeassistant.helpers.importlib import async_import_module
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.utils.helpers import (
+    published_in_whole_fahrenheit,
+    published_setpoint_grid,
     round_by_step,
     sibling_disabled_at_write,
 )
@@ -195,6 +197,46 @@ async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> float
     return await _adapter(self, entity_id).get_max_calibration_offset(self, entity_id)
 
 
+def setpoint_write_step(self: BetterThermostat, entity_id: str) -> float:
+    """Return the step, as a °C delta, a setpoint is written to the TRV on.
+
+    Step precedence: per-TRV > global config > default 0.5. Both sources
+    hold a Celsius step, matching the Celsius temperature being rounded; the
+    device's raw attribute carries the device's unit and is therefore not a
+    candidate here. A TRV Home Assistant publishes in whole degrees
+    Fahrenheit is written on whole degrees: those are the only setpoints it
+    reports back as written.
+    """
+    trv = self.real_trvs.get(entity_id)
+    per_trv_step = trv.target_temp_step if trv is not None else None
+    global_cfg_step = self.bt_target_temperature_step
+    if global_cfg_step in (0, 0.0):
+        global_cfg_step = None
+    step = float(per_trv_step or global_cfg_step or 0.5)
+    return published_setpoint_grid(
+        step, self.hass.states.get(entity_id), self.hass.config.units.temperature_unit
+    )
+
+
+def setpoint_on_published_grid(
+    self: BetterThermostat, entity_id: str, temperature: float
+) -> float:
+    """Return ``temperature`` as :func:`set_temperature` writes it to a TRV in whole °F.
+
+    A TRV Home Assistant publishes in whole degrees Fahrenheit reports a
+    setpoint back on those degrees, so a comparison with its report has to
+    use the whole degree the write goes out on. Any other TRV's setpoint is
+    returned unchanged.
+    """
+    state = self.hass.states.get(entity_id)
+    if not published_in_whole_fahrenheit(
+        state, self.hass.config.units.temperature_unit
+    ):
+        return temperature
+    on_grid = round_by_step(temperature, setpoint_write_step(self, entity_id))
+    return temperature if on_grid is None else on_grid
+
+
 async def set_temperature(
     self: BetterThermostat, entity_id: str, temperature: float | str | None
 ) -> None:
@@ -232,17 +274,8 @@ async def set_temperature(
     # Initialize step with default value
     step = 0.5
     try:
-        # Step precedence: per-TRV > global config > default 0.5. Both sources
-        # hold a Celsius step, matching the Celsius temperature being rounded;
-        # the device's raw attribute carries the device's unit and is therefore
-        # not a candidate here.
-        trv = self.real_trvs.get(entity_id)
-        per_trv_step = trv.target_temp_step if trv is not None else None
-        global_cfg_step = self.bt_target_temperature_step
-        if global_cfg_step in (0, 0.0):
-            global_cfg_step = None
-        step = per_trv_step or global_cfg_step or 0.5
-        stepped = round_by_step(float(t), float(step))
+        step = setpoint_write_step(self, entity_id)
+        stepped = round_by_step(float(t), step)
         # The rounding answers None only for a missing argument.
         rounded = t if stepped is None else stepped
     except TypeError, ValueError, OverflowError:

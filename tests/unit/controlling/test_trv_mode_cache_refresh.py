@@ -863,42 +863,6 @@ class TestALockedPressHeldDuringACycle:
 
         request.assert_not_called()
 
-    @pytest.mark.parametrize(
-        ("published", "requested"),
-        [
-            pytest.param(72.0, False, id="the_write_rounded_up"),
-            pytest.param(71.0, False, id="the_write_rounded_down"),
-            pytest.param(73.0, True, id="a_press_a_degree_further"),
-        ],
-    )
-    def test_a_write_published_in_whole_fahrenheit_degrees_is_no_press(
-        self, thermostat, published, requested
-    ):
-        """A locked head publishing 71.5 °F as a whole degree holds the write.
-
-        The head works in Celsius and states no precision, so Home Assistant
-        rounds its setpoint to a whole degree Fahrenheit on the way out, and
-        its half-degree step reads as half a degree Fahrenheit.
-        """
-        thermostat.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
-        trv = self._lock(thermostat)
-        trv.target_temp_step = 0.5 * 5.0 / 9.0
-        trv.commanded_setpoint = (71.5 - 32.0) * 5.0 / 9.0
-        trv.remember_setpoint_confirmed(trv.commanded_setpoint)
-        state = State(
-            ENTITY_ID,
-            "heat",
-            attributes={
-                "min_temp": 39,
-                "max_temp": 87,
-                "current_temperature": 64,
-                "temperature": published,
-                "hvac_modes": OFFERED_MODES,
-            },
-        )
-
-        assert _locked_device_moved(thermostat, ENTITY_ID, trv, state) is requested
-
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("pressed_to", "requested"),

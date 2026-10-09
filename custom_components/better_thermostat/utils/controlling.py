@@ -39,6 +39,7 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_hvac_mode,
     set_temperature,
     set_valve,
+    setpoint_on_published_grid,
     valve_channel_available,
 )
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
@@ -72,7 +73,6 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
-    SETPOINT_MATCH_TOLERANCE,
     TRV_SETPOINT_KEYS,
     CoolerCommand,
     CoolerFailureRun,
@@ -90,8 +90,6 @@ from custom_components.better_thermostat.utils.helpers import (
     matches_any_setpoint,
     normalize_step,
     on_cooler_grid,
-    published_setpoint_grid,
-    published_setpoint_slack,
     read_bound_celsius,
     read_setpoint_celsius,
     setpoint_echo_window,
@@ -506,18 +504,13 @@ def _reconcile_tolerance(self: BetterThermostat, state: State) -> float:
 
     Devices snap a written setpoint onto their own reported grid; a
     snapped value sits at most half a step away from the commanded one.
-    The base tolerance covers devices that report no usable step. A
-    state published in whole degrees Fahrenheit carries the setpoint rounded
-    to one of them, up to half a degree from the commanded one, whatever
-    the step.
+    The base tolerance covers devices that report no usable step.
     """
-    published = published_setpoint_slack(state, self.hass.config.units.temperature_unit)
-    base = max(RECONCILE_TOLERANCE_K, published + SETPOINT_MATCH_TOLERANCE)
     step = convert_to_float(
         str(state.attributes.get("target_temp_step")), self.device_name, "reconcile()"
     )
     if step is None or step <= 0:
-        return base
+        return RECONCILE_TOLERANCE_K
     unit = state_temperature_unit(
         state.attributes, self.hass.config.units.temperature_unit
     )
@@ -525,7 +518,7 @@ def _reconcile_tolerance(self: BetterThermostat, state: State) -> float:
     if unit == UnitOfTemperature.FAHRENHEIT:
         step = step * 5.0 / 9.0
     # Slack against float noise when the difference is exactly half a step.
-    return max(base, step / 2.0 + 1e-6)
+    return max(RECONCILE_TOLERANCE_K, step / 2.0 + 1e-6)
 
 
 def _calibration_match_tolerance(self: BetterThermostat, entity_id: str) -> float:
@@ -1233,8 +1226,6 @@ def _locked_device_moved(
     known_values = [value for value in known if value is not None]
     if reported is None or not known_values:
         return False
-    # The grid the report moves on, once Home Assistant rounded it.
-    step = published_setpoint_grid(step, state, self.hass.config.units.temperature_unit)
     window = setpoint_echo_window(step)
     return all(abs(reported - value) >= window for value in known_values)
 
@@ -2548,6 +2539,13 @@ async def control_trv(
                     snapshot, entity_id, setpoint=_raw_temperature
                 ).setpoint
                 _safety_overrode_setpoint = _temperature != _raw_temperature
+                # A TRV published in whole degrees Fahrenheit is written on
+                # them and reports them back, so that value is the one
+                # compared with its report.
+                if _temperature is not None:
+                    _temperature = setpoint_on_published_grid(
+                        self, entity_id, _temperature
+                    )
             if _temperature is not None and (
                 _new_hvac_mode != HVACMode.OFF or _trv_has_no_off
             ):
@@ -2779,14 +2777,7 @@ async def check_target_temperature(
         if not _current_set_temperatures:
             _timeout = 0
             break
-        if matches_any_setpoint(
-            _awaited_setpoint,
-            _current_set_temperatures,
-            SETPOINT_MATCH_TOLERANCE
-            + published_setpoint_slack(
-                _trv_state, self.hass.config.units.temperature_unit
-            ),
-        ):
+        if matches_any_setpoint(_awaited_setpoint, _current_set_temperatures):
             trv.remember_setpoint_confirmed(_awaited_setpoint, _awaited_write_id)
             _timeout = 0
             break

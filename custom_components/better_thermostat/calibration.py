@@ -84,6 +84,7 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     heating_power_valve_position,
     normalize_step,
+    published_setpoint_grid,
     round_by_step,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidData
@@ -1535,8 +1536,14 @@ def calculate_calibration_setpoint(
 
     # The step is the grid the setpoint is rounded to, so it is kept as the
     # device states it: a 1 °F step on the 0.01 grid of a reading, 0.56 K,
-    # drifts off whole degrees Fahrenheit within a few steps.
-    _trv_temperature_step = normalize_step(self.real_trvs[entity_id].target_temp_step)
+    # drifts off whole degrees Fahrenheit within a few steps. A TRV published
+    # in whole degrees Fahrenheit is written on them, so the rounding toward
+    # the heating direction lands on the grid the write goes out on.
+    _trv_temperature_step = published_setpoint_grid(
+        normalize_step(self.real_trvs[entity_id].target_temp_step),
+        self.hass.states.get(entity_id),
+        self.hass.config.units.temperature_unit,
+    )
 
     if _cur_trv_temperature is None:
         return None
