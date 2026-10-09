@@ -467,9 +467,7 @@ def test_every_mpc_stamp_ahead_of_the_clock_is_taken_as_absent():
     the clock stepped back; one cycle later none lies ahead of the clock.
     """
     ahead = _WALL_START_S + 86400.0
-    state = MpcState(
-        last_percent=100.0, last_cycle_temperature=20.0, last_trv_temperature=21.0
-    )
+    state = MpcState(last_percent=100.0, last_trv_temperature=21.0)
     for name in _wall_fields(MpcState):
         setattr(state, name, ahead)
 
