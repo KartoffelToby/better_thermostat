@@ -273,6 +273,7 @@ from .utils.valve_maintenance import (
 from .utils.watcher import (
     STARTUP_CRITICAL_GRACE_PERIOD,
     STARTUP_DEGRADED_GRACE_PERIOD,
+    BatteryReading,
     await_critical_entities,
     await_optional_sensors,
     check_and_update_degraded_mode,
@@ -398,7 +399,7 @@ def _seed_contact_region_at_startup(
     """
     if entity_id is None:
         return WindowState()
-    self.all_entities.append(entity_id)
+    self.all_entities[entity_id] = None
     state = self.hass.states.get(entity_id)
 
     if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
@@ -1032,7 +1033,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             State class of the climate entity.
         """
         self.real_trvs: dict[str, Trv] = {}
-        self.entity_ids = []
+        self.entity_ids: list[str] = []
         self.all_trvs: list[TrvSettings] = trv_configs
         # Static configuration and live runtime values each get a container;
         # the flat attribute names delegate into them via properties.
@@ -1129,14 +1130,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # Heat loss tracking (idle cooling rate)
         self.heat_loss_rate = 0.01
         self._async_unsub_state_changed: CALLBACK_TYPE | None = None
-        self.all_entities = []
-        self.devices_states = {}
+        # Every configured entity, each once, in the order it was registered;
+        # the battery scan visits them in that order.
+        self.all_entities: dict[str, None] = {}
+        self.devices_states: dict[str, BatteryReading] = {}
         # Monotonic time per entity before which its battery entity, having
         # reported no level, is not read again.
         self._next_battery_read: dict[str, float] = {}
-        self.devices_errors = []
+        self.devices_errors: list[str] = []
         # Degraded mode: thermostat continues operating with some sensors unavailable
-        self.unavailable_sensors = []
+        self.unavailable_sensors: list[str] = []
         # Startup grace period suppresses the degraded-mode WARNING and the HA
         # repair issue while slow integrations finish initializing.
         self._degraded_grace_until: datetime | None = None
@@ -1830,7 +1833,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # to be initialised when it reports again.
             for entity_id in self._unavailable_trvs():
                 self.real_trvs[entity_id].awaiting_initialization = True
-                self.all_entities.append(entity_id)
+                self.all_entities[entity_id] = None
             states = self._collect_trv_states()
             self._resolve_temperature_range(states)
             self._initialize_sensors(sensor_state)
@@ -2090,7 +2093,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     def _initialize_sensors(self, sensor_state: State | None) -> None:
         """Set up room temperature, humidity, window and door sensors."""
-        self.all_entities.append(self.sensor_entity_id)
+        if self.sensor_entity_id is not None:
+            self.all_entities[self.sensor_entity_id] = None
 
         # Handle room temperature sensor with TRV fallback
         room_candidate = room_sensor_reading(self, sensor_state)
@@ -2147,7 +2151,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if self.humidity_sensor_entity_id is None:
             self._current_humidity = None
         else:
-            self.all_entities.append(self.humidity_sensor_entity_id)
+            self.all_entities[self.humidity_sensor_entity_id] = None
             _hum_state = self.hass.states.get(self.humidity_sensor_entity_id)
             if _hum_state is None:
                 _LOGGER.warning(
@@ -2569,8 +2573,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             ]
         for entity_id in entity_ids:
             trv = self.real_trvs[entity_id]
-            if entity_id not in self.all_entities:
-                self.all_entities.append(entity_id)
+            self.all_entities[entity_id] = None
             _LOGGER.debug(
                 "better_thermostat %s: initializing TRV %s", self.device_name, entity_id
             )
@@ -3019,19 +3022,18 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # device has to be registered before it runs. The cooler and the
         # outdoor sensor are the two that no earlier init step registers.
         if self.cooler_entity_id is not None:
-            self.all_entities.append(self.cooler_entity_id)
+            self.all_entities[self.cooler_entity_id] = None
         if self.outdoor_sensor_entity_id is not None:
-            self.all_entities.append(self.outdoor_sensor_entity_id)
+            self.all_entities[self.outdoor_sensor_entity_id] = None
 
         # try to find battery entities for all related entities
         for entity in self.all_entities:
-            if entity is not None:
-                battery_id = await find_battery_entity(self, entity)
-                if battery_id is not None:
-                    self.devices_states[entity] = {
-                        "battery_id": battery_id,
-                        "battery": None,
-                    }
+            battery_id = await find_battery_entity(self, entity)
+            if battery_id is not None:
+                self.devices_states[entity] = {
+                    "battery_id": battery_id,
+                    "battery": None,
+                }
 
         if self.is_removed:
             return

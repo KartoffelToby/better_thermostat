@@ -124,7 +124,7 @@ def bt():
     mock.humidity_sensor_entity_id = None
     mock.window_sensor_entity_id = None
     mock.door_sensor_entity_id = None
-    mock.all_entities = []
+    mock.all_entities = {}
     mock.unavailable_sensors = []
     mock.degraded_mode = False
     mock.bt_min_temp = 5.0
@@ -2642,7 +2642,7 @@ class TestStartupControlSync:
         sync before the flip would silently write nothing.
         """
         bt.is_removed = False
-        bt.all_entities = []
+        bt.all_entities = {}
         bt.all_trvs = None
         gate_states = []
 
@@ -3161,7 +3161,19 @@ class TestFinalizeStartupBatteryScan:
         scanned = await self._scan(bt)
 
         assert scanned == []
-        assert bt.all_entities == []
+        assert bt.all_entities == {}
+
+    @pytest.mark.asyncio
+    async def test_a_device_registered_twice_is_scanned_once(self, bt):
+        """One sensor configured for two roles is asked for its battery once."""
+        bt.cooler_entity_id = None
+        bt.outdoor_sensor_entity_id = OUTDOOR_ID
+        bt.all_entities = dict.fromkeys([OUTDOOR_ID])
+        bt.devices_states = {}
+
+        scanned = await self._scan(bt)
+
+        assert scanned == [OUTDOOR_ID]
 
 
 # ---------------------------------------------------------------------------
@@ -3517,7 +3529,7 @@ class TestStartupWithoutAnUnavailableTrv:
                 entity_id=TRV_ID_2, calibration=1, awaiting_initialization=True
             ),
         }
-        bt.all_entities = [TRV_ID, TRV_ID_2]
+        bt.all_entities = dict.fromkeys([TRV_ID, TRV_ID_2])
         bt.hass.states.get.side_effect = lambda entity_id: _make_trv_state(
             entity_id=entity_id
         )
@@ -3530,7 +3542,7 @@ class TestStartupWithoutAnUnavailableTrv:
 
         assert [call.args[1] for call in init.await_args_list] == [TRV_ID_2]
         assert bt.real_trvs[TRV_ID_2].hvac_mode == "heat"
-        assert bt.all_entities == [TRV_ID, TRV_ID_2]
+        assert list(bt.all_entities) == [TRV_ID, TRV_ID_2]
 
 
 def _room_with_a_trv_left_behind(bt, *, available: bool):

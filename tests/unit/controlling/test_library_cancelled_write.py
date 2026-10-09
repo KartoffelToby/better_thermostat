@@ -212,7 +212,7 @@ async def test_a_tweak_the_library_cancelled_fails_that_trv_not_the_startup():
     bt.hass.states.get.return_value = State(
         ENTITY_ID, "heat", {"min_temp": 5.0, "max_temp": 30.0, "temperature": 21.0}
     )
-    bt.all_entities = []
+    bt.all_entities = {}
     bt.cooler_entity_id = None
     bt.bt_target_temperature_step = None
     bt._configured_temperature_step = None

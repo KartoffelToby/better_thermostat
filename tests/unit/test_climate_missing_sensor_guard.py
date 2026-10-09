@@ -35,7 +35,7 @@ def _bt_without_sensor():
     mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, advanced={})}
     mock.entity_ids = [TRV_ID]
     mock.all_trvs = None
-    mock.all_entities = []
+    mock.all_entities = {}
     mock.sensor_entity_id = None
     mock.humidity_sensor_entity_id = None
     mock.window_sensor_entity_id = None

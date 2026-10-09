@@ -243,7 +243,7 @@ def _startup_bt(advanced):
     mock.real_trvs = {"climate.trv": Trv(entity_id="climate.trv", advanced=advanced)}
     mock.entity_ids = ["climate.trv"]
     mock.all_trvs = None
-    mock.all_entities = []
+    mock.all_entities = {}
     mock.sensor_entity_id = "sensor.room_temp"
     mock.humidity_sensor_entity_id = None
     mock.window_sensor_entity_id = None

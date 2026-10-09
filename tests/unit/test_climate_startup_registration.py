@@ -74,7 +74,7 @@ def _startup_bt(**overrides):
     mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, advanced=config.pop("advanced"))}
     mock.entity_ids = [TRV_ID]
     mock.all_trvs = None
-    mock.all_entities = []
+    mock.all_entities = {}
     mock._async_unsub_state_changed = None
     mock._trigger_time = AsyncMock()
     mock._trigger_check_weather = AsyncMock()
