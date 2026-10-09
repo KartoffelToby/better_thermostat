@@ -38,10 +38,10 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # Words a contact sensor may use for a confirmed open/closed reading.
-OPEN_WORDS: Final = ("on", "true", "open")
-CLOSED_WORDS: Final = ("off", "false", "closed")
+OPEN_WORDS: Final = frozenset({"on", "true", "open"})
+CLOSED_WORDS: Final = frozenset({"off", "false", "closed"})
 # A non-active sensor is not a reading, but it is a recognized state.
-INACTIVE_WORDS: Final = ("unknown", "unavailable")
+INACTIVE_WORDS: Final = frozenset({"unknown", "unavailable"})
 
 
 def _window_region(state: KernelState) -> WindowState:

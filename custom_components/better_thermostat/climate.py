@@ -108,6 +108,7 @@ from .entity import (
     announce_learned_state,
     publish_when_availability_changed,
 )
+from .events.contact import OPEN_WORDS
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
@@ -408,7 +409,7 @@ def _seed_contact_region_at_startup(
         )
         return WindowState()
 
-    is_open = state.state in ("on", "true", "open")
+    is_open = state.state in OPEN_WORDS
     _LOGGER.debug(
         "better_thermostat %s: detected %s state at startup: %s",
         self.device_name,
