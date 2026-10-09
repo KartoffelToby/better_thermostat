@@ -412,22 +412,19 @@ spellings in `glossary.toml`, a leading underscore included (`_offset` spells
 `offset`), and the words between their underscores against its `[[word]]` and
 `[[modifier]]` rejections, and CI runs it. Unit suffixes are SI symbols the
 control-theory notation writes, so they are not judged under its
-`notation-paths`, nor where other code reads a name the notation spells. The
-tree carries no rejected spelling, so a single one fails the check:
+`notation-paths`, nor where other code reads a name the notation spells. Every
+rejected spelling fails the check:
 
 ```bash
 uv run python scripts/check_naming.py list <path>    # what a file carries
 uv run python scripts/check_naming.py check          # what CI runs
 ```
 
-A new term can reject a spelling the tree still uses. Its pull request then
-records that backlog per file with `update --allow-raise`, which writes
-`.naming-budget.json`: a file may not exceed its number, and a file that is not
-in the budget may not carry one at all. The old spellings come out in their own
-pull requests, each of which runs `update` to record the lower count, and the
-file deletes itself once the last one is gone. `update` refuses to record a
-count that grew without `--allow-raise`, which is also the flag for a file that
-moved and took its backlog along.
+The tree carries no backlog, so there is no `.naming-budget.json`. The one way
+to bring it back is a new term that rejects a spelling the tree still uses: its
+pull request records that backlog per file with `update --allow-raise`, the old
+spellings come out in their own pull requests, each running `update` to record
+the lower count, and the file deletes itself once the last one is gone.
 
 The two halves are checked by different tools. `check_naming.py` reads vocabulary
 and says nothing about case; `ruff check` reads case and shape through its `N`

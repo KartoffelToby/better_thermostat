@@ -92,7 +92,7 @@ def test_heating_power_adapter_matches_production(
     actual = _adapter_valve_percent(temperature_difference_K, heating_power)
     assert actual == pytest.approx(expected, abs=1e-9), (
         f"heating-power adapter drifted from production at "
-        f"temp_diff={temperature_difference_K} K, heating_power={heating_power}: "
+        f"temperature_difference={temperature_difference_K} K, heating_power={heating_power}: "
         f"adapter={actual:.6f}%, production={expected:.6f}%"
     )
 
