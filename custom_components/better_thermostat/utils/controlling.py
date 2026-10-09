@@ -399,6 +399,19 @@ def _stamp_heartbeat(self: BetterThermostat) -> None:
     )
 
 
+# The calibration modes whose balance can drive the valve directly. Such a
+# balance is reported under the mode's own name as its source.
+_VALVE_BALANCE_MODES: Final[frozenset[CalibrationMode]] = frozenset(
+    {
+        CalibrationMode.MPC_CALIBRATION,
+        CalibrationMode.MPC_V2_CALIBRATION,
+        CalibrationMode.TPI_CALIBRATION,
+        CalibrationMode.PID_CALIBRATION,
+        CalibrationMode.HEATING_POWER_CALIBRATION,
+    }
+)
+
+
 def _get_valve_control(
     self: BetterThermostat,
     snapshot: WorldSnapshot,
@@ -432,22 +445,12 @@ def _get_valve_control(
     # Try calibration balance from various calibration modes
     cal_bal = self.real_trvs[entity_id].calibration_balance
     if (
-        isinstance(cal_bal, dict)
+        cal_bal is not None
         and cal_bal.get("apply_valve")
         and cal_bal.get("valve_percent") is not None
+        and calibration_mode in _VALVE_BALANCE_MODES
     ):
-        source_map: dict[CalibrationMode, str] = {
-            CalibrationMode.MPC_CALIBRATION: "mpc_calibration",
-            CalibrationMode.MPC_V2_CALIBRATION: "mpc_v2_calibration",
-            CalibrationMode.TPI_CALIBRATION: "tpi_calibration",
-            CalibrationMode.PID_CALIBRATION: "pid_calibration",
-            CalibrationMode.HEATING_POWER_CALIBRATION: "heating_power_calibration",
-        }
-        source = (
-            source_map.get(calibration_mode) if calibration_mode is not None else None
-        )
-        if source:
-            return cal_bal, source
+        return cal_bal, calibration_mode.value
 
     return None, None
 
