@@ -14,6 +14,20 @@ or click on the button below:
 
 ## Configuration
 
+## Renaming an entity Better Thermostat uses
+
+When you give one of the entities a Better Thermostat uses a new entity
+id in Home Assistant, whether a thermostat, the cooling device or one of
+the sensors, Better Thermostat updates its configuration to the new id and
+reloads. A renamed thermostat keeps its advanced options, its own
+entities (the PID numbers, the auto-tune and child lock switches, the
+valve cap) with their entity ids and history, and what the calibration has
+learned for it. Nothing has to be changed in the options.
+
+A thermostat you remove from a Better Thermostat leaves no learned state
+behind. Adding a device under the same entity id later starts it from the
+defaults.
+
 ## First step
 
 ![first step](../assets/setup_1.png)

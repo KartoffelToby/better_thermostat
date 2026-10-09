@@ -49,6 +49,26 @@ the store. It works per field: each old entity attribute (temperature
 EMA, slope, heating power, heat loss) is read only when the store holds
 no value for that field.
 
+## Keys follow the thermostat
+
+Controller state is keyed `<unique_id>:<segment>:t<bucket>`: the entry's
+unique id, the thermostat's entity id (or `group` for state the room's
+thermostats share), and the 0.5 °C target bucket. Because the entity id is
+part of the key, two rules keep the state attached to the device rather
+than to the id:
+
+- When the user gives a configured thermostat a new entity id, every key
+  that names the old id moves to the new one, in each section (PID, MPC,
+  MPC v2 and its re-identification results, TPI), before the entry
+  reloads under the new id. A loaded entry moves the state it holds in
+  memory, which its unload then saves; an entry that is not loaded moves
+  the stored state directly. The thermostat's own entities move their
+  registry rows to unique ids built from the new id as well.
+- At load, after the legacy-store import, every key whose segment is
+  neither a configured thermostat nor `group` is dropped. State learned
+  for a removed thermostat would otherwise come back for whichever device
+  is given its entity id next.
+
 ## Poison resistance
 
 Persisted state is treated as untrusted input, absorbed at three
