@@ -2686,6 +2686,46 @@ class TestTargetTempAdoption:
 
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
 
+    @pytest.mark.parametrize(
+        ("room_mode", "commanded", "reported", "ignore_trv_states"),
+        [
+            pytest.param(HVACMode.HEAT, 5.0, 5.0, False, id="own_minimum_echoed"),
+            pytest.param(HVACMode.HEAT, 19.0, 5.0, True, id="ignored_turn_down"),
+            pytest.param(HVACMode.OFF, 5.0, 20.0, True, id="ignored_turn_up"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_no_off_system_mode_keeps_the_room_mode_on_a_report_that_is_no_press(
+        self, mock_bt, room_mode, commanded, reported, ignore_trv_states
+    ):
+        """A setpoint BT wrote itself, or one reported while BT ignores the device, keeps the mode."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["no_off_system_mode"] = True
+        trv.min_temp = 5.0
+        trv.commanded_setpoint = commanded
+        trv.ignore_trv_states = ignore_trv_states
+        mock_bt.bt_hvac_mode = room_mode
+        old_state = _make_state(
+            attributes={"temperature": commanded, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": reported, "current_temperature": 18.2}
+        )
+        mock_bt.hass.states.get.return_value = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.2, "temperature": reported},
+        )
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == room_mode
+
     @pytest.mark.asyncio
     async def test_a_routine_no_off_report_in_a_room_with_a_cooler_requests_no_cycle(
         self, mock_bt
