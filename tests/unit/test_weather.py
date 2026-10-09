@@ -239,8 +239,9 @@ class TestCheckWeatherPrediction:
 
     async def test_forecast_entry_without_string_unit_uses_entity_unit(self):
         """A forecast entry whose unit is not a string reads in the entity's unit."""
-        # 32 °F == 0 °C, below the threshold; 50 °F == 10 °C is not.
-        states = {WEATHER_ID: weather_state(temperature=50.0, unit="°F")}
+        # 32 °F == 0 °C is below the threshold; 32 °C is not, and neither is
+        # the current 68 °F == 20 °C.
+        states = {WEATHER_ID: weather_state(temperature=68.0, unit="°F")}
         hass = make_hass(states=states)
         response = forecast_resp(WEATHER_ID, [32.0, 32.0])
         for entry in response[WEATHER_ID]["forecast"]:
@@ -1491,12 +1492,13 @@ class TestWeatherDamping:
         """The weather history carries summer mode across a restart.
 
         The damped temperature ends inside the band (14 to 15 °C against
-        15 °C) after coming down from 20 °C. With an outdoor sensor the
-        weather history does not decide, and the fresh entity keeps heating.
+        15 °C) after coming down from 20 °C, and the forecast mean sits at
+        the threshold. With an outdoor sensor the weather history does not
+        decide, and the fresh entity keeps heating.
         """
         bt = self._weather_bt(
             14.5,
-            daily_forecast(WEATHER_ID, [(16.0, 13.0)]),
+            daily_forecast(WEATHER_ID, [(17.0, 13.0)]),
             components={"recorder"},
             outdoor_sensor_entity_id=outdoor_sensor_entity_id,
         )
@@ -1512,6 +1514,78 @@ class TestWeatherDamping:
             await check_weather_prediction(bt)
         assert 14.0 < bt.damped_weather_temperature < 15.0
         assert bt.call_for_heat is expected
+
+    async def test_a_restart_keeps_heating_that_the_forecast_calls_for(self):
+        """The history holds no forecasts, so it cannot end the heating they keep.
+
+        A running entity heats on a 14.5 °C forecast mean against 15 °C
+        although the damped temperature is 16 °C. After a restart the history
+        alone would put it in summer mode, where the band confirms it.
+        """
+        bt = self._weather_bt(
+            16.0, daily_forecast(WEATHER_ID, [(17.0, 12.0)]), components={"recorder"}
+        )
+        items = [weather_history_item(16.0, NOW - timedelta(hours=72))]
+        with patch(f"{WEATHER_MOD}.get_instance") as gi:
+            gi.return_value.async_add_executor_job = AsyncMock(
+                return_value={WEATHER_ID: items}
+            )
+            assert await check_weather_prediction(bt) is True
+        assert bt.damped_weather_temperature == pytest.approx(16.0)
+        assert bt.call_for_heat is True
+
+    async def test_a_current_temperature_in_fahrenheit_is_converted(self):
+        """41 °F is 5 °C and heats against 10 °C; read as °C it would not."""
+        states = {WEATHER_ID: weather_state(temperature=41.0, unit="°F")}
+        hass = make_hass(states=states)
+        hass.services.async_call = AsyncMock(
+            return_value=forecast_resp(WEATHER_ID, [86.0], unit="°F")
+        )
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
+        assert await check_weather_prediction(bt) is True
+        assert bt.damped_weather_temperature == pytest.approx(5.0)
+
+    async def test_a_recorded_state_reads_in_its_own_unit(self):
+        """A state recorded in °F is converted, although the entity reports °C now."""
+        bt = self._weather_bt(
+            5.0, forecast_resp(WEATHER_ID, [30.0]), components={"recorder"}
+        )
+        items = [weather_history_item(41.0, NOW - timedelta(hours=72), unit="°F")]
+        with patch(f"{WEATHER_MOD}.get_instance") as gi:
+            gi.return_value.async_add_executor_job = AsyncMock(
+                return_value={WEATHER_ID: items}
+            )
+            await check_weather_prediction(bt)
+        assert bt.damped_weather_temperature == pytest.approx(5.0)
+
+    async def test_a_check_during_the_history_read_waits_for_it(self):
+        """A weather check that starts during the history read queues behind it.
+
+        Without waiting it would start the filter at the warm live reading and
+        stop the heating the cold history calls for.
+        """
+        bt = self._weather_bt(
+            20.0, forecast_resp(WEATHER_ID, [30.0]), components={"recorder"}
+        )
+        cold = [weather_history_item(2.0, NOW - timedelta(hours=72))]
+        read_started = asyncio.Event()
+        release_read = asyncio.Event()
+
+        async def query(*_args):
+            read_started.set()
+            await release_read.wait()
+            return {WEATHER_ID: cold}
+
+        with patch(f"{WEATHER_MOD}.get_instance") as gi:
+            gi.return_value.async_add_executor_job = query
+            reading = asyncio.create_task(check_weather_prediction(bt))
+            await read_started.wait()
+            overlapping = asyncio.create_task(check_weather_prediction(bt))
+            await asyncio.sleep(0)
+            assert bt.weather_source.damping is None
+            release_read.set()
+            assert await asyncio.gather(reading, overlapping) == [True, True]
+        assert bt.damped_weather_temperature == pytest.approx(2.0)
 
     async def test_a_recorded_state_without_a_temperature_is_skipped(self):
         bt = self._weather_bt(

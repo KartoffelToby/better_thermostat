@@ -43,13 +43,15 @@ room heats while either one is below the threshold:
 
 - **The damped current temperature.** The entity's current temperature passes through the same
   running average as an outdoor sensor's readings, filled from its recorded history at startup.
-  A cold night therefore does not resume heating in May, and a warm afternoon does not stop it
-  in October.
+  A cold night reading therefore does not resume heating in May, and a warm afternoon does not
+  stop it in October.
 - **The forecast for roughly the next two days.** A daily forecast gives each day's high and low;
   their mean stands for the day. Hourly and twice-daily forecasts are averaged as they come.
 
 The first lets a cold building heat although warm days are forecast; the second resumes heating
-early when a cold spell is coming. Better Thermostat checks once an hour. If the weather entity
+early when a cold spell is coming. Both stand for whole days, nights included, so they stay well
+below the afternoon high: a May day forecast at 24 °C by day and 9 °C at night counts as 16.5 °C.
+Choose the threshold with daily means in mind. Better Thermostat checks once an hour. If the weather entity
 gives no forecast for three hours, the room heats until it does again.
 
 When both are configured, the outdoor sensor decides and the weather entity is ignored.
@@ -71,7 +73,8 @@ the threshold therefore does not switch the thermostats on and off repeatedly.
   when it ends.
 - **The diagnostics download.** Its `summer_mode` section lists the damped temperature of the
   outdoor sensor and of the weather entity, the forecast mean, the last reading of each and when
-  it arrived, the threshold the room is held against, and whether the recorded history was read. Attach it when you report a problem with summer mode.
+  it arrived, the threshold the room is held against, and whether the recorded history was read.
+  Attach it when you report a problem with summer mode.
 - **The debug log.** With debug logging enabled, every check logs the damped outdoor
   temperature and the temperature below which the room heats.
 

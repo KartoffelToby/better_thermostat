@@ -294,6 +294,8 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
                     partial(_weather_reading, self, entity_temperature_unit),
                     attribute_changes=True,
                     decides=self.outdoor_sensor_entity_id is None,
+                    heats_regardless=forecast_mean is not None
+                    and forecast_mean < self.off_temperature,
                 )
             self.damped_weather_temperature = damped_current
 
@@ -424,11 +426,14 @@ async def _damp_live_reading(
     *,
     attribute_changes: bool,
     decides: bool,
+    heats_regardless: bool = False,
 ) -> float | None:
     """Fill ``source`` from history once, add the current reading, return the value.
 
     ``reading_of`` turns a state of ``entity_id`` into °C. With ``decides``
     the summer-mode decision the history reached replaces ``call_for_heat``.
+    The history holds only this source's readings, so ``heats_regardless``
+    keeps a room heating that another input heats now.
     Returns the damped temperature now, or None without any usable reading.
     Callers hold :func:`outdoor_check_lock`.
     """
@@ -468,7 +473,7 @@ async def _damp_live_reading(
                 if damping is not None:
                     source.damping = damping
                     if decides:
-                        self.call_for_heat = history_call_for_heat
+                        self.call_for_heat = history_call_for_heat or heats_regardless
 
     reading = reading_of(current)
     if reading is not None:
