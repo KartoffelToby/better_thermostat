@@ -2,7 +2,8 @@
 
 The service exercises the valves of every head that has valve maintenance
 enabled. On a thermostat where none has, there is nothing to run; the call
-says so instead of returning as if it had worked.
+says so instead of returning as if it had worked. A run the call started
+belongs to the thermostat and ends with it.
 """
 
 import asyncio
