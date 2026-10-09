@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, override
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
@@ -26,6 +26,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationOutput,
     MpcV2PlantPreset,
 )
+from custom_components.better_thermostat.utils.entry_schema import StoredChoice
 from custom_components.better_thermostat.utils.state_manager import (
     MpcV2ReidData,
     RuntimeState,
@@ -132,7 +133,7 @@ def test_deserialize_rejects_malformed_reid_payload() -> None:
 # -- Dispatcher wiring --------------------------------------------------------
 
 
-def _make_trv(entity_id: str, preset: MpcV2PlantPreset) -> Trv:
+def _make_trv(entity_id: str, preset: StoredChoice) -> Trv:
     """Build a Trv configured for MPC v2 calibration with a given preset."""
     return Trv(
         entity_id=entity_id,
@@ -150,7 +151,7 @@ def _make_trv(entity_id: str, preset: MpcV2PlantPreset) -> Trv:
     )
 
 
-def _make_bt(preset: MpcV2PlantPreset = MpcV2PlantPreset.AUTO) -> Any:
+def _make_bt(preset: StoredChoice = MpcV2PlantPreset.AUTO) -> Any:
     """Build a minimal BT-shaped namespace with a real StateManager."""
     return SimpleNamespace(
         real_trvs={"climate.x": _make_trv("climate.x", preset)},
@@ -206,7 +207,14 @@ def test_out_of_band_stored_prior_never_reaches_the_controller() -> None:
     mgr = _make_manager()
     raw = _serialize(RuntimeState())
     raw["mpc_v2_reid"] = {
-        "bt:reid": {"tau_room_min": 5e-324, "gain_heater": 3.0, "fitted_ts": 1000.0}
+        "bt:reid": {
+            "tau_room_min": 5e-324,
+            "gain_heater": 3.0,
+            "fitted_ts": 1000.0,
+            "n_segments": 3,
+            "rmse_prior_K": 0.5,
+            "rmse_fit_K": 0.3,
+        }
     }
     mgr._state = _deserialize(json.loads(json.dumps(raw)))
     assert "bt:reid" not in mgr.state.mpc_v2_reid
@@ -625,7 +633,7 @@ def test_prior_lookup_picks_freshest_legacy_bucket_entry() -> None:
 
 def test_dispatch_reads_an_unknown_stored_preset_as_auto() -> None:
     """A preset this version does not know runs as AUTO and keeps sampling."""
-    bt = _make_bt(preset="retired_preset")  # type: ignore[arg-type]
+    bt = _make_bt(preset="retired_preset")
     bt.real_trvs["climate.x"].last_valve_percent = 37
 
     out, _ = _compute_mpc_v2_balance(bt, "climate.x")
@@ -668,6 +676,7 @@ def _due_fit(bt: Any) -> tuple[str, Any]:
 class _RaisingFuture(_FakeFuture):
     """Future double whose job raised."""
 
+    @override
     def result(self) -> object:
         """Raise what the job raised."""
         raise RuntimeError("fit crashed")

@@ -3,7 +3,7 @@
 import asyncio
 import contextlib
 import importlib
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, create_autospec
 
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
@@ -850,7 +850,7 @@ class TestOverrideSetValveEdges:
     async def test_a_trv_bt_does_not_hold_is_declined(self, writes):
         """Without the TRV's record there is no position to start from."""
         mock_self, _ = _make_valve_self(last_percent=40)
-        mock_self.real_trvs = {}
+        mock_self.real_trvs = dict[str, Trv]()
 
         assert await quirk.override_set_valve(mock_self, ENTITY, 30) is False
         assert writes == []
@@ -886,13 +886,12 @@ class TestOverrideSetValveEdges:
     ):
         """A reference left behind by a closed loop does not stand in for a bump.
 
-        Cancelling a future whose loop is closed raises; the close that
+        Cancelling a task whose loop is closed raises; the close that
         follows is then treated as the first one and bumps again.
         """
-        stale_loop = asyncio.new_event_loop()
-        stale = stale_loop.create_future()
-        stale.add_done_callback(lambda _future: None)
-        stale_loop.close()
+        stale = create_autospec(asyncio.Task, instance=True)
+        stale.done.return_value = False
+        stale.cancel.side_effect = RuntimeError("Event loop is closed")
         mock_self, trv_state = _make_valve_self(last_percent=40)
         trv_state.extra["_trvzb_valve_bump_task"] = stale
 
@@ -928,7 +927,7 @@ class TestTheDeferredValveWrite:
         mock_self, trv_state = _make_valve_self(last_percent=40)
 
         await quirk.override_set_valve(mock_self, ENTITY, 30)
-        mock_self.real_trvs = {}
+        mock_self.real_trvs = dict[str, Trv]()
         await trv_state.extra["_trvzb_valve_bump_task"]
 
         assert writes == [50]
