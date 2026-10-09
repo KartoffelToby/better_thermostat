@@ -41,6 +41,7 @@ from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode as _parse_mode,
 )
 from custom_components.better_thermostat.model_fixes import TRVZB, ZWA021
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -54,12 +55,7 @@ from custom_components.better_thermostat.utils.controlling import (
     control_trv,
 )
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
-from tests.factories import (
-    ThermostatStandIn,
-    make_entity_registry,
-    make_registry_entry,
-    trv_from_legacy_dict,
-)
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
 # *controlling* module level because that is where they are imported.
@@ -181,27 +177,28 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
 
 def _default_trv_config(**overrides):
     """Return a default real_trvs entry (a Trv) for a single TRV."""
-    config = {
-        "ignore_trv_states": False,
-        "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
-        "min_temp": 5.0,
-        "max_temp": 30.0,
-        "temperature": 20.0,
-        "commanded_setpoint": 20.0,
-        "last_hvac_mode": HVACMode.HEAT,
-        "last_calibration": 0.0,
-        "system_mode_received": False,
-        "target_temperature_received": False,
-        "calibration_received": False,
-        "hvac_mode": HVACMode.HEAT,
-        "advanced": {
-            "calibration_mode": CalibrationMode.NO_CALIBRATION,
-            "calibration": CalibrationOutput.TARGET_TEMP_BASED,
-            "no_off_system_mode": False,
-        },
-    }
-    config.update(overrides)
-    return trv_from_legacy_dict("climate.trv1", config)
+    return replace(
+        Trv(
+            entity_id="climate.trv1",
+            ignore_trv_states=False,
+            hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
+            min_temp=5.0,
+            max_temp=30.0,
+            commanded_setpoint=20.0,
+            last_hvac_mode=HVACMode.HEAT,
+            last_calibration=0.0,
+            system_mode_received=False,
+            target_temperature_received=False,
+            calibration_received=False,
+            hvac_mode=HVACMode.HEAT,
+            advanced={
+                "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                "calibration": CalibrationOutput.TARGET_TEMP_BASED,
+                "no_off_system_mode": False,
+            },
+        ),
+        **overrides,
+    )
 
 
 def _with_valve_channel(trv):
@@ -1709,27 +1706,24 @@ class TestBoostModeSafetyOverride:
         mock_self.bt_max_temp = 30.0
 
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {
-                    "ignore_trv_states": False,
-                    "max_temp": 30.0,
-                    "temperature": 20.0,
-                    "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
-                    "model_quirks": Mock(
-                        override_set_hvac_mode=AsyncMock(return_value=False),
-                        override_set_valve=AsyncMock(return_value=True),
-                    ),
-                    "advanced": {
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
-                        "no_off_system_mode": False,
-                    },
-                    "system_mode_received": True,
-                    "target_temperature_received": False,
-                    "calibration_received": False,
-                    "last_hvac_mode": HVACMode.HEAT,
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                ignore_trv_states=False,
+                max_temp=30.0,
+                hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
+                model_quirks=Mock(
+                    override_set_hvac_mode=AsyncMock(return_value=False),
+                    override_set_valve=AsyncMock(return_value=True),
+                ),
+                advanced={
+                    "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                    "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
+                    "no_off_system_mode": False,
                 },
+                system_mode_received=True,
+                target_temperature_received=False,
+                calibration_received=False,
+                last_hvac_mode=HVACMode.HEAT,
             )
         }
 
@@ -2058,27 +2052,24 @@ class TestBoostModeSafetyOverride:
         mock_self.bt_max_temp = 30.0
 
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {
-                    "ignore_trv_states": False,
-                    "max_temp": 30.0,
-                    "temperature": 20.0,
-                    "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
-                    "model_quirks": Mock(
-                        override_set_hvac_mode=AsyncMock(return_value=False),
-                        override_set_valve=AsyncMock(return_value=True),
-                    ),
-                    "advanced": {
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
-                        "no_off_system_mode": False,
-                    },
-                    "system_mode_received": True,
-                    "target_temperature_received": False,
-                    "calibration_received": False,
-                    "last_hvac_mode": HVACMode.HEAT,
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                ignore_trv_states=False,
+                max_temp=30.0,
+                hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
+                model_quirks=Mock(
+                    override_set_hvac_mode=AsyncMock(return_value=False),
+                    override_set_valve=AsyncMock(return_value=True),
+                ),
+                advanced={
+                    "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                    "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
+                    "no_off_system_mode": False,
                 },
+                system_mode_received=True,
+                target_temperature_received=False,
+                calibration_received=False,
+                last_hvac_mode=HVACMode.HEAT,
             )
         }
 
@@ -2443,48 +2434,38 @@ class TestRaceConditionLockCoverage:
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {
-                    "ignore_trv_states": False,
-                    "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
-                    "min_temp": 5.0,
-                    "max_temp": 30.0,
-                    "temperature": 18.0,
-                    "commanded_setpoint": 18.0,
-                    "last_hvac_mode": HVACMode.OFF,
-                    "system_mode_received": True,
-                    "target_temperature_received": True,
-                    "calibration_received": False,
-                    "model_quirks": Mock(
-                        override_set_hvac_mode=AsyncMock(return_value=False)
-                    ),
-                    "advanced": {
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
-                    },
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                ignore_trv_states=False,
+                hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
+                min_temp=5.0,
+                max_temp=30.0,
+                commanded_setpoint=18.0,
+                last_hvac_mode=HVACMode.OFF,
+                system_mode_received=True,
+                target_temperature_received=True,
+                calibration_received=False,
+                model_quirks=Mock(override_set_hvac_mode=AsyncMock(return_value=False)),
+                advanced={
+                    "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                    "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 },
             ),
-            "climate.trv2": trv_from_legacy_dict(
-                "climate.trv2",
-                {
-                    "ignore_trv_states": False,
-                    "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
-                    "min_temp": 5.0,
-                    "max_temp": 30.0,
-                    "temperature": 18.0,
-                    "commanded_setpoint": 18.0,
-                    "last_hvac_mode": HVACMode.OFF,
-                    "system_mode_received": True,
-                    "target_temperature_received": True,
-                    "calibration_received": False,
-                    "model_quirks": Mock(
-                        override_set_hvac_mode=AsyncMock(return_value=False)
-                    ),
-                    "advanced": {
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
-                    },
+            "climate.trv2": Trv(
+                entity_id="climate.trv2",
+                ignore_trv_states=False,
+                hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
+                min_temp=5.0,
+                max_temp=30.0,
+                commanded_setpoint=18.0,
+                last_hvac_mode=HVACMode.OFF,
+                system_mode_received=True,
+                target_temperature_received=True,
+                calibration_received=False,
+                model_quirks=Mock(override_set_hvac_mode=AsyncMock(return_value=False)),
+                advanced={
+                    "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                    "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 },
             ),
         }
@@ -2647,46 +2628,36 @@ class TestRaceConditionLockCoverage:
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {
-                    "ignore_trv_states": False,
-                    "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
-                    "min_temp": 5.0,
-                    "max_temp": 30.0,
-                    "temperature": 22.0,
-                    "last_hvac_mode": HVACMode.HEAT,
-                    "system_mode_received": False,
-                    "target_temperature_received": False,
-                    "calibration_received": False,
-                    "model_quirks": Mock(
-                        override_set_hvac_mode=AsyncMock(return_value=False)
-                    ),
-                    "advanced": {
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
-                    },
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                ignore_trv_states=False,
+                hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
+                min_temp=5.0,
+                max_temp=30.0,
+                last_hvac_mode=HVACMode.HEAT,
+                system_mode_received=False,
+                target_temperature_received=False,
+                calibration_received=False,
+                model_quirks=Mock(override_set_hvac_mode=AsyncMock(return_value=False)),
+                advanced={
+                    "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                    "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 },
             ),
-            "climate.trv2": trv_from_legacy_dict(
-                "climate.trv2",
-                {
-                    "ignore_trv_states": False,
-                    "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
-                    "min_temp": 5.0,
-                    "max_temp": 30.0,
-                    "temperature": 22.0,
-                    "last_hvac_mode": HVACMode.HEAT,
-                    "system_mode_received": False,
-                    "target_temperature_received": False,
-                    "calibration_received": False,
-                    "model_quirks": Mock(
-                        override_set_hvac_mode=AsyncMock(return_value=False)
-                    ),
-                    "advanced": {
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
-                    },
+            "climate.trv2": Trv(
+                entity_id="climate.trv2",
+                ignore_trv_states=False,
+                hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
+                min_temp=5.0,
+                max_temp=30.0,
+                last_hvac_mode=HVACMode.HEAT,
+                system_mode_received=False,
+                target_temperature_received=False,
+                calibration_received=False,
+                model_quirks=Mock(override_set_hvac_mode=AsyncMock(return_value=False)),
+                advanced={
+                    "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                    "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 },
             ),
         }
@@ -2766,25 +2737,20 @@ class TestRaceConditionLockCoverage:
         mock_self.window_open = False
         mock_self.call_for_heat = True
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {
-                    "ignore_trv_states": False,
-                    "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
-                    "min_temp": 5.0,
-                    "max_temp": 30.0,
-                    "temperature": 22.0,
-                    "last_hvac_mode": HVACMode.HEAT,
-                    "system_mode_received": False,
-                    "target_temperature_received": False,
-                    "calibration_received": False,
-                    "model_quirks": Mock(
-                        override_set_hvac_mode=AsyncMock(return_value=False)
-                    ),
-                    "advanced": {
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
-                    },
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                ignore_trv_states=False,
+                hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
+                min_temp=5.0,
+                max_temp=30.0,
+                last_hvac_mode=HVACMode.HEAT,
+                system_mode_received=False,
+                target_temperature_received=False,
+                calibration_received=False,
+                model_quirks=Mock(override_set_hvac_mode=AsyncMock(return_value=False)),
+                advanced={
+                    "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                    "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 },
             )
         }
@@ -2954,47 +2920,41 @@ def mock_bt_grouped():
     bt.kernel_state = _kernel_state_for(bt)
     bt.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     bt.real_trvs = {
-        "climate.trv_1": trv_from_legacy_dict(
-            "climate.trv_1",
-            {
-                "calibration_received": True,
-                "last_calibration": 2.0,
-                "current_temperature": 20.0,
-                "hvac_modes": ["heat", "off"],
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "ignore_trv_states": False,
-                "advanced": {
-                    "calibration": 0,  # LOCAL_BASED
-                    "calibration_mode": 0,  # DEFAULT
-                },
+        "climate.trv_1": Trv(
+            entity_id="climate.trv_1",
+            calibration_received=True,
+            last_calibration=2.0,
+            current_temperature=20.0,
+            hvac_modes=["heat", "off"],
+            min_temp=5.0,
+            max_temp=30.0,
+            ignore_trv_states=False,
+            advanced={
+                "calibration": 0,  # LOCAL_BASED
+                "calibration_mode": 0,  # DEFAULT
             },
         ),
-        "climate.trv_2": trv_from_legacy_dict(
-            "climate.trv_2",
-            {
-                "calibration_received": True,
-                "last_calibration": 2.0,
-                "current_temperature": 20.0,
-                "hvac_modes": ["heat", "off"],
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "ignore_trv_states": False,
-                "advanced": {"calibration": 0, "calibration_mode": 0},
-            },
+        "climate.trv_2": Trv(
+            entity_id="climate.trv_2",
+            calibration_received=True,
+            last_calibration=2.0,
+            current_temperature=20.0,
+            hvac_modes=["heat", "off"],
+            min_temp=5.0,
+            max_temp=30.0,
+            ignore_trv_states=False,
+            advanced={"calibration": 0, "calibration_mode": 0},
         ),
-        "climate.trv_3": trv_from_legacy_dict(
-            "climate.trv_3",
-            {
-                "calibration_received": False,  # Stuck at False!
-                "last_calibration": 2.0,
-                "current_temperature": 20.0,
-                "hvac_modes": ["heat", "off"],
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "ignore_trv_states": False,
-                "advanced": {"calibration": 0, "calibration_mode": 0},
-            },
+        "climate.trv_3": Trv(
+            entity_id="climate.trv_3",
+            calibration_received=False,  # Stuck at False!
+            last_calibration=2.0,
+            current_temperature=20.0,
+            hvac_modes=["heat", "off"],
+            min_temp=5.0,
+            max_temp=30.0,
+            ignore_trv_states=False,
+            advanced={"calibration": 0, "calibration_mode": 0},
         ),
     }
     return bt
@@ -3243,24 +3203,21 @@ class TestControlTrvOnADualRoleEntity:
     @classmethod
     def _make_shared_self(cls, device_modes, *, heat_auto_swapped=False):
         """Build a mock whose cooler is also the controlled thermostat."""
-        trv = trv_from_legacy_dict(
-            cls.SHARED_ID,
-            {
-                "ignore_trv_states": False,
-                "hvac_modes": device_modes,
-                "min_temp": 16.0,
-                "max_temp": 30.0,
-                "temperature": 21.0,
-                "commanded_setpoint": 21.0,
-                "last_hvac_mode": HVACMode.HEAT,
-                "current_temperature": 19.0,
-                "hvac_mode": HVACMode.HEAT,
-                "advanced": {
-                    "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                    "calibration": CalibrationOutput.TARGET_TEMP_BASED,
-                    "no_off_system_mode": False,
-                    "heat_auto_swapped": heat_auto_swapped,
-                },
+        trv = Trv(
+            entity_id=cls.SHARED_ID,
+            ignore_trv_states=False,
+            hvac_modes=device_modes,
+            min_temp=16.0,
+            max_temp=30.0,
+            commanded_setpoint=21.0,
+            last_hvac_mode=HVACMode.HEAT,
+            current_temperature=19.0,
+            hvac_mode=HVACMode.HEAT,
+            advanced={
+                "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                "calibration": CalibrationOutput.TARGET_TEMP_BASED,
+                "no_off_system_mode": False,
+                "heat_auto_swapped": heat_auto_swapped,
             },
         )
         # The device reports OFF, so every candidate outbound mode differs
@@ -3354,31 +3311,32 @@ class TestControlTrvOnADualRoleEntity:
 
 def _offset_trv_config(**overrides):
     """Return a Trv configured for offset (LOCAL_BASED) calibration."""
-    config = {
-        "ignore_trv_states": False,
-        "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
-        "min_temp": 5.0,
-        "max_temp": 30.0,
-        "temperature": 20.0,
-        "commanded_setpoint": 20.0,
-        "last_hvac_mode": HVACMode.HEAT,
-        "hvac_mode": HVACMode.HEAT,
-        "system_mode_received": False,
-        "target_temperature_received": False,
-        "calibration_received": True,
-        "last_calibration": 0.0,
-        "min_local_calibration": -7.0,
-        "max_local_calibration": 7.0,
-        "local_calibration_step": 0.5,
-        "local_temperature_calibration_entity": "number.trv1_offset",
-        "advanced": {
-            "calibration_mode": CalibrationMode.DEFAULT,
-            "calibration": CalibrationOutput.LOCAL_BASED,
-            "no_off_system_mode": False,
-        },
-    }
-    config.update(overrides)
-    return trv_from_legacy_dict("climate.trv1", config)
+    return replace(
+        Trv(
+            entity_id="climate.trv1",
+            ignore_trv_states=False,
+            hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
+            min_temp=5.0,
+            max_temp=30.0,
+            commanded_setpoint=20.0,
+            last_hvac_mode=HVACMode.HEAT,
+            hvac_mode=HVACMode.HEAT,
+            system_mode_received=False,
+            target_temperature_received=False,
+            calibration_received=True,
+            last_calibration=0.0,
+            min_local_calibration=-7.0,
+            max_local_calibration=7.0,
+            local_calibration_step=0.5,
+            local_temperature_calibration_entity="number.trv1_offset",
+            advanced={
+                "calibration_mode": CalibrationMode.DEFAULT,
+                "calibration": CalibrationOutput.LOCAL_BASED,
+                "no_off_system_mode": False,
+            },
+        ),
+        **overrides,
+    )
 
 
 def _make_offset_self(**overrides):
@@ -4353,23 +4311,20 @@ class TestSetpointWatchdogAcrossAFailingWrite:
 
 def _paced_trv(entity_id, *, homematicip):
     """Return a TRV holding 20 °C whose config marks it HomematicIP or not."""
-    return trv_from_legacy_dict(
-        entity_id,
-        {
-            "ignore_trv_states": False,
-            "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
-            "min_temp": 5.0,
-            "max_temp": 30.0,
-            "temperature": 20.0,
-            "commanded_setpoint": 20.0,
-            "last_hvac_mode": HVACMode.HEAT,
-            "hvac_mode": HVACMode.HEAT,
-            "advanced": {
-                "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                "calibration": CalibrationOutput.TARGET_TEMP_BASED,
-                "no_off_system_mode": False,
-                CONF_HOMEMATICIP: homematicip,
-            },
+    return Trv(
+        entity_id=entity_id,
+        ignore_trv_states=False,
+        hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
+        min_temp=5.0,
+        max_temp=30.0,
+        commanded_setpoint=20.0,
+        last_hvac_mode=HVACMode.HEAT,
+        hvac_mode=HVACMode.HEAT,
+        advanced={
+            "calibration_mode": CalibrationMode.NO_CALIBRATION,
+            "calibration": CalibrationOutput.TARGET_TEMP_BASED,
+            "no_off_system_mode": False,
+            CONF_HOMEMATICIP: homematicip,
         },
     )
 
