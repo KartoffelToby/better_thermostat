@@ -127,10 +127,14 @@ Auto-tuning is on by default.
   - Ki: 0.001-2.0
   - Kd: 100-10,000
 - Auto-tuning is conservative - it makes small changes and learns gradually
+- Gains are learned separately for each target temperature, in steps of 0.5 °C. A target the controller has not run at yet starts from the defaults, or from the values you set by hand
+- The integral term belongs to the TRV, not to a target, so changing the target does not restart it: a higher target opens the valve further at once, a lower one closes it further
 
 **Manual tuning:**
 
 Each TRV's *PID Kp (Proportional)*, *PID Ki (Integral)* and *PID Kd (Derivative)* numbers accept Kp from 0 to 1000, Ki from 0 to 100 and Kd from 0 to 10,000, and Better Thermostat keeps a value set there, including 0 (Kd 0 makes a PI controller). With auto-tuning on, a value you set is the starting point it adjusts from; turn off the *PID Auto Tune* switch to keep fixed values.
+
+The *PID Auto Tune* switch and the values you set apply to the TRV at every target temperature. With auto-tuning off, the controller uses a value you set whatever the target; a gain you have not set keeps the value learned for that target, or its default. With auto-tuning on, a target that has learned its own value uses it, and a target not tuned yet starts from the value you set.
 
 If you want to tune PID parameters manually or understand what the auto-tuning is doing:
 
