@@ -191,7 +191,7 @@ class TestTuyaFahrenheitDoubleConversion:
 
     @pytest.mark.parametrize("key", ["current_temperature", "temperature"])
     def test_celsius_install_is_left_alone(self, key):
-        """A Celsius system never reinterprets a Tuya reading as Fahrenheit."""
+        """A Celsius install keeps the published Tuya reading."""
         result = _read_climate_temperature(
             UnitOfTemperature.CELSIUS, _TRUE_FAHRENHEIT, "tuya", key
         )
