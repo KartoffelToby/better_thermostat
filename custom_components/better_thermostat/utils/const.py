@@ -13,9 +13,10 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.config_validation import make_entity_service_schema
 import voluptuous as vol
 
-# MPC v2 stays free of Home Assistant imports, so the preset enum lives there
-# and is re-exported here next to the configuration key that stores it.
-from .calibration.mpc_v2.params import MpcV2PlantPreset  # noqa: F401
+# The preset enum lives with the calibration code, which imports nothing from
+# Home Assistant, and is re-exported here next to the configuration key that
+# stores it.
+from .calibration.plant_preset import MpcV2PlantPreset  # noqa: F401
 
 _LOGGER = logging.getLogger(__name__)
 

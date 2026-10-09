@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from enum import StrEnum
 from types import MappingProxyType
 from typing import Final
 
@@ -13,20 +12,7 @@ from ..mpc_v2_internals.governor import GovernorParams
 from ..mpc_v2_internals.kalman import KalmanParams
 from ..mpc_v2_internals.plant import TAU_ROOM_BOUNDS_MIN, PlantParams
 from ..mpc_v2_internals.qp_optimiser import QpParams
-
-
-class MpcV2PlantPreset(StrEnum):
-    """Plant-prior presets for MPC v2.
-
-    ``AUTO`` lets ``make_plant_prior`` derive ``tau_room_min`` from BT's
-    learned ``heat_loss_rate``; the other three presets are static
-    overrides keyed roughly to room size / envelope speed.
-    """
-
-    AUTO = "auto"
-    SMALL_ROOM = "small_room"
-    MEDIUM_ROOM = "medium_room"
-    LARGE_ROOM = "large_room"
+from ..plant_preset import MpcV2PlantPreset
 
 
 @dataclass
