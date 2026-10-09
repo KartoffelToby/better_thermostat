@@ -526,8 +526,8 @@ Three more checks run on every pull request:
   `[tool.pyrefly]` in `pyproject.toml` declares. The `sub-config` entries below
   it name the files that do not meet it yet and the rules each is exempt from.
   That list only shrinks: a new file is strict from the start, and
-  `tests/gates/test_type_strictness_exemptions.py` holds it to a recorded
-  ceiling. `scripts/` is checked the same way. The directories of `tests/` that
+  `tests/gates/test_type_strictness_exemptions.py` holds it to the recorded
+  (file, rule) pairs. `scripts/` is checked the same way. The directories of `tests/` that
   `project-includes` lists are too, except that a test may leave its parameters
   unannotated, since pytest hands fixtures in by name; the rest of `tests/`
   joins that list one directory at a time. `typing.Any` is allowed in two places only: `**kwargs: Any` on an
