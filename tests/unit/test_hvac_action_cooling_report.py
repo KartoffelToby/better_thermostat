@@ -16,7 +16,9 @@ import pytest
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import control_cooler
+from custom_components.better_thermostat.utils.helpers import CoolerSendCache
 from custom_components.better_thermostat.utils.hvac_action import (
     COOLER_MODE_HYSTERESIS_K,
     ToleranceHysteresis,
@@ -48,13 +50,14 @@ def build_bt(
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.contact_open = False
     bt.ignore_states = False
-    bt.real_trvs = {}
+    bt.real_trvs = dict[str, Trv]()
     bt._hysteresis = ToleranceHysteresis()
     bt.device_name = "Test"
     bt.cooler_entity_id = cooler_entity_id
-    bt._cooler_last_sent = (
-        {} if decided_mode is None else {"hvac_mode_decided": decided_mode}
-    )
+    cooler_last_sent = CoolerSendCache()
+    if decided_mode is not None:
+        cooler_last_sent["hvac_mode_decided"] = decided_mode
+    bt._cooler_last_sent = cooler_last_sent
 
     cooler_state = MagicMock()
     cooler_state.state = reported_mode
@@ -227,7 +230,7 @@ async def test_command_and_report_agree_across_a_temperature_sweep():
     bt.context = None
     bt.cooler_entity_id = "climate.cooler"
     bt.clock = FakeClock()
-    bt._cooler_last_sent = {}
+    bt._cooler_last_sent = CoolerSendCache()
 
     rise = [21.5, 23.0, 24.0, 24.2, 24.4, 24.5, 24.6, 25.0]
     sweep = rise + list(reversed(rise))

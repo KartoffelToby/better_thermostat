@@ -24,6 +24,10 @@ import pytest
 
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.entry_schema import (
+    TrvAdvanced,
+    _parse_advanced,
+)
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
@@ -44,14 +48,14 @@ _LOOKUP_BY_KEYWORD = {
 }
 
 
-def _thermostat(child_lock=None, states=None):
+def _thermostat(child_lock: bool | None = None, states=None):
     """Build a thermostat whose service calls are recorded, not executed.
 
     Parameters
     ----------
-    child_lock : bool, str or None
-        The configured child lock as stored, or None for a configuration that
-        carries no such setting.
+    child_lock : bool or None
+        The configured child lock as the parsed settings carry it, or None for
+        a configuration that carries no such setting.
     states : dict or None
         Current state string per entity ID; an entity left out of it
         reads as unknown to Home Assistant.
@@ -70,7 +74,7 @@ def _thermostat(child_lock=None, states=None):
     thermostat.hass.states.get = lambda requested: (
         State(requested, states[requested]) if requested in states else None
     )
-    advanced = {} if child_lock is None else {"child_lock": child_lock}
+    advanced: TrvAdvanced = {} if child_lock is None else {"child_lock": child_lock}
     thermostat.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, advanced=advanced)}
     return thermostat
 
@@ -352,7 +356,10 @@ class TestTheChildLockFollowsTheConfiguration:
         self, stored, current, service
     ):
         """An older entry's ``"false"`` unlocks the device rather than locking it."""
-        thermostat = _thermostat(child_lock=stored, states={CHILD_LOCK_SWITCH: current})
+        advanced = _parse_advanced({"child_lock": stored}, "")
+        thermostat = _thermostat(
+            child_lock=advanced.get("child_lock"), states={CHILD_LOCK_SWITCH: current}
+        )
 
         await _run_tweak(thermostat, child_lock=CHILD_LOCK_SWITCH)
 
