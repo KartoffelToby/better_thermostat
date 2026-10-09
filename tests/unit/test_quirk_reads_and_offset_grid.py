@@ -387,7 +387,9 @@ class TestASelectCalibrationEntityPublishesItsOptionGrid:
         host.real_trvs[ENTITY_ID].adapter = generic
         step = await delegate.get_calibration_offset_step(host, ENTITY_ID)
 
-        await generic.set_calibration_offset(host, ENTITY_ID, round_by_step(1.5, step))
+        calibration_offset = round_by_step(1.5, step)
+        assert calibration_offset is not None
+        await generic.set_calibration_offset(host, ENTITY_ID, calibration_offset)
 
         host.hass.services.async_call.assert_awaited_once()
         assert host.hass.services.async_call.await_args.args[2]["option"] == "1.5k"

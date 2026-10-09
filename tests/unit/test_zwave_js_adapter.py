@@ -323,6 +323,7 @@ class TestTheSpiritIsDrivenByTheZWA021Quirk:
             module = await quirks.load_model_quirks(mock_self, "Spirit", "climate.trv1")
 
         assert module is quirk
+        assert imported.await_args is not None
         assert imported.await_args.args[1] == (
             "custom_components.better_thermostat.model_fixes.ZWA021"
         )
@@ -366,6 +367,7 @@ class TestTheZTrvV01IsDrivenByTheZWA021Quirk:
             )
 
         assert module is quirk
+        assert imported.await_args is not None
         assert imported.await_args.args[1] == (
             "custom_components.better_thermostat.model_fixes.ZWA021"
         )

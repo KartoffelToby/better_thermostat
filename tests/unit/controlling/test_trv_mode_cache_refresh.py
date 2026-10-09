@@ -317,6 +317,7 @@ class TestReportsHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         handler.assert_awaited_once()
+        assert handler.await_args is not None
         event = handler.await_args.args[1]
         assert event.data["new_state"] is reported_states[ENTITY_ID]
         assert event.context != thermostat.context
@@ -334,6 +335,7 @@ class TestReportsHeldDuringACycle:
         with patch(f"{_CTRL}.trigger_trv_change", new=handler):
             await read_reports_held_during_cycle(thermostat)
 
+        assert handler.await_args is not None
         assert handler.await_args.kwargs["mode_settled"] is True
 
     @pytest.mark.asyncio
@@ -1001,8 +1003,7 @@ class TestALockedPressHeldDuringACycle:
 class TestHeldCoolingTurn:
     """A turn at a reversible unit the cooling channel drives, read at cycle end."""
 
-    @staticmethod
-    def _cool(thermostat, cooling_target: float) -> Trv:
+    def _cool(self, thermostat, cooling_target: float) -> Trv:
         """Let the cooling channel drive the TRV, holding ``cooling_target``."""
         thermostat.cooler_entity_id = ENTITY_ID
         thermostat._cooler_last_sent = {
