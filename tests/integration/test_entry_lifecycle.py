@@ -104,6 +104,32 @@ async def test_window_open_turns_the_trv_off(hass, fake_trv):
     assert bt_state.attributes.get("window_open") is True
 
 
+async def test_window_sensor_removed_while_open_lets_the_room_heat(hass, fake_trv):
+    """A window sensor that disappears while open counts as closed.
+
+    Disabling, deleting or renaming the sensor in the entity registry
+    removes its state. Like an unavailable sensor, a removed one must not
+    hold the heating off until the entry is reloaded.
+    """
+    set_room_sensor(hass, 18.0)
+    hass.states.async_set(WINDOW_ID, "off")
+    entry = make_entry(fake_trv.profile, with_window=True)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await bt.async_set_hvac_mode(HVACMode.HEAT)
+    await hass.async_block_till_done()
+    hass.states.async_set(WINDOW_ID, "on")
+    assert await wait_for(hass, lambda: "off" in fake_trv.set_hvac_mode_calls)
+
+    hass.states.async_remove(WINDOW_ID)
+
+    assert await wait_for(hass, lambda: not bt.window_open)
+    assert await wait_for(
+        hass, lambda: fake_trv.set_hvac_mode_calls[-1] == fake_trv.profile.hvac_mode
+    )
+    assert hass.states.get(BT_ENTITY).attributes.get("window_open") is False
+
+
 @pytest.mark.parametrize(
     "fake_trv", [GENERIC_HEAT_TRV, INTEGER_GRID_TRV], indirect=True, ids=profile_id
 )

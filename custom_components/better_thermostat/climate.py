@@ -1747,12 +1747,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
         self.async_set_context(event.context)
-        if (event.data.get("new_state")) is None:
-            return
 
-        # The window/door handler interprets unknown/unavailable readings
-        # itself (a lost sensor counts as closed so heating resumes), so
-        # events are dispatched regardless of sensor availability.
+        # The window/door handler interprets unknown/unavailable readings and
+        # a removed sensor itself (a lost sensor counts as closed so heating
+        # resumes), so events are dispatched regardless of sensor availability.
         self._spawn_owned(
             trigger_fn(self, event),
             name=f"bt_trigger_{task_label}_change_{self.device_name}",

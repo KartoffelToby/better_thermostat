@@ -71,8 +71,11 @@ async def test_window_event_is_dispatched_regardless_of_availability(reading):
 
 
 @pytest.mark.asyncio
-async def test_event_without_new_state_is_dropped():
-    """An event carrying no new state dispatches nothing."""
+async def test_event_of_a_removed_sensor_is_dispatched():
+    """A sensor removed from Home Assistant reaches the handler too.
+
+    Its event carries no new state; the handler reads that as a lost sensor.
+    """
     bt = _make_self()
     event = MagicMock()
     event.data = {"new_state": None}
@@ -80,7 +83,7 @@ async def test_event_without_new_state_is_dropped():
     with _patch_checks():
         await BetterThermostat._trigger_window_change(bt, event)
 
-    bt._spawn_owned.assert_not_called()
+    bt._spawn_owned.assert_called_once()
 
 
 @pytest.mark.parametrize(

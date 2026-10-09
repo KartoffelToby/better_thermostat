@@ -17,6 +17,7 @@ from dataclasses import dataclass, replace
 import logging
 from typing import TYPE_CHECKING, Final, Literal
 
+from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components.better_thermostat import DOMAIN
@@ -194,16 +195,20 @@ async def trigger_contact_change(
     """
 
     entity_id = role.entity_id_of(self)
-    new_state = event.data.get("new_state")
-
     # The entity id is checked before it is used as a lookup key: the state
     # machine does not accept None and would raise on it.
-    if entity_id is None or new_state is None:
-        return
-    if self.hass.states.get(entity_id) is None:
+    if entity_id is None:
         return
 
-    new_state = new_state.state
+    # A sensor removed from Home Assistant (disabled, deleted or renamed in
+    # the entity registry) sends no new state and leaves none behind. It
+    # reads like an unavailable one, so a contact that was open when it
+    # disappeared cannot hold the heating off until the next reload.
+    new_state_object = event.data.get("new_state")
+    if new_state_object is None or self.hass.states.get(entity_id) is None:
+        new_state = STATE_UNAVAILABLE
+    else:
+        new_state = new_state_object.state
 
     if new_state in OPEN_WORDS:
         new_contact_open = True
