@@ -493,7 +493,7 @@ async def trigger_temperature_change(
             # started for.
             _plateau_since = self.pending_since
 
-            async def _plateau_cb(_now):
+            async def _plateau_cb(_now: datetime) -> None:
                 self.plateau_timer_cancel = None
                 async with temperature_filter_lock(self):
                     # The entity does not own this task, so its removal cannot

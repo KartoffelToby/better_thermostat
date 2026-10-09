@@ -706,7 +706,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     # it through that helper.
     _cooler_last_sent: CoolerSendCache
 
-    async def reset_heating_power(self):
+    async def reset_heating_power(self) -> None:
         """Reset heating power to default value."""
         self._heating_tracker.reset_power()
         self.schedule_save_state()
@@ -1269,7 +1269,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self._spawn_owned(coro_fn(now), name=f"{name}_{self.device_name}")
 
     @override
-    async def async_added_to_hass(self):
+    async def async_added_to_hass(self) -> None:
         """Run when entity about to be added.
 
         Returns
@@ -1372,7 +1372,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             if child_lock is not None:
                 self.real_trvs[trv["trv"]].advanced[CONF_CHILD_LOCK] = child_lock
 
-        def on_remove():
+        def on_remove() -> None:
             self.is_removed = True
             self.kernel_state = replace(
                 self.kernel_state, lifecycle=lifecycle_stop(self.kernel_state.lifecycle)
@@ -1437,7 +1437,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
 
         @callback
-        def _async_startup(*_):
+        def _async_startup(*_: object) -> None:
             """Init on startup.
 
             Parameters
@@ -3657,7 +3657,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             pre_save=self._record_runtime_to_state, delay_seconds=delay_seconds
         )
 
-    async def calculate_heating_power(self):
+    async def calculate_heating_power(self) -> None:
         """Learn effective heating power (°C/min) from completed heating cycles.
 
         Delegates to :class:`HeatingPowerTracker` and handles HA side-effects.
@@ -3685,7 +3685,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.schedule_save_state()
             self.async_write_ha_state()
 
-    async def calculate_heat_loss(self):
+    async def calculate_heat_loss(self) -> None:
         """Learn effective heat loss (°C/min) during idle cooling periods.
 
         Delegates to :class:`HeatLossTracker` and handles HA side-effects.
@@ -3819,7 +3819,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def available(self):
+    def available(self) -> bool:
         """Return if thermostat is available.
 
         A room is available once its startup has finished and while at least
@@ -3837,7 +3837,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def should_poll(self):
+    def should_poll(self) -> bool:
         """Return the polling state.
 
         Returns
@@ -3849,7 +3849,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def unique_id(self):
+    def unique_id(self) -> str:
         """Return the unique id of this thermostat.
 
         Returns
@@ -3861,7 +3861,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def precision(self):
+    def precision(self) -> float:
         """Return the precision the entity's temperatures are published with.
 
         Home Assistant rounds every temperature this entity publishes (the
@@ -3978,7 +3978,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def hvac_action(self):
+    def hvac_action(self) -> HVACAction | None:
         """Return the current HVAC action.
 
         Every control cycle commits a fresh action; the one computation
@@ -4031,7 +4031,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
         return snapshots
 
-    def _compute_hvac_action(self):
+    def _compute_hvac_action(self) -> HVACAction:
         """Return the current HVAC action enum value."""
         result = self._compute_hvac_action_pure()
         self._commit_hvac_action(result)
@@ -4829,7 +4829,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def min_temp(self):
+    def min_temp(self) -> float:
         """Return the minimum temperature.
 
         The published range spans both channels, because Home Assistant checks
@@ -4847,7 +4847,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def max_temp(self):
+    def max_temp(self) -> float:
         """Return the maximum temperature.
 
         Returns
@@ -4861,7 +4861,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def supported_features(self):
+    def supported_features(self) -> ClimateEntityFeature:
         """Return the list of supported features.
 
         Returns
@@ -4885,7 +4885,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def preset_mode(self):
+    def preset_mode(self) -> str:
         """Return the current preset mode."""
         return self.preset_mgr.mode
 
@@ -5003,7 +5003,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def preset_modes(self):
+    def preset_modes(self) -> list[str]:
         """Return the available preset modes."""
         return self.preset_mgr.available_modes
 
@@ -5174,7 +5174,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
 
     @override
-    async def async_will_remove_from_hass(self):
+    async def async_will_remove_from_hass(self) -> None:
         """Run when entity will be removed from hass."""
         # Terminate the startup retry loop so an entity whose dependencies
         # never became available does not keep polling after unload.
