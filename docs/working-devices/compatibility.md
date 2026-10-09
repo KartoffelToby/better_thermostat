@@ -89,6 +89,10 @@ The outdoor temperature check reads the weather entity's forecast. When the weat
 
 On a system set to Fahrenheit, temperatures are shown in °F, but rates and differences are not converted: *Temperature Slope*, *Heating Power*, *Heat Loss*, *MPC Gain*, *MPC Loss* and *MPC v2 Disturbance* are in kelvin per minute and *PID Error* is in kelvin. One kelvin is a difference of 1.8 °F. See [Entities](/setup/entities/).
 
+### A Celsius TRV on a Fahrenheit system reports whole degrees
+
+Many TRVs work in Celsius. On a system set to Fahrenheit, Home Assistant shows their setpoint in °F, rounded to a whole degree unless the integration states a finer precision. Zigbee2MQTT does not state one. When Better Thermostat writes 71.5 °F, such a TRV shows 71 °F or 72 °F. Better Thermostat counts that as its own write coming back, so it does not take the rounded value as your new target. The flip side: turning such a TRV by less than one whole degree Fahrenheit does not show up in Home Assistant, so Better Thermostat cannot see that turn either.
+
 ### Learning modes need time, and some are still in testing
 
 AI Time Based, MPC Predictive and PID Controller learn from the heating cycles they observe, so they get better over days, not minutes. MPC Predictive and PID Controller are in beta and MPC v2 is experimental; in the project's benchmark MPC Predictive does not overshoot less than the other controllers and can over-react with several radiators in one room. See [Calibration Algorithms](/calibration_algorithms/).
