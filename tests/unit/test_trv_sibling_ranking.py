@@ -293,3 +293,19 @@ async def test_a_bare_lock_serves_when_nothing_is_named_for_the_child_lock(write
         await CHILD_LOCK_WRITERS[writer](host)
 
     assert _switched(host) == [lone_lock.entity_id]
+
+
+@pytest.mark.parametrize("writer", list(CHILD_LOCK_WRITERS))
+@pytest.mark.parametrize(
+    "other", OTHER_LOCKS, ids=[entry.entity_id for entry in OTHER_LOCKS]
+)
+@pytest.mark.asyncio
+async def test_another_lock_alone_is_not_taken_for_the_child_lock(writer, other):
+    """A device with only a window, valve or door lock has no child lock to set."""
+    registry = _registry((other,))
+    host = _host(registry, advanced={CONF_CHILD_LOCK: False})
+
+    with _registry_in_place(registry):
+        await CHILD_LOCK_WRITERS[writer](host)
+
+    assert _switched(host) == []

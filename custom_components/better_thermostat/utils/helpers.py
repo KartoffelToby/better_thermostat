@@ -291,15 +291,18 @@ def find_device_entity(
     device_id: str,
     domains: Iterable[str],
     keywords: Iterable[str],
+    excluded: Iterable[str] = (),
 ) -> str | None:
     """Return the entity_id of the first matching entity on a device.
 
     A match is any enabled entity belonging to ``device_id`` whose domain is
     in ``domains`` and whose name, unique_id or object-id contains any of
-    ``keywords`` (case-insensitive). Returns ``None`` if nothing matches.
+    ``keywords`` and none of ``excluded`` (case-insensitive). Returns
+    ``None`` if nothing matches.
     """
     domains = tuple(domains)
     keywords = tuple(k.lower() for k in keywords)
+    excluded = tuple(k.lower() for k in excluded)
     for ent in entity_registry.entities.values():
         if not is_sibling_entry(ent, device_id) or ent.domain not in domains:
             continue
@@ -310,6 +313,8 @@ def find_device_entity(
         # entity, not just the intended child-lock one.
         object_id = (ent.entity_id or "").lower().split(".", 1)[-1]
 
+        if any(k in text for k in excluded for text in (name, uid, object_id)):
+            continue
         if (
             any(k in name for k in keywords)
             or any(k in uid for k in keywords)
@@ -320,6 +325,9 @@ def find_device_entity(
 
 
 _CHILD_LOCK_DOMAINS = ("switch", "lock")
+# Locks a TRV exposes beside its child lock; the bare "lock" fallback must
+# never take one of these for the child lock.
+_OTHER_LOCK_KINDS = ("window", "valve", "door")
 
 
 def find_child_lock_entity(
@@ -336,7 +344,13 @@ def find_child_lock_entity(
     """
     return find_device_entity(
         entity_registry, device_id, _CHILD_LOCK_DOMAINS, ["child_lock", "child lock"]
-    ) or find_device_entity(entity_registry, device_id, _CHILD_LOCK_DOMAINS, ["lock"])
+    ) or find_device_entity(
+        entity_registry,
+        device_id,
+        _CHILD_LOCK_DOMAINS,
+        ["lock"],
+        excluded=_OTHER_LOCK_KINDS,
+    )
 
 
 # Sentinel for "this platform has not been set up in this process yet".
