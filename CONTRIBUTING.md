@@ -422,9 +422,10 @@ uv run python scripts/check_naming.py check          # what CI runs
 
 The tree carries no backlog, so there is no `.naming-budget.json`. The one way
 to bring it back is a new term that rejects a spelling the tree still uses: its
-pull request records that backlog per file with `update --allow-raise`, the old
-spellings come out in their own pull requests, each running `update` to record
-the lower count, and the file deletes itself once the last one is gone.
+pull request records that backlog with `update --allow-raise`, per file and per
+name, so trading one rejected name for another still fails. The old spellings
+come out in their own pull requests, each running `update` to record the lower
+count, and the file deletes itself once the last one is gone.
 
 The two halves are checked by different tools. `check_naming.py` reads vocabulary
 and says nothing about case; `ruff check` reads case and shape through its `N`
