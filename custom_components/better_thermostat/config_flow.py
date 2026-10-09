@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
-from typing import Final, NotRequired, TypedDict, override
+from typing import Final, Literal, NotRequired, TypedDict, override
 
 from homeassistant import config_entries
 from homeassistant.components.climate.const import (
@@ -37,6 +37,7 @@ from . import (
     other_entries_controlling,
     trv_entity_ids,
 )
+from .adapters.base import DeviceChannels
 from .adapters.delegate import load_adapter
 from .adapters.types import TrvAdapter
 from .model_fixes.model_quirks import load_model_quirks, quirk_writes_valve
@@ -71,12 +72,13 @@ from .utils.const import (
     CONF_WINDOW_OFF_DELAY_AFTER,
     CONF_WINDOW_SENSORS,
     DEFAULT_CALIBRATION_MODE,
+    SIGNAL_CONFIG_CHANGED,
     TARGET_TEMP_BOUND_AUTO,
     CalibrationMode,
     CalibrationOutput,
     MpcV2PlantPreset,
 )
-from .utils.entry_schema import StoredChoice
+from .utils.entry_schema import StoredChoice, TrvAdvanced
 from .utils.helpers import (
     configured_calibration_mode,
     device_offers_mode,
@@ -240,6 +242,12 @@ _USER_FIELD_DEFAULTS: Final[_UserFieldDefaults] = {
     CONF_TARGET_TEMP_STEP: "0.0",
 }
 
+# Whether the user step builds a new entry or edits the options of one.
+type _FlowMode = Literal["create", "update"]
+
+# The error the confirm step shows when the advanced step hands one on.
+type _ConfirmError = Literal["no_off_mode"]
+
 # The user step's settings as the flow normalises a submission. The
 # thermostats are entity ids here; the stored entry holds a bundle per
 # thermostat in their place. A delay or the preset list the submission does
@@ -326,8 +334,8 @@ class _AdvancedContext:
     """What the advanced step of one thermostat offers and defaults to."""
 
     entity_id: str
-    info: Mapping[str, bool]
-    default_calibration: str
+    channels: DeviceChannels
+    default_calibration: CalibrationOutput
     homematic: bool
     has_auto: bool
 
@@ -401,9 +409,9 @@ def _merged_settings(
     return merged
 
 
-def _stored_advanced(draft: _AdvancedDraft) -> dict[str, object]:
+def _stored_advanced(draft: _AdvancedDraft) -> TrvAdvanced:
     """Return one thermostat's advanced options in the shape the entry stores."""
-    stored: dict[str, object] = {
+    stored: TrvAdvanced = {
         CONF_CALIBRATION: draft[CONF_CALIBRATION],
         CONF_CALIBRATION_MODE: draft[CONF_CALIBRATION_MODE],
     }
@@ -478,9 +486,9 @@ async def _load_adapter_info(
     entity_id: str | None,
     *,
     existing_adapter: TrvAdapter | None = None,
-) -> tuple[TrvAdapter | None, dict[str, bool]]:
+) -> tuple[TrvAdapter | None, DeviceChannels]:
     adapter = existing_adapter
-    info: dict[str, bool] = {}
+    channels = DeviceChannels()
 
     if integration and entity_id:
         if adapter is None:
@@ -491,7 +499,7 @@ async def _load_adapter_info(
 
         if adapter is not None:
             try:
-                info = await adapter.get_info(flow, entity_id)
+                channels = await adapter.get_info(flow, entity_id)
             except RuntimeError, ValueError, TypeError, AttributeError:
                 _LOGGER.debug("adapter get_info failed", exc_info=True)
 
@@ -500,20 +508,20 @@ async def _load_adapter_info(
     # not the whole of the valve surface.
     if (
         entity_id
-        and not info.get("support_valve", False)
+        and not channels.valve_write
         and await _quirk_valve_support(flow, entity_id)
     ):
-        info = info | {"support_valve": True}
+        channels = replace(channels, valve_write=True)
 
-    return adapter, info
+    return adapter, channels
 
 
-def _default_calibration_from_info(info: Mapping[str, bool]) -> str:
-    if info.get("support_offset", False):
-        return "local_calibration_based"
-    if info.get("support_valve", False):
-        return "direct_valve_based"
-    return "target_temp_based"
+def _default_calibration_for(channels: DeviceChannels) -> CalibrationOutput:
+    if channels.offset_write:
+        return CalibrationOutput.LOCAL_BASED
+    if channels.valve_write:
+        return CalibrationOutput.DIRECT_VALVE_BASED
+    return CalibrationOutput.TARGET_TEMP_BASED
 
 
 def _trv_supports_auto(
@@ -551,11 +559,10 @@ def _without_balance_mode(source: Mapping[str, object]) -> dict[str, object]:
 def _build_advanced_fields(
     *,
     sources: Iterable[Mapping[str, object] | None],
-    default_calibration: str,
+    default_calibration: CalibrationOutput,
     homematic: bool,
     has_auto: bool,
-    support_valve: bool = False,
-    support_offset: bool = False,
+    channels: DeviceChannels | None = None,
 ) -> OrderedDict[vol.Marker, object]:
     views = [_without_balance_mode(source) for source in sources if source is not None]
 
@@ -574,13 +581,14 @@ def _build_advanced_fields(
     # Compute values used below
     calib_default = get_value(CONF_CALIBRATION, default_calibration)
 
+    channels = channels or DeviceChannels()
     options = []
-    if support_valve:
+    if channels.valve_write:
         options.append(CalibrationOutput.DIRECT_VALVE_BASED)
 
     options.append(CalibrationOutput.TARGET_TEMP_BASED)
 
-    if support_offset:
+    if channels.offset_write:
         options.append(CalibrationOutput.LOCAL_BASED)
 
     calib_selector = selector.SelectSelector(
@@ -641,7 +649,7 @@ def _build_advanced_fields(
 def _normalize_advanced_submission(
     data: Mapping[str, object],
     *,
-    default_calibration: str,
+    default_calibration: CalibrationOutput,
     homematic: bool,
     has_auto: bool,
 ) -> _AdvancedDraft:
@@ -696,7 +704,7 @@ def _seconds_to_duration_dict(value: object) -> dict[str, int]:
 
 def _build_user_fields(
     *,
-    mode: str,
+    mode: _FlowMode,
     current: Mapping[str, object],
     user_input: Mapping[str, object] | None = None,
     system_unit: str | None = None,
@@ -944,7 +952,7 @@ def _submitted_selector_value(
 def _normalize_user_submission(
     user_input: Mapping[str, object],
     *,
-    mode: str,
+    mode: _FlowMode,
     base: Mapping[str, object] | None = None,
     errors: dict[str, str] | None = None,
     system_unit: str | None = None,
@@ -1050,13 +1058,13 @@ def _normalize_user_submission(
 async def _prepare_advanced_context(
     flow: ConfigFlow | OptionsFlowHandler, trv: _TrvDraft
 ) -> _AdvancedContext:
-    _adapter, info = await _load_adapter_info(
+    _adapter, channels = await _load_adapter_info(
         flow, trv.integration, trv.entity_id, existing_adapter=trv.adapter
     )
     return _AdvancedContext(
         entity_id=trv.entity_id,
-        info=info,
-        default_calibration=_default_calibration_from_info(info),
+        channels=channels,
+        default_calibration=_default_calibration_for(channels),
         homematic=bool(trv.integration and "homematic" in trv.integration.lower()),
         has_auto=_trv_supports_auto(flow, trv.entity_id),
     )
@@ -1261,7 +1269,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_confirm(
         self,
         user_input: dict[str, object] | None = None,
-        confirm_type: str | None = None,
+        confirm_type: _ConfirmError | None = None,
     ) -> config_entries.ConfigFlowResult:
         """Handle user-confirmation of discovered node."""
         errors: dict[str, str] = {}
@@ -1356,8 +1364,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             default_calibration=ctx.default_calibration,
             homematic=ctx.homematic,
             has_auto=ctx.has_auto,
-            support_valve=ctx.info.get("support_valve", False),
-            support_offset=ctx.info.get("support_offset", False),
+            channels=ctx.channels,
         )
         _LOGGER.debug(
             "ConfigFlow advanced step showing form for trv=%s with defaults=%s",
@@ -1553,9 +1560,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
             if algorithms_changed:
                 # Dynamic entity management adds and removes algorithm sensors.
-                signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
                 async_dispatcher_send(
-                    self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
+                    self.hass, SIGNAL_CONFIG_CHANGED.format(self._config_entry.entry_id)
                 )
             self._active_trv = None
             # The options are written above already; finishing the flow with
@@ -1570,8 +1576,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             default_calibration=ctx.default_calibration,
             homematic=ctx.homematic,
             has_auto=ctx.has_auto,
-            support_valve=ctx.info.get("support_valve", False),
-            support_offset=ctx.info.get("support_offset", False),
+            channels=ctx.channels,
         )
         _LOGGER.debug(
             "OptionsFlow advanced step showing form for trv=%s with defaults=%s",

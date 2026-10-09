@@ -26,9 +26,7 @@ from .entity import (
     last_available_state,
     remove_unclaimed_registry_entries,
 )
-
-# Import tracking variables from sensor.py
-from .sensor import _ACTIVE_SWITCH_ENTITIES
+from .sensor import _ACTIVE_SWITCH_ENTITIES, SwitchKind, SwitchRef
 from .utils.advanced_flags import advanced_flag
 from .utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
@@ -62,7 +60,7 @@ async def async_setup_entry(
         return
 
     switches: list[SwitchEntity] = []
-    switch_unique_ids = {}
+    switch_unique_ids: dict[str | None, SwitchRef] = {}
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
     for trv_entity_id, trv in bt_climate.real_trvs.items():
         if configured_calibration_mode(trv.advanced) == CalibrationMode.PID_CALIBRATION:
@@ -70,19 +68,17 @@ async def async_setup_entry(
                 bt_climate, trv_entity_id, has_multiple_trvs
             )
             switches.append(pid_switch)
-            switch_unique_ids[pid_switch._attr_unique_id] = {
-                "trv": trv_entity_id,
-                "type": "pid_auto_tune",
-            }
+            switch_unique_ids[pid_switch._attr_unique_id] = SwitchRef(
+                trv_entity_id, SwitchKind.PID_AUTO_TUNE
+            )
 
         child_lock_switch = BetterThermostatChildLockSwitch(
             bt_climate, trv_entity_id, has_multiple_trvs
         )
         switches.append(child_lock_switch)
-        switch_unique_ids[child_lock_switch._attr_unique_id] = {
-            "trv": trv_entity_id,
-            "type": "child_lock",
-        }
+        switch_unique_ids[child_lock_switch._attr_unique_id] = SwitchRef(
+            trv_entity_id, SwitchKind.CHILD_LOCK
+        )
 
     # Track created switch entities for cleanup
     _ACTIVE_SWITCH_ENTITIES[entry.entry_id] = switch_unique_ids

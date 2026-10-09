@@ -14,6 +14,7 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import State
 import pytest
 
+from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.config_flow import (
     ConfigFlow,
     OptionsFlowHandler,
@@ -65,7 +66,7 @@ def _make_hass():
 def _make_adapter():
     adapter = MagicMock()
     adapter.get_info = AsyncMock(
-        return_value={"support_offset": False, "support_valve": False}
+        return_value=DeviceChannels(offset_write=False, valve_write=False)
     )
     return adapter
 

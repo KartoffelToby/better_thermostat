@@ -20,6 +20,7 @@ from homeassistant.core import State
 from homeassistant.helpers import device_registry as dr
 import pytest
 
+from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.config_flow import (
     ConfigFlow,
     OptionsFlowHandler,
@@ -94,8 +95,8 @@ async def _run_advanced(flow):
             new=AsyncMock(
                 return_value=_AdvancedContext(
                     entity_id="climate.trv",
-                    info={},
-                    default_calibration="target_temp_based",
+                    channels=DeviceChannels(),
+                    default_calibration=CalibrationOutput.TARGET_TEMP_BASED,
                     homematic=False,
                     has_auto=False,
                 )
@@ -156,7 +157,7 @@ def _adapter_without_a_valve_channel():
     """
     adapter = MagicMock()
     adapter.get_info = AsyncMock(
-        return_value={"support_offset": True, "support_valve": False}
+        return_value=DeviceChannels(offset_write=True, valve_write=False)
     )
     return adapter
 
