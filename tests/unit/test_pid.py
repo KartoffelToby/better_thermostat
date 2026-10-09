@@ -12,6 +12,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     build_pid_key,
     compute_pid,
 )
+from tests.factories import ThermostatStandIn
 
 
 class TestPIDController:
@@ -34,9 +35,11 @@ class TestPIDController:
         self._states[key] = new_state
         return percent, debug, new_state
 
-    def _state(self, key: str) -> PIDState | None:
-        """Return the threaded state for ``key`` (None if never computed)."""
-        return self._states.get(key)
+    def _state(self, key: str) -> PIDState:
+        """Return the threaded state ``key`` holds after a computation."""
+        state = self._states.get(key)
+        assert state is not None
+        return state
 
     def test_no_temperatures(self):
         """Test behavior when temperatures are missing."""
@@ -189,7 +192,9 @@ class TestPIDController:
 
         state = self._state(key)
         # kp should be reduced, kd increased
+        assert state.pid_kp is not None
         assert state.pid_kp < params.kp
+        assert state.pid_kd is not None
         assert state.pid_kd > params.kd
 
     def test_auto_tune_starts_from_a_gain_set_to_zero(self):
@@ -241,6 +246,7 @@ class TestPIDController:
 
         state = self._state(key)
         # ki should be increased
+        assert state.pid_ki is not None
         assert state.pid_ki > params.ki
 
     def test_auto_tune_steady_state(self):
@@ -265,6 +271,7 @@ class TestPIDController:
 
         state = self._state(key)
         # ki should be decreased
+        assert state.pid_ki is not None
         assert state.pid_ki < params.ki
 
     def test_auto_tune_no_tune_due_to_interval(self):
@@ -358,7 +365,9 @@ class TestPIDController:
         state = self._state(key)
         # kp should be clamped to min, kd to max
         assert state is not None
+        assert state.pid_kp is not None
         assert state.pid_kp >= params.kp_min
+        assert state.pid_kd is not None
         assert state.pid_kd <= params.kd_max
 
     def test_auto_tune_combined_conditions(self):
@@ -688,12 +697,9 @@ class TestPIDController:
     def test_build_pid_key(self):
         """Test key building."""
 
-        class MockBT:
-            def __init__(self):
-                self.heat_target_temperature: float | None = 22.5
-                self.unique_id = "test_bt"
-
-        bt = MockBT()
+        bt = ThermostatStandIn()
+        bt.heat_target_temperature = 22.5
+        bt._unique_id = "test_bt"
         key = build_pid_key(bt, "climate.test")
         assert key == "test_bt:climate.test:t22.5"
 
@@ -813,18 +819,20 @@ class TestPidDerivativeSmoothing:
 class TestPidKeyBucket:
     """The target bucket in the PID key."""
 
-    class _Thermostat:
-        def __init__(self, target: float | None) -> None:
-            self.heat_target_temperature = target
-            self.unique_id = "bt_1"
+    @staticmethod
+    def _thermostat(target: float | None) -> ThermostatStandIn:
+        bt = ThermostatStandIn()
+        bt.heat_target_temperature = target
+        bt._unique_id = "bt_1"
+        return bt
 
     @pytest.mark.parametrize("target", [float("inf"), float("nan")])
     def test_a_target_without_a_bucket_keys_as_unknown(self, target):
         """A target that cannot be rounded to a bucket keys as ``tunknown``."""
-        key = build_pid_key(self._Thermostat(target), "climate.trv")
+        key = build_pid_key(self._thermostat(target), "climate.trv")
         assert key == "bt_1:climate.trv:tunknown"
 
     def test_a_target_rounds_to_its_half_degree_bucket(self):
         """A finite target lands in its nearest 0.5 degree bucket."""
-        key = build_pid_key(self._Thermostat(21.3), "climate.trv")
+        key = build_pid_key(self._thermostat(21.3), "climate.trv")
         assert key == "bt_1:climate.trv:t21.5"
