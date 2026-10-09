@@ -29,7 +29,7 @@ from custom_components.better_thermostat.utils.retry import (
     CommandCancelledError,
     command_cancellation_as_disconnect,
 )
-from tests.factories import ThermostatStandIn, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 ENTITY_ID = "climate.trv"
@@ -136,7 +136,7 @@ def _room() -> ThermostatStandIn:
     bt.startup_running = False
     bt.calculate_heating_power = AsyncMock()
     bt.cooler_entity_id = None
-    bt.real_trvs = {ENTITY_ID: trv_from_legacy_dict(ENTITY_ID, {})}
+    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}
     return bt
 
 

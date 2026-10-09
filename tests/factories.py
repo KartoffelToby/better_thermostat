@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+from collections import deque
 from collections.abc import Callable, Mapping
 import copy
 from dataclasses import replace
@@ -36,9 +37,17 @@ from custom_components.better_thermostat.core.snapshot import (
     TrvReported,
     WorldSnapshot,
 )
+from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import TaskManager
 from custom_components.better_thermostat.utils.preset_manager import PresetManager
+from custom_components.better_thermostat.utils.telemetry import CalibrationBalance
+from custom_components.better_thermostat.utils.thermal_learning import (
+    HeatingCycle,
+    HeatingStats,
+    LossCycle,
+    LossStats,
+)
 
 DEFAULT_TRV_ID = "climate.trv"
 DEFAULT_CONFIG_ENTRY_ID = "config_entry_1"
@@ -91,82 +100,59 @@ def make_snapshot(**overrides) -> WorldSnapshot:
     return WorldSnapshot(**defaults)
 
 
-def trv_from_legacy_dict(entity_id: str, data: Mapping[str, object]) -> Trv:
-    """Build a Trv from a plain per-entity dict.
+def make_trv(entity_id: str = DEFAULT_TRV_ID) -> Trv:
+    """Return a Trv with the default model quirks.
 
-    Known keys become typed fields; unknown keys land in ``extra``.
-    The explicit ``entity_id`` argument wins over an ``entity_id``
-    key in the dict, and an ``extra`` dict is merged into the extra
-    mapping instead of being nested under it; a non-dict ``extra``
-    value is kept under the ``extra`` key.
+    The default quirks pass calibration offsets and target temperatures
+    through unchanged. A test that needs other values builds on the
+    result with ``dataclasses.replace``.
 
     Parameters
     ----------
     entity_id : str
         Entity id for the built TRV.
-    data : Mapping[str, object]
-        Per-entity values, keyed by field name.
 
     Returns
     -------
     Trv
-        A TRV carrying the known keys as fields and the rest in ``extra``.
+        A TRV with the default quirks and the factory's defaults.
     """
-    fields_in = {}
-    extra = {}
-    for key, value in data.items():
-        if key == "entity_id":
-            continue
-        if key == "extra":
-            if isinstance(value, dict):
-                extra.update(value)
-            else:
-                extra[key] = value
-        elif key in Trv.__dataclass_fields__:
-            fields_in[key] = value
-        else:
-            extra[key] = value
-    trv = Trv(entity_id=entity_id, **fields_in)
-    trv.extra.update(extra)
-    return trv
+    return Trv(
+        entity_id=entity_id,
+        current_temperature=21.0,
+        last_calibration=0.0,
+        local_calibration_step=0.1,
+        min_local_calibration=-5.0,
+        max_local_calibration=5.0,
+        target_temp_step=0.1,
+        min_temp=5.0,
+        max_temp=30.0,
+        model_quirks=default_quirk,
+    )
 
 
-def make_trv(entity_id: str = DEFAULT_TRV_ID, **fields) -> Trv:
-    """Return a Trv with identity model quirks; overridable per test.
+def make_calibration_balance(
+    *, valve_percent: float = 0.0, debug: Mapping[str, object] | None = None
+) -> CalibrationBalance:
+    """Return a calibration balance as every calibration producer writes it.
 
     Parameters
     ----------
-    entity_id : str
-        Entity id for the built TRV.
-    **fields
-        Field values that replace the TRV defaults.
+    valve_percent : float
+        Device valve percentage the balance commands.
+    debug : Mapping[str, object] | None
+        The controller's debug payload; empty when not given.
 
     Returns
     -------
-    Trv
-        A TRV with identity calibration quirks and the requested fields.
+    CalibrationBalance
+        A balance carrying all three keys, with no direct valve write.
     """
-    quirks = MagicMock()
-    quirks.fix_local_calibration.side_effect = lambda _self, _eid, calibration_offset: (
-        float(calibration_offset)
-    )
-    quirks.fix_target_temperature_calibration.side_effect = (
-        lambda _self, _eid, temperature: float(temperature)
-    )
-    defaults = {
-        "advanced": {},
-        "current_temperature": 21.0,
-        "last_calibration": 0.0,
-        "local_calibration_step": 0.1,
-        "min_local_calibration": -5.0,
-        "max_local_calibration": 5.0,
-        "target_temp_step": 0.1,
-        "min_temp": 5.0,
-        "max_temp": 30.0,
-        "model_quirks": quirks,
+    return {
+        "valve_percent": valve_percent,
+        "apply_valve": False,
+        "debug": {} if debug is None else debug,
     }
-    defaults.update(fields)
-    return trv_from_legacy_dict(entity_id, defaults)
 
 
 def _thermostat_state_names() -> frozenset[str]:
@@ -280,8 +266,9 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
     "_unique_id": lambda: None,
 }
 
-# Properties that only return another attribute, answered from it.
-_PROPERTY_SOURCES = {"unique_id": "_unique_id"}
+# Names that only repeat another attribute, answered from it: the property
+# ``unique_id`` and the config entry id the constructor copies from it.
+_PROPERTY_SOURCES = {"unique_id": "_unique_id", "_config_entry_id": "_unique_id"}
 
 
 class ThermostatStandIn(MagicMock):
@@ -296,8 +283,9 @@ class ThermostatStandIn(MagicMock):
 
     The exceptions are the attributes in ``STAND_IN_DEFAULTS``, which a
     thermostat holds from construction on: the stand-in answers them with
-    the constructor's value, built fresh per stand-in. ``unique_id``
-    answers from ``_unique_id``, as the property does. Its children are
+    the constructor's value, built fresh per stand-in. ``unique_id`` and
+    ``_config_entry_id`` answer from ``_unique_id``, as the property and
+    the constructor do. Its children are
     plain ``MagicMock``s, so ``bt.hass.config`` stays as permissive as
     before.
     """
@@ -335,7 +323,6 @@ def make_bt(
     room_temperature: float | None = 20.0,
     heat_target_temperature: float | None = 21.0,
     tolerance: float = 0.3,
-    **trv_fields,
 ) -> MagicMock:
     """Return the recurring entity mock: clock, kernel regions, queues, TRVs.
 
@@ -351,8 +338,6 @@ def make_bt(
         Target temperature.
     tolerance : float
         Control tolerance band.
-    **trv_fields
-        Forwarded into every TRV built for ``trv_ids``.
 
     Returns
     -------
@@ -378,9 +363,7 @@ def make_bt(
     bt.kernel_state = running_kernel_state()
     bt.control_queue_task = asyncio.Queue(maxsize=1)
     bt.window_queue_task = asyncio.Queue(maxsize=1)
-    bt.real_trvs = {
-        entity_id: make_trv(entity_id, **trv_fields) for entity_id in trv_ids
-    }
+    bt.real_trvs = {entity_id: make_trv(entity_id) for entity_id in trv_ids}
     return bt
 
 
@@ -415,18 +398,18 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
     bt.bt_target_temperature_step = 0.5
     bt.heating_power = 0.1
     bt.heat_loss_rate = 0.0
-    bt.devices_errors = []
-    bt.devices_states = {}
+    bt.devices_errors = list[str]()
+    bt.devices_states = dict[str, dict[str, str | None]]()
     bt.room_temperature_filtered = 20.5
     bt.degraded_mode = False
-    bt.unavailable_sensors = []
-    bt.real_trvs = {}
-    bt.heating_cycles = []
-    bt.loss_cycles = []
-    bt.last_heating_power_stats = {}
-    bt.last_heat_loss_stats = {}
+    bt.unavailable_sensors = list[str]()
+    bt.real_trvs = dict[str, Trv]()
+    bt.heating_cycles = deque[HeatingCycle]()
+    bt.loss_cycles = deque[LossCycle]()
+    bt.last_heating_power_stats = deque[HeatingStats]()
+    bt.last_heat_loss_stats = deque[LossStats]()
     bt.next_valve_maintenance = None
-    bt._preset_cool_temperatures = {}
+    bt._preset_cool_temperatures = dict[str, float]()
     bt._preset_cool_temperature = None
     bt.preset_mgr = PresetManager(temperatures={})
     bt.door_open = False
