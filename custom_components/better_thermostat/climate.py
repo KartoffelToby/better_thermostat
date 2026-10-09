@@ -1047,7 +1047,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.clock: Clock = SystemClock()
         self.kernel_state = KernelState()
         self.flight_recorder = FlightRecorder()
-        self.next_valve_maintenance = self.clock.now() + timedelta(
+        self.next_valve_maintenance: datetime | None = self.clock.now() + timedelta(
             hours=randint(1, 24 * 5)
         )
         self.room_temperature = None
@@ -3427,13 +3427,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # Adopt the schedule the entity attribute carries, then advance the
         # region.
         region = self.kernel_state.maintenance
-        schedule = self.next_valve_maintenance
-        if not isinstance(schedule, datetime):
-            schedule = None
-        if region.next_due != schedule:
+        if region.next_due != self.next_valve_maintenance:
             region = MaintenanceState(
                 phase=region.phase,
-                next_due=schedule,
+                next_due=self.next_valve_maintenance,
                 running_since=region.running_since,
             )
         region = maintenance_evaluate_tick(
@@ -3559,15 +3556,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         finally:
             control_needed = self._control_needed_after_maintenance
             self._control_needed_after_maintenance = False
-            next_due = (
-                self.next_valve_maintenance
-                if isinstance(self.next_valve_maintenance, datetime)
-                else None
-            )
             self.kernel_state = replace(
                 self.kernel_state,
                 maintenance=maintenance_finish_run(
-                    self.kernel_state.maintenance, next_due
+                    self.kernel_state.maintenance, self.next_valve_maintenance
                 ),
             )
             # Release every TRV guard even if maintenance raised before the
