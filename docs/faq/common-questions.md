@@ -55,7 +55,7 @@ re-sends it within a few minutes.
 
 Check whether summer mode is on: open **Developer Tools → States**, select the Better Thermostat
 climate entity and look for `call_for_heat: false`. With an outdoor sensor, Better Thermostat
-decides on the outdoor temperature averaged over roughly the last day, and a sensor in the sun
+decides on a damped outdoor temperature with a time constant of 24 hours, and a sensor in the sun
 pushes that average up. See [Summer mode](/deep-explanations/summer-mode/) for how the decision
 works and where to mount the sensor.
 
