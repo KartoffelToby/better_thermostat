@@ -10,9 +10,12 @@ that cannot be switched off receive their minimum temperature instead.
 
 ## Changing the target while the window is open
 
-A target you set while the window is open is kept, whether you set it in
-Home Assistant or by turning a TRV's knob. Heating stays paused, and the
-room heats to the new target once the window closes.
+A target you set in Home Assistant while the window is open is kept. A
+knob turn is kept too when Better Thermostat holds that TRV at its minimum
+temperature for the window; a TRV it switches off takes no target from its
+knob, as the list below explains. Heating stays paused, and once the
+window closes the room heats to the kept target, unless the turn switched
+the room off.
 
 - A TRV that Better Thermostat holds at its minimum temperature for the
   window, because it has no off mode or because **Use the minimum
