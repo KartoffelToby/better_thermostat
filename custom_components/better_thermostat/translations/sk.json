@@ -177,14 +177,7 @@
   "issues": {
     "missing_entity": {
       "title": "BT: {name} - chýba súvisiaci entita",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Súvisiaca entita {entity} chýba",
-            "description": "Dôvodom je, že subjekt ({entity}) nie je v aplikácii Home Assistant k dispozícii.\n\nMôžete to napraviť tak, že skontrolujete, či je batéria zariadenia plná, alebo ju znovu pripojíte k HA. Pred pokračovaním sa uistite, že je jednotka opäť pripojená k HA."
-          }
-        }
-      }
+      "description": "Dôvodom je, že subjekt ({entity}) nie je v aplikácii Home Assistant k dispozícii.\n\nMôžete to napraviť tak, že skontrolujete, či je batéria zariadenia plná, alebo ju znovu pripojíte k HA. Toto upozornenie zmizne samo, keď bude entita opäť dostupná alebo bude odstránená z nastavení tohto Better Thermostat."
     },
     "degraded_mode": {
       "title": "BT: {name} - chyba snímača: {sensors} beží v obmedzenom režime",

@@ -1585,6 +1585,7 @@ class TestCoolerDegradedMode:
             check_and_update_degraded_mode,
         )
 
+        mock_bt_instance._unique_id = "entry_1"
         mock_bt_instance.cooler_entity_id = self.COOLER
         mock_bt_instance.hass.states.get.side_effect = self._only_dead(self.COOLER)
         self._arm_grace(mock_bt_instance, timedelta(minutes=-1))
@@ -1597,7 +1598,7 @@ class TestCoolerDegradedMode:
         assert self.COOLER in mock_bt_instance.unavailable_sensors
         assert any("Entering degraded mode" in r.message for r in caplog.records)
         kwargs = mock_ir.async_create_issue.call_args.kwargs
-        assert kwargs["issue_id"] == "degraded_mode_Test Thermostat"
+        assert kwargs["issue_id"] == "entry_1_degraded_mode"
         assert kwargs["severity"] is mock_ir.IssueSeverity.WARNING
 
     @pytest.mark.asyncio
@@ -1634,6 +1635,7 @@ class TestCoolerDegradedMode:
             check_and_update_degraded_mode,
         )
 
+        mock_bt_instance._unique_id = "entry_1"
         mock_bt_instance.cooler_entity_id = self.COOLER
         mock_bt_instance.hass.states.get.side_effect = _answers_with("cool")
         mock_bt_instance._degraded_warning_emitted = True
@@ -1645,10 +1647,7 @@ class TestCoolerDegradedMode:
         assert result is False
         assert mock_bt_instance.unavailable_sensors == []
         assert any("Exiting degraded mode" in r.message for r in caplog.records)
-        assert (
-            mock_ir.async_delete_issue.call_args.args[-1]
-            == "degraded_mode_Test Thermostat"
-        )
+        assert mock_ir.async_delete_issue.call_args.args[-1] == "entry_1_degraded_mode"
         assert mock_bt_instance._degraded_warning_emitted is False
 
     @pytest.mark.asyncio

@@ -279,8 +279,9 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
     "_unique_id": lambda: None,
 }
 
-# Properties that only return another attribute, answered from it.
-_PROPERTY_SOURCES = {"unique_id": "_unique_id"}
+# Names that only repeat another attribute, answered from it: the property
+# ``unique_id`` and the config entry id the constructor copies from it.
+_PROPERTY_SOURCES = {"unique_id": "_unique_id", "_config_entry_id": "_unique_id"}
 
 
 class ThermostatStandIn(MagicMock):
@@ -295,8 +296,9 @@ class ThermostatStandIn(MagicMock):
 
     The exceptions are the attributes in ``STAND_IN_DEFAULTS``, which a
     thermostat holds from construction on: the stand-in answers them with
-    the constructor's value, built fresh per stand-in. ``unique_id``
-    answers from ``_unique_id``, as the property does. Its children are
+    the constructor's value, built fresh per stand-in. ``unique_id`` and
+    ``_config_entry_id`` answer from ``_unique_id``, as the property and
+    the constructor do. Its children are
     plain ``MagicMock``s, so ``bt.hass.config`` stays as permissive as
     before.
     """

@@ -177,14 +177,7 @@
   "issues": {
     "missing_entity": {
       "title": "BT: {name} - ilgili varlık eksik",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "İlgili varlık {entity} eksik",
-            "description": "Bunun nedeni, varlığın ({entity}) Home Assistant'ınızda mevcut olmamasıdır.\n\nCihazın pilinin dolu olup olmadığını kontrol ederek veya HA'ya yeniden bağlayarak bunu düzeltebilirsiniz. Devam etmeden önce varlığın HA'da geri olduğuna emin olun."
-          }
-        }
-      }
+      "description": "Bunun nedeni, varlığın ({entity}) Home Assistant'ınızda mevcut olmamasıdır.\n\nCihazın pilinin dolu olup olmadığını kontrol ederek veya HA'ya yeniden bağlayarak bunu düzeltebilirsiniz. Varlık yeniden kullanılabilir olduğunda veya bu Better Thermostat’ın ayarlarından kaldırıldığında bu sorun kendiliğinden giderilir."
     },
     "degraded_mode": {
       "title": "BT: {name} - sensör hatası: {sensors} düşük performans modunda çalışıyor",
