@@ -15,6 +15,7 @@ from homeassistant.components.climate import HVACMode
 import pytest
 
 from custom_components.better_thermostat.events.trv import convert_outbound_states
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
@@ -22,11 +23,12 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationOutput,
 )
+from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
 from custom_components.better_thermostat.utils.helpers import (
     configured_calibration_mode,
     configured_calibration_output,
 )
-from tests.factories import ThermostatStandIn, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn
 
 _MISSING = object()
 
@@ -112,7 +114,7 @@ def test_no_advanced_settings_select_no_calibration_type():
     assert configured_calibration_output(None) is None
 
 
-def _outbound_bt(advanced: dict[str, object]) -> ThermostatStandIn:
+def _outbound_bt(advanced: TrvAdvanced) -> ThermostatStandIn:
     """A thermostat whose one TRV carries ``advanced``."""
     bt = ThermostatStandIn()
     bt.hass = MagicMock()
@@ -122,16 +124,13 @@ def _outbound_bt(advanced: dict[str, object]) -> ThermostatStandIn:
     bt.room_temperature = 20.0
     bt.window_open = False
     bt.real_trvs = {
-        "climate.trv": trv_from_legacy_dict(
-            "climate.trv",
-            {
-                "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "current_temperature": 20.0,
-                "temperature": 21.0,
-                "advanced": advanced,
-            },
+        "climate.trv": Trv(
+            entity_id="climate.trv",
+            hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
+            min_temp=5.0,
+            max_temp=30.0,
+            current_temperature=20.0,
+            advanced=advanced,
         )
     }
     return bt
@@ -168,10 +167,12 @@ def test_no_calibration_sends_the_room_target_however_it_is_spelled(stored_mode)
 @pytest.mark.parametrize("stored_type", [_MISSING, None, "a type from another version"])
 def test_no_known_calibration_type_sends_the_room_target(stored_type):
     """A setting that selects no calibration type writes the plain room target."""
-    bt = _outbound_bt(
-        _advanced(CONF_CALIBRATION, stored_type)
-        | {CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION.value}
-    )
+    advanced: TrvAdvanced = {
+        CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION.value
+    }
+    if stored_type is not _MISSING:
+        advanced[CONF_CALIBRATION] = stored_type
+    bt = _outbound_bt(advanced)
 
     with patch(
         "custom_components.better_thermostat.events.trv.calculate_calibration_setpoint",
