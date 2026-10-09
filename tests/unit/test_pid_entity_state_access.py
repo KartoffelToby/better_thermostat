@@ -94,8 +94,9 @@ class TestPidNumber:
         orders of magnitude.
         """
         bt = _make_bt()
-        others = {f"pid_{name}": 7.0 for name in ("kp", "ki", "kd") if name != gain}
-        bt.state_mgr.pid[_KEY] = PIDState(**others)
+        state = PIDState(pid_kp=7.0, pid_ki=7.0, pid_kd=7.0)
+        setattr(state, f"pid_{gain}", None)
+        bt.state_mgr.pid[_KEY] = state
         number = BetterThermostatPIDNumber(bt, "climate.trv", gain, False)
 
         assert number.native_value == default
