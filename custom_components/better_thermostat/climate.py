@@ -3573,10 +3573,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
             # Release every TRV guard even if maintenance raised before the
             # serviced-TRV cleanup above; a lingering guard suppresses future
-            # TRV updates.
+            # TRV updates. The setpoints maintenance moved are its own, so none
+            # of them is left for the end of a cycle to read as a turn.
             for entity_id in trvs:
                 try:
                     self.real_trvs[entity_id].ignore_trv_states = False
+                    self.real_trvs[entity_id].held_turn = None
                 except KeyError, TypeError:
                     pass
             # Always release ignore_states after maintenance.
