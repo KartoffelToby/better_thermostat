@@ -13,7 +13,11 @@ from homeassistant.exceptions import (
 import pytest
 import voluptuous as vol
 
-from custom_components.better_thermostat.utils.retry import async_retry
+from custom_components.better_thermostat.utils.retry import (
+    DeviceCallTimeoutError,
+    async_retry,
+    device_call_deadline,
+)
 
 _RETRY = "custom_components.better_thermostat.utils.retry"
 
@@ -92,6 +96,31 @@ class TestWhatIsWorthRetrying:
                 await write(object(), "climate.trv")
 
         assert len(attempts) == 3
+
+    @pytest.mark.asyncio
+    async def test_a_call_past_its_deadline_is_handed_back_on_the_first_attempt(self):
+        """A device that did not answer within the deadline is not asked again.
+
+        The call already waited the whole deadline, and the next attempt at a
+        device that does not answer waits it again.
+        """
+        attempts = []
+
+        @async_retry(retries=5)
+        async def write(self, entity_id):
+            attempts.append(entity_id)
+            async with device_call_deadline():
+                await asyncio.Event().wait()
+
+        with (
+            patch(f"{_RETRY}.DEVICE_CALL_TIMEOUT_S", 0.01),
+            patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()) as sleep,
+        ):
+            with pytest.raises(DeviceCallTimeoutError):
+                await write(object(), "climate.trv")
+
+        assert len(attempts) == 1
+        sleep.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_a_broken_call_is_handed_back_on_the_first_attempt(self):
@@ -319,6 +348,50 @@ class TestWhatComesBack:
             await write(object(), "climate.trv")
 
         assert len(attempts) == 1
+
+
+class TestDeviceCallDeadline:
+    """A device call either returns within the deadline or fails at it."""
+
+    @pytest.mark.asyncio
+    async def test_a_call_that_answers_in_time_returns_its_value(self):
+        """A call well inside the deadline is left alone."""
+
+        async def read():
+            return 21.5
+
+        async with device_call_deadline():
+            value = await read()
+
+        assert value == 21.5
+
+    @pytest.mark.asyncio
+    async def test_a_call_that_never_answers_is_cancelled_at_the_deadline(self):
+        """The call is cancelled and its caller gets a failure to handle."""
+        cancelled = asyncio.Event()
+
+        async def never_answers():
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        with patch(f"{_RETRY}.DEVICE_CALL_TIMEOUT_S", 0.01):
+            with pytest.raises(DeviceCallTimeoutError):
+                async with device_call_deadline():
+                    await never_answers()
+
+        assert cancelled.is_set()
+
+    @pytest.mark.asyncio
+    async def test_a_timeout_the_call_raises_itself_is_passed_on_unchanged(self):
+        """A device that reports its own timeout keeps the retry chain it had."""
+        with pytest.raises(TimeoutError) as raised:
+            async with device_call_deadline():
+                raise TimeoutError("radio did not acknowledge")
+
+        assert type(raised.value) is TimeoutError
 
 
 class TestWhatTheLogCarries:

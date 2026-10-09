@@ -37,9 +37,11 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.watchdog import WATCHDOG_MAX_AGE_S
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
 )
+from custom_components.better_thermostat.utils.controlling import reconcile_tick
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.watcher import (
     STARTUP_CRITICAL_GRACE_PERIOD,
@@ -49,8 +51,10 @@ from .conftest import (
     BT_ENTITY,
     COOLER_RESEND,
     CRITICAL_GRACE,
+    DEVICE_CALL_DEADLINE,
     DOMAIN,
     HUMIDITY_ID,
+    INITIAL_TWEAK_BUDGET,
     WINDOW_ID,
     WRITE_BUDGET,
     SimulatedClimate,
@@ -77,6 +81,7 @@ from .device_profiles import (
     VALVE_GROUP,
     GroupScenario,
 )
+from .write_hold import holding_next_write
 
 
 async def report_mode(hass, heads, mode: HVACMode) -> None:
@@ -205,6 +210,113 @@ async def test_the_group_keeps_heating_the_room_while_one_head_is_gone(hass, trv
         assert_write_is(head.set_temperature_calls[-1], 23.0, head.profile)
     assert setpoint_commands(events, absent.entity_id) == []
     assert bt.heat_target_temperature == pytest.approx(23.0)
+
+
+# A deadline the test can wait out in a blink, for devices that never answer.
+SHORT_DEVICE_DEADLINE = 0.05
+
+
+async def _never_answers(*_args: object, **_kwargs: object) -> None:
+    """Take a write and never return, like a device whose call never comes back."""
+    await asyncio.Event().wait()
+
+
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
+async def test_a_head_that_never_answers_does_not_hold_up_the_others(
+    hass, trv_group, caplog
+):
+    """A head that stops answering costs the room one deadline per cycle.
+
+    Some integrations keep a service call open until the device answers and
+    put no bound on the wait: a sleeping Z-Wave node, a cloud API without a
+    request timeout. The room's heads are written one after another, so a
+    write that never returns would keep every other head waiting with it, and
+    the room would stop following its target and its mode without a word in
+    the log. The write is given up at the deadline, named in the log, and the
+    other heads are written as before, a switch to off included.
+    """
+    set_room_sensor(hass, 19.5)
+    entry = make_entry(trv_group.scenario)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    hung = trv_group[0]
+    others = [head for head in trv_group.entities if head is not hung]
+    # An instance attribute shadows the method the service handler looks up.
+    hung.async_set_temperature = _never_answers
+    try:
+        with (
+            patch(WRITE_BUDGET, 0.0),
+            patch(DEVICE_CALL_DEADLINE, SHORT_DEVICE_DEADLINE),
+        ):
+            assert await room_target_reaches(hass, others, 23.0), {
+                head.entity_id: head.set_temperature_calls for head in others
+            }
+            assert any(
+                record.levelname == "WARNING"
+                and hung.entity_id in record.getMessage()
+                and "could not be written" in record.getMessage()
+                for record in caplog.records
+            ), [record.getMessage() for record in caplog.records]
+
+            await hass.services.async_call(
+                CLIMATE_DOMAIN,
+                SERVICE_SET_HVAC_MODE,
+                {"entity_id": BT_ENTITY, "hvac_mode": HVACMode.OFF},
+                blocking=True,
+            )
+            assert await wait_for(
+                hass,
+                lambda: all(
+                    hass.states.get(head.entity_id).state == HVACMode.OFF
+                    for head in others
+                ),
+            ), {head.entity_id: head.set_hvac_mode_calls for head in others}
+            assert await wait_for(hass, lambda: not bt.ignore_states)
+    finally:
+        del hung.async_set_temperature
+
+
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
+async def test_a_control_cycle_that_does_not_end_is_reported_once(
+    hass, trv_group, caplog
+):
+    """The control watchdog names a cycle that runs past its window.
+
+    A running cycle holds the inbound handler and the reconciler off, so
+    neither notices a cycle that never ends. Once a cycle has run for the
+    watchdog window, an error says so, once rather than on every tick.
+    """
+    set_room_sensor(hass, 19.5)
+    entry = make_entry(trv_group.scenario)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    clock = FakeClock(monotonic_value=time.monotonic(), now_value=dt_util.now())
+    bt.clock = clock
+
+    def overrun_reports() -> list[str]:
+        return [
+            record.getMessage()
+            for record in caplog.records
+            if record.levelname == "ERROR"
+            and "control cycle has been running" in record.getMessage()
+        ]
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(trv_group[0], "async_set_temperature") as held:
+            await set_room_target(hass, 23.0)
+            await held.wait_reached(hass)
+            assert bt.ignore_states
+
+            clock.advance(WATCHDOG_MAX_AGE_S / 2)
+            await reconcile_tick(bt)
+            assert overrun_reports() == []
+
+            clock.advance(WATCHDOG_MAX_AGE_S)
+            await reconcile_tick(bt)
+            clock.advance(WATCHDOG_MAX_AGE_S)
+            await reconcile_tick(bt)
+            assert len(overrun_reports()) == 1, overrun_reports()
 
 
 @pytest.mark.parametrize("trv_group", [MIXED_GRID_GROUP], indirect=True, ids=profile_id)
@@ -1018,6 +1130,55 @@ async def test_a_head_that_arrives_during_valve_maintenance_waits_for_its_end(
         )
 
     assert during == (True, False, [])
+
+
+@pytest.mark.parametrize("trv_group", [OFFSET_GROUP], indirect=True, ids=profile_id)
+async def test_a_head_whose_setup_never_answers_does_not_keep_the_room_from_starting(
+    hass, trv_group, caplog
+):
+    """A head whose setup hangs does not keep the room from starting.
+
+    Setting a head up puts its calibration number back to zero, and the heads
+    are set up one after another before the room becomes available. A write
+    that never returns would keep the room unavailable, with no repair issue
+    and no retry, until Home Assistant restarts. The setup is given up after
+    its budget, the failure is logged, and the room starts and drives its
+    heads.
+    """
+    hung, other = trv_group.entities
+    number = hung.offset_number
+    original = number.async_set_native_value
+    calls: list[float] = []
+
+    async def first_write_never_returns(value: float) -> None:
+        calls.append(value)
+        if len(calls) == 1:
+            await asyncio.Event().wait()
+        await original(value)
+
+    number.async_set_native_value = first_write_never_returns
+    set_room_sensor(hass, 19.5)
+    entry = make_entry(trv_group.scenario)
+    try:
+        with (
+            patch(INITIAL_TWEAK_BUDGET, SHORT_DEVICE_DEADLINE),
+            patch(DEVICE_CALL_DEADLINE, SHORT_DEVICE_DEADLINE),
+        ):
+            await setup_entry(hass, entry)
+            bt = await wait_for_startup(hass, entry)
+            assert calls, "the setup never wrote to the calibration number"
+            assert hass.states.get(BT_ENTITY).state == HVACMode.HEAT
+            assert any(
+                record.levelname == "ERROR"
+                and "initial tweak" in record.getMessage()
+                and hung.entity_id in record.getMessage()
+                for record in caplog.records
+            ), [record.getMessage() for record in caplog.records]
+            with patch(WRITE_BUDGET, 0.0):
+                assert await room_target_reaches(hass, [other], 23.0)
+            assert bt.heat_target_temperature == pytest.approx(23.0)
+    finally:
+        del number.async_set_native_value
 
 
 ADAPTER_INIT = "custom_components.better_thermostat.climate.init"

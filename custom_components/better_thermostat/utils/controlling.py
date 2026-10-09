@@ -681,6 +681,31 @@ def desired_diverges(
     return False
 
 
+def _report_overrunning_cycle(self: BetterThermostat) -> None:
+    """Log a control cycle that has run for longer than ``WATCHDOG_MAX_AGE_S``.
+
+    The cycle holds the inbound handler and the reconciler off for as long as
+    it runs, so one that never ends stops the room's control without either
+    of them noticing. Valve maintenance holds them off as well, on purpose,
+    and is not a cycle.
+    """
+    started = self.control_cycle_started_monotonic
+    if (
+        started is None
+        or self.in_maintenance
+        or not control_loop_stalled(started, self.clock.monotonic())
+    ):
+        return
+    self.control_cycle_started_monotonic = None
+    _LOGGER.error(
+        "better_thermostat %s: control watchdog: a control cycle has been "
+        "running for more than %.0f minutes; the room's devices get no "
+        "updates until it ends",
+        self.device_name,
+        WATCHDOG_MAX_AGE_S / 60.0,
+    )
+
+
 async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) -> None:
     """Periodic reconciliation: re-converge devices onto the intent.
 
@@ -692,9 +717,14 @@ async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) ->
     has not completed a cycle for ``WATCHDOG_MAX_AGE_S`` is the silent hang
     it exists for and is logged as an error. A room whose devices hold the
     intent has nothing for a cycle to do, however long ago the last one
-    ran, so a quiet loop is not reported.
+    ran, so a quiet loop is not reported. A cycle that is still running
+    ``WATCHDOG_MAX_AGE_S`` after it began is the other form of that hang,
+    and is logged as an error once.
     """
-    if self.startup_running or self.ignore_states:
+    if self.startup_running:
+        return
+    if self.ignore_states:
+        _report_overrunning_cycle(self)
         return
     if self.kernel_state.maintenance.is_blocking(self.clock.monotonic()):
         return
@@ -1277,6 +1307,7 @@ async def control_queue(self: BetterThermostat) -> None:
                 try:
                     if controls_to_process is not None:
                         self.ignore_states = True
+                        self.control_cycle_started_monotonic = self.clock.monotonic()
 
                         # Calculate heating power once per cycle
                         try:
@@ -1413,6 +1444,7 @@ async def control_queue(self: BetterThermostat) -> None:
                     # queue counts an item as unfinished until it is acknowledged,
                     # and cancellation reaches this loop between the get() and the
                     # end of the work it hands out.
+                    self.control_cycle_started_monotonic = None
                     self.control_queue_task.task_done()
     except asyncio.CancelledError:
         _LOGGER.debug(

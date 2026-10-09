@@ -320,6 +320,12 @@ EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL = timedelta(minutes=30)
 # full ladder is still cut off.
 STARTUP_CONTROL_BUDGET_S = 45.0
 
+# How long a TRV's initial tweak may take before its initialisation counts as
+# failed and the startup moves on. A tweak makes several device calls in a
+# row, and one that never returns would otherwise keep the entity unavailable
+# until Home Assistant restarts.
+INITIAL_TWEAK_BUDGET_S = 60.0
+
 # Default temperature when no sensor data is available (last resort fallback)
 DEFAULT_FALLBACK_TEMPERATURE = 20.0
 
@@ -1095,6 +1101,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.last_user_change_monotonic: float | None = None
         self.last_external_sensor_change = self.clock.now() - timedelta(hours=2)
         self._temperature_lock = asyncio.Lock()
+        # Monotonic time the control cycle now running began, for the control
+        # watchdog; None between cycles and once an overrun has been reported.
+        self.control_cycle_started_monotonic: float | None = None
         self.bt_update_lock = False
         if enabled_presets is not None:
             self.preset_mgr = PresetManager(enabled_presets=enabled_presets)
@@ -2604,8 +2613,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 )
 
             try:
-                with command_cancellation_as_disconnect():
-                    await initial_tweak(self, entity_id)
+                async with asyncio.timeout(INITIAL_TWEAK_BUDGET_S):
+                    with command_cancellation_as_disconnect():
+                        await initial_tweak(self, entity_id)
+            except TimeoutError:
+                failed.add(entity_id)
+                _LOGGER.error(
+                    "better_thermostat %s: Timeout running initial tweak for TRV %s",
+                    self.device_name,
+                    entity_id,
+                )
             except Exception as exc:
                 failed.add(entity_id)
                 _LOGGER.error(

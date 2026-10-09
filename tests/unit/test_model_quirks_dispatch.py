@@ -7,6 +7,7 @@ handed. Loading falls back to the default module, and a default module that
 cannot be imported either is an installation fault that has to surface.
 """
 
+import asyncio
 import importlib
 import logging
 from types import ModuleType
@@ -17,6 +18,7 @@ import pytest
 
 from custom_components.better_thermostat.model_fixes import model_quirks
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils import retry
 from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.trv"
@@ -167,3 +169,48 @@ class TestOnlyADeclaredAnswerCounts:
         host = _host(module)
 
         assert getattr(model_quirks, name)(host, ENTITY_ID) is True
+
+
+class TestTheWriteOverrideShims:
+    """A quirk's own write that never returns fails at the device deadline.
+
+    A quirk writes through service calls of its own, which Home Assistant
+    does not bound. The shim does, so the control cycle waiting on it gets a
+    failure to handle instead of waiting for the rest of its life.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("name", "value"),
+        [("override_set_temperature", 21.0), ("override_set_hvac_mode", "heat")],
+    )
+    async def test_an_override_that_never_returns_fails_at_the_deadline(
+        self, name, value
+    ):
+        """The override is cancelled and the shim raises the deadline failure."""
+
+        async def never_answers(_self, _entity_id, _value):
+            await asyncio.Event().wait()
+
+        module = ModuleType("hanging_quirk")
+        setattr(module, name, never_answers)
+        host = _host(module)
+
+        with (
+            patch(f"{retry.__name__}.DEVICE_CALL_TIMEOUT_S", 0.01),
+            pytest.raises(retry.DeviceCallTimeoutError),
+        ):
+            await getattr(model_quirks, name)(host, ENTITY_ID, value)
+
+    @pytest.mark.asyncio
+    async def test_an_override_that_answers_is_handed_back(self):
+        """An override inside the deadline answers through the shim unchanged."""
+
+        async def handled(_self, _entity_id, _value):
+            return True
+
+        module = ModuleType("answering_quirk")
+        module.override_set_temperature = handled
+        host = _host(module)
+
+        assert await model_quirks.override_set_temperature(host, ENTITY_ID, 21.0)
