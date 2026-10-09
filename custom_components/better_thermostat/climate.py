@@ -174,7 +174,6 @@ from .utils.const import (
     DEPRECATED_STATE_ATTRIBUTES,
     DOMAIN,
     SUPPORT_FLAGS,
-    TARGET_TEMP_BOUND_AUTO,
     VERSION,
     CalibrationMode,
     CalibrationOutput,
@@ -187,7 +186,14 @@ from .utils.controlling import (
     cooler_send_cache,
     reconcile_tick,
 )
-from .utils.entry_schema import TrvAdvanced, TrvSettings, parse_settings
+from .utils.entry_schema import (
+    BtSettings,
+    TrvAdvanced,
+    TrvSettings,
+    parse_settings,
+    target_temperature_bound,
+    target_temperature_step,
+)
 from .utils.helpers import (
     COOLER_SETPOINT_KEYS,
     CoolerSendCache,
@@ -349,29 +355,23 @@ async def async_setup_entry(
         entry.entry_id,
     )
 
+    name = settings[CONF_NAME]
+    unit = hass.config.units.temperature_unit
     bt_entity = BetterThermostat(
-        settings[CONF_NAME],
-        settings[CONF_THERMOSTAT],
-        settings.get(CONF_TEMPERATURE_SENSOR),
-        settings.get(CONF_HUMIDITY_SENSOR, None),
-        settings.get(CONF_WINDOW_SENSORS, None),
-        settings.get(CONF_WINDOW_OFF_DELAY, None),
-        settings.get(CONF_WINDOW_OFF_DELAY_AFTER, None),
-        settings.get(CONF_DOOR_SENSORS, None),
-        settings.get(CONF_DOOR_OFF_DELAY, None),
-        settings.get(CONF_DOOR_OFF_DELAY_AFTER, None),
-        settings.get(CONF_WEATHER, None),
-        settings.get(CONF_OUTDOOR_SENSOR, None),
-        settings.get(CONF_OFF_TEMPERATURE, None),
-        settings.get(CONF_TOLERANCE, 0.0),
-        settings.get(CONF_TARGET_TEMP_MIN, None),
-        settings.get(CONF_TARGET_TEMP_MAX, None),
-        settings.get(CONF_TARGET_TEMP_STEP, "0.0"),
-        settings.get(CONF_MODEL, None),
-        settings.get(CONF_COOLER, None),
-        settings.get(CONF_PRESETS, None),
-        hass.config.units.temperature_unit,
-        entry.entry_id,
+        config=_configured_bt_config(settings, unit),
+        trv_configs=settings[CONF_THERMOSTAT],
+        min_target_temperature=_configured_temperature_bound(
+            settings.get(CONF_TARGET_TEMP_MIN), name, CONF_TARGET_TEMP_MIN
+        ),
+        max_target_temperature=_configured_temperature_bound(
+            settings.get(CONF_TARGET_TEMP_MAX), name, CONF_TARGET_TEMP_MAX
+        ),
+        target_temperature_step=_configured_temperature_step(
+            settings.get(CONF_TARGET_TEMP_STEP), name
+        ),
+        enabled_presets=settings.get(CONF_PRESETS),
+        unit=unit,
+        unique_id=entry.entry_id,
         device_class="better_thermostat",
         state_class="better_thermostat_state",
     )
@@ -487,13 +487,12 @@ def _configured_temperature_bound(
 
     ``None`` means the bound follows the controlled entities: either the entry
     carries no value for it, or it carries the one the config flow stores for a
-    bound left on automatic.
+    bound left on automatic. A value that reads as no finite number is logged
+    and treated the same way.
     """
-    if value is None or value == "":
-        return None
     try:
-        bound = float(value)
-    except TypeError, ValueError:
+        return target_temperature_bound(value)
+    except ValueError:
         _LOGGER.warning(
             "better_thermostat %s: invalid %s '%s', deriving the bound from the "
             "controlled entities instead",
@@ -502,9 +501,136 @@ def _configured_temperature_bound(
             value,
         )
         return None
-    if not math.isfinite(bound) or bound == float(TARGET_TEMP_BOUND_AUTO):
+
+
+def _configured_temperature_step(
+    value: str | float | None, device_name: str
+) -> float | None:
+    """Return the configured target temperature step in degrees Celsius.
+
+    The step is picked from options labelled in Celsius, the unit the
+    configured range is picked in, so it is read as Celsius on every system.
+    ``None`` means the step is derived from the controlled entities; a value
+    that reads as no finite number is logged and treated the same way.
+    """
+    try:
+        return target_temperature_step(value)
+    except ValueError:
+        _LOGGER.warning(
+            "better_thermostat %s: invalid %s '%s', deriving the step from the "
+            "controlled entities instead",
+            device_name,
+            CONF_TARGET_TEMP_STEP,
+            value,
+        )
         return None
-    return bound
+
+
+def _configured_off_temperature(
+    value: str | float | None, device_name: str, unit: UnitOfTemperature
+) -> float | None:
+    """Return the configured off temperature in degrees Celsius.
+
+    The flows store it in the system unit. No value, one that does not read
+    as a number, and one outside a plausible outdoor range mean no off
+    temperature; 0 is a valid one.
+    """
+    if value in (None, "", "None"):
+        return None
+    try:
+        parsed_off = float(value)
+    except ValueError:
+        _LOGGER.warning(
+            "better_thermostat %s: invalid off_temperature '%s', ignoring",
+            device_name,
+            value,
+        )
+        return None
+    if not -100.0 < parsed_off < 150.0:
+        _LOGGER.warning(
+            "better_thermostat %s: off_temperature %.2f outside plausible range, ignoring",
+            device_name,
+            parsed_off,
+        )
+        return None
+    if unit == UnitOfTemperature.FAHRENHEIT:
+        return TemperatureConverter.convert(
+            parsed_off, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+        )
+    return parsed_off
+
+
+def _configured_tolerance(
+    value: str | float | None, device_name: str, unit: UnitOfTemperature
+) -> float:
+    """Return the configured tolerance as a Celsius delta.
+
+    The flows store it in the system unit. No value, one that does not read
+    as a finite number, and a negative one mean no tolerance.
+    """
+    try:
+        tolerance = float(value) if value is not None else 0.0
+        if not math.isfinite(tolerance):
+            raise ValueError
+    except ValueError:
+        _LOGGER.warning(
+            "better_thermostat %s: invalid tolerance '%s', falling back to 0.0",
+            device_name,
+            value,
+        )
+        return 0.0
+    if unit == UnitOfTemperature.FAHRENHEIT:
+        tolerance = tolerance * 5.0 / 9.0
+    if tolerance < 0:
+        _LOGGER.warning(
+            "better_thermostat %s: negative tolerance '%s' adjusted to 0.0",
+            device_name,
+            tolerance,
+        )
+        return 0.0
+    if tolerance > 10:
+        _LOGGER.warning(
+            "better_thermostat %s: unusually high tolerance '%s' (>10) may cause sluggish response",
+            device_name,
+            tolerance,
+        )
+    return tolerance
+
+
+def _configured_bt_config(settings: BtSettings, unit: UnitOfTemperature) -> BtConfig:
+    """Return the static configuration of a thermostat from its settings.
+
+    Every stored number is read here, once, into the type and unit the entity
+    works in; an entity id left empty is no entity.
+    """
+    name = settings[CONF_NAME]
+    return BtConfig(
+        device_name=name,
+        model=settings.get(CONF_MODEL),
+        sensor_entity_id=settings.get(CONF_TEMPERATURE_SENSOR),
+        humidity_sensor_entity_id=settings.get(CONF_HUMIDITY_SENSOR),
+        cooler_entity_id=settings.get(CONF_COOLER),
+        window_sensor_entity_id=settings.get(CONF_WINDOW_SENSORS) or None,
+        window_open_delay_seconds=_configured_delay(
+            settings.get(CONF_WINDOW_OFF_DELAY), name, CONF_WINDOW_OFF_DELAY
+        ),
+        window_close_delay_seconds=_configured_delay(
+            settings.get(CONF_WINDOW_OFF_DELAY_AFTER), name, CONF_WINDOW_OFF_DELAY_AFTER
+        ),
+        door_sensor_entity_id=settings.get(CONF_DOOR_SENSORS) or None,
+        door_open_delay_seconds=_configured_delay(
+            settings.get(CONF_DOOR_OFF_DELAY), name, CONF_DOOR_OFF_DELAY
+        ),
+        door_close_delay_seconds=_configured_delay(
+            settings.get(CONF_DOOR_OFF_DELAY_AFTER), name, CONF_DOOR_OFF_DELAY_AFTER
+        ),
+        weather_entity_id=settings.get(CONF_WEATHER) or None,
+        outdoor_sensor_entity_id=settings.get(CONF_OUTDOOR_SENSOR) or None,
+        off_temperature=_configured_off_temperature(
+            settings.get(CONF_OFF_TEMPERATURE), name, unit
+        ),
+        tolerance=_configured_tolerance(settings.get(CONF_TOLERANCE), name, unit),
+    )
 
 
 def _bound_into(value: float, lower: float | None, upper: float | None) -> float:
@@ -522,7 +648,7 @@ def _bound_into(value: float, lower: float | None, upper: float | None) -> float
 
 
 def _target_temperature_step_celsius(
-    state: State | None, device_name: str, system_unit: str | None
+    state: State | None, device_name: str, system_unit: UnitOfTemperature | None
 ) -> float | None:
     """Read a child's own setpoint step and return it as a Celsius delta.
 
@@ -864,27 +990,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     def __init__(
         self,
-        name: str,
+        *,
+        config: BtConfig,
         trv_configs: list[TrvSettings],
-        sensor_entity_id: str | None,
-        humidity_sensor_entity_id: str | None,
-        window_sensor_entity_id: str | None,
-        window_open_delay_seconds: str | float | None,
-        window_close_delay_seconds: str | float | None,
-        door_sensor_entity_id: str | None,
-        door_open_delay_seconds: str | float | None,
-        door_close_delay_seconds: str | float | None,
-        weather_entity_id: str | None,
-        outdoor_sensor_entity_id: str | None,
-        off_temperature: str | float | None,
-        tolerance: str | float | None,
-        min_target_temperature: str | float | None,
-        max_target_temperature: str | float | None,
-        target_temp_step: str | float | None,
-        model: str | None,
-        cooler_entity_id: str | None,
+        min_target_temperature: float | None,
+        max_target_temperature: float | None,
+        target_temperature_step: float | None,
         enabled_presets: list[str] | None,
-        unit: str,
+        unit: UnitOfTemperature,
         unique_id: str,
         device_class: str | None,
         state_class: str | None,
@@ -893,50 +1006,23 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         Parameters
         ----------
-        name : str
-            Display name of the thermostat.
+        config : BtConfig
+            Static configuration, read from the entry's settings.
         trv_configs : list[TrvSettings]
             TRV configuration entries controlled by this thermostat.
-        sensor_entity_id : str | None
-            External temperature sensor entity id.
-        humidity_sensor_entity_id : str | None
-            External humidity sensor entity id.
-        window_sensor_entity_id : str | None
-            Window contact sensor entity id for open-window detection.
-        window_open_delay_seconds : str | float | None
-            Delay in seconds before reacting to a window opening.
-        window_close_delay_seconds : str | float | None
-            Delay in seconds before reacting to a window closing.
-        door_sensor_entity_id : str | None
-            Door contact sensor entity id for open-door detection.
-        door_open_delay_seconds : str | float | None
-            Delay in seconds before reacting to a door opening.
-        door_close_delay_seconds : str | float | None
-            Delay in seconds before reacting to a door closing.
-        weather_entity_id : str | None
-            Weather entity used as outdoor temperature source.
-        outdoor_sensor_entity_id : str | None
-            Outdoor temperature sensor entity id.
-        off_temperature : float | None
-            Outdoor temperature above which heating is switched off.
-        tolerance : float
-            Temperature hysteresis in degrees.
-        min_target_temperature : str | float | None
-            Lower bound of the target temperature range, or None to derive it
-            from the controlled entities.
-        max_target_temperature : str | float | None
-            Upper bound of the target temperature range, or None to derive it
-            from the controlled entities.
-        target_temp_step : str | float | None
-            Step size for target temperature adjustments.
-        model : str
-            Detected TRV model identifier.
-        cooler_entity_id : str | None
-            Cooler entity id.
-        enabled_presets : list[str]
-            Presets enabled for this thermostat.
-        unit : str
-            Temperature unit reported by the entity.
+        min_target_temperature : float | None
+            Lower bound of the target temperature range in degrees Celsius,
+            or None to derive it from the controlled entities.
+        max_target_temperature : float | None
+            Upper bound of the target temperature range in degrees Celsius,
+            or None to derive it from the controlled entities.
+        target_temperature_step : float | None
+            Step size for target temperature adjustments in degrees Celsius,
+            or None to derive it from the controlled entities.
+        enabled_presets : list[str] | None
+            Presets enabled for this thermostat, or None for the defaults.
+        unit : UnitOfTemperature
+            Temperature unit of the Home Assistant system.
         unique_id : str
             Unique id of the config entry.
         device_class : str | None
@@ -947,91 +1033,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.real_trvs: dict[str, Trv] = {}
         self.entity_ids = []
         self.all_trvs: list[TrvSettings] = trv_configs
-        # Robust off temperature parsing: preserve 0.0 and ignore invalid strings
-        _off_temperature = None
-        if off_temperature not in (None, "", "None"):  # allow numeric 0
-            try:
-                parsed_off = float(off_temperature)
-                # Accept any float (including 0.0); reject extreme nonsense
-                if -100.0 < parsed_off < 150.0:
-                    if unit == UnitOfTemperature.FAHRENHEIT:
-                        parsed_off = TemperatureConverter.convert(
-                            parsed_off,
-                            UnitOfTemperature.FAHRENHEIT,
-                            UnitOfTemperature.CELSIUS,
-                        )
-                    _off_temperature = parsed_off
-                else:
-                    _LOGGER.warning(
-                        "better_thermostat %s: off_temperature %.2f outside plausible range, ignoring",
-                        name,
-                        parsed_off,
-                    )
-            except TypeError, ValueError:
-                _LOGGER.warning(
-                    "better_thermostat %s: invalid off_temperature '%s', ignoring",
-                    name,
-                    off_temperature,
-                )
-
-        # Robust tolerance parsing & sanitizing
-        try:
-            _tolerance = float(tolerance) if tolerance is not None else 0.0
-            if not math.isfinite(_tolerance):
-                raise ValueError
-            if unit == UnitOfTemperature.FAHRENHEIT:
-                _tolerance = _tolerance * 5.0 / 9.0
-        except TypeError, ValueError:
-            _LOGGER.warning(
-                "better_thermostat %s: invalid tolerance '%s', falling back to 0.0",
-                name,
-                tolerance,
-            )
-            _tolerance = 0.0
-        if _tolerance < 0:
-            _LOGGER.warning(
-                "better_thermostat %s: negative tolerance '%s' adjusted to 0.0",
-                name,
-                _tolerance,
-            )
-            _tolerance = 0.0
-        if _tolerance > 10:
-            _LOGGER.warning(
-                "better_thermostat %s: unusually high tolerance '%s' (>10) may cause sluggish response",
-                name,
-                _tolerance,
-            )
-
         # Static configuration and live runtime values each get a container;
         # the flat attribute names delegate into them via properties.
-        self.config = BtConfig(
-            device_name=name,
-            model=model,
-            sensor_entity_id=sensor_entity_id,
-            humidity_sensor_entity_id=humidity_sensor_entity_id,
-            cooler_entity_id=cooler_entity_id,
-            window_sensor_entity_id=window_sensor_entity_id or None,
-            window_open_delay_seconds=_configured_delay(
-                window_open_delay_seconds, name, CONF_WINDOW_OFF_DELAY
-            ),
-            window_close_delay_seconds=_configured_delay(
-                window_close_delay_seconds, name, CONF_WINDOW_OFF_DELAY_AFTER
-            ),
-            door_sensor_entity_id=door_sensor_entity_id or None,
-            door_open_delay_seconds=_configured_delay(
-                door_open_delay_seconds, name, CONF_DOOR_OFF_DELAY
-            ),
-            door_close_delay_seconds=_configured_delay(
-                door_close_delay_seconds, name, CONF_DOOR_OFF_DELAY_AFTER
-            ),
-            weather_entity_id=weather_entity_id or None,
-            outdoor_sensor_entity_id=outdoor_sensor_entity_id or None,
-            off_temperature=_off_temperature,
-            tolerance=_tolerance,
-        )
+        self.config = config
         self.runtime = BtRuntime()
         self._unique_id = unique_id
-        self._unit = unit
+        self._unit: UnitOfTemperature = unit
         self._device_class = device_class
         self._state_class = state_class
         self._hvac_list = [HVACMode.HEAT, HVACMode.OFF]
@@ -1046,28 +1053,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self._current_humidity: float | None = None
         # A configured bound overrides what the controlled entities report, so
         # it is kept apart from the resolved ``bt_min_temp`` / ``bt_max_temp``.
-        self.configured_min_temperature: float | None = _configured_temperature_bound(
-            min_target_temperature, name, CONF_TARGET_TEMP_MIN
-        )
-        self.configured_max_temperature: float | None = _configured_temperature_bound(
-            max_target_temperature, name, CONF_TARGET_TEMP_MAX
-        )
-        # The configured step is picked from options labelled in Celsius, the
-        # unit the configured range is picked in, so it is read as Celsius on
-        # every system.
-        self.bt_target_temperature_step = (
-            float(target_temp_step)
-            if target_temp_step and target_temp_step != "0.0"
-            else None
-        )
+        self.configured_min_temperature: float | None = min_target_temperature
+        self.configured_max_temperature: float | None = max_target_temperature
+        self.bt_target_temperature_step: float | None = target_temperature_step
         # ``bt_target_temperature_step`` also absorbs the step derived from the child
         # entities, so the explicitly configured value is kept apart: it is the
         # only step that may coarsen a device's own grid.
-        self._configured_temperature_step: float | None = (
-            self.bt_target_temperature_step
-            if self.bt_target_temperature_step and self.bt_target_temperature_step > 0.0
-            else None
-        )
+        self._configured_temperature_step: float | None = target_temperature_step
         # ``bt_min_temp`` / ``bt_max_temp`` bound the heating channel, and the
         # only channel of a thermostat without a cooler. With a cooler the
         # cooling channel is held to the cooler's own range instead; a bound it
