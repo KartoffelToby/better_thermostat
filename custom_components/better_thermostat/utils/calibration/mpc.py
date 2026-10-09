@@ -1573,39 +1573,41 @@ def _compute_predictive_percent(
                     params.mpc_loss_min, min(params.mpc_loss_max, float(state.loss_est))
                 )
 
-            adapt_debug = {
-                "id_dt_min": _round_for_debug(dt_min, 3),
-                "id_delta_T": _round_for_debug(observed_delta_kelvin, 3),
-                "id_implied_delta_T": _round_for_debug(implied_delta_kelvin, 3),
-                "id_temp_changed": temperature_changed,
-                "id_learn_signal": learn_signal,
-                "id_temp_change_threshold_C": _round_for_debug(
-                    MPC_TEMP_CHANGE_THRESHOLD_K, 3
-                ),
-                "id_rate": _round_for_debug(observed_rate, 4),
-                "id_rate_delta": _round_for_debug(observed_rate_delta, 4),
-                "id_rate_ss": _round_for_debug(observed_rate_ss, 4),
-                "id_rate_source": rate_source,
-                "id_slope_rejected": slope_rejected,
-                "id_rate_ok": rate_ok,
-                "id_u_last": _round_for_debug(u_last, 3),
-                "id_target_changed": target_changed,
-                "id_gain_method": gain_method,
-                "id_gain_updated": gain_method is not None,
-                "id_gain_ss_applied": gain_ss_applied,
-                "id_gain_ss_candidate": (
-                    _round_for_debug(gain_ss_candidate, 4)
-                    if gain_ss_candidate is not None
-                    else None
-                ),
-                "id_gain_ss_rate_limited": gain_ss_rate_limited,
-                "id_loss_updated": loss_method is not None,
-                "id_loss_method": loss_method,
-                "id_loss_ss_rate_thr": _round_for_debug(0.02, 4),
-                "id_residual_ok": residual_ok,
-                "id_residual_rate_limited": residual_rate_limited,
-                "id_residual_block_jump": residual_block_jump,
-            }
+            adapt_debug.update(
+                {
+                    "id_dt_min": _round_for_debug(dt_min, 3),
+                    "id_delta_T": _round_for_debug(observed_delta_kelvin, 3),
+                    "id_implied_delta_T": _round_for_debug(implied_delta_kelvin, 3),
+                    "id_temp_changed": temperature_changed,
+                    "id_learn_signal": learn_signal,
+                    "id_temp_change_threshold_C": _round_for_debug(
+                        MPC_TEMP_CHANGE_THRESHOLD_K, 3
+                    ),
+                    "id_rate": _round_for_debug(observed_rate, 4),
+                    "id_rate_delta": _round_for_debug(observed_rate_delta, 4),
+                    "id_rate_ss": _round_for_debug(observed_rate_ss, 4),
+                    "id_rate_source": rate_source,
+                    "id_slope_rejected": slope_rejected,
+                    "id_rate_ok": rate_ok,
+                    "id_u_last": _round_for_debug(u_last, 3),
+                    "id_target_changed": target_changed,
+                    "id_gain_method": gain_method,
+                    "id_gain_updated": gain_method is not None,
+                    "id_gain_ss_applied": gain_ss_applied,
+                    "id_gain_ss_candidate": (
+                        _round_for_debug(gain_ss_candidate, 4)
+                        if gain_ss_candidate is not None
+                        else None
+                    ),
+                    "id_gain_ss_rate_limited": gain_ss_rate_limited,
+                    "id_loss_updated": loss_method is not None,
+                    "id_loss_method": loss_method,
+                    "id_loss_ss_rate_thr": _round_for_debug(0.02, 4),
+                    "id_residual_ok": residual_ok,
+                    "id_residual_rate_limited": residual_rate_limited,
+                    "id_residual_block_jump": residual_block_jump,
+                }
+            )
 
             # Reset main anchor only on significant changes or context switch
             if temperature_changed or target_changed:

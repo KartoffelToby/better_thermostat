@@ -2699,6 +2699,30 @@ class TestAdaptationFromARestoredAnchor:
         assert output.debug["id_loss_method"] == "cool_u0"
         assert state.loss_learn_count == 1
 
+    def test_skipped_loss_update_reaches_the_debug_payload(self):
+        """A cooling rate beyond the realistic loss is reported next to the id fields."""
+        params = _default_params(mpc_adapt=True, mpc_adapt_alpha=0.1)
+        state = self._anchored_state(last_percent=None)
+
+        # 2 K in 10 min is 0.2 °C/min, above 1.5 x mpc_loss_max (0.15).
+        output = _run_at(_NOW, _inp(key="skip", room_temperature=18.0), params, state)
+
+        assert output.debug["loss_skipped_high_rate"] is True
+        assert output.debug["id_loss_method"] is None
+        assert state.loss_est == 0.01
+
+    def test_regime_boost_flags_reach_the_debug_payload(self):
+        """An ending regime boost is reported next to the id fields."""
+        params = _default_params(mpc_adapt=True, mpc_adapt_alpha=0.1)
+        state = self._anchored_state(last_percent=60.0, regime_boost_active=True)
+
+        output = _run_at(_NOW, _inp(key="boost", room_temperature=20.1), params, state)
+
+        assert output.debug["regime_boost_active"] is True
+        assert output.debug["regime_boost_reset"] is True
+        assert output.debug["id_gain_method"] == "heat_rate"
+        assert state.regime_boost_active is False
+
 
 class TestLearnedMinimumOpeningInIdentification:
     """With min-effective learning on, openings below the minimum count as closed."""
