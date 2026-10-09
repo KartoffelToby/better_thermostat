@@ -247,6 +247,8 @@ Direct valve control is available for TRVs that expose valve position as a contr
 
 Better Thermostat detects whether your TRV supports direct valve control and then offers the **Direct Valve Based** calibration type. It only writes the valve when you select that type.
 
+The valve entity has to accept writes. Where the device exposes both a writable valve number and a valve sensor that only reports the opening, Better Thermostat writes the number. A valve closing degree, such as the one on the Sonoff TRVZB, is never taken as the valve entity, because it holds the opposite of the opening. If the TRVZB's valve opening degree entity is disabled, the TRV has no direct valve control and Better Thermostat logs a warning naming that entity; enable it and reload Better Thermostat.
+
 ### How the algorithms use it
 
 With the Direct Valve Based calibration type:

@@ -44,7 +44,7 @@ from .utils.const import CONF_CHILD_LOCK, DOMAIN, CalibrationMode
 from .utils.helpers import (
     async_normalize_bt_entity_ids,
     configured_calibration_mode,
-    find_device_entity,
+    find_child_lock_entity,
 )
 
 if TYPE_CHECKING:
@@ -379,14 +379,7 @@ class BetterThermostatChildLockSwitch(
 
         device_id = reg_entity.device_id
 
-        # Look for switch (Z2M) or lock. Prefer child-lock-specific names and
-        # only fall back to a bare "lock" match, so a device exposing several
-        # lock entities does not select the wrong one.
-        cl_entity = find_device_entity(
-            entity_registry, device_id, ["switch", "lock"], ["child_lock", "child lock"]
-        ) or find_device_entity(
-            entity_registry, device_id, ["switch", "lock"], ["lock"]
-        )
+        cl_entity = find_child_lock_entity(entity_registry, device_id)
 
         if cl_entity:
             target_state = STATE_ON if state else STATE_OFF
@@ -406,8 +399,8 @@ class BetterThermostatChildLockSwitch(
                             "switch", service, {"entity_id": cl_entity}
                         )
                 else:
-                    # find_device_entity answers only from the two domains
-                    # it was asked for, so the entity is a lock here.
+                    # find_child_lock_entity answers only from the two domains
+                    # it searches, so the entity is a lock here.
                     target_lock = "locked" if state else "unlocked"
                     cur = self._bt_climate.hass.states.get(cl_entity)
                     if cur and (force or cur.state != target_lock):
