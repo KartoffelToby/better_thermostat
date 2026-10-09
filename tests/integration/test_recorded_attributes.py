@@ -11,6 +11,7 @@ from datetime import timedelta
 from functools import partial
 
 from homeassistant.components.recorder import history
+from homeassistant.core import State
 from homeassistant.helpers.recorder import get_instance
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.components.recorder.common import (
@@ -51,7 +52,7 @@ def _is_telemetry(key: str) -> bool:
     return key.startswith(("pid_", "mpc_v2_")) or key in _TELEMETRY
 
 
-async def _recorded_attributes(hass, state) -> dict:
+async def _recorded_attributes(hass, state) -> dict[str, object]:
     """Return the attributes the recorder stored for the live ``state``.
 
     Most writes of the climate entity change attributes only, so the query
@@ -70,11 +71,11 @@ async def _recorded_attributes(hass, state) -> dict:
             significant_changes_only=False,
         )
     )
-    rows = [
-        row
-        for row in states[state.entity_id]
-        if row.last_updated_timestamp == state.last_updated_timestamp
-    ]
+    rows: list[State] = []
+    for row in states[state.entity_id]:
+        assert isinstance(row, State), row
+        if row.last_updated_timestamp == state.last_updated_timestamp:
+            rows.append(row)
     assert len(rows) == 1
     return dict(rows[0].attributes)
 

@@ -234,7 +234,9 @@ def test_sensor_noise_std_matches_parameter():
     std_K = 0.5
     p = SensorParams(noise_std_K=std_K, sample_interval_s=0.0)
     s = Sensor(p, seed=3)
-    samples = [s.read(float(t), 20.0) - 20.0 for t in range(1, 20001)]
+    readings = [s.read(float(t), 20.0) for t in range(1, 20001)]
+    samples = [r - 20.0 for r in readings if r is not None]
+    assert len(samples) == len(readings)
     assert abs(pstdev(samples) - std_K) < 0.02
     assert max(abs(x) for x in samples) <= std_K * math.sqrt(7.0) + 1e-9
 

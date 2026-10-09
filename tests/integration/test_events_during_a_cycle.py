@@ -27,6 +27,7 @@ from homeassistant.components.climate import (
     SERVICE_SET_HVAC_MODE,
     SERVICE_SET_TEMPERATURE,
     ClimateEntityFeature,
+    HVACAction,
     HVACMode,
 )
 from homeassistant.core import Context
@@ -483,7 +484,7 @@ async def test_a_device_answering_inside_every_cycle_does_not_keep_the_room_cycl
     the one change of the room sensor stays one cycle or two.
     """
     bt, (fake_trv,) = await _start(hass, GENERIC_HEAT_TRV)
-    fake_trv._attr_hvac_action = "idle"
+    fake_trv._attr_hvac_action = HVACAction.IDLE
     _publish(fake_trv)
     await _handled(hass, bt)
     if answer == "routine_report_without_off_mode":
@@ -494,7 +495,9 @@ async def test_a_device_answering_inside_every_cycle_does_not_keep_the_room_cycl
         nonlocal heating
         if answer == "heating_action_flips":
             heating = not heating
-            fake_trv._attr_hvac_action = "heating" if heating else "idle"
+            fake_trv._attr_hvac_action = (
+                HVACAction.HEATING if heating else HVACAction.IDLE
+            )
             _publish(fake_trv)
         else:
             _report(fake_trv)
@@ -741,6 +744,7 @@ async def test_the_calibration_gate_stays_shut_while_the_device_reports_its_prev
     bt, (fake_trv,) = await _start(hass, MQTT_OFFSET_TRV, room=21.0)
     trv = bt.real_trvs[TRV_ID]
     offset_number = fake_trv.offset_number
+    assert offset_number is not None
     previous = offset_number.native_value
 
     with patch(WRITE_BUDGET, 0.0), patch(CONFIRM_TIMEOUT, 10**9):
@@ -799,6 +803,7 @@ async def test_a_setpoint_is_an_echo_only_when_it_is_what_was_written(hass, turn
         )
         await _settle(hass, bt)
     written = fake_trv.target_temperature
+    assert written is not None
     step = INTEGER_GRID_TRV.target_temperature_step
     assert bt.heat_target_temperature == pytest.approx(target)
     assert written != pytest.approx(target)

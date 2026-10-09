@@ -11,6 +11,7 @@ the device offers, put each offered entry into a real automation, and drive
 the change it claims to watch.
 """
 
+from collections.abc import Iterable
 from datetime import timedelta
 import json
 import logging
@@ -34,6 +35,7 @@ from homeassistant.helpers import (
     device_registry as dr,
     entity_registry as er,
 )
+from homeassistant.helpers.trigger import TriggerData, TriggerInfo
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 import pytest
@@ -71,7 +73,7 @@ from .device_profiles import GENERIC_HEAT_TRV, SEPARATE_COOLER, TRV_ID
 # thermostat itself publishes. Every key is checked against the live entity
 # before it is used: a trigger that names an attribute Better Thermostat does
 # not expose can only be caught if the test refuses to invent that attribute.
-TRIGGER_CASES = {
+TRIGGER_CASES: dict[str, dict[str, object]] = {
     "heating_active": {ATTR_HVAC_ACTION: "heating"},
     "heating_stopped": {ATTR_HVAC_ACTION: "idle"},
     "window_opened": {"window_open": True},
@@ -202,9 +204,11 @@ async def test_a_thermostat_without_a_humidity_sensor_is_offered_no_humidity_tri
     await wait_for_startup(hass, entry)
     registry_entry = er.async_get(hass).async_get(BT_ENTITY)
     assert registry_entry is not None
+    device_id = registry_entry.device_id
+    assert device_id is not None
 
     offered = await async_get_device_automations(
-        hass, DeviceAutomationType.TRIGGER, registry_entry.device_id
+        hass, DeviceAutomationType.TRIGGER, device_id
     )
     ours = {item[CONF_TYPE] for item in offered if item.get(CONF_DOMAIN) == DOMAIN}
 
@@ -517,6 +521,7 @@ async def test_a_condition_that_names_the_registry_id_reads_the_state(hass, fake
     """
     _entry, device_id = await _entry_with_device(hass)
     registry_entry = er.async_get(hass).async_get(BT_ENTITY)
+    assert registry_entry is not None
     condition = _offered(
         await async_get_device_automations(
             hass, DeviceAutomationType.CONDITION, device_id
@@ -555,6 +560,7 @@ async def test_a_trigger_that_names_the_registry_id_watches_the_entity(hass, fak
     """A trigger naming the entity by registry id still watches that entity."""
     _entry, device_id = await _entry_with_device(hass)
     registry_entry = er.async_get(hass).async_get(BT_ENTITY)
+    assert registry_entry is not None
     trigger = _offered(
         await async_get_device_automations(
             hass, DeviceAutomationType.TRIGGER, device_id
@@ -796,7 +802,9 @@ async def test_a_value_trigger_on_a_missing_value_stays_quiet(
 def _sample(validator) -> object:
     """Return a value the automation editor could enter into a field."""
     if isinstance(validator, vol.In):
-        return next(iter(validator.container))
+        choices = validator.container
+        assert isinstance(choices, Iterable)
+        return next(iter(choices))
     if validator is cv.positive_time_period_dict:
         return {"minutes": 5}
     if isinstance(validator, vol.Coerce):
@@ -804,7 +812,7 @@ def _sample(validator) -> object:
     raise AssertionError(f"no sample for the field validator {validator!r}")
 
 
-def _filled_in(capabilities: dict) -> dict:
+def _filled_in(capabilities: dict[str, vol.Schema]) -> dict[str, object]:
     """Return every extra field the editor offers, filled in."""
     assert set(capabilities) == {"extra_fields"}, capabilities
     return {
@@ -879,14 +887,22 @@ def _watching(attach_path: str) -> AsyncMock:
     )
 
 
-async def _attached_config(hass, trigger: dict) -> dict:
+async def _attached_config(hass, trigger: dict[str, object]) -> dict[str, object]:
     """Return the config the trigger hands to the Home Assistant trigger it builds."""
     with (
         _watching("state_trigger") as state,
         _watching("numeric_state_trigger") as numeric,
     ):
         await device_trigger.async_attach_trigger(
-            hass, device_trigger.TRIGGER_SCHEMA(trigger), AsyncMock(), {}
+            hass,
+            device_trigger.TRIGGER_SCHEMA(trigger),
+            AsyncMock(),
+            TriggerInfo(
+                domain=DOMAIN,
+                name="attached",
+                variables=None,
+                trigger_data=TriggerData(id="0", idx="0", alias=None),
+            ),
         )
     (call,) = state.await_args_list + numeric.await_args_list
     return call.args[1]
@@ -1015,7 +1031,10 @@ async def test_the_set_temperature_action_sets_a_range(hass, device_role: WiredR
     entry = make_entry(device_role.scenario)
     await setup_entry(hass, entry)
     await wait_for_startup(hass, entry)
-    device_id = er.async_get(hass).async_get(BT_ENTITY).device_id
+    registry_entry = er.async_get(hass).async_get(BT_ENTITY)
+    assert registry_entry is not None
+    device_id = registry_entry.device_id
+    assert device_id is not None
     action = _offered(
         await async_get_device_automations(
             hass, DeviceAutomationType.ACTION, device_id

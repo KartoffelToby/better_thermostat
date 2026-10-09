@@ -25,7 +25,7 @@ from homeassistant.components.weather import (
     WeatherEntityFeature,
 )
 from homeassistant.const import EVENT_CALL_SERVICE
-from homeassistant.core import Context, SupportsResponse
+from homeassistant.core import Context, HomeAssistant, SupportsResponse
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 import pytest
@@ -35,6 +35,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
@@ -298,9 +299,11 @@ async def test_the_colder_head_of_a_valve_group_is_opened_further(hass, trv_grou
     assert 0.0 < opened_warm < 100.0
     assert opened_cold < 100.0
     assert opened_cold - opened_warm == pytest.approx(expected_extra, abs=1.0)
-    assert bt.real_trvs[cold_head.entity_id].last_valve_percent > (
-        bt.real_trvs[warm_head.entity_id].last_valve_percent
-    )
+    cold_valve_percent = bt.real_trvs[cold_head.entity_id].last_valve_percent
+    warm_valve_percent = bt.real_trvs[warm_head.entity_id].last_valve_percent
+    assert cold_valve_percent is not None
+    assert warm_valve_percent is not None
+    assert cold_valve_percent > warm_valve_percent
 
 
 DOOR_ID = "binary_sensor.door"
@@ -336,6 +339,21 @@ STARTUP_GRACE = STARTUP_CRITICAL_GRACE_PERIOD
 REACTION_TIMEOUT_S = 3.0
 
 
+def _publish_forecast(
+    hass: HomeAssistant, forecast: list[float], temperature: float
+) -> None:
+    """Let the weather entity forecast ``temperature`` from now on."""
+    forecast[:] = [temperature, temperature]
+    hass.states.async_set(
+        WEATHER_ID,
+        "sunny",
+        {
+            "temperature": temperature,
+            "supported_features": WeatherEntityFeature.FORECAST_DAILY,
+        },
+    )
+
+
 @dataclass
 class OutageRoom:
     """A three-head room with every input it can be given, and its thermostat.
@@ -345,8 +363,8 @@ class OutageRoom:
     records the control cycles the entity's own handlers ask for.
     """
 
-    hass: object
-    bt: object
+    hass: HomeAssistant
+    bt: BetterThermostat
     present: list[SimulatedClimate]
     absent: SimulatedClimate | None
     cooler: SimulatedClimate
@@ -355,15 +373,7 @@ class OutageRoom:
 
     def publish_forecast(self, temperature: float) -> None:
         """Let the weather entity forecast ``temperature`` from now on."""
-        self.forecast[:] = [temperature, temperature]
-        self.hass.states.async_set(
-            WEATHER_ID,
-            "sunny",
-            {
-                "temperature": temperature,
-                "supported_features": WeatherEntityFeature.FORECAST_DAILY,
-            },
-        )
+        _publish_forecast(self.hass, self.forecast, temperature)
 
 
 @dataclass(frozen=True)
@@ -563,13 +573,13 @@ async def open_room(
         data={**base.data, **entrance.config},
         title=base.title,
     )
-    room = OutageRoom(hass, None, heads, None, cooler, forecast, MagicMock())
-    room.publish_forecast(COLD_OUTSIDE)
+    _publish_forecast(hass, forecast, COLD_OUTSIDE)
     if one_head_gone and gone_at_boot:
         heads[1].set_available(False)
     with patch(CRITICAL_GRACE, NO_GRACE if gone_at_boot else STARTUP_GRACE):
         await setup_entry(hass, entry)
-        room.bt = await wait_for_startup(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+    room = OutageRoom(hass, bt, heads, None, cooler, forecast, MagicMock())
 
     target = (
         {"target_temp_low": 22.0, "target_temp_high": 25.0}
@@ -661,6 +671,7 @@ async def test_a_head_gone_for_hours_is_the_only_one_reported(hass):
     room = await open_room(hass, WINDOW_OPENS, one_head_gone=True)
     await let_two_hours_pass(room)
 
+    assert room.absent is not None
     assert room.bt.devices_errors == [room.absent.entity_id]
 
 
@@ -898,6 +909,7 @@ async def test_a_head_that_arrives_after_the_room_started_follows_the_room(
         await set_room_target(hass, 22.0)
         absent.set_available(True)
         assert await wait_for(hass, lambda: absent.set_temperature_calls)
+        assert bt.heat_target_temperature is not None
         assert_write_is(
             absent.set_temperature_calls[-1], bt.heat_target_temperature, absent.profile
         )
@@ -998,6 +1010,7 @@ async def test_a_head_that_arrives_during_valve_maintenance_waits_for_its_end(
         await run
         assert await wait_for(hass, lambda: has_adopted(bt, absent.profile))
         assert await wait_for(hass, lambda: absent.set_temperature_calls)
+        assert bt.heat_target_temperature is not None
         assert_write_is(
             absent.set_temperature_calls[-1], bt.heat_target_temperature, absent.profile
         )

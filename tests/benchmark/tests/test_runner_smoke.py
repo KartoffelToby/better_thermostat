@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import math
-from typing import Any
+from typing import Any, override
 
 import pytest
 
@@ -163,6 +163,7 @@ class _RecordingActuator(Actuator):
         super().__init__(params)
         self.flows: list[float] = []
 
+    @override
     def apply(self, cmd_pct: float) -> float:
         flow = super().apply(cmd_pct)
         self.flows.append(flow)
@@ -172,6 +173,7 @@ class _RecordingActuator(Actuator):
 class _ScheduledValveAdapter(_ConstantValveAdapter):
     """Commands 60 % for two minutes, 5 % for two, 8 % until minute 10, then 3 %."""
 
+    @override
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         self.seen.append(ctx)
         minute = ctx.t / 60.0
