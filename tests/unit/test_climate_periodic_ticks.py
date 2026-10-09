@@ -40,7 +40,7 @@ def bt():
     mock._last_call_for_heat = True
     mock.async_update_ha_state = AsyncMock()
     mock.hass = MagicMock()
-    mock.devices_errors = []
+    mock.devices_errors = list[str]()
     return mock
 
 
