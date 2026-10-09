@@ -124,7 +124,7 @@ def test_rc2_path_unchanged_when_tau_wall_zero():
 # ---------- EQUAL_PERCENTAGE actuator ----------
 
 
-def test_equal_percentage_low_pct_gives_small_flow():
+def test_equal_percentage_low_percent_gives_small_flow():
     """At 10% command, equal-percentage flow is much less than linear."""
     actuator = Actuator(
         ActuatorParams(
@@ -136,7 +136,7 @@ def test_equal_percentage_low_pct_gives_small_flow():
     assert flow < 0.05
 
 
-def test_equal_percentage_high_pct_approaches_full_flow():
+def test_equal_percentage_high_percent_approaches_full_flow():
     """At 90% command, equal-percentage gives roughly 0.7 flow."""
     actuator = Actuator(
         ActuatorParams(

@@ -54,13 +54,13 @@ def test_target_temperature_without_bounds(bt):
     assert _prop("target_temperature", bt) == 99.0
 
 
-def test_target_temperature_clamped_below_min(bt):
+def test_target_temperature_clamped_below_minimum(bt):
     """A target below min reads as min."""
     bt.heat_target_temperature = 2.0
     assert _prop("target_temperature", bt) == 5.0
 
 
-def test_target_temperature_clamped_above_max(bt):
+def test_target_temperature_clamped_above_maximum(bt):
     """A target above max reads as max."""
     bt.heat_target_temperature = 99.0
     assert _prop("target_temperature", bt) == 30.0
@@ -102,12 +102,12 @@ def test_target_high_is_cool_target_with_cooler(bt):
 # --- min_temp / max_temp (configured bounds) -------------------------------
 
 
-def test_min_temp_uses_configured(bt):
+def test_min_temperature_uses_configured(bt):
     """A configured min is returned directly."""
     assert _prop("min_temp", bt) == 5.0
 
 
-def test_max_temp_uses_configured(bt):
+def test_max_temperature_uses_configured(bt):
     """A configured max is returned directly."""
     assert _prop("max_temp", bt) == 30.0
 
@@ -172,13 +172,13 @@ def test_contact_open_combines_window_and_door(bt, window_open, door_open, expec
 # --- _get_outdoor_temperature ------------------------------------------------------
 
 
-def test_outdoor_temp_none_without_sensor(bt):
+def test_outdoor_temperature_none_without_sensor(bt):
     """Without a configured outdoor sensor there is nothing to read."""
     bt.outdoor_sensor_entity_id = None
     assert BetterThermostat._get_outdoor_temperature(bt) is None
 
 
-def test_outdoor_temp_read_from_sensor_state(bt):
+def test_outdoor_temperature_read_from_sensor_state(bt):
     """A numeric sensor state is returned in Celsius."""
     bt.outdoor_sensor_entity_id = "sensor.outdoor"
     bt.hass = MagicMock()
@@ -188,7 +188,7 @@ def test_outdoor_temp_read_from_sensor_state(bt):
     assert BetterThermostat._get_outdoor_temperature(bt) == 7.5
 
 
-def test_outdoor_temp_missing_attribute_is_logged(bt, caplog):
+def test_outdoor_temperature_missing_attribute_is_logged(bt, caplog):
     """An outdoor read that hits a missing attribute yields None and a trace."""
     bt.outdoor_sensor_entity_id = "sensor.outdoor"
     bt.hass = None
@@ -197,7 +197,7 @@ def test_outdoor_temp_missing_attribute_is_logged(bt, caplog):
     assert "outdoor sensor sensor.outdoor could not be read" in caplog.text
 
 
-def test_outdoor_temp_other_failure_propagates(bt):
+def test_outdoor_temperature_other_failure_propagates(bt):
     """A failure that is not a missing attribute reaches the caller."""
     bt.outdoor_sensor_entity_id = "sensor.outdoor"
     bt.hass = MagicMock()

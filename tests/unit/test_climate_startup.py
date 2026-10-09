@@ -1402,7 +1402,7 @@ class TestStartupCoolTargetSeed:
         assert bt.cool_target_temperature == 33.0
 
     @pytest.mark.asyncio
-    async def test_range_only_cooler_seeds_from_target_temp_high(self, bt):
+    async def test_range_only_cooler_seeds_from_target_temperature_high(self, bt):
         """A range-only cooler publishes an empty temperature and a range.
 
         Its setpoint sits in target_temp_high, so reading only temperature
@@ -1636,10 +1636,10 @@ class TestInitializeTrvCurrentTemperature:
         assert bt.real_trvs[TRV_ID].current_temperature == 0.0
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("marker_temp", [126.5, 127.0])
-    async def test_implausible_startup_reading_is_dropped(self, bt, marker_temp):
+    @pytest.mark.parametrize("marker_temperature", [126.5, 127.0])
+    async def test_implausible_startup_reading_is_dropped(self, bt, marker_temperature):
         """AVM marker values must not seed the cache for the first control cycle."""
-        bt = self._trv_only_bt(bt, {"current_temperature": marker_temp})
+        bt = self._trv_only_bt(bt, {"current_temperature": marker_temperature})
         await self._run(bt)
         assert bt.real_trvs[TRV_ID].current_temperature is None
 
@@ -1992,7 +1992,7 @@ class TestRestoreState:
         assert (bt.heating_power, bt.heat_loss_rate) == expected
 
     @pytest.mark.asyncio
-    async def test_target_clamped_to_min(self, bt):
+    async def test_target_clamped_to_minimum(self, bt):
         """A restored target below the minimum comes back as the minimum."""
         old = MagicMock()
         old.state = "heat"
@@ -2008,7 +2008,7 @@ class TestRestoreState:
         assert bt.heat_target_temperature == 5.0
 
     @pytest.mark.asyncio
-    async def test_target_clamped_to_max(self, bt):
+    async def test_target_clamped_to_maximum(self, bt):
         """A restored target above the maximum comes back as the maximum."""
         old = MagicMock()
         old.state = "heat"

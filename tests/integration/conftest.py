@@ -552,7 +552,7 @@ def make_entry(
     role scenario that says which devices it wires to which channel, or the
     group scenario naming the heads it drives together.
 
-    The heads of a group must agree on ``configured_target_temp_step``: the
+    The heads of a group must agree on ``configured_target_temperature_step``: the
     entry carries one, and it overrides every head's own grid.
 
     ``off_temperature`` is stored as the flow stores it, in the system unit;
@@ -565,7 +565,7 @@ def make_entry(
         profiles, cooler = [devices.trv], devices.cooler_entity_id
     else:
         profiles, cooler = [devices], None
-    steps = {p.configured_target_temp_step for p in profiles}
+    steps = {p.configured_target_temperature_step for p in profiles}
     if len(steps) > 1:
         raise ValueError(f"one entry cannot carry the steps {sorted(steps)}")
     data = {
@@ -597,7 +597,7 @@ def make_entry(
         ],
         "temperature_sensor": SENSOR_ID,
         "model": "Generic",
-        "target_temp_step": profiles[0].configured_target_temp_step,
+        "target_temp_step": profiles[0].configured_target_temperature_step,
         "tolerance": 0.3,
         "off_temperature": off_temperature,
     }
@@ -621,9 +621,9 @@ async def setup_entry(hass, entry) -> None:
     await hass.async_block_till_done()
 
 
-async def wait_for(hass, predicate, timeout_s=10.0) -> bool:
+async def wait_for(hass, predicate, timeout_seconds=10.0) -> bool:
     """Yield to the loop until ``predicate()`` is true or time runs out."""
-    deadline = hass.loop.time() + timeout_s
+    deadline = hass.loop.time() + timeout_seconds
     while hass.loop.time() < deadline:
         if predicate():
             return True
