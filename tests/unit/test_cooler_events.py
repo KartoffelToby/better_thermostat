@@ -13,6 +13,7 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.events.cooler import trigger_cooler_change
 from tests.factories import ThermostatStandIn
 
@@ -45,6 +46,7 @@ def mock_bt():
     # controlled thermostats does not contain it.
     bt.real_trvs = {"climate.radiator": MagicMock()}
     bt._cooler_last_sent = None
+    bt.clock = FakeClock()
     bt.startup_running = False
     bt.control_queue_task = MagicMock()
     bt.context = MagicMock()  # unique context so != event.context
@@ -1624,3 +1626,35 @@ class TestCoolerModeAgainstTheDecision:
         await trigger_cooler_change(off_bt, event)
 
         off_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("old", "new"),
+        [("off", "cool"), ("cool", STATE_UNAVAILABLE), (STATE_UNAVAILABLE, "cool")],
+    )
+    async def test_a_mode_change_is_stamped_for_the_resend_throttle(
+        self, off_bt, old, new
+    ):
+        """The throttle learns that the cooler moved since its last command."""
+        off_bt.clock = FakeClock(monotonic_value=42.0)
+        event = _make_event(
+            off_bt, old_state=State(ENTITY_ID, old), new_state=State(ENTITY_ID, new)
+        )
+
+        await trigger_cooler_change(off_bt, event)
+
+        assert off_bt._cooler_last_sent["hvac_mode_reported"] == 42.0
+
+    @pytest.mark.asyncio
+    async def test_a_report_in_the_same_mode_is_not_stamped(self, off_bt):
+        """A poll that only moves the room reading is no move of the cooler."""
+        off_bt.clock = FakeClock(monotonic_value=42.0)
+        event = _make_event(
+            off_bt,
+            old_state=_make_state("cool", {"current_temperature": 26.0}),
+            new_state=_make_state("cool", {"current_temperature": 25.5}),
+        )
+
+        await trigger_cooler_change(off_bt, event)
+
+        assert "hvac_mode_reported" not in off_bt._cooler_last_sent

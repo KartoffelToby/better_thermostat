@@ -143,6 +143,8 @@ OFFSET_MATCH_TOLERANCE_K = 0.05
 # service call (no reconciler in between), so an identical command is
 # suppressed while the device's state feedback lags. A changed desired value
 # passes this throttle untouched; only the failure backoff below can hold it.
+# A mode command also passes it once per interval when the cooler has
+# reported a mode change since the send (see _write_cooler_mode).
 #
 # An air conditioner protects its compressor by ignoring commands for
 # several minutes after a mode change, so re-asserting inside that window
@@ -1541,14 +1543,32 @@ async def _write_cooler_mode(
 
     Identical resends are throttled the same way as setpoint commands, and a
     rejected command is retried on the failure backoff.
+
+    The throttle covers the time a device takes to answer a command, during
+    which it still reports the mode it had. A cooler that has reported a
+    mode change of its own since the send is past that time: whatever it
+    holds now, its remote, another integration or an outage put it there,
+    and the command is sent again at once. That early resend is granted
+    once per throttle window, so a device that keeps changing its mode
+    against the command, or an integration that reports the command before
+    the device takes it, still receives no more than two commands per
+    interval.
     """
     last_mode, last_mode_ts = last_sent.get("hvac_mode", (None, None))
     mode_changed_since_last_send = last_mode != desired_mode
     should_send_mode = current_hvac_mode != desired_mode
+    reported_at = last_sent.get("hvac_mode_reported")
+    moved_since_last_send = (
+        last_mode_ts is not None
+        and reported_at is not None
+        and reported_at >= last_mode_ts
+        and not last_sent.get("hvac_mode_resent_early", False)
+    )
 
     if (
         should_send_mode
         and not mode_changed_since_last_send
+        and not moved_since_last_send
         and last_mode_ts is not None
         and (now_monotonic - last_mode_ts) < COOLER_RESEND_INTERVAL_S
     ):
@@ -1605,6 +1625,11 @@ async def _write_cooler_mode(
                 err,
             )
         else:
+            last_sent["hvac_mode_resent_early"] = (
+                not mode_changed_since_last_send
+                and last_mode_ts is not None
+                and (now_monotonic - last_mode_ts) < COOLER_RESEND_INTERVAL_S
+            )
             last_sent["hvac_mode"] = (desired_mode, now_monotonic)
             last_sent.pop("hvac_mode_failed", None)
 

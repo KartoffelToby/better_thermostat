@@ -170,6 +170,40 @@ async def test_a_cooler_its_remote_switches_on_while_the_room_is_off_is_switched
         assert hass.states.get(COOLER_ID).state == HVACMode.OFF
 
 
+async def test_a_remote_switch_on_right_after_the_switch_off_is_undone_at_once(hass):
+    """The production resend interval does not hold the switch-off back.
+
+    The cooler took the OFF command and reported it, so the COOL it reports
+    next comes from its remote and not from a reply still on its way.
+    """
+    with patch(WRITE_BUDGET, 0.0):
+        _, cooler = await _started_cooling(hass)
+        await _call(hass, "set_hvac_mode", {"hvac_mode": HVACMode.OFF})
+        assert hass.states.get(COOLER_ID).state == HVACMode.OFF
+
+        _switch_from_its_own_controls(cooler, HVACMode.COOL)
+        await _settle(hass)
+
+        assert hass.states.get(COOLER_ID).state == HVACMode.OFF
+
+
+async def test_a_cooler_that_keeps_switching_back_on_gets_two_commands_per_interval(
+    hass,
+):
+    """A remote fighting the decision does not turn into a stream of commands."""
+    with patch(WRITE_BUDGET, 0.0):
+        _, cooler = await _started_cooling(hass)
+        await _call(hass, "set_hvac_mode", {"hvac_mode": HVACMode.OFF})
+        dispatched = async_capture_events(hass, EVENT_CALL_SERVICE)
+
+        for _ in range(3):
+            _switch_from_its_own_controls(cooler, HVACMode.COOL)
+            await _settle(hass)
+
+        assert mode_commands(dispatched, COOLER_ID) == [HVACMode.OFF]
+        assert hass.states.get(COOLER_ID).state == HVACMode.COOL
+
+
 async def test_a_lost_switch_off_is_sent_again_by_the_reconciler(hass):
     """A cooler that dropped the OFF command reports nothing new.
 

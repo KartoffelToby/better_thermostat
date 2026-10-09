@@ -1661,6 +1661,8 @@ CoolerSendCache = TypedDict(  # noqa: UP013
         "hvac_mode": tuple[HVACMode, float | None],
         "hvac_mode_decided": HVACMode,
         "hvac_mode_failed": CoolerFailureRun,
+        "hvac_mode_reported": float,
+        "hvac_mode_resent_early": bool,
     },
     total=False,
 )
@@ -1673,8 +1675,10 @@ def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     ``(value, monotonic_timestamp)`` for the resend throttle, with no
     timestamp once the throttle no longer paces that value, the settled
     reading of each written channel, the mode the last cycle decided on for
-    the hysteresis band, and each channel's run of consecutive send failures
-    as ``(count, monotonic_timestamp, attempted_value)``. Created lazily
+    the hysteresis band, each channel's run of consecutive send failures
+    as ``(count, monotonic_timestamp, attempted_value)``, the monotonic time
+    the cooler last reported a mode change of its own, and whether the last
+    mode command went out ahead of the resend throttle. Created lazily
     because only cooler-equipped instances need it.
 
     Parameters

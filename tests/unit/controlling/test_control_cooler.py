@@ -1175,6 +1175,112 @@ class TestControlCoolerHeldOff:
         ] == [22.0]
 
 
+class TestControlCoolerModeResendAfterAReportedMove:
+    """A cooler that moved since the last mode command is not held by the throttle.
+
+    The room is off, so the cooling channel decides OFF, and the cooler starts
+    out cooling. The first cycle sends OFF; the cycles after it find the
+    cooler reporting COOL again.
+    """
+
+    @staticmethod
+    def _cooler_switched_off():
+        mock_self, mock_hass, mock_cooler_state = _make_cooler_setup(
+            cooler_state=HVACMode.COOL
+        )
+        mock_self.bt_hvac_mode = HVACMode.OFF
+        return mock_self, mock_hass, mock_cooler_state
+
+    @staticmethod
+    def _report_a_move(mock_self):
+        """Record a mode change the cooler reported, as its event handler does."""
+        cooler_send_cache(mock_self)["hvac_mode_reported"] = mock_self.clock.monotonic()
+
+    @staticmethod
+    def _mode_commands(mock_hass):
+        return [
+            call.args[2]["hvac_mode"]
+            for call in _service_calls(mock_hass, "set_hvac_mode")
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_cooler_that_has_not_answered_yet_is_not_sent_the_mode_again(self):
+        """Still reporting the old mode is the reply on its way."""
+        mock_self, mock_hass, _ = self._cooler_switched_off()
+
+        await control_cooler(mock_self)
+        mock_self.clock.advance(60.0)
+        await control_cooler(mock_self)
+
+        assert self._mode_commands(mock_hass) == [HVACMode.OFF]
+
+    @pytest.mark.asyncio
+    async def test_a_cooler_that_moved_after_the_command_is_sent_it_again(self):
+        """A remote that starts the unit again is answered at once."""
+        mock_self, mock_hass, _ = self._cooler_switched_off()
+
+        await control_cooler(mock_self)
+        mock_self.clock.advance(60.0)
+        self._report_a_move(mock_self)
+        await control_cooler(mock_self)
+
+        assert self._mode_commands(mock_hass) == [HVACMode.OFF, HVACMode.OFF]
+
+    @pytest.mark.asyncio
+    async def test_a_move_reported_before_the_command_does_not_count(self):
+        """A change older than the command says nothing about the reply."""
+        mock_self, mock_hass, _ = self._cooler_switched_off()
+        self._report_a_move(mock_self)
+        mock_self.clock.advance(1.0)
+
+        await control_cooler(mock_self)
+        mock_self.clock.advance(60.0)
+        await control_cooler(mock_self)
+
+        assert self._mode_commands(mock_hass) == [HVACMode.OFF]
+
+    @pytest.mark.asyncio
+    async def test_a_cooler_that_keeps_moving_gets_one_early_resend_per_interval(self):
+        """A device fighting the command is not sent it on every report."""
+        mock_self, mock_hass, _ = self._cooler_switched_off()
+
+        await control_cooler(mock_self)
+        for _ in range(4):
+            mock_self.clock.advance(30.0)
+            self._report_a_move(mock_self)
+            await control_cooler(mock_self)
+        assert self._mode_commands(mock_hass) == [HVACMode.OFF, HVACMode.OFF]
+
+        mock_self.clock.advance(COOLER_RESEND_INTERVAL_S)
+        await control_cooler(mock_self)
+        mock_self.clock.advance(30.0)
+        self._report_a_move(mock_self)
+        await control_cooler(mock_self)
+
+        assert self._mode_commands(mock_hass) == [HVACMode.OFF] * 4
+
+    @pytest.mark.asyncio
+    async def test_a_rejected_early_resend_waits_out_the_failure_backoff(self):
+        """A device refusing the command is not hammered on every cycle."""
+        mock_self, mock_hass, _ = self._cooler_switched_off()
+        await control_cooler(mock_self)
+        mock_self.clock.advance(60.0)
+        self._report_a_move(mock_self)
+        mock_hass.services.async_call.side_effect = HomeAssistantError("refused")
+
+        await control_cooler(mock_self)
+        mock_self.clock.advance(COOLER_FAILURE_BACKOFF_BASE_S / 2)
+        await control_cooler(mock_self)
+        assert self._mode_commands(mock_hass) == [HVACMode.OFF, HVACMode.OFF]
+
+        mock_self.clock.advance(COOLER_FAILURE_BACKOFF_BASE_S / 2)
+        await control_cooler(mock_self)
+        mock_self.clock.advance(COOLER_FAILURE_BACKOFF_BASE_S)
+        await control_cooler(mock_self)
+
+        assert self._mode_commands(mock_hass) == [HVACMode.OFF] * 3
+
+
 class TestControlCoolerContactSuppression:
     """An open window or door suppresses the cooler as it does the TRVs."""
 
