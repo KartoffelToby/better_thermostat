@@ -729,6 +729,51 @@ async def test_a_trv_on_an_external_input_is_not_held_on_the_last_reading_of_a_l
     assert external_input.set_value_calls == []
 
 
+@pytest.mark.parametrize(
+    "returning_reading", [20.5, 20.6, 21.0], ids=["same", "within_noise", "moved"]
+)
+@pytest.mark.parametrize(
+    "fake_trv", [EXTERNAL_INPUT_TRVZB], indirect=True, ids=profile_id
+)
+async def test_a_trv_on_an_external_input_gets_the_first_reading_after_an_outage_at_once(
+    hass, fake_trv, returning_reading
+):
+    """The reading that ends an outage goes to the device straight away.
+
+    The device spent the outage without writes and may have fallen back to
+    its own sensor. The first reading puts it back on the external input,
+    even when it lies within the noise band of the last reading before the
+    outage, which the filter would otherwise hold back until the room
+    moves or the next keepalive.
+    """
+    external_input = fake_trv.external_temperature_number
+    assert external_input is not None
+    set_room_sensor(hass, 20.5)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+
+    hass.states.async_set(SENSOR_ID, "unavailable")
+    await hass.async_block_till_done()
+    clock = FakeClock(monotonic_value=bt.clock.monotonic())
+    bt.clock = clock
+    assert await tick_until(
+        hass,
+        clock,
+        LadderParams().down_debounce_seconds + LADDER_TICK_S,
+        lambda: bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK,
+    )
+    await let_keepalive_ticks_pass(hass, 5)
+    external_input.set_value_calls.clear()
+
+    set_room_sensor(hass, returning_reading)
+    await hass.async_block_till_done()
+
+    assert external_input.set_value_calls == [returning_reading]
+    assert bt.room_temperature == returning_reading
+
+
 async def test_a_room_sensor_with_an_implausible_reading_at_boot_hands_the_room_to_the_trv(
     hass, fake_trv
 ):
