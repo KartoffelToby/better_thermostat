@@ -35,6 +35,7 @@ from custom_components.better_thermostat.events.temperature import (
     temperature_filter_lock,
     trigger_temperature_change,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
 from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
@@ -96,7 +97,7 @@ def mock_bt():
 
     # TRV config
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
-    bt.real_trvs = {}
+    bt.real_trvs = dict[str, Trv]()
 
     return bt
 
@@ -1087,14 +1088,16 @@ class _RecordingQuirks:
     async def maybe_set_external_temperature(self, entity, entity_id, temperature):
         """Record one write, yielding long enough for another task to run."""
         self.started += 1
-        gated = self.gate is not None and (
-            self.gated_writes is None or self.started <= self.gated_writes
+        gate = (
+            self.gate
+            if self.gated_writes is None or self.started <= self.gated_writes
+            else None
         )
         self.in_flight += 1
         self.max_in_flight = max(self.max_in_flight, self.in_flight)
         try:
-            if gated:
-                await self.gate.wait()
+            if gate is not None:
+                await gate.wait()
             else:
                 for _ in range(3):
                     await asyncio.sleep(0)
@@ -1410,7 +1413,7 @@ class TestConcurrentReadings:
         ) == (20.0, 20.05, 2)
 
 
-async def _suspending_translations(*args, **kwargs):
+async def _suspending_translations(*args, **kwargs) -> dict[str, str]:
     """Stand in for a translation lookup that has to read its files.
 
     Home Assistant serves a cached language from memory without ever
@@ -1424,33 +1427,33 @@ async def _suspending_translations(*args, **kwargs):
     return {}
 
 
+def _make_thermostat_checkable(mock_bt):
+    """Give the thermostat what the entity checks read.
+
+    The checks look at the sensors the thermostat was configured with
+    and at the control-mode record; a bare mock answers every one of
+    those with a new mock and the checks cannot run against it.
+    """
+    mock_bt.hass.states.get = lambda entity_id: State(entity_id, "21.0")
+    mock_bt.window_sensor_entity_id = None
+    mock_bt.door_sensor_entity_id = None
+    mock_bt.cooler_entity_id = None
+    mock_bt.humidity_sensor_entity_id = None
+    mock_bt.outdoor_sensor_entity_id = None
+    mock_bt.weather_entity_id = None
+    mock_bt.devices_errors = list[str]()
+    mock_bt.devices_states = dict[str, dict[str, str | None]]()
+    mock_bt.unavailable_sensors = list[str]()
+    mock_bt._critical_grace_until = None
+    mock_bt.kernel_state = KernelState()
+    mock_bt.clock = FakeClock()
+    # The first of the two readings announces that degraded mode has
+    # ended, which is the pass whose checks have to wait.
+    mock_bt._degraded_warning_emitted = True
+
+
 class TestArrivalOrder:
     """Readings are applied in the order the room sensor sent them."""
-
-    @staticmethod
-    def _make_thermostat_checkable(mock_bt):
-        """Give the thermostat what the entity checks read.
-
-        The checks look at the sensors the thermostat was configured with
-        and at the control-mode record; a bare mock answers every one of
-        those with a new mock and the checks cannot run against it.
-        """
-        mock_bt.hass.states.get = lambda entity_id: State(entity_id, "21.0")
-        mock_bt.window_sensor_entity_id = None
-        mock_bt.door_sensor_entity_id = None
-        mock_bt.cooler_entity_id = None
-        mock_bt.humidity_sensor_entity_id = None
-        mock_bt.outdoor_sensor_entity_id = None
-        mock_bt.weather_entity_id = None
-        mock_bt.devices_errors = []
-        mock_bt.devices_states = {}
-        mock_bt.unavailable_sensors = []
-        mock_bt._critical_grace_until = None
-        mock_bt.kernel_state = KernelState()
-        mock_bt.clock = FakeClock()
-        # The first of the two readings announces that degraded mode has
-        # ended, which is the pass whose checks have to wait.
-        mock_bt._degraded_warning_emitted = True
 
     @staticmethod
     def _collect_handlers(mock_bt, handlers):
@@ -1476,7 +1479,7 @@ class TestArrivalOrder:
         overtake the first one and leave the room regulated on the older
         value.
         """
-        self._make_thermostat_checkable(mock_bt)
+        _make_thermostat_checkable(mock_bt)
         quirks = _RecordingQuirks()
         mock_bt.real_trvs = {
             "climate.trv1": trv_from_legacy_dict(
@@ -1485,7 +1488,7 @@ class TestArrivalOrder:
         }
         start = dt_util.now()
         mock_bt.last_external_sensor_change = start
-        handlers = []
+        handlers: list[asyncio.Future[None]] = []
         self._collect_handlers(mock_bt, handlers)
 
         with (
@@ -1739,7 +1742,7 @@ class TestLadderSeesTheHandledReading:
         reading, so the outage before it is over, and the next one has to
         last the whole debounce before the room moves onto the TRVs.
         """
-        TestArrivalOrder._make_thermostat_checkable(mock_bt)
+        _make_thermostat_checkable(mock_bt)
         mock_bt._degraded_warning_emitted = False
         trv_entity_id = "climate.trv1"
         mock_bt.real_trvs = {
