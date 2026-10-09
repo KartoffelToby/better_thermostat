@@ -39,6 +39,7 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_hvac_mode,
     set_temperature,
     set_valve,
+    setpoint_on_device_grid,
     valve_channel_available,
 )
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
@@ -71,6 +72,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    COOLER_QUANTIZATION_TOLERANCE_K,
     COOLER_SETPOINT_KEYS,
     TRV_SETPOINT_KEYS,
     CoolerCommand,
@@ -93,6 +95,7 @@ from custom_components.better_thermostat.utils.helpers import (
     read_bound_celsius,
     read_setpoint_celsius,
     setpoint_echo_window,
+    settle_cooler_reading,
     state_temperature_unit,
     supports_single_target_temperature,
     supports_temperature_range,
@@ -185,10 +188,6 @@ COOLER_FAILURE_BACKOFF_MAX_RUN = 1 + math.ceil(
         COOLER_FAILURE_BACKOFF_FACTOR,
     )
 )
-# A cooler may snap a received setpoint onto its own step grid (e.g. 0.5 °C,
-# or a whole-°F grid). A post-send reading within this distance of the sent
-# value counts as that device-side quantization, not as an unapplied command.
-COOLER_QUANTIZATION_TOLERANCE_K = 0.5
 # Valve deviations below this are the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
 # Pause before re-queueing a cycle in which a TRV reported failure, so a
@@ -1865,15 +1864,8 @@ async def control_cooler(
     # device's answer; while it holds and the desired value is unchanged,
     # the command counts as converged.
     settled_temperature = last_sent.get("temperature_settled")
-    if (
-        not temperature_changed_since_last_send
-        and last_sent_setpoint is not None
-        and cooler_setpoint is not None
-        and settled_temperature is None
-        and abs(cooler_setpoint - last_sent_setpoint) <= COOLER_QUANTIZATION_TOLERANCE_K
-    ):
-        settled_temperature = cooler_setpoint
-        last_sent["temperature_settled"] = settled_temperature
+    if not temperature_changed_since_last_send and cooler_setpoint is not None:
+        settled_temperature = settle_cooler_reading(self, cooler_setpoint)
     temperature_to_send: float | None = None
     if desired_temperature is None:
         _LOGGER.debug(
@@ -2097,7 +2089,12 @@ async def control_cooler(
         # errors such as ConnectionError) so it does not abort the control
         # cycle. A command the device's client library cancelled counts as such
         # a failure; a cancellation of this task itself propagates.
+        # The settled reading answers the recorded write, so it is dropped
+        # together with it: an answer arriving in flight then settles against
+        # this write rather than being measured against the previous one, and
+        # a later press near this write is not taken for its answer.
         _previous_send = last_sent.get("temperature")
+        _previous_settled = last_sent.pop("temperature_settled", None)
         last_sent["temperature"] = (temperature_to_send, now_monotonic)
         try:
             with command_cancellation_as_disconnect():
@@ -2113,6 +2110,10 @@ async def control_cooler(
                 last_sent.pop("temperature", None)
             else:
                 last_sent["temperature"] = _previous_send
+            if _previous_settled is None:
+                last_sent.pop("temperature_settled", None)
+            else:
+                last_sent["temperature_settled"] = _previous_settled
             _record_cooler_failure(
                 last_sent, "temperature", _temperature_wanted, now_monotonic
             )
@@ -2125,11 +2126,9 @@ async def control_cooler(
             )
         else:
             last_sent.pop("temperature_failed", None)
-            # A fresh send invalidates the settled reading of the channels it
-            # carried; the device answers those anew. A single-setpoint
-            # payload carries no lower bound, so it says nothing about the
-            # bound's settled reading.
-            last_sent.pop("temperature_settled", None)
+            # A fresh send invalidates the lower bound's settled reading as
+            # well; the device answers it anew. A single-setpoint payload
+            # carries no lower bound, so it says nothing about that reading.
             if _write_range:
                 last_sent["target_temp_low"] = (_low_to_set_c, now_monotonic)
                 last_sent.pop("target_temp_low_settled", None)
@@ -2240,16 +2239,19 @@ async def control_trv(
             # so no calibration runs. The kernel's intent carries the raw
             # user target (passthrough); it is re-sent only when the device
             # diverges, and the safety hull enforces the frost floor. Mode
-            # suppression (OFF / window) below stays active.
+            # suppression (OFF / window) below stays active. An OFF intent
+            # carries no target: the remap's setpoint stands, which for a
+            # TRV without an OFF mode is its minimum.
             if self.kernel_state.control_mode.mode == ControlMode.HOLD:
-                _LOGGER.debug(
-                    "better_thermostat %s: control mode HOLD - locking %s on the "
-                    "last known target %s",
-                    self.device_name,
-                    entity_id,
-                    trv_desired.setpoint,
-                )
-                _temperature = trv_desired.setpoint
+                if trv_desired.hvac_mode != HVACMode.OFF:
+                    _LOGGER.debug(
+                        "better_thermostat %s: control mode HOLD - locking %s on "
+                        "the last known target %s",
+                        self.device_name,
+                        entity_id,
+                        trv_desired.setpoint,
+                    )
+                    _temperature = trv_desired.setpoint
                 _calibration = None
 
             # Optional: set valve position if supported (e.g., MQTT/Z2M)
@@ -2606,6 +2608,11 @@ async def control_trv(
                     snapshot, entity_id, setpoint=_raw_temperature
                 ).setpoint
                 _safety_overrode_setpoint = _temperature != _raw_temperature
+            if _temperature is not None:
+                # The device holds the value the delegate sends, on its own
+                # step and inside its range, so that value is the one
+                # compared with the device's report and recorded as sent.
+                _temperature = setpoint_on_device_grid(self, entity_id, _temperature)
             if _temperature is not None and (
                 _new_hvac_mode != HVACMode.OFF or _trv_has_no_off
             ):
@@ -2616,13 +2623,14 @@ async def control_trv(
                     trv = self.real_trvs[entity_id]
                     # Safety-relevant writes (frost floor / OFF) bypass the
                     # write budget; everything else waits for the next slot
-                    # and converges via the scheduled retry.
+                    # and converges via the scheduled retry. A TRV without an
+                    # OFF mode is turned off by this very write.
                     if _consume_budget(
                         self,
                         entity_id,
                         "setpoint",
                         bypass=_safety_overrode_setpoint
-                        or _new_hvac_mode == HVACMode.OFF,
+                        or HVACMode.OFF in (_new_hvac_mode, trv_desired.hvac_mode),
                     ):
                         old = trv.commanded_setpoint
                         _LOGGER.debug(

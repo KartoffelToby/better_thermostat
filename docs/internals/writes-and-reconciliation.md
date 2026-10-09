@@ -27,6 +27,12 @@ flowchart LR
     D -.->|budget reopens| RQ[request_control_cycle]
 ```
 
+The setpoint is compared on the device's grid. Before the comparison it
+is rounded onto the TRV's step and clamped to its range, exactly as the
+adapter write would round and clamp it, so a target between two steps
+(70 °F is 21.11 °C) is written once and then matches the value the TRV
+holds instead of going out again every cycle.
+
 **Adapters** (`adapters/`) speak the integration's dialect: Zigbee2MQTT,
 deCONZ, Tado, Z-Wave JS, Shelly, generic climate services. Zigbee2MQTT,
 Z-Wave JS and the Shelly BLU TRV publish the valve as a number entity of

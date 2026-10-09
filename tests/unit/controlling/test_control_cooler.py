@@ -653,6 +653,31 @@ class TestControlCoolerSendCache:
         assert temperature_calls[1].args[2]["temperature"] == 23.0
 
     @pytest.mark.asyncio
+    async def test_a_failed_send_keeps_the_settled_reading_of_the_previous_one(self):
+        """A rejected write leaves the device on its answer to the one before.
+
+        The settled reading belongs to the write in the send cache, so a
+        failure that puts the previous write back puts its answer back too.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_temperature_attr=22.0, cool_target_temperature=22.4
+        )
+        await control_cooler(mock_self)
+        mock_self.clock.monotonic_value += 1.0
+        await control_cooler(mock_self)
+        last_sent = cooler_send_cache(mock_self)
+        assert last_sent["temperature_settled"] == 22.0
+
+        mock_hass.services.async_call = AsyncMock(
+            side_effect=HomeAssistantError("device rejected the command")
+        )
+        mock_self.cool_target_temperature = 23.0
+        await control_cooler(mock_self)
+
+        assert last_sent_cooler_temperature(mock_self) == 22.5
+        assert last_sent["temperature_settled"] == 22.0
+
+    @pytest.mark.asyncio
     async def test_failed_set_temperature_still_attempts_hvac_mode(self):
         """A failing set_temperature does not suppress set_hvac_mode."""
         mock_self, mock_hass, _ = _make_cooler_setup(

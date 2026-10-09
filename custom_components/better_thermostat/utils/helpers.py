@@ -1687,6 +1687,11 @@ def resolve_inbound_setpoint(
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
 
 
+# A cooler may snap a received setpoint onto its own step grid (e.g. 0.5 °C,
+# or a whole-°F grid). A post-send reading within this distance of the sent
+# value counts as that device-side quantization, not as an unapplied command.
+COOLER_QUANTIZATION_TOLERANCE_K = 0.5
+
 # The command one cooler channel attempted, as the failure backoff compares
 # it: the wanted mode on the mode channel, and the (high, low) bound pair on
 # the setpoint channel, where the lower bound is absent for a single-setpoint
@@ -1766,6 +1771,42 @@ def last_sent_cooler_temperature(self: BetterThermostat) -> float | None:
     """
     value = cooler_send_cache(self).get("temperature", (None, None))[0]
     return value if isinstance(value, (int, float)) else None
+
+
+def settle_cooler_reading(self: BetterThermostat, reading: float) -> float | None:
+    """Return the cooler's answer to BT's last setpoint write, latching it.
+
+    A cooler may hold a written setpoint on a coarser grid than the one it
+    publishes, or than the one BT falls back to when it publishes none: a
+    whole-degree unit sent 22.5 °C holds 22 °C. The first reading within
+    ``COOLER_QUANTIZATION_TOLERANCE_K`` of the last write is taken as that
+    answer and kept as the settled reading until the next write replaces it.
+    The control cycle counts the write as applied while the device stays on
+    that reading, and the inbound handler reads a report on it as the write
+    coming back rather than as a press on the device.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat, carrying the send cache
+    reading : float
+            the cooling setpoint the cooler reports, in °C
+
+    Returns
+    -------
+    float | None
+            the settled reading, or None while the cooler has not answered the
+            last write, or no write has succeeded yet
+    """
+    last_sent = cooler_send_cache(self)
+    settled = last_sent.get("temperature_settled")
+    if settled is not None:
+        return settled
+    sent = last_sent_cooler_temperature(self)
+    if sent is None or abs(reading - sent) > COOLER_QUANTIZATION_TOLERANCE_K:
+        return None
+    last_sent["temperature_settled"] = reading
+    return reading
 
 
 def dual_role_entity_id(self: BetterThermostat) -> str | None:

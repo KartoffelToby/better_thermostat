@@ -3,7 +3,8 @@
 The local channel writes an offset, the setpoint channel a target. Both
 need a room temperature and the TRV's own reading; without one there is
 nothing to calibrate on and nothing is sent. A controller that drives the
-valve directly keeps the channel out of its way.
+valve directly keeps the channel out of its way, and keeps driving the valve
+while the TRV reports no reading of its own.
 """
 
 from unittest.mock import MagicMock, patch
@@ -133,6 +134,54 @@ def test_the_setpoint_channel_keeps_a_closed_valve_from_heating_on_its_own():
 
     assert setpoint is not None
     assert setpoint < 20.0
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        CalibrationMode.MPC_CALIBRATION,
+        CalibrationMode.MPC_V2_CALIBRATION,
+        CalibrationMode.TPI_CALIBRATION,
+        CalibrationMode.PID_CALIBRATION,
+    ],
+)
+def test_the_setpoint_channel_without_a_trv_reading_still_runs_the_controller(mode):
+    """The controller sizes the valve from the room, so it runs every cycle.
+
+    Only the setpoint is derived from the TRV's own reading; without that
+    reading the setpoint is not sent, but the valve intent stays current.
+    """
+    bt = _make_bt(mode, trv_temperature=None)
+
+    with _controller_reports(0.0, drives_the_valve=True) as balance_calibrator:
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint is None
+    balance_calibrator.return_value.observe.assert_called_once()
+
+
+def test_the_setpoint_channel_without_a_trv_reading_closes_a_heating_power_valve():
+    """A valve opened while the room was cold closes once the room is warm.
+
+    Heating power publishes the valve intent from the room's state, and a
+    TRV that reports no reading of its own does not freeze the last one.
+    """
+    bt = _make_bt(
+        CalibrationMode.HEATING_POWER_CALIBRATION,
+        room_temperature=23.0,
+        trv_temperature=None,
+    )
+    bt.hvac_action = HVACAction.IDLE
+    trv = bt.real_trvs[ENTITY_ID]
+    trv.calibration_balance = {"valve_percent": 100, "apply_valve": True}
+
+    with patch(f"{_CAL}._supports_direct_valve_control", return_value=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint is None
+    assert trv.calibration_balance is not None
+    assert trv.calibration_balance["valve_percent"] == 0
+    assert trv.calibration_balance["apply_valve"] is True
 
 
 @pytest.mark.parametrize("stored", [None, 3], ids=["none", "legacy_number"])

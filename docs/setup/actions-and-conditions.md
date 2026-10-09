@@ -47,7 +47,7 @@ Clears everything the PID controller has learned for this thermostat, for every 
 | --- | --- | --- |
 | `apply_pid_defaults` | no | When `true`, writes starting gains for the current target and the targets 0.5 °C above and below it, on every TRV. Default `false`. |
 | `defaults_kp` | no | Proportional gain to write, 0 to 1000. Without it the built-in 60 is used. |
-| `defaults_ki` | no | Integral gain to write, 0 to 1. Without it the built-in 0.01 is used. |
+| `defaults_ki` | no | Integral gain to write, 0 to 2. Without it the built-in 0.01 is used. |
 | `defaults_kd` | no | Derivative gain to write, 0 to 10000. Without it the built-in 2000 is used. |
 
 The three gain fields only take effect together with `apply_pid_defaults`. With `apply_pid_defaults` the thermostat needs a target temperature; without one the action fails and nothing is reset. The PID numbers on the device show the new gains as soon as the action has run.

@@ -25,7 +25,7 @@ A room sensor that reports small jumps back and forth would otherwise make the T
 
 - it is the first reading after startup,
 - it differs from the current value by at least 0.11 °C, and the last accepted reading is more than 5 seconds old,
-- smaller changes in the same direction add up to at least 0.11 °C,
+- smaller changes in the same direction add up to at least 0.11 °C; a reading back on the current value starts the count again, so a sensor flickering between two neighbouring values is not taken,
 - a smaller change has stayed the same for two minutes.
 
 A reading that comes too soon is not lost: it is taken as soon as the 5 seconds are over. A reading outside −50 °C to 60 °C, or one that is not a number, is ignored and raises the [invalid external temperature](/faq/invalid-external-temperature) repair issue. `unknown` and `unavailable` are not readings; they count as a missing sensor (see [Degraded mode](/faq/degraded-mode)).
@@ -33,6 +33,12 @@ A reading that comes too soon is not lost: it is taken as soon as the 5 seconds 
 ### Changes made on the TRV
 
 When a TRV reports a new target temperature that Better Thermostat did not send, Better Thermostat takes it as your new target for the whole room. It does not do this while the child lock option is on, while a window or door is open, or while the TRV is off. Values Better Thermostat wrote itself and that the TRV reports back are recognised and not taken as your input.
+
+### Changes made on the cooler
+
+A new target temperature that the cooler reports while it stays in cooling mode (`cool`, or the upper bound in `heat_cool`) becomes your new cooling target. Better Thermostat ignores a target temperature that the cooler reports while it is off or in the same update that changes its mode: many integrations show a placeholder for an air conditioner that is off. Tado, for example, shows 5 °C. A cooler can also hold a target on a coarser grid than it reports, for example 22 °C after Better Thermostat sent 22.5 °C. Its first report within 0.5 °C of the value Better Thermostat sent counts as that answer and not as your input, even when it arrives later from a poll or while Better Thermostat is still sending. A change on the cooler after that answer is your input again, and so is a change you make after your own last change on the cooler.
+
+While the cooling target is still unknown, at the first start or after the cooler was unavailable, Better Thermostat takes it from the cooler when the cooler reports `cool` or `heat_cool`. In any other mode, `off` included, it takes the cooling temperature of the active preset instead.
 
 ## Control cycles
 

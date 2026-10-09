@@ -84,6 +84,10 @@ MPC v2 is an experimental predictive controller. It estimates the room's state w
 
 The **MPC v2 room size** option sets the room model it starts from. *Auto* derives it from the heat-loss rate Better Thermostat has learned for the room; the small, medium and large room presets use a fixed model instead.
 
+Under *Auto* the room model follows the learned heat-loss rate. When it moves, or when you switch the room size, MPC v2 carries its estimates of the room over to the new model and continues from there instead of starting over.
+
+MPC v2 plans a new valve opening at most every 1.5 to 5 minutes, depending on how fast the room model is, and keeps sending that opening until the next plan. A valve position the TRV reports in between feeds the room model and the next plan, but does not replace the planned opening. The TRV's *Valve Max Opening* is the upper limit of every plan, so a valve held at that limit while the room stays just below the target does not build up demand that would overheat the room once the limit no longer binds.
+
 Its estimates show up in the *MPC v2 Virtual Temperature*, *MPC v2 Coupling*, *MPC v2 Disturbance* and *MPC v2 Room Time Constant* sensors. They start disabled on new installations; see [Entities](/setup/entities/#mpc-v2).
 
 ---
@@ -127,10 +131,14 @@ Auto-tuning is on by default.
   - Ki: 0.001-2.0
   - Kd: 100-10,000
 - Auto-tuning is conservative - it makes small changes and learns gradually
+- Gains are learned separately for each target temperature, in steps of 0.5 °C. A target the controller has not run at yet starts from the defaults, or from the values you set by hand
+- The integral term belongs to the TRV, not to a target, so changing the target does not restart it: a higher target opens the valve further at once, a lower one closes it further
 
 **Manual tuning:**
 
 Each TRV's *PID Kp (Proportional)*, *PID Ki (Integral)* and *PID Kd (Derivative)* numbers accept Kp from 0 to 1000, Ki from 0 to 100 and Kd from 0 to 10,000, and Better Thermostat keeps a value set there, including 0 (Kd 0 makes a PI controller). With auto-tuning on, a value you set is the starting point it adjusts from; turn off the *PID Auto Tune* switch to keep fixed values.
+
+The *PID Auto Tune* switch and the values you set apply to the TRV at every target temperature. Turning auto-tuning off keeps the gains the numbers show at that moment, which are the ones in use at the current target, and the controller then uses them at every target; a value you set afterwards replaces them at every target too. With auto-tuning on, a target that has learned its own value uses it, and a target not tuned yet starts from the value you set, or from the values kept when auto-tuning was last turned off.
 
 If you want to tune PID parameters manually or understand what the auto-tuning is doing:
 
@@ -254,6 +262,8 @@ With the Direct Valve Based calibration type:
 - **AI Time Based**: Derives a valve opening from the heating power it has learned.
 
 - **External Sensor Offset Only, Aggressive, No Calibration**: These produce no valve opening. Better Thermostat sends them to the TRV as a target temperature instead.
+
+The valve opening is sized from your room sensor, not from the TRV's own temperature. A TRV that stops reporting its own temperature still has its valve opened and closed; only the target temperature that accompanies the valve command is held back until the TRV reports a temperature again.
 
 ### Without direct valve control
 

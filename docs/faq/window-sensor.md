@@ -17,7 +17,9 @@ Better Thermostat expects a binary sensor:
 - `unknown` and `unavailable` count as **closed** so heating continues:
   windows are usually closed and a lost sensor (e.g. a dead battery) must
   not stop heating. The frost floor still applies and the unavailability
-  is still reported.
+  is still reported. A sensor removed from Home Assistant (disabled,
+  deleted or renamed in the entity registry) counts as closed in the
+  same way.
 
 Any other state raises a repair issue. Normalize the entity to one of
 the values above, for example with a
