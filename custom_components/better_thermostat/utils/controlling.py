@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 import logging
 import math
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple
 
 from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
@@ -787,6 +787,14 @@ class TaskManager:
         return tasks
 
 
+class _UserIntent(NamedTuple):
+    """The room targets a user sets."""
+
+    heat_target_temperature: float | None
+    cool_target_temperature: float | None
+    hvac_mode: HVACMode | None
+
+
 @dataclass
 class _FailedCycleRun:
     """Consecutive control cycles that failed while the user's targets stood.
@@ -806,7 +814,7 @@ class _FailedCycleRun:
     periodic ticks already space it.
     """
 
-    intent: tuple[object, ...]
+    intent: _UserIntent
     failing: frozenset[str]
     reported: frozenset[tuple[str, str]]
     count: int
@@ -816,12 +824,12 @@ class _FailedCycleRun:
     retry: asyncio.Task[None] | None = None
 
 
-def _user_intent(self: BetterThermostat) -> tuple[object, ...]:
+def _user_intent(self: BetterThermostat) -> _UserIntent:
     """Return the room targets a user sets, as the failure pacing compares them."""
-    return (
-        self.heat_target_temperature,
-        self.cool_target_temperature,
-        self.bt_hvac_mode,
+    return _UserIntent(
+        heat_target_temperature=self.heat_target_temperature,
+        cool_target_temperature=self.cool_target_temperature,
+        hvac_mode=self.bt_hvac_mode,
     )
 
 
