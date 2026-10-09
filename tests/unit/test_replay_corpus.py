@@ -82,7 +82,7 @@ def _scenarios() -> dict[str, tuple]:
             make_state(
                 reachability={
                     "climate.trv1": ReachabilityState(
-                        online=False, offline_since=800.0, retry_at=1100.0
+                        offline_since=800.0, retry_at=1100.0
                     )
                 }
             ),

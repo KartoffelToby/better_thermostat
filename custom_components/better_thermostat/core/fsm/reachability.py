@@ -24,10 +24,14 @@ _MAX_BACKOFF_EXP = math.ceil(math.log2(RETRY_MAX_S / RETRY_INITIAL_S))
 class ReachabilityState:
     """State of one TRV's reachability region."""
 
-    online: bool = True
     offline_since: float | None = None
     retry_count: int = 0
     retry_at: float | None = None
+
+    @property
+    def online(self) -> bool:
+        """True unless an outage start is recorded."""
+        return self.offline_since is None
 
 
 def _backoff(retry_count: int) -> float:
@@ -59,14 +63,13 @@ def step(
     if state.online:
         # Fresh transition to offline: schedule the first retry.
         return ReachabilityState(
-            online=False, offline_since=now, retry_count=0, retry_at=now + _backoff(0)
+            offline_since=now, retry_count=0, retry_at=now + _backoff(0)
         )
 
     if state.retry_at is not None and now >= state.retry_at:
         # Retry window reached while still offline: back off further.
         retry_count = state.retry_count + 1
         return ReachabilityState(
-            online=False,
             offline_since=state.offline_since,
             retry_count=retry_count,
             retry_at=now + _backoff(retry_count),

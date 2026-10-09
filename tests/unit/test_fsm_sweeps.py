@@ -196,13 +196,13 @@ class TestReachabilitySweep:
     STATES = (
         rb.ReachabilityState(),
         rb.ReachabilityState(
-            online=False, offline_since=NOW - 10.0, retry_count=0, retry_at=NOW + 20.0
+            offline_since=NOW - 10.0, retry_count=0, retry_at=NOW + 20.0
         ),
         rb.ReachabilityState(
-            online=False, offline_since=NOW - 600.0, retry_count=3, retry_at=NOW - 1.0
+            offline_since=NOW - 600.0, retry_count=3, retry_at=NOW - 1.0
         ),
         rb.ReachabilityState(
-            online=False, offline_since=NOW - 9000.0, retry_count=9, retry_at=NOW - 1.0
+            offline_since=NOW - 9000.0, retry_count=9, retry_at=NOW - 1.0
         ),
     )
 

@@ -285,6 +285,31 @@ def test_replay_roundtrips_reachability_and_null_window_state():
     assert rebuilt.reachability["climate.t"].online is False
 
 
+def test_exported_online_flag_is_ignored_on_import():
+    """Reachability exports carrying an "online" key load from offline_since."""
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["state"]["reachability"] = {
+        "climate.a": {
+            "online": True,
+            "offline_since": 700.0,
+            "retry_count": 1,
+            "retry_at": 760.0,
+        },
+        "climate.b": {
+            "online": False,
+            "offline_since": None,
+            "retry_count": 0,
+            "retry_at": None,
+        },
+    }
+    rebuilt = state_from_dict(entry["state"])
+    assert rebuilt.reachability["climate.a"].online is False
+    assert rebuilt.reachability["climate.b"].online is True
+
+
 def test_restored_running_maintenance_without_timestamp_never_blocks():
     """A deserialized RUNNING phase lacking its timestamp cannot block.
 
@@ -548,7 +573,7 @@ class TestRoundtripCompleteness:
             ),
             "reachability": {
                 "climate.trv": ReachabilityState(
-                    online=False, offline_since=700.0, retry_count=2, retry_at=1100.0
+                    offline_since=700.0, retry_count=2, retry_at=1100.0
                 )
             },
             "last_control_monotonic": 990.0,

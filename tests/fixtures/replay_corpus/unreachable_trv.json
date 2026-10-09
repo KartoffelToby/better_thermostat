@@ -85,7 +85,6 @@
     "reachability": {
       "climate.trv1": {
         "offline_since": 800.0,
-        "online": false,
         "retry_at": 1100.0,
         "retry_count": 0
       }

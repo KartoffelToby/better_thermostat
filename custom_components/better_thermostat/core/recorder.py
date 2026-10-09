@@ -339,8 +339,8 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
     reachability = {}
     for entity_id, raw_entry in _dict_of(data["reachability"]).items():
         raw = _dict_of(raw_entry)
+        # An "online" key is derived from offline_since and ignored.
         reachability[entity_id] = ReachabilityState(
-            online=_bool_of(raw["online"]),
             offline_since=_float_or_none(raw["offline_since"]),
             retry_count=_int_of(raw["retry_count"]),
             retry_at=_float_or_none(raw["retry_at"]),
