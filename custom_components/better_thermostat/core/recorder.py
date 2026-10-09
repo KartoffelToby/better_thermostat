@@ -16,7 +16,7 @@ import math
 
 from .decide import KernelState, decide
 from .desired import DesiredState, Suppression, TrvDesired
-from .fsm.control_mode import ControlMode, ControlModeState
+from .fsm.control_mode import ControlMode, ControlModeState, PendingWindow
 from .fsm.lifecycle import LifecyclePhase, LifecycleState
 from .fsm.maintenance import MaintenancePhase, MaintenanceState
 from .fsm.mode import ModeState
@@ -145,20 +145,13 @@ def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
     dict
         Mapping of field name to its ``asdict`` representation.
     """
-    # A missing key and an explicit None both reconstruct to "no pending
-    # target"; drop the None so that export stays free of the null field.
-    control_mode = {
-        key: value
-        for key, value in asdict(state.control_mode).items()
-        if key != "pending_target" or value is not None
-    }
     return {
         "window": asdict(state.window),
         "door": asdict(state.door),
         "maintenance": asdict(state.maintenance),
         "lifecycle": asdict(state.lifecycle),
         "mode": asdict(state.mode),
-        "control_mode": control_mode,
+        "control_mode": asdict(state.control_mode),
         "reachability": {
             entity_id: asdict(entry) for entity_id, entry in state.reachability.items()
         },
@@ -282,6 +275,43 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
     )
 
 
+def _pending_window_of(control_mode: dict[str, Json]) -> PendingWindow | None:
+    """Read the ladder's pending window from an exported ``control_mode``.
+
+    The window is exported as one ``pending`` mapping. An export without
+    that key carries it as ``down_pending_since``/``up_pending_since``
+    plus an optional ``pending_target``. A window missing its start time
+    (nulled by the exporter when non-finite) or its target loads as no
+    window, which the ladder treats identically: the window restarts on
+    the next observation.
+    """
+    if "pending" in control_mode:
+        raw = control_mode["pending"]
+        if raw is None:
+            return None
+        window = _dict_of(raw)
+        since = _float_or_none(window["since"])
+        if since is None:
+            return None
+        return PendingWindow(
+            deeper=_bool_of(window["deeper"]),
+            since=since,
+            target=ControlMode(_str_of(window["target"])),
+        )
+    target = _str_or_none(control_mode.get("pending_target"))
+    down_since = _float_or_none(control_mode.get("down_pending_since"))
+    up_since = _float_or_none(control_mode.get("up_pending_since"))
+    if down_since is not None and up_since is not None:
+        raise ValueError("pending window runs in both directions")
+    if target is None:
+        return None
+    if down_since is not None:
+        return PendingWindow(deeper=True, since=down_since, target=ControlMode(target))
+    if up_since is not None:
+        return PendingWindow(deeper=False, since=up_since, target=ControlMode(target))
+    return None
+
+
 def state_from_dict(data: dict[str, Json]) -> KernelState:
     """Reconstruct a KernelState from its exported form."""
     window = _dict_of(data["window"])
@@ -303,8 +333,6 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
     unavailable = control_mode["unavailable_sensors"]
     if not isinstance(unavailable, list):
         raise ValueError("unavailable_sensors must be a list")
-    # A missing "pending_target" key loads as no pending target.
-    pending_target = _str_or_none(control_mode.get("pending_target"))
     return KernelState(
         window=WindowState(
             phase=WindowPhase(_str_of(window["phase"])),
@@ -336,11 +364,7 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
             mode=ControlMode(_str_of(control_mode["mode"])),
             unavailable_sensors=tuple(_str_of(item) for item in unavailable),
             degraded_since=_float_or_none(control_mode["degraded_since"]),
-            down_pending_since=_float_or_none(control_mode["down_pending_since"]),
-            up_pending_since=_float_or_none(control_mode["up_pending_since"]),
-            pending_target=(
-                ControlMode(pending_target) if pending_target is not None else None
-            ),
+            pending=_pending_window_of(control_mode),
         ),
         reachability=reachability,
         last_control_monotonic=_float_or_none(data["last_control_monotonic"]),

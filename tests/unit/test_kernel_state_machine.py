@@ -758,12 +758,7 @@ class KernelMachine(RuleBasedStateMachine):
             pre,
             window=committed(pre.window),
             door=committed(pre.door),
-            control_mode=replace(
-                pre.control_mode,
-                down_pending_since=None,
-                up_pending_since=None,
-                pending_target=None,
-            ),
+            control_mode=replace(pre.control_mode, pending=None),
             reachability={},
             last_control_monotonic=None,
         )

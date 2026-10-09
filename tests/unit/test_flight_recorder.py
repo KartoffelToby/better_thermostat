@@ -7,6 +7,11 @@ import json
 import pytest
 
 from custom_components.better_thermostat.core.decide import decide, running_kernel_state
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    ControlMode,
+    ControlModeState,
+    PendingWindow,
+)
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
 from custom_components.better_thermostat.core.recorder import (
     FlightRecorder,
@@ -305,26 +310,111 @@ def test_restored_running_maintenance_without_timestamp_never_blocks():
     assert rebuilt.maintenance.is_blocking(now_monotonic=99_999.0) is False
 
 
-def test_state_without_pending_target_field_loads():
-    """Exports predating control_mode.pending_target still reconstruct.
+def _split_pending_entry(control_mode: dict) -> dict:
+    """Export one decision, then swap in a ``control_mode`` of the split shape.
 
-    A None pending target is omitted from the export, so an export
-    without a running window is byte-identical to the pre-field shape;
-    an explicit None in an old hand-edited export loads the same way.
+    The split shape carries the ladder window as ``down_pending_since``,
+    ``up_pending_since`` and an optional ``pending_target`` instead of
+    one ``pending`` mapping.
     """
     recorder = FlightRecorder()
     desired, _ = decide(_snapshot(), running_kernel_state())
     recorder.record(_snapshot(), running_kernel_state(), desired)
     entry = json.loads(json.dumps(recorder.export()))[0]
-    assert "pending_target" not in entry["state"]["control_mode"]
+    entry["state"]["control_mode"] = {
+        "mode": "optimal",
+        "unavailable_sensors": [],
+        "degraded_since": None,
+        **control_mode,
+    }
+    return entry
+
+
+@pytest.mark.parametrize(
+    ("control_mode", "expected"),
+    [
+        ({"down_pending_since": None, "up_pending_since": None}, None),
+        (
+            {
+                "down_pending_since": None,
+                "up_pending_since": None,
+                "pending_target": None,
+            },
+            None,
+        ),
+        (
+            {
+                "down_pending_since": 900.0,
+                "up_pending_since": None,
+                "pending_target": "sensor_fallback",
+            },
+            PendingWindow(deeper=True, since=900.0, target=ControlMode.SENSOR_FALLBACK),
+        ),
+        (
+            {
+                "down_pending_since": None,
+                "up_pending_since": 950.0,
+                "pending_target": "optimal",
+            },
+            PendingWindow(deeper=False, since=950.0, target=ControlMode.OPTIMAL),
+        ),
+        # A start time without a target never continued a window.
+        ({"down_pending_since": 900.0, "up_pending_since": None}, None),
+        # Nor does a target without a start time.
+        (
+            {
+                "down_pending_since": None,
+                "up_pending_since": None,
+                "pending_target": "hold",
+            },
+            None,
+        ),
+    ],
+)
+def test_split_pending_fields_load_as_one_window(control_mode, expected):
+    """An export carrying the window as three fields loads and replays."""
+    entry = _split_pending_entry(control_mode)
     rebuilt = state_from_dict(entry["state"])
-    assert rebuilt.control_mode.pending_target is None
+    assert rebuilt.control_mode.pending == expected
     matches, _ = replay(entry)
     assert matches is True
 
-    entry["state"]["control_mode"]["pending_target"] = None
-    rebuilt = state_from_dict(entry["state"])
-    assert rebuilt.control_mode.pending_target is None
+
+def test_split_pending_fields_in_both_directions_are_rejected():
+    """A window cannot run toward a deeper and a shallower rung at once."""
+    entry = _split_pending_entry(
+        {
+            "down_pending_since": 900.0,
+            "up_pending_since": 950.0,
+            "pending_target": "hold",
+        }
+    )
+    with pytest.raises(ValueError, match="both directions"):
+        state_from_dict(entry["state"])
+
+
+def test_pending_window_without_start_time_loads_as_no_window():
+    """A window whose start time the exporter nulled restarts on replay."""
+    entry = _split_pending_entry(
+        {"pending": {"deeper": True, "since": None, "target": "hold"}}
+    )
+    assert state_from_dict(entry["state"]).control_mode.pending is None
+
+
+def test_pending_window_exports_as_one_mapping():
+    """A running ladder window exports as one ``pending`` mapping."""
+    window = PendingWindow(deeper=True, since=900.0, target=ControlMode.HOLD)
+    state = replace(
+        running_kernel_state(), control_mode=ControlModeState(pending=window)
+    )
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), state)
+    recorder.record(_snapshot(), state, desired)
+    exported = json.loads(json.dumps(recorder.export()))[0]["state"]["control_mode"]
+    assert exported["pending"] == {"deeper": True, "since": 900.0, "target": "hold"}
+    assert state_from_dict(
+        json.loads(json.dumps(recorder.export()))[0]["state"]
+    ).control_mode == ControlModeState(pending=window)
 
 
 def test_snapshot_exported_as_temperature_slope_loads():
@@ -452,9 +542,9 @@ class TestRoundtripCompleteness:
                 mode=ControlMode.SENSOR_FALLBACK,
                 unavailable_sensors=("sensor.room",),
                 degraded_since=800.0,
-                down_pending_since=810.0,
-                up_pending_since=820.0,
-                pending_target=ControlMode.HOLD,
+                pending=PendingWindow(
+                    deeper=True, since=810.0, target=ControlMode.HOLD
+                ),
             ),
             "reachability": {
                 "climate.trv": ReachabilityState(

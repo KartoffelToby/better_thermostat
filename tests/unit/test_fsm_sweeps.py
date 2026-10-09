@@ -82,28 +82,26 @@ class TestLadderSweep:
 
     PARAMS = cm.LadderParams(down_debounce_seconds=120.0, up_stability_seconds=300.0)
     RUNGS = tuple(cm.ControlMode)
-    # Pending ages: fresh, just below both thresholds, past debounce,
-    # past stability.
-    AGES = (None, NOW - 1.0, NOW - 119.0, NOW - 120.0, NOW - 300.0)
-    PENDING_TARGETS = (None, *RUNGS)
-
-    @pytest.mark.parametrize(
-        ("mode", "down_since", "up_since", "pending_target", "room_ok", "trv_ok"),
-        list(
-            itertools.product(
-                RUNGS, AGES, AGES, PENDING_TARGETS, (False, True), (False, True)
-            )
+    # Window start ages: just below both thresholds, past debounce, past
+    # stability.
+    AGES = (NOW - 1.0, NOW - 119.0, NOW - 120.0, NOW - 300.0)
+    WINDOWS = (
+        None,
+        *(
+            cm.PendingWindow(deeper=deeper, since=since, target=rung)
+            for deeper, since, rung in itertools.product((False, True), AGES, RUNGS)
         ),
     )
-    def test_invariants_hold_for_every_combination(
-        self, mode, down_since, up_since, pending_target, room_ok, trv_ok
-    ):
+
+    @pytest.mark.parametrize(
+        ("mode", "window", "room_ok", "trv_ok"),
+        list(itertools.product(RUNGS, WINDOWS, (False, True), (False, True))),
+    )
+    def test_invariants_hold_for_every_combination(self, mode, window, room_ok, trv_ok):
         """Every step lands on the old rung or the capability target."""
         state = cm.ControlModeState(
             mode=mode,
-            down_pending_since=down_since,
-            up_pending_since=up_since,
-            pending_target=pending_target,
+            pending=window,
             degraded_since=None if mode == cm.ControlMode.OPTIMAL else NOW - 500.0,
         )
         target = cm._target_rung(room_ok, trv_ok)
@@ -132,17 +130,16 @@ class TestLadderSweep:
         degrading = depth(target) > depth(mode)
         # A running window continues only while the prior pending rung
         # sits on the same side of the current rung as the observation.
-        window_continued = pending_target is not None and (
-            (
-                degrading
-                and down_since is not None
-                and depth(pending_target) > depth(mode)
-            )
-            or (
-                not degrading
-                and target != mode
-                and up_since is not None
-                and depth(pending_target) < depth(mode)
+        window_continued = (
+            window is not None
+            and window.deeper == degrading
+            and (
+                (degrading and depth(window.target) > depth(mode))
+                or (
+                    not degrading
+                    and target != mode
+                    and depth(window.target) < depth(mode)
+                )
             )
         )
         if result.mode != mode:
@@ -151,44 +148,41 @@ class TestLadderSweep:
                 if degrading
                 else self.PARAMS.up_stability_seconds
             )
-            since = down_since if degrading else up_since
             # A commit requires the full debounce/stability window of
             # continuous same-direction pressure.
             assert window_continued
-            assert since is not None and NOW - since >= threshold
+            assert window is not None and NOW - window.since >= threshold
             # The commit lands on the rung nearest the old one that was
             # continuously supported: the prior pending rung capped by
             # the instantaneous target.
             nearest = min if degrading else max
-            assert result.mode == nearest(pending_target, target, key=depth)
+            assert result.mode == nearest(window.target, target, key=depth)
 
-        # Matching capability clears all pending timers.
+        # Matching capability clears the pending window.
         if target == mode:
-            assert result.down_pending_since is None
-            assert result.up_pending_since is None
-            assert result.pending_target is None
+            assert result.pending is None
 
         # A still-pending transition records the rung it would commit.
         if result.mode == mode and target != mode:
             nearest = min if degrading else max
             expected_pending = (
-                nearest(pending_target, target, key=depth)
-                if window_continued
+                nearest(window.target, target, key=depth)
+                if window is not None and window_continued
                 else target
             )
-            assert result.pending_target == expected_pending
-            since = result.down_pending_since if degrading else result.up_pending_since
-            assert since is not None
+            assert result.pending is not None
+            assert result.pending.target == expected_pending
+            assert result.pending.deeper == degrading
             # A freshly started window begins now.
             if not window_continued:
-                assert since == NOW
+                assert result.pending.since == NOW
 
         # A commit short of the instantaneous target immediately opens
         # the follow-up window toward that target.
         if result.mode not in (mode, target):
-            assert result.pending_target == target
-            since = result.down_pending_since if degrading else result.up_pending_since
-            assert since == NOW
+            assert result.pending == cm.PendingWindow(
+                deeper=degrading, since=NOW, target=target
+            )
 
         # The ladder never authors degraded_since: it belongs to the
         # annunciation half of the region, which step() maintains from
