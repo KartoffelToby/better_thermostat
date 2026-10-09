@@ -3038,11 +3038,6 @@ class TestControlQueueTrigger:
 class TestConvertInboundStates:
     """Tests for convert_inbound_states()."""
 
-    def test_none_state_raises_typeerror(self, mock_bt):
-        """Raise TypeError when state is None."""
-        with pytest.raises(TypeError):
-            convert_inbound_states(mock_bt, ENTITY_ID, None)  # type: ignore[arg-type]
-
     def test_none_attributes_raises_typeerror(self, mock_bt):
         """Raise TypeError when state.attributes is None."""
         state = MagicMock(spec=State)

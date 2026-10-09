@@ -9,9 +9,10 @@ arriving in the meantime is not held back by the pause.
 
 import asyncio
 from collections.abc import Awaitable
+from contextlib import ExitStack
 import logging
 from typing import Protocol
-from unittest.mock import AsyncMock, _patch, patch
+from unittest.mock import AsyncMock, patch
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -124,7 +125,7 @@ class _Queue:
             control_trv if control_trv is not None else self._control_trv
         )
         self._task: asyncio.Task[None] | None = None
-        self._patches: list[_patch[object]] = []
+        self._patches = ExitStack()
 
     async def _control_trv(self, _entity, _entity_id, cycle=None):
         outcome = self.outcomes(self.calls)
@@ -137,13 +138,11 @@ class _Queue:
         return None if self.cycle is None else self.cycle(entity)
 
     async def __aenter__(self):
-        self._patches = [
-            patch(f"{_CTRL}.control_trv", new=self.control_trv),
-            patch(f"{_CTRL}.compute_control_cycle", side_effect=self._compute_cycle),
-            patch("asyncio.sleep", new=self.sleep),
-        ]
-        for p in self._patches:
-            p.start()
+        self._patches.enter_context(patch(f"{_CTRL}.control_trv", new=self.control_trv))
+        self._patches.enter_context(
+            patch(f"{_CTRL}.compute_control_cycle", side_effect=self._compute_cycle)
+        )
+        self._patches.enter_context(patch("asyncio.sleep", new=self.sleep))
         self._task = asyncio.create_task(control_queue(self.entity))
         self.entity.control_queue_task.put_nowait(self.entity)
         return self
@@ -155,8 +154,7 @@ class _Queue:
             await self._task
         except asyncio.CancelledError:
             pass
-        for p in reversed(self._patches):
-            p.stop()
+        self._patches.close()
 
     async def until_calls(self, count: int, timeout: float = 5.0) -> None:
         loop = asyncio.get_running_loop()

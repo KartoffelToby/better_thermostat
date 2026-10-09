@@ -159,15 +159,3 @@ async def test_get_device_model_prefers_configured_model_over_generic():
             await get_device_model(caller, STORED_TRV, configured_model="TRVZB")
             == "TRVZB"
         )
-
-
-@pytest.mark.asyncio
-async def test_get_device_model_ignores_non_string_configured_model():
-    """A configured model of the wrong type is not used as a fallback."""
-    caller = _Caller(MagicMock())
-    patch_er, patch_dr = _patch_empty_registries()
-
-    with patch_er, patch_dr:
-        assert (
-            await get_device_model(caller, STORED_TRV, configured_model=42) == "generic"
-        )

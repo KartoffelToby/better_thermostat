@@ -17,6 +17,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
     PIDState,
+    set_pid_gain,
 )
 from tests.factories import ThermostatStandIn
 
@@ -95,7 +96,7 @@ class TestPidNumber:
         """
         bt = _make_bt()
         state = PIDState(pid_kp=7.0, pid_ki=7.0, pid_kd=7.0)
-        setattr(state, f"pid_{gain}", None)
+        set_pid_gain(state, gain, None)
         bt.state_mgr.pid[_KEY] = state
         number = BetterThermostatPIDNumber(bt, "climate.trv", gain, False)
 

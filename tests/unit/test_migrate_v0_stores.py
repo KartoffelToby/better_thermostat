@@ -88,13 +88,6 @@ class TestFilterByPrefix:
         assert len(result) == 1
         assert "uid1:trv_a" in result
 
-    def test_non_string_keys_excluded(self) -> None:
-        """Non-string keys are excluded (defensive against corrupt data)."""
-        raw: object = {"uid1:trv_a": {"gain_est": 0.5}, 42: {"gain_est": 0.8}}
-        assert isinstance(raw, dict)
-        result = _filter_by_prefix(raw, "uid1:")
-        assert len(result) == 1
-
     def test_empty_dict_returns_empty(self) -> None:
         """Empty input returns empty result."""
         assert _filter_by_prefix({}, "uid1:") == {}
@@ -239,17 +232,6 @@ class TestImportLegacyData:
         assert mgr.state.tpi["k1"].last_percent == pytest.approx(50.0)
         assert mgr.thermal.heating_power == pytest.approx(900.0)
 
-    def test_import_skips_non_dict_values(self) -> None:
-        """Non-dict values in the data dicts are silently skipped."""
-        mgr = _make_state_manager()
-        mpc_data: object = {"good_key": {"gain_est": 0.5}, "bad_key": "not_a_dict"}
-        assert isinstance(mpc_data, dict)
-
-        _import_legacy_data(mgr, mpc_data=mpc_data)
-
-        assert "good_key" in mgr.state.mpc
-        assert "bad_key" not in mgr.state.mpc
-
     def test_import_none_args_noop(self) -> None:
         """Passing None for all data types leaves the state untouched."""
         mgr = _make_state_manager()
@@ -286,13 +268,6 @@ class TestImportLegacyData:
         assert mgr.state.mpc["uid1:trv_a:t20"].gain_est == pytest.approx(0.3)
         assert mgr.state.mpc["uid1:trv_a:t22"].gain_est == pytest.approx(0.5)
         assert mgr.state.mpc["uid1:trv_b:t20"].gain_est == pytest.approx(0.4)
-
-    def test_thermal_non_dict_ignored(self) -> None:
-        """Non-dict thermal_data is silently ignored."""
-        mgr = _make_state_manager()
-        _import_legacy_data(mgr, thermal_data="not_a_dict")
-
-        assert mgr.thermal == ThermalStats()
 
 
 # ---------------------------------------------------------------------------

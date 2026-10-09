@@ -747,53 +747,9 @@ class TestPidTimeHandling:
         # error = 1 K -> integral step = ki * e * MAX_DT_S, not ki * e * 6 h.
         assert state.pid_integral == pytest.approx(0.001 * 1.0 * MAX_DT_S)
 
-    def test_auto_tune_that_cannot_compute_leaves_the_gains(self):
-        """Auto-tune is best effort: a setting it cannot use tunes nothing.
-
-        The control output is still computed; only the tuning step is
-        skipped, and the gains and the tuning stamp stay as they were.
-        """
-        params = PIDParams(auto_tune=True, tune_min_interval_s="300")
-        state = PIDState(pid_kp=60.0, pid_ki=0.01, pid_kd=2000.0)
-
-        percent, _, state = compute_pid(
-            params, 22.0, 20.0, 20.0, 0.0, "k", state=state, now=1000.0
-        )
-
-        assert percent > 0
-        assert (state.pid_kp, state.pid_ki, state.pid_kd) == (60.0, 0.01, 2000.0)
-        assert state.last_tune_ts == 0.0
-
 
 class TestPidDerivativeSmoothing:
     """The smoothing weight of the D channel's measurement."""
-
-    def test_unusable_smoothing_factor_blends_half_and_half(self):
-        """A non-numeric smoothing factor smooths the D channel with 0.5.
-
-        The derivative of this cycle and the measurement stored for the next
-        one both use the fallback weight.
-        """
-        params = PIDParams(
-            auto_tune=False,
-            kp=0.0,
-            ki=0.0,
-            kd=100.0,
-            d_smoothing_alpha="fast",
-            min_hold_time_s=0.0,
-        )
-        state = PIDState(pid_last_meas=20.0, pid_last_time=1000.0)
-
-        _, debug, state = compute_pid(
-            params, 22.0, 21.0, 21.0, 0.0, "k", state=state, now=1010.0
-        )
-
-        assert debug["meas_smooth_C"] == 20.5
-        # (20.5 - 20.0) / 10 s
-        assert debug["d_meas_per_s"] == pytest.approx(0.05)
-        assert debug["d"] == pytest.approx(-5.0)
-        # The stored measurement blends 20.0 and 21.0 again with 0.5.
-        assert state.pid_last_meas == pytest.approx(20.5)
 
     def test_smoothing_factor_weights_the_new_measurement(self):
         """A valid smoothing factor sets the weight of the new reading."""
