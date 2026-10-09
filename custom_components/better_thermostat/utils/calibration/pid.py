@@ -14,7 +14,8 @@ Notes
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 import logging
 import math
 from time import monotonic
@@ -66,7 +67,16 @@ class PIDDebugInfo(TypedDict, total=False):
 
 @dataclass
 class PIDState:
-    """State for PID controller per room."""
+    """State of the PID controller of one TRV.
+
+    The store keeps two kinds of entries. The loop entry of a TRV, keyed by
+    :func:`build_pid_loop_key`, carries the integral, the measurement chain,
+    the timestamps and the last output across target changes, together with
+    what the user set: ``auto_tune`` and the gains set by hand. A bucket
+    entry, keyed by :func:`build_pid_key` per 0.5 °C target, carries the
+    gains learned at that target. A cycle runs on the loop entry with the
+    gains :func:`pid_cycle_params` resolves from both.
+    """
 
     # PID-State
     pid_integral: float = 0.0
@@ -739,6 +749,15 @@ def resolve_unique_id(obj: _HasUniqueId) -> str:
     return obj.unique_id or "bt"
 
 
+def build_pid_loop_key(self: _HasUniqueId, entity_id: str) -> str:
+    """Build the key of a TRV's PID loop entry: ``{unique_id}:{entity_id}``.
+
+    It carries no target, so the entry follows the TRV across target
+    changes. The bucket keys of :func:`build_pid_key` extend it.
+    """
+    return f"{resolve_unique_id(self)}:{entity_id}"
+
+
 def round_to_bucket(temperature: float) -> float:
     """Round a target temperature to its 0.5 °C bucket centre."""
     return round(float(temperature) * 2.0) / 2.0
@@ -773,4 +792,120 @@ def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
     except ValueError, OverflowError:
         bucket_tag = "tunknown"
 
-    return f"{resolve_unique_id(self)}:{entity_id}:{bucket_tag}"
+    return f"{build_pid_loop_key(self, entity_id)}:{bucket_tag}"
+
+
+# --- Loop and bucket entries -----------------------------------------------
+
+_DEFAULT_PID_GAINS: dict[PidGain, float] = {
+    "kp": DEFAULT_PID_KP,
+    "ki": DEFAULT_PID_KI,
+    "kd": DEFAULT_PID_KD,
+}
+
+
+def pid_loop_state(states: Mapping[str, PIDState], loop_key: str) -> PIDState:
+    """Return the loop entry stored under ``loop_key``, or a new one.
+
+    A store without a loop entry for the TRV may still hold bucket entries
+    that each carried a full controller state. The new loop entry then
+    continues from the bucket that ran last, so the first cycle keeps its
+    integral and output. Its ``auto_tune`` is the flag the switch wrote to
+    the buckets. With auto-tuning off, the gains of the latest bucket that
+    holds the flag become the gains set by hand; a bucket created after the
+    switch was turned off ran with defaults and does not count. The caller
+    stores the returned entry.
+    """
+    held = states.get(loop_key)
+    if held is not None:
+        return held
+    prefix = f"{loop_key}:"
+    buckets = [state for key, state in states.items() if key.startswith(prefix)]
+    if not buckets:
+        return PIDState()
+    latest = max(buckets, key=lambda state: state.pid_last_time)
+    flagged = [state for state in buckets if state.auto_tune is not None]
+    if not flagged:
+        return replace(latest, pid_kp=None, pid_ki=None, pid_kd=None)
+    auto_tune = flagged[0].auto_tune
+    if auto_tune:
+        return replace(latest, pid_kp=None, pid_ki=None, pid_kd=None, auto_tune=True)
+    fixed = max(flagged, key=lambda state: state.pid_last_time)
+    return replace(
+        latest,
+        pid_kp=fixed.pid_kp,
+        pid_ki=fixed.pid_ki,
+        pid_kd=fixed.pid_kd,
+        auto_tune=False,
+    )
+
+
+def pid_auto_tune(loop: PIDState | None, bucket: PIDState | None) -> bool:
+    """Return whether auto-tuning runs for a TRV.
+
+    The switch sets the flag on the loop entry. A bucket's own flag is
+    read only while the loop entry has none.
+    """
+    for state in (loop, bucket):
+        if state is not None and state.auto_tune is not None:
+            return state.auto_tune
+    return DEFAULT_PID_AUTO_TUNE
+
+
+def effective_pid_gain(
+    loop: PIDState | None, bucket: PIDState | None, gain: PidGain
+) -> float:
+    """Return the gain the controller uses at the bucket's target.
+
+    With auto-tuning off, a gain set by hand (on the loop entry) applies at
+    every target. With it on, the gain learned at the target (on the bucket
+    entry) comes first, and a gain set by hand is where a target not tuned
+    yet starts from. Without either, the default applies.
+    """
+    manual = pid_gain(loop, gain) if loop is not None else None
+    learned = pid_gain(bucket, gain) if bucket is not None else None
+    if pid_auto_tune(loop, bucket):
+        candidates = (learned, manual)
+    else:
+        candidates = (manual, learned)
+    for value in candidates:
+        if value is not None:
+            return value
+    return _DEFAULT_PID_GAINS[gain]
+
+
+def pid_cycle_params(loop: PIDState, bucket: PIDState | None) -> PIDParams:
+    """Return the parameters one cycle runs with: the gains and auto-tuning in use."""
+    return PIDParams(
+        kp=effective_pid_gain(loop, bucket, "kp"),
+        ki=effective_pid_gain(loop, bucket, "ki"),
+        kd=effective_pid_gain(loop, bucket, "kd"),
+        auto_tune=pid_auto_tune(loop, bucket),
+    )
+
+
+def pid_cycle_state(loop: PIDState, params: PIDParams) -> PIDState:
+    """Return the state one cycle runs on: the loop entry with the gains in use."""
+    return replace(loop, pid_kp=params.kp, pid_ki=params.ki, pid_kd=params.kd)
+
+
+def settle_pid_cycle(
+    loop: PIDState, bucket: PIDState, cycle: PIDState, params: PIDParams
+) -> PIDState:
+    """Split a finished cycle's state back into the two entries.
+
+    Returns the new loop entry: everything the cycle moved, with the gains
+    set by hand kept. With auto-tuning on, ``bucket`` takes the gains the
+    cycle ran with and tuned; with it off, the bucket keeps its own.
+    """
+    if params.auto_tune:
+        bucket.pid_kp = cycle.pid_kp
+        bucket.pid_ki = cycle.pid_ki
+        bucket.pid_kd = cycle.pid_kd
+    return replace(
+        cycle,
+        pid_kp=loop.pid_kp,
+        pid_ki=loop.pid_ki,
+        pid_kd=loop.pid_kd,
+        auto_tune=loop.auto_tune,
+    )

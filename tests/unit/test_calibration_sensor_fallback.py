@@ -31,7 +31,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2State
 from custom_components.better_thermostat.utils.calibration.pid import (
     PIDState,
-    build_pid_key,
+    build_pid_loop_key,
 )
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiState,
@@ -181,7 +181,7 @@ def test_pid_balance_uses_trv_temperature_when_room_sensor_is_dead() -> None:
     assert percent is not None
     assert bt.real_trvs["climate.trv"].calibration_balance is not None
     # error = |target - trv temperature| = |22.0 - 21.0|
-    assert state_mgr.pid[build_pid_key(bt, "climate.trv")].last_abs_error == 1.0
+    assert state_mgr.pid[build_pid_loop_key(bt, "climate.trv")].last_abs_error == 1.0
 
 
 def test_mpc_balance_skips_when_no_temperature_is_available() -> None:

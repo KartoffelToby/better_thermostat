@@ -42,7 +42,9 @@ from .utils.calibration.pid import (
     PID_GAIN_LIMITS,
     PidGain,
     build_pid_key,
-    pid_gain,
+    build_pid_loop_key,
+    effective_pid_gain,
+    pid_loop_state,
     set_pid_gain,
 )
 from .utils.const import CalibrationMode, CalibrationOutput
@@ -513,17 +515,15 @@ class BetterThermostatPIDNumber(
     @override
     def native_value(self) -> float | None:
         """Return the value of the number."""
-        # Try to get the value from the current active PID state
         state_mgr = self._bt_climate.state_mgr
-        if state_mgr is not None:
-            key = build_pid_key(self._bt_climate, self._trv_entity_id)
-            pid_state = state_mgr.state.pid.get(key)
-            if pid_state is not None:
-                value = pid_gain(pid_state, self._parameter)
-                if value is not None:
-                    return value
-
-        return _PID_GAIN_SETTINGS[self._parameter][3]
+        if state_mgr is None:
+            return _PID_GAIN_SETTINGS[self._parameter][3]
+        states = state_mgr.state.pid
+        return effective_pid_gain(
+            states.get(build_pid_loop_key(self._bt_climate, self._trv_entity_id)),
+            states.get(build_pid_key(self._bt_climate, self._trv_entity_id)),
+            self._parameter,
+        )
 
     @override
     async def async_set_native_value(self, value: float) -> None:
@@ -541,18 +541,26 @@ class BetterThermostatPIDNumber(
             )
             return
 
-        # Update ONLY the current PID state to avoid overwriting learned values for other temperatures
-        key = build_pid_key(self._bt_climate, self._trv_entity_id)
-        pid_state = state_mgr.get_pid(key)
+        # The TRV's loop entry keeps the value for every target. The bucket
+        # of the current target takes it too, so auto-tuning adjusts from it
+        # here; the gains learned at other targets stay as they are.
+        loop_key = build_pid_loop_key(self._bt_climate, self._trv_entity_id)
+        bucket_key = build_pid_key(self._bt_climate, self._trv_entity_id)
+        loop = pid_loop_state(state_mgr.state.pid, loop_key)
+        bucket = state_mgr.get_pid(bucket_key)
 
         _LOGGER.debug(
-            "Updating PID state key %s: %s -> %s",
-            key,
-            pid_gain(pid_state, self._parameter),
+            "Updating PID %s of %s at %s: %s -> %s",
+            self._parameter,
+            loop_key,
+            bucket_key,
+            effective_pid_gain(loop, bucket, self._parameter),
             value,
         )
-        set_pid_gain(pid_state, self._parameter, value)
-        state_mgr.set_pid(key, pid_state)
+        set_pid_gain(loop, self._parameter, value)
+        set_pid_gain(bucket, self._parameter, value)
+        state_mgr.set_pid(loop_key, loop)
+        state_mgr.set_pid(bucket_key, bucket)
 
         self._bt_climate.schedule_save_state()
         self.async_write_ha_state()

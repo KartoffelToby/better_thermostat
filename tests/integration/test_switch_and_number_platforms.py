@@ -20,15 +20,18 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.better_thermostat import climate as climate_module
 from custom_components.better_thermostat.utils.calibration.pid import (
     build_pid_key,
+    build_pid_loop_key,
     resolve_unique_id,
 )
 from custom_components.better_thermostat.utils.const import CalibrationMode
 
 from .conftest import (
+    BT_ENTITY,
     build_devices,
     make_entry,
     set_room_sensor,
     setup_entry,
+    wait_for,
     wait_for_startup,
 )
 from .device_profiles import GENERIC_HEAT_TRV
@@ -165,6 +168,72 @@ def _auto_tune_switch(hass, entry) -> str:
     return entity_id
 
 
+def _kp_number(hass, entry) -> str:
+    registry = er.async_get(hass)
+    (entity_id,) = [
+        reg.entity_id
+        for reg in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if reg.domain == "number" and reg.unique_id.endswith("_pid_kp")
+    ]
+    return entity_id
+
+
+async def test_fixed_gains_hold_at_a_target_never_set_before(hass):
+    """Auto-tune off and a gain set by hand apply at every target.
+
+    The user turns auto-tuning off and sets Kp at one target; a schedule
+    then sets a target the controller has never run at. The switch stays
+    off, the number keeps the value, and the controller runs with it.
+    """
+    set_room_sensor(hass, 19.0)
+    await build_devices(hass, PID_TRV)
+    entry = make_entry(PID_TRV)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    assert bt.state_mgr is not None
+    switch = _auto_tune_switch(hass, entry)
+    kp_number = _kp_number(hass, entry)
+    (trv,) = bt.real_trvs.values()
+
+    await hass.services.async_call(
+        "climate",
+        "set_temperature",
+        {"entity_id": BT_ENTITY, "temperature": 21.0},
+        blocking=True,
+    )
+    await hass.services.async_call(
+        "switch", "turn_off", {"entity_id": switch}, blocking=True
+    )
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": kp_number, "value": 150.0}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(switch).state == STATE_OFF
+    assert float(hass.states.get(kp_number).state) == 150.0
+
+    await hass.services.async_call(
+        "climate",
+        "set_temperature",
+        {"entity_id": BT_ENTITY, "temperature": 23.0},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    bucket_key = build_pid_key(bt, PID_TRV.entity_id)
+    assert bucket_key.endswith(":t23.0")
+    assert await wait_for(
+        hass,
+        lambda: (
+            trv.calibration_balance is not None
+            and trv.calibration_balance["debug"].get("e_K") == 4.0
+        ),
+    )
+
+    assert trv.calibration_balance is not None
+    assert trv.calibration_balance["debug"]["kp"] == 150.0
+    assert hass.states.get(switch).state == STATE_OFF
+    assert float(hass.states.get(kp_number).state) == 150.0
+
+
 async def test_the_auto_tune_switch_sets_the_learned_flag(hass):
     """Switching auto-tune off and on again is what the PID state holds."""
     set_room_sensor(hass, 19.0)
@@ -174,7 +243,7 @@ async def test_the_auto_tune_switch_sets_the_learned_flag(hass):
     bt = await wait_for_startup(hass, entry)
     assert bt.state_mgr is not None
     switch = _auto_tune_switch(hass, entry)
-    key = build_pid_key(bt, PID_TRV.entity_id)
+    key = build_pid_loop_key(bt, PID_TRV.entity_id)
 
     for service, expected in (("turn_off", False), ("turn_on", True)):
         await hass.services.async_call(
@@ -199,7 +268,7 @@ async def test_the_auto_tune_switch_is_kept_after_a_pid_reset(hass):
     bt = await wait_for_startup(hass, entry)
     assert bt.state_mgr is not None
     switch = _auto_tune_switch(hass, entry)
-    bt.state_mgr.reset_pid_states(f"{resolve_unique_id(bt)}:{PID_TRV.entity_id}:")
+    bt.state_mgr.reset_pid_states(f"{resolve_unique_id(bt)}:")
 
     await hass.services.async_call(
         "switch", "turn_off", {"entity_id": switch}, blocking=True
@@ -207,8 +276,9 @@ async def test_the_auto_tune_switch_is_kept_after_a_pid_reset(hass):
     await hass.async_block_till_done()
 
     assert hass.states.get(switch).state == STATE_OFF
-    assert bt.state_mgr.state.pid[build_pid_key(bt, PID_TRV.entity_id)].auto_tune is (
-        False
+    assert (
+        bt.state_mgr.state.pid[build_pid_loop_key(bt, PID_TRV.entity_id)].auto_tune
+        is False
     )
 
 

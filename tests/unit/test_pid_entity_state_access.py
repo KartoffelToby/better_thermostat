@@ -1,8 +1,9 @@
 """PID number and auto-tune switch read/write state through the StateManager.
 
-The entities resolve the active PID state via ``build_pid_key`` and the
-climate's ``state_mgr``; without a manager (startup failure) they fall back
-to defaults and refuse writes instead of crashing.
+The entities keep what the user sets on the TRV's loop entry and read the
+gains in use from it and the bucket of the current target; without a
+manager (startup failure) they fall back to defaults and refuse writes
+instead of crashing.
 """
 
 from unittest.mock import MagicMock
@@ -21,6 +22,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
 from tests.factories import ThermostatStandIn
 
 _KEY = "uid:climate.trv:t21.0"
+_LOOP = "uid:climate.trv"
 
 
 class _StateMgrStub:
@@ -106,18 +108,49 @@ class TestPidNumber:
         ) == bounds
 
     @pytest.mark.asyncio
-    async def test_set_writes_only_current_bucket(self):
-        """Setting a gain writes only the current bucket and marks dirty."""
+    async def test_set_writes_the_trv_and_the_current_bucket(self):
+        """Setting a gain writes the TRV's entry and the current bucket.
+
+        The gains learned at other targets stay as they are.
+        """
         bt = _make_bt()
         bt.state_mgr.pid["uid:climate.trv:t20.0"] = PIDState(pid_kp=1.0)
         number = self._make(bt)
 
         await number.async_set_native_value(55.0)
 
+        assert bt.state_mgr.pid[_LOOP].pid_kp == 55.0
         assert bt.state_mgr.pid[_KEY].pid_kp == 55.0
         assert bt.state_mgr.pid["uid:climate.trv:t20.0"].pid_kp == 1.0
         assert bt.state_mgr.dirty is True
         bt.schedule_save_state.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_gain_set_with_auto_tune_off_shows_at_a_new_target(self):
+        """With auto-tuning off a gain set by hand holds at every target."""
+        bt = _make_bt()
+        bt.state_mgr.pid["uid:climate.trv:t19.0"] = PIDState(pid_kp=45.0)
+        number = self._make(bt)
+        bt.state_mgr.pid[_LOOP] = PIDState(auto_tune=False)
+
+        await number.async_set_native_value(150.0)
+        bt.heat_target_temperature = 19.0
+        assert number.native_value == 150.0
+        bt.heat_target_temperature = 23.0
+        assert number.native_value == 150.0
+
+    @pytest.mark.asyncio
+    async def test_a_gain_set_with_auto_tune_on_seeds_a_new_target(self):
+        """With auto-tuning on, a learned gain wins where there is one."""
+        bt = _make_bt()
+        bt.state_mgr.pid["uid:climate.trv:t19.0"] = PIDState(pid_kp=45.0)
+        number = self._make(bt)
+
+        await number.async_set_native_value(150.0)
+        bt.heat_target_temperature = 19.0
+        assert number.native_value == 45.0
+        bt.heat_target_temperature = 23.0
+        assert number.native_value == 150.0
 
     @pytest.mark.asyncio
     async def test_set_without_state_manager_is_a_noop(self):
@@ -156,8 +189,11 @@ class TestAutoTuneSwitch:
         bt.state_mgr = None
         assert self._make(bt).is_on is DEFAULT_PID_AUTO_TUNE
 
-    def test_update_sets_flag_on_all_buckets_of_this_trv(self):
-        """Toggling updates every bucket of this TRV, not other TRVs."""
+    def test_update_holds_at_every_target_of_this_trv_only(self):
+        """Toggling sets the TRV's flag, which shows at an unvisited target too.
+
+        Another TRV of the same thermostat keeps its own flag.
+        """
         bt = _make_bt()
         bt.state_mgr.pid = {
             "uid:climate.trv:t21.0": PIDState(),
@@ -165,12 +201,15 @@ class TestAutoTuneSwitch:
             "uid:climate.other:t21.0": PIDState(),
         }
         switch = self._make(bt)
+        other = BetterThermostatPIDAutoTuneSwitch(bt, "climate.other", True)
 
         switch._update_state(False)
 
-        assert bt.state_mgr.pid["uid:climate.trv:t21.0"].auto_tune is False
-        assert bt.state_mgr.pid["uid:climate.trv:t20.0"].auto_tune is False
-        assert bt.state_mgr.pid["uid:climate.other:t21.0"].auto_tune is None
+        assert bt.state_mgr.pid[_LOOP].auto_tune is False
+        for target in (21.0, 20.0, 17.5):
+            bt.heat_target_temperature = target
+            assert switch.is_on is False
+            assert other.is_on is True
         assert bt.state_mgr.dirty is True
         bt.schedule_save_state.assert_called_once()
 
