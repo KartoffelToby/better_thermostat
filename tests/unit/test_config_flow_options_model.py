@@ -9,6 +9,7 @@ so that fallback is optional.
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.const import CONF_NAME
 from homeassistant.core import State
 import pytest
@@ -51,7 +52,12 @@ def _make_config_entry():
 def _make_hass():
     hass = MagicMock()
     hass.states.get.return_value = State(
-        GENERIC_TRV, "heat", {"hvac_modes": ["heat", "off"]}
+        GENERIC_TRV,
+        "heat",
+        {
+            "hvac_modes": ["heat", "off"],
+            "supported_features": ClimateEntityFeature.TARGET_TEMPERATURE,
+        },
     )
     return hass
 

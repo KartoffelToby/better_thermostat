@@ -16,9 +16,10 @@ import asyncio
 from collections.abc import Mapping
 from dataclasses import replace
 
-from homeassistant.components.climate import HVACMode
+from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -65,6 +66,8 @@ from .device_profiles import (
     COOLER_ID,
     GENERIC_HEAT_TRV,
     MQTT_OFFSET_TRV,
+    RANGE_ONLY_HEAT_TRV,
+    RANGED_AC_COOLER,
     ROOM_AC_COOLER,
     SPARE_HEAT_TRV,
     SPARE_TRV_ID,
@@ -77,6 +80,7 @@ from .device_profiles import (
 
 ENTRY_NAME = "BT Test"
 OUTDOOR_ID = "sensor.outdoor_temperature"
+FAN_ONLY_ID = "climate.fan_only"
 
 # How long a reload that is not waiting on another entry may take. Only ever
 # paid in full when the entries do share a lock, where the wait has no end.
@@ -744,6 +748,292 @@ async def test_a_registered_thermostat_that_has_not_reported_yet_is_accepted(has
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], _user_step_input("climate.late_trv")
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "advanced", result
+
+
+def _bt_climate(hass, entry) -> str:
+    """Return the entity id of the climate entity an entry set up."""
+    (climate,) = [
+        registry_entry.entity_id
+        for registry_entry in er.async_entries_for_config_entry(
+            er.async_get(hass), entry.entry_id
+        )
+        if registry_entry.domain == "climate"
+    ]
+    return climate
+
+
+def _excluded(form, key: str) -> list[str]:
+    """Return the entities the entity selector of ``key`` leaves out."""
+    return list(
+        form["data_schema"]
+        .schema[_marker(form, key)]
+        .config.get("exclude_entities", [])
+    )
+
+
+@pytest.mark.quality_rule("test-before-configure")
+async def test_the_climate_selectors_leave_out_every_better_thermostat(hass):
+    """Neither selector offers a Better Thermostat, its own included.
+
+    A Better Thermostat drives real devices; another one, or itself, would
+    have it command its own output.
+    """
+    await build_devices(hass, GENERIC_HEAT_TRV, SPARE_HEAT_TRV)
+    set_room_sensor(hass, 19.0)
+    await _run_create_flow(hass, _user_step_input(TRV_ID))
+    entry = _only_entry(hass)
+    await wait_for_startup(hass, entry)
+    own_climate = _bt_climate(hass, entry)
+
+    create_form = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    options_form = await hass.config_entries.options.async_init(entry.entry_id)
+
+    for form in (create_form, options_form):
+        assert _excluded(form, CONF_THERMOSTAT) == [own_climate]
+        assert _excluded(form, CONF_COOLER) == [own_climate]
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            options_form["flow_id"],
+            _user_step_input(TRV_ID) | {CONF_THERMOSTAT: [TRV_ID, own_climate]},
+        )
+    assert [trv["trv"] for trv in entry.options[CONF_THERMOSTAT]] == [TRV_ID]
+
+
+@pytest.mark.quality_rule("test-before-configure")
+@pytest.mark.parametrize(
+    ("field", "error", "placeholder"),
+    [
+        (CONF_THERMOSTAT, "trv_is_better_thermostat", "trv"),
+        (CONF_COOLER, "cooler_is_better_thermostat", "cooler"),
+    ],
+)
+async def test_the_flow_refuses_a_better_thermostat_set_up_while_its_form_was_open(
+    hass, field, error, placeholder
+):
+    """The flow checks what was submitted, not only what the form offered.
+
+    A Better Thermostat set up while the form was open is missing from the
+    selector's exclusions, so only the check of the submission catches it.
+    """
+    await build_devices(hass, GENERIC_HEAT_TRV, SPARE_HEAT_TRV)
+    set_room_sensor(hass, 19.0)
+    open_form = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    await _run_create_flow(hass, _user_step_input(TRV_ID))
+    bt_climate = _bt_climate(hass, _only_entry(hass))
+    submission = (
+        _user_step_input(bt_climate)
+        if field == CONF_THERMOSTAT
+        else _user_step_input(SPARE_TRV_ID, **{CONF_COOLER: bt_climate})
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        open_form["flow_id"], submission | {"name": "Second"}
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "user", result
+    assert result["errors"] == {field: error}
+    assert result["description_placeholders"][placeholder] == bt_climate
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+
+
+@pytest.mark.quality_rule("test-before-configure")
+async def test_the_settings_refuse_a_better_thermostat_set_up_while_they_were_open(
+    hass,
+):
+    """The settings check the thermostats they gain the way the create flow does."""
+    await build_devices(hass, GENERIC_HEAT_TRV, SPARE_HEAT_TRV)
+    set_room_sensor(hass, 19.0)
+    await _run_create_flow(hass, _user_step_input(TRV_ID))
+    entry = _only_entry(hass)
+    await wait_for_startup(hass, entry)
+    open_form = await hass.config_entries.options.async_init(entry.entry_id)
+    await _run_create_flow(hass, _user_step_input(SPARE_TRV_ID, name="Second"))
+    other_climate = _bt_climate(hass, _entry_named(hass, "Second"))
+
+    result = await hass.config_entries.options.async_configure(
+        open_form["flow_id"],
+        _user_step_input(TRV_ID) | {CONF_THERMOSTAT: [TRV_ID, other_climate]},
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["errors"] == {CONF_THERMOSTAT: "trv_is_better_thermostat"}
+    assert result["description_placeholders"]["trv"] == other_climate
+    assert [trv["trv"] for trv in entry.options[CONF_THERMOSTAT]] == [TRV_ID]
+
+
+@pytest.mark.quality_rule("test-before-configure")
+async def test_the_settings_name_a_better_thermostat_the_entry_already_drives(hass):
+    """An entry stored with a Better Thermostat as its thermostat is told so.
+
+    The selector keeps offering that one, so the form can be submitted as it
+    is; the submission then names it rather than failing on the selector.
+    """
+    await build_devices(hass, GENERIC_HEAT_TRV)
+    set_room_sensor(hass, 19.0)
+    await _run_create_flow(hass, _user_step_input(TRV_ID))
+    bt_climate = _bt_climate(hass, _only_entry(hass))
+    chained = make_entry(GENERIC_HEAT_TRV, name="Chained")
+    chained_options = dict(chained.data)
+    chained_options[CONF_THERMOSTAT] = [
+        {**chained_options[CONF_THERMOSTAT][0], "trv": bt_climate}
+    ]
+    chained = MockConfigEntry(
+        domain=DOMAIN, version=18, options=chained_options, title="Chained"
+    )
+    chained.add_to_hass(hass)
+
+    form = await hass.config_entries.options.async_init(chained.entry_id)
+    assert bt_climate not in _excluded(form, CONF_THERMOSTAT)
+    result = await hass.config_entries.options.async_configure(
+        form["flow_id"], _user_step_input(bt_climate, name="Chained")
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["errors"] == {CONF_THERMOSTAT: "trv_is_better_thermostat"}
+    assert result["description_placeholders"]["trv"] == bt_climate
+
+
+@pytest.mark.quality_rule("test-before-configure")
+@pytest.mark.parametrize(
+    ("field", "error", "placeholder"),
+    [
+        (CONF_THERMOSTAT, "trv_no_target_temperature", "trv"),
+        (CONF_COOLER, "cooler_no_target_temperature", "cooler"),
+    ],
+)
+async def test_the_flow_refuses_a_climate_that_takes_no_target_temperature(
+    hass, fake_trv, field, error, placeholder
+):
+    """A climate that advertises neither setpoint feature refuses every write.
+
+    Home Assistant rejects ``set_temperature`` for it, so Better Thermostat
+    could never pass it a target.
+    """
+    set_room_sensor(hass, 19.0)
+    hass.states.async_set(
+        FAN_ONLY_ID,
+        HVACMode.FAN_ONLY,
+        {"supported_features": int(ClimateEntityFeature.FAN_MODE)},
+    )
+    submission = (
+        _user_step_input(FAN_ONLY_ID)
+        if field == CONF_THERMOSTAT
+        else _user_step_input(TRV_ID, **{CONF_COOLER: FAN_ONLY_ID})
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], submission
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "user", result
+    assert result["errors"] == {field: error}
+    assert result["description_placeholders"][placeholder] == FAN_ONLY_ID
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+
+@pytest.mark.quality_rule("test-before-configure")
+async def test_the_settings_refuse_an_added_climate_that_takes_no_target_temperature(
+    hass, fake_trv
+):
+    set_room_sensor(hass, 19.0)
+    await _run_create_flow(hass, _user_step_input(TRV_ID))
+    entry = _only_entry(hass)
+    await wait_for_startup(hass, entry)
+    hass.states.async_set(FAN_ONLY_ID, HVACMode.FAN_ONLY, {"supported_features": 0})
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        _user_step_input(TRV_ID) | {CONF_THERMOSTAT: [TRV_ID, FAN_ONLY_ID]},
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["errors"] == {CONF_THERMOSTAT: "trv_no_target_temperature"}
+    assert result["description_placeholders"]["trv"] == FAN_ONLY_ID
+
+
+@pytest.mark.quality_rule("test-before-configure")
+async def test_the_settings_do_not_judge_the_features_of_a_kept_climate(hass, fake_trv):
+    """A climate the entry drives already is not refused for what it reports now.
+
+    Some devices drop a feature in one of their modes; the entry keeps the
+    climate it was set up with.
+    """
+    set_room_sensor(hass, 19.0)
+    await _run_create_flow(hass, _user_step_input(TRV_ID))
+    entry = _only_entry(hass)
+    await wait_for_startup(hass, entry)
+    hass.states.async_set(TRV_ID, HVACMode.HEAT, {"supported_features": 0})
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], _user_step_input(TRV_ID)
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "advanced", result
+
+
+@pytest.mark.quality_rule("test-before-configure")
+@pytest.mark.parametrize(
+    "fake_trv", [GENERIC_HEAT_TRV, RANGE_ONLY_HEAT_TRV], indirect=True, ids=profile_id
+)
+async def test_a_climate_with_either_setpoint_feature_is_accepted(hass, fake_trv):
+    """A single setpoint and a range both carry the target Better Thermostat sends."""
+    set_room_sensor(hass, 19.0)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _user_step_input(fake_trv.entity_id)
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "advanced", result
+
+
+@pytest.mark.quality_rule("test-before-configure")
+async def test_a_cooler_that_takes_a_band_is_accepted(hass):
+    """A range-only cooler is driven through the upper bound of its band."""
+    await build_devices(hass, GENERIC_HEAT_TRV, RANGED_AC_COOLER)
+    set_room_sensor(hass, 19.0)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _user_step_input(TRV_ID, **{CONF_COOLER: COOLER_ID})
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "advanced", result
+
+
+@pytest.mark.quality_rule("test-before-configure")
+async def test_an_unavailable_climate_is_not_judged_by_its_features(hass, fake_trv):
+    """An unavailable climate reports nothing to judge, as on a boot."""
+    set_room_sensor(hass, 19.0)
+    hass.states.async_set(FAN_ONLY_ID, STATE_UNAVAILABLE, {"supported_features": 0})
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _user_step_input(TRV_ID, **{CONF_COOLER: FAN_ONLY_ID})
     )
 
     assert result["type"] is FlowResultType.FORM, result
