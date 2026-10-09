@@ -1423,6 +1423,35 @@ class TestSeedFromSiblings:
         assert fresh.trv_profile == "unknown"
         assert fresh.solar_gain_est is None
 
+    def test_seeding_skips_a_sibling_key_without_three_parts(self):
+        """A stored key that does not split into three parts seeds nothing."""
+        params = _default_params()
+        malformed = _MpcState(solar_gain_est=0.03)
+        sibling = _MpcState(solar_gain_est=0.02)
+        all_states = {"uidG": malformed, "uidG:climate.trv:t21.0": sibling}
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidG:climate.trv:t22.0", fresh, params, all_states=all_states
+        )
+
+        assert fresh.solar_gain_est == pytest.approx(0.02)
+
+    @pytest.mark.parametrize("key", ["uidH", ":climate.trv:t22.0", "uidH::t22.0"])
+    def test_a_key_without_owner_or_entity_is_not_seeded(self, key):
+        """Without a unique id and an entity there is no sibling to match."""
+        params = _default_params()
+        all_states = {
+            "uidH:climate.trv:t21.0": _MpcState(solar_gain_est=0.02),
+            ":climate.trv:t21.0": _MpcState(solar_gain_est=0.02),
+            "uidH::t21.0": _MpcState(solar_gain_est=0.02),
+        }
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(key, fresh, params, all_states=all_states)
+
+        assert fresh.solar_gain_est is None
+
     def test_seeding_skips_group_keys_for_entity_keys(self):
         """Group-keyed siblings (uid:group:tX.X) must not seed entity-keyed states."""
         params = _default_params()
