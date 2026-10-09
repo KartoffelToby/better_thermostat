@@ -120,6 +120,11 @@ async def _run_tweak(thermostat, registry=None, **found):
         patch.object(
             default_quirk, "find_device_entity", side_effect=_discovering(**found)
         ),
+        patch.object(
+            default_quirk,
+            "find_child_lock_entity",
+            side_effect=lambda _registry, _device_id: found.get("child_lock"),
+        ),
     ):
         await default_quirk.initial_tweak(thermostat, ENTITY_ID)
 

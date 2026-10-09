@@ -270,6 +270,26 @@ def find_device_entity(
     return None
 
 
+_CHILD_LOCK_DOMAINS = ("switch", "lock")
+
+
+def find_child_lock_entity(
+    entity_registry: er.EntityRegistry, device_id: str
+) -> str | None:
+    """Return the entity_id of the device's child lock, if it exposes one.
+
+    Zigbee2MQTT offers the child lock as a switch, other integrations as a
+    lock. An entity named for the child lock wins over any other entity
+    whose name merely contains "lock", wherever the registry lists it, so a
+    device that also exposes a window or valve lock keeps that one
+    untouched. A bare "lock" match is taken only when nothing is named for
+    the child lock.
+    """
+    return find_device_entity(
+        entity_registry, device_id, _CHILD_LOCK_DOMAINS, ["child_lock", "child lock"]
+    ) or find_device_entity(entity_registry, device_id, _CHILD_LOCK_DOMAINS, ["lock"])
+
+
 # Sentinel for "this platform has not been set up in this process yet".
 # ``None`` is a name an entry can genuinely carry, so it cannot say this.
 _NO_RECORDED_NAME: Final = object()
@@ -2284,12 +2304,18 @@ class ValveEntityInfo(TypedDict):
 _VALVE_TRANSLATION_KEYS: dict[str, str] = {
     "valve_position": "valve_position",
     "valve_opening_degree": "valve_opening_degree",
-    "valve_closing_degree": "valve_closing_degree",
     "pi_heating_demand": "pi_heating_demand",
     "heating_demand": "pi_heating_demand",
     # Shelly BLU TRV uses this translation_key
     "valve": "valve_position",
 }
+
+# The closing degree is the share of the valve held shut: the complement of
+# the opening Better Thermostat writes and reads back. Taken as the valve
+# entity it would receive the opening percentage as it stands and report the
+# opposite of what was sent, so it is never one.
+_VALVE_CLOSING_TRANSLATION_KEY = "valve_closing_degree"
+_VALVE_CLOSING_DESCRIPTORS = ("valve_closing_degree", "valve closing degree")
 
 # Device models whose valve-related numbers configure the device's own
 # controller rather than position the valve. The Sonoff TRV-ZBT publishes
@@ -2358,7 +2384,6 @@ async def find_valve_entity(
         return None
     entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
     preferred_domains = {"number", "input_number"}
-    readonly_candidate: ValveEntityInfo | None = None
 
     def _device_matches(candidate: er.RegistryEntry) -> bool:
         # Strong match: same device
@@ -2387,8 +2412,6 @@ async def find_valve_entity(
         # Sonoff TRVZB (and some others) expose explicit valve degree entities
         if "valve_opening_degree" in descriptor:
             return "valve_opening_degree"
-        if "valve_closing_degree" in descriptor:
-            return "valve_closing_degree"
 
         # Existing patterns
         if "pi_heating_demand" in descriptor:
@@ -2408,19 +2431,28 @@ async def find_valve_entity(
             return "position"
         return None
 
+    def _is_closing_degree(entity: er.RegistryEntry) -> bool:
+        if entity.translation_key == _VALVE_CLOSING_TRANSLATION_KEY:
+            return True
+        descriptor = (
+            f"{entity.unique_id or ''} {entity.entity_id or ''} "
+            f"{entity.original_name or ''}"
+        ).lower()
+        return any(marker in descriptor for marker in _VALVE_CLOSING_DESCRIPTORS)
+
     def _score(reason: str, writable: bool, domain: str) -> tuple[int, int, int]:
-        # Higher is better.
+        # Higher is better. A writable entity is a valve channel and a
+        # read-only one only reports, so writability ranks above the name.
         reason_score = {
             "valve_opening_degree": 100,
-            "valve_closing_degree": 95,
             "valve_position": 90,
             "pi_heating_demand": 80,
             "valve_generic": 60,
             "position": 50,
         }.get(reason, 0)
-        writable_score = 10 if writable else 0
+        writable_score = 1 if writable else 0
         domain_score = 1 if domain in preferred_domains else 0
-        return (reason_score, writable_score, domain_score)
+        return (writable_score, reason_score, domain_score)
 
     best: ValveEntityInfo | None = None
     best_score: tuple[int, int, int] = (-1, -1, -1)
@@ -2428,7 +2460,7 @@ async def find_valve_entity(
 
     for entity in entity_entries:
         uid = entity.unique_id or ""
-        if not _device_matches(entity):
+        if not _device_matches(entity) or _is_closing_degree(entity):
             continue
 
         # Prefer translation_key (stable, language-independent) over string matching
@@ -2453,26 +2485,16 @@ async def find_valve_entity(
         if best is None or score > best_score:
             best = info
             best_score = score
-        if not writable and readonly_candidate is None:
-            readonly_candidate = info
 
-    if best is not None and best.get("writable"):
+    if best is not None:
         _LOGGER.debug(
-            "better thermostat: Found writable valve helper %s for %s (reason=%s)",
-            best.get("entity_id"),
+            "better thermostat: Found %s valve helper %s for %s (reason=%s)",
+            "writable" if best["writable"] else "read-only",
+            best["entity_id"],
             entity_id,
-            best.get("reason"),
+            best["reason"],
         )
         return best
-
-    if readonly_candidate is not None:
-        _LOGGER.debug(
-            "better thermostat: Found read-only valve helper %s for %s (reason=%s)",
-            readonly_candidate.get("entity_id"),
-            entity_id,
-            readonly_candidate.get("reason"),
-        )
-        return readonly_candidate
 
     if disabled_match is not None:
         _report_disabled_sibling(
