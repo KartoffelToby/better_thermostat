@@ -1809,6 +1809,39 @@ def cooling_owns_dual_role_report(
     return cooler_send_cache(self).get("hvac_mode_decided") == HVACMode.COOL
 
 
+def cooler_mode_diverges(self: BetterThermostat, state: State | None) -> bool:
+    """Answer whether a cooler reports a mode other than the one BT decided.
+
+    The cooling decision :func:`control_cooler` latched is the mode the cooler
+    should hold. A cooler that holds another one, because it came back from
+    an outage in the mode it had before, or because something other than
+    Better Thermostat switched it, needs a control cycle to be put back.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat, supplying the cooling decision
+            latch
+    state :
+            the cooler's reported state
+
+    Returns
+    -------
+    bool
+            True when the cooler reports a mode and it differs from the
+            latched decision; False while no decision has been taken yet, for
+            a state that says nothing about the device, and for a cooler that
+            carries the heating role as well, whose mode the heating channel
+            reconciles
+    """
+    if self.cooler_entity_id is None or dual_role_entity_id(self) is not None:
+        return False
+    decided = cooler_send_cache(self).get("hvac_mode_decided")
+    if decided is None or state is None or state_says_nothing(state):
+        return False
+    return state.state != decided
+
+
 def state_says_nothing(state: State | None) -> bool:
     """Answer whether a state carries no statement about its own device.
 

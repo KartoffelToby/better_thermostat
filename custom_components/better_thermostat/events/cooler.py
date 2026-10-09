@@ -14,6 +14,7 @@ from homeassistant.core import State
 
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
+    cooler_mode_diverges,
     device_setpoint_step,
     dual_role_entity_id,
     last_sent_cooler_temperature,
@@ -253,6 +254,21 @@ async def trigger_cooler_change(
                 _last_sent,
                 _step,
             )
+
+    # No control cycle reaches a cooler while it is away, so one that comes
+    # back may hold a mode or a setpoint the cycles since then would have
+    # changed. A cooler that starts running in a mode the cooling channel did
+    # not decide on, through its own remote or another integration, is put
+    # back by a cycle as well: nothing else in the room has to move for that
+    # to happen, and the unit may be cooling into an open window. A cooler
+    # that stops while the channel wants it cooling is left to the next cycle
+    # the room asks for or to the reconciler, so switching the unit off by
+    # hand is not undone the moment the report arrives.
+    if state_says_nothing(old_state) or (
+        new_state.state not in (old_state.state, HVACMode.OFF)
+        and cooler_mode_diverges(self, new_state)
+    ):
+        _main_change = True
 
     if _main_change is True:
         self.async_write_ha_state()

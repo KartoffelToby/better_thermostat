@@ -78,7 +78,10 @@ intent against what the devices report:
   entity, once the device confirmed the last write (in-flight writes
   remain the write path's business),
 - **valve** — the commanded percentage against the adapter-written
-  number entity, with a 5-point tolerance for device-side modulation.
+  number entity, with a 5-point tolerance for device-side modulation,
+- **cooler mode** — the mode a cooler of its own reports against the
+  COOL or OFF the cooling channel last decided. A cooler that also
+  carries the heating role is compared as a TRV instead.
 
 On divergence the reconciler queues one ordinary control cycle, the
 general healing mechanism that replaces per-case keepalives. The
