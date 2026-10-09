@@ -6,7 +6,6 @@ from collections.abc import Iterable, Mapping
 import logging
 from typing import TYPE_CHECKING, override
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import (
     Event,
@@ -33,6 +32,7 @@ from .utils.const import DOMAIN
 from .utils.watcher import is_trv_available
 
 if TYPE_CHECKING:
+    from . import BetterThermostatConfigEntry
     from .climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ def announce_learned_state(hass: HomeAssistant, bt_unique_id: str) -> None:
 
 def remove_unclaimed_registry_entries(
     registry: EntityRegistry,
-    entry: ConfigEntry,
+    entry: BetterThermostatConfigEntry,
     domain: str,
     live_unique_ids: Iterable[str | None],
     bt_climate: BetterThermostat,
