@@ -81,7 +81,8 @@ class TestEveryModuleAnswersToTheProtocols:
     @pytest.mark.parametrize("model", MODEL_IDS)
     def test_the_required_surface_is_provided(self, model):
         """The dispatch calls these without asking first."""
-        assert isinstance(_module(model), ModelQuirks)
+        module: object = _module(model)
+        assert isinstance(module, ModelQuirks)
 
     @pytest.mark.parametrize("model", MODEL_IDS)
     def test_the_surface_class_lists_every_member_the_module_offers(self, model):
@@ -127,7 +128,7 @@ def _host():
 def _partial_module():
     """A module that imports but carries only part of the required surface."""
     module = ModuleType("partial_quirk")
-    module.fix_local_calibration = default_quirk.fix_local_calibration
+    vars(module)["fix_local_calibration"] = default_quirk.fix_local_calibration
     return module
 
 

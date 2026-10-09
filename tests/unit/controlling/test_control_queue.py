@@ -55,7 +55,7 @@ def _idle_room() -> ThermostatStandIn:
     bt.startup_running = False
     bt.calculate_heating_power = AsyncMock()
     bt.cooler_entity_id = None
-    bt.real_trvs = {}
+    bt.real_trvs = dict[str, Trv]()
     return bt
 
 
@@ -64,7 +64,7 @@ class _HeldPolls:
 
     def __init__(self) -> None:
         self.count = 0
-        self._patch = None
+        self._patches = contextlib.ExitStack()
 
     def __enter__(self) -> _HeldPolls:
         inner = asyncio.sleep
@@ -74,15 +74,14 @@ class _HeldPolls:
                 self.count += 1
             return await inner(delay, result)
 
-        self._patch = patch("asyncio.sleep", new=counting)
-        self._patch.start()
+        self._patches.enter_context(patch("asyncio.sleep", new=counting))
         return self
 
     def __exit__(self, *exc_info) -> None:
-        self._patch.stop()
+        self._patches.close()
 
 
-async def _stop(task: asyncio.Task) -> None:
+async def _stop(task: asyncio.Task[None]) -> None:
     """Cancel the queue consumer and wait until it has unwound."""
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
@@ -370,7 +369,7 @@ class TestControlQueue:
         mock_self.startup_running = False
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.cooler_entity_id = None
-        mock_self.real_trvs = {}
+        mock_self.real_trvs = dict[str, Trv]()
 
         queue = asyncio.Queue()
         mock_self.control_queue_task = queue
@@ -411,7 +410,7 @@ class TestControlQueue:
         mock_self.startup_running = False
         mock_self.calculate_heating_power = never_finishes
         mock_self.cooler_entity_id = None
-        mock_self.real_trvs = {}
+        mock_self.real_trvs = dict[str, Trv]()
 
         queue = asyncio.Queue()
         mock_self.control_queue_task = queue
