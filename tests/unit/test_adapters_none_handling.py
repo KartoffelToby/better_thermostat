@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from custom_components.better_thermostat.adapters import generic, mqtt, shelly, zwave_js
+from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.trv import Trv
 from tests.factories import ThermostatStandIn
 
@@ -87,17 +88,17 @@ class TestDeconzAdapter:
     """Tests for deCONZ adapter None handling."""
 
     async def test_get_info_returns_false_when_state_is_none(self, mock_bt_instance):
-        """Test that get_info returns support_offset=False when state is None."""
+        """Test that get_info reports offset_write=False when state is None."""
         from custom_components.better_thermostat.adapters.deconz import get_info
 
         mock_bt_instance.hass.states.get.return_value = None
 
         result = await get_info(mock_bt_instance, "climate.missing_entity")
 
-        assert result == {"support_offset": False, "support_valve": False}
+        assert result == DeviceChannels(offset_write=False, valve_write=False)
 
     async def test_get_info_returns_true_when_offset_exists(self, mock_bt_instance):
-        """Test that get_info returns support_offset=True when offset attribute exists."""
+        """Test that get_info reports offset_write=True when offset attribute exists."""
         from custom_components.better_thermostat.adapters.deconz import get_info
 
         mock_state = MagicMock()
@@ -106,7 +107,7 @@ class TestDeconzAdapter:
 
         result = await get_info(mock_bt_instance, "climate.test_trv")
 
-        assert result == {"support_offset": True, "support_valve": False}
+        assert result == DeviceChannels(offset_write=True, valve_write=False)
 
 
 class TestBoundsOfAnEntityThatDeclaresNone:

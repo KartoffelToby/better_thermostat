@@ -12,13 +12,14 @@ running, and Better Thermostat has not been tried against it.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 
 from homeassistant.helpers import entity_registry as er
 
 from ..utils.const import CalibrationOutput
 from ..utils.helpers import configured_calibration_output, find_valve_entity
-from .base import AdapterCapabilities
+from .base import AdapterCapabilities, DeviceChannels
 from .generic import (
     discover_calibration_entity,
     get_calibration_offset,
@@ -79,14 +80,14 @@ def _is_blu_trv_entity(self: AdapterProbeHost, entity_id: str) -> bool:
     return _BLU_TRV_KEY in (entry.unique_id or "").lower()
 
 
-async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
+async def get_info(self: AdapterProbeHost, entity_id: str) -> DeviceChannels:
     """Report offset and valve capabilities of the TRV.
 
     The offset follows the generic adapter. The valve is offered once the
     TRV publishes a writable BLU TRV valve number, which the Shelly
     integration only does while the TRV's own thermostat is switched off.
     """
-    info = await generic_get_info(self, entity_id)
+    channels = await generic_get_info(self, entity_id)
     valve = await find_valve_entity(self, entity_id)
     valve_entity = valve.get("entity_id") if valve is not None else None
     support_valve = bool(
@@ -95,7 +96,7 @@ async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
         and valve.get("writable", False)
         and _is_blu_trv_entity(self, valve_entity)
     )
-    return info | {"support_valve": support_valve}
+    return replace(channels, valve_write=support_valve)
 
 
 async def init(self: AdapterHost, entity_id: str) -> None:

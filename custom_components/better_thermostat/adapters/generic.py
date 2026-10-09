@@ -21,7 +21,11 @@ from ..utils.helpers import (
     supports_single_target_temperature,
     supports_temperature_range,
 )
-from .base import AdapterCapabilities, wait_for_calibration_entity_or_timeout
+from .base import (
+    AdapterCapabilities,
+    DeviceChannels,
+    wait_for_calibration_entity_or_timeout,
+)
 from .delegate import set_hvac_mode as delegate_set_hvac_mode
 from .types import AdapterHost, AdapterProbeHost
 
@@ -67,14 +71,14 @@ def _option_to_offset(option: str) -> float | None:
         return None
 
 
-async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
+async def get_info(self: AdapterProbeHost, entity_id: str) -> DeviceChannels:
     """Get info from TRV."""
     support_offset = False
 
     calibration_entity_id = await find_local_calibration_entity(self, entity_id)
     if calibration_entity_id is not None:
         support_offset = True
-    return {"support_offset": support_offset, "support_valve": False}
+    return DeviceChannels(offset_write=support_offset, valve_write=False)
 
 
 async def discover_calibration_entity(self: AdapterHost, entity_id: str) -> None:

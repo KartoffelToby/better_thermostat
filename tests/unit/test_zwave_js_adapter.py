@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.core import State
 import pytest
 
+from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationOutput
 from tests.factories import ThermostatStandIn
@@ -174,7 +175,7 @@ class TestAdapterGetInfo:
             patch.object(adapter, "find_valve_entity", AsyncMock(return_value=None)),
         ):
             info = await adapter.get_info(mock_self, "climate.trv1")
-        assert info == {"support_offset": False, "support_valve": False}
+        assert info == DeviceChannels(offset_write=False, valve_write=False)
 
     @pytest.mark.asyncio
     async def test_readonly_valve_is_not_supported(self):
@@ -193,7 +194,7 @@ class TestAdapterGetInfo:
             ),
         ):
             info = await adapter.get_info(mock_self, "climate.trv1")
-        assert info["support_valve"] is False
+        assert info.valve_write is False
 
     @pytest.mark.asyncio
     async def test_quirk_model_reports_valve_without_number_entity(self):
@@ -207,7 +208,7 @@ class TestAdapterGetInfo:
             patch.object(adapter, "get_device_model", AsyncMock(return_value="ZWA021")),
         ):
             info = await adapter.get_info(mock_self, "climate.trv1")
-        assert info["support_valve"] is True
+        assert info.valve_write is True
 
     @pytest.mark.asyncio
     async def test_other_model_without_valve_stays_unsupported(self):
@@ -223,7 +224,7 @@ class TestAdapterGetInfo:
             ),
         ):
             info = await adapter.get_info(mock_self, "climate.trv1")
-        assert info["support_valve"] is False
+        assert info.valve_write is False
 
     @pytest.mark.asyncio
     async def test_writable_valve_and_offset_supported(self):
@@ -244,7 +245,7 @@ class TestAdapterGetInfo:
             ),
         ):
             info = await adapter.get_info(mock_self, "climate.trv1")
-        assert info == {"support_offset": True, "support_valve": True}
+        assert info == DeviceChannels(offset_write=True, valve_write=True)
 
 
 class TestAdapterSetValve:
@@ -338,7 +339,7 @@ class TestTheSpiritIsDrivenByTheZWA021Quirk:
         ):
             info = await adapter.get_info(mock_self, "climate.trv1")
 
-        assert info["support_valve"] is True
+        assert info.valve_write is True
 
 
 class TestTheZTrvV01IsDrivenByTheZWA021Quirk:
@@ -383,7 +384,7 @@ class TestTheZTrvV01IsDrivenByTheZWA021Quirk:
         ):
             info = await adapter.get_info(mock_self, "climate.trv1")
 
-        assert info["support_valve"] is True
+        assert info.valve_write is True
 
 
 class TestAnUnknownStateFromADrivenSpirit:

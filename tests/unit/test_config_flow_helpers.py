@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 from homeassistant.const import CONF_NAME
 import pytest
 
+from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.config_flow import (
     _USER_FIELD_DEFAULTS,
     OptionsFlowHandler,
@@ -40,6 +41,7 @@ from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
     TARGET_TEMP_BOUND_AUTO,
     CalibrationMode,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.helpers import (
     configured_calibration_mode,
@@ -90,7 +92,7 @@ def test_a_delay_is_stored_as_whole_seconds_never_below_zero(duration, seconds):
 def _offered_calibration_mode(stored):
     fields = _build_advanced_fields(
         sources=[stored],
-        default_calibration="target_temp_based",
+        default_calibration=CalibrationOutput.TARGET_TEMP_BASED,
         homematic=False,
         has_auto=False,
     )
@@ -141,7 +143,7 @@ async def test_a_thermostat_without_an_integration_reports_no_channels():
     with patch(f"{_MODULE}._quirk_valve_support", AsyncMock(return_value=False)):
         adapter, info = await _load_adapter_info(None, None, "climate.trv")
 
-    assert (adapter, info) == (None, {})
+    assert (adapter, info) == (None, DeviceChannels())
 
 
 async def test_an_adapter_that_cannot_be_loaded_reports_no_channels():
@@ -153,7 +155,7 @@ async def test_an_adapter_that_cannot_be_loaded_reports_no_channels():
     ):
         adapter, info = await _load_adapter_info(None, "mqtt", "climate.trv")
 
-    assert (adapter, info) == (None, {})
+    assert (adapter, info) == (None, DeviceChannels())
 
 
 async def test_an_adapter_without_capabilities_reports_no_channels():
@@ -163,7 +165,7 @@ async def test_an_adapter_without_capabilities_reports_no_channels():
             None, "mqtt", "climate.trv", existing_adapter=adapter
         )
 
-    assert (loaded, info) == (adapter, {})
+    assert (loaded, info) == (adapter, DeviceChannels())
 
 
 async def test_an_adapter_whose_capability_query_fails_reports_no_channels():
@@ -176,7 +178,7 @@ async def test_an_adapter_whose_capability_query_fails_reports_no_channels():
             None, "mqtt", "climate.trv", existing_adapter=_FailingAdapter()
         )
 
-    assert info == {}
+    assert info == DeviceChannels()
 
 
 def _default_of(fields, key):
@@ -346,7 +348,7 @@ def test_a_range_bound_that_is_not_a_number_raises_no_range_error():
 def test_a_choice_that_is_not_a_scalar_takes_its_default():
     advanced = _normalize_advanced_submission(
         {"calibration": ["local_calibration_based"], "calibration_mode": None},
-        default_calibration="target_temp_based",
+        default_calibration=CalibrationOutput.TARGET_TEMP_BASED,
         homematic=False,
         has_auto=False,
     )

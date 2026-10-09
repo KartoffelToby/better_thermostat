@@ -109,23 +109,23 @@ async def _valve_found(host, _registry, candidate):
 
 
 async def _generic_offers_offset(host, _registry, _candidate):
-    return (await generic.get_info(host, TRV_ID))["support_offset"]
+    return (await generic.get_info(host, TRV_ID)).offset_write
 
 
 async def _mqtt_offers_offset(host, _registry, _candidate):
-    return (await mqtt.get_info(host, TRV_ID))["support_offset"]
+    return (await mqtt.get_info(host, TRV_ID)).offset_write
 
 
 async def _mqtt_offers_valve(host, _registry, _candidate):
-    return (await mqtt.get_info(host, TRV_ID))["support_valve"]
+    return (await mqtt.get_info(host, TRV_ID)).valve_write
 
 
 async def _zwave_offers_offset(host, _registry, _candidate):
-    return (await zwave_js.get_info(host, TRV_ID))["support_offset"]
+    return (await zwave_js.get_info(host, TRV_ID)).offset_write
 
 
 async def _zwave_offers_valve(host, _registry, _candidate):
-    return (await zwave_js.get_info(host, TRV_ID))["support_valve"]
+    return (await zwave_js.get_info(host, TRV_ID)).valve_write
 
 
 async def _valve_discovered(host, _registry, candidate):

@@ -70,7 +70,7 @@ class TestValveCapability:
         with _registry_patch(_registry()):
             info = await shelly.get_info(_thermostat(), ENTITY_ID)
 
-        assert info["support_valve"] is True
+        assert info.valve_write is True
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -87,7 +87,7 @@ class TestValveCapability:
         with _registry_patch(_registry(valve_uid, valve_entity)):
             info = await shelly.get_info(_thermostat(), ENTITY_ID)
 
-        assert info["support_valve"] is False
+        assert info.valve_write is False
 
     @pytest.mark.asyncio
     async def test_init_adopts_a_blu_trv_valve(self):

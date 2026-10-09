@@ -310,10 +310,12 @@ def test_selector_catalog_covers_every_option():
 
 def _published_form_fields() -> dict[tuple[str, str], set[str]]:
     """Return the field keys each flow step shows, keyed by catalog section."""
+    from custom_components.better_thermostat.adapters.base import DeviceChannels
     from custom_components.better_thermostat.config_flow import (
         _build_advanced_fields,
         _build_user_fields,
     )
+    from custom_components.better_thermostat.utils.const import CalibrationOutput
 
     def keys(fields) -> set[str]:
         return {str(marker.schema) for marker in fields}
@@ -321,11 +323,10 @@ def _published_form_fields() -> dict[tuple[str, str], set[str]]:
     advanced = keys(
         _build_advanced_fields(
             sources=({},),
-            default_calibration="target_temp_based",
+            default_calibration=CalibrationOutput.TARGET_TEMP_BASED,
             homematic=True,
             has_auto=True,
-            support_valve=True,
-            support_offset=True,
+            channels=DeviceChannels(offset_write=True, valve_write=True),
         )
     )
     return {

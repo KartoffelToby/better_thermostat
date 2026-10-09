@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.core import State
 import pytest
 
+from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.adapters.mqtt import (
     get_info,
     init,
@@ -256,17 +257,16 @@ class TestTheReportedSurface:
     @pytest.mark.asyncio
     async def test_a_device_without_either_entity_offers_no_channel(self):
         """Nothing discovered means nothing to offer."""
-        assert await _reported_surface(None, None) == {
-            "support_offset": False,
-            "support_valve": False,
-        }
+        assert await _reported_surface(None, None) == DeviceChannels(
+            offset_write=False, valve_write=False
+        )
 
     @pytest.mark.asyncio
     async def test_a_calibration_entity_enables_the_offset_channel(self):
         """A discovered calibration entity is the offset channel."""
         surface = await _reported_surface("number.trv_calibration", None)
 
-        assert surface == {"support_offset": True, "support_valve": False}
+        assert surface == DeviceChannels(offset_write=True, valve_write=False)
 
     @pytest.mark.asyncio
     async def test_a_writable_valve_entity_enables_the_valve_channel(self):
@@ -275,7 +275,7 @@ class TestTheReportedSurface:
 
         surface = await _reported_surface(None, valve)
 
-        assert surface == {"support_offset": False, "support_valve": True}
+        assert surface == DeviceChannels(offset_write=False, valve_write=True)
 
     @pytest.mark.asyncio
     async def test_a_read_only_valve_entity_offers_no_valve_channel(self):
@@ -284,11 +284,11 @@ class TestTheReportedSurface:
 
         surface = await _reported_surface(None, valve)
 
-        assert surface["support_valve"] is False
+        assert surface.valve_write is False
 
     @pytest.mark.asyncio
     async def test_a_valve_result_without_an_entity_offers_no_channel(self):
         """A discovery result naming no entity addresses nothing."""
         surface = await _reported_surface(None, {"entity_id": "", "writable": True})
 
-        assert surface["support_valve"] is False
+        assert surface.valve_write is False
