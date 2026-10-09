@@ -146,7 +146,7 @@ def run_multi_trv_scenario(
     equiv = _equivalent_single_plant(plant_params)
     time_scale = _plant_time_scale(equiv)
     duration_s = max(
-        scenario.duration_min * 60.0, scenario.duration_min * 60.0 * time_scale
+        scenario.duration_minutes * 60.0, scenario.duration_minutes * 60.0 * time_scale
     )
     facade = _MultiTrvFacade(plant)
     # The multi-TRV driver never fires the restart protocol

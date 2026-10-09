@@ -157,7 +157,7 @@ async def _settle_device_at(hass, fahrenheit: float) -> None:
         assert await wait_for(
             hass,
             lambda: _device_setpoint(hass) == pytest.approx(fahrenheit),
-            timeout_s=2.0,
+            timeout_seconds=2.0,
         ), _device_setpoint(hass)
 
 
@@ -231,7 +231,9 @@ async def test_setpoint_reaches_the_device_in_the_system_unit(
     with patch(WRITE_BUDGET, 0.0):
         await _set_target(hass, requested)
         assert await wait_for(
-            hass, lambda: len(setpoint_commands(dispatched, TRV_ID)) > 0, timeout_s=2.0
+            hass,
+            lambda: len(setpoint_commands(dispatched, TRV_ID)) > 0,
+            timeout_seconds=2.0,
         )
 
     written = setpoint_commands(dispatched, TRV_ID)[-1][ATTR_TEMPERATURE]
@@ -286,7 +288,9 @@ async def test_a_target_at_the_edge_of_the_range_reaches_the_device(
         baseline = len(fake_trv.set_temperature_calls)
         await _set_target(hass, offered)
         assert await wait_for(
-            hass, lambda: len(fake_trv.set_temperature_calls) > baseline, timeout_s=2.0
+            hass,
+            lambda: len(fake_trv.set_temperature_calls) > baseline,
+            timeout_seconds=2.0,
         ), f"no setpoint at {offered} °F reached the device"
 
     # In the device's own unit: within one published degree of its bound.
@@ -337,7 +341,9 @@ async def test_a_device_without_an_off_mode_is_parked_at_its_minimum(hass, fake_
             blocking=True,
         )
         assert await wait_for(
-            hass, lambda: len(fake_trv.set_temperature_calls) > baseline, timeout_s=2.0
+            hass,
+            lambda: len(fake_trv.set_temperature_calls) > baseline,
+            timeout_seconds=2.0,
         ), "no setpoint reached the device"
 
     received = fake_trv.set_temperature_calls[-1]
@@ -367,7 +373,7 @@ CELSIUS_TRV_WITHOUT_OFF_ON_FAHRENHEIT = replace(
     name="celsius_trv_without_off_on_fahrenheit",
     hvac_modes=(HVACMode.HEAT,),
     system_unit=UnitOfTemperature.FAHRENHEIT,
-    configured_target_temp_step="0.0",
+    configured_target_temperature_step="0.0",
 )
 """A Celsius head without an off mode, published in whole degrees Fahrenheit."""
 
@@ -397,7 +403,9 @@ async def test_a_device_parked_at_its_minimum_keeps_the_room_off(hass, fake_trv)
         {ATTR_ENTITY_ID: BT_ENTITY, "hvac_mode": HVACMode.OFF},
         blocking=True,
     )
-    assert await wait_for(hass, lambda: _device_setpoint(hass) < 68.0, timeout_s=2.0)
+    assert await wait_for(
+        hass, lambda: _device_setpoint(hass) < 68.0, timeout_seconds=2.0
+    )
     trv = bt.real_trvs[TRV_ID]
     assert await wait_for(
         hass, lambda: trv.target_temperature_received and not bt.ignore_states
@@ -441,7 +449,9 @@ async def test_a_device_turned_down_to_its_own_minimum_switches_the_room_off(
     fake_trv.async_set_context(Context())
     fake_trv.async_write_ha_state()
 
-    assert await wait_for(hass, lambda: bt.bt_hvac_mode == HVACMode.OFF, timeout_s=2.0)
+    assert await wait_for(
+        hass, lambda: bt.bt_hvac_mode == HVACMode.OFF, timeout_seconds=2.0
+    )
 
 
 # -- valve maintenance --------------------------------------------------------
@@ -535,7 +545,7 @@ async def test_a_preset_temperature_set_in_fahrenheit_reaches_the_device(hass):
                 value == pytest.approx(72.0)
                 for value in fake_trv.set_temperature_calls[baseline:]
             ),
-            timeout_s=2.0,
+            timeout_seconds=2.0,
         ), fake_trv.set_temperature_calls[baseline:]
 
     assert float(hass.states.get("number.bt_test_eco").state) == pytest.approx(72.0)
@@ -788,7 +798,7 @@ async def test_a_preset_number_steps_in_the_system_unit(hass):
     publishes its step as the number gives it, so the number gives the step
     the thermostat publishes: 0.5 °C as 0.9 °F.
     """
-    profile = replace(FAHRENHEIT_TRV, configured_target_temp_step="0.5")
+    profile = replace(FAHRENHEIT_TRV, configured_target_temperature_step="0.5")
     (fake_trv,) = await build_devices(hass, profile)
     _publish_room_at_device_reading(hass, profile)
     data = dict(make_entry(profile).data) | {"presets": ["eco"]}

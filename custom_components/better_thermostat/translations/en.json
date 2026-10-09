@@ -84,7 +84,11 @@
       "no_off_mode": "Your device is special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
       "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead.",
       "target_temp_min_above_max": "The target minimum temperature must not exceed the target maximum temperature.",
-      "trv_not_found": "Home Assistant does not know {trv}. Select a thermostat that exists."
+      "trv_not_found": "Home Assistant does not know {trv}. Select a thermostat that exists.",
+      "trv_is_better_thermostat": "{trv} is a Better Thermostat. Select a real thermostat instead.",
+      "trv_no_target_temperature": "{trv} does not accept a target temperature. Select a thermostat that does.",
+      "cooler_is_better_thermostat": "{cooler} is a Better Thermostat. Select a real cooling device instead.",
+      "cooler_no_target_temperature": "{cooler} does not accept a target temperature. Select a cooling device that does."
     },
     "abort": {
       "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
@@ -171,7 +175,11 @@
       "target_temp_min_above_max": "The target minimum temperature must not exceed the target maximum temperature.",
       "no_sensor": "Please select a room temperature sensor.",
       "trv_in_use": "{trv} is already controlled by the Better Thermostat {entry}. A thermostat can belong to one Better Thermostat only.",
-      "trv_not_found": "Home Assistant does not know {trv}. Select a thermostat that exists."
+      "trv_not_found": "Home Assistant does not know {trv}. Select a thermostat that exists.",
+      "trv_is_better_thermostat": "{trv} is a Better Thermostat. Select a real thermostat instead.",
+      "trv_no_target_temperature": "{trv} does not accept a target temperature. Select a thermostat that does.",
+      "cooler_is_better_thermostat": "{cooler} is a Better Thermostat. Select a real cooling device instead.",
+      "cooler_no_target_temperature": "{cooler} does not accept a target temperature. Select a cooling device that does."
     }
   },
   "issues": {

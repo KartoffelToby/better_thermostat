@@ -253,7 +253,7 @@ class TestCurveBinLabel:
         label = _curve_bin_label(3.7, 2.5)
         assert "p" in label
 
-    def test_bin_pct_below_one_clamped_to_one(self):
+    def test_bin_percent_below_one_clamped_to_one(self):
         """Test that bin_percent below 1.0 is clamped to 1.0."""
         label = _curve_bin_label(50.0, 0.5)
         # bin_percent should be clamped to 1.0
@@ -394,13 +394,13 @@ class TestComputeMpcBasic:
         result = _compute(_inp(heating_allowed=False), _default_params())
         assert result.valve_percent == 0
 
-    def test_missing_target_temp(self):
+    def test_missing_target_temperature(self):
         """Test that None target temperature produces 0% valve."""
         result = _compute(_inp(target_temperature=None), _default_params())
         assert result is not None
         assert result.valve_percent == 0
 
-    def test_missing_current_temp(self):
+    def test_missing_current_temperature(self):
         """Test that None current temperature does not crash."""
         result = _compute(_inp(room_temperature=None), _default_params())
         assert result is not None
@@ -453,7 +453,7 @@ class TestComputeMpcBasic:
                 f"{temps[i - 1]}°C ({results[i - 1]}%)"
             )
 
-    def test_filtered_temp_reduces_valve_demand(self):
+    def test_filtered_temperature_reduces_valve_demand(self):
         """room_temperature_filtered closer to target should lower the cost-optimized valve."""
         params = _default_params(mpc_adapt=False)
         raw = _compute(_inp(key="filt_raw", room_temperature=20.5), params)
@@ -737,7 +737,7 @@ class TestAdaptiveLearning:
         _compute(_inp(key="loss_ow", room_temperature=20.0), params)
         assert state.loss_est == pytest.approx(loss_before)
 
-    def test_ka_est_initialized_with_outdoor_temp(self):
+    def test_ka_est_initialized_with_outdoor_temperature(self):
         """ka_est should be calculated when outdoor_temp is provided."""
         params = _default_params(mpc_adapt=True, mpc_loss_coeff=0.01)
         _compute(_inp(key="ka", room_temperature=20.0, outdoor_temperature=5.0), params)
@@ -786,14 +786,14 @@ class TestAdaptiveLearning:
 class TestVirtualTemperature:
     """Tests for virtual temperature forward prediction and sync."""
 
-    def test_virtual_temp_initialized_from_sensor(self):
+    def test_virtual_temperature_initialized_from_sensor(self):
         """Test that virtual_temperature starts at the sensor reading."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vinit", room_temperature=20.5), params)
         state = _STATES["vinit"]
         assert state.virtual_temperature == pytest.approx(20.5)
 
-    def test_virtual_temp_corrects_large_drift(self):
+    def test_virtual_temperature_corrects_large_drift(self):
         """Kalman filter should correct virtual_temperature when it drifts far from sensor."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vreset", room_temperature=20.0), params)
@@ -810,7 +810,7 @@ class TestVirtualTemperature:
         # Kalman should correct most of the 1K drift
         assert abs(state.virtual_temperature - 20.0) < 0.5
 
-    def test_virtual_temp_stays_close_to_sensor(self):
+    def test_virtual_temperature_stays_close_to_sensor(self):
         """Kalman update should keep virtual_temperature close to sensor value."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vclamp", room_temperature=20.0), params)
@@ -823,7 +823,7 @@ class TestVirtualTemperature:
         # After Kalman update, virtual_temperature should be closer to sensor
         assert abs(state.virtual_temperature - 20.0) < 0.3
 
-    def test_virtual_temp_not_synced_when_sensor_unchanged(self):
+    def test_virtual_temperature_not_synced_when_sensor_unchanged(self):
         """Sync should be skipped when sensor value hasn't changed."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vsame", room_temperature=20.0), params)
@@ -834,7 +834,7 @@ class TestVirtualTemperature:
         _compute(_inp(key="vsame", room_temperature=20.0), params)
         assert state.virtual_temperature is not None
 
-    def test_virtual_temp_used_for_delta_t(self):
+    def test_virtual_temperature_used_for_delta_t(self):
         """When virtual temperature is enabled, delta_kelvin should use virtual temperature, not sensor."""
         params = _default_params(use_virtual_temperature=True)
         _compute(
@@ -844,7 +844,7 @@ class TestVirtualTemperature:
         # Virtual temperature should be close to sensor on first call
         assert state.virtual_temperature is not None
 
-    def test_window_open_clears_virtual_temp(self):
+    def test_window_open_clears_virtual_temperature(self):
         """Test that window_open resets virtual_temperature to None."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vwin", room_temperature=20.0), params)
@@ -1181,7 +1181,7 @@ class TestPerfCurveSampling:
 class TestForcedCalibration:
     """Tests for forced loss calibration (random valve-off episodes)."""
 
-    def test_calibration_ends_when_temp_drops_below_threshold(self):
+    def test_calibration_ends_when_temperature_drops_below_threshold(self):
         """Active calibration should end when temperature < target - hysteresis."""
         params = _default_params()
         _compute(
@@ -1620,7 +1620,7 @@ class TestEdgeCases:
             assert result is not None
             assert 0 <= result.valve_percent <= 100
 
-    def test_outdoor_temp_affects_loss_calculation(self):
+    def test_outdoor_temperature_affects_loss_calculation(self):
         """With outdoor temperature and ka_est, loss should be dynamic."""
         params = _default_params(mpc_adapt=True)
         # Cold outside -> higher loss
@@ -2401,7 +2401,7 @@ class TestDequeEviction:
 class TestStaleStateAnchorReset:
     """Test that stale state detection also resets learning anchors properly."""
 
-    def test_stale_resets_learn_time_and_temp(self):
+    def test_stale_resets_learn_time_and_temperature(self):
         """Stale detection should reset learn_time and learn_temp, not just u_integral."""
         params = _default_params(mpc_adapt=True)
         _compute(_inp(key="stale_full", room_temperature=20.0), params)

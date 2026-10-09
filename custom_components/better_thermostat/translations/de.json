@@ -84,7 +84,11 @@
       "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
       "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
       "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
-      "trv_not_found": "Home Assistant kennt {trv} nicht. Bitte wähle ein Thermostat, das es gibt."
+      "trv_not_found": "Home Assistant kennt {trv} nicht. Bitte wähle ein Thermostat, das es gibt.",
+      "trv_is_better_thermostat": "{trv} ist ein Better Thermostat. Bitte wähle stattdessen ein reales Thermostat.",
+      "trv_no_target_temperature": "{trv} nimmt keine Zieltemperatur an. Bitte wähle ein Thermostat, das eine annimmt.",
+      "cooler_is_better_thermostat": "{cooler} ist ein Better Thermostat. Bitte wähle stattdessen ein reales Kühlgerät.",
+      "cooler_no_target_temperature": "{cooler} nimmt keine Zieltemperatur an. Bitte wähle ein Kühlgerät, das eine annimmt."
     },
     "abort": {
       "single_instance_allowed": "Es ist nur ein einzelnes BT je realem Thermostat erlaubt.",
@@ -171,7 +175,11 @@
       "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
       "no_sensor": "Bitte einen Raumtemperatursensor auswählen.",
       "trv_in_use": "{trv} wird bereits vom Better Thermostat {entry} gesteuert. Ein Thermostat kann nur zu einem Better Thermostat gehören.",
-      "trv_not_found": "Home Assistant kennt {trv} nicht. Bitte wähle ein Thermostat, das es gibt."
+      "trv_not_found": "Home Assistant kennt {trv} nicht. Bitte wähle ein Thermostat, das es gibt.",
+      "trv_is_better_thermostat": "{trv} ist ein Better Thermostat. Bitte wähle stattdessen ein reales Thermostat.",
+      "trv_no_target_temperature": "{trv} nimmt keine Zieltemperatur an. Bitte wähle ein Thermostat, das eine annimmt.",
+      "cooler_is_better_thermostat": "{cooler} ist ein Better Thermostat. Bitte wähle stattdessen ein reales Kühlgerät.",
+      "cooler_no_target_temperature": "{cooler} nimmt keine Zieltemperatur an. Bitte wähle ein Kühlgerät, das eine annimmt."
     }
   },
   "issues": {
