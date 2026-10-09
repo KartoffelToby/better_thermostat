@@ -206,12 +206,6 @@ class BetterThermostatPresetNumber(FollowsThermostat, NumberEntity, RestoreEntit
     """Representation of a Better Thermostat Preset Temperature Number."""
 
     _attr_has_entity_name = True
-    # NumberEntity declares _attr_device_class as NumberDeviceClass | None while
-    # the Entity base reached through FollowsThermostat and RestoreEntity
-    # declares str | None. pyrefly reports that clash between Home Assistant's
-    # own bases as bad-override-mutable-attribute on this assignment, and
-    # pyproject.toml exempts number.py from that rule.
-    _attr_device_class = NumberDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_mode = NumberMode.BOX
     _attr_entity_category = EntityCategory.CONFIG
@@ -225,6 +219,16 @@ class BetterThermostatPresetNumber(FollowsThermostat, NumberEntity, RestoreEntit
             self._attr_translation_key = _PRESET_MIN_TRANSLATION_KEYS[preset_mode]
         else:
             self._attr_translation_key = _PRESET_TRANSLATION_KEYS[preset_mode]
+
+    # NumberEntity types _attr_device_class as NumberDeviceClass | None and the
+    # Entity base reached through FollowsThermostat and RestoreEntity as
+    # str | None, so no assignment to it satisfies both; the property is
+    # declared by NumberEntity alone.
+    @property
+    @override
+    def device_class(self) -> NumberDeviceClass:
+        """Return the temperature device class."""
+        return NumberDeviceClass.TEMPERATURE
 
     # The range is the thermostat's heating channel and the step is the
     # thermostat's. Its startup resolves them from the device, which on a boot

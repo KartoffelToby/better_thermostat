@@ -28,14 +28,7 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 # The (file, rule) exemptions the list holds. Remove a pair once its file is
 # annotated; adding one is the only way the backlog grows, and says so here.
-RECORDED_EXEMPTIONS = frozenset(
-    {
-        (
-            "custom_components/better_thermostat/number.py",
-            "bad-override-mutable-attribute",
-        )
-    }
-)
+RECORDED_EXEMPTIONS: frozenset[tuple[str, str]] = frozenset()
 
 GLOB_CHARACTERS = "*?["
 
@@ -121,13 +114,12 @@ def test_the_backlog_is_the_one_it_records():
     )
 
 
-def test_a_swapped_exemption_does_not_match_the_record():
-    swapped = [
+def test_an_unrecorded_exemption_does_not_match_the_record():
+    added = [
         {
             "matches": "custom_components/better_thermostat/sensor.py",
             "errors": {"bad-override-mutable-attribute": False},
         }
     ]
 
-    assert len(_pairs(swapped)) == len(RECORDED_EXEMPTIONS)
-    assert _pairs(swapped) != RECORDED_EXEMPTIONS
+    assert _pairs(added) != RECORDED_EXEMPTIONS

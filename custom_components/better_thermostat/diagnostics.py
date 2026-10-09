@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from homeassistant.components.diagnostics import async_redact_data
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import __version__ as ha_version
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -21,6 +22,9 @@ from .utils.const import (
 )
 from .utils.helpers import entry_settings, setting_str, stored_trv_configs
 from .utils.weather import summer_mode_facts
+
+if TYPE_CHECKING:
+    from . import BetterThermostatConfigEntry
 
 # Attributes an integration may publish on its climate or sensor entities
 # that identify hardware or a place. The download is attached to public
@@ -89,7 +93,7 @@ def _device(hass: HomeAssistant, entity_id: str) -> dict[str, object] | None:
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, config_entry: ConfigEntry
+    hass: HomeAssistant, config_entry: BetterThermostatConfigEntry
 ) -> dict[str, object]:
     """Return diagnostics for a config entry.
 

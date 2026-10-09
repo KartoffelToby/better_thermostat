@@ -106,7 +106,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 SHARED_TRV_ISSUE_PREFIX = "shared_trv_"
 
 
-def trv_entity_ids(entry: ConfigEntry) -> list[str]:
+def trv_entity_ids(entry: BetterThermostatConfigEntry) -> list[str]:
     """Return the entity ids of the thermostats ``entry`` controls.
 
     Every entry is read this way, loaded or not, so the settings are read
@@ -126,7 +126,7 @@ def trv_entity_ids(entry: ConfigEntry) -> list[str]:
 
 def other_entries_controlling(
     hass: HomeAssistant, trv_entity_id: str, entry_id: str | None
-) -> list[ConfigEntry]:
+) -> list[BetterThermostatConfigEntry]:
     """Return every entry other than ``entry_id`` that controls ``trv_entity_id``."""
     return [
         other
@@ -152,7 +152,9 @@ def _raise_shared_trv_issue(
     )
 
 
-def _sync_shared_trv_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
+def _sync_shared_trv_issues(
+    hass: HomeAssistant, entry: BetterThermostatConfigEntry
+) -> None:
     """Name every thermostat that more than one entry controls, and only those.
 
     A thermostat belongs to one entry. Entries that already share one keep
@@ -164,7 +166,7 @@ def _sync_shared_trv_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
     ----------
     hass : HomeAssistant
         The running Home Assistant instance.
-    entry : ConfigEntry
+    entry : BetterThermostatConfigEntry
         The config entry being set up.
     """
     for trv_entity_id in trv_entity_ids(entry):
@@ -199,7 +201,7 @@ def _sync_shared_trv_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 def _warn_about_an_off_temperature_below_freezing(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: BetterThermostatConfigEntry
 ) -> None:
     """Warn when a Fahrenheit entry stores an outdoor threshold below 0 °C.
 
@@ -212,7 +214,7 @@ def _warn_about_an_off_temperature_below_freezing(
     ----------
     hass : HomeAssistant
         The running Home Assistant instance.
-    entry : ConfigEntry
+    entry : BetterThermostatConfigEntry
         The config entry being set up.
     """
     if hass.config.units.temperature_unit != UnitOfTemperature.FAHRENHEIT:
@@ -239,7 +241,9 @@ def _warn_about_an_off_temperature_below_freezing(
         )
 
 
-def _keep_settings_in_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+def _keep_settings_in_options(
+    hass: HomeAssistant, entry: BetterThermostatConfigEntry
+) -> None:
     """Move settings found in the entry's data into its options.
 
     The migration to minor version 2 moves them once. 1.9.3 loads an entry of
@@ -293,7 +297,7 @@ async def async_setup_entry(
     return True
 
 
-def _reload_lock(hass: HomeAssistant, entry: ConfigEntry) -> Lock:
+def _reload_lock(hass: HomeAssistant, entry: BetterThermostatConfigEntry) -> Lock:
     """Return the lock one entry serializes its own reloads on.
 
     The lock lives on the Home Assistant instance and is keyed by entry, so
@@ -306,7 +310,7 @@ def _reload_lock(hass: HomeAssistant, entry: ConfigEntry) -> Lock:
     ----------
     hass : HomeAssistant
         The running Home Assistant instance.
-    entry : ConfigEntry
+    entry : BetterThermostatConfigEntry
         The config entry about to reload.
 
     Returns
@@ -317,7 +321,9 @@ def _reload_lock(hass: HomeAssistant, entry: ConfigEntry) -> Lock:
     return hass.data.setdefault(RELOAD_LOCKS, {}).setdefault(entry.entry_id, Lock())
 
 
-async def config_entry_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def config_entry_update_listener(
+    hass: HomeAssistant, entry: BetterThermostatConfigEntry
+) -> None:
     """Handle options update."""
     async with _reload_lock(hass, entry):
         await hass.config_entries.async_reload(entry.entry_id)
@@ -330,7 +336,9 @@ async def async_unload_entry(
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
-async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_remove_entry(
+    hass: HomeAssistant, entry: BetterThermostatConfigEntry
+) -> None:
     """Clean up everything this Better Thermostat instance left behind.
 
     Repair-registry issues are scoped by ``device_name`` or by individual
@@ -343,7 +351,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     ----------
     hass : HomeAssistant
         The running Home Assistant instance.
-    entry : ConfigEntry
+    entry : BetterThermostatConfigEntry
         The config entry being removed.
     """
     # Runtime import: config_flow and the three device-automation modules
@@ -403,7 +411,9 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
             )
 
 
-async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+async def async_migrate_entry(
+    hass: HomeAssistant, config_entry: BetterThermostatConfigEntry
+) -> bool:
     """Migrate old entry."""
     _LOGGER.debug("Migrating from version %s", config_entry.version)
 
