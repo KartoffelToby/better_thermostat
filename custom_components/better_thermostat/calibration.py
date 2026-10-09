@@ -7,7 +7,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict, replace
 import logging
 import math
-from typing import TYPE_CHECKING
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Final
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
@@ -1139,11 +1140,13 @@ def _compute_pid_balance(
     return percent, supports_valve
 
 
-BALANCE_STRATEGIES = build_strategy_registry(
-    _compute_mpc_balance,
-    _compute_mpc_v2_balance,
-    _compute_tpi_balance,
-    _compute_pid_balance,
+BALANCE_STRATEGIES: Final[Mapping[CalibrationMode, BalanceStrategy]] = MappingProxyType(
+    build_strategy_registry(
+        _compute_mpc_balance,
+        _compute_mpc_v2_balance,
+        _compute_tpi_balance,
+        _compute_pid_balance,
+    )
 )
 
 
@@ -1186,38 +1189,42 @@ def _heating_power_adjust(
 # band, post adjustments including the delay.
 _PASSIVE_TRAITS = ModeTraits()
 
-MODE_TRAITS: dict[CalibrationMode, ModeTraits] = {
-    # Pure offset from external sensor vs TRV temperature; no
-    # controller, no tolerance/overheating heuristics.
-    CalibrationMode.DEFAULT: ModeTraits(
-        needs_target=False, uses_tolerance_band=False, skip_post_adjustments=True
-    ),
-    CalibrationMode.MPC_CALIBRATION: ModeTraits(
-        balance=BALANCE_STRATEGIES[CalibrationMode.MPC_CALIBRATION],
-        skip_post_adjustments=True,
-    ),
-    CalibrationMode.MPC_V2_CALIBRATION: ModeTraits(
-        balance=BALANCE_STRATEGIES[CalibrationMode.MPC_V2_CALIBRATION],
-        skip_post_adjustments=True,
-    ),
-    CalibrationMode.TPI_CALIBRATION: ModeTraits(
-        balance=BALANCE_STRATEGIES[CalibrationMode.TPI_CALIBRATION],
-        skip_post_adjustments=True,
-    ),
-    CalibrationMode.PID_CALIBRATION: ModeTraits(
-        balance=BALANCE_STRATEGIES[CalibrationMode.PID_CALIBRATION],
-        skip_post_adjustments=True,
-    ),
-    # Aggressive starts heating faster: it boosts the channel value and
-    # skips the tolerance delay, but keeps overheating protection.
-    CalibrationMode.AGGRESSIVE_CALIBRATION: ModeTraits(
-        tolerance_delay=False, adjust=_aggressive_adjust
-    ),
-    # Heating power decides per TRV whether it holds the channel (direct
-    # valve control) or derives a value — including the skip flag.
-    CalibrationMode.HEATING_POWER_CALIBRATION: ModeTraits(adjust=_heating_power_adjust),
-    CalibrationMode.NO_CALIBRATION: _PASSIVE_TRAITS,
-}
+MODE_TRAITS: Final[Mapping[CalibrationMode, ModeTraits]] = MappingProxyType(
+    {
+        # Pure offset from external sensor vs TRV temperature; no
+        # controller, no tolerance/overheating heuristics.
+        CalibrationMode.DEFAULT: ModeTraits(
+            needs_target=False, uses_tolerance_band=False, skip_post_adjustments=True
+        ),
+        CalibrationMode.MPC_CALIBRATION: ModeTraits(
+            balance=BALANCE_STRATEGIES[CalibrationMode.MPC_CALIBRATION],
+            skip_post_adjustments=True,
+        ),
+        CalibrationMode.MPC_V2_CALIBRATION: ModeTraits(
+            balance=BALANCE_STRATEGIES[CalibrationMode.MPC_V2_CALIBRATION],
+            skip_post_adjustments=True,
+        ),
+        CalibrationMode.TPI_CALIBRATION: ModeTraits(
+            balance=BALANCE_STRATEGIES[CalibrationMode.TPI_CALIBRATION],
+            skip_post_adjustments=True,
+        ),
+        CalibrationMode.PID_CALIBRATION: ModeTraits(
+            balance=BALANCE_STRATEGIES[CalibrationMode.PID_CALIBRATION],
+            skip_post_adjustments=True,
+        ),
+        # Aggressive starts heating faster: it boosts the channel value and
+        # skips the tolerance delay, but keeps overheating protection.
+        CalibrationMode.AGGRESSIVE_CALIBRATION: ModeTraits(
+            tolerance_delay=False, adjust=_aggressive_adjust
+        ),
+        # Heating power decides per TRV whether it holds the channel (direct
+        # valve control) or derives a value — including the skip flag.
+        CalibrationMode.HEATING_POWER_CALIBRATION: ModeTraits(
+            adjust=_heating_power_adjust
+        ),
+        CalibrationMode.NO_CALIBRATION: _PASSIVE_TRAITS,
+    }
+)
 
 
 def _traits_for(mode: CalibrationMode | None) -> ModeTraits:
