@@ -96,7 +96,7 @@ PID (Proportional-Integral-Derivative) is the classic industrial control method.
 
 - P (Proportional): how far you are from the target temperature
 - I (Integral): how long you have been away from it
-- D (Derivative): how fast the temperature is moving
+- D (Derivative): how fast the temperature is moving, read from the room temperature smoothed over time, so two control cycles a few seconds apart do not jolt the valve
 
 It tunes those three itself over time.
 
@@ -113,11 +113,12 @@ Auto-tuning is on by default.
 - **At the start:** The controller starts with default values (Kp=60, Ki=0.01, Kd=2000) and begins learning your room's behavior. You may notice slight temperature oscillations as it adjusts.
 
 - **While tuning:** The algorithm adjusts the gains at most every 5 minutes, and only when one of these conditions holds (the "target band" is 0.1 °C either side of the target):
-  - **Arriving at the target:** The room was outside the target band on the previous cycle and is inside it now, from either side. It decreases Kp (less aggressive), increases Kd (more damping) and decreases Ki
+  - **Overshoot:** The room was more than 0.2 °C on one side of the target and is now more than 0.2 °C on the other side, for example it heated from below to 0.3 °C above the target. It decreases Kp (less aggressive), increases Kd (more damping) and decreases Ki. A room that comes up to the target and stays below it, or ends up less than 0.2 °C above it, is not an overshoot. Changing the target starts the comparison over, so the room being on the other side of the new target does not count
   - **Sluggish response:** The room is more than 0.1 °C below the target, its temperature changes by less than 0.005 °C per minute (0.3 °C per hour) and the valve output is below 95 %. It increases Ki and Kp
   - **Steady state:** The room is inside the target band and the valve output is below 20 %. It decreases Ki
+  - **Holding the target:** The room is inside the target band and Kd is above its default of 2000. Kd falls by 1 % toward 2000, and no further. Damping added by overshoots therefore wears off again while the room holds the target
 
-- **Settled:** Kp and Kd stop changing once neither of the first two conditions occurs any more: the room no longer arrives at the target band and no longer heats up too slowly. While the room holds the target with a small valve output, Ki keeps shrinking every 5 minutes until it reaches its lower limit of 0.001. How many heating cycles that takes depends on the room; the code sets no fixed period.
+- **Settled:** Kp stops changing once the room no longer overshoots and no longer heats up too slowly, and Kd returns to 2000 while the room holds the target. While the room holds the target with a small valve output, Ki keeps shrinking every 5 minutes until it reaches its lower limit of 0.001. How many heating cycles that takes depends on the room; the code sets no fixed period.
 
 **What to expect:**
 
@@ -130,7 +131,7 @@ Auto-tuning is on by default.
 
 **Manual tuning:**
 
-Each TRV's *PID Kp (Proportional)*, *PID Ki (Integral)* and *PID Kd (Derivative)* numbers accept Kp from 0 to 1000, Ki from 0 to 100 and Kd from 0 to 10,000, and Better Thermostat keeps a value set there, including 0 (Kd 0 makes a PI controller). With auto-tuning on, a value you set is the starting point it adjusts from; turn off the *PID Auto Tune* switch to keep fixed values.
+Each TRV's *PID Kp (Proportional)*, *PID Ki (Integral)* and *PID Kd (Derivative)* numbers accept Kp from 0 to 1000, Ki from 0 to 100 and Kd from 0 to 10,000, and Better Thermostat keeps a value set there, including 0 (Kd 0 makes a PI controller). With auto-tuning on, a value you set is the starting point it adjusts from. Auto-tuning keeps to the ranges listed above, so it can move a value set outside them into the range in a single step: Ki 0 becomes 0.001 at its first adjustment, and Kp 800 becomes 500 the first time the room heats up too slowly. Kd 0 stays 0, and a Kd above 2000 falls back toward 2000 while the room holds the target. Turn off the *PID Auto Tune* switch to keep fixed values.
 
 If you want to tune PID parameters manually or understand what the auto-tuning is doing:
 
@@ -163,7 +164,7 @@ To follow the controller over time, the device has diagnostic sensors: *PID Outp
 
 **Getting the best out of PID:**
 
-- Give auto-tuning time: it only changes the gains after an overshoot, a slow rise or a drift, so it needs a number of ordinary heating cycles
+- Give auto-tuning time: it only changes the gains after an overshoot, a slow rise or a drift, or while the room holds the target, so it needs a number of ordinary heating cycles
 - Keep target temperatures consistent; auto-tuning reads a moving target as a disturbance
 - Avoid changing the target often during the learning phase
 - Place the external sensor away from heat sources and draughts
