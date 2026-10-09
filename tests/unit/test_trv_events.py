@@ -2305,8 +2305,8 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == 19.0
 
     @pytest.mark.asyncio
-    async def test_setpoint_blocked_window_open(self, mock_bt):
-        """No setpoint adoption when window is open."""
+    async def test_setpoint_adopted_with_the_window_open(self, mock_bt):
+        """A turn while the window is open is the room's new target."""
         mock_bt.window_open = True
         mock_bt.contact_open = True
         old_state = _make_state(
@@ -2329,7 +2329,7 @@ class TestTargetTempAdoption:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.heat_target_temperature == 19.0
+        assert mock_bt.heat_target_temperature == 22.0
 
     @pytest.mark.asyncio
     async def test_setpoint_uses_target_temperature_low_fallback(self, mock_bt):

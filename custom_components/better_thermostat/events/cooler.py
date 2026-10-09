@@ -194,7 +194,10 @@ async def trigger_cooler_change(
         # While a contact is open the cooler is held OFF and receives no
         # setpoint, so nothing BT wrote explains a setpoint the device reports
         # mid-airing; adopting it would let the airing move the user's cooling
-        # target. The TRV handler draws the same line.
+        # target. A TRV is different only where BT keeps it on for the contact,
+        # parked at a setpoint it wrote: a turn away from that write is a
+        # press, while a TRV switched off for the contact adopts nothing
+        # either.
         if (
             not _new_cooling_setpoint.is_echo
             and _reported_moved

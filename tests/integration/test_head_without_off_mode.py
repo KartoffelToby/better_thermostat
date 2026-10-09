@@ -155,13 +155,8 @@ async def test_turning_the_head_to_its_minimum_and_back_switches_the_room(hass):
     ), f"turning the head up left the room in {bt.bt_hvac_mode}"
 
 
-async def test_a_turn_with_the_window_open_is_turned_back_at_once(hass):
-    """The head turned up in an off room with the window open goes back to its minimum.
-
-    The turn is no word on the room's mode while the window is open, so the
-    room stays off, and the head is not left heating into the open window
-    until the next routine cycle.
-    """
+async def _off_room_with_the_window_open(hass):
+    """Switch the room off at the head, open the window, and settle it."""
     bt, device = await _room(
         hass, outdoor_celsius=0.0, room_celsius=19.0, with_window=True
     )
@@ -180,6 +175,33 @@ async def test_a_turn_with_the_window_open_is_turned_back_at_once(hass):
         await bt.window_queue_task.join()
         await bt.control_queue_task.join()
     assert _settled(bt)
+    return bt, device
+
+
+async def _heating_room_with_the_window_open(hass):
+    """Open the window of a heating room, and let the head be parked."""
+    bt, device = await _room(
+        hass, outdoor_celsius=0.0, room_celsius=19.0, with_window=True
+    )
+    assert await wait_for(
+        hass, lambda: _settled(bt) and (device.target_temperature or 0.0) > 5.0
+    )
+    hass.states.async_set(WINDOW_ID, "on")
+    assert await wait_for(
+        hass, lambda: device.target_temperature == 5.0 and _settled(bt)
+    )
+    return bt, device
+
+
+async def test_a_turn_up_with_the_window_open_heats_once_the_window_closes(hass):
+    """The head turned up in an off room with the window open switches the room on.
+
+    The turn is the user's target, but the open window still holds the head
+    at its minimum: it is turned back at once, not left heating into the
+    window until the next routine cycle. Once the window closes, the room
+    heats to the turned target.
+    """
+    bt, device = await _off_room_with_the_window_open(hass)
     writes_before_turn = len(device.set_temperature_calls)
 
     _publish(device, target_temperature=21.0)
@@ -193,9 +215,72 @@ async def test_a_turn_with_the_window_open_is_turned_back_at_once(hass):
         f"{device.set_temperature_calls[writes_before_turn:]}"
     )
     assert device.target_temperature == 5.0
-    assert bt.bt_hvac_mode == HVACMode.OFF, (
-        f"a turn with the window open switched the room to {bt.bt_hvac_mode}"
+    assert bt.bt_hvac_mode == HVACMode.HEAT, (
+        f"the turn with the window open left the room in {bt.bt_hvac_mode}"
     )
+    assert bt.heat_target_temperature == 21.0
+
+    hass.states.async_set(WINDOW_ID, "off")
+    assert await wait_for(
+        hass,
+        lambda: bt.window_open is False and (device.target_temperature or 0.0) > 5.0,
+        timeout_seconds=3.0,
+    ), (
+        f"the closed window left the head at {device.target_temperature}, "
+        f"room mode {bt.bt_hvac_mode}"
+    )
+    assert bt.bt_hvac_mode == HVACMode.HEAT
+    assert bt.heat_target_temperature == 21.0
+
+
+async def test_a_turn_to_the_minimum_with_the_window_open_switches_the_room_off(hass):
+    """The head turned up and back to its minimum with the window open stays off.
+
+    Both reports arrive before Better Thermostat turns the head back, so the
+    minimum is the user's and not the minimum written for the window. The
+    room is off once the window closes.
+    """
+    bt, device = await _heating_room_with_the_window_open(hass)
+
+    _publish(device, target_temperature=21.0)
+    _publish(device, target_temperature=5.0)
+    assert await wait_for(
+        hass, lambda: bt.bt_hvac_mode == HVACMode.OFF, timeout_seconds=2.0
+    ), f"the turn to the minimum left the room in {bt.bt_hvac_mode}"
+
+    hass.states.async_set(WINDOW_ID, "off")
+    assert await wait_for(hass, lambda: bt.window_open is False and _settled(bt))
+    async with asyncio.timeout(10):
+        await bt.window_queue_task.join()
+        await bt.control_queue_task.join()
+    assert bt.bt_hvac_mode == HVACMode.OFF, (
+        f"the closed window put the room in {bt.bt_hvac_mode}"
+    )
+    assert device.target_temperature == 5.0
+
+
+async def test_the_minimum_written_for_the_open_window_is_no_turn(hass):
+    """The head reporting the minimum it was parked at keeps the room's target.
+
+    Once the window closes, the room heats to the target it had before.
+    """
+    bt, device = await _heating_room_with_the_window_open(hass)
+    target = bt.heat_target_temperature
+    assert target is not None and target > 5.0
+
+    _publish(device, current_temperature=18.4)
+    await hass.async_block_till_done()
+    assert bt.bt_hvac_mode == HVACMode.HEAT
+    assert bt.heat_target_temperature == target
+
+    hass.states.async_set(WINDOW_ID, "off")
+    assert await wait_for(
+        hass,
+        lambda: bt.window_open is False and (device.target_temperature or 0.0) > 5.0,
+        timeout_seconds=3.0,
+    ), f"the closed window left the head at {device.target_temperature}"
+    assert bt.bt_hvac_mode == HVACMode.HEAT
+    assert bt.heat_target_temperature == target
 
 
 async def _room_whose_window_just_closed(hass, *, watchdog_gives_up: bool):
