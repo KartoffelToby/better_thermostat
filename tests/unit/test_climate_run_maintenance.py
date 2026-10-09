@@ -76,7 +76,7 @@ async def test_happy_path_resets_flags_and_reschedules(bt):
         patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
-    assert BetterThermostat.in_maintenance.fget(bt) is False
+    assert BetterThermostat.in_maintenance.__get__(bt) is False
     assert bt.ignore_states is False
     assert bt.next_valve_maintenance == _NEXT
     bt.control_queue_task.put_nowait.assert_called_once_with(bt)
@@ -112,7 +112,7 @@ async def test_flags_released_even_on_error(bt):
     ):
         with pytest.raises(RuntimeError):
             await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
-    assert BetterThermostat.in_maintenance.fget(bt) is False
+    assert BetterThermostat.in_maintenance.__get__(bt) is False
     assert bt.ignore_states is False
 
 
@@ -154,7 +154,7 @@ async def test_control_kick_skipped_without_a_queue(bt):
         patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
-    assert BetterThermostat.in_maintenance.fget(bt) is False
+    assert BetterThermostat.in_maintenance.__get__(bt) is False
     assert bt.ignore_states is False
 
 
