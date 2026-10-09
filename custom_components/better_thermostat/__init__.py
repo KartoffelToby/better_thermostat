@@ -200,6 +200,50 @@ def _sync_shared_trv_issues(
             ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 
+def _drop_orphaned_issues(hass: HomeAssistant) -> None:
+    """Delete the repair issues no configured entry accounts for.
+
+    A thermostat's ``missing_entity`` issue is cleared when it comes back,
+    and a Better Thermostat's sensor issues when its sensors do. Neither
+    happens once the thermostat is taken out of every entry or the Better
+    Thermostat is renamed, because no running instance checks the old
+    entity or the old name again. Setup therefore deletes every
+    ``missing_entity`` issue whose entity no entry controls, and every issue
+    named after a Better Thermostat that no entry is called any more.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance.
+    """
+    # Runtime import, for the reason given in async_remove_entry.
+    from .events.contact import CONTACT_ROLES, contact_issue_id  # noqa: PLC0415
+
+    entries = hass.config_entries.async_entries(DOMAIN)
+    controlled = {
+        trv_entity_id for entry in entries for trv_entity_id in trv_entity_ids(entry)
+    }
+    names = {entry_name(entry) for entry in entries}
+    name_prefixes = (
+        "degraded_mode_",
+        "invalid_external_temperature_",
+        *(contact_issue_id(role, "") for role in CONTACT_ROLES),
+    )
+    for domain, issue_id in list(ir.async_get(hass).issues):
+        if domain != DOMAIN:
+            continue
+        if issue_id.startswith("missing_entity_"):
+            orphaned = issue_id.removeprefix("missing_entity_") not in controlled
+        else:
+            orphaned = any(
+                issue_id.startswith(prefix)
+                and issue_id.removeprefix(prefix) not in names
+                for prefix in name_prefixes
+            )
+        if orphaned:
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
+
+
 def _warn_about_an_off_temperature_below_freezing(
     hass: HomeAssistant, entry: BetterThermostatConfigEntry
 ) -> None:
@@ -280,6 +324,7 @@ async def async_setup_entry(
         ) from err
     _warn_about_an_off_temperature_below_freezing(hass, entry)
     _sync_shared_trv_issues(hass, entry)
+    _drop_orphaned_issues(hass)
     entry.runtime_data = BetterThermostatData(settings=settings)
     try:
         # Setup climate platform first to ensure entity is available for other platforms

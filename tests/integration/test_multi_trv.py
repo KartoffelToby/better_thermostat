@@ -57,6 +57,7 @@ from .conftest import (
     assert_profile_adopted,
     assert_write_is,
     build_devices,
+    click_through_the_options,
     make_entry,
     mode_commands,
     profile_id,
@@ -804,6 +805,30 @@ async def test_a_room_booting_with_a_head_gone_starts_once_the_grace_window_clos
     assert missing_entity_issues(hass) == [f"missing_entity_{absent.entity_id}"]
     for head in present:
         assert_profile_adopted(bt, head.profile)
+
+
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
+async def test_a_head_taken_out_of_the_settings_takes_its_missing_issue_along(
+    hass, trv_group
+):
+    """Replacing a dead head in the settings leaves no issue naming it.
+
+    The issue clears when its head comes back, and a head that is no longer
+    configured is never checked again, so the entry it was taken out of
+    drops the issue when it comes up with the new settings.
+    """
+    absent = trv_group[1]
+    kept = [head.entity_id for head in trv_group.entities if head is not absent]
+    with patch(CRITICAL_GRACE, NO_GRACE):
+        _bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
+        await wait_for_startup(hass, entry)
+        assert missing_entity_issues(hass) == [f"missing_entity_{absent.entity_id}"]
+
+        await click_through_the_options(hass, entry, thermostat=kept)
+        bt = await wait_for_startup(hass, entry)
+
+    assert list(bt.real_trvs) == kept
+    assert missing_entity_issues(hass) == []
 
 
 @pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)

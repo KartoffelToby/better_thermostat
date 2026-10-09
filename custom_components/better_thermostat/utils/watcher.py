@@ -760,19 +760,24 @@ async def check_and_update_degraded_mode(
             self.device_name,
             ", ".join(unavailable),
         )
-    elif not degraded and has_warned:
-        _LOGGER.info(
-            "better_thermostat %s: Exiting degraded mode. All sensors available.",
-            self.device_name,
-        )
+    elif not degraded:
+        # The issue can outlive the instance that raised it: a reload starts
+        # a new one that has warned about nothing, and the sensor may have
+        # come back or left the configuration meanwhile. Deleting is
+        # idempotent, so it happens whenever the room is not degraded.
         ir.async_delete_issue(self.hass, DOMAIN, f"degraded_mode_{self.device_name}")
-        self._degraded_warning_emitted = False
+        if has_warned:
+            _LOGGER.info(
+                "better_thermostat %s: Exiting degraded mode. All sensors available.",
+                self.device_name,
+            )
+            self._degraded_warning_emitted = False
 
-        await async_fire_logbook_entry(
-            self,
-            "degraded_mode_resolved",
-            "exited degraded mode because all sensors are available",
-        )
+            await async_fire_logbook_entry(
+                self,
+                "degraded_mode_resolved",
+                "exited degraded mode because all sensors are available",
+            )
 
     self.async_write_ha_state()
     return degraded

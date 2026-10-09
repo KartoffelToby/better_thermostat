@@ -18,6 +18,7 @@ from custom_components.better_thermostat.core.fsm.lifecycle import (
     LifecycleState,
 )
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.const import DOMAIN
 from tests.factories import ThermostatStandIn
 
 
@@ -1478,7 +1479,11 @@ class TestDegradedModeGracePeriod:
 
     @pytest.mark.asyncio
     async def test_silent_recovery_during_grace(self, mock_bt_instance, caplog):
-        """Recover during grace → no INFO log, no issue deleted (none was created)."""
+        """Recover during grace → no INFO log; an issue a previous run left is deleted.
+
+        This instance raised nothing, but the one before a reload may have,
+        and nothing else would ever clear that issue.
+        """
         from datetime import timedelta
 
         from custom_components.better_thermostat.utils.watcher import (
@@ -1504,7 +1509,11 @@ class TestDegradedModeGracePeriod:
 
         assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert not any("Exiting degraded mode" in r.message for r in caplog.records)
-        assert not mock_ir.async_delete_issue.called
+        mock_ir.async_delete_issue.assert_called_once_with(
+            mock_bt_instance.hass,
+            DOMAIN,
+            f"degraded_mode_{mock_bt_instance.device_name}",
+        )
 
     @pytest.mark.asyncio
     async def test_info_on_recovery_after_warned(self, mock_bt_instance, caplog):
