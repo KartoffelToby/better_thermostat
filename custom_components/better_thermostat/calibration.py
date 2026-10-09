@@ -693,7 +693,7 @@ def _maybe_start_mpc_v2_reid_fit(
             state_mgr.adopt_mpc_v2_reid(
                 reid_key,
                 MpcV2ReidData(
-                    tau_room_min=outcome.tau_room_min,
+                    tau_room_minutes=outcome.tau_room_min,
                     gain_heater=outcome.gain_heater,
                     fitted_ts=fitted_wall_ts,
                     rmse_prior_kelvin=outcome.rmse_prior_K or 0.0,
@@ -809,7 +809,8 @@ def _compute_mpc_v2_balance(
     )
     if reid_result is not None:
         plant_prior = PlantParams(
-            tau_room_min=reid_result.tau_room_min, gain_heater=reid_result.gain_heater
+            tau_room_min=reid_result.tau_room_minutes,
+            gain_heater=reid_result.gain_heater,
         )
     else:
         plant_prior = make_plant_prior(
@@ -911,7 +912,7 @@ def _compute_mpc_v2_balance(
             "distributed_valve_pct": this_trv_percent,
             "controller_version": "v2",
             "reid_tau_room": (
-                reid_result.tau_room_min if reid_result is not None else None
+                reid_result.tau_room_minutes if reid_result is not None else None
             ),
             "reid_gain": (reid_result.gain_heater if reid_result is not None else None),
         },

@@ -122,7 +122,7 @@ class MpcV2ReidData:
     only and never persisted.
     """
 
-    tau_room_min: float = 0.0
+    tau_room_minutes: float = 0.0
     gain_heater: float = 0.0
     fitted_ts: float = 0.0
     rmse_prior_kelvin: float = 0.0
@@ -242,11 +242,23 @@ _STORED_MPC_KEYS = {
     "last_target_temperature": "last_target_C",
     "last_sensor_temperature": "last_sensor_temp_C",
     "last_room_temperature": "last_room_temp_C",
+    "last_temperature": "last_temp",
+    "last_trv_temperature": "last_trv_temp",
+    "last_trv_temperature_ts": "last_trv_temp_ts",
+    "last_learn_temperature": "last_learn_temp",
+    "virtual_temperature": "virtual_temp",
+    "virtual_temperature_ts": "virtual_temp_ts",
+    "last_room_temperature_ts": "last_room_temp_ts",
 }
+
+# Store keys of the ``PIDState`` fields whose stored name differs from the
+# field name. The other fields are stored under their own names.
+_STORED_PID_KEYS = {"last_target_temperature": "last_target_temp"}
 
 # Store keys of the ``MpcV2ReidData`` fields whose stored name differs from
 # the field name. The other fields are stored under their own names.
 _STORED_MPC_V2_REID_KEYS = {
+    "tau_room_minutes": "tau_room_min",
     "rmse_prior_kelvin": "rmse_prior_K",
     "rmse_fit_kelvin": "rmse_fit_K",
 }
@@ -255,7 +267,8 @@ _STORED_MPC_V2_REID_KEYS = {
 def write_mpc_state(state: MpcState) -> StoredMpcState:
     """Return the stored form of one MPC state.
 
-    The fields with a legacy store name (:data:`_STORED_MPC_KEYS`) come last.
+    The fields with a legacy store name (:data:`_STORED_MPC_KEYS`) are
+    written under that name.
     """
     return {
         "last_percent": state.last_percent,
@@ -265,19 +278,19 @@ def write_mpc_state(state: MpcState) -> StoredMpcState:
         "loss_est": state.loss_est,
         "ka_est": state.ka_est,
         "solar_gain_est": state.solar_gain_est,
-        "last_temp": state.last_temp,
+        "last_temp": state.last_temperature,
         "last_time": state.last_time,
-        "last_trv_temp": state.last_trv_temp,
-        "last_trv_temp_ts": state.last_trv_temp_ts,
+        "last_trv_temp": state.last_trv_temperature,
+        "last_trv_temp_ts": state.last_trv_temperature_ts,
         "last_window_open_ts": state.last_window_open_ts,
         "dead_zone_hits": state.dead_zone_hits,
         "min_effective_percent": state.min_effective_percent,
         "last_learn_time": state.last_learn_time,
-        "last_learn_temp": state.last_learn_temp,
+        "last_learn_temp": state.last_learn_temperature,
         "last_residual_time": state.last_residual_time,
-        "virtual_temp": state.virtual_temp,
-        "virtual_temp_ts": state.virtual_temp_ts,
-        "last_room_temp_ts": state.last_room_temp_ts,
+        "virtual_temp": state.virtual_temperature,
+        "virtual_temp_ts": state.virtual_temperature_ts,
+        "last_room_temp_ts": state.last_room_temperature_ts,
         "perf_curve": {
             curve: dict(points) for curve, points in state.perf_curve.items()
         },
@@ -322,10 +335,10 @@ def write_mpc_v2_reid(data: MpcV2ReidData) -> StoredMpcV2Reid:
     """Return the stored form of one accepted re-identification.
 
     The fields with a legacy store name (:data:`_STORED_MPC_V2_REID_KEYS`)
-    come last.
+    are written under that name.
     """
     return {
-        "tau_room_min": data.tau_room_min,
+        "tau_room_min": data.tau_room_minutes,
         "gain_heater": data.gain_heater,
         "fitted_ts": data.fitted_ts,
         "n_segments": data.n_segments,
@@ -335,7 +348,11 @@ def write_mpc_v2_reid(data: MpcV2ReidData) -> StoredMpcV2Reid:
 
 
 def write_pid_state(state: PIDState) -> StoredPidState:
-    """Return the stored form of one PID state."""
+    """Return the stored form of one PID state.
+
+    The fields with a legacy store name (:data:`_STORED_PID_KEYS`) are
+    written under that name.
+    """
     return {
         "pid_integral": state.pid_integral,
         "pid_last_meas": state.pid_last_meas,
@@ -353,7 +370,7 @@ def write_pid_state(state: PIDState) -> StoredPidState:
         "ema_slope": state.ema_slope,
         "last_percent": state.last_percent,
         "last_output_change_ts": state.last_output_change_ts,
-        "last_target_temp": state.last_target_temp,
+        "last_target_temp": state.last_target_temperature,
     }
 
 
@@ -746,11 +763,15 @@ def deserialize_mpc(
             loss_est=read.optional("loss_est", number, held.loss_est),
             ka_est=read.optional("ka_est", number, held.ka_est),
             solar_gain_est=read.optional("solar_gain_est", number, held.solar_gain_est),
-            last_temp=read.optional("last_temp", number, held.last_temp),
+            last_temperature=read.optional(
+                "last_temperature", number, held.last_temperature
+            ),
             last_time=read.required("last_time", number, held.last_time),
-            last_trv_temp=read.optional("last_trv_temp", number, held.last_trv_temp),
-            last_trv_temp_ts=read.required(
-                "last_trv_temp_ts", number, held.last_trv_temp_ts
+            last_trv_temperature=read.optional(
+                "last_trv_temperature", number, held.last_trv_temperature
+            ),
+            last_trv_temperature_ts=read.required(
+                "last_trv_temperature_ts", number, held.last_trv_temperature_ts
             ),
             last_window_open_ts=read.required(
                 "last_window_open_ts", number, held.last_window_open_ts
@@ -764,15 +785,17 @@ def deserialize_mpc(
             last_learn_time=read.optional(
                 "last_learn_time", number, held.last_learn_time
             ),
-            last_learn_temp=read.optional(
-                "last_learn_temp", number, held.last_learn_temp
+            last_learn_temperature=read.optional(
+                "last_learn_temperature", number, held.last_learn_temperature
             ),
             last_residual_time=read.optional(
                 "last_residual_time", number, held.last_residual_time
             ),
-            virtual_temp=read.optional("virtual_temp", number, held.virtual_temp),
-            virtual_temp_ts=read.required(
-                "virtual_temp_ts", number, held.virtual_temp_ts
+            virtual_temperature=read.optional(
+                "virtual_temperature", number, held.virtual_temperature
+            ),
+            virtual_temperature_ts=read.required(
+                "virtual_temperature_ts", number, held.virtual_temperature_ts
             ),
             last_sensor_temperature=read.optional(
                 "last_sensor_temperature", number, held.last_sensor_temperature
@@ -780,8 +803,8 @@ def deserialize_mpc(
             last_room_temperature=read.optional(
                 "last_room_temperature", number, held.last_room_temperature
             ),
-            last_room_temp_ts=read.required(
-                "last_room_temp_ts", number, held.last_room_temp_ts
+            last_room_temperature_ts=read.required(
+                "last_room_temperature_ts", number, held.last_room_temperature_ts
             ),
             perf_curve=read.required("perf_curve", _stored_perf_curve, held.perf_curve),
             trv_profile=read.required("trv_profile", _stored_text, held.trv_profile),
@@ -911,7 +934,7 @@ def deserialize_mpc_v2_reid(
 
     Three checks reject an entry. A NaN or infinity in one of the five
     float fields; a stored ``null`` in any of the six, since none of them
-    is declared to hold one; and a ``tau_room_min`` or ``gain_heater``
+    is declared to hold one; and a ``tau_room_minutes`` or ``gain_heater``
     outside :data:`TAU_ROOM_BOUNDS_MIN` / :data:`GAIN_HEATER_BOUNDS`,
     inclusive at both ends, since those two are the pair that seeds the
     prior and the plant's room dynamics divide by ``tau_room_min``.
@@ -945,7 +968,9 @@ def deserialize_mpc_v2_reid(
     held = MpcV2ReidData()
     try:
         state = MpcV2ReidData(
-            tau_room_min=read.required("tau_room_min", number, held.tau_room_min),
+            tau_room_minutes=read.required(
+                "tau_room_minutes", number, held.tau_room_minutes
+            ),
             gain_heater=read.required("gain_heater", number, held.gain_heater),
             fitted_ts=read.required("fitted_ts", number, held.fitted_ts),
             rmse_prior_kelvin=read.required(
@@ -961,10 +986,10 @@ def deserialize_mpc_v2_reid(
         return None
     # A result whose fitted components lie outside the plausible band cannot
     # seed a plant prior. The band is two-sided on both: too small a
-    # ``tau_room_min`` and the room dynamics blow up, too large and they
+    # ``tau_room_minutes`` and the room dynamics blow up, too large and they
     # freeze, and either rail pins the commanded valve.
     for attr, value, bounds in (
-        ("tau_room_min", state.tau_room_min, TAU_ROOM_BOUNDS_MIN),
+        ("tau_room_min", state.tau_room_minutes, TAU_ROOM_BOUNDS_MIN),
         ("gain_heater", state.gain_heater, GAIN_HEATER_BOUNDS),
     ):
         if not _within(value, bounds):
@@ -1014,7 +1039,7 @@ def deserialize_pid(
         collects the entry's section and key when a non-finite value
         discards its stored values
     """
-    read = _StoredEntryReader(raw, "pid", key)
+    read = _StoredEntryReader(raw, "pid", key, renamed=_STORED_PID_KEYS)
     number = _finite_or_poison
     held = PIDState()
     try:
@@ -1043,8 +1068,8 @@ def deserialize_pid(
             last_output_change_ts=read.required(
                 "last_output_change_ts", number, held.last_output_change_ts
             ),
-            last_target_temp=read.optional(
-                "last_target_temp", number, held.last_target_temp
+            last_target_temperature=read.optional(
+                "last_target_temperature", number, held.last_target_temperature
             ),
         )
     except _PoisonedStateError as error:

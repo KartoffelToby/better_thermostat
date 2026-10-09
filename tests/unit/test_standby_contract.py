@@ -93,8 +93,8 @@ def test_mpc_discards_the_interval_but_keeps_the_model():
         gain_est=0.02,
         loss_est=0.01,
         last_learn_time=900.0,
-        last_learn_temp=19.5,
-        virtual_temp=19.8,
+        last_learn_temperature=19.5,
+        virtual_temperature=19.8,
         last_percent=60.0,
     )
     inp = MpcInput(
@@ -111,7 +111,7 @@ def test_mpc_discards_the_interval_but_keeps_the_model():
     assert new_state.gain_est == 0.02
     assert new_state.loss_est == 0.01
     assert new_state.last_learn_time is None
-    assert new_state.virtual_temp is None
+    assert new_state.virtual_temperature is None
 
 
 def test_tpi_emits_zero_during_an_open_window():

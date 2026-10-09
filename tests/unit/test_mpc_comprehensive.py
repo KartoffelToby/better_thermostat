@@ -472,7 +472,7 @@ class TestComputeMpcBasic:
         assert state.last_percent == 0.0
         assert state.u_integral == 0.0
         assert state.time_integral == 0.0
-        assert state.virtual_temp is None
+        assert state.virtual_temperature is None
         assert state.last_residual_time is None
 
     def test_calibration_aborted_on_window_open(self):
@@ -548,7 +548,7 @@ class TestAdaptiveLearning:
             "loss_cool",
             params,
             last_percent=0.0,
-            last_learn_temp=21.0,
+            last_learn_temperature=21.0,
             last_learn_time=time() - 300,  # 5 min ago
             gain_est=0.06,
             loss_est=0.01,
@@ -575,7 +575,7 @@ class TestAdaptiveLearning:
             "gain_warm",
             params,
             last_percent=80.0,
-            last_learn_temp=20.0,
+            last_learn_temperature=20.0,
             last_learn_time=time() - 300,
             gain_est=0.06,
             loss_est=0.01,
@@ -595,7 +595,7 @@ class TestAdaptiveLearning:
             "win_block",
             params,
             last_percent=50.0,
-            last_learn_temp=20.0,
+            last_learn_temperature=20.0,
             last_learn_time=time() - 300,
             last_window_open_ts=time() - 60,  # window opened 60s ago
             gain_est=0.06,
@@ -616,7 +616,7 @@ class TestAdaptiveLearning:
             "tgt_change",
             params,
             last_percent=50.0,
-            last_learn_temp=20.0,
+            last_learn_temperature=20.0,
             last_learn_time=time() - 300,
             last_target_temperature=22.0,
             gain_est=0.06,
@@ -641,7 +641,7 @@ class TestAdaptiveLearning:
             "extreme",
             params,
             last_percent=50.0,
-            last_learn_temp=20.0,
+            last_learn_temperature=20.0,
             last_learn_time=time() - 180,  # 3 min
             gain_est=0.06,
             loss_est=0.01,
@@ -664,7 +664,7 @@ class TestAdaptiveLearning:
             "gclamp",
             params,
             last_percent=100.0,
-            last_learn_temp=20.0,
+            last_learn_temperature=20.0,
             last_learn_time=time() - 300,
             gain_est=0.19,
             loss_est=0.01,
@@ -690,7 +690,7 @@ class TestAdaptiveLearning:
             "lclamp",
             params,
             last_percent=0.0,
-            last_learn_temp=21.0,
+            last_learn_temperature=21.0,
             last_learn_time=time() - 300,
             gain_est=0.06,
             loss_est=0.025,
@@ -715,7 +715,7 @@ class TestAdaptiveLearning:
             "loss_ow",
             params,
             last_percent=0.0,
-            last_learn_temp=21.0,
+            last_learn_temperature=21.0,
             last_learn_time=time() - 300,
             gain_est=0.06,
             loss_est=0.015,
@@ -749,7 +749,7 @@ class TestAdaptiveLearning:
             "insuff",
             params,
             last_percent=16.7,  # near u0 (within 10% absolute)
-            last_learn_temp=21.0,  # same as current -> delta_T=0 -> no temperature_changed
+            last_learn_temperature=21.0,  # same as current -> delta_T=0 -> no temperature_changed
             last_learn_time=time() - 400,
             last_residual_time=time() - 400,
             gain_est=0.06,
@@ -780,19 +780,19 @@ class TestVirtualTemperature:
     """Tests for virtual temperature forward prediction and sync."""
 
     def test_virtual_temp_initialized_from_sensor(self):
-        """Test that virtual_temp starts at the sensor reading."""
+        """Test that virtual_temperature starts at the sensor reading."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vinit", room_temperature=20.5), params)
         state = _STATES["vinit"]
-        assert state.virtual_temp == pytest.approx(20.5)
+        assert state.virtual_temperature == pytest.approx(20.5)
 
     def test_virtual_temp_corrects_large_drift(self):
-        """Kalman filter should correct virtual_temp when it drifts far from sensor."""
+        """Kalman filter should correct virtual_temperature when it drifts far from sensor."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vreset", room_temperature=20.0), params)
         state = _STATES["vreset"]
         # Artificially drift virtual temperature far from sensor
-        state.virtual_temp = 21.0  # 1K off from sensor at 20.0
+        state.virtual_temperature = 21.0  # 1K off from sensor at 20.0
         state.last_sensor_temperature = (
             19.5  # different from current so update triggers
         )
@@ -801,20 +801,20 @@ class TestVirtualTemperature:
 
         _compute(_inp(key="vreset", room_temperature=20.0), params)
         # Kalman should correct most of the 1K drift
-        assert abs(state.virtual_temp - 20.0) < 0.5
+        assert abs(state.virtual_temperature - 20.0) < 0.5
 
     def test_virtual_temp_stays_close_to_sensor(self):
-        """Kalman update should keep virtual_temp close to sensor value."""
+        """Kalman update should keep virtual_temperature close to sensor value."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vclamp", room_temperature=20.0), params)
         state = _STATES["vclamp"]
-        state.virtual_temp = 20.3  # slightly drifted
+        state.virtual_temperature = 20.3  # slightly drifted
         state.last_sensor_temperature = 19.9  # different so update fires
         state.last_percent = 50.0
 
         _compute(_inp(key="vclamp", room_temperature=20.0), params)
-        # After Kalman update, virtual_temp should be closer to sensor
-        assert abs(state.virtual_temp - 20.0) < 0.3
+        # After Kalman update, virtual_temperature should be closer to sensor
+        assert abs(state.virtual_temperature - 20.0) < 0.3
 
     def test_virtual_temp_not_synced_when_sensor_unchanged(self):
         """Sync should be skipped when sensor value hasn't changed."""
@@ -825,7 +825,7 @@ class TestVirtualTemperature:
         state.last_percent = 50.0
 
         _compute(_inp(key="vsame", room_temperature=20.0), params)
-        assert state.virtual_temp is not None
+        assert state.virtual_temperature is not None
 
     def test_virtual_temp_used_for_delta_t(self):
         """When virtual temperature is enabled, delta_kelvin should use virtual temperature, not sensor."""
@@ -835,16 +835,16 @@ class TestVirtualTemperature:
         )
         state = _STATES["vdelta"]
         # Virtual temperature should be close to sensor on first call
-        assert state.virtual_temp is not None
+        assert state.virtual_temperature is not None
 
     def test_window_open_clears_virtual_temp(self):
-        """Test that window_open resets virtual_temp to None."""
+        """Test that window_open resets virtual_temperature to None."""
         params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vwin", room_temperature=20.0), params)
-        assert _STATES["vwin"].virtual_temp is not None
+        assert _STATES["vwin"].virtual_temperature is not None
 
         _compute(_inp(key="vwin", window_open=True), params)
-        assert _STATES["vwin"].virtual_temp is None
+        assert _STATES["vwin"].virtual_temperature is None
 
 
 # ===================================================================
@@ -1146,7 +1146,7 @@ class TestPerfCurveSampling:
         """Test that perf_curve resets baseline but skips recording when window open."""
         state = _MpcState()
         state.last_room_temperature = 20.0
-        state.last_room_temp_ts = time() - 600
+        state.last_room_temperature_ts = time() - 600
         params = _default_params()
         debug = {}
         inp = _inp(window_open=True, room_temperature=20.5)
@@ -1158,7 +1158,7 @@ class TestPerfCurveSampling:
         """Test that perf_curve skips recording when time gap is too short."""
         state = _MpcState()
         state.last_room_temperature = 20.0
-        state.last_room_temp_ts = time() - 1  # 1 second ago
+        state.last_room_temperature_ts = time() - 1  # 1 second ago
         params = _default_params(perf_curve_min_window_s=300.0)
         debug = {}
         inp = _inp(room_temperature=20.5)
@@ -1245,7 +1245,7 @@ class TestStaleStateDetection:
         _compute(_inp(key="stale"), params)
         state = _STATES["stale"]
         state.last_time = time() - 1000  # 16+ min ago
-        state.last_learn_temp = 19.0
+        state.last_learn_temperature = 19.0
         state.u_integral = 5000.0
 
         _compute(_inp(key="stale", room_temperature=21.0), params)
@@ -1810,8 +1810,8 @@ class TestKalmanFilter:
         state.last_percent = 50.0
         P_after_init = state.kalman_P
 
-        # Advance virtual_temp_ts backward to force a predict step
-        state.virtual_temp_ts = time() - 60  # 60s ago
+        # Advance virtual_temperature_ts backward to force a predict step
+        state.virtual_temperature_ts = time() - 60  # 60s ago
 
         _compute(_inp(key="kp_grow", room_temperature=20.0), params)
         # P should have grown by Q * dt_s
@@ -1839,12 +1839,12 @@ class TestKalmanFilter:
         state = _STATES["kg_high"]
         state.kalman_P = 100.0  # Very high uncertainty
         state.last_sensor_temperature = 19.0  # Force update
-        state.virtual_temp = 21.0  # Far from sensor
+        state.virtual_temperature = 21.0  # Far from sensor
 
         _compute(_inp(key="kg_high", room_temperature=20.0), params)
         # K ≈ 100 / (100 + 0.04) ≈ 0.9996
-        # virtual_temp should be very close to 20.0
-        assert abs(state.virtual_temp - 20.0) < 0.01
+        # virtual_temperature should be very close to 20.0
+        assert abs(state.virtual_temperature - 20.0) < 0.01
 
     def test_kalman_gain_low_P(self):
         """With low P (relative to R), Kalman gain K → 0, trusting model more."""
@@ -1853,12 +1853,12 @@ class TestKalmanFilter:
         state = _STATES["kg_low"]
         state.kalman_P = 0.0001  # Very low uncertainty
         state.last_sensor_temperature = 19.0  # Force update
-        state.virtual_temp = 21.0  # Far from sensor
+        state.virtual_temperature = 21.0  # Far from sensor
 
         _compute(_inp(key="kg_low", room_temperature=20.0), params)
         # K ≈ 0.0001 / (0.0001 + 0.04) ≈ 0.0025
-        # virtual_temp should barely change
-        assert abs(state.virtual_temp - 21.0) < 0.1
+        # virtual_temperature should barely change
+        assert abs(state.virtual_temperature - 21.0) < 0.1
 
     def test_kalman_predict_uses_gain_and_loss(self):
         """Predict step should use gain*u - loss to forward-predict temperature."""
@@ -1873,17 +1873,17 @@ class TestKalmanFilter:
         state.last_percent = 100.0  # Full open
         state.gain_est = 0.06
         state.loss_est = 0.01
-        vt_before = state.virtual_temp
-        # Move virtual_temp_ts back 60s to get a meaningful predict step
-        state.virtual_temp_ts = time() - 60
+        vt_before = state.virtual_temperature
+        # Move virtual_temperature_ts back 60s to get a meaningful predict step
+        state.virtual_temperature_ts = time() - 60
         # Set sensor same as current to skip update
         state.last_sensor_temperature = 20.0
 
         _compute(_inp(key="kpred", room_temperature=20.0), params)
         # predicted_change_K = gain * u * dt_min - loss * dt_min
         # = 0.06 * 1.0 * 1.0 - 0.01 * 1.0 = 0.05
-        # virtual_temp should have increased (gain > loss at u=1)
-        assert state.virtual_temp > vt_before
+        # virtual_temperature should have increased (gain > loss at u=1)
+        assert state.virtual_temperature > vt_before
 
 
 # ===================================================================
@@ -2020,7 +2020,7 @@ class TestGainLearnCountGuard:
         state.last_percent = (
             5.0  # 5% = 0.05 fractional; u0 = 0.02/0.06 ≈ 0.333; u < u0-0.05
         )
-        state.last_learn_temp = 19.5  # will observe warming from 19.5 to 20.0
+        state.last_learn_temperature = 19.5  # will observe warming from 19.5 to 20.0
         state.last_learn_time = time() - 300
         state.u_integral = 5.0 * 300
         state.time_integral = 300.0
@@ -2067,7 +2067,7 @@ class TestGainRecovery:
         state.gain_est = 0.02  # Artificially low gain
         state.loss_est = 0.005
         state.last_percent = 50.0  # u=0.5
-        state.last_learn_temp = 19.5  # warming from 19.5 to 20.0
+        state.last_learn_temperature = 19.5  # warming from 19.5 to 20.0
         state.last_learn_time = time() - 300
         state.u_integral = 50.0 * 300
         state.time_integral = 300.0
@@ -2093,7 +2093,7 @@ class TestGainRecovery:
         # For no recovery: implied <= 0.10 * 1.1 = 0.11
         # → rate + 0.01 <= 0.055 → rate <= 0.045
         # observed_rate = dT/dt_min; dT=0.1K, dt=5min → rate=0.02
-        state.last_learn_temp = 19.9  # warming 0.1K
+        state.last_learn_temperature = 19.9  # warming 0.1K
         state.last_learn_time = time() - 300
         state.u_integral = 50.0 * 300
         state.time_integral = 300.0
@@ -2125,7 +2125,7 @@ class TestHighUSteadyStateGain:
         state.gain_est = 0.10
         state.loss_est = 0.01
         state.last_percent = 30.0  # u=0.3 > 0.15
-        state.last_learn_temp = 20.0  # no temperature change
+        state.last_learn_temperature = 20.0  # no temperature change
         state.last_learn_time = time() - 400
         state.last_residual_time = time() - 400
         state.u_integral = 30.0 * 400
@@ -2190,7 +2190,7 @@ class TestKaEstDynamicLoss:
         )
         state = _STATES["ka_upd"]
         state.last_percent = 0.0
-        state.last_learn_temp = 21.0
+        state.last_learn_temperature = 21.0
         state.last_learn_time = time() - 300
         state.gain_est = 0.06
         state.loss_est = 0.01
@@ -2226,7 +2226,9 @@ class TestResidualRateLimiting:
         state.gain_est = 0.06
         state.loss_est = 0.01
         state.last_percent = 17.0  # close to u0 = 0.01/0.06 ≈ 0.167 → 16.7%
-        state.last_learn_temp = 20.0  # no temperature change → !temperature_changed
+        state.last_learn_temperature = (
+            20.0  # no temperature change → !temperature_changed
+        )
         state.last_learn_time = now - 300
         state.last_residual_time = now - dt_residual
         state.last_target_temperature = 22.0
@@ -2369,7 +2371,7 @@ class TestStaleStateAnchorReset:
         _compute(_inp(key="stale_full", room_temperature=20.0), params)
         state = _STATES["stale_full"]
         state.last_time = time() - 1000  # 16+ min ago
-        state.last_learn_temp = 18.0
+        state.last_learn_temperature = 18.0
         state.last_learn_time = time() - 1000
         state.u_integral = 5000.0
         state.time_integral = 500.0
@@ -2378,8 +2380,8 @@ class TestStaleStateAnchorReset:
         # After stale detection, anchors should be reset
         assert state.u_integral == 0.0
         assert state.time_integral == 0.0
-        # last_learn_temp should be reset to current value
-        assert state.last_learn_temp == pytest.approx(21.0, abs=0.5)
+        # last_learn_temperature should be reset to current value
+        assert state.last_learn_temperature == pytest.approx(21.0, abs=0.5)
 
 
 # ===================================================================
@@ -2399,7 +2401,7 @@ class TestTargetChangeBoundary:
         )
         state = _STATES["tgt_exact"]
         state.last_target_temperature = 22.0
-        state.last_learn_temp = 20.0
+        state.last_learn_temperature = 20.0
         state.last_learn_time = time() - 300
         state.gain_est = 0.06
         state.loss_est = 0.01
@@ -2424,7 +2426,7 @@ class TestTargetChangeBoundary:
         )
         state = _STATES["tgt_sub"]
         state.last_target_temperature = 22.0
-        state.last_learn_temp = 20.0
+        state.last_learn_temperature = 20.0
         state.last_learn_time = time() - 300
         state.gain_est = 0.06
         state.loss_est = 0.01
@@ -2588,14 +2590,14 @@ class TestKalmanWithoutElapsedTime:
         params = _default_params(use_virtual_temperature=True)
         state = _MpcState()
         _run_at(_NOW, _inp(key="kal0", room_temperature=20.0), params, state)
-        virtual_before = state.virtual_temp
+        virtual_before = state.virtual_temperature
         p_before = state.kalman_P
 
         output = _run_at(_NOW, _inp(key="kal0", room_temperature=20.0), params, state)
 
         assert "kalman_predict_dT" not in output.debug
         assert output.debug["kalman_update"] == "skipped_sensor_unchanged"
-        assert state.virtual_temp == virtual_before
+        assert state.virtual_temperature == virtual_before
         assert state.kalman_P == p_before
 
     def test_elapsed_time_predicts_and_grows_the_covariance(self):
@@ -2625,7 +2627,7 @@ class TestAdaptationFromARestoredAnchor:
     def _anchored_state(self, **overrides) -> _MpcState:
         state = _MpcState(
             last_learn_time=_NOW - 600.0,
-            last_learn_temp=20.0,
+            last_learn_temperature=20.0,
             gain_est=0.06,
             loss_est=0.01,
             created_ts=_NOW - 3600.0,
@@ -2668,7 +2670,7 @@ class TestLearnedMinimumOpeningInIdentification:
     def _state(self, **overrides) -> _MpcState:
         state = _MpcState(
             last_learn_time=_NOW - 600.0,
-            last_learn_temp=20.0,
+            last_learn_temperature=20.0,
             last_target_temperature=22.0,
             last_percent=20.0,
             gain_est=0.06,
@@ -2748,20 +2750,23 @@ class TestPerfCurveWithoutElapsedTime:
     def test_no_elapsed_time_records_no_sample(self):
         """With no minimum window, a repeat at the same instant adds nothing."""
         params = _default_params(perf_curve_min_window_s=0.0)
-        state = _MpcState(last_room_temperature=20.0, last_room_temp_ts=_NOW)
+        state = _MpcState(last_room_temperature=20.0, last_room_temperature_ts=_NOW)
         debug: dict[str, object] = {}
 
         _update_perf_curve(state, self._inp(20.2), params, _NOW, debug)
 
         assert state.perf_curve == {}
         assert debug == {}
-        assert (state.last_room_temperature, state.last_room_temp_ts) == (20.0, _NOW)
+        assert (state.last_room_temperature, state.last_room_temperature_ts) == (
+            20.0,
+            _NOW,
+        )
 
     def test_elapsed_time_records_the_rate(self):
         """A minute later the same rise is recorded as a rate per minute."""
         params = _default_params(perf_curve_min_window_s=0.0)
         state = _MpcState(
-            last_room_temperature=20.0, last_room_temp_ts=_NOW, last_percent=40.0
+            last_room_temperature=20.0, last_room_temperature_ts=_NOW, last_percent=40.0
         )
         debug: dict[str, object] = {}
 
@@ -2776,17 +2781,19 @@ class TestRoomRiseOver:
 
     def test_no_stamp_gives_no_rise(self):
         """A recorded reading without a time stamp has no interval to scale."""
-        state = _MpcState(last_room_temperature=20.0, last_room_temp_ts=0.0)
+        state = _MpcState(last_room_temperature=20.0, last_room_temperature_ts=0.0)
         assert _room_rise_over(state, _inp(room_temperature=21.0), _NOW, 300.0) is None
 
     def test_no_elapsed_time_gives_no_rise(self):
         """A reading taken at this instant spans no interval."""
-        state = _MpcState(last_room_temperature=20.0, last_room_temp_ts=_NOW)
+        state = _MpcState(last_room_temperature=20.0, last_room_temperature_ts=_NOW)
         assert _room_rise_over(state, _inp(room_temperature=21.0), _NOW, 300.0) is None
 
     def test_rise_is_scaled_to_the_window(self):
         """0.4 K over ten minutes scales to 0.2 K over a five-minute window."""
-        state = _MpcState(last_room_temperature=20.0, last_room_temp_ts=_NOW - 600.0)
+        state = _MpcState(
+            last_room_temperature=20.0, last_room_temperature_ts=_NOW - 600.0
+        )
         rise = _room_rise_over(state, _inp(room_temperature=20.4), _NOW, 300.0)
         assert rise == pytest.approx(0.2)
 

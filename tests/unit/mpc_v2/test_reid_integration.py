@@ -36,7 +36,7 @@ from custom_components.better_thermostat.utils.state_manager import (
 )
 
 _REID = MpcV2ReidData(
-    tau_room_min=240.0,
+    tau_room_minutes=240.0,
     gain_heater=3.0,
     fitted_ts=1000.0,
     rmse_prior_kelvin=0.4,
@@ -90,14 +90,14 @@ def test_adopt_is_bumpless() -> None:
     mgr.adopt_mpc_v2_reid("k", _REID)
 
     new_params = MpcV2Params()
-    new_params.plant.tau_room_min = _REID.tau_room_min
+    new_params.plant.tau_room_min = _REID.tau_room_minutes
     new_params.plant.gain_heater = _REID.gain_heater
     rebuilt = mgr.get_mpc_v2_live("k", new_params)
     assert rebuilt is not old
     assert rebuilt.controller is not None
     assert rebuilt.controller is not old.controller
     assert rebuilt.controller._last_u == last_u_before
-    assert rebuilt.controller.plant_fine.params.tau_room_min == _REID.tau_room_min
+    assert rebuilt.controller.plant_fine.params.tau_room_min == _REID.tau_room_minutes
 
 
 def test_adopt_marks_dirty_and_result_readable() -> None:
@@ -107,7 +107,7 @@ def test_adopt_marks_dirty_and_result_readable() -> None:
     assert mgr.dirty is True
     stored = mgr.get_mpc_v2_reid("k")
     assert stored is not None
-    assert stored.tau_room_min == 240.0
+    assert stored.tau_room_minutes == 240.0
 
 
 def test_reid_result_survives_serialization_round_trip() -> None:
@@ -116,7 +116,7 @@ def test_reid_result_survives_serialization_round_trip() -> None:
     mgr.adopt_mpc_v2_reid("k", _REID)
     raw = _serialize(mgr.state)
     restored = _deserialize(raw)
-    assert restored.mpc_v2_reid["k"].tau_room_min == 240.0
+    assert restored.mpc_v2_reid["k"].tau_room_minutes == 240.0
     assert restored.mpc_v2_reid["k"].gain_heater == 3.0
     assert restored.mpc_v2_reid["k"].n_segments == 4
 
@@ -126,7 +126,7 @@ def test_deserialize_rejects_malformed_reid_payload() -> None:
     assert deserialize_mpc_v2_reid({"tau_room_min": 0.0, "gain_heater": 2.0}) is None
     assert deserialize_mpc_v2_reid({"tau_room_min": "junk"}) is None
     ok = deserialize_mpc_v2_reid({"tau_room_min": 300.0, "gain_heater": 2.5})
-    assert ok is not None and ok.tau_room_min == 300.0
+    assert ok is not None and ok.tau_room_minutes == 300.0
 
 
 # -- Dispatcher wiring --------------------------------------------------------
@@ -188,10 +188,10 @@ def test_auto_prior_uses_adopted_reid_result() -> None:
     assert out is not None
     live = bt.state_mgr.get_mpc_v2_live(key, MpcV2Params())
     assert live.controller is not None
-    assert live.controller.plant_fine.params.tau_room_min == _REID.tau_room_min
+    assert live.controller.plant_fine.params.tau_room_min == _REID.tau_room_minutes
     assert live.controller.plant_fine.params.gain_heater == _REID.gain_heater
     debug = bt.real_trvs["climate.x"].calibration_balance["debug"]
-    assert debug["reid_tau_room"] == _REID.tau_room_min
+    assert debug["reid_tau_room"] == _REID.tau_room_minutes
 
 
 def test_out_of_band_stored_prior_never_reaches_the_controller() -> None:
@@ -408,7 +408,7 @@ def test_fit_scheduling_adopts_accepted_outcome(monkeypatch) -> None:
         calls.append(len(samples))
         return ReidOutcome(
             status="accepted",
-            tau_room_min=_REID.tau_room_min,
+            tau_room_min=_REID.tau_room_minutes,
             gain_heater=_REID.gain_heater,
             rmse_prior_K=0.4,
             rmse_fit_K=0.1,
@@ -422,7 +422,7 @@ def test_fit_scheduling_adopts_accepted_outcome(monkeypatch) -> None:
     assert calls == [len(runtime.buffer.samples)]
     adopted = bt.state_mgr.get_mpc_v2_reid(key)
     assert adopted is not None
-    assert adopted.tau_room_min == _REID.tau_room_min
+    assert adopted.tau_room_minutes == _REID.tau_room_minutes
     assert runtime.fit_inflight is False
     bt.schedule_save_state.assert_called()
 
@@ -458,7 +458,7 @@ def test_accepted_fit_is_stamped_on_the_wall_clock(monkeypatch) -> None:
         "run_reid_fit",
         lambda samples, prior: ReidOutcome(
             status="accepted",
-            tau_room_min=_REID.tau_room_min,
+            tau_room_min=_REID.tau_room_minutes,
             gain_heater=_REID.gain_heater,
             rmse_prior_K=0.4,
             rmse_fit_K=0.1,
@@ -527,7 +527,7 @@ def test_adopt_transfers_all_live_controllers_bumplessly() -> None:
     assert mgr.get_mpc_v2_reid(key_a) is None
 
     new_params = MpcV2Params()
-    new_params.plant.tau_room_min = _REID.tau_room_min
+    new_params.plant.tau_room_min = _REID.tau_room_minutes
     new_params.plant.gain_heater = _REID.gain_heater
     for key, old, last_u in ((key_a, old_a, last_u_a), (key_b, old_b, last_u_b)):
         rebuilt = mgr.get_mpc_v2_live(key, new_params)
@@ -551,7 +551,7 @@ def test_adopt_under_shared_key_removes_legacy_bucket_entries() -> None:
     """
     mgr = _make_manager()
     legacy = MpcV2ReidData(
-        tau_room_min=600.0, gain_heater=1.0, fitted_ts=100.0, n_segments=3
+        tau_room_minutes=600.0, gain_heater=1.0, fitted_ts=100.0, n_segments=3
     )
     mgr.adopt_mpc_v2_reid("uid:climate.x:t21.0", legacy)
     mgr.adopt_mpc_v2_reid("uid:group:t19.0", legacy)
@@ -570,7 +570,7 @@ def test_shared_reid_key_survives_serialization_round_trip() -> None:
     mgr = _make_manager()
     mgr.adopt_mpc_v2_reid("uid:reid", _REID)
     restored = _deserialize(_serialize(mgr.state))
-    assert restored.mpc_v2_reid["uid:reid"].tau_room_min == 240.0
+    assert restored.mpc_v2_reid["uid:reid"].tau_room_minutes == 240.0
 
 
 def test_prior_lookup_falls_back_to_legacy_bucket_keys() -> None:
@@ -583,7 +583,7 @@ def test_prior_lookup_falls_back_to_legacy_bucket_keys() -> None:
     assert out is not None
     live = next(iter(bt.state_mgr._mpc_v2_live.values()))
     assert live.controller is not None
-    assert live.controller.plant_fine.params.tau_room_min == _REID.tau_room_min
+    assert live.controller.plant_fine.params.tau_room_min == _REID.tau_room_minutes
 
 
 def test_prior_lookup_prefers_shared_key_over_bucket_entries() -> None:
@@ -592,7 +592,7 @@ def test_prior_lookup_prefers_shared_key_over_bucket_entries() -> None:
 
     bt = _make_bt()
     legacy = MpcV2ReidData(
-        tau_room_min=600.0, gain_heater=1.0, fitted_ts=2_000_000.0, n_segments=3
+        tau_room_minutes=600.0, gain_heater=1.0, fitted_ts=2_000_000.0, n_segments=3
     )
     bt.state_mgr.adopt_mpc_v2_reid("bt:climate.x:t21.0", legacy)
     bt.state_mgr.adopt_mpc_v2_reid("bt:reid", _REID)
@@ -607,10 +607,10 @@ def test_prior_lookup_picks_freshest_legacy_bucket_entry() -> None:
 
     bt = _make_bt()
     stale = MpcV2ReidData(
-        tau_room_min=600.0, gain_heater=1.0, fitted_ts=100.0, n_segments=3
+        tau_room_minutes=600.0, gain_heater=1.0, fitted_ts=100.0, n_segments=3
     )
     fresh = MpcV2ReidData(
-        tau_room_min=300.0, gain_heater=2.5, fitted_ts=200.0, n_segments=3
+        tau_room_minutes=300.0, gain_heater=2.5, fitted_ts=200.0, n_segments=3
     )
     bt.state_mgr.adopt_mpc_v2_reid("bt:climate.x:t19.0", stale)
     bt.state_mgr.adopt_mpc_v2_reid("bt:climate.x:t21.0", fresh)
