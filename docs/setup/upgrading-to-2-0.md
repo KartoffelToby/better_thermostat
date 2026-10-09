@@ -192,7 +192,16 @@ the pause. Your logs get much quieter.
 
 - **Target temperatures** are clamped to the room's range and rounded to
   its step when you set them.
-- **Fahrenheit systems** show tenths of a degree.
+- **Fahrenheit systems** show tenths of a degree. A calibration offset
+  number that Home Assistant shows in °F, such as the eQ-3 Bluetooth and
+  Plugwise offsets, is now read and written as the offset it is, and the
+  Sonoff TRVZB's external temperature input gets the room temperature in the
+  unit it shows. 1.9.2 converted neither.
+- **Z-Wave JS configuration parameters** are no longer used as a calibration
+  entity. The Eurotronic Spirit's temperature offset, parameter 8, counts
+  tenths of a degree, so 1.9.2 applied a tenth of every offset it wrote. A
+  Spirit set to Offset Based calibration gets no offset now; choose Target
+  Temperature Based or Direct Valve Based for it.
 - **`min_temp` and `max_temp`** on the climate entity now cover the heating
   and the cooling range together.
 
