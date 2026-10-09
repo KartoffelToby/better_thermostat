@@ -252,6 +252,7 @@ from .utils.telemetry import (
     collect_cycle_telemetry,
     collect_mpc_v2_debug_attrs,
     collect_pid_debug_attrs,
+    published_temperature_slope,
 )
 from .utils.thermal_learning import (
     HeatingCycle,
@@ -564,15 +565,17 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     _attr_has_entity_name = True
     _attr_name = None
     # ``degraded_for_seconds`` counts up on every write while degraded; the
-    # recorded ``control_mode`` already says when the degradation began. A
-    # telemetry attribute stays out of the recorder under its deprecated name
-    # too.
+    # recorded ``control_mode`` already says when the degradation began. The
+    # filtered room temperature changes with nearly every reading, and the
+    # Temperature EMA sensor records its history. An attribute stays out of
+    # the recorder under its deprecated name too.
     _unrecorded_attributes = (
         TELEMETRY_ATTRIBUTES
-        | {ATTR_STATE_DEGRADED_FOR_SECONDS}
+        | {ATTR_STATE_DEGRADED_FOR_SECONDS, ATTR_STATE_ROOM_TEMPERATURE_FILTERED}
         | {
             DEPRECATED_STATE_ATTRIBUTES[name]
-            for name in TELEMETRY_ATTRIBUTES & DEPRECATED_STATE_ATTRIBUTES.keys()
+            for name in (TELEMETRY_ATTRIBUTES | {ATTR_STATE_ROOM_TEMPERATURE_FILTERED})
+            & DEPRECATED_STATE_ATTRIBUTES.keys()
         }
     )
 
@@ -3766,6 +3769,20 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """
         return self.window_open or self.door_open
 
+    def _minute_tick_attributes(self) -> tuple[float | None, float | None]:
+        """Return the published values the minute EMA tick moves.
+
+        Each is compared at the precision the state publishes it, so a change
+        below one display step does not write a new state.
+        ``degraded_for_seconds`` is not among them: the ladder tick writes the
+        state every minute and keeps it current.
+        """
+        slope = self.temperature_slope
+        return (
+            self.room_temperature_filtered,
+            None if slope is None else published_temperature_slope(slope),
+        )
+
     @property
     @override
     def extra_state_attributes(self) -> dict[str, object]:
@@ -5199,6 +5216,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     last_raw,
                 )
 
+                published_before = self._minute_tick_attributes()
+
                 # Calculate slope from EMA change
                 old_ema = self.room_temperature_ema
                 old_ts = self._slope_periodic_last_ts
@@ -5228,14 +5247,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     self.device_name,
                     new_ema,
                 )
-                # If the sensor entity is listening to state changes, we should trigger an update
-                # But we don't want to spam the state machine if nothing changed significantly?
-                # The sensor entity reads `room_temperature_filtered` from `self`.
-                # We can just write state if we want the sensor to update.
-                # But `async_write_ha_state` updates the climate entity state.
-                # The sensor listens to the climate entity.
-                # So we should call `async_write_ha_state` if we want the sensor to see the new EMA.
-                self.async_write_ha_state()
+                # The EMA sensors read the filter from this entity and update
+                # on its state changes, so a write is what publishes the tick.
+                # A tick that moves no published value writes nothing.
+                if self._minute_tick_attributes() != published_before:
+                    self.async_write_ha_state()
             except Exception as e:
                 _LOGGER.error(
                     "better_thermostat %s: error in _async_update_ema_periodic: %s",
