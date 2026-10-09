@@ -170,6 +170,16 @@ temperature reaches the threshold and ends once it is 1 °C (1.8 °F) below
 it, for the outdoor sensor and the weather entity alike. 1.9.2 switched
 back at the threshold itself. See [Summer mode](/deep-explanations/summer-mode/).
 
+The weather entity changes the same way. 1.9.2 compared its current
+temperature as it was, so a cold night resumed heating and the afternoon
+stopped it again; 2.0 damps it like an outdoor sensor's readings. And
+1.9.2 averaged a daily forecast's highs only, which reads several degrees
+too warm; 2.0 takes the mean of each day's high and low. Both numbers now
+stand for whole days, nights included, and read several degrees lower than
+before. With the threshold you had, summer mode starts later in spring and
+ends earlier in autumn. If the room now heats on days you count as warm,
+lower the threshold.
+
 ### A thermostat keeps rejecting commands
 
 1.9.2 retried a failed control cycle right away, over and over. 2.0 doubles

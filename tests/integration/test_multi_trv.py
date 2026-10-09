@@ -440,6 +440,15 @@ async def _outdoor_sensor_reports(room: OutageRoom) -> None:
 
 
 async def _weather_tick_fires(room: OutageRoom) -> None:
+    """Report warm weather that has held for three days, then fire the hourly check.
+
+    The current temperature of the weather entity is damped over about a
+    day, like an outdoor sensor's, so the entity's clock is moved three days
+    past the report.
+    """
+    clock = FakeClock(monotonic_value=time.monotonic(), now_value=dt_util.now())
+    clock.advance(timedelta(days=3).total_seconds())
+    room.bt.clock = clock
     room.publish_forecast(WARM_OUTSIDE)
     async_fire_time_changed(room.hass, dt_util.utcnow() + timedelta(hours=1, seconds=1))
 
