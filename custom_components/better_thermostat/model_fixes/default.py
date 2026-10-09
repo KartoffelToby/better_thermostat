@@ -13,6 +13,7 @@ from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.better_thermostat.model_fixes.types import (
+    DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS,
     InitialTweakQuirk,
     MaintenanceIntervalQuirk,
     ModelFixHost,
@@ -26,7 +27,7 @@ from ..utils.helpers import find_device_entity
 
 _LOGGER = logging.getLogger(__name__)
 
-VALVE_MAINTENANCE_INTERVAL_HOURS = 168  # Default: 7 days
+VALVE_MAINTENANCE_INTERVAL_HOURS = DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS
 
 
 def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
