@@ -53,7 +53,10 @@ no value for that field.
 
 Controller state is keyed `<unique_id>:<segment>:t<bucket>`: the entry's
 unique id, the thermostat's entity id (or `group` for state the room's
-thermostats share), and the 0.5 °C target bucket. Because the entity id is
+thermostats share), and the 0.5 °C target bucket. A key without a bucket
+whose last part is an entity id, `<unique_id>:<entity_id>`, names that
+thermostat too; a shared key such as `<unique_id>:reid` names none and is
+left alone by both rules below. Because the entity id is
 part of the key, two rules keep the state attached to the device rather
 than to the id:
 
