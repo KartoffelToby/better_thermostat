@@ -237,7 +237,7 @@ class TestTriggerWindowChange:
         bt = _make_bt(window_open=True, close_delay=10)
         bt.hass.states.get.return_value = None
         event = Mock()
-        event.data = {"new_state": None}
+        event.data = dict[str, object](new_state=None)
         await trigger_window_change(bt, event)
         assert bt.kernel_state.window.phase == WindowPhase.CLOSING
         assert bt.window_queue_task.get_nowait() is True

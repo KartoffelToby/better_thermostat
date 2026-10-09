@@ -234,7 +234,7 @@ class TestTriggerDoorChange:
         bt = _make_bt(door_open=True, close_delay=10)
         bt.hass.states.get.return_value = None
         event = Mock()
-        event.data = {"new_state": None}
+        event.data = dict[str, object](new_state=None)
         await trigger_door_change(bt, event)
         assert bt.kernel_state.door.phase == WindowPhase.CLOSING
         assert bt.door_queue_task.get_nowait() is True
