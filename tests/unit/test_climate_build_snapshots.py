@@ -105,11 +105,13 @@ def test_a_trv_that_is_gone_leaves_no_snapshot(bt, gone_state):
     Its cached action and valve position stay on the record for when it
     returns, but the room's action is built only from TRVs that report.
     """
-    gone = trv_from_legacy_dict(
-        "climate.gone",
-        {"hvac_action": "heating", "valve_position": 40, "last_valve_percent": 40},
+    gone = Trv(
+        entity_id="climate.gone",
+        hvac_action="heating",
+        valve_position=40,
+        last_valve_percent=40,
     )
-    present = trv_from_legacy_dict("climate.present", {"hvac_action": "idle"})
+    present = Trv(entity_id="climate.present", hvac_action="idle")
     bt.real_trvs = {"climate.gone": gone, "climate.present": present}
     states = {
         "climate.gone": State("climate.gone", gone_state),
