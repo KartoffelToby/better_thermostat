@@ -42,7 +42,7 @@ RAW = {
 def _entry(runtime_data):
     entry = MagicMock()
     entry.entry_id = "entry"
-    entry.data = {}
+    entry.data = dict[str, object]()
     entry.options = RAW
     entry.runtime_data = runtime_data
     return entry

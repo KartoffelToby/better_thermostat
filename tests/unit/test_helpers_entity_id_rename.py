@@ -62,7 +62,7 @@ def test_an_id_that_already_matches_is_not_rewritten():
     entity_id to itself is a registry error rather than a no-op.
     """
     hass = MagicMock()
-    hass.data = {}
+    hass.data = dict[str, object]()
     reg_entry = _registry_entry("sensor.livingroom_temperature_ema")
     registry = _registry([reg_entry])
     registry.async_regenerate_entity_id.return_value = reg_entry.entity_id
@@ -80,7 +80,7 @@ def test_a_rejected_rename_is_reported_and_the_others_still_run(caplog):
     what keeps a single collision from stopping the rename half-done.
     """
     hass = MagicMock()
-    hass.data = {}
+    hass.data = dict[str, object]()
     blocked = _registry_entry("sensor.livingroom_temperature_ema")
     following = _registry_entry("sensor.livingroom_valve")
     registry = _registry([blocked, following])
@@ -107,7 +107,7 @@ def test_an_entity_of_another_platform_is_skipped():
     the registry under the same config entry.
     """
     hass = MagicMock()
-    hass.data = {}
+    hass.data = dict[str, object]()
     other = _registry_entry("switch.livingroom_child_lock")
     registry = _registry([other])
     registry.async_regenerate_entity_id.return_value = "switch.bedroom_child_lock"

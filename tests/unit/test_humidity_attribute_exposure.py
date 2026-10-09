@@ -22,7 +22,7 @@ class TestHumidityAttributeExposure:
         bt = make_state_attributes_bt(
             humidity_sensor_entity_id=None, _current_humidity=None
         )
-        attrs = BetterThermostat.extra_state_attributes.fget(bt)
+        attrs = BetterThermostat.extra_state_attributes.__get__(bt)
         assert "humidity" not in attrs
 
     def test_no_humidity_key_in_attributes_with_sensor(self):
@@ -35,7 +35,7 @@ class TestHumidityAttributeExposure:
         bt = make_state_attributes_bt(
             humidity_sensor_entity_id="sensor.room_humidity", _current_humidity=42.5
         )
-        attrs = BetterThermostat.extra_state_attributes.fget(bt)
+        attrs = BetterThermostat.extra_state_attributes.__get__(bt)
         assert "humidity" not in attrs
 
     def test_target_humidity_feature_not_advertised(self):
@@ -47,7 +47,7 @@ class TestHumidityAttributeExposure:
             | ClimateEntityFeature.TURN_OFF
             | ClimateEntityFeature.TURN_ON
         )
-        features = BetterThermostat.supported_features.fget(bt)
+        features = BetterThermostat.supported_features.__get__(bt)
         assert ClimateEntityFeature.TARGET_HUMIDITY not in ClimateEntityFeature(
             features
         )
@@ -59,7 +59,7 @@ class TestExtraStateAttributesSmoke:
     def test_returns_dict_with_expected_keys(self):
         """The property returns a dict with the documented top-level keys."""
         bt = make_state_attributes_bt()
-        attrs = BetterThermostat.extra_state_attributes.fget(bt)
+        attrs = BetterThermostat.extra_state_attributes.__get__(bt)
         assert isinstance(attrs, dict)
         for required in (
             "window_open",

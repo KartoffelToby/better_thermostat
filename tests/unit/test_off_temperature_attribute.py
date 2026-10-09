@@ -26,11 +26,11 @@ def mock_bt_with_off_temperature():
     bt.tolerance = 0.5
     bt.bt_target_temperature_step = 0.5
     bt.heating_power = 0.1
-    bt.devices_errors = []
-    bt.devices_states = {}
+    bt.devices_errors = list[str]()
+    bt.devices_states = dict[str, dict[str, str | None]]()
     bt.room_temperature_filtered = 20.5
     bt.degraded_mode = False
-    bt.unavailable_sensors = []
+    bt.unavailable_sensors = list[str]()
     return bt
 
 
@@ -47,11 +47,11 @@ def mock_bt_without_off_temperature():
     bt.tolerance = 0.5
     bt.bt_target_temperature_step = 0.5
     bt.heating_power = 0.1
-    bt.devices_errors = []
-    bt.devices_states = {}
+    bt.devices_errors = list[str]()
+    bt.devices_states = dict[str, dict[str, str | None]]()
     bt.room_temperature_filtered = 20.5
     bt.degraded_mode = False
-    bt.unavailable_sensors = []
+    bt.unavailable_sensors = list[str]()
     return bt
 
 

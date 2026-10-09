@@ -16,6 +16,7 @@ from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.containers import BtConfig
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import (
     COOLER_FAILURE_BACKOFF_BASE_S,
     COOLER_FAILURE_BACKOFF_MAX_RUN,
@@ -29,14 +30,15 @@ from custom_components.better_thermostat.utils.helpers import (
     cooling_owns_dual_role_device,
     last_sent_cooler_temperature,
 )
-from tests.factories import ThermostatStandIn, make_snapshot, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn, make_snapshot
 
 
 def _mock_cooler_state(state=HVACMode.COOL):
     """Build a cooler state whose attributes read like a real entity's."""
     mock_cooler_state = Mock()
     mock_cooler_state.state = state
-    mock_cooler_state.attributes = {"temperature": None}
+    attributes: dict[str, float | None] = {"temperature": None}
+    mock_cooler_state.attributes = attributes
     return mock_cooler_state
 
 
@@ -58,7 +60,7 @@ def _mock_bt():
     mock_self.weather_entity_id = None
     # The cooler of these cases is a device of its own, so the set of
     # controlled thermostats does not contain it.
-    mock_self.real_trvs = {}
+    mock_self.real_trvs = dict[str, Trv]()
     return mock_self
 
 
@@ -79,12 +81,13 @@ class TestControlCooler:
         # Provide a cooler state so the unavailable guard is not triggered
         mock_cooler_state = Mock()
         mock_cooler_state.state = HVACMode.COOL  # currently cooling
-        mock_cooler_state.attributes = {"temperature": None}
+        attributes: dict[str, float | None] = {"temperature": None}
+        mock_cooler_state.attributes = attributes
         mock_hass.states.get.return_value = mock_cooler_state
 
         mock_self = _mock_bt()
         mock_self.hass = mock_hass
-        mock_self.real_trvs = {}
+        mock_self.real_trvs = dict[str, Trv]()
         mock_self.clock = FakeClock()
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
@@ -152,7 +155,7 @@ class TestControlCooler:
 
         mock_self = _mock_bt()
         mock_self.hass = mock_hass
-        mock_self.real_trvs = {}
+        mock_self.real_trvs = dict[str, Trv]()
         mock_self.clock = FakeClock()
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
@@ -197,7 +200,7 @@ class TestControlCooler:
 
         mock_self = _mock_bt()
         mock_self.hass = mock_hass
-        mock_self.real_trvs = {}
+        mock_self.real_trvs = dict[str, Trv]()
         mock_self.clock = FakeClock()
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
@@ -229,7 +232,7 @@ class TestControlCooler:
 
         mock_self = _mock_bt()
         mock_self.hass = mock_hass
-        mock_self.real_trvs = {}
+        mock_self.real_trvs = dict[str, Trv]()
         mock_self.clock = FakeClock()
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
@@ -268,7 +271,7 @@ class TestControlCooler:
 
         mock_self = _mock_bt()
         mock_self.hass = mock_hass
-        mock_self.real_trvs = {}
+        mock_self.real_trvs = dict[str, Trv]()
         mock_self.clock = FakeClock()
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
@@ -301,7 +304,7 @@ class TestControlCooler:
 
         mock_self = _mock_bt()
         mock_self.hass = mock_hass
-        mock_self.real_trvs = {}
+        mock_self.real_trvs = dict[str, Trv]()
         mock_self.clock = FakeClock()
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
@@ -329,7 +332,7 @@ class TestControlCooler:
 
         mock_self = _mock_bt()
         mock_self.hass = mock_hass
-        mock_self.real_trvs = {}
+        mock_self.real_trvs = dict[str, Trv]()
         mock_self.clock = FakeClock()
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
@@ -362,7 +365,7 @@ class TestControlCooler:
 
         mock_self = _mock_bt()
         mock_self.hass = mock_hass
-        mock_self.real_trvs = {}
+        mock_self.real_trvs = dict[str, Trv]()
         mock_self.clock = FakeClock()
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
@@ -437,7 +440,7 @@ def _make_cooler_setup(
 
     mock_self = _mock_bt()
     mock_self.hass = mock_hass
-    mock_self.real_trvs = {}
+    mock_self.real_trvs = dict[str, Trv]()
     mock_self.clock = FakeClock()
     mock_self.outdoor_sensor_entity_id = None
     mock_self.weather_entity_id = None
@@ -1964,6 +1967,7 @@ class TestControlCoolerTargetRange:
         await control_cooler(mock_self)
 
         payload = self._set_temperature_payload(mock_hass)
+        assert payload is not None
         assert payload["target_temp_low"] == payload["target_temp_high"] == 24.0
 
     @pytest.mark.asyncio
@@ -2049,6 +2053,7 @@ class TestControlCoolerTargetRange:
 
         # Without a published step the cooler holds whole degrees Fahrenheit.
         payload = self._set_temperature_payload(mock_hass)
+        assert payload is not None
         assert payload["target_temp_high"] == 75.0  # 24.0 °C is 75.2 °F
         assert payload["target_temp_low"] == 68.0  # 20.0 °C
 
@@ -2520,20 +2525,18 @@ class TestControlCoolerOnADualRoleEntity:
         mock_self, mock_hass, cooler_state = _make_cooler_setup(**kwargs)
         mock_self.cooler_entity_id = cls.SHARED_ID
         mock_self.real_trvs = {
-            cls.SHARED_ID: trv_from_legacy_dict(
-                cls.SHARED_ID,
-                {
-                    "hvac_modes": [
-                        HVACMode.OFF,
-                        HVACMode.HEAT,
-                        HVACMode.COOL,
-                        HVACMode.HEAT_COOL,
-                    ],
-                    "min_temp": 16.0,
-                    "max_temp": 30.0,
-                    "target_temperature_received": True,
-                    "system_mode_received": True,
-                },
+            cls.SHARED_ID: Trv(
+                entity_id=cls.SHARED_ID,
+                hvac_modes=[
+                    HVACMode.OFF,
+                    HVACMode.HEAT,
+                    HVACMode.COOL,
+                    HVACMode.HEAT_COOL,
+                ],
+                min_temp=16.0,
+                max_temp=30.0,
+                target_temperature_received=True,
+                system_mode_received=True,
             )
         }
         return mock_self, mock_hass, cooler_state

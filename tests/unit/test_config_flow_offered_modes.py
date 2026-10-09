@@ -108,6 +108,7 @@ async def _run_advanced(flow):
         patch.object(ConfigFlow, "async_step_confirm", new=confirm),
     ):
         await flow.async_step_advanced({})
+    assert confirm.await_args is not None
     return confirm.await_args[0][1] if len(confirm.await_args[0]) > 1 else None
 
 
@@ -206,7 +207,7 @@ def _a_device_of_model(model):
         yield
 
 
-def _trv_bundle_entry(model):
+def _trv_bundle_entry(model) -> dict[str, object]:
     """Return the one device bundle a config entry carries for ``model``."""
     return {"trv": TRV_ID, "integration": "zha", "model": model, "advanced": {}}
 
