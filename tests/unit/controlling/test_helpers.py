@@ -13,6 +13,7 @@ applied in control_trv (see test_control_trv.py).
 """
 
 import asyncio
+from dataclasses import replace
 import logging
 import traceback
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -44,7 +45,7 @@ from custom_components.better_thermostat.utils.controlling import (
     check_system_mode,
     check_target_temperature,
 )
-from tests.factories import ThermostatStandIn, make_snapshot, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn, make_snapshot
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 
@@ -84,13 +85,11 @@ class TestCheckSystemMode:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {
-                    "hvac_mode": cached_hvac_mode,
-                    "last_hvac_mode": last_hvac_mode,
-                    "system_mode_received": False,
-                },
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                hvac_mode=cached_hvac_mode,
+                last_hvac_mode=last_hvac_mode,
+                system_mode_received=False,
             )
         }
         return mock_self, mock_state
@@ -270,14 +269,17 @@ class TestCheckSystemMode:
 # ---------------------------------------------------------------------------
 
 
-def _seed_pending(*values):
-    """Seed the pending writes as if each value had gone out in order."""
-    return {
-        "pending_setpoints": [
+def _trv_awaiting_writes(commanded_setpoint, *values):
+    """Return a TRV whose writes of ``values`` went out in order, unconfirmed."""
+    return Trv(
+        entity_id="climate.trv1",
+        commanded_setpoint=commanded_setpoint,
+        pending_setpoints=[
             PendingSetpoint(value, index) for index, value in enumerate(values, start=1)
         ],
-        "last_setpoint_write_id": len(values),
-    }
+        last_setpoint_write_id=len(values),
+        target_temperature_received=False,
+    )
 
 
 def _watch_last_write(mock_self, entity_id):
@@ -304,9 +306,10 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temperature_received": False},
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                commanded_setpoint=21.0,
+                target_temperature_received=False,
             )
         }
 
@@ -329,9 +332,10 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temperature_received": False},
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                commanded_setpoint=21.0,
+                target_temperature_received=False,
             )
         }
 
@@ -359,9 +363,10 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temperature_received": False},
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                commanded_setpoint=21.0,
+                target_temperature_received=False,
             )
         }
         trv = mock_self.real_trvs["climate.trv1"]
@@ -410,9 +415,10 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {"commanded_setpoint": written, "target_temperature_received": False},
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                commanded_setpoint=written,
+                target_temperature_received=False,
             )
         }
 
@@ -440,9 +446,10 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temperature_received": False},
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                commanded_setpoint=21.0,
+                target_temperature_received=False,
             )
         }
 
@@ -463,9 +470,10 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temperature_received": False},
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                commanded_setpoint=21.0,
+                target_temperature_received=False,
             )
         }
 
@@ -487,9 +495,10 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temperature_received": False},
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                commanded_setpoint=21.0,
+                target_temperature_received=False,
             )
         }
 
@@ -519,9 +528,10 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temperature_received": False},
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                commanded_setpoint=21.0,
+                target_temperature_received=False,
             )
         }
 
@@ -556,9 +566,10 @@ class TestCheckTargetTemperature:
         the confirmation retires 23.0 alone, and the channel stays closed for
         the watchdog of the newest write to release.
         """
-        trv = trv_from_legacy_dict(
-            "climate.trv1",
-            {"commanded_setpoint": 23.0, "target_temperature_received": False},
+        trv = Trv(
+            entity_id="climate.trv1",
+            commanded_setpoint=23.0,
+            target_temperature_received=False,
         )
         watched = trv.remember_setpoint_written(23.0)
 
@@ -596,9 +607,10 @@ class TestCheckTargetTemperature:
         without a warning; it confirms nothing and leaves the channel to the
         watchdog of the newer write.
         """
-        trv = trv_from_legacy_dict(
-            "climate.trv1",
-            {"commanded_setpoint": 23.0, "target_temperature_received": False},
+        trv = Trv(
+            entity_id="climate.trv1",
+            commanded_setpoint=23.0,
+            target_temperature_received=False,
         )
         watched = trv.remember_setpoint_written(23.0)
         trv.remember_setpoint_written(24.0)
@@ -635,9 +647,10 @@ class TestCheckTargetTemperature:
         poll the watchdog for 23.0 ends, without waiting out the timeout,
         without a warning and without releasing the channel.
         """
-        trv = trv_from_legacy_dict(
-            "climate.trv1",
-            {"commanded_setpoint": 23.0, "target_temperature_received": False},
+        trv = Trv(
+            entity_id="climate.trv1",
+            commanded_setpoint=23.0,
+            target_temperature_received=False,
         )
         watched = trv.remember_setpoint_written(23.0)
 
@@ -676,9 +689,10 @@ class TestCheckTargetTemperature:
     @pytest.mark.asyncio
     async def test_the_watchdog_of_the_newest_write_releases_the_channel(self):
         """The newest write's watchdog confirms it and opens the channel again."""
-        trv = trv_from_legacy_dict(
-            "climate.trv1",
-            {"commanded_setpoint": 24.0, "target_temperature_received": False},
+        trv = Trv(
+            entity_id="climate.trv1",
+            commanded_setpoint=24.0,
+            target_temperature_received=False,
         )
         trv.remember_setpoint_written(23.0)
         newest = trv.remember_setpoint_written(24.0)
@@ -712,14 +726,7 @@ class TestCheckTargetTemperature:
         report of the maintenance value confirms nothing and the control
         write stays a value the device may still echo.
         """
-        trv = trv_from_legacy_dict(
-            "climate.trv1",
-            {
-                "commanded_setpoint": 23.0,
-                **_seed_pending(23.0),
-                "target_temperature_received": False,
-            },
-        )
+        trv = _trv_awaiting_writes(23.0, 23.0)
 
         # The watchdog is polling for 23.0 when maintenance drives the delegate
         # to 8.0; the device then reports the maintenance value.
@@ -759,16 +766,7 @@ class TestCheckTargetTemperature:
         mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
-        mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {
-                    "commanded_setpoint": 25.0,
-                    **_seed_pending(26.0, 25.0),
-                    "target_temperature_received": False,
-                },
-            )
-        }
+        mock_self.real_trvs = {"climate.trv1": _trv_awaiting_writes(25.0, 26.0, 25.0)}
         _, sleep_patch = _sleep_recorder()
 
         with sleep_patch:
@@ -797,16 +795,7 @@ class TestCheckTargetTemperature:
         mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
-        mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {
-                    "commanded_setpoint": 22.0,
-                    **_seed_pending(20.0, 22.0),
-                    "target_temperature_received": False,
-                },
-            )
-        }
+        mock_self.real_trvs = {"climate.trv1": _trv_awaiting_writes(22.0, 20.0, 22.0)}
         _, sleep_patch = _sleep_recorder()
 
         with sleep_patch:
@@ -833,16 +822,7 @@ class TestCheckTargetTemperature:
         mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
-        mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {
-                    "commanded_setpoint": 25.0,
-                    **_seed_pending(26.0, 25.0),
-                    "target_temperature_received": False,
-                },
-            )
-        }
+        mock_self.real_trvs = {"climate.trv1": _trv_awaiting_writes(25.0, 26.0, 25.0)}
         _, sleep_patch = _sleep_recorder()
 
         with sleep_patch, caplog.at_level(logging.WARNING):
@@ -868,9 +848,10 @@ class TestCheckTargetTemperature:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temperature_received": False},
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                commanded_setpoint=21.0,
+                target_temperature_received=False,
             )
         }
 
@@ -893,7 +874,7 @@ class TestGetValveControlBoostCalibrationOutput:
         mock_self.preset_mode = "boost"
         mock_self.room_temperature = 19.0
         mock_self.heat_target_temperature = 22.0
-        mock_self.real_trvs = {"climate.trv1": trv_from_legacy_dict("climate.trv1", {})}
+        mock_self.real_trvs = {"climate.trv1": Trv(entity_id="climate.trv1")}
         return mock_self
 
     def test_boost_direct_valve_returns_valve_settings(self):
@@ -950,9 +931,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self.room_temperature = 19.0
         mock_self.heat_target_temperature = 22.0
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1", {"valve_max_opening": max_opening}
-            )
+            "climate.trv1": Trv(entity_id="climate.trv1", valve_max_opening=max_opening)
         }
         return mock_self
 
@@ -1183,18 +1162,19 @@ class TestCheckCalibration:
             mock_state if live_state is not None else None
         )
 
-        config = {
-            "last_calibration": -2.0,
-            "local_calibration_step": 0.5,
-            "calibration_received": False,
-        }
-        config.update(trv_overrides)
-
         mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict("climate.trv1", config)
+            "climate.trv1": replace(
+                Trv(
+                    entity_id="climate.trv1",
+                    last_calibration=-2.0,
+                    local_calibration_step=0.5,
+                    calibration_received=False,
+                ),
+                **trv_overrides,
+            )
         }
         return mock_self
 
@@ -1520,9 +1500,7 @@ class TestCalibrationMatchTolerance:
         mock_self = ThermostatStandIn()
         mock_self.device_name = "Test"
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1", {"local_calibration_step": step}
-            )
+            "climate.trv1": Trv(entity_id="climate.trv1", local_calibration_step=step)
         }
         return mock_self
 
@@ -1570,9 +1548,10 @@ class TestWriteConfirmTimeout:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {"last_hvac_mode": HVACMode.HEAT, "system_mode_received": False},
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                last_hvac_mode=HVACMode.HEAT,
+                system_mode_received=False,
             )
         }
         durations, sleep_patch = _sleep_recorder()
@@ -1594,9 +1573,10 @@ class TestWriteConfirmTimeout:
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": trv_from_legacy_dict(
-                "climate.trv1",
-                {"commanded_setpoint": 21.0, "target_temperature_received": False},
+            "climate.trv1": Trv(
+                entity_id="climate.trv1",
+                commanded_setpoint=21.0,
+                target_temperature_received=False,
             )
         }
         durations, sleep_patch = _sleep_recorder()
