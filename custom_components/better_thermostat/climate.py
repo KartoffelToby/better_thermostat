@@ -2274,15 +2274,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 "better_thermostat %s: applying restored preset temperature...",
                 self.device_name,
             )
+            self._restore_targets_before_preset(old_state, _old_preset)
             # Restore the persisted per-preset cooling map before applying it below,
             # so a restored preset uses its saved cooling target instead of the default.
-            stored_cool_temperature = _restored_attribute(
-                old_state, ATTR_STATE_PRESET_COOL_TEMPERATURE
-            )
-            if stored_cool_temperature is not None:
-                self._preset_cool_temperature = convert_to_float(
-                    str(stored_cool_temperature), self.device_name, "startup()"
-                )
             stored_cool_temperatures = _restored_attribute(
                 old_state, ATTR_STATE_PRESET_COOL_TEMPERATURES
             )
@@ -2422,15 +2416,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 )
                 if _restored_loss is not None:
                     self.heat_loss_rate = _restored_loss
-            if (
-                old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
-                is not None
-            ):
-                self.preset_mgr.saved_temperature = convert_to_float(
-                    str(old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)),
-                    self.device_name,
-                    "startup()",
-                )
             _LOGGER.debug(
                 "better_thermostat %s: state restoration completed", self.device_name
             )
@@ -2456,6 +2441,64 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 DEFAULT_TARGET_TEMP if _restored_target is None else _restored_target
             )
             _LOGGER.debug("better_thermostat %s: defaults restored", self.device_name)
+
+    def _restore_targets_before_preset(
+        self, old_state: State, old_preset: object
+    ) -> None:
+        """Restore the targets that were in force before the saved preset.
+
+        A preset keeps the targets it replaced and hands them back when it
+        is left. A preset that comes back keeps holding them. A preset that
+        is no longer offered is left at startup, the way a switch back to
+        none leaves it, so the thermostat comes back on those targets rather
+        than on the preset's. Without a preset nothing holds them, and a
+        value carried along would be handed back the next time a preset is
+        left.
+
+        Called once the restored preset mode is set and the saved targets
+        are restored.
+        """
+        stored_heat_target = old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE)
+        heat_target_before_preset = (
+            None
+            if stored_heat_target is None
+            else convert_to_float(
+                str(stored_heat_target), self.device_name, "startup()"
+            )
+        )
+        stored_cool_target = _restored_attribute(
+            old_state, ATTR_STATE_PRESET_COOL_TEMPERATURE
+        )
+        cool_target_before_preset = (
+            None
+            if stored_cool_target is None
+            else convert_to_float(
+                str(stored_cool_target), self.device_name, "startup()"
+            )
+        )
+        if self.preset_mgr.mode != PRESET_NONE:
+            self.preset_mgr.saved_temperature = heat_target_before_preset
+            self._preset_cool_temperature = cool_target_before_preset
+            return
+        if not isinstance(old_preset, str) or old_preset == PRESET_NONE:
+            return
+        _LOGGER.info(
+            "better_thermostat %s: the saved preset %s is no longer offered; "
+            "returning to the targets in force before it",
+            self.device_name,
+            old_preset,
+        )
+        if heat_target_before_preset is not None:
+            self.heat_target_temperature = self._applied_target(
+                heat_target_before_preset
+            )
+        if self.cooler_entity_id is None:
+            return
+        if cool_target_before_preset is not None:
+            self.cool_target_temperature = self._bound_cool_target_to_range(
+                cool_target_before_preset
+            )
+        self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
 
     def _validate_hvac_mode(self, states: list[State]) -> None:
         """Validate and fix HVAC mode after state restoration."""
