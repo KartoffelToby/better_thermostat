@@ -108,6 +108,7 @@ from .entity import (
     announce_learned_state,
     publish_when_availability_changed,
 )
+from .events.contact import OPEN_WORDS
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
@@ -408,7 +409,7 @@ def _seed_contact_region_at_startup(
         )
         return WindowState()
 
-    is_open = state.state in ("on", "true", "open")
+    is_open = _contact_reads_open(state)
     _LOGGER.debug(
         "better_thermostat %s: detected %s state at startup: %s",
         self.device_name,
@@ -416,6 +417,15 @@ def _seed_contact_region_at_startup(
         "Open" if is_open else "Closed",
     )
     return WindowState(phase=WindowPhase.OPEN if is_open else WindowPhase.CLOSED)
+
+
+def _contact_reads_open(state: State | None) -> bool:
+    """Return whether a contact sensor's state reads as open.
+
+    Anything but an open reading counts as closed, a sensor that is missing,
+    unavailable or unknown included, so a lost sensor does not stop heating.
+    """
+    return state is not None and state.state in OPEN_WORDS
 
 
 def _room_sensor_missing(sensor_state: State | None) -> bool:
@@ -3232,6 +3242,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     self._trigger_humidity_change,
                 )
             )
+            await self._hand_over_humidity_state()
         if self._async_unsub_state_changed is None:
             self._async_unsub_state_changed = async_track_state_change_event(
                 self.hass, self.entity_ids, self._trigger_trv_change
@@ -3255,6 +3266,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     self.hass, [self.door_sensor_entity_id], self._trigger_door_change
                 )
             )
+        await self._hand_over_contact_states()
         if self.cooler_entity_id is not None:
             _shared_entity_id = dual_role_entity_id(self)
             if _shared_entity_id is None:
@@ -3393,6 +3405,71 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 context=sensor_state.context,
             )
         )
+
+    async def _hand_over_humidity_state(self) -> None:
+        """Read the humidity sensor again once its listener exists.
+
+        Startup reads the humidity once, well before the listener is
+        registered, and a sensor that changed in between may not publish
+        again for a long time. The current reading is therefore taken the
+        way the listener takes one.
+        """
+        humidity_entity_id = self.humidity_sensor_entity_id
+        if humidity_entity_id is None:
+            return
+        humidity_state = self.hass.states.get(humidity_entity_id)
+        if humidity_state is None:
+            return
+        await self._trigger_humidity_change(
+            Event(
+                EVENT_STATE_CHANGED,
+                EventStateChangedData(
+                    entity_id=humidity_entity_id,
+                    old_state=None,
+                    new_state=humidity_state,
+                ),
+                context=humidity_state.context,
+            )
+        )
+
+    async def _hand_over_contact_states(self) -> None:
+        """Hand the window and door sensors' current states to their regions.
+
+        The regions are seeded from the sensors when startup begins, and the
+        listeners exist only from the end of startup on. A window opened or
+        closed in between publishes no further change, so a state that
+        disagrees with its region is handed over the way the listener hands
+        one over, debounce delays included.
+        """
+        for entity_id, region, trigger in (
+            (
+                self.window_sensor_entity_id,
+                self.kernel_state.window,
+                trigger_window_change,
+            ),
+            (
+                self.door_sensor_entity_id,
+                self.kernel_state.door,
+                trigger_door_change,
+            ),
+        ):
+            if entity_id is None:
+                continue
+            contact_state = self.hass.states.get(entity_id)
+            if contact_state is None:
+                continue
+            if _contact_reads_open(contact_state) == region.effective_open:
+                continue
+            await trigger(
+                self,
+                Event(
+                    EVENT_STATE_CHANGED,
+                    EventStateChangedData(
+                        entity_id=entity_id, old_state=None, new_state=contact_state
+                    ),
+                    context=contact_state.context,
+                ),
+            )
 
     async def _reconcile_tick(self, now: datetime | None = None) -> None:
         """Periodic reconciliation tick (see controlling.reconcile_tick)."""

@@ -256,6 +256,8 @@ def _startup_bt(advanced):
     mock._startup_control_trvs = AsyncMock()
     mock._initialize_arrived_trvs = AsyncMock()
     mock._hand_over_room_sensor_state = AsyncMock()
+    mock._hand_over_humidity_state = AsyncMock()
+    mock._hand_over_contact_states = AsyncMock()
     mock.async_update_ha_state = AsyncMock()
     mock.hass = MagicMock()
     return mock

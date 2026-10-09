@@ -3885,6 +3885,8 @@ class TestATrvThatArrivesAfterStartup:
         order = []
         bt._initialize_arrived_trvs = AsyncMock()
         bt._hand_over_room_sensor_state = AsyncMock()
+        bt._hand_over_humidity_state = AsyncMock()
+        bt._hand_over_contact_states = AsyncMock()
         bt._spawn_owned = MagicMock(
             side_effect=lambda coro, name: (order.append("read"), coro.close())
         )
