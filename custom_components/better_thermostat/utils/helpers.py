@@ -16,7 +16,6 @@ from homeassistant.components.climate.const import (
     ClimateEntityFeature,
     HVACMode,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_NAME,
     STATE_UNAVAILABLE,
@@ -61,6 +60,7 @@ from custom_components.better_thermostat.utils.const import (
 if TYPE_CHECKING:
     from homeassistant.core import Event, EventStateChangedData
 
+    from custom_components.better_thermostat import BetterThermostatConfigEntry
     from custom_components.better_thermostat.adapters.types import (
         AdapterHost,
         AdapterProbeHost,
@@ -107,7 +107,7 @@ class _DeviceModelHost(_RegistryHost, Protocol):
         ...
 
 
-def entry_settings(entry: ConfigEntry) -> dict[str, object]:
+def entry_settings(entry: BetterThermostatConfigEntry) -> dict[str, object]:
     """Return the configuration of ``entry``, wherever it is stored.
 
     Better Thermostat 2.0 keeps the settings in the entry's options and leaves
@@ -131,7 +131,7 @@ def setting_str(settings: Mapping[str, object], key: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def entry_name(entry: ConfigEntry) -> str:
+def entry_name(entry: BetterThermostatConfigEntry) -> str:
     """Return the name of ``entry``: the stored name, else the entry's title.
 
     The name is read without parsing the settings, so it also works for an
@@ -277,7 +277,7 @@ _NO_RECORDED_NAME: Final = object()
 
 @callback
 def async_normalize_bt_entity_ids(
-    hass: HomeAssistant, entry: ConfigEntry, domain: str
+    hass: HomeAssistant, entry: BetterThermostatConfigEntry, domain: str
 ) -> None:
     """Rename BT registry entries to follow a change of the thermostat name.
 
@@ -306,7 +306,7 @@ def async_normalize_bt_entity_ids(
     hass : HomeAssistant
         The running Home Assistant instance, supplying the entity registry
         and the runtime data the recorded names live in.
-    entry : ConfigEntry
+    entry : BetterThermostatConfigEntry
         The config entry whose entities are named after it.
     domain : str
         The entity platform being set up; only its registry entries are

@@ -40,6 +40,8 @@ from custom_components.better_thermostat.utils.scheduler import request_control_
 from .const import DOMAIN
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from custom_components.better_thermostat.climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
@@ -433,7 +435,7 @@ DEFAULT_OPTIONAL_SENSOR_DELAYS: tuple[int, ...] = (3, 5, 10, 15, 25)
 async def await_optional_sensors(
     self: BetterThermostat,
     delays: tuple[int, ...] | list[int] = DEFAULT_OPTIONAL_SENSOR_DELAYS,
-    _sleep=None,
+    _sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> list[str]:
     """Wait for optional sensors to become available with increasing delays.
 
@@ -524,7 +526,7 @@ DEFAULT_CRITICAL_ENTITY_DELAYS: tuple[int, ...] = (3, 5, 10, 15, 25, 30)
 async def await_critical_entities(
     self: BetterThermostat,
     delays: tuple[int, ...] | list[int] = DEFAULT_CRITICAL_ENTITY_DELAYS,
-    _sleep=None,
+    _sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> list[str]:
     """Wait for critical entities (TRVs) to become available with retry delays.
 
