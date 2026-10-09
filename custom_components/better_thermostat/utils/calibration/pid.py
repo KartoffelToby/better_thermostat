@@ -21,6 +21,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, Literal, Protocol, TypedDict
 
 from ...core.calibrator import CalibratorHealth
+from ...core.watchdog import CONTROL_TICK_S
 
 if TYPE_CHECKING:
     from ...climate import BetterThermostat
@@ -33,6 +34,13 @@ _LOGGER = logging.getLogger(__name__)
 # switched away and back hours later) cannot wind the integrator up in one
 # giant step.
 MAX_DT_S = 600.0
+
+# The interval ``PIDParams.d_smoothing_alpha`` is defined over: a new
+# reading gets that weight after one recompute tick. Over a shorter or
+# longer interval the weight follows the same first-order filter, so the
+# smoothed measurement moves at the same rate per second however closely
+# the control cycles follow one another.
+D_SMOOTHING_INTERVAL_S = CONTROL_TICK_S
 
 
 class PIDDebugInfo(TypedDict, total=False):
@@ -168,6 +176,8 @@ class PIDParams:
     i_max: float = 100.0
     # Derivative on measurement
     d_on_measurement: bool = True
+    # Weight of a new reading in the D channel's smoothed measurement after
+    # D_SMOOTHING_INTERVAL_S; shorter intervals give it proportionally less.
     d_smoothing_alpha: float = 0.5
     # Auto-Tuning
     auto_tune: bool = DEFAULT_PID_AUTO_TUNE
@@ -180,6 +190,10 @@ class PIDParams:
     kd_min: float = 100.0
     kd_max: float = 10000.0
     kd_step_mul: float = 1.1
+    # Inside the steady-state band Kd falls back toward kd_relax_target by
+    # this factor per tune, undoing the damping overshoots added.
+    kd_relax_mul: float = 0.99
+    kd_relax_target: float = DEFAULT_PID_KD
     ki_min: float = 0.001
     ki_max: float = 2.0
     ki_step_mul_up: float = 1.2
@@ -197,6 +211,41 @@ class PIDParams:
 def _r(value: float | None, decimals: int = 2) -> float | None:
     """Round to decimals if not None."""
     return round(value, decimals) if value is not None else None
+
+
+def _cycle_interval_s(state: PIDState, now: float) -> float:
+    """Return the seconds since the previous cycle, bounded to [1, MAX_DT_S].
+
+    A stale ``pid_last_time`` (calibrator switched away and back hours
+    later) would otherwise produce a huge interval and wind the integrator
+    up in one step.
+    """
+    dt = now - state.pid_last_time if state.pid_last_time > 0 else 0.0
+    dt = max(dt, 1.0)
+    return min(dt, MAX_DT_S)
+
+
+def _smoothed_measurement(
+    params: PIDParams, state: PIDState, reading: float, dt: float
+) -> float:
+    """Blend a reading into the D channel's smoothed measurement.
+
+    The weight of the reading grows with the time since the previous
+    cycle: ``d_smoothing_alpha`` after :data:`D_SMOOTHING_INTERVAL_S`, less
+    after a shorter interval. Two cycles a second apart therefore move the
+    smoothed value by a second's worth, and the derivative computed from it
+    stays bounded however small ``dt`` gets. Without a previous measurement
+    or its timestamp the reading is taken as it is.
+    """
+    previous = state.pid_last_meas
+    if previous is None or state.pid_last_time <= 0:
+        return reading
+    try:
+        alpha = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
+    except TypeError, ValueError:
+        alpha = 0.5
+    weight = 1.0 - (1.0 - alpha) ** (dt / D_SMOOTHING_INTERVAL_S)
+    return (1.0 - weight) * previous + weight * reading
 
 
 # --- PID Computation -----------------------------------------------
@@ -253,15 +302,8 @@ def observe_standby(
 
     _forget_stamps_from_a_previous_uptime(state, now)
     if params.d_on_measurement:
-        try:
-            a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-        except TypeError, ValueError:
-            a = 0.5
-        prev = state.pid_last_meas
-        state.pid_last_meas = (
-            room_temperature
-            if prev is None
-            else ((1.0 - a) * prev + a * room_temperature)
+        state.pid_last_meas = _smoothed_measurement(
+            params, state, room_temperature, _cycle_interval_s(state, now)
         )
     else:
         state.pid_last_meas = room_temperature
@@ -361,13 +403,7 @@ def compute_pid(
     st.previous_abs_error = st.last_abs_error
     st.last_abs_error = abs(delta_kelvin)
 
-    # Time difference, bounded to [1.0, MAX_DT_S] seconds. A stale
-    # pid_last_time (calibrator switched away and back hours later) would
-    # otherwise produce a huge dt and wind the integrator up in one step.
-    dt = now - st.pid_last_time if st.pid_last_time > 0 else 0.0
-    if dt <= 0 or dt < 1.0:
-        dt = 1.0
-    dt = min(dt, MAX_DT_S)
+    dt = _cycle_interval_s(st, now)
 
     # Initialize the learned gains once from the passed-in params
     if st.pid_kp is None:
@@ -391,17 +427,12 @@ def compute_pid(
     if params.d_on_measurement:
         # Use effective current temperature (EMA) for derivative
         meas_now = room_temperature
-        # EMA smoothing for the D channel only
-        try:
-            a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-        except TypeError, ValueError:
-            a = 0.5
+        smoothed = _smoothed_measurement(params, st, meas_now, dt)
         prev = st.pid_last_meas
-        smoothed = meas_now if prev is None else ((1.0 - a) * prev + a * meas_now)
-        if prev is not None:
+        if prev is not None and st.pid_last_time > 0:
             d_meas = (smoothed - prev) / dt
             d_term = -float(st.pid_kd) * d_meas
-        # Stored (smoothed) measurement is updated after the u calculation below
+        # The smoothed measurement is stored after the u calculation below
     # Derivative on error: use the previous cycle's stored error so a setpoint
     # change produces a derivative kick. This is what distinguishes the mode
     # from derivative-on-measurement above, where the setpoint term cancels.
@@ -491,6 +522,10 @@ def compute_pid(
     ):
         target_changed = True
     st.last_target_temperature = inp_target_temperature
+    if target_changed:
+        # The side of the target the room was on belongs to the old target;
+        # against the new one it would read as a crossing.
+        st.last_delta_sign = None
 
     # 4. Hold-Time Check
     time_since_change = now - st.last_output_change_ts
@@ -523,14 +558,8 @@ def compute_pid(
     st.last_percent = percent
 
     # Update PID state (store the measurement for the D term)
-    if params.d_on_measurement:
-        base = room_temperature
-        try:
-            a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-        except TypeError, ValueError:
-            a = 0.5
-        prev = st.pid_last_meas
-        st.pid_last_meas = base if prev is None else ((1.0 - a) * prev + a * base)
+    if smoothed is not None:
+        st.pid_last_meas = smoothed
     else:
         st.pid_last_meas = room_temperature
     # Refresh the last error together with pid_last_time on every cycle,
@@ -613,25 +642,30 @@ def _auto_tune_pid(
     """Very conservative auto-tuning based on simple heuristics.
 
     Goals:
-    - On frequent overshoot (ΔT changes sign, peak > overshoot_threshold): lower kp a bit, raise kd a bit.
+    - On overshoot (the room crosses the target and ends up more than
+      overshoot_threshold_K beyond it): lower kp and ki a bit, raise kd a bit.
     - On sluggishness (ΔT > band_near and slope very small): raise ki a bit (moderately).
     - In quasi-steady state (|ΔT| < steady_state_band and small percent): lower ki a bit to avoid drift.
+    - Inside the steady-state band: let kd fall back toward kd_relax_target.
     - Minimum interval between adjustments (tune_min_interval_s), clamp the gains within limits.
+
+    ``last_delta_sign`` holds the side of the target the room was last
+    found on beyond ``overshoot_threshold_K``: +1 below it, -1 above it.
+    An overshoot is the room turning up beyond the threshold on the other
+    side. An approach that enters the steady-state band without crossing
+    the target is not one.
     """
     try:
         # Minimum interval
         if (now_ts - st.last_tune_ts) < params.tune_min_interval_s:
             return
-        sign = 1 if delta_kelvin > 0 else (-1 if delta_kelvin < 0 else 0)
-        overshoot = False
-        # Harden overshoot detection: only when previous abs(error) > band and new abs(error) < band
-        if (
-            st.previous_abs_error is not None
-            and st.previous_abs_error > params.steady_state_band_K
-            and abs(delta_kelvin) < params.steady_state_band_K
-        ):
-            overshoot = True
-        st.last_delta_sign = sign if sign != 0 else st.last_delta_sign
+        threshold = params.overshoot_threshold_K
+        side = (
+            1 if delta_kelvin > threshold else (-1 if delta_kelvin < -threshold else 0)
+        )
+        overshoot = side != 0 and st.last_delta_sign == -side
+        if side != 0:
+            st.last_delta_sign = side
 
         tuned = False
         kp = params.kp if st.pid_kp is None else float(st.pid_kp)
@@ -662,13 +696,21 @@ def _auto_tune_pid(
             ki = max(params.ki_min, min(params.ki_max, ki * params.ki_step_mul_down))
             tuned = True
 
+        # 4) Inside the band: Kd relaxes toward its target, never below it
+        if (
+            abs(delta_kelvin) < params.steady_state_band_K
+            and kd > params.kd_relax_target
+        ):
+            kd = max(params.kd_relax_target, kd * params.kd_relax_mul)
+            tuned = True
+
         if tuned:
             st.pid_kp = kp
             st.pid_ki = ki
             st.pid_kd = kd
             st.last_tune_ts = now_ts
     except ValueError, TypeError:
-        # Best-effort: numerische Probleme ignorieren
+        # Best-effort: ignore numerical problems
         return
 
 

@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from custom_components.better_thermostat.utils.calibration.pid import (
+    D_SMOOTHING_INTERVAL_S,
     MAX_DT_S,
     PIDDebugInfo,
     PIDParams,
@@ -177,11 +178,11 @@ class TestPIDController:
             key=key,
         )
 
-        # Second call: overshoot (negative error < band)
+        # Second call: the room crossed the target and ended up beyond it
         self._compute(
             params=params,
             inp_target_temperature=22.0,
-            inp_room_temperature=22.05,  # error = -0.05 < band
+            inp_room_temperature=22.6,  # error = -0.6, beyond the 0.5 K threshold
             inp_trv_temperature=21.0,
             inp_temperature_slope_K_per_min=0.0,
             key=key,
@@ -204,7 +205,7 @@ class TestPIDController:
         key = "test_zero_gains"
         self._states[key] = PIDState(pid_kp=50.0, pid_ki=0.0, pid_kd=0.0)
 
-        for room_temperature in (20.0, 22.05):
+        for room_temperature in (20.0, 22.6):
             self._compute(
                 params=params,
                 inp_target_temperature=22.0,
@@ -392,7 +393,7 @@ class TestPIDController:
         assert ki_after_sluggish is not None
         assert ki_after_sluggish > params.ki  # Increased
 
-        # Second: overshoot (previous abs > band, current abs < band)
+        # Second: overshoot (crossing the target to beyond the threshold)
         self._compute(
             params=params,
             inp_target_temperature=20.8,  # error = 0.8 > band
@@ -404,7 +405,7 @@ class TestPIDController:
         self._compute(
             params=params,
             inp_target_temperature=20.8,
-            inp_room_temperature=20.83,  # error = -0.03 < band
+            inp_room_temperature=21.4,  # error = -0.6, beyond the 0.5 K threshold
             inp_trv_temperature=21.0,
             inp_temperature_slope_K_per_min=0.0,
             key=key,
@@ -419,50 +420,49 @@ class TestPIDController:
         )  # No further change to ki
         assert state_after_combined.pid_kp < params.kp  # Decreased due to overshoot
 
-    def test_auto_tune_stability_over_cycles(self):
-        """Test stability of auto-tuning over multiple cycles without oscillation."""
+    def test_auto_tune_damps_a_sustained_oscillation(self):
+        """Every swing across the target beyond the threshold damps the gains.
+
+        Kp never rises and Kd never falls while the room keeps swinging, and
+        both stay inside their tuning limits.
+        """
         params = PIDParams(
             auto_tune=True,
             tune_min_interval_s=0.0,
             overshoot_threshold_K=0.3,
             steady_state_band_K=0.1,
-            kp_step_mul=0.95,  # Conservative
+            kp_step_mul=0.95,
             ki_step_mul_up=1.05,
             ki_step_mul_down=0.95,
         )
-        key = "test_stability"
+        key = "test_oscillation"
 
         kp_values = []
-        ki_values = []
-
-        # Simulate 10 cycles with varying errors
+        kd_values = []
         for i in range(10):
-            error = 2.0 if i % 2 == 0 else -0.5  # Alternate positive and overshoot
-            room_temperature = 20.0 + (2.0 - error)  # Adjust to create error
+            error = 2.0 if i % 2 == 0 else -0.5
             self._compute(
                 params=params,
                 inp_target_temperature=22.0,
-                inp_room_temperature=room_temperature,
+                inp_room_temperature=22.0 - error,
                 inp_trv_temperature=21.0,
-                inp_temperature_slope_K_per_min=0.0,
+                # A swinging room moves fast: the sluggish rule stays out.
+                inp_temperature_slope_K_per_min=0.05,
                 key=key,
             )
             state = self._state(key)
             assert state is not None
             assert state.pid_kp is not None
-            assert state.pid_ki is not None
+            assert state.pid_kd is not None
             kp_values.append(state.pid_kp)
-            ki_values.append(state.pid_ki)
+            kd_values.append(state.pid_kd)
 
-        # Check that gains don't oscillate wildly (variance should be low)
-        kp_variance = sum(
-            (x - sum(kp_values) / len(kp_values)) ** 2 for x in kp_values
-        ) / len(kp_values)
-        ki_variance = sum(
-            (x - sum(ki_values) / len(ki_values)) ** 2 for x in ki_values
-        ) / len(ki_values)
-        assert kp_variance < 10.0  # Arbitrary threshold for stability
-        assert ki_variance < 0.01
+        assert all(b <= a for a, b in zip(kp_values, kp_values[1:]))
+        assert all(b >= a for a, b in zip(kd_values, kd_values[1:]))
+        # Nine crossings after the first cycle set the side.
+        assert kp_values[-1] == pytest.approx(params.kp * 0.95**9)
+        assert params.kp_min <= kp_values[-1]
+        assert kd_values[-1] <= params.kd_max
 
     def test_derivative_on_measurement(self):
         """Test derivative on measurement with smoothing."""
@@ -779,13 +779,20 @@ class TestPidDerivativeSmoothing:
         state = PIDState(pid_last_meas=20.0, pid_last_time=1000.0)
 
         _, debug, state = compute_pid(
-            params, 22.0, 21.0, 21.0, 0.0, "k", state=state, now=1010.0
+            params,
+            22.0,
+            21.0,
+            21.0,
+            0.0,
+            "k",
+            state=state,
+            now=1000.0 + D_SMOOTHING_INTERVAL_S,
         )
 
         assert debug["meas_smooth_C"] == 20.5
-        # (20.5 - 20.0) / 10 s
-        assert debug["d_meas_per_s"] == pytest.approx(0.05)
-        assert debug["d"] == pytest.approx(-5.0)
+        # (20.5 - 20.0) / 300 s
+        assert debug["d_meas_per_s"] == pytest.approx(0.5 / 300.0, abs=1e-4)
+        assert debug["d"] == pytest.approx(-100.0 * 0.5 / 300.0, abs=0.01)
         # The stored measurement blends 20.0 and 21.0 again with 0.5.
         assert state.pid_last_meas == pytest.approx(20.5)
 
@@ -802,12 +809,70 @@ class TestPidDerivativeSmoothing:
         state = PIDState(pid_last_meas=20.0, pid_last_time=1000.0)
 
         _, debug, state = compute_pid(
-            params, 22.0, 21.0, 21.0, 0.0, "k", state=state, now=1010.0
+            params,
+            22.0,
+            21.0,
+            21.0,
+            0.0,
+            "k",
+            state=state,
+            now=1000.0 + D_SMOOTHING_INTERVAL_S,
         )
 
         assert debug["meas_smooth_C"] == 20.25
-        assert debug["d"] == pytest.approx(-2.5)
+        assert debug["d"] == pytest.approx(-100.0 * 0.25 / 300.0, abs=0.01)
         assert state.pid_last_meas == pytest.approx(20.25)
+
+    @pytest.mark.parametrize("kd", [2000.0, 10000.0])
+    @pytest.mark.parametrize("gap_seconds", [1.0, 2.0, 5.0])
+    def test_cycles_seconds_apart_do_not_kick_the_valve(self, gap_seconds, kd):
+        """A cycle seconds after a sensor step leaves the valve where it was.
+
+        The room settles at 20.0 °C, the sensor then reports 20.1 °C, and
+        three more cycles follow seconds apart with the reading unchanged,
+        as a TRV report right after a sensor report produces them.
+        """
+        params = PIDParams(auto_tune=False, kd=kd, min_hold_time_s=0.0)
+        state = PIDState()
+        now = 1000.0
+        for _ in range(40):
+            now += 300.0
+            compute_pid(params, 21.0, 20.0, 20.0, 0.0, "k", state=state, now=now)
+
+        now += 300.0
+        step_percent, step_debug, state = compute_pid(
+            params, 21.0, 20.1, 20.0, 0.0, "k", state=state, now=now
+        )
+        for _ in range(3):
+            now += gap_seconds
+            percent, debug, state = compute_pid(
+                params, 21.0, 20.1, 20.0, 0.0, "k", state=state, now=now
+            )
+
+            assert abs(debug["d"]) <= abs(step_debug["d"])
+            assert abs(percent - step_percent) <= 2
+
+    def test_the_smoothed_value_depends_on_elapsed_time_not_on_cycle_count(self):
+        """Five minutes of readings smooth alike in one cycle or in many."""
+        params = PIDParams(auto_tune=False, min_hold_time_s=0.0)
+        one_cycle = PIDState(pid_last_meas=20.0, pid_last_time=1000.0)
+        many_cycles = PIDState(pid_last_meas=20.0, pid_last_time=1000.0)
+
+        compute_pid(params, 22.0, 21.0, 21.0, 0.0, "k", state=one_cycle, now=1300.0)
+        for second in range(1, 301):
+            compute_pid(
+                params,
+                22.0,
+                21.0,
+                21.0,
+                0.0,
+                "k",
+                state=many_cycles,
+                now=1000.0 + second,
+            )
+
+        assert one_cycle.pid_last_meas == pytest.approx(20.5)
+        assert many_cycles.pid_last_meas == pytest.approx(20.5)
 
 
 class TestPidKeyBucket:
