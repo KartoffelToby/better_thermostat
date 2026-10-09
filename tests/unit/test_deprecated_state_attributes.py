@@ -17,9 +17,10 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_PRESET_COOL_TEMPERATURE,
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     DEPRECATED_STATE_ATTRIBUTES,
+    CalibrationMode,
 )
 from custom_components.better_thermostat.utils.telemetry import TELEMETRY_ATTRIBUTES
-from tests.factories import make_state_attributes_bt, make_trv
+from tests.factories import make_balance, make_state_attributes_bt, make_trv
 
 
 def test_every_deprecated_attribute_is_published_with_the_current_value():
@@ -70,8 +71,8 @@ def test_the_table_holds_every_name_1_9_published():
     assert DEPRECATED_STATE_ATTRIBUTES == _PUBLISHED_BY_1_9
 
 
-def _trv(debug: dict[str, object]) -> Trv:
-    return make_trv(calibration_balance={"debug": debug})
+def _trv(controller: CalibrationMode, debug: dict[str, object]) -> Trv:
+    return make_trv(calibration_balance=make_balance(controller, debug))
 
 
 _PID_DEBUG = {
@@ -94,11 +95,18 @@ _MPC_V2_DEBUG = {
 
 
 @pytest.mark.parametrize(
-    ("debug", "renamed"), [(_PID_DEBUG, 4), (_MPC_V2_DEBUG, 6)], ids=["pid", "mpc_v2"]
+    ("controller", "debug", "renamed"),
+    [
+        (CalibrationMode.PID_CALIBRATION, _PID_DEBUG, 4),
+        (CalibrationMode.MPC_V2_CALIBRATION, _MPC_V2_DEBUG, 6),
+    ],
+    ids=["pid", "mpc_v2"],
 )
-def test_controller_telemetry_is_published_under_both_names(debug, renamed):
+def test_controller_telemetry_is_published_under_both_names(controller, debug, renamed):
     """A controller's telemetry carries its deprecated names with the same values."""
-    entity = make_state_attributes_bt(real_trvs={"climate.trv": _trv(debug)})
+    entity = make_state_attributes_bt(
+        real_trvs={"climate.trv": _trv(controller, debug)}
+    )
 
     attrs = BetterThermostat.extra_state_attributes.fget(entity)
 

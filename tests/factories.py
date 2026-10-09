@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 import functools
 import inspect
 from pathlib import Path
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
@@ -37,8 +38,10 @@ from custom_components.better_thermostat.core.snapshot import (
     WorldSnapshot,
 )
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.controlling import TaskManager
 from custom_components.better_thermostat.utils.preset_manager import PresetManager
+from custom_components.better_thermostat.utils.telemetry import CalibrationBalance
 
 DEFAULT_TRV_ID = "climate.trv"
 DEFAULT_CONFIG_ENTRY_ID = "config_entry_1"
@@ -129,6 +132,42 @@ def trv_from_legacy_dict(entity_id: str, data: Mapping[str, object]) -> Trv:
     trv = Trv(entity_id=entity_id, **fields_in)
     trv.extra.update(extra)
     return trv
+
+
+def make_balance(
+    controller: CalibrationMode,
+    debug: Mapping[str, object],
+    *,
+    valve_percent: float = 0.0,
+    apply_valve: bool = True,
+) -> CalibrationBalance:
+    """Return a calibration balance as the calibration ``controller`` writes it.
+
+    Parameters
+    ----------
+    controller : CalibrationMode
+        The calibration that wrote the balance.
+    debug : Mapping[str, object]
+        The debug payload of that calibration.
+    valve_percent : float
+        The valve opening the balance commands.
+    apply_valve : bool
+        Whether the TRV takes a direct valve write.
+
+    Returns
+    -------
+    CalibrationBalance
+        The balance, tagged with ``controller``.
+    """
+    return cast(
+        "CalibrationBalance",
+        {
+            "valve_percent": valve_percent,
+            "apply_valve": apply_valve,
+            "controller": controller,
+            "debug": dict(debug),
+        },
+    )
 
 
 def make_trv(entity_id: str = DEFAULT_TRV_ID, **fields) -> Trv:
