@@ -111,6 +111,7 @@ def test_cooling_rounds_setpoint_toward_closed():
     assert idle == pytest.approx(20.5)
     assert cooling == pytest.approx(20.5)
     assert nearest == pytest.approx(21.0)
+    assert cooling is not None
     assert cooling < 20.9
 
 
@@ -139,6 +140,7 @@ def test_cooling_rounds_local_offset_toward_closed():
     assert idle == pytest.approx(0.5)
     assert cooling == pytest.approx(0.5)
     assert nearest == pytest.approx(0.0)
+    assert cooling is not None
     assert 20.9 + cooling >= 21.0
 
 
@@ -226,6 +228,9 @@ def test_overheating_protection_applies_to_idle_only():
     assert cooling_setpoint == pytest.approx(19.0)
     assert idle_setpoint == pytest.approx(7.0)
     assert cooling_offset == pytest.approx(2.0)
+    assert idle_offset is not None
+    assert cooling_offset is not None
+    assert cooling_setpoint is not None
     assert idle_offset > cooling_offset
     # Both arms hold the valve shut: the TRV reads 21.0 against a 21.0 target.
     assert cooling_setpoint < 21.0
@@ -261,5 +266,9 @@ def test_cooling_never_opens_further_than_idle(
         build_bt(hvac_action=HVACAction.COOLING, **kwargs), ENTITY_ID
     )
 
+    assert cooling_setpoint is not None
+    assert idle_setpoint is not None
+    assert cooling_offset is not None
+    assert idle_offset is not None
     assert cooling_setpoint <= idle_setpoint
     assert cooling_offset >= idle_offset
