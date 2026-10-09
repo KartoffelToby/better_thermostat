@@ -16,27 +16,34 @@ from custom_components.better_thermostat.trv import Trv
 from tests.factories import make_state_attributes_bt
 
 
+def _extra_state_attributes(bt: BetterThermostat) -> dict[str, object]:
+    """Read the property off the stand-in through the class's own getter."""
+    getter = BetterThermostat.extra_state_attributes.fget
+    assert getter is not None
+    return getter(bt)
+
+
 class TestNextValveMaintenance:
     """The schedule stamp is published as ISO8601 when it is a timestamp."""
 
     def test_absent_without_a_schedule(self):
         """No schedule means no key."""
         bt = make_state_attributes_bt(next_valve_maintenance=None)
-        attrs = BetterThermostat.extra_state_attributes.fget(bt)
+        attrs = _extra_state_attributes(bt)
         assert "next_valve_maintenance" not in attrs
 
     def test_timestamp_is_published_as_iso8601(self):
         """A datetime schedule is rendered in ISO8601."""
         due = datetime(2026, 1, 8, 12, 0, tzinfo=UTC)
         bt = make_state_attributes_bt(next_valve_maintenance=due)
-        attrs = BetterThermostat.extra_state_attributes.fget(bt)
+        attrs = _extra_state_attributes(bt)
         assert attrs["next_valve_maintenance"] == due.isoformat()
 
     def test_a_schedule_that_is_not_a_timestamp_surfaces(self):
         """A stamp without ``isoformat`` raises rather than dropping the key."""
         bt = make_state_attributes_bt(next_valve_maintenance="2026-01-08T12:00:00")
         with pytest.raises(AttributeError):
-            BetterThermostat.extra_state_attributes.fget(bt)
+            _extra_state_attributes(bt)
 
 
 class TestValveMethod:
@@ -47,14 +54,14 @@ class TestValveMethod:
         bt = make_state_attributes_bt(
             real_trvs={"climate.trv": Trv(entity_id="climate.trv")}
         )
-        attrs = BetterThermostat.extra_state_attributes.fget(bt)
+        attrs = _extra_state_attributes(bt)
         assert "valve_method" not in attrs
 
     def test_reported_methods_are_summarized(self):
         """Each TRV that reports a method appears in the summary."""
         trv = Trv(entity_id="climate.trv", last_valve_method="adapter")
         bt = make_state_attributes_bt(real_trvs={"climate.trv": trv})
-        attrs = BetterThermostat.extra_state_attributes.fget(bt)
+        attrs = _extra_state_attributes(bt)
         assert attrs["valve_method"] == {"climate.trv": "adapter"}
 
     def test_only_reporting_trvs_appear(self):
@@ -64,5 +71,5 @@ class TestValveMethod:
         bt = make_state_attributes_bt(
             real_trvs={"climate.a": reporting, "climate.b": silent}
         )
-        attrs = BetterThermostat.extra_state_attributes.fget(bt)
+        attrs = _extra_state_attributes(bt)
         assert attrs["valve_method"] == {"climate.a": "adapter"}

@@ -50,16 +50,16 @@ class TestConfigIsFrozen:
         """The container itself is frozen."""
         config = BtConfig(device_name="Test BT")
         with pytest.raises(FrozenInstanceError):
-            config.tolerance = 1.0
+            setattr(config, "tolerance", 1.0)
 
     def test_config_bridges_are_read_only(self):
         """The entity bridges for config fields have no setter."""
         bare = _bare_entity()
         assert bare.tolerance == 0.3
         with pytest.raises(AttributeError):
-            bare.tolerance = 1.0
+            setattr(bare, "tolerance", 1.0)
         with pytest.raises(AttributeError):
-            bare.device_name = "other"
+            setattr(bare, "device_name", "other")
 
 
 class TestRuntimeAndLearnedBridges:
@@ -90,4 +90,4 @@ class TestRuntimeAndLearnedBridges:
         )
         assert bare.window_open is True
         with pytest.raises(AttributeError):
-            bare.window_open = False
+            setattr(bare, "window_open", False)
