@@ -49,6 +49,7 @@ from homeassistant.components.number import (
     NumberEntity,
     NumberMode,
 )
+from homeassistant.components.select import DOMAIN as SELECT_DOMAIN, SelectEntity
 from homeassistant.config_entries import ConfigFlow
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.data_entry_flow import FlowResultType
@@ -69,10 +70,12 @@ from .device_profiles import (
     OffsetChannel,
     RoleScenario,
     ValveChannel,
+    external_temperature_number_id,
     offset_number_id,
     published_precision,
     published_temperature,
     published_unit,
+    sensor_selector_id,
     valve_number_id,
 )
 
@@ -174,6 +177,10 @@ class SimulatedClimate(ClimateEntity):
         self.profile = profile
         self.offset_number: SimulatedOffsetNumber | None = None
         self.valve_number: SimulatedValveNumber | None = None
+        self.external_temperature_number: SimulatedExternalTemperatureNumber | None = (
+            None
+        )
+        self.sensor_selector: SimulatedSensorSelector | None = None
         self._attr_name = profile.entity_name
         self._attr_temperature_unit = profile.temperature_unit
         self._attr_hvac_modes = list(profile.hvac_modes)
@@ -319,6 +326,51 @@ class SimulatedValveNumber(_SimulatedNumber):
         self._attr_native_value = 0.0
 
 
+class SimulatedExternalTemperatureNumber(_SimulatedNumber):
+    """The input a device regulates on in place of its own sensor."""
+
+    _attr_name = "external temperature input"
+    _attr_translation_key = "external_temperature_input"
+    _attr_native_min_value = 0.0
+    _attr_native_max_value = 99.9
+    _attr_native_step = 0.1
+
+    def __init__(self, profile: DeviceProfile):
+        """Start the device out with no value written yet."""
+        super().__init__(profile, "external_temperature_input")
+        self._attr_native_value = 0.0
+
+
+class SimulatedSensorSelector(SelectEntity):
+    """The selector that decides which sensor a device regulates on.
+
+    It confirms every selection into its state and records it.
+    """
+
+    _attr_should_poll = False
+    _attr_name = "temperature sensor select"
+    _attr_translation_key = "temperature_sensor_select"
+    _attr_options = ["internal", "external"]
+
+    def __init__(self, profile: DeviceProfile):
+        """Attach the selector to the profile's device on its starting option."""
+        self._attr_unique_id = (
+            f"{_object_id(profile.entity_id)}_temperature_sensor_select"
+        )
+        self._attr_device_info = DeviceInfo(
+            identifiers=_device_identifiers(profile), model=profile.model
+        )
+        self._attr_current_option = profile.external_sensor_selection
+        self.select_option_calls: list[str] = []
+
+    @override
+    async def async_select_option(self, option: str) -> None:
+        """Apply and confirm a selection."""
+        self.select_option_calls.append(option)
+        self._attr_current_option = option
+        self.async_write_ha_state()
+
+
 @dataclass(frozen=True)
 class WiredRoom:
     """The devices one role scenario wired, and the scenario that named them."""
@@ -392,6 +444,7 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
     if not with_device and any(
         p.offset_channel is OffsetChannel.NUMBER_ENTITY
         or p.valve_channel is ValveChannel.NUMBER_ENTITY
+        or p.external_temperature_input
         for p in profiles
     ):
         raise ValueError("a number channel needs has_device_registry_entry=True")
@@ -411,6 +464,7 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
 
     entities: list[SimulatedClimate] = []
     numbers: list[_SimulatedNumber] = []
+    selects: list[SimulatedSensorSelector] = []
     for profile in profiles:
         entity = SimulatedClimate(profile)
         # Pinned before adding: without it a device-backed entity is
@@ -426,10 +480,19 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
             valve.entity_id = valve_number_id(profile)
             entity.valve_number = valve
             numbers.append(valve)
+        if profile.external_temperature_input:
+            external_input = SimulatedExternalTemperatureNumber(profile)
+            external_input.entity_id = external_temperature_number_id(profile)
+            entity.external_temperature_number = external_input
+            numbers.append(external_input)
+            selector = SimulatedSensorSelector(profile)
+            selector.entity_id = sensor_selector_id(profile)
+            entity.sensor_selector = selector
+            selects.append(selector)
         entities.append(entity)
 
     if with_device:
-        await _add_devices_from_config_entry(hass, entities, numbers)
+        await _add_devices_from_config_entry(hass, entities, numbers, selects)
     else:
         await _add_devices_from_yaml(hass, entities)
 
@@ -438,6 +501,8 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
         assert hass.states.get(entity.entity_id) is not None
     for number in numbers:
         assert hass.states.get(number.entity_id) is not None
+    for select in selects:
+        assert hass.states.get(select.entity_id) is not None
     return entities
 
 
@@ -449,14 +514,18 @@ async def _add_devices_from_yaml(hass, entities) -> None:
     )
 
 
-async def _add_devices_from_config_entry(hass, entities, numbers) -> None:
+async def _add_devices_from_config_entry(hass, entities, numbers, selects) -> None:
     """Add the entities through a config entry, so they get a device.
 
     Every line is load-bearing: without the mocked config flow platform the
     setup fails with "Platform test.config_flow not found", and without the
     mocked flow handler with "Flow handler not found".
     """
-    platforms = [CLIMATE_DOMAIN] + ([NUMBER_DOMAIN] if numbers else [])
+    platforms = (
+        [CLIMATE_DOMAIN]
+        + ([NUMBER_DOMAIN] if numbers else [])
+        + ([SELECT_DOMAIN] if selects else [])
+    )
 
     async def async_setup_entry(hass, entry):
         await hass.config_entries.async_forward_entry_setups(entry, platforms)
@@ -472,6 +541,10 @@ async def _add_devices_from_config_entry(hass, entities, numbers) -> None:
     if numbers:
         setup_test_component_platform(
             hass, NUMBER_DOMAIN, numbers, from_config_entry=True
+        )
+    if selects:
+        setup_test_component_platform(
+            hass, SELECT_DOMAIN, selects, from_config_entry=True
         )
     device_entry = MockConfigEntry(domain=DEVICE_INTEGRATION)
     device_entry.add_to_hass(hass)

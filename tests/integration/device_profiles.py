@@ -86,6 +86,11 @@ class DeviceProfile:
 
     ``valve_maintenance`` is the per-device option of the same name in the
     config entry.
+
+    ``external_temperature_input`` puts the input a device regulates on in
+    place of its own sensor on the device, together with the selector that
+    switches between the two, the way a Sonoff TRVZB exposes them. The
+    selector starts on ``external_sensor_selection``.
     """
 
     name: str
@@ -113,6 +118,8 @@ class DeviceProfile:
     valve_channel: ValveChannel = ValveChannel.NONE
     system_unit: UnitOfTemperature | None = None
     valve_maintenance: bool = False
+    external_temperature_input: bool = False
+    external_sensor_selection: str = "external"
 
 
 def published_unit(profile: DeviceProfile) -> UnitOfTemperature:
@@ -166,6 +173,16 @@ def offset_number_id(profile: DeviceProfile) -> str:
 def valve_number_id(profile: DeviceProfile) -> str:
     """Return the entity id of the valve number on this device."""
     return f"number.{profile.entity_id.split('.', 1)[1]}_valve_position"
+
+
+def external_temperature_number_id(profile: DeviceProfile) -> str:
+    """Return the entity id of the external temperature input on this device."""
+    return f"number.{profile.entity_id.split('.', 1)[1]}_external_temperature_input"
+
+
+def sensor_selector_id(profile: DeviceProfile) -> str:
+    """Return the entity id of the temperature sensor selector on this device."""
+    return f"select.{profile.entity_id.split('.', 1)[1]}_temperature_sensor_select"
 
 
 @dataclass(frozen=True)
@@ -382,6 +399,23 @@ Its valve is driven by the quirk module of its model rather than by anything
 the ecosystem publishes, so the valve channel of this device is invisible to
 the adapter that serves it. The device registry model is the whole of what
 makes it this device: it is what selects the quirk.
+"""
+
+EXTERNAL_INPUT_TRVZB = DeviceProfile(
+    name="external_input_trvzb",
+    integration="mqtt",
+    calibration="local_calibration_based",
+    has_device_registry_entry=True,
+    model="TRVZB",
+    current_temperature=19.0,
+    offset_channel=OffsetChannel.NUMBER_ENTITY,
+    external_temperature_input=True,
+)
+"""A Zigbee2MQTT Sonoff TRVZB that regulates on the room temperature BT writes.
+
+The device carries an external temperature input and the selector that
+points its control loop at that input instead of its own sensor. The model
+selects the TRVZB quirk, which is what writes the input and the selector.
 """
 
 RANGE_ONLY_HEAT_TRV = DeviceProfile(

@@ -32,7 +32,10 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.better_thermostat.calibration import effective_room_temperature
-from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.climate import (
+    EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
+    BetterThermostat,
+)
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.fsm.control_mode import (
     LADDER_TICK_S,
@@ -61,7 +64,12 @@ from .conftest import (
     wait_for,
     wait_for_startup,
 )
-from .device_profiles import GENERIC_HEAT_TRV, MQTT_OFFSET_TRV, TRV_ID
+from .device_profiles import (
+    EXTERNAL_INPUT_TRVZB,
+    GENERIC_HEAT_TRV,
+    MQTT_OFFSET_TRV,
+    TRV_ID,
+)
 
 # A grace window that is already over by the time the first check runs, for
 # the tests that are about what happens once waiting has to stop.
@@ -624,6 +632,101 @@ async def test_a_room_sensor_that_reports_after_a_fallback_start_takes_over(
     assert effective_room_temperature(bt) == 17.0
     assert await wait_for(hass, lambda: degraded_issue_sensors(hass, bt) is None)
     assert bt.unavailable_sensors == []
+
+
+async def let_keepalive_ticks_pass(hass, ticks: int) -> None:
+    """Run the external temperature keepalive ``ticks`` times on its timer."""
+    start = dt_util.utcnow()
+    for tick in range(1, ticks + 1):
+        async_fire_time_changed(
+            hass,
+            start
+            + tick * (EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL + timedelta(seconds=1)),
+        )
+        await hass.async_block_till_done()
+
+
+REPAIRED_EXTERNAL_INPUT_TRVZB = replace(
+    EXTERNAL_INPUT_TRVZB,
+    name="repaired_external_input_trvzb",
+    external_sensor_selection="internal",
+)
+"""A TRVZB that came back from re-pairing on its own sensor."""
+
+
+@pytest.mark.parametrize(
+    "fake_trv", [REPAIRED_EXTERNAL_INPUT_TRVZB], indirect=True, ids=profile_id
+)
+async def test_a_trv_on_an_external_input_is_left_to_its_own_sensor_after_a_fallback_start(
+    hass, fake_trv
+):
+    """A device is not held on a room temperature no sensor has measured.
+
+    A room that starts without its sensor takes its temperature from a TRV,
+    or makes one up, and controls on the TRV temperature from then on. A
+    device that regulates on an external input is left without writes for
+    as long, so it falls back to its own sensor rather than regulating on a
+    value nothing measures, and its sensor selector stays where it is. The
+    first reading the sensor gives is written to the input, the selector is
+    pointed at it, and the keepalive holds the device there from then on.
+    """
+    external_input = fake_trv.external_temperature_number
+    selector = fake_trv.sensor_selector
+    assert external_input is not None and selector is not None
+
+    bt = await start_without_room_sensor(hass, fake_trv, "unavailable")
+    await hass.async_block_till_done()
+    assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+
+    await let_keepalive_ticks_pass(hass, 3)
+
+    assert external_input.set_value_calls == []
+    assert selector.select_option_calls == []
+
+    set_room_sensor(hass, 22.0)
+    assert await wait_for(hass, lambda: external_input.set_value_calls == [22.0])
+    assert selector.select_option_calls == ["external"]
+
+    await let_keepalive_ticks_pass(hass, 1)
+
+    assert external_input.set_value_calls == [22.0, 22.0]
+
+
+@pytest.mark.parametrize(
+    "sensor_state", ["unavailable", "unknown"], ids=["unavailable", "unknown"]
+)
+@pytest.mark.parametrize(
+    "fake_trv", [EXTERNAL_INPUT_TRVZB], indirect=True, ids=profile_id
+)
+async def test_a_trv_on_an_external_input_is_not_held_on_the_last_reading_of_a_lost_sensor(
+    hass, fake_trv, sensor_state
+):
+    """The last reading of a sensor that went away is not kept alive.
+
+    The room temperature stays at the sensor's last reading through an
+    outage, and the room itself moves on. Re-sending that reading would
+    keep the device regulating on a temperature the room has left, so the
+    keepalive pauses for the outage and the device falls back to its own
+    sensor.
+    """
+    external_input = fake_trv.external_temperature_number
+    assert external_input is not None
+    set_room_sensor(hass, 20.5)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+
+    await let_keepalive_ticks_pass(hass, 1)
+    assert external_input.set_value_calls[-1] == 20.5
+    external_input.set_value_calls.clear()
+
+    hass.states.async_set(SENSOR_ID, sensor_state)
+    await hass.async_block_till_done()
+    await let_keepalive_ticks_pass(hass, 3)
+
+    assert bt.room_temperature == 20.5
+    assert external_input.set_value_calls == []
 
 
 async def test_a_room_sensor_with_an_implausible_reading_at_boot_hands_the_room_to_the_trv(
