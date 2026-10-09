@@ -335,9 +335,9 @@ def test_make_plant_prior_preset_overrides_learnings() -> None:
     assert PLANT_PRESETS[MpcV2PlantPreset.SMALL_ROOM].tau_room_min != 999.0
 
 
-def test_make_plant_prior_unknown_preset_falls_back_to_derivation() -> None:
-    """An unknown preset name falls back to heat-loss derivation."""
-    prior = make_plant_prior(heat_loss_rate=0.03, preset="bogus_room")
+def test_make_plant_prior_auto_preset_falls_back_to_derivation() -> None:
+    """The AUTO preset has no static entry and derives from the heat-loss rate."""
+    prior = make_plant_prior(heat_loss_rate=0.03, preset=MpcV2PlantPreset.AUTO)
     assert abs(prior.tau_room_min - 500.0) < 1e-6
 
 

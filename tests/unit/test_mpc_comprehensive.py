@@ -15,6 +15,7 @@ from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_module
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
+    MpcDebugInfo,
     MpcInput,
     MpcOutput,
     MpcParams,
@@ -1134,7 +1135,7 @@ class TestPerfCurveSampling:
         state = _MpcState()
         params = _default_params()
         inp = _inp(room_temperature=None)
-        debug = {}
+        debug: MpcDebugInfo = {}
         _update_perf_curve(state, inp, params, time(), debug)
         assert state.perf_curve == {}
 
@@ -1151,7 +1152,7 @@ class TestPerfCurveSampling:
 
         # Second call: 60s later, temperature rose
         state.last_percent = 40.0
-        debug = {}
+        debug: MpcDebugInfo = {}
         inp2 = _inp(room_temperature=20.5)
         _update_perf_curve(state, inp2, params, now + 60, debug)
         assert len(state.perf_curve) > 0
@@ -1163,7 +1164,7 @@ class TestPerfCurveSampling:
         state.last_room_temperature = 20.0
         state.last_room_temperature_ts = time() - 600
         params = _default_params()
-        debug = {}
+        debug: MpcDebugInfo = {}
         inp = _inp(window_open=True, room_temperature=20.5)
         _update_perf_curve(state, inp, params, time(), debug)
         # Should reset baseline but not record a bin
@@ -1175,7 +1176,7 @@ class TestPerfCurveSampling:
         state.last_room_temperature = 20.0
         state.last_room_temperature_ts = time() - 1  # 1 second ago
         params = _default_params(perf_curve_min_window_s=300.0)
-        debug = {}
+        debug: MpcDebugInfo = {}
         inp = _inp(room_temperature=20.5)
         _update_perf_curve(state, inp, params, time(), debug)
         assert "perf_curve_bin" not in debug
@@ -2789,7 +2790,7 @@ class TestPerfCurveWithoutElapsedTime:
         """With no minimum window, a repeat at the same instant adds nothing."""
         params = _default_params(perf_curve_min_window_s=0.0)
         state = _MpcState(last_room_temperature=20.0, last_room_temperature_ts=_NOW)
-        debug: dict[str, object] = {}
+        debug: MpcDebugInfo = {}
 
         _update_perf_curve(state, self._inp(20.2), params, _NOW, debug)
 
@@ -2806,7 +2807,7 @@ class TestPerfCurveWithoutElapsedTime:
         state = _MpcState(
             last_room_temperature=20.0, last_room_temperature_ts=_NOW, last_percent=40.0
         )
-        debug: dict[str, object] = {}
+        debug: MpcDebugInfo = {}
 
         _update_perf_curve(state, self._inp(20.2), params, _NOW + 60.0, debug)
 
