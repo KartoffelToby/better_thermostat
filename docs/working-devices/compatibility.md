@@ -91,7 +91,7 @@ On a system set to Fahrenheit, temperatures are shown in °F, but rates and diff
 
 ### A Celsius TRV on a Fahrenheit system reports whole degrees
 
-Many TRVs work in Celsius. On a system set to Fahrenheit, Home Assistant shows their setpoint in °F, rounded to a whole degree unless the integration states a finer precision. Zigbee2MQTT does not state one. When Better Thermostat writes 71.5 °F, such a TRV shows 71 °F or 72 °F. Better Thermostat counts that as its own write coming back, so it does not take the rounded value as your new target. The flip side: turning such a TRV by less than one whole degree Fahrenheit does not show up in Home Assistant, so Better Thermostat cannot see that turn either.
+Many TRVs work in Celsius. On a system set to Fahrenheit, Home Assistant shows their setpoint in °F, rounded to a whole degree unless the integration states a finer precision. Zigbee2MQTT does not state one. A setpoint of 71.5 °F would come back from such a TRV as 71 °F or 72 °F, never as written, so Better Thermostat sends it whole degrees only: a target of 70.5 °F reaches the TRV as 70 °F or 71 °F. The TRV's own half-degree Celsius step is 0.9 °F, so little precision is lost. Your target stays 70.5 °F, and a turn of one step at the TRV still shows up as a new target. A turn small enough that Home Assistant shows the same whole degree does not show up, so Better Thermostat cannot see that turn either. The same applies to a cooler that Home Assistant shows in whole degrees.
 
 ### Learning modes need time, and some are still in testing
 
