@@ -170,3 +170,21 @@ class TestStandbyObservation:
         observe_standby(params, state, 21.0, now=1000.0)
 
         assert state.pid_last_meas == pytest.approx(20.25)
+
+
+class TestDebugRecord:
+    """The debug record of a cycle."""
+
+    def test_a_record_that_cannot_be_built_is_marked_and_the_output_kept(self):
+        """An infinite hold time has no whole number of remaining seconds.
+
+        The cycle still computes its output; only the debug record falls back
+        to saying it could not be built.
+        """
+        params = PIDParams(auto_tune=False, min_hold_time_s=float("inf"))
+
+        percent, debug, state = _compute(params, PIDState())
+
+        assert percent > 0.0
+        assert state.last_output_change_ts == 1000.0
+        assert debug == {"mode": "pid", "error": "debug_failed"}
