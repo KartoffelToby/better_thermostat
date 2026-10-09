@@ -2,6 +2,7 @@
 
 import json
 
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.telemetry import (
     TELEMETRY_ATTRIBUTES,
     collect_balance_attrs,
@@ -78,7 +79,7 @@ class TestCollectBalanceAttrs:
         """Nothing is emitted when both slope and per-TRV balance are absent."""
         bt = ThermostatStandIn()
         bt.temperature_slope = None
-        bt.real_trvs = {}
+        bt.real_trvs = dict[str, Trv]()
         out = collect_balance_attrs(bt)
         assert out == {}
 
@@ -86,7 +87,7 @@ class TestCollectBalanceAttrs:
         """temperature_slope is rounded to 4 decimal places for readability."""
         bt = ThermostatStandIn()
         bt.temperature_slope = 0.001234567
-        bt.real_trvs = {}
+        bt.real_trvs = dict[str, Trv]()
         out = collect_balance_attrs(bt)
         assert out["temperature_slope_kelvin_per_min"] == 0.0012
 
@@ -103,7 +104,9 @@ class TestCollectBalanceAttrs:
             ),
         }
         out = collect_balance_attrs(bt)
-        parsed = json.loads(out["calibration_balance"])
+        balance = out["calibration_balance"]
+        assert isinstance(balance, str)
+        parsed = json.loads(balance)
         assert parsed == {"climate.a": {"valve%": 70}, "climate.b": {"valve%": 30}}
 
     def test_trv_without_balance_skipped(self):
@@ -120,7 +123,9 @@ class TestCollectBalanceAttrs:
             ),
         }
         out = collect_balance_attrs(bt)
-        parsed = json.loads(out["calibration_balance"])
+        balance = out["calibration_balance"]
+        assert isinstance(balance, str)
+        parsed = json.loads(balance)
         assert parsed == {"climate.a": {"valve%": 50}}
 
 
@@ -145,7 +150,7 @@ class TestCollectPidDebugAttrs:
     def test_empty_when_no_trvs(self):
         """Nothing is emitted when real_trvs is empty."""
         bt = ThermostatStandIn()
-        bt.real_trvs = {}
+        bt.real_trvs = dict[str, Trv]()
         out = collect_pid_debug_attrs(bt)
         assert out == {}
 
@@ -279,8 +284,9 @@ def _reject_constant(constant: str) -> object:
     raise ValueError(f"not valid JSON: {constant}")
 
 
-def _parse_as_a_consumer_would(payload: str) -> object:
+def _parse_as_a_consumer_would(payload: object) -> object:
     """Parse a serialized attribute the way a parser outside Python does."""
+    assert isinstance(payload, str)
     return json.loads(payload, parse_constant=_reject_constant)
 
 
@@ -300,7 +306,7 @@ class TestNonFiniteValuesStayOutOfTheAttributes:
         bt.last_heat_loss_stats = None
         bt.heating_power_normalized = None
         bt.temperature_slope = None
-        bt.real_trvs = {}
+        bt.real_trvs = dict[str, Trv]()
         bt.__dict__.update(overrides)
         return bt
 
@@ -375,7 +381,7 @@ class TestNonFiniteValuesStayOutOfTheAttributes:
 # ---------------------------------------------------------------------------
 
 
-def _fully_populated_bt(debug: dict) -> ThermostatStandIn:
+def _fully_populated_bt(debug: dict[str, object]) -> ThermostatStandIn:
     """Build a stand-in on which every collector emits every key it knows."""
     bt = _bt_with_pid(
         ["climate.a"],

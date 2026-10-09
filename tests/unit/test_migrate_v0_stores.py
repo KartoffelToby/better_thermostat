@@ -90,10 +90,8 @@ class TestFilterByPrefix:
 
     def test_non_string_keys_excluded(self) -> None:
         """Non-string keys are excluded (defensive against corrupt data)."""
-        raw = {
-            "uid1:trv_a": {"gain_est": 0.5},
-            42: {"gain_est": 0.8},  # type: ignore[dict-item]
-        }
+        raw: object = {"uid1:trv_a": {"gain_est": 0.5}, 42: {"gain_est": 0.8}}
+        assert isinstance(raw, dict)
         result = _filter_by_prefix(raw, "uid1:")
         assert len(result) == 1
 
@@ -244,10 +242,8 @@ class TestImportLegacyData:
     def test_import_skips_non_dict_values(self) -> None:
         """Non-dict values in the data dicts are silently skipped."""
         mgr = _make_state_manager()
-        mpc_data = {
-            "good_key": {"gain_est": 0.5},
-            "bad_key": "not_a_dict",  # type: ignore[dict-item]
-        }
+        mpc_data: object = {"good_key": {"gain_est": 0.5}, "bad_key": "not_a_dict"}
+        assert isinstance(mpc_data, dict)
 
         _import_legacy_data(mgr, mpc_data=mpc_data)
 
@@ -294,7 +290,7 @@ class TestImportLegacyData:
     def test_thermal_non_dict_ignored(self) -> None:
         """Non-dict thermal_data is silently ignored."""
         mgr = _make_state_manager()
-        _import_legacy_data(mgr, thermal_data="not_a_dict")  # type: ignore[arg-type]
+        _import_legacy_data(mgr, thermal_data="not_a_dict")
 
         assert mgr.thermal == ThermalStats()
 
@@ -319,7 +315,7 @@ class TestMigrateV0Stores:
         """Migration is skipped when the unified store already has MPC data."""
         mgr = _make_state_manager()
         mgr.set_mpc("existing_key", MpcState(gain_est=1.0))
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         await migrate_v0_stores(
             AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
@@ -332,7 +328,7 @@ class TestMigrateV0Stores:
         """Migration is skipped when the unified store already has PID data."""
         mgr = _make_state_manager()
         mgr.set_pid("existing_key", PIDState(pid_kp=2.0))
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         await migrate_v0_stores(
             AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
@@ -345,7 +341,7 @@ class TestMigrateV0Stores:
         """Migration is skipped when the unified store already has TPI data."""
         mgr = _make_state_manager()
         mgr.set_tpi("existing_key", TpiState(last_percent=50.0))
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         await migrate_v0_stores(
             AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
@@ -358,7 +354,7 @@ class TestMigrateV0Stores:
         """Migration is skipped when thermal stats already have values."""
         mgr = _make_state_manager()
         mgr.thermal = ThermalStats(heating_power=1000.0)
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         await migrate_v0_stores(
             AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
@@ -370,7 +366,7 @@ class TestMigrateV0Stores:
     async def test_imports_all_four_stores(self) -> None:
         """All four legacy stores are read and their data imported."""
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         mpc_store = _make_mock_store(
             {"uid1:trv_a:t22": {"gain_est": 0.5, "loss_est": 0.02}}
@@ -415,7 +411,7 @@ class TestMigrateV0Stores:
     async def test_filters_by_entity_prefix(self) -> None:
         """Only entries matching the entity prefix are imported."""
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         mpc_store = _make_mock_store(
             {"uid1:trv_a:t22": {"gain_est": 0.5}, "uid2:trv_a:t22": {"gain_est": 0.9}}
@@ -440,7 +436,7 @@ class TestMigrateV0Stores:
     async def test_partial_stores_some_empty(self) -> None:
         """Migration succeeds when some legacy stores return None."""
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         mpc_store = _make_mock_store({"uid1:trv_a:t22": {"gain_est": 0.5}})
         empty_store = _make_mock_store(None)
@@ -465,7 +461,7 @@ class TestMigrateV0Stores:
     async def test_no_data_for_entity_no_save(self) -> None:
         """When no legacy store has matching data, nothing is saved."""
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         # Stores exist but contain only data for a different entity
         mpc_store = _make_mock_store({"uid2:trv_a:t22": {"gain_est": 0.5}})
@@ -488,7 +484,7 @@ class TestMigrateV0Stores:
     async def test_all_stores_empty_no_save(self) -> None:
         """When all legacy stores return None, nothing is saved."""
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         empty_store = _make_mock_store(None)
         stores = [empty_store, empty_store, empty_store, empty_store]
@@ -508,7 +504,7 @@ class TestMigrateV0Stores:
     async def test_store_load_exception_is_swallowed(self) -> None:
         """Exceptions during Store.async_load are caught and do not crash."""
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         # MPC store raises, but PID store has valid data
         mpc_store = MagicMock()
@@ -537,7 +533,7 @@ class TestMigrateV0Stores:
     async def test_thermal_uses_config_entry_id(self) -> None:
         """Thermal store is keyed by config_entry_id, not entity prefix."""
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         thermal_store = _make_mock_store(
             {"entry1": {"heating_power": 900.0}, "entry2": {"heating_power": 1100.0}}
@@ -563,7 +559,7 @@ class TestMigrateV0Stores:
     async def test_thermal_non_dict_entry_ignored(self) -> None:
         """Non-dict thermal entry for the config entry is ignored."""
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         thermal_store = _make_mock_store({"entry1": "corrupted"})
         empty_store = _make_mock_store(None)
@@ -587,7 +583,7 @@ class TestMigrateV0Stores:
     async def test_store_returns_non_dict_is_ignored(self) -> None:
         """If a Store returns a non-dict (e.g. list), that store is skipped."""
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         # MPC store returns a list instead of a dict
         mpc_store = _make_mock_store([1, 2, 3])
@@ -614,7 +610,7 @@ class TestMigrateV0Stores:
     async def test_only_thermal_imported(self) -> None:
         """Migration works when only thermal data exists."""
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         thermal_store = _make_mock_store(
             {"entry1": {"heating_power": 500.0, "heat_loss_rate": 0.01}}
@@ -645,7 +641,7 @@ class TestMigrateV0Stores:
         defaults, rather than an integration that fails to load.
         """
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         failing_store = MagicMock()
         failing_store.async_load = AsyncMock(side_effect=OSError("boom"))
@@ -672,7 +668,7 @@ class TestUnreadableLegacyStoreIsTraced:
     async def test_every_failing_store_is_named(self, caplog) -> None:
         """All four store names and the config entry appear in the trace."""
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         failing_store = MagicMock()
         failing_store.async_load = AsyncMock(side_effect=OSError("boom"))
@@ -698,7 +694,7 @@ class TestUnreadableLegacyStoreIsTraced:
     async def test_readable_stores_leave_no_trace(self, caplog) -> None:
         """Stores that read cleanly report nothing."""
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         stores = [
             _make_mock_store({"uid1:trv_a": {"gain_est": 0.5}}),
@@ -740,7 +736,7 @@ class TestUnusableLegacyThermalValues:
         power was corrupt.
         """
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         with caplog.at_level(logging.WARNING, logger=_MIGRATE_LOGGER):
             _import_legacy_data(
@@ -789,7 +785,7 @@ class TestUnusableLegacyThermalValues:
         scan again.
         """
         mgr = _make_state_manager()
-        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()
 
         thermal_store = _make_mock_store({"entry1": {"heating_power": "n/a"}})
         empty_store = _make_mock_store(None)
@@ -819,10 +815,10 @@ class TestTheMigrationSaveWaitsLikeEveryOtherSave:
     _ENTRY = "v0_entry"
     _LIVE_KEY = f"better_thermostat_{_ENTRY}_state"
     _COPY_KEY = f"better_thermostat_{_ENTRY}_state.corrupt"
-    _UNREADABLE = {"version": "unreadable", "mpc": {}}
+    _UNREADABLE: dict[str, object] = {"version": "unreadable", "mpc": {}}
     _LEGACY_KEY = "better_thermostat_mpc_states"
 
-    def _seed(self, hass_storage, *, live: dict | None) -> None:
+    def _seed(self, hass_storage, *, live: dict[str, object] | None) -> None:
         if live is not None:
             hass_storage[self._LIVE_KEY] = {
                 "version": 1,
