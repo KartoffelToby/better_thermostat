@@ -168,7 +168,7 @@ class TestAValveCommandThatGoesNowhere:
         adapter = _valve_adapter(return_value=None)
         thermostat = _thermostat(adapter)
 
-        answer = await delegate.set_valve(thermostat, ENTITY_ID, "half open")
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, float("nan"))
 
         assert answer is False
         adapter.set_valve.assert_not_awaited()
