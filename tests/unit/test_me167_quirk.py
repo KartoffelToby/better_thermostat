@@ -167,16 +167,16 @@ class TestTheAdjustmentsActInTheRoomDirection:
         assert protected_device.reported == pytest.approx(26.0)
 
     @pytest.mark.parametrize(
-        ("action", "reported"), [(HVACAction.IDLE, 22.5), (HVACAction.HEATING, 22.0)]
+        ("action", "reported"), [(HVACAction.IDLE, 23.0), (HVACAction.HEATING, 22.0)]
     )
     def test_rounding_leans_towards_closing_when_idle(self, action, reported):
-        """A 2.3 K correction on a 0.5 K grid.
+        """A 2.3 K correction on the ME167's 1 K calibration grid.
 
-        Idle rounds towards the higher reported reading, 22.5 °C, which
+        Idle rounds towards the higher reported reading, 23.0 °C, which
         closes the valve; heating rounds towards 22.0 °C, which opens it.
         """
         device = SimulatedTrv()
-        bt = _host(device, step=0.5)
+        bt = _host(device, step=1.0)
         bt.room_temperature = 22.3
         bt.hvac_action = action
 
