@@ -100,7 +100,7 @@ async def discover_calibration_entity(self: AdapterHost, entity_id: str) -> None
         Entity ID of the TRV to run the lookup for.
     """
     trv = self.real_trvs[entity_id]
-    if trv.local_temperature_calibration_entity is not None or trv.calibration == 1:
+    if trv.local_temperature_calibration_entity is not None or trv.calibration is None:
         return
 
     trv.local_temperature_calibration_entity = await find_local_calibration_entity(

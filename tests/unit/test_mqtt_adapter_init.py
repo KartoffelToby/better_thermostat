@@ -24,6 +24,7 @@ from custom_components.better_thermostat.adapters.mqtt import (
     manual_preset,
 )
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.const import CalibrationOutput
 from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.test_trv"
@@ -44,7 +45,7 @@ def _bt() -> MagicMock:
     """Build a BetterThermostat stand-in whose calibration needs no lookup."""
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, calibration=1)}
+    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, calibration=None)}
     return bt
 
 
@@ -114,7 +115,11 @@ def _bt_with_preset(preset_modes, preset_mode=None) -> MagicMock:
     """
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, calibration=0)}
+    bt.real_trvs = {
+        ENTITY_ID: Trv(
+            entity_id=ENTITY_ID, calibration=CalibrationOutput.TARGET_TEMP_BASED
+        )
+    }
     bt.context = None
     bt.hass.states.get.return_value = State(
         ENTITY_ID, "heat", {"preset_modes": preset_modes, "preset_mode": preset_mode}
@@ -204,7 +209,7 @@ async def test_preset_reset_is_skipped_when_the_trv_already_runs_manual():
     assert _preset_calls(bt) == []
 
 
-@pytest.mark.parametrize("calibration", [0, 2, 3])
+@pytest.mark.parametrize("calibration", list(CalibrationOutput))
 @pytest.mark.asyncio
 async def test_every_calibration_a_configuration_can_name_reaches_the_reset(
     calibration,

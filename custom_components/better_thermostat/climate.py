@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
@@ -12,7 +12,7 @@ import json
 import logging
 import math
 from random import randint
-from typing import TYPE_CHECKING, Any, Final, override
+from typing import TYPE_CHECKING, Any, override
 
 # Home Assistant imports
 from homeassistant.components.climate import ClimateEntity
@@ -177,7 +177,6 @@ from .utils.const import (
     TARGET_TEMP_BOUND_AUTO,
     VERSION,
     CalibrationMode,
-    CalibrationOutput,
 )
 from .utils.controlling import (
     TaskManager,
@@ -277,13 +276,6 @@ from .utils.watcher import (
 from .utils.weather import DampedSource, check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
-
-# The code each calibration type is stored under on the TRV record.
-_CALIBRATION_TYPE_CODES: Final[Mapping[CalibrationOutput, int]] = {
-    CalibrationOutput.TARGET_TEMP_BASED: 0,
-    CalibrationOutput.DIRECT_VALVE_BASED: 2,
-    CalibrationOutput.LOCAL_BASED: 3,
-}
 
 # Every entity is pushed and none polls; actions are not limited per platform.
 PARALLEL_UPDATES = 0
@@ -1312,13 +1304,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         for trv in self.all_trvs:
             _advanced: TrvAdvanced = trv.get("advanced", {})
-            _calibration_output = configured_calibration_output(_advanced)
-            # 1 stands for a configuration that selects no calibration type.
-            _calibration = (
-                1
-                if _calibration_output is None
-                else _CALIBRATION_TYPE_CODES[_calibration_output]
-            )
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
             # Resolve/refresh model dynamically at startup to ensure correct quirks
             resolved_model = trv.get("model")
@@ -1356,7 +1341,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             _model_quirks = await load_model_quirks(self, resolved_model, trv["trv"])
             self.real_trvs[trv["trv"]] = Trv(
                 entity_id=trv["trv"],
-                calibration=_calibration,
+                calibration=configured_calibration_output(_advanced),
                 integration=trv["integration"],
                 adapter=_adapter,
                 model_quirks=_model_quirks,
@@ -2616,7 +2601,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     exc_info=True,
                 )
 
-            if trv.calibration != 1:
+            if trv.calibration is not None:
                 _LOGGER.debug(
                     "better_thermostat %s: getting offsets for TRV %s",
                     self.device_name,
