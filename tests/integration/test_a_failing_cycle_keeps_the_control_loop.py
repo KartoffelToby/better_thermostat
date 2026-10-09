@@ -122,3 +122,40 @@ async def test_a_failing_cycle_still_reads_what_the_trvs_reported(hass, fake_trv
         )
 
     assert settled_after_the_failure[:2] == ["modes", "reports"]
+
+
+async def test_reading_the_held_reports_may_fail_as_well(hass, fake_trv, caplog):
+    """Settling the window after a failed cycle failing too keeps the loop."""
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    failures: list[int] = []
+
+    def fails(*_args):
+        failures.append(1)
+        raise RuntimeError("helper failed at the end of a cycle")
+
+    async def fails_async(*_args):
+        raise RuntimeError("held reports unreadable")
+
+    with (
+        patch.object(controlling, "announce_learned_state", fails),
+        patch.object(controlling, "refresh_cached_trv_modes", fails),
+        patch.object(controlling, "read_reports_held_during_cycle", fails_async),
+        patch(WRITE_BUDGET, 0.0),
+    ):
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_TEMPERATURE,
+            {"entity_id": BT_ENTITY, "temperature": 23.0},
+            blocking=True,
+        )
+        assert await wait_for(hass, lambda: "held reports unreadable" in caplog.text)
+
+    control_task = bt._control_task
+    assert control_task is not None
+    assert not control_task.done()
+    assert bt.ignore_states is False
+    assert "ERROR settling TRV modes" in caplog.text

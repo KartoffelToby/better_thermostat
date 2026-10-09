@@ -275,7 +275,7 @@ async def test_service_reports_a_failed_run(bt, caplog):
         )
     }
     bt._run_valve_maintenance = AsyncMock(side_effect=RuntimeError("adapter gone"))
-    bt._spawn_owned = lambda coro, *, name: asyncio.ensure_future(coro)
+    bt._spawn_owned = asyncio.create_task
 
     with pytest.raises(HomeAssistantError) as failed:
         await BetterThermostat.run_valve_maintenance_service(bt)
