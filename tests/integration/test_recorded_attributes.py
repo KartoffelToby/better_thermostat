@@ -224,9 +224,11 @@ async def test_a_moving_room_temperature_still_reaches_the_ema_sensor(hass):
 
     assert bt.room_temperature_filtered == 21.0
     assert float(hass.states.get("sensor.bt_test_temperature_ema").state) == 21.0
-    # The filter has a five-minute time constant: it settles on the last
-    # hundredth well within the hour, and the ticks after that write nothing.
-    assert 10 < writes < 60
+    # The filter has a five-minute time constant and settles on the last
+    # hundredth after about 27 ticks; the published slope keeps moving until
+    # about tick 42, and the ticks after that write nothing.
+    assert 10 < writes < 50
+    assert await _ema_tick_writes(hass, bt, clock, 15) == 0
 
 
 async def test_a_degraded_room_keeps_counting_its_degraded_seconds(hass):
