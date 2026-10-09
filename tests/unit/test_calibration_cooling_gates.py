@@ -15,9 +15,10 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_setpoint,
 )
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.state_manager import StateManager
-from tests.factories import ThermostatStandIn, make_state, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn, make_state
 
 ENTITY_ID = "climate.trv"
 
@@ -64,23 +65,21 @@ def build_bt(
     )
 
     bt.real_trvs = {
-        ENTITY_ID: trv_from_legacy_dict(
-            ENTITY_ID,
-            {
-                "advanced": {
-                    "calibration_mode": calibration_mode,
-                    "protect_overheating": protect_overheating,
-                },
-                "current_temperature": trv_temperature,
-                "last_calibration": 0.0,
-                "local_calibration_step": step,
-                "min_local_calibration": -5.0,
-                "max_local_calibration": 5.0,
-                "target_temp_step": step,
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "model_quirks": quirks,
+        ENTITY_ID: Trv(
+            entity_id=ENTITY_ID,
+            advanced={
+                "calibration_mode": calibration_mode,
+                "protect_overheating": protect_overheating,
             },
+            current_temperature=trv_temperature,
+            last_calibration=0.0,
+            local_calibration_step=step,
+            min_local_calibration=-5.0,
+            max_local_calibration=5.0,
+            target_temp_step=step,
+            min_temp=5.0,
+            max_temp=30.0,
+            model_quirks=quirks,
         )
     }
     return bt
