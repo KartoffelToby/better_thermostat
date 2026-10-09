@@ -13,12 +13,12 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.containers import BtConfig
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.helpers import (
     adopt_reported_hvac_modes,
     get_hvac_bt_mode,
     mode_remap,
 )
-from tests.factories import trv_from_legacy_dict
 
 HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
 
@@ -59,12 +59,10 @@ def _add_trv(
     if hvac_modes is None:
         hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
 
-    thermostat.real_trvs[entity_id] = trv_from_legacy_dict(
-        entity_id,
-        {
-            "advanced": {"heat_auto_swapped": heat_auto_swapped},
-            "hvac_modes": hvac_modes,
-        },
+    thermostat.real_trvs[entity_id] = Trv(
+        entity_id=entity_id,
+        advanced={"heat_auto_swapped": heat_auto_swapped},
+        hvac_modes=list(hvac_modes),
     )
 
 
@@ -392,8 +390,8 @@ class TestModeRemapEdgeCases:
         """Without advanced config the Trv defaults make remap a no-op."""
         mock_bt = _thermostat()
         # Trv without advanced config: defaults to an empty dict
-        mock_bt.real_trvs["climate.test"] = trv_from_legacy_dict(
-            "climate.test", {"hvac_modes": [HVACMode.OFF, HVACMode.HEAT]}
+        mock_bt.real_trvs["climate.test"] = Trv(
+            entity_id="climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT]
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
@@ -406,8 +404,8 @@ class TestModeRemapEdgeCases:
         no-system-mode branch instead of aborting on an exception.
         """
         mock_bt = _thermostat()
-        mock_bt.real_trvs["climate.test"] = trv_from_legacy_dict(
-            "climate.test", {"advanced": {"heat_auto_swapped": False}}
+        mock_bt.real_trvs["climate.test"] = Trv(
+            entity_id="climate.test", advanced={"heat_auto_swapped": False}
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=False)
@@ -541,8 +539,8 @@ class TestModeRemapUnsupportedOutboundMode:
     def test_unreported_mode_list_disables_the_clamp(self):
         """hvac_modes=None keeps the pass-through for no-system-mode devices."""
         mock_bt = _thermostat()
-        mock_bt.real_trvs["climate.test"] = trv_from_legacy_dict(
-            "climate.test", {"advanced": {"heat_auto_swapped": False}}
+        mock_bt.real_trvs["climate.test"] = Trv(
+            entity_id="climate.test", advanced={"heat_auto_swapped": False}
         )
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=False)
