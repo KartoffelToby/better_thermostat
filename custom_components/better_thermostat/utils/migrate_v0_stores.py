@@ -100,20 +100,17 @@ def _import_legacy_data(
     """
     if mpc_data:
         for key, state_dict in mpc_data.items():
-            if isinstance(state_dict, dict):
-                state_mgr.set_mpc(key, deserialize_mpc(state_dict, key=key))
+            state_mgr.set_mpc(key, deserialize_mpc(state_dict, key=key))
 
     if pid_data:
         for key, state_dict in pid_data.items():
-            if isinstance(state_dict, dict):
-                state_mgr.set_pid(key, deserialize_pid(state_dict, key=key))
+            state_mgr.set_pid(key, deserialize_pid(state_dict, key=key))
 
     if tpi_data:
         for key, state_dict in tpi_data.items():
-            if isinstance(state_dict, dict):
-                state_mgr.set_tpi(key, deserialize_tpi(state_dict, key=key))
+            state_mgr.set_tpi(key, deserialize_tpi(state_dict, key=key))
 
-    if thermal_data and is_json_object(thermal_data):
+    if thermal_data:
         state_mgr.thermal = ThermalStats(
             heating_power=_legacy_thermal_stat(thermal_data, "heating_power"),
             heat_loss_rate=_legacy_thermal_stat(thermal_data, "heat_loss_rate"),
@@ -124,11 +121,7 @@ def _filter_by_prefix(
     raw: Mapping[str, object], prefix: str
 ) -> dict[str, Mapping[str, object]]:
     """Return only entries whose key starts with *prefix* and whose value is an object."""
-    return {
-        k: v
-        for k, v in raw.items()
-        if isinstance(k, str) and k.startswith(prefix) and is_json_object(v)
-    }
+    return {k: v for k, v in raw.items() if k.startswith(prefix) and is_json_object(v)}
 
 
 async def migrate_v0_stores(
