@@ -255,6 +255,8 @@ With the Direct Valve Based calibration type:
 
 - **External Sensor Offset Only, Aggressive, No Calibration**: These produce no valve opening. Better Thermostat sends them to the TRV as a target temperature instead.
 
+The valve opening is sized from your room sensor, not from the TRV's own temperature. A TRV that stops reporting its own temperature still has its valve opened and closed; only the target temperature that accompanies the valve command is held back until the TRV reports a temperature again.
+
 ### Without direct valve control
 
 If your TRV doesn't support direct valve control, or you pick another calibration type, Better Thermostat uses **setpoint manipulation**:

@@ -1538,7 +1538,35 @@ def calculate_calibration_setpoint(
     # drifts off whole degrees Fahrenheit within a few steps.
     _trv_temperature_step = normalize_step(self.real_trvs[entity_id].target_temp_step)
 
+    # The controllers size the valve from the room, not from the TRV's own
+    # reading, so the valve intent is refreshed before the setpoint, which
+    # needs that reading, can give up for want of it.
+    _percent: float | None = None
+    _use_valve = False
+    if traits.balance is None:
+        # DEFAULT and non-controller modes carry no valve/controller data.
+        self.real_trvs[entity_id].calibration_balance = None
+    else:
+        _calibrator = _balance_calibrator(self, entity_id, traits.balance)
+        _calibrator.observe(None, self.clock.monotonic())
+        _percent, _use_valve = _calibrator.cached()
+
     if _cur_trv_temperature is None:
+        if traits.adjust is not None:
+            # Only the valve intent the adjustment publishes is wanted; the
+            # setpoint it derives is not sent without the TRV's reading.
+            traits.adjust(
+                self,
+                entity_id,
+                _cur_target_temperature,
+                traits.skip_post_adjustments,
+                ChannelAdjustment(
+                    hold_value=_cur_target_temperature,
+                    legacy_fallback=lambda _valve_position: _cur_target_temperature,
+                    boost_sign=1.0,
+                    boost_neutral=_cur_target_temperature,
+                ),
+            )
         return None
 
     _cur_trv_temperature = float(_cur_trv_temperature)
@@ -1547,13 +1575,7 @@ def calculate_calibration_setpoint(
         _cur_target_temperature - _cur_external_temperature
     ) + _cur_trv_temperature
 
-    if traits.balance is None:
-        # DEFAULT and non-controller modes carry no valve/controller data.
-        self.real_trvs[entity_id].calibration_balance = None
-    else:
-        _calibrator = _balance_calibrator(self, entity_id, traits.balance)
-        _calibrator.observe(None, self.clock.monotonic())
-        _percent, _use_valve = _calibrator.cached()
+    if traits.balance is not None:
         if _use_valve and _percent is not None:
             if float(_percent) == 0.0:
                 # Valve closed: push setpoint below TRV's own temperature so it doesn't
