@@ -42,15 +42,26 @@ consults capabilities instead of probing quirk modules.
 Home Assistant puts no time limit on a service call, and some
 integrations keep the call open until the device answers (a sleeping
 Z-Wave node, a cloud API without a request timeout). The heads of a
-room are written one after another under one lock, so every device
-write, adapter and quirk alike, is bounded at 30 seconds
-(`DEVICE_CALL_TIMEOUT_S`). A write that runs out of time is cancelled
-and fails like one that raised: it is not repeated within the cycle,
-the channel is logged as out of reach, and each following cycle tries
-it once until a write goes through. The other heads of the room keep
-getting their writes. At startup, each TRV's initial tweak has a
-60-second budget; a TRV whose tweak runs out of time counts as failed
-and the startup moves on.
+room and the cooler are written one after another under one lock, so
+every device write, adapter, quirk and cooler alike, is bounded at 30
+seconds (`DEVICE_CALL_TIMEOUT_S`). A write that runs out of time is
+cancelled and fails like one that raised: it is not repeated within the
+cycle, the channel is logged as out of reach, and each following cycle
+tries it once until a write goes through. The other heads of the room
+keep getting their writes. A head that stops answering still costs the
+room up to 30 seconds per channel it is written on (mode, setpoint,
+offset, valve) in every cycle.
+
+A mode write that ran out of time may still reach the device: a
+sleeping node keeps the command queued and applies it when it wakes.
+Such a mode is remembered as withdrawn for the confirmation window,
+like a command the room took back before the device confirmed it, so
+the device applying it late is not read as someone switching the mode
+at the device. The head's setpoint and offset are still written in the
+same cycle.
+
+At startup, each TRV's initial tweak has a 60-second budget; a TRV whose
+tweak runs out of time counts as failed and the startup moves on.
 
 ## The write budget
 
