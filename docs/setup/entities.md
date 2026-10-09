@@ -11,6 +11,8 @@ The names below are the ones shown in the frontend. Where a device controls more
 
 The thermostat entity carries the name of the device. You set the target temperature, the HVAC mode and the preset on it, and it shows the room temperature from your temperature sensor and, if you configured one, the humidity.
 
+You can change the thermostat's entity ID in the entity settings. Better Thermostat then reloads the device and carries on under the new ID with the same targets, preset and learned state.
+
 ## Numbers
 
 All numbers are in the *Configuration* section of the device page.
