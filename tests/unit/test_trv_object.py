@@ -2,6 +2,7 @@
 
 import importlib
 
+from homeassistant.components.climate.const import HVACAction
 import pytest
 
 from custom_components.better_thermostat.model_fixes import default as default_quirk
@@ -39,10 +40,10 @@ class TestTypedAccess:
         trv = _make()
         trv.current_temperature = 21.5
         trv.ignore_trv_states = True
-        trv.hvac_action = "heating"
+        trv.hvac_action = HVACAction.HEATING
         assert trv.current_temperature == 21.5
         assert trv.ignore_trv_states is True
-        assert trv.hvac_action == "heating"
+        assert trv.hvac_action == HVACAction.HEATING
 
 
 class TestExtraScratchpad:

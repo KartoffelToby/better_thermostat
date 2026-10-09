@@ -63,6 +63,7 @@ from custom_components.better_thermostat.utils.helpers import (
     setpoint_at_minimum,
     setpoint_echo_window,
 )
+from custom_components.better_thermostat.utils.hvac_action import parse_hvac_action
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 if TYPE_CHECKING:
@@ -542,7 +543,7 @@ async def trigger_trv_change(
     if hvac_action_attr is None:
         hvac_action_attr = _org_trv_state.attributes.get("action")
     if hvac_action_attr is not None:
-        value = str(hvac_action_attr).strip().lower()
+        value = parse_hvac_action(hvac_action_attr)
         prev = trv.hvac_action
         trv.hvac_action = value
         if prev != value:

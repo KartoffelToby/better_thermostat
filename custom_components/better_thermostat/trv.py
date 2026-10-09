@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.core import State
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
@@ -109,7 +109,7 @@ class Trv:
     current_temperature: float | None = None
     hvac_modes: list[str] | None = None
     hvac_mode: str | None = None
-    hvac_action: str | None = None
+    hvac_action: HVACAction | None = None
     local_temperature_calibration_entity: str | None = None
     min_local_calibration: float = -7
     max_local_calibration: float = 7

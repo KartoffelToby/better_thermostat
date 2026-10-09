@@ -10,7 +10,7 @@ import asyncio
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
@@ -409,7 +409,7 @@ class TestReportsHeldDuringACycle:
         thermostat.real_trvs[ENTITY_ID].report_unread = True
 
         async def read(bt, event, **kwargs):
-            bt.real_trvs[ENTITY_ID].hvac_action = "idle"
+            bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.IDLE
             if adopt is not None:
                 setattr(bt, *adopt)
 

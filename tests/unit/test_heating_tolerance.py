@@ -218,7 +218,7 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
         _compute_and_commit(mock_bt)
 
         # Cycle 2: TRV stops heating, temperature drops slightly but still above target - tol
-        mock_bt.real_trvs["climate.trv_1"].hvac_action = "idle"
+        mock_bt.real_trvs["climate.trv_1"].hvac_action = HVACAction.IDLE
         mock_bt.room_temperature = 20.8  # between target - tol (20.5) and target (21.0)
         action = _compute_and_commit(mock_bt)
 

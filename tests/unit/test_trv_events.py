@@ -11,7 +11,7 @@ from datetime import timedelta
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
@@ -1085,7 +1085,7 @@ class TestHvacActionAndValvePosition:
             }
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].hvac_action = "heating"
+        mock_bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.HEATING
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -1095,7 +1095,7 @@ class TestHvacActionAndValvePosition:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.real_trvs[ENTITY_ID].hvac_action == "idle"
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_action == HVACAction.IDLE
 
     @pytest.mark.asyncio
     async def test_hvac_action_fallback_to_action(self, mock_bt):
@@ -1108,7 +1108,7 @@ class TestHvacActionAndValvePosition:
             }
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].hvac_action = "idle"
+        mock_bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.IDLE
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -1118,7 +1118,7 @@ class TestHvacActionAndValvePosition:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.real_trvs[ENTITY_ID].hvac_action == "heating"
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_action == HVACAction.HEATING
 
     @pytest.mark.asyncio
     async def test_hvac_action_change_triggers_main_change(self, mock_bt):
@@ -1131,7 +1131,7 @@ class TestHvacActionAndValvePosition:
             }
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].hvac_action = "heating"
+        mock_bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.HEATING
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -2988,7 +2988,7 @@ class TestControlQueueTrigger:
             }
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].hvac_action = "heating"
+        mock_bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.HEATING
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
