@@ -1407,6 +1407,17 @@ async def control_queue(self: BetterThermostat) -> None:
                             self.ignore_states = False
                             await read_reports_held_during_cycle(self)
 
+                except Exception:
+                    # This task runs every cycle the thermostat ever does and
+                    # nothing restarts it, so a cycle that raises is logged and
+                    # the loop goes on to the next request. The inbound handler
+                    # stood down for the cycle; left standing down, it would
+                    # also hold this loop on its idle wait.
+                    _LOGGER.exception(
+                        "better_thermostat %s: ERROR in control cycle", self.device_name
+                    )
+                    if not self.in_maintenance:
+                        self.ignore_states = False
                 finally:
                     # One acknowledgement per item taken, including an item that
                     # carries no cycle and one whose handling is cancelled. The
