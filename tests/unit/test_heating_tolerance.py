@@ -188,7 +188,7 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
         mock_bt.real_trvs = {
             "climate.trv_1": Trv(
                 entity_id="climate.trv_1",
-                hvac_action="heating",
+                hvac_action=HVACAction.HEATING,
                 ignore_trv_states=False,
             )
         }
@@ -211,7 +211,7 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
         mock_bt.real_trvs = {
             "climate.trv_1": Trv(
                 entity_id="climate.trv_1",
-                hvac_action="heating",
+                hvac_action=HVACAction.HEATING,
                 ignore_trv_states=False,
             )
         }

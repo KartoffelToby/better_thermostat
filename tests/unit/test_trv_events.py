@@ -133,7 +133,7 @@ def mock_bt():
             ignore_trv_states=False,
             model="SomeModel",
             model_quirks=None,
-            hvac_action="heating",
+            hvac_action=HVACAction.HEATING,
             valve_position=50,
             advanced={
                 "calibration": CalibrationOutput.LOCAL_BASED,
@@ -200,7 +200,7 @@ def _add_homematicip_peer(bt):
         ignore_trv_states=False,
         model="SomeModel",
         model_quirks=None,
-        hvac_action="heating",
+        hvac_action=HVACAction.HEATING,
         valve_position=50,
         advanced={
             "calibration": CalibrationOutput.LOCAL_BASED,
@@ -3560,7 +3560,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
             ignore_trv_states=False,
             model="SomeModel",
             model_quirks=None,
-            hvac_action="heating",
+            hvac_action=HVACAction.HEATING,
             valve_position=50,
             advanced={
                 "calibration": CalibrationOutput.LOCAL_BASED,

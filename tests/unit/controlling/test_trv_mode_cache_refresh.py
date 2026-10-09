@@ -135,7 +135,7 @@ def thermostat(reported_states):
             ignore_trv_states=False,
             model="SomeModel",
             model_quirks=None,
-            hvac_action="heating",
+            hvac_action=HVACAction.HEATING,
             valve_position=50,
             advanced={
                 "calibration": CalibrationOutput.LOCAL_BASED,
