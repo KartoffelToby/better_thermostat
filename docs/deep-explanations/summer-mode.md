@@ -20,12 +20,13 @@ exponentially with a time constant of 24 hours.
   reading that held for six hours of night weighs six hours; fifty readings during a sunny
   quarter of an hour weigh a quarter of an hour.
 - **A change takes time to show.** After a day of steady warm weather the damped temperature
-  has covered about two thirds of the way to it, after two days about 86 %. A single warm
-  afternoon moves it a few degrees at most.
-- **It is filled from history at startup.** When Better Thermostat starts, it runs the last three
-  days of the sensor's recorded history through the average. Without recorded history, for
-  example right after adding a new sensor or with the recorder disabled, it starts at the
-  current reading and builds up from there.
+  has covered about two thirds of the way to it, after two days about 86 %. Four warm hours
+  move it about 15 % of the way to the warm reading.
+- **It is filled from history at the first check that finds the sensor.** That is at startup,
+  or later if the sensor is unavailable then; until it reports, the room heats. The check runs
+  the last three days of the sensor's recorded history through the damping. Without recorded
+  history, for example right after adding a new sensor or with the recorder disabled, it starts
+  at the current reading and builds up from there.
 
 ### Where to mount the sensor
 
