@@ -86,6 +86,10 @@ class DeviceProfile:
 
     ``valve_maintenance`` is the per-device option of the same name in the
     config entry.
+
+    ``off_target_temperature`` is the setpoint the device publishes while it
+    is off, in place of the one it holds: a Tado unit shows its 5 °C minimum
+    there. ``None`` publishes the held setpoint in every mode.
     """
 
     name: str
@@ -113,6 +117,7 @@ class DeviceProfile:
     valve_channel: ValveChannel = ValveChannel.NONE
     system_unit: UnitOfTemperature | None = None
     valve_maintenance: bool = False
+    off_target_temperature: float | None = None
 
 
 def published_unit(profile: DeviceProfile) -> UnitOfTemperature:
