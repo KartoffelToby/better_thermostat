@@ -20,7 +20,7 @@ or click on the button below:
 
 **Name** This is a required field. It is the name of the virtual climate. It is used as an entity key name.
 
-**The real thermostat** This is a required field. This is the real climate entity you want to control with BT. If you have more than one climate in your room, select all of them in this field.
+**The real thermostat** This is a required field. This is the real climate entity you want to control with BT. If you have more than one climate in your room, select all of them in this field. A Better Thermostat cannot be selected here, and a climate entity that accepts no target temperature is refused; both rules hold for the cooling device as well.
 
 **The cooling device (optional)** This is an optional field. A climate entity used for cooling, such as an air conditioner. BT controls it alongside the TRVs; the tolerance section below describes how the cooling band works.
 
