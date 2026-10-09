@@ -29,7 +29,7 @@ from custom_components.better_thermostat.utils.helpers import (
     cooling_owns_dual_role_device,
     last_sent_cooler_temperature,
 )
-from tests.factories import ThermostatStandIn, make_snapshot, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn, make_snapshot
 
 
 def _mock_cooler_state(state=HVACMode.COOL):
@@ -2558,20 +2558,18 @@ class TestControlCoolerOnADualRoleEntity:
         mock_self, mock_hass, cooler_state = _make_cooler_setup(**kwargs)
         mock_self.cooler_entity_id = cls.SHARED_ID
         mock_self.real_trvs = {
-            cls.SHARED_ID: trv_from_legacy_dict(
-                cls.SHARED_ID,
-                {
-                    "hvac_modes": [
-                        HVACMode.OFF,
-                        HVACMode.HEAT,
-                        HVACMode.COOL,
-                        HVACMode.HEAT_COOL,
-                    ],
-                    "min_temp": 16.0,
-                    "max_temp": 30.0,
-                    "target_temperature_received": True,
-                    "system_mode_received": True,
-                },
+            cls.SHARED_ID: Trv(
+                entity_id=cls.SHARED_ID,
+                hvac_modes=[
+                    HVACMode.OFF,
+                    HVACMode.HEAT,
+                    HVACMode.COOL,
+                    HVACMode.HEAT_COOL,
+                ],
+                min_temp=16.0,
+                max_temp=30.0,
+                target_temperature_received=True,
+                system_mode_received=True,
             )
         }
         return mock_self, mock_hass, cooler_state

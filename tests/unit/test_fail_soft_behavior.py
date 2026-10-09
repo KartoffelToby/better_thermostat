@@ -32,8 +32,9 @@ from custom_components.better_thermostat.core.snapshot import (
     WorldSnapshot,
 )
 from custom_components.better_thermostat.core.watchdog import control_loop_stalled
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
-from tests.factories import ThermostatStandIn, trv_from_legacy_dict
+from tests.factories import ThermostatStandIn
 
 
 def _bt(mode: ControlMode) -> MagicMock:
@@ -42,8 +43,8 @@ def _bt(mode: ControlMode) -> MagicMock:
     bt.room_temperature = 20.0
     bt.kernel_state = KernelState(control_mode=ControlModeState(mode=mode))
     bt.real_trvs = {
-        "climate.a": trv_from_legacy_dict("climate.a", {"current_temperature": 21.0}),
-        "climate.b": trv_from_legacy_dict("climate.b", {"current_temperature": 23.0}),
+        "climate.a": Trv(entity_id="climate.a", current_temperature=21.0),
+        "climate.b": Trv(entity_id="climate.b", current_temperature=23.0),
     }
     _publish(bt, {"climate.a": 21.0, "climate.b": 23.0})
     return bt
@@ -149,20 +150,16 @@ class TestFallbackSetpointChannel:
             control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
         )
         bt.real_trvs = {
-            "climate.a": trv_from_legacy_dict(
-                "climate.a",
-                {
-                    "advanced": {"calibration_mode": CalibrationMode.DEFAULT},
-                    "current_temperature": 4.0,
-                    "target_temp_step": 0.5,
-                    "min_temp": 5.0,
-                    "max_temp": 30.0,
-                    "model_quirks": quirks,
-                },
+            "climate.a": Trv(
+                entity_id="climate.a",
+                advanced={"calibration_mode": CalibrationMode.DEFAULT},
+                current_temperature=4.0,
+                target_temp_step=0.5,
+                min_temp=5.0,
+                max_temp=30.0,
+                model_quirks=quirks,
             ),
-            "climate.b": trv_from_legacy_dict(
-                "climate.b", {"current_temperature": -4.0}
-            ),
+            "climate.b": Trv(entity_id="climate.b", current_temperature=-4.0),
         }
 
         _publish(bt, {"climate.a": 4.0, "climate.b": -4.0})

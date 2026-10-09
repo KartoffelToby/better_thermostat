@@ -40,6 +40,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
 )
+from custom_components.better_thermostat.utils.helpers import entry_issue_id
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.watcher import (
     STARTUP_CRITICAL_GRACE_PERIOD,
@@ -717,8 +718,8 @@ def missing_entity_issues(hass) -> list[str]:
     """Return the missing-entity repair issues Better Thermostat holds open."""
     return sorted(
         issue_id
-        for (domain, issue_id) in ir.async_get(hass).issues
-        if domain == DOMAIN and issue_id.startswith("missing_entity_")
+        for (domain, issue_id), issue in ir.async_get(hass).issues.items()
+        if domain == DOMAIN and issue.translation_key == "missing_entity"
     )
 
 
@@ -808,7 +809,9 @@ async def test_a_room_booting_with_a_head_gone_starts_once_the_grace_window_clos
     assert absent.set_temperature_calls == []
     assert setpoint_commands(events, absent.entity_id) == []
     assert bt.devices_errors == [absent.entity_id]
-    assert missing_entity_issues(hass) == [f"missing_entity_{absent.entity_id}"]
+    assert missing_entity_issues(hass) == [
+        entry_issue_id(entry.entry_id, "missing_entity", absent.entity_id)
+    ]
     for head in present:
         assert_profile_adopted(bt, head.profile)
 
@@ -860,7 +863,8 @@ async def test_a_room_with_every_head_gone_keeps_waiting_after_the_grace_window(
     assert bt.startup_running
     assert hass.states.get(BT_ENTITY).state == "unavailable"
     assert missing_entity_issues(hass) == sorted(
-        f"missing_entity_{head.entity_id}" for head in trv_group.entities
+        entry_issue_id(entry.entry_id, "missing_entity", head.entity_id)
+        for head in trv_group.entities
     )
 
     first = trv_group[0]
