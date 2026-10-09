@@ -11,6 +11,7 @@ from typing import Final, TypedDict
 from homeassistant.components.climate.const import ClimateEntityFeature
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.config_validation import make_entity_service_schema
+from homeassistant.util.signal_type import SignalTypeFormat
 import voluptuous as vol
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,6 +25,11 @@ DEFAULT_NAME: Final = "Better Thermostat"
 # entity ids were last built from. It outlives the reload it describes and is
 # dropped when the entry is removed.
 NORMALIZED_ID_NAMES: Final = f"{DOMAIN}_normalized_id_names"
+
+# Dispatcher signal, formatted with an entry id, that the options flow sends
+# when a calibration algorithm of that entry changed, so the sensor platform
+# adds and removes the entities the algorithms bring.
+SIGNAL_CONFIG_CHANGED: Final = SignalTypeFormat[()]("bt_config_changed_{}")
 
 
 class _Manifest(TypedDict):

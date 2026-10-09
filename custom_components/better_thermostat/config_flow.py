@@ -67,6 +67,7 @@ from .utils.const import (
     CONF_WINDOW_OFF_DELAY_AFTER,
     CONF_WINDOW_SENSORS,
     DEFAULT_CALIBRATION_MODE,
+    SIGNAL_CONFIG_CHANGED,
     TARGET_TEMP_BOUND_AUTO,
     CalibrationMode,
     CalibrationOutput,
@@ -1442,9 +1443,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
             if algorithms_changed:
                 # Dynamic entity management adds and removes algorithm sensors.
-                signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
                 async_dispatcher_send(
-                    self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
+                    self.hass, SIGNAL_CONFIG_CHANGED.format(self._config_entry.entry_id)
                 )
             self._active_trv = None
             # The options are written above already; finishing the flow with

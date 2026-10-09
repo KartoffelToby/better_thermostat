@@ -23,6 +23,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_TEMPERATURE_SENSOR,
     CONF_THERMOSTAT,
+    SIGNAL_CONFIG_CHANGED,
     CalibrationMode,
 )
 
@@ -264,15 +265,17 @@ async def _finish(
     return result
 
 
-def _record_config_changes(hass, entry: MockConfigEntry) -> list[dict[str, str]]:
-    """Return the payloads of the calibration-change signal sent for ``entry``."""
-    received: list[dict[str, str]] = []
+def _record_config_changes(hass, entry: MockConfigEntry) -> list[str]:
+    """Return the entry id once for every calibration-change signal of ``entry``."""
+    received: list[str] = []
 
     @callback
-    def _receive(payload: dict[str, str]) -> None:
-        received.append(payload)
+    def _receive() -> None:
+        received.append(entry.entry_id)
 
-    async_dispatcher_connect(hass, f"bt_config_changed_{entry.entry_id}", _receive)
+    async_dispatcher_connect(
+        hass, SIGNAL_CONFIG_CHANGED.format(entry.entry_id), _receive
+    )
     return received
 
 
@@ -358,4 +361,4 @@ async def test_saved_settings_that_change_the_calibration_signal_the_change(
         bundle["advanced"][CONF_CALIBRATION_MODE]
         for bundle in room_b.options[CONF_THERMOSTAT]
     ] == [CalibrationMode.PID_CALIBRATION]
-    assert config_changes == [{"entry_id": room_b.entry_id}]
+    assert config_changes == [room_b.entry_id]

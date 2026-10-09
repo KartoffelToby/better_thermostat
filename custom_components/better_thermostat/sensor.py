@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from enum import StrEnum
 from functools import partial
 import logging
 import math
 from time import monotonic
 from typing import TYPE_CHECKING, override
 
+from homeassistant.components.climate.const import HVACMode
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -27,7 +30,13 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from . import BetterThermostatConfigEntry
 from .entity import remove_unclaimed_registry_entries
-from .utils.const import CONF_CALIBRATION_MODE, DOMAIN, CalibrationMode
+from .utils.calibration.pid import PID_GAIN_LIMITS, PidGain
+from .utils.const import (
+    CONF_CALIBRATION_MODE,
+    DOMAIN,
+    SIGNAL_CONFIG_CHANGED,
+    CalibrationMode,
+)
 from .utils.helpers import async_normalize_bt_entity_ids, configured_calibration_mode
 
 if TYPE_CHECKING:
@@ -49,19 +58,49 @@ _ALGORITHMS_WITH_SENSORS: frozenset[CalibrationMode] = frozenset(
         CalibrationMode.PID_CALIBRATION,
     }
 )
-_ENTITY_CLEANUP_CALLBACKS: dict[str, Callable[[object], None]] = {}
+_ENTITY_CLEANUP_CALLBACKS: dict[str, Callable[[], None]] = {}
 _DISPATCHER_UNSUBSCRIBES: dict[str, Callable[[], None]] = {}
 
-# Global tracking variables for active preset number entities
-_ACTIVE_PRESET_NUMBERS: dict[
-    str, dict[str | None, dict[str, str | bool]]
-] = {}  # {entry_id: {unique_id: {"preset": preset_name, "cool": True}, ...}}
-_ACTIVE_PID_NUMBERS: dict[
-    str, dict[str | None, dict[str, str]]
-] = {}  # {entry_id: {unique_id: {"trv": trv_entity_id, "param": parameter}, ...}}
-_ACTIVE_SWITCH_ENTITIES: dict[
-    str, dict[str | None, dict[str, str]]
-] = {}  # {entry_id: {unique_id: {"trv": trv_entity_id, "type": kind}, ...}}
+
+@dataclass(frozen=True, slots=True)
+class PresetNumberRef:
+    """A tracked preset number entity: the preset whose temperature it sets.
+
+    The heating and the cooling number of one preset both carry it.
+    """
+
+    preset: str
+
+
+@dataclass(frozen=True, slots=True)
+class PidNumberRef:
+    """A tracked PID number entity: the TRV and the gain it sets."""
+
+    trv: str
+    gain: PidGain
+
+
+class SwitchKind(StrEnum):
+    """Which per-TRV switch a tracked switch entity is."""
+
+    PID_AUTO_TUNE = "pid_auto_tune"
+    CHILD_LOCK = "child_lock"
+
+
+@dataclass(frozen=True, slots=True)
+class SwitchRef:
+    """A tracked switch entity: the TRV it belongs to and its kind."""
+
+    trv: str
+    kind: SwitchKind
+
+
+# The number and switch entities each entry has created, keyed by entry id and
+# then by unique id, so the entities of a preset, a TRV or an algorithm the
+# configuration dropped can be removed from the registry.
+_ACTIVE_PRESET_NUMBERS: dict[str, dict[str | None, PresetNumberRef]] = {}
+_ACTIVE_PID_NUMBERS: dict[str, dict[str | None, PidNumberRef]] = {}
+_ACTIVE_SWITCH_ENTITIES: dict[str, dict[str | None, SwitchRef]] = {}
 
 
 async def async_setup_entry(
@@ -274,7 +313,7 @@ async def _register_dynamic_entity_callback(
     """Register callback for dynamic entity management."""
 
     @callback
-    def _on_config_change(data: object) -> None:
+    def _on_config_change() -> None:
         """Handle configuration changes that might affect entity requirements."""
         _LOGGER.debug(
             "Better Thermostat %s: Configuration change detected via signal, checking entity requirements",
@@ -292,8 +331,9 @@ async def _register_dynamic_entity_callback(
     _ENTITY_CLEANUP_CALLBACKS[entry.entry_id] = _on_config_change
 
     # Listen to configuration change signals
-    signal_key = f"bt_config_changed_{entry.entry_id}"
-    unsubscribe = async_dispatcher_connect(hass, signal_key, _on_config_change)
+    unsubscribe = async_dispatcher_connect(
+        hass, SIGNAL_CONFIG_CHANGED.format(entry.entry_id), _on_config_change
+    )
 
     # Store unsubscribe function for cleanup
     _DISPATCHER_UNSUBSCRIBES[entry.entry_id] = unsubscribe
@@ -473,10 +513,9 @@ async def _cleanup_preset_number_entities(
 
     # Find number entities to remove
     entities_to_remove = []
-    for preset_unique_id, meta in tracked_presets.items():
-        preset_name = meta.get("preset")
-        if preset_name and preset_name not in current_presets:
-            entities_to_remove.append((preset_unique_id, preset_name))
+    for preset_unique_id, ref in tracked_presets.items():
+        if ref.preset and ref.preset not in current_presets:
+            entities_to_remove.append((preset_unique_id, ref.preset))
 
     # Remove entities from registry – only delete tracking key on success
     removed_count = 0
@@ -509,7 +548,7 @@ async def _cleanup_preset_number_entities(
     # Merge new entries for current presets without wiping failed removals
     for preset in current_presets:
         uid = f"{bt_climate.unique_id}_preset_{preset}"
-        tracked_presets[uid] = {"preset": preset}
+        tracked_presets[uid] = PresetNumberRef(preset)
     _ACTIVE_PRESET_NUMBERS[entry_id] = tracked_presets
 
     if removed_count > 0:
@@ -532,9 +571,8 @@ async def _cleanup_pid_number_entities(
 
     # Find PID number entities to remove
     entities_to_remove = []
-    for pid_unique_id, meta in tracked_pid_numbers.items():
-        trv_entity_id = meta.get("trv")
-        if trv_entity_id and trv_entity_id not in current_pid_trvs:
+    for pid_unique_id, ref in tracked_pid_numbers.items():
+        if ref.trv and ref.trv not in current_pid_trvs:
             entities_to_remove.append(pid_unique_id)
 
     # Remove entities from registry – only delete tracking key on success
@@ -564,9 +602,9 @@ async def _cleanup_pid_number_entities(
 
     # Merge new entries for current PID TRVs without wiping failed removals
     for trv_entity_id in current_pid_trvs:
-        for param in ["kp", "ki", "kd"]:
-            uid = f"{bt_climate.unique_id}_{trv_entity_id}_pid_{param}"
-            tracked_pid_numbers[uid] = {"trv": trv_entity_id, "param": param}
+        for gain in PID_GAIN_LIMITS:
+            uid = f"{bt_climate.unique_id}_{trv_entity_id}_pid_{gain}"
+            tracked_pid_numbers[uid] = PidNumberRef(trv_entity_id, gain)
     _ACTIVE_PID_NUMBERS[entry_id] = tracked_pid_numbers
 
     if removed_count > 0:
@@ -589,17 +627,15 @@ async def _cleanup_pid_switch_entities(
 
     # Find switch entities to remove using stored metadata
     entities_to_remove = []
-    for switch_unique_id, meta in tracked_switches.items():
-        trv_entity_id = meta.get("trv")
-        kind = meta.get("type")
+    for switch_unique_id, ref in tracked_switches.items():
         should_remove = False
 
-        if kind == "pid_auto_tune":
-            if trv_entity_id not in current_pid_trvs:
+        if ref.kind is SwitchKind.PID_AUTO_TUNE:
+            if ref.trv not in current_pid_trvs:
                 should_remove = True
-        elif kind == "child_lock":
+        elif ref.kind is SwitchKind.CHILD_LOCK:
             # Remove child lock switches for TRVs that no longer exist
-            if not bt_climate.real_trvs or trv_entity_id not in bt_climate.real_trvs:
+            if not bt_climate.real_trvs or ref.trv not in bt_climate.real_trvs:
                 should_remove = True
 
         if should_remove:
@@ -636,13 +672,13 @@ async def _cleanup_pid_switch_entities(
     # Add PID Auto-Tune switches for current PID TRVs
     for trv_entity_id in current_pid_trvs:
         uid = f"{bt_climate.unique_id}_{trv_entity_id}_pid_auto_tune"
-        tracked_switches[uid] = {"trv": trv_entity_id, "type": "pid_auto_tune"}
+        tracked_switches[uid] = SwitchRef(trv_entity_id, SwitchKind.PID_AUTO_TUNE)
 
     # Add Child Lock switches (always present for all TRVs)
     if bt_climate.real_trvs:
         for trv_entity_id in bt_climate.real_trvs:
             uid = f"{bt_climate.unique_id}_{trv_entity_id}_child_lock"
-            tracked_switches[uid] = {"trv": trv_entity_id, "type": "child_lock"}
+            tracked_switches[uid] = SwitchRef(trv_entity_id, SwitchKind.CHILD_LOCK)
 
     _ACTIVE_SWITCH_ENTITIES[entry_id] = tracked_switches
 
@@ -774,7 +810,7 @@ class _BtMpcSensorBase(_BtSensorBase):
             return False
         if self._bt_climate.contact_open:
             return False
-        if self._bt_climate.hvac_mode == "off":
+        if self._bt_climate.hvac_mode == HVACMode.OFF:
             return False
         return True
 

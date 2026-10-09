@@ -356,7 +356,8 @@ class TestPidSelfHealing:
     def test_the_number_offers_the_gain_range(self, gain):
         """Each gain's number spans exactly the range the controller accepts."""
         low, high = self._GAIN_RANGES[gain]
-        assert _PID_GAIN_SETTINGS[gain][:2] == (low, high)
+        setting = _PID_GAIN_SETTINGS[gain]
+        assert (setting.minimum, setting.maximum) == (low, high)
 
     @pytest.mark.parametrize("bound", [0, 1], ids=["lowest", "highest"])
     @pytest.mark.parametrize("gain", ["kp", "ki", "kd"])

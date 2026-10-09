@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import math
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Final, override
 
 from homeassistant.components.climate.const import (
     PRESET_ACTIVITY,
@@ -34,7 +35,12 @@ from .entity import (
     current_trv_name,
     remove_unclaimed_registry_entries,
 )
-from .sensor import _ACTIVE_PID_NUMBERS, _ACTIVE_PRESET_NUMBERS
+from .sensor import (
+    _ACTIVE_PID_NUMBERS,
+    _ACTIVE_PRESET_NUMBERS,
+    PidNumberRef,
+    PresetNumberRef,
+)
 from .utils.calibration.pid import (
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
@@ -82,13 +88,32 @@ _PRESET_MAX_TRANSLATION_KEYS = {
     preset: f"{key}_max" for preset, key in _PRESET_TRANSLATION_KEYS.items()
 }
 
-# Per PID gain: the lowest and highest value and the step its number offers,
-# and the value it shows before the gain has been learned or set. The range is
-# the one the controller keeps a stored gain to.
-_PID_GAIN_SETTINGS: dict[PidGain, tuple[float, float, float, float]] = {
-    "kp": (*PID_GAIN_LIMITS["kp"], 0.1, DEFAULT_PID_KP),
-    "ki": (*PID_GAIN_LIMITS["ki"], 0.001, DEFAULT_PID_KI),
-    "kd": (*PID_GAIN_LIMITS["kd"], 1.0, DEFAULT_PID_KD),
+
+@dataclass(frozen=True, slots=True)
+class _GainSetting:
+    """What the number of one PID gain offers.
+
+    Attributes
+    ----------
+    minimum, maximum : float
+        The range the number offers, the one the controller keeps a stored
+        gain to.
+    step : float
+        The step the number moves in.
+    default : float
+        The value the number shows before the gain has been learned or set.
+    """
+
+    minimum: float
+    maximum: float
+    step: float
+    default: float
+
+
+_PID_GAIN_SETTINGS: Final[dict[PidGain, _GainSetting]] = {
+    "kp": _GainSetting(*PID_GAIN_LIMITS["kp"], step=0.1, default=DEFAULT_PID_KP),
+    "ki": _GainSetting(*PID_GAIN_LIMITS["ki"], step=0.001, default=DEFAULT_PID_KI),
+    "kd": _GainSetting(*PID_GAIN_LIMITS["kd"], step=1.0, default=DEFAULT_PID_KD),
 }
 
 
@@ -128,8 +153,8 @@ async def async_setup_entry(
         return
 
     numbers: list[NumberEntity] = []
-    preset_unique_ids: dict[str | None, dict[str, str | bool]] = {}
-    pid_unique_ids = {}
+    preset_unique_ids: dict[str | None, PresetNumberRef] = {}
+    pid_unique_ids: dict[str | None, PidNumberRef] = {}
     # Create number entities for each preset mode (except NONE)
     _LOGGER.debug(
         "Better Thermostat Number: Found preset modes: %s", bt_climate.preset_modes
@@ -142,14 +167,15 @@ async def async_setup_entry(
         if has_heater:
             preset_number = BetterThermostatPresetNumber(bt_climate, preset_mode)
             numbers.append(preset_number)
-            preset_unique_ids[preset_number._attr_unique_id] = {"preset": preset_mode}
+            preset_unique_ids[preset_number._attr_unique_id] = PresetNumberRef(
+                preset_mode
+            )
         if has_cooler:
             cool_number = BetterThermostatPresetCoolNumber(bt_climate, preset_mode)
             numbers.append(cool_number)
-            preset_unique_ids[cool_number._attr_unique_id] = {
-                "preset": preset_mode,
-                "cool": True,
-            }
+            preset_unique_ids[cool_number._attr_unique_id] = PresetNumberRef(
+                preset_mode
+            )
 
     # Create PID numbers for each TRV if PID calibration is enabled
     has_multiple_trvs = len(bt_climate.all_trvs) > 1
@@ -163,15 +189,14 @@ async def async_setup_entry(
         calibration_output = configured_calibration_output(advanced)
 
         if calibration_mode == CalibrationMode.PID_CALIBRATION:
-            for param in _PID_GAIN_SETTINGS:
+            for gain in _PID_GAIN_SETTINGS:
                 pid_number = BetterThermostatPIDNumber(
-                    bt_climate, trv_entity_id, param, has_multiple_trvs
+                    bt_climate, trv_entity_id, gain, has_multiple_trvs
                 )
                 numbers.append(pid_number)
-                pid_unique_ids[pid_number._attr_unique_id] = {
-                    "trv": trv_entity_id,
-                    "param": param,
-                }
+                pid_unique_ids[pid_number._attr_unique_id] = PidNumberRef(
+                    trv_entity_id, gain
+                )
 
         if calibration_output == CalibrationOutput.DIRECT_VALVE_BASED:
             numbers.append(
@@ -486,11 +511,10 @@ class BetterThermostatPIDNumber(
         else:
             self._attr_translation_key = f"pid_{parameter}_no_trv"
 
-        (
-            self._attr_native_min_value,
-            self._attr_native_max_value,
-            self._attr_native_step,
-        ) = _PID_GAIN_SETTINGS[parameter][:3]
+        setting = _PID_GAIN_SETTINGS[parameter]
+        self._attr_native_min_value = setting.minimum
+        self._attr_native_max_value = setting.maximum
+        self._attr_native_step = setting.step
 
     @override
     async def async_added_to_hass(self) -> None:
@@ -519,7 +543,7 @@ class BetterThermostatPIDNumber(
                 if value is not None:
                     return value
 
-        return _PID_GAIN_SETTINGS[self._parameter][3]
+        return _PID_GAIN_SETTINGS[self._parameter].default
 
     @override
     async def async_set_native_value(self, value: float) -> None:
