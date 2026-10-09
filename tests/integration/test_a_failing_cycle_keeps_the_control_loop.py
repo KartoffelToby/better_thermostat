@@ -135,7 +135,11 @@ async def test_a_failing_cycle_still_reads_what_the_trvs_reported(hass, fake_trv
 
 
 async def test_reading_the_held_reports_may_fail_as_well(hass, fake_trv, caplog):
-    """Settling the window after a failed cycle failing too keeps the loop."""
+    """Settling the window after a failed cycle failing too keeps the loop.
+
+    The next target change still reaches the TRV while both helpers that
+    close the window keep failing.
+    """
     set_room_sensor(hass, 18.0)
     entry = make_entry(fake_trv.profile)
     await setup_entry(hass, entry)
@@ -163,9 +167,20 @@ async def test_reading_the_held_reports_may_fail_as_well(hass, fake_trv, caplog)
             blocking=True,
         )
         assert await wait_for(hass, lambda: "held reports unreadable" in caplog.text)
+        written = len(fake_trv.set_temperature_calls)
+
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_TEMPERATURE,
+            {"entity_id": BT_ENTITY, "temperature": 17.0},
+            blocking=True,
+        )
+        assert await wait_for(
+            hass, lambda: len(fake_trv.set_temperature_calls) > written
+        )
 
     control_task = bt._control_task
     assert control_task is not None
     assert not control_task.done()
-    assert bt.ignore_states is False
+    assert await wait_for(hass, lambda: bt.ignore_states is False)
     assert "ERROR settling TRV modes" in caplog.text
