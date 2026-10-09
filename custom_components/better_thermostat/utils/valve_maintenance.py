@@ -431,6 +431,89 @@ async def restore_one(
 
 # Main orchestrator
 
+# Longest a run stopped part-way spends putting its TRVs back. What stops a run
+# is mostly the thermostat being unloaded or removed, and the removal waits for
+# the restore, so it is bounded; a TRV that does not answer in that time keeps
+# the position the run left it in.
+RESTORE_AFTER_STOP_TIMEOUT_S = 10.0
+
+
+async def _restore_all(
+    infos: list[MaintenanceTrvInfo],
+    woken: set[str],
+    *,
+    set_temperature_fn: SetTemperatureFn,
+    set_hvac_mode_fn: SetHvacModeFn,
+    get_state: Callable[[str], State | None],
+) -> None:
+    """Put every TRV of a run back into its pre-maintenance state."""
+    await asyncio.gather(
+        *(
+            restore_one(
+                info,
+                set_temperature_fn=set_temperature_fn,
+                set_hvac_mode_fn=set_hvac_mode_fn,
+                get_state=get_state,
+                woken=info.entity_id in woken,
+            )
+            for info in infos
+        ),
+        return_exceptions=True,
+    )
+
+
+async def _restore_after_stop(
+    infos: list[MaintenanceTrvInfo],
+    woken: set[str],
+    open_valves: list[MaintenanceTrvInfo],
+    *,
+    set_valve_fn: SetValveFn,
+    set_temperature_fn: SetTemperatureFn,
+    set_hvac_mode_fn: SetHvacModeFn,
+    get_state: Callable[[str], State | None],
+    device_name: str,
+) -> None:
+    """Restore the TRVs of a run that was cancelled part-way.
+
+    A cancelled run leaves its TRVs wherever the cycle had them: on their
+    maximum setpoint, woken out of ``off``, or with the valve fully open.
+    Nothing else puts them back once the thermostat is gone. The valves the
+    cycle may have left open are closed, as the last step of a full run
+    does, and every TRV gets its setpoint and mode back. The whole of it is
+    bounded by ``RESTORE_AFTER_STOP_TIMEOUT_S``.
+    """
+    _LOGGER.info(
+        "better_thermostat %s: valve maintenance stopped, restoring the TRVs",
+        device_name,
+    )
+    try:
+        async with asyncio.timeout(RESTORE_AFTER_STOP_TIMEOUT_S):
+            await asyncio.gather(
+                *(
+                    close_step(
+                        info,
+                        set_valve_fn=set_valve_fn,
+                        set_temperature_fn=set_temperature_fn,
+                    )
+                    for info in open_valves
+                ),
+                return_exceptions=True,
+            )
+            await _restore_all(
+                infos,
+                woken,
+                set_temperature_fn=set_temperature_fn,
+                set_hvac_mode_fn=set_hvac_mode_fn,
+                get_state=get_state,
+            )
+    except TimeoutError:
+        _LOGGER.warning(
+            "better_thermostat %s: restoring the TRVs after a stopped valve "
+            "maintenance did not finish within %.0f s",
+            device_name,
+            RESTORE_AFTER_STOP_TIMEOUT_S,
+        )
+
 
 async def run_valve_maintenance(
     infos: list[MaintenanceTrvInfo],
@@ -447,6 +530,9 @@ async def run_valve_maintenance(
     This is the pure async orchestrator.  State mutations on
     ``self`` (ignore_states, in_maintenance, control_queue) stay in
     ``climate.py``'s wrapper.
+
+    A run cancelled part-way still restores its TRVs, within
+    ``RESTORE_AFTER_STOP_TIMEOUT_S``, before the cancellation propagates.
 
     Parameters
     ----------
@@ -474,91 +560,105 @@ async def run_valve_maintenance(
         len(infos),
     )
 
-    # Wake TRVs that are off, otherwise the temperature cycle below moves
-    # nothing on them. restore_one puts them back to off at the end.
-    wake_results = await asyncio.gather(
-        *(wake_step(info, set_hvac_mode_fn=set_hvac_mode_fn) for info in infos),
-        return_exceptions=True,
-    )
-
-    # Which TRVs the cycle below actually moves. A failed wake leaves a TRV
-    # off, so a setpoint write would either move nothing or, on a device that
-    # reads a setpoint as "turn on", heat it without the cycle asking for it.
-    # A TRV that offered no wake mode at all is unreachable for the same
-    # reason. Both are still restored below.
+    # Every wake counts as sent until it is known to have failed, so a run
+    # cancelled while the wakes are in flight still puts those modes back.
+    woken = {info.entity_id for info in infos if info.wake_mode is not None}
     cycled: list[MaintenanceTrvInfo] = []
-    woken: set[str] = set()
-    for info, result in zip(infos, wake_results):
-        if isinstance(result, BaseException):
-            _LOGGER.warning(
-                "better_thermostat %s: could not wake %s for maintenance (%s), "
-                "skipping its temperature cycle",
-                device_name,
-                info.entity_id,
-                result,
-            )
-            continue
-        if info.wake_mode is not None:
-            woken.add(info.entity_id)
-        if info.use_direct_valve or _temperature_cycle_reaches_valve(info):
-            cycled.append(info)
-
-    if not cycled:
-        # Nothing to open or close, so the four cycle sleeps would be waits
-        # around no work at all. Drop straight through to the restore.
-        _LOGGER.info(
-            "better_thermostat %s: no TRV reachable for the cycle, restoring directly",
-            device_name,
+    # The valve-driven TRVs the cycle may have left open. Between an open
+    # step and the close step after it, that is every one of them.
+    open_valves: list[MaintenanceTrvInfo] = []
+    try:
+        # Wake TRVs that are off, otherwise the temperature cycle below moves
+        # nothing on them. restore_one puts them back to off at the end.
+        wake_results = await asyncio.gather(
+            *(wake_step(info, set_hvac_mode_fn=set_hvac_mode_fn) for info in infos),
+            return_exceptions=True,
         )
-    else:
-        # Execute in synchronized steps across all TRVs (much faster than
-        # sequential). Open all → wait → close all → wait (repeat twice).
-        for i in range(2):
-            _LOGGER.debug(
-                "better_thermostat %s: valve maintenance cycle %d/2 starting "
-                "for %d TRV(s)",
-                device_name,
-                i + 1,
-                len(cycled),
-            )
-            await asyncio.gather(
-                *(
-                    open_step(
-                        info,
-                        set_valve_fn=set_valve_fn,
-                        set_temperature_fn=set_temperature_fn,
-                    )
-                    for info in cycled
-                ),
-                return_exceptions=True,
-            )
-            await asyncio.sleep(cycle_sleep)
-            await asyncio.gather(
-                *(
-                    close_step(
-                        info,
-                        set_valve_fn=set_valve_fn,
-                        set_temperature_fn=set_temperature_fn,
-                    )
-                    for info in cycled
-                ),
-                return_exceptions=True,
-            )
-            await asyncio.sleep(cycle_sleep)
 
-    # Restore
-    await asyncio.gather(
-        *(
-            restore_one(
-                info,
-                set_temperature_fn=set_temperature_fn,
-                set_hvac_mode_fn=set_hvac_mode_fn,
-                get_state=get_state,
-                woken=info.entity_id in woken,
+        # Which TRVs the cycle below actually moves. A failed wake leaves a
+        # TRV off, so a setpoint write would either move nothing or, on a
+        # device that reads a setpoint as "turn on", heat it without the cycle
+        # asking for it. A TRV that offered no wake mode at all is unreachable
+        # for the same reason. Both are still restored below.
+        for info, result in zip(infos, wake_results):
+            if isinstance(result, BaseException):
+                _LOGGER.warning(
+                    "better_thermostat %s: could not wake %s for maintenance "
+                    "(%s), skipping its temperature cycle",
+                    device_name,
+                    info.entity_id,
+                    result,
+                )
+                woken.discard(info.entity_id)
+                continue
+            if info.use_direct_valve or _temperature_cycle_reaches_valve(info):
+                cycled.append(info)
+
+        if not cycled:
+            # Nothing to open or close, so the four cycle sleeps would be
+            # waits around no work at all. Drop straight through to the
+            # restore.
+            _LOGGER.info(
+                "better_thermostat %s: no TRV reachable for the cycle, "
+                "restoring directly",
+                device_name,
             )
-            for info in infos
-        ),
-        return_exceptions=True,
+        else:
+            # Execute in synchronized steps across all TRVs (much faster than
+            # sequential). Open all → wait → close all → wait (repeat twice).
+            for i in range(2):
+                _LOGGER.debug(
+                    "better_thermostat %s: valve maintenance cycle %d/2 "
+                    "starting for %d TRV(s)",
+                    device_name,
+                    i + 1,
+                    len(cycled),
+                )
+                open_valves = [info for info in cycled if info.use_direct_valve]
+                await asyncio.gather(
+                    *(
+                        open_step(
+                            info,
+                            set_valve_fn=set_valve_fn,
+                            set_temperature_fn=set_temperature_fn,
+                        )
+                        for info in cycled
+                    ),
+                    return_exceptions=True,
+                )
+                await asyncio.sleep(cycle_sleep)
+                await asyncio.gather(
+                    *(
+                        close_step(
+                            info,
+                            set_valve_fn=set_valve_fn,
+                            set_temperature_fn=set_temperature_fn,
+                        )
+                        for info in cycled
+                    ),
+                    return_exceptions=True,
+                )
+                open_valves = []
+                await asyncio.sleep(cycle_sleep)
+    except asyncio.CancelledError:
+        await _restore_after_stop(
+            infos,
+            woken,
+            open_valves,
+            set_valve_fn=set_valve_fn,
+            set_temperature_fn=set_temperature_fn,
+            set_hvac_mode_fn=set_hvac_mode_fn,
+            get_state=get_state,
+            device_name=device_name,
+        )
+        raise
+
+    await _restore_all(
+        infos,
+        woken,
+        set_temperature_fn=set_temperature_fn,
+        set_hvac_mode_fn=set_hvac_mode_fn,
+        get_state=get_state,
     )
 
     _LOGGER.info("better_thermostat %s: valve maintenance finished", device_name)
