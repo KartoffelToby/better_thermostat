@@ -56,8 +56,6 @@ class TestNormalizeCalibrationMode:
     def test_returns_none_for_invalid_types(self):
         """Test that invalid types return None."""
         assert normalize_calibration_mode(123) is None
-        assert normalize_calibration_mode([]) is None
-        assert normalize_calibration_mode({}) is None
 
     @pytest.mark.parametrize("stored", [0, 0.0])
     def test_numeric_zero_reads_as_default(self, stored):

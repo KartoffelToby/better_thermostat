@@ -130,7 +130,7 @@ def _bt(real_trvs: dict[str, Trv], *, window_open: bool, door_open: bool) -> Any
         temperature_slope=None,
         window_open=window_open,
         door_open=door_open,
-        contact_open=bool(window_open) or bool(door_open),
+        contact_open=window_open or door_open,
         device_name="BT_TEST",
         bt_hvac_mode=HVACMode.HEAT,
         heating_power=0.04,
