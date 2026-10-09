@@ -23,6 +23,7 @@ Classic triggers (kept for backwards compatibility):
 from __future__ import annotations
 
 from collections.abc import Sequence
+from enum import StrEnum
 import logging
 
 from homeassistant.components.climate.const import HVAC_MODES, HVACAction
@@ -59,28 +60,26 @@ from .utils.helpers import entry_settings, is_bt_climate_entity, setting_str
 
 _LOGGER = logging.getLogger(__name__)
 
-# All supported trigger types
 
-# Purpose-specific (new in HA 2025.12)
-_PURPOSE_TRIGGER_TYPES = {
-    "heating_active",
-    "heating_stopped",
-    "humidity_high",
-    "window_opened",
-    "window_closed",
-    "battery_low",
-    "device_error",
-    "target_temp_reached",
-}
+class TriggerType(StrEnum):
+    """The trigger types this platform offers, as stored in an automation."""
 
-# Legacy triggers (kept for backwards compatibility)
-_CLASSIC_TRIGGER_TYPES = {
-    "hvac_mode_changed",
-    "current_temperature_changed",
-    "current_humidity_changed",
-}
+    # Purpose-specific (new in HA 2025.12)
+    HEATING_ACTIVE = "heating_active"
+    HEATING_STOPPED = "heating_stopped"
+    HUMIDITY_HIGH = "humidity_high"
+    WINDOW_OPENED = "window_opened"
+    WINDOW_CLOSED = "window_closed"
+    BATTERY_LOW = "battery_low"
+    DEVICE_ERROR = "device_error"
+    TARGET_TEMP_REACHED = "target_temp_reached"
+    # Legacy triggers (kept for backwards compatibility)
+    HVAC_MODE_CHANGED = "hvac_mode_changed"
+    CURRENT_TEMPERATURE_CHANGED = "current_temperature_changed"
+    CURRENT_HUMIDITY_CHANGED = "current_humidity_changed"
 
-TRIGGER_TYPES = _PURPOSE_TRIGGER_TYPES | _CLASSIC_TRIGGER_TYPES
+
+TRIGGER_TYPES = frozenset(TriggerType)
 
 
 # Static TRIGGER_SCHEMA required by HA 2025.12 device automation framework.
@@ -163,12 +162,12 @@ async def async_get_triggers(
 
         # Purpose-specific triggers (primary – shown first in the UI)
         primary_types = [
-            "heating_active",
-            "heating_stopped",
-            "window_opened",
-            "window_closed",
-            "target_temp_reached",
-            "device_error",
+            TriggerType.HEATING_ACTIVE,
+            TriggerType.HEATING_STOPPED,
+            TriggerType.WINDOW_OPENED,
+            TriggerType.WINDOW_CLOSED,
+            TriggerType.TARGET_TEMP_REACHED,
+            TriggerType.DEVICE_ERROR,
         ]
         for trigger_type in primary_types:
             triggers.append(
@@ -176,9 +175,9 @@ async def async_get_triggers(
             )
 
         # Purpose-specific triggers (secondary – sensor / diagnostic info)
-        secondary_types = ["battery_low"]
+        secondary_types = [TriggerType.BATTERY_LOW]
         if watches_humidity:
-            secondary_types.insert(0, "humidity_high")
+            secondary_types.insert(0, TriggerType.HUMIDITY_HIGH)
         for trigger_type in secondary_types:
             triggers.append(
                 {**base, CONF_TYPE: trigger_type, "metadata": {"secondary": True}}
@@ -189,12 +188,12 @@ async def async_get_triggers(
             [
                 {
                     **base,
-                    CONF_TYPE: "hvac_mode_changed",
+                    CONF_TYPE: TriggerType.HVAC_MODE_CHANGED,
                     "metadata": {"secondary": True},
                 },
                 {
                     **base,
-                    CONF_TYPE: "current_temperature_changed",
+                    CONF_TYPE: TriggerType.CURRENT_TEMPERATURE_CHANGED,
                     "metadata": {"secondary": True},
                 },
             ]
@@ -203,7 +202,7 @@ async def async_get_triggers(
             triggers.append(
                 {
                     **base,
-                    CONF_TYPE: "current_humidity_changed",
+                    CONF_TYPE: TriggerType.CURRENT_HUMIDITY_CHANGED,
                     "metadata": {"secondary": True},
                 }
             )
@@ -253,7 +252,7 @@ async def async_attach_trigger(
     trigger_info: TriggerInfo,
 ) -> CALLBACK_TYPE:
     """Attach a trigger and return an unsubscribe callback."""
-    trigger_type: str = config[CONF_TYPE]
+    trigger_type = TriggerType(config[CONF_TYPE])
     entity_id = _resolve_entity_id(hass, config)
     if entity_id is None:
         raise InvalidDeviceAutomationConfig(
@@ -292,7 +291,7 @@ async def async_attach_trigger(
 
     # Purpose-specific trigger: heating_active
     #   Fires when hvac_action changes from another action TO "heating".
-    if trigger_type == "heating_active":
+    if trigger_type == TriggerType.HEATING_ACTIVE:
         state_config = _build_state(
             "hvac_action", to="heating", from_=_NOT_HEATING_ACTIONS
         )
@@ -305,7 +304,7 @@ async def async_attach_trigger(
 
     # Purpose-specific trigger: heating_stopped
     #   Fires when hvac_action changes FROM "heating" to another action.
-    if trigger_type == "heating_stopped":
+    if trigger_type == TriggerType.HEATING_STOPPED:
         state_config = _build_state(
             "hvac_action", to=_NOT_HEATING_ACTIONS, from_="heating"
         )
@@ -318,7 +317,7 @@ async def async_attach_trigger(
 
     # Purpose-specific trigger: window_opened
     #   Fires when the window_open attribute changes from False to True.
-    if trigger_type == "window_opened":
+    if trigger_type == TriggerType.WINDOW_OPENED:
         state_config = _build_state("window_open", to=True, from_=False)
         state_config = await state_trigger.async_validate_trigger_config(
             hass, state_config
@@ -331,7 +330,7 @@ async def async_attach_trigger(
     #   Fires when the window_open attribute changes from True to False. A
     #   thermostat that is unavailable has no such attribute, so going away
     #   and coming back fires neither window trigger.
-    if trigger_type == "window_closed":
+    if trigger_type == TriggerType.WINDOW_CLOSED:
         state_config = _build_state("window_open", to=False, from_=True)
         state_config = await state_trigger.async_validate_trigger_config(
             hass, state_config
@@ -343,7 +342,7 @@ async def async_attach_trigger(
     # Purpose-specific trigger: humidity_high
     #   Fires when the BT humidity attribute exceeds the threshold.
     #   Threshold is configurable (CONF_ABOVE); default is DEFAULT_HUMIDITY_THRESHOLD.
-    if trigger_type == "humidity_high":
+    if trigger_type == TriggerType.HUMIDITY_HIGH:
         numeric_config = _build_numeric(
             "{{ state.attributes.get('current_humidity', 0) | float(0) }}"
         )
@@ -360,7 +359,7 @@ async def async_attach_trigger(
     #   Fires when the minimum TRV battery level drops below the threshold.
     #   Threshold is configurable (CONF_BELOW); default is DEFAULT_BATTERY_THRESHOLD.
     #   Template extracts the minimum 'battery' value from the batteries JSON dict.
-    if trigger_type == "battery_low":
+    if trigger_type == TriggerType.BATTERY_LOW:
         battery_template = (
             "{%- set bat = state.attributes.get('batteries', '{}') | from_json -%}"
             "{%- set levels = bat.values() | map(attribute='battery') | reject('none') | list -%}"
@@ -378,7 +377,7 @@ async def async_attach_trigger(
 
     # Purpose-specific trigger: device_error
     #   Fires when the errors attribute contains at least one entry.
-    if trigger_type == "device_error":
+    if trigger_type == TriggerType.DEVICE_ERROR:
         error_template = (
             "{{ (state.attributes.get('errors', '[]') | from_json | length) }}"
         )
@@ -400,7 +399,7 @@ async def async_attach_trigger(
     # Purpose-specific trigger: target_temp_reached
     #   Fires when current_temperature >= target_temperature. The template
     #   renders 1 then and 0 otherwise, also while either value is missing.
-    if trigger_type == "target_temp_reached":
+    if trigger_type == TriggerType.TARGET_TEMP_REACHED:
         reached_template = (
             "{%- set current = state.attributes.get('current_temperature') -%}"
             "{%- set target = state.attributes.get('temperature') -%}"
@@ -423,7 +422,7 @@ async def async_attach_trigger(
         )
 
     # Classic trigger: hvac_mode_changed
-    if trigger_type == "hvac_mode_changed":
+    if trigger_type == TriggerType.HVAC_MODE_CHANGED:
         if CONF_TO not in config:
             # Refused here rather than in the schema: a schema error disables
             # the whole automation, this leaves its other triggers working.
@@ -467,12 +466,12 @@ async def async_get_trigger_capabilities(
 
     # Triggers with a "for" duration option only
     if trigger_type in {
-        "heating_active",
-        "heating_stopped",
-        "window_opened",
-        "window_closed",
-        "device_error",
-        "target_temp_reached",
+        TriggerType.HEATING_ACTIVE,
+        TriggerType.HEATING_STOPPED,
+        TriggerType.WINDOW_OPENED,
+        TriggerType.WINDOW_CLOSED,
+        TriggerType.DEVICE_ERROR,
+        TriggerType.TARGET_TEMP_REACHED,
     }:
         return {
             "extra_fields": vol.Schema(
@@ -481,7 +480,7 @@ async def async_get_trigger_capabilities(
         }
 
     # humidity_high: configurable threshold + duration
-    if trigger_type == "humidity_high":
+    if trigger_type == TriggerType.HUMIDITY_HIGH:
         return {
             "extra_fields": vol.Schema(
                 {
@@ -496,7 +495,7 @@ async def async_get_trigger_capabilities(
         }
 
     # battery_low: configurable threshold + duration
-    if trigger_type == "battery_low":
+    if trigger_type == TriggerType.BATTERY_LOW:
         return {
             "extra_fields": vol.Schema(
                 {
@@ -511,7 +510,7 @@ async def async_get_trigger_capabilities(
         }
 
     # Classic trigger: hvac_mode_changed
-    if trigger_type == "hvac_mode_changed":
+    if trigger_type == TriggerType.HVAC_MODE_CHANGED:
         return {
             "extra_fields": vol.Schema(
                 {
@@ -522,10 +521,13 @@ async def async_get_trigger_capabilities(
         }
 
     # Classic triggers: temperature / humidity value thresholds
-    if trigger_type in {"current_temperature_changed", "current_humidity_changed"}:
+    if trigger_type in {
+        TriggerType.CURRENT_TEMPERATURE_CHANGED,
+        TriggerType.CURRENT_HUMIDITY_CHANGED,
+    }:
         unit = (
             hass.config.units.temperature_unit
-            if trigger_type == "current_temperature_changed"
+            if trigger_type == TriggerType.CURRENT_TEMPERATURE_CHANGED
             else PERCENTAGE
         )
         return {
