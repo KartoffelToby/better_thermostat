@@ -273,6 +273,23 @@ class TestSetpointCalibration:
         result = calculate_calibration_setpoint(bt, ENTITY_ID)
         assert result == pytest.approx(24.5)
 
+    @pytest.mark.parametrize(
+        ("heat_target_temperature", "expected"), [(22.4, 24.9), (22.5, 22.5)]
+    )
+    def test_setpoint_aggressive_boost_jumps_at_the_threshold(
+        self, heat_target_temperature, expected
+    ):
+        """The boost adds a full 2.5 just below the threshold and nothing at it."""
+        bt = _make_bt(
+            CalibrationMode.AGGRESSIVE_CALIBRATION,
+            HVACAction.HEATING,
+            heat_target_temperature=heat_target_temperature,
+            room_temperature=20.0,
+            trv_temperature=20.0,
+        )
+        result = calculate_calibration_setpoint(bt, ENTITY_ID)
+        assert result == pytest.approx(expected)
+
     def test_setpoint_mpc_skips_post_adjustments(self):
         """MPC setpoint: post-adjustments skipped."""
         bt = _make_bt(

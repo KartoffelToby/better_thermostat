@@ -1156,8 +1156,11 @@ def _aggressive_adjust(
 ) -> tuple[float, bool]:
     """Boost the heating-promoting direction while actively heating.
 
-    The boost only tops the value up to 2.5 past the channel's neutral
-    reference; a value already past that point stays untouched.
+    While the value lies less than 2.5 past the channel's neutral
+    reference in the heating direction, the boost adds a full 2.5 in that
+    direction; a value at or beyond that point stays untouched. The result
+    therefore jumps at the threshold: 2.4 past neutral becomes 4.9, while
+    2.5 past neutral stays 2.5.
     """
     if self.hvac_action == HVACAction.HEATING:
         if ctx.boost_sign * (value - ctx.boost_neutral) < 2.5:
