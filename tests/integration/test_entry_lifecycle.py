@@ -303,6 +303,34 @@ async def test_a_thermostat_renamed_by_the_user_keeps_driving_the_trv(
             blocking=True,
         )
         assert await wait_for(hass, lambda: trv.set_temperature_calls)
+    # target_temp_based sends the target corrected by how far the device's
+    # own reading sits from the room sensor.
+    corrected = 23.5 - 18.0 + trv.profile.current_temperature
+    assert_write_is(trv.set_temperature_calls[-1], corrected, trv.profile)
+
+
+async def test_two_quick_renames_schedule_one_reload(hass, fake_trv):
+    """A second new entity_id before the reload runs adds no second reload."""
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    scheduled: list[str] = []
+    schedule = hass.config_entries.async_schedule_reload
+
+    def counting_schedule(entry_id: str) -> None:
+        scheduled.append(entry_id)
+        schedule(entry_id)
+
+    registry = er.async_get(hass)
+    with patch.object(hass.config_entries, "async_schedule_reload", counting_schedule):
+        registry.async_update_entity(BT_ENTITY, new_entity_id=RENAMED_ENTITY)
+        registry.async_update_entity(
+            RENAMED_ENTITY, new_entity_id="climate.living_room_heating_2"
+        )
+        await hass.async_block_till_done()
+
+    assert scheduled == [entry.entry_id]
 
 
 @pytest.mark.parametrize(

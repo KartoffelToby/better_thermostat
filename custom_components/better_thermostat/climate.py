@@ -1173,6 +1173,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # TRVs startup went ahead without whose initialisation is running now.
         self._trvs_initializing: set[str] = set()
         self.is_removed = False
+        self._recovery_reload_scheduled = False
         # Valve maintenance control
         # If control actions are requested during valve maintenance, defer them and
         # trigger one control cycle once maintenance finishes.
@@ -1295,6 +1296,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # reload removes the object after that, which saves that state
             # under the new id for the new entity to restore, and the new
             # entity's state is the last one written.
+            # A second entity_id change before that reload runs adds this
+            # object once more; the reload already scheduled serves it too.
+            if self._recovery_reload_scheduled:
+                return
+            self._recovery_reload_scheduled = True
             self.hass.loop.call_soon(
                 self.hass.config_entries.async_schedule_reload, self._config_entry_id
             )
