@@ -8,8 +8,10 @@ arriving in the meantime is not held back by the pause.
 """
 
 import asyncio
+from collections.abc import Awaitable
 import logging
-from unittest.mock import AsyncMock, patch
+from typing import Protocol
+from unittest.mock import AsyncMock, _patch, patch
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -46,12 +48,14 @@ class _VirtualSleep:
 
     A pause returns at once unless ``hold`` is set, in which case a pause of a
     second or more waits until ``release`` is called. Holding lets a test act
-    while the queue's retry is still pending.
+    while the queue's retry is still pending. With a ``clock`` set, a pause of
+    a second or more moves that clock on by its length.
     """
 
     def __init__(self) -> None:
         self.waits: list[float] = []
         self.hold = False
+        self.clock: FakeClock | None = None
         self._released = asyncio.Event()
 
     def release(self) -> None:
@@ -59,6 +63,8 @@ class _VirtualSleep:
         self._released.set()
 
     async def __call__(self, delay, result=None):
+        if self.clock is not None and delay and delay >= 1:
+            self.clock.advance(delay)
         if delay and delay > 0:
             self.waits.append(delay)
             if self.hold and delay >= 1:
@@ -91,17 +97,34 @@ def _refused(*_args, **_kwargs):
     raise ServiceValidationError("out of range")
 
 
+class _ControlTrv(Protocol):
+    """The shape of ``control_trv`` as the control queue calls it."""
+
+    def __call__(
+        self, entity: object, entity_id: str, /, cycle: object = None
+    ) -> Awaitable[object]: ...
+
+
 class _Queue:
     """Run the control queue of one entity against a scripted control_trv."""
 
-    def __init__(self, entity: ThermostatStandIn, outcomes, cycle=None) -> None:
+    def __init__(
+        self,
+        entity: ThermostatStandIn,
+        outcomes,
+        cycle=None,
+        control_trv: _ControlTrv | None = None,
+    ) -> None:
         self.entity = entity
         self.outcomes = outcomes
         self.cycle = cycle
         self.calls = 0
         self.sleep = _VirtualSleep()
-        self._task: asyncio.Task | None = None
-        self._patches = []
+        self.control_trv: _ControlTrv = (
+            control_trv if control_trv is not None else self._control_trv
+        )
+        self._task: asyncio.Task[None] | None = None
+        self._patches: list[_patch[object]] = []
 
     async def _control_trv(self, _entity, _entity_id, cycle=None):
         outcome = self.outcomes(self.calls)
@@ -115,7 +138,7 @@ class _Queue:
 
     async def __aenter__(self):
         self._patches = [
-            patch(f"{_CTRL}.control_trv", new=self._control_trv),
+            patch(f"{_CTRL}.control_trv", new=self.control_trv),
             patch(f"{_CTRL}.compute_control_cycle", side_effect=self._compute_cycle),
             patch("asyncio.sleep", new=self.sleep),
         ]
@@ -263,8 +286,7 @@ async def test_two_trvs_failing_in_turn_are_one_run(caplog):
             raise HomeAssistantError(f"no answer from {entity_id}")
         return True
 
-    queue = _Queue(entity, None)
-    queue._control_trv = control_trv
+    queue = _Queue(entity, None, control_trv=control_trv)
     async with queue:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + 5
@@ -383,15 +405,7 @@ async def test_a_run_at_its_longest_pause_warns_once_an_hour(caplog):
     entity = _make_self()
     caplog.set_level(logging.DEBUG, logger=_CTRL)
     queue = _Queue(entity, lambda _n: HomeAssistantError("no answer"))
-    real_call = queue.sleep.__call__
-
-    async def advancing_sleep(delay, result=None):
-        if delay and delay >= 1:
-            entity.clock.advance(delay)
-        return await real_call(delay, result)
-
-    queue.sleep = advancing_sleep
-    queue.sleep.waits = []
+    queue.sleep.clock = entity.clock
     async with queue:
         # The ninth failure reaches the cap; 36 more span three hours there.
         await queue.until_calls(45, timeout=10.0)
@@ -463,8 +477,7 @@ async def test_a_trv_still_away_since_it_failed_keeps_the_run():
             raise HomeAssistantError(f"no answer from {entity_id}")
         return True
 
-    queue = _Queue(entity, None)
-    queue._control_trv = control_trv
+    queue = _Queue(entity, None, control_trv=control_trv)
     async with queue:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + 5

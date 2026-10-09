@@ -5,13 +5,25 @@ from unittest.mock import patch
 
 import pytest
 
+from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.containers import BtRuntime
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
+    TpiOutput,
     TpiParams,
     TpiState,
     build_tpi_key,
     compute_tpi,
 )
+
+
+def _compute_tpi(
+    inp: TpiInput, params: TpiParams, *, state: TpiState, now: float | None = None
+) -> tuple[TpiOutput, TpiState]:
+    """Run compute_tpi and require the output it returns for every input."""
+    result, state = compute_tpi(inp, params, state=state, now=now)
+    assert result is not None
+    return result, state
 
 
 class TestTpiController:
@@ -32,13 +44,13 @@ class TestTpiController:
             window_open=True,
             heating_allowed=True,
         )
-        result, state = compute_tpi(inp, params, state=state)
+        result, state = _compute_tpi(inp, params, state=state)
         assert result.duty_cycle_percent == 0.0
         assert result.debug["reason"] == "blocked"
 
         inp.heating_allowed = False
         inp.window_open = False
-        result, state = compute_tpi(inp, params, state=state)
+        result, state = _compute_tpi(inp, params, state=state)
         assert result.duty_cycle_percent == 0.0
         assert result.debug["reason"] == "blocked"
 
@@ -47,13 +59,13 @@ class TestTpiController:
         params = TpiParams()
         state = TpiState()
         inp = TpiInput(key="test", room_temperature=None, target_temperature=22.0)
-        result, state = compute_tpi(inp, params, state=state)
+        result, state = _compute_tpi(inp, params, state=state)
         assert result.duty_cycle_percent == 0.0  # No last_percent, so 0
         assert result.debug["reason"] == "missing_temps"
 
         # Now with last_percent
         inp.room_temperature = 20.0
-        result, state = compute_tpi(inp, params, state=state)
+        result, state = _compute_tpi(inp, params, state=state)
         # Should calculate normally, clamped to 100
         assert result.duty_cycle_percent == 100.0
 
@@ -67,7 +79,7 @@ class TestTpiController:
             target_temperature=22.0,
             outdoor_temperature=15.0,
         )
-        result, state = compute_tpi(inp, params, state=state)
+        result, state = _compute_tpi(inp, params, state=state)
         assert result.duty_cycle_percent == 100.0  # clamped
         assert result.debug["error_K"] == 2.0
         assert result.debug["raw_pct"] == 114.0
@@ -81,7 +93,7 @@ class TestTpiController:
             room_temperature=22.6,
             target_temperature=22.0,  # error = -0.6
         )
-        result, state = compute_tpi(inp, params, state=state)
+        result, state = _compute_tpi(inp, params, state=state)
         assert result.duty_cycle_percent == 0.0
         assert result.debug["reason"] == "threshold_high"
 
@@ -94,22 +106,19 @@ class TestTpiController:
             room_temperature=20.0,
             target_temperature=25.0,  # error=5, duty=500, clamped to 90
         )
-        result, state = compute_tpi(inp, params, state=state)
+        result, state = _compute_tpi(inp, params, state=state)
         assert result.duty_cycle_percent == 90.0
 
         inp.target_temperature = 19.0  # error=-1, duty=-100, clamped to 10
-        result, state = compute_tpi(inp, params, state=state)
+        result, state = _compute_tpi(inp, params, state=state)
         assert result.duty_cycle_percent == 10.0
 
     def test_build_tpi_key(self):
         """Test key building for state tracking."""
 
-        class MockBT:
-            def __init__(self):
-                self.heat_target_temperature: float | None = 22.5
-                self.unique_id = "test_bt"
-
-        bt = MockBT()
+        bt = object.__new__(BetterThermostat)
+        bt.runtime = BtRuntime(heat_target_temperature=22.5)
+        bt._unique_id = "test_bt"
         key = build_tpi_key(bt, "climate.test")
         assert key == "test_bt:climate.test:t22.5"
 
@@ -136,7 +145,7 @@ class TestTpiTimeHandling:
             "custom_components.better_thermostat.utils.calibration.tpi.monotonic",
             side_effect=AssertionError("wall clock must not be read"),
         ):
-            result, state = compute_tpi(inp, params, state=state, now=500.0)
+            result, state = _compute_tpi(inp, params, state=state, now=500.0)
 
         assert result is not None
         assert state.last_update_ts == 500.0
@@ -159,7 +168,7 @@ class TestTpiOverManyCycles:
         rng = Random(7)
         state = TpiState()
         cycles = 200
-        duty_cycles = []
+        duty_cycles: list[float] = []
 
         for cycle in range(cycles):
             heat_target_temperature = 20.0 + rng.random() * 3.0
@@ -171,8 +180,8 @@ class TestTpiOverManyCycles:
                 target_temperature=heat_target_temperature,
                 outdoor_temperature=heat_target_temperature - delta_outdoor_kelvin,
             )
-            carried, state = compute_tpi(inp, params, state=state, now=float(cycle))
-            fresh, _ = compute_tpi(inp, params, state=TpiState(), now=float(cycle))
+            carried, state = _compute_tpi(inp, params, state=state, now=float(cycle))
+            fresh, _ = _compute_tpi(inp, params, state=TpiState(), now=float(cycle))
             assert carried.duty_cycle_percent == fresh.duty_cycle_percent
             duty_cycles.append(carried.duty_cycle_percent)
 
@@ -203,9 +212,9 @@ class TestTpiOverManyCycles:
             params.coef_int * (22.0 - 21.8) + params.coef_ext * (22.0 - 5.0)
         )
 
-        duty_cycles = []
+        duty_cycles: list[float] = []
         for cycle in range(50):
-            result, state = compute_tpi(
+            result, state = _compute_tpi(
                 inp, params, state=state, now=float(cycle) * 300.0
             )
             duty_cycles.append(result.duty_cycle_percent)
@@ -234,12 +243,12 @@ class TestTpiOverManyCycles:
             outdoor_temperature=5.0,
         )
 
-        warm, state = compute_tpi(reading, params, state=state, now=0.0)
+        warm, state = _compute_tpi(reading, params, state=state, now=0.0)
         held_pct = warm.duty_cycle_percent
         assert held_pct > 0.0
 
         for cycle in range(1, 13):
-            result, state = compute_tpi(gap, params, state=state, now=float(cycle))
+            result, state = _compute_tpi(gap, params, state=state, now=float(cycle))
             assert result.debug["reason"] == "missing_temps"
             assert result.duty_cycle_percent == held_pct
 
@@ -249,7 +258,7 @@ class TestTpiOverManyCycles:
             target_temperature=22.0,
             outdoor_temperature=5.0,
         )
-        after_gap, _ = compute_tpi(colder, params, state=state, now=200.0)
-        fresh, _ = compute_tpi(colder, params, state=TpiState(), now=200.0)
+        after_gap, _ = _compute_tpi(colder, params, state=state, now=200.0)
+        fresh, _ = _compute_tpi(colder, params, state=TpiState(), now=200.0)
         assert after_gap.duty_cycle_percent == fresh.duty_cycle_percent
         assert after_gap.duty_cycle_percent != held_pct
