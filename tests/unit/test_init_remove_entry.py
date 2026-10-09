@@ -9,6 +9,7 @@ they do not linger after the BT instance is gone.
 from asyncio import Lock
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 import pytest
 
@@ -29,7 +30,7 @@ def _make_entry(**overrides):
     entry = MagicMock()
     entry.entry_id = "abcd1234"
     entry.title = "Kinderzimmer"
-    data = {
+    data: dict[str, object] = {
         CONF_NAME: "Kinderzimmer",
         CONF_THERMOSTAT: [{"trv": "climate.fritz_kinderzimmer", "advanced": {}}],
         CONF_TEMPERATURE_SENSOR: "sensor.kinderzimmer_temperature",
@@ -47,10 +48,10 @@ def _make_hass():
     both have to be real for the removal to reach what is in them.
     """
     hass = AsyncMock()
-    hass.data = {}
+    hass.data = dict[str, object]()
     # The removal asks which other entries control the same thermostats.
     hass.config_entries = MagicMock()
-    hass.config_entries.async_entries.return_value = []
+    hass.config_entries.async_entries.return_value = list[ConfigEntry]()
     return hass
 
 
@@ -211,7 +212,7 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         entry.entry_id = "abcd1234"
         entry.title = "Kinderzimmer"
         entry.data = stored
-        entry.options = {}
+        entry.options = dict[str, object]()
 
         await async_remove_entry(hass, entry)
 

@@ -1,5 +1,9 @@
 """Regression tests for localized config-flow selector values."""
 
+from collections.abc import Mapping
+
+import voluptuous as vol
+
 from custom_components.better_thermostat.config_flow import (
     _build_user_fields,
     _normalize_user_submission,
@@ -44,11 +48,14 @@ def test_empty_target_temperature_step_uses_legacy_default():
     assert normalized[CONF_TARGET_TEMP_STEP] == "0.0"
 
 
-def _target_step_default(fields):
+def _target_step_default(fields: Mapping[vol.Marker, object]) -> object:
     """Return the schema default the form offers for the target temperature step."""
     for marker in fields:
-        if marker == CONF_TARGET_TEMP_STEP:
-            return marker.default()
+        if marker.schema == CONF_TARGET_TEMP_STEP:
+            assert isinstance(marker, vol.Optional | vol.Required)
+            default = marker.default
+            assert callable(default)
+            return default()
     raise AssertionError("target temperature step field missing from the form")
 
 
