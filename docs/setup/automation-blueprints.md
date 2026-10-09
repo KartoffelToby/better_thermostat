@@ -219,15 +219,20 @@ Better Thermostat climate entity:
 | `humidity_high` | `current_humidity` attribute exceeds configured threshold |
 | `battery_low` | Minimum TRV battery drops below configured threshold |
 | `device_error` | `errors` attribute contains at least one error |
-| `target_temp_reached` | Current temperature is at or above the target temperature |
+| `target_temp_reached` | Current temperature is at or above the target temperature; with a cooler, at or above the lower end of the target range |
 
 Three more triggers are available for your own automations:
 
 | Trigger type | Fires when |
 |---|---|
 | `hvac_mode_changed` | The HVAC mode changes |
-| `current_temperature_changed` | The current temperature changes |
-| `current_humidity_changed` | The current humidity changes |
+| `current_temperature_changed` | The current temperature changes, or crosses `above:` / `below:` when set |
+| `current_humidity_changed` | The current humidity changes, or crosses `above:` / `below:` when set |
+
+Without `above:` or `below:`, the two value triggers fire on every change of
+the value. With a threshold they fire only when the value crosses it, the same way
+`humidity_high` and `battery_low` do. A sensor that drops out and comes back
+fires neither form.
 
 `humidity_high` and `current_humidity_changed` appear only for a thermostat
 configured with a humidity sensor.

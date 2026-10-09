@@ -68,9 +68,9 @@ In the automation editor, **Add condition → Device**, a Better Thermostat devi
 | Condition type | True while | Values |
 | --- | --- | --- |
 | `is_hvac_mode` | The thermostat is in the chosen HVAC mode. | `off`, `heat`, `heat_cool` |
-| `is_hvac_action` | The thermostat's current action is the chosen one. | `off`, `heating`, `idle` |
+| `is_hvac_action` | The thermostat's current action is the chosen one. | `off`, `heating`, `cooling`, `idle` |
 
-The mode is what the thermostat is set to; the action is what it is doing right now. A thermostat set to `heat` reports `idle` while the room is warm enough.
+The mode is what the thermostat is set to; the action is what it is doing right now. A thermostat set to `heat` reports `idle` while the room is warm enough. A thermostat reports `cooling` only when a cooler is configured.
 
 ```yaml
 condition: device
