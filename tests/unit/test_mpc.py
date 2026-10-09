@@ -4,6 +4,7 @@ State is threaded explicitly through a test-local state dict, mirroring how
 the StateManager owns controller state in production.
 """
 
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
@@ -652,7 +653,7 @@ class TestMPCController:
             percent_hysteresis_pts=1.0,
             min_update_interval_s=1.0,
             min_percent_hold_time_s=0.0,
-            mpc_du_max_percent=None,
+            mpc_du_max_percent=0.0,
         )
         state = MpcState()
         state.last_percent = 40.0
@@ -858,7 +859,7 @@ class TestMPCController:
                 target_temperature=20.8,
                 room_temperature=20.95,
             ),
-            MpcParams(**{**base_params.__dict__, "mpc_overshoot_penalty": 0.0}),
+            replace(base_params, mpc_overshoot_penalty=0.0),
         )
         high_overshoot, _ = compute_mpc(
             MpcInput(
@@ -866,7 +867,7 @@ class TestMPCController:
                 target_temperature=20.8,
                 room_temperature=20.95,
             ),
-            MpcParams(**{**base_params.__dict__, "mpc_overshoot_penalty": 8.0}),
+            replace(base_params, mpc_overshoot_penalty=8.0),
         )
 
         assert low_overshoot is not None and high_overshoot is not None

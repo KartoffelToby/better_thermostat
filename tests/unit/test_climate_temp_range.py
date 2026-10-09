@@ -20,6 +20,7 @@ from custom_components.better_thermostat.climate import (
     BetterThermostat,
     _configured_temperature_bound,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_TARGET_TEMP_MIN,
     TARGET_TEMP_BOUND_AUTO,
@@ -46,12 +47,12 @@ def bt():
     mock.cool_min_temperature = None
     mock.cool_max_temperature = None
     mock.cooler_entity_id = None
-    mock.real_trvs = {}
+    mock.real_trvs = dict[str, Trv]()
     return mock
 
 
 def _trv(min_t=None, max_t=None, step=None, unit=None, eid="climate.trv"):
-    attrs: dict = {}
+    attrs: dict[str, object] = {}
     if min_t is not None:
         attrs[ATTR_MIN_TEMP] = min_t
     if max_t is not None:
@@ -481,7 +482,7 @@ def test_the_published_step_is_in_the_system_unit(bt, system_unit, published):
     """
     bt.bt_target_temperature_step = 0.5
     bt._unit = system_unit
-    step = BetterThermostat.target_temperature_step.fget(bt)
+    step = BetterThermostat.target_temperature_step.__get__(bt)
     assert step == pytest.approx(published)
 
 
@@ -512,7 +513,7 @@ def test_the_thermostat_publishes_in_tenths(bt, system_unit):
     moves a target between two degrees onto one of them.
     """
     bt._unit = system_unit
-    assert BetterThermostat.precision.fget(bt) == 0.1
+    assert BetterThermostat.precision.__get__(bt) == 0.1
 
 
 @pytest.mark.parametrize(
@@ -528,4 +529,4 @@ def test_without_a_step_the_default_of_the_system_unit_is_published(
     """Without a step the entity publishes Home Assistant's default for the unit."""
     bt.bt_target_temperature_step = None
     bt._unit = system_unit
-    assert BetterThermostat.target_temperature_step.fget(bt) == published
+    assert BetterThermostat.target_temperature_step.__get__(bt) == published

@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 from homeassistant.components.climate.const import HVACAction, HVACMode
 import pytest
 
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.hvac_action import ToleranceHysteresis
 from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
@@ -36,7 +37,7 @@ def mock_bt():
     bt.window_open = False
     bt.contact_open = False
     bt.ignore_states = False
-    bt.real_trvs = {}
+    bt.real_trvs = dict[str, Trv]()
     bt._hysteresis = ToleranceHysteresis()
     bt.device_name = "Test"
     bt._hvac_list = [HVACMode.HEAT, HVACMode.OFF]
