@@ -280,7 +280,7 @@ def _scopes_inside(node):
             yield from _scopes_inside(child)
 
 
-def _names_bound_by(node):
+def _names_bound_by(node) -> list[str]:
     """Names a statement binds without an ``ast.Name`` store node.
 
     An import, an ``except ... as``, a ``match`` capture and a nested
@@ -360,7 +360,7 @@ def _position(node):
     return (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
 
 
-def _parameter_names(scope):
+def _parameter_names(scope) -> list[str]:
     """Every name a callable scope binds through its own parameters."""
     arguments = getattr(scope, "args", None)
     if not isinstance(arguments, ast.arguments):

@@ -14,6 +14,7 @@ the monotonic ones are restored from a longer previous uptime, the wall
 ones are pinned to the clock they are read from.
 """
 
+from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 import json
 import re
@@ -185,7 +186,9 @@ def test_output_follows_the_controller_on_the_first_cycle_after_a_host_reboot():
     percent, debug, state = _cycle(params, state, now=_UPTIME_AFTER_REBOOT_S, room=20.8)
 
     assert debug["hold_time_rem"] <= params.min_hold_time_s
-    assert percent == round(debug["u"])
+    output = debug["u"]
+    assert output is not None
+    assert percent == round(output)
     assert percent != 40
 
 
@@ -201,7 +204,9 @@ def test_hold_and_tuning_stamps_ahead_of_the_clock_reset_on_their_own():
 
     percent, debug, state = _cycle(params, state, now=_UPTIME_AFTER_REBOOT_S, room=20.8)
 
-    assert percent == round(debug["u"])
+    output = debug["u"]
+    assert output is not None
+    assert percent == round(output)
     assert percent != 40
     assert state.last_tune_ts == 0.0
 
@@ -237,7 +242,9 @@ def test_derivative_does_not_read_the_downtime_drift_as_a_one_second_change():
         params, state, now=_UPTIME_AFTER_REBOOT_S, room=20.8 - drift_kelvin
     )
 
-    assert abs(debug["d"]) <= params.kd * drift_kelvin / MAX_DT_S
+    derivative = debug["d"]
+    assert derivative is not None
+    assert abs(derivative) <= params.kd * drift_kelvin / MAX_DT_S
 
 
 def test_derivative_after_a_core_restart_spreads_the_drift_over_the_gap():
@@ -248,7 +255,9 @@ def test_derivative_after_a_core_restart_spreads_the_drift_over_the_gap():
     _, debug, _ = _cycle(params, state, now=_PREVIOUS_UPTIME_S + 240.0, room=20.5)
 
     assert debug["dt_s"] == 240.0
-    assert abs(debug["d"]) <= params.kd * 0.3 / 240.0
+    derivative = debug["d"]
+    assert derivative is not None
+    assert abs(derivative) <= params.kd * 0.3 / 240.0
 
 
 def test_standby_after_a_host_reboot_keeps_tracking_the_room():
@@ -332,6 +341,7 @@ def test_auto_tune_resumes_within_the_first_cycles_after_a_host_reboot():
     """
     state = _tuning_cycles(_UPTIME_AFTER_REBOOT_S)
 
+    assert state.pid_ki is not None
     assert state.pid_ki > 0.01
     assert state.last_tune_ts <= _UPTIME_AFTER_REBOOT_S + 2 * 300.0
 
@@ -340,6 +350,7 @@ def test_auto_tune_resumes_within_the_first_cycles_after_a_core_restart():
     """After a restart of Home Assistant auto-tune resumes as scheduled."""
     state = _tuning_cycles(_PREVIOUS_UPTIME_S + 300.0)
 
+    assert state.pid_ki is not None
     assert state.pid_ki > 0.01
 
 
@@ -363,6 +374,8 @@ def test_tpi_duty_cycle_ignores_its_stamp_from_the_previous_uptime():
         inp, TpiParams(), state=restored(0.0), now=_UPTIME_AFTER_REBOOT_S
     )
 
+    assert after_reboot is not None
+    assert fresh is not None
     assert after_reboot.duty_cycle_percent == fresh.duty_cycle_percent != 10.0
     assert state.last_update_ts == _UPTIME_AFTER_REBOOT_S
 
@@ -426,14 +439,17 @@ def test_mpc_v2_stamps_are_read_from_the_wall_clock():
         _, state = compute_mpc_v2(inp, MpcV2Params(), None)
     payload = export_mpc_v2_state(state)
     assert payload is not None
+    stored: Mapping[str, object] = payload
 
     assert {
-        name: payload[name] for name in _wall_fields(MpcV2StateData)
+        name: stored[name] for name in _wall_fields(MpcV2StateData)
     } == dict.fromkeys(_wall_fields(MpcV2StateData), _WALL_START_S)
     # The next solve is scheduled one controller step after this one.
-    snapshot = payload["snapshot"]
+    snapshot: Mapping[str, object] = payload["snapshot"]
     for name in _wall_fields(ControllerSnapshot):
-        assert _WALL_START_S <= snapshot[name] <= _WALL_START_S + 3600.0, name
+        stamp = snapshot[name]
+        assert isinstance(stamp, float), name
+        assert _WALL_START_S <= stamp <= _WALL_START_S + 3600.0, name
 
 
 # -- Wall-clock stamps: a step back of the wall clock -------------------------

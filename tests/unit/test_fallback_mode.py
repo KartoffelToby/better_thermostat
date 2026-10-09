@@ -17,7 +17,8 @@ from unittest.mock import MagicMock
 from homeassistant.components.climate import HVACMode
 import pytest
 
-from tests.factories import ThermostatStandIn, trv_from_legacy_dict
+from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 
 @pytest.fixture
@@ -31,21 +32,18 @@ def mock_bt_instance_no_calibration():
     bt.room_temperature = 20.0
     bt.window_open = False
     bt.real_trvs = {
-        "climate.test_trv": trv_from_legacy_dict(
-            "climate.test_trv",
-            {
-                "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "current_temperature": 20.0,
-                "temperature": 21.0,
-                "advanced": {
-                    # No calibration type set - triggers fallback mode
-                    "calibration": None,
-                    "calibration_mode": None,
-                    "no_off_system_mode": False,
-                    "heat_auto_swapped": False,
-                },
+        "climate.test_trv": Trv(
+            entity_id="climate.test_trv",
+            hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
+            min_temp=5.0,
+            max_temp=30.0,
+            current_temperature=20.0,
+            advanced={
+                # No calibration type set - triggers fallback mode
+                "calibration": None,
+                "calibration_mode": None,
+                "no_off_system_mode": False,
+                "heat_auto_swapped": False,
             },
         )
     }
@@ -63,23 +61,17 @@ def mock_bt_instance_no_calibration_with_remap():
     bt.room_temperature = 20.0
     bt.window_open = False
     bt.real_trvs = {
-        "climate.test_trv_remap": trv_from_legacy_dict(
-            "climate.test_trv_remap",
-            {
-                "hvac_modes": [
-                    HVACMode.AUTO,
-                    HVACMode.OFF,
-                ],  # No HEAT mode, needs remap
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "current_temperature": 20.0,
-                "temperature": 21.0,
-                "advanced": {
-                    "calibration": None,  # Fallback mode
-                    "calibration_mode": None,
-                    "no_off_system_mode": False,
-                    "heat_auto_swapped": True,  # heat should be remapped to auto
-                },
+        "climate.test_trv_remap": Trv(
+            entity_id="climate.test_trv_remap",
+            hvac_modes=[HVACMode.AUTO, HVACMode.OFF],  # No HEAT mode, needs remap
+            min_temp=5.0,
+            max_temp=30.0,
+            current_temperature=20.0,
+            advanced={
+                "calibration": None,  # Fallback mode
+                "calibration_mode": None,
+                "no_off_system_mode": False,
+                "heat_auto_swapped": True,  # heat should be remapped to auto
             },
         )
     }
@@ -97,20 +89,17 @@ def mock_bt_instance_no_calibration_no_off():
     bt.room_temperature = 20.0
     bt.window_open = False
     bt.real_trvs = {
-        "climate.test_trv_no_off": trv_from_legacy_dict(
-            "climate.test_trv_no_off",
-            {
-                "hvac_modes": [HVACMode.HEAT],  # No OFF mode
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "current_temperature": 20.0,
-                "temperature": 21.0,
-                "advanced": {
-                    "calibration": None,  # Fallback mode
-                    "calibration_mode": None,
-                    "no_off_system_mode": True,  # Device has no OFF system mode
-                    "heat_auto_swapped": False,
-                },
+        "climate.test_trv_no_off": Trv(
+            entity_id="climate.test_trv_no_off",
+            hvac_modes=[HVACMode.HEAT],  # No OFF mode
+            min_temp=5.0,
+            max_temp=30.0,
+            current_temperature=20.0,
+            advanced={
+                "calibration": None,  # Fallback mode
+                "calibration_mode": None,
+                "no_off_system_mode": True,  # Device has no OFF system mode
+                "heat_auto_swapped": False,
             },
         )
     }
