@@ -62,7 +62,7 @@ class TestHeatingPowerValvePosition:
             == 1.0
         )
 
-    def test_higher_temp_diff_gives_higher_valve_position(self):
+    def test_higher_temperature_diff_gives_higher_valve_position(self):
         """Test that larger temperature difference gives higher valve position."""
         mock_bt_small = MockThermostat(
             heat_target_temperature=20.5, room_temperature=20.0, heating_power=0.02
@@ -167,7 +167,7 @@ class TestHeatingPowerValvePosition:
         )
         assert result == 0.0
 
-    def test_returns_zero_for_negative_temp_diff(self):
+    def test_returns_zero_for_negative_temperature_diff(self):
         """Test that negative temperature differences return 0% valve."""
         mock_bt = MockThermostat(
             heat_target_temperature=18.0, room_temperature=20.0, heating_power=0.02
@@ -178,7 +178,7 @@ class TestHeatingPowerValvePosition:
         )
         assert result == 0.0
 
-    def test_handles_very_small_temp_diff(self):
+    def test_handles_very_small_temperature_diff(self):
         """Test handling of very small temperature differences."""
         mock_bt = MockThermostat(
             heat_target_temperature=20.05, room_temperature=20.0, heating_power=0.02

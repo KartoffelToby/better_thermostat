@@ -422,31 +422,31 @@ class TestOpenStep:
     async def test_direct_valve_sets_100(self):
         """Test Direct valve sets 100."""
         valve_fn = AsyncMock(return_value=True)
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         info = _info(use_direct_valve=True)
-        await open_step(info, set_valve_fn=valve_fn, set_temperature_fn=temp_fn)
+        await open_step(info, set_valve_fn=valve_fn, set_temperature_fn=temperature_fn)
         valve_fn.assert_awaited_once_with("climate.trv1", 100)
-        temp_fn.assert_not_awaited()
+        temperature_fn.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_temp_based_sets_max(self):
+    async def test_temperature_based_sets_maximum(self):
         """Test Temp based sets max."""
         valve_fn = AsyncMock()
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         info = _info(use_direct_valve=False, max_temp=28)
-        await open_step(info, set_valve_fn=valve_fn, set_temperature_fn=temp_fn)
-        temp_fn.assert_awaited_once_with("climate.trv1", 28)
+        await open_step(info, set_valve_fn=valve_fn, set_temperature_fn=temperature_fn)
+        temperature_fn.assert_awaited_once_with("climate.trv1", 28)
         valve_fn.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_off_mode_no_call(self):
         """Test Off mode no call."""
         valve_fn = AsyncMock()
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         info = _info(cur_mode="off", use_direct_valve=False)
-        await open_step(info, set_valve_fn=valve_fn, set_temperature_fn=temp_fn)
+        await open_step(info, set_valve_fn=valve_fn, set_temperature_fn=temperature_fn)
         valve_fn.assert_not_awaited()
-        temp_fn.assert_not_awaited()
+        temperature_fn.assert_not_awaited()
 
 
 class TestCloseStep:
@@ -456,31 +456,31 @@ class TestCloseStep:
     async def test_direct_valve_sets_0(self):
         """Test Direct valve sets 0."""
         valve_fn = AsyncMock(return_value=True)
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         info = _info(use_direct_valve=True)
-        await close_step(info, set_valve_fn=valve_fn, set_temperature_fn=temp_fn)
+        await close_step(info, set_valve_fn=valve_fn, set_temperature_fn=temperature_fn)
         valve_fn.assert_awaited_once_with("climate.trv1", 0)
-        temp_fn.assert_not_awaited()
+        temperature_fn.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_temp_based_sets_min(self):
+    async def test_temperature_based_sets_minimum(self):
         """Test Temp based sets min."""
         valve_fn = AsyncMock()
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         info = _info(use_direct_valve=False, min_temp=4)
-        await close_step(info, set_valve_fn=valve_fn, set_temperature_fn=temp_fn)
-        temp_fn.assert_awaited_once_with("climate.trv1", 4)
+        await close_step(info, set_valve_fn=valve_fn, set_temperature_fn=temperature_fn)
+        temperature_fn.assert_awaited_once_with("climate.trv1", 4)
         valve_fn.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_off_mode_no_call(self):
         """Test Off mode no call."""
         valve_fn = AsyncMock()
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         info = _info(cur_mode="off", use_direct_valve=False)
-        await close_step(info, set_valve_fn=valve_fn, set_temperature_fn=temp_fn)
+        await close_step(info, set_valve_fn=valve_fn, set_temperature_fn=temperature_fn)
         valve_fn.assert_not_awaited()
-        temp_fn.assert_not_awaited()
+        temperature_fn.assert_not_awaited()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -492,44 +492,44 @@ class TestRestoreOne:
     """Tests for restore one."""
 
     @pytest.mark.asyncio
-    async def test_restores_temp_and_mode(self):
+    async def test_restores_temperature_and_mode(self):
         """Test Restores temperature and mode."""
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
         info = _info(setpoint=22.5, cur_mode="heat")
         await restore_one(
             info,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode([info]),
         )
-        temp_fn.assert_awaited_once_with("climate.trv1", 22.5)
+        temperature_fn.assert_awaited_once_with("climate.trv1", 22.5)
         mode_fn.assert_awaited_once_with("climate.trv1", "heat")
 
     @pytest.mark.asyncio
     async def test_no_setpoint_skips_the_setpoint_restore(self):
         """Without a recorded setpoint nothing is written back."""
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
         info = _info(setpoint=None)
         await restore_one(
             info,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode([info]),
         )
-        temp_fn.assert_not_awaited()
+        temperature_fn.assert_not_awaited()
         mode_fn.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_temp_exception_still_sets_mode(self):
+    async def test_temperature_exception_still_sets_mode(self):
         """Test Temp exception still sets mode."""
-        temp_fn = AsyncMock(side_effect=RuntimeError("fail"))
+        temperature_fn = AsyncMock(side_effect=RuntimeError("fail"))
         mode_fn = AsyncMock()
         info = _info(setpoint=20.0, cur_mode="heat")
         await restore_one(
             info,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode([info]),
         )
@@ -538,13 +538,13 @@ class TestRestoreOne:
     @pytest.mark.asyncio
     async def test_failed_restores_are_traced(self, caplog):
         """Both restore writes report the TRV they could not reach."""
-        temp_fn = AsyncMock(side_effect=RuntimeError("fail"))
+        temperature_fn = AsyncMock(side_effect=RuntimeError("fail"))
         mode_fn = AsyncMock(side_effect=HomeAssistantError("fail"))
         info = _info(setpoint=20.0, cur_mode="heat")
         with caplog.at_level(logging.DEBUG, logger=_MAINTENANCE_LOGGER):
             await restore_one(
                 info,
-                set_temperature_fn=temp_fn,
+                set_temperature_fn=temperature_fn,
                 set_hvac_mode_fn=mode_fn,
                 get_state=_reports_a_moved_mode([info]),
             )
@@ -578,14 +578,14 @@ class TestRunValveMaintenance:
     async def test_two_cycles_open_close(self):
         """Each TRV should get 2 open + 2 close calls."""
         valve_fn = AsyncMock(return_value=True)
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
         infos = [_info(entity_id="trv1", use_direct_valve=True)]
 
         await run_valve_maintenance(
             infos,
             set_valve_fn=valve_fn,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode(infos),
             device_name="Test",
@@ -640,7 +640,7 @@ class TestRunValveMaintenance:
     async def test_multiple_trvs(self):
         """Test Multiple trvs."""
         valve_fn = AsyncMock(return_value=True)
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
         infos = [
             _info(entity_id="trv1", use_direct_valve=True),
@@ -650,7 +650,7 @@ class TestRunValveMaintenance:
         await run_valve_maintenance(
             infos,
             set_valve_fn=valve_fn,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode(infos),
             device_name="Test",
@@ -661,10 +661,10 @@ class TestRunValveMaintenance:
         assert valve_fn.await_count == 8
 
     @pytest.mark.asyncio
-    async def test_temp_based_cycles(self):
+    async def test_temperature_based_cycles(self):
         """Test Temp based cycles."""
         valve_fn = AsyncMock()
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
         infos = [
             _info(entity_id="trv1", use_direct_valve=False, max_temp=30, min_temp=5)
@@ -673,7 +673,7 @@ class TestRunValveMaintenance:
         await run_valve_maintenance(
             infos,
             set_valve_fn=valve_fn,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode(infos),
             device_name="Test",
@@ -681,14 +681,14 @@ class TestRunValveMaintenance:
         )
 
         # 2 opens (max) + 2 closes (min) = 4 temperature calls, plus 1 restore = 5
-        assert temp_fn.await_count == 5
+        assert temperature_fn.await_count == 5
         valve_fn.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_restores_after_cycles(self):
         """Test Restores after cycles."""
         valve_fn = AsyncMock(return_value=True)
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
         infos = [
             _info(
@@ -699,7 +699,7 @@ class TestRunValveMaintenance:
         await run_valve_maintenance(
             infos,
             set_valve_fn=valve_fn,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode(infos),
             device_name="Test",
@@ -707,20 +707,20 @@ class TestRunValveMaintenance:
         )
 
         # restore calls temperature + mode
-        temp_fn.assert_awaited_once_with("trv1", 22.0)
+        temperature_fn.assert_awaited_once_with("trv1", 22.0)
         mode_fn.assert_awaited_once_with("trv1", "heat")
 
     @pytest.mark.asyncio
     async def test_empty_infos_noop(self):
         """No TRVs → no calls, no crash."""
         valve_fn = AsyncMock()
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
 
         await run_valve_maintenance(
             [],
             set_valve_fn=valve_fn,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode([]),
             device_name="Test",
@@ -728,14 +728,14 @@ class TestRunValveMaintenance:
         )
 
         valve_fn.assert_not_awaited()
-        temp_fn.assert_not_awaited()
+        temperature_fn.assert_not_awaited()
         mode_fn.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_off_trv_without_wake_mode_is_skipped_in_temp_mode(self):
+    async def test_off_trv_without_wake_mode_is_skipped_in_temperature_mode(self):
         """An OFF TRV offering no usable wake mode still gets no open/close calls."""
         valve_fn = AsyncMock()
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
         infos = [
             _info(
@@ -750,7 +750,7 @@ class TestRunValveMaintenance:
         await run_valve_maintenance(
             infos,
             set_valve_fn=valve_fn,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode(infos),
             device_name="Test",
@@ -758,14 +758,14 @@ class TestRunValveMaintenance:
         )
 
         # open/close skipped, but restore still sets temperature + mode
-        assert temp_fn.await_count == 1  # only restore
+        assert temperature_fn.await_count == 1  # only restore
         mode_fn.assert_awaited_once_with("trv1", "off")
 
     @pytest.mark.asyncio
     async def test_off_trv_is_woken_exercised_and_switched_back_off(self):
         """An OFF TRV with a wake mode runs the full cycle and ends up off again."""
         valve_fn = AsyncMock()
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
         infos = [
             _info(
@@ -782,7 +782,7 @@ class TestRunValveMaintenance:
         await run_valve_maintenance(
             infos,
             set_valve_fn=valve_fn,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode(infos),
             device_name="Test",
@@ -795,8 +795,8 @@ class TestRunValveMaintenance:
             ("trv1", "off"),
         ]
         # 2 cycles x (open + close) + restore
-        assert temp_fn.await_count == 5
-        assert [c.args[1] for c in temp_fn.await_args_list] == [
+        assert temperature_fn.await_count == 5
+        assert [c.args[1] for c in temperature_fn.await_args_list] == [
             30.0,
             5.0,
             30.0,
@@ -808,7 +808,7 @@ class TestRunValveMaintenance:
     async def test_failed_wake_skips_the_temperature_cycle(self):
         """A TRV that would not wake is left out of the cycle, not written to."""
         valve_fn = AsyncMock()
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
 
         async def mode_fn(entity_id, mode):
             if entity_id == "trv1" and mode == "heat":
@@ -838,14 +838,14 @@ class TestRunValveMaintenance:
         await run_valve_maintenance(
             infos,
             set_valve_fn=valve_fn,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_mock,
             get_state=_reports_a_moved_mode(infos),
             device_name="Test",
             cycle_sleep=0,
         )
 
-        by_entity = [c.args for c in temp_fn.await_args_list]
+        by_entity = [c.args for c in temperature_fn.await_args_list]
         # trv1 sees its restore write only, never a cycle extreme.
         assert [args[1] for args in by_entity if args[0] == "trv1"] == [20.0]
         # trv2 is unaffected and runs both cycles plus its restore.
@@ -870,7 +870,7 @@ class TestRunValveMaintenance:
 
         monkeypatch.setattr(asyncio, "sleep", _record_sleep)
 
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_mock = AsyncMock(
             side_effect=HomeAssistantError("device did not accept the mode")
         )
@@ -887,7 +887,7 @@ class TestRunValveMaintenance:
         await run_valve_maintenance(
             infos,
             set_valve_fn=AsyncMock(),
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_mock,
             get_state=_reports_a_moved_mode(infos),
             device_name="Test",
@@ -896,7 +896,7 @@ class TestRunValveMaintenance:
 
         assert slept == []
         # The restore still runs for the TRV that could not be woken.
-        temp_fn.assert_awaited_once_with("trv1", 20.0)
+        temperature_fn.assert_awaited_once_with("trv1", 20.0)
 
     @pytest.mark.asyncio
     async def test_no_cycle_waits_for_an_unreachable_off_trv(self, monkeypatch):
@@ -908,7 +908,7 @@ class TestRunValveMaintenance:
 
         monkeypatch.setattr(asyncio, "sleep", _record_sleep)
 
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
         infos = [
             _info(
@@ -923,7 +923,7 @@ class TestRunValveMaintenance:
         await run_valve_maintenance(
             infos,
             set_valve_fn=AsyncMock(),
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode(infos),
             device_name="Test",
@@ -932,7 +932,7 @@ class TestRunValveMaintenance:
 
         assert slept == []
         # Never woken, never cycled, but still restored.
-        temp_fn.assert_awaited_once_with("trv1", 20.0)
+        temperature_fn.assert_awaited_once_with("trv1", 20.0)
         mode_fn.assert_awaited_once_with("trv1", "off")
 
     @pytest.mark.asyncio
@@ -961,7 +961,7 @@ class TestRunValveMaintenance:
     async def test_off_trv_on_direct_valve_is_not_woken(self):
         """A valve-driven TRV is exercised through the valve without being woken."""
         valve_fn = AsyncMock(return_value=True)
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
         infos = [
             _info(
@@ -976,7 +976,7 @@ class TestRunValveMaintenance:
         await run_valve_maintenance(
             infos,
             set_valve_fn=valve_fn,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode(infos),
             device_name="Test",
@@ -990,7 +990,7 @@ class TestRunValveMaintenance:
     async def test_exception_in_valve_fn_doesnt_crash(self):
         """Exceptions in callbacks should be caught (return_exceptions=True)."""
         valve_fn = AsyncMock(side_effect=RuntimeError("hardware fault"))
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
         infos = [_info(entity_id="trv1", use_direct_valve=True)]
 
@@ -998,7 +998,7 @@ class TestRunValveMaintenance:
         await run_valve_maintenance(
             infos,
             set_valve_fn=valve_fn,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports_a_moved_mode(infos),
             device_name="Test",
@@ -1153,16 +1153,16 @@ class TestRestoreLeavesAnUnmovedModeAlone:
     @pytest.mark.asyncio
     async def test_setpoint_is_restored_and_the_mode_is_not_written(self):
         """A single-mode TRV gets its setpoint back and no mode write."""
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
         info = _info(setpoint=21.5, cur_mode="heat", wake_mode=None)
         await restore_one(
             info,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports("heat"),
         )
-        temp_fn.assert_awaited_once_with("climate.trv1", 21.5)
+        temperature_fn.assert_awaited_once_with("climate.trv1", 21.5)
         mode_fn.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -1231,13 +1231,13 @@ class TestUnreadableTrvStates:
             read_setpoint=_setpoint_on_a_celsius_system,
         )
         valve_fn = AsyncMock(return_value=True)
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
 
         await run_valve_maintenance(
             infos,
             set_valve_fn=valve_fn,
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports("heat"),
             device_name="Test",
@@ -1245,7 +1245,7 @@ class TestUnreadableTrvStates:
         )
 
         valve_fn.assert_not_awaited()
-        temp_fn.assert_not_awaited()
+        temperature_fn.assert_not_awaited()
         mode_fn.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -1264,20 +1264,20 @@ class TestUnreadableTrvStates:
             "Test",
             read_setpoint=_setpoint_on_a_celsius_system,
         )
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
 
         await run_valve_maintenance(
             infos,
             set_valve_fn=AsyncMock(return_value=True),
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports(STATE_UNAVAILABLE),
             device_name="Test",
             cycle_sleep=0,
         )
 
-        assert temp_fn.await_args_list[-1].args == ("climate.trv1", 21.0)
+        assert temperature_fn.await_args_list[-1].args == ("climate.trv1", 21.0)
         mode_fn.assert_awaited_once_with("climate.trv1", "heat")
 
     @pytest.mark.asyncio
@@ -1291,20 +1291,20 @@ class TestUnreadableTrvStates:
             "Test",
             read_setpoint=_setpoint_on_a_celsius_system,
         )
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
 
         await run_valve_maintenance(
             infos,
             set_valve_fn=AsyncMock(return_value=True),
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports("heat"),
             device_name="Test",
             cycle_sleep=0,
         )
 
-        assert temp_fn.await_args_list[-1].args == ("climate.trv1", 21.0)
+        assert temperature_fn.await_args_list[-1].args == ("climate.trv1", 21.0)
         mode_fn.assert_not_awaited()
 
 
@@ -1351,13 +1351,13 @@ class TestATrvThatIsNotSetUpYet:
             "Test",
             read_setpoint=_setpoint_on_a_celsius_system,
         )
-        temp_fn = AsyncMock()
+        temperature_fn = AsyncMock()
         mode_fn = AsyncMock()
 
         await run_valve_maintenance(
             infos,
             set_valve_fn=AsyncMock(return_value=True),
-            set_temperature_fn=temp_fn,
+            set_temperature_fn=temperature_fn,
             set_hvac_mode_fn=mode_fn,
             get_state=_reports("heat"),
             device_name="Test",
@@ -1366,6 +1366,6 @@ class TestATrvThatIsNotSetUpYet:
 
         written = {
             call.args[0]
-            for call in (*temp_fn.await_args_list, *mode_fn.await_args_list)
+            for call in (*temperature_fn.await_args_list, *mode_fn.await_args_list)
         }
         assert written == {"climate.trv1"}

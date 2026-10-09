@@ -101,7 +101,7 @@ class TestDistributeValvePercent:
         for v in result.values():
             assert v == pytest.approx(60.0, abs=0.01)
 
-    def test_small_temp_diff(self):
+    def test_small_temperature_diff(self):
         """Small temperature differences produce small boosts."""
         trv_temps = {"a": 22.0, "b": 22.5, "c": 23.0}
         result = distribute_valve_percent(40.0, trv_temps)

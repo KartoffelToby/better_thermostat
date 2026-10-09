@@ -67,11 +67,11 @@ class TestClamp:
         """Test Within bounds."""
         assert clamp(5.0, 0.0, 10.0) == 5.0
 
-    def test_below_min(self):
+    def test_below_minimum(self):
         """Test Below min."""
         assert clamp(-1.0, 0.0, 10.0) == 0.0
 
-    def test_above_max(self):
+    def test_above_maximum(self):
         """Test Above max."""
         assert clamp(15.0, 0.0, 10.0) == 10.0
 
@@ -89,12 +89,12 @@ class TestComputeWeightFactor:
         # min=18, max=22, target=20 → relative_pos=0.5 → 0.5+0.5=1.0
         assert compute_weight_factor(20.0, 18.0, 22.0) == pytest.approx(1.0)
 
-    def test_at_min(self):
+    def test_at_minimum(self):
         """Test At min."""
         # target=18 → relative_pos=0 → 0.5+0=0.5
         assert compute_weight_factor(18.0, 18.0, 22.0) == pytest.approx(0.5)
 
-    def test_at_max(self):
+    def test_at_maximum(self):
         """Test At max."""
         # target=22 → relative_pos=1.0 → 0.5+1.0=1.5
         assert compute_weight_factor(22.0, 18.0, 22.0) == pytest.approx(1.5)
@@ -168,7 +168,7 @@ class TestHeatingPowerTrackerTransitions:
         assert t.end_ts == _ts(10)
         assert result.action_changed is True
 
-    def test_peak_tracking_temp_still_rising(self):
+    def test_peak_tracking_temperature_still_rising(self):
         """Test Peak tracking temperature still rising."""
         t = HeatingPowerTracker()
         t._prev_action = HVACAction.IDLE
@@ -188,8 +188,8 @@ class TestHeatingPowerTrackerFinalization:
     def _run_complete_cycle(
         self,
         start_temperature: float = 19.0,
-        peak_temp: float = 21.0,
-        duration_min: float = 10.0,
+        peak_temperature: float = 21.0,
+        duration_minutes: float = 10.0,
         initial_power: float = 0.05,
         outdoor: float | None = None,
         target: float | None = 22.0,
@@ -200,18 +200,18 @@ class TestHeatingPowerTrackerFinalization:
         # Start heating
         t.update(start_temperature, HVACAction.HEATING, _NOW)
         # Stop heating (candidate end)
-        t.update(peak_temp, HVACAction.IDLE, _ts(duration_min))
+        t.update(peak_temperature, HVACAction.IDLE, _ts(duration_minutes))
         # Temperature drops → finalize
         result = t.update(
-            peak_temp - 0.1,
+            peak_temperature - 0.1,
             HVACAction.IDLE,
-            _ts(duration_min + 1),
+            _ts(duration_minutes + 1),
             heat_target_temperature=target,
             outdoor_temperature=outdoor,
         )
         return t, result
 
-    def test_finalization_on_temp_drop(self):
+    def test_finalization_on_temperature_drop(self):
         """Test Finalization on temperature drop."""
         t, result = self._run_complete_cycle()
         assert result.cycle_result is not None
@@ -243,7 +243,7 @@ class TestHeatingPowerTrackerFinalization:
         assert result.cycle_result is not None
         assert t.heating_power == 0.05  # unchanged
 
-    def test_negative_temp_diff_discarded(self):
+    def test_negative_temperature_diff_discarded(self):
         """If end_temperature < start_temperature the cycle is discarded."""
         t = HeatingPowerTracker(heating_power=0.05)
         t.update(21.0, HVACAction.HEATING, _NOW)
@@ -257,8 +257,8 @@ class TestHeatingPowerTrackerFinalization:
         """Verify the EMA formula is applied correctly."""
         t, _ = self._run_complete_cycle(
             start_temperature=19.0,
-            peak_temp=21.0,
-            duration_min=10.0,
+            peak_temperature=21.0,
+            duration_minutes=10.0,
             initial_power=0.05,
         )
         # heating_rate = 2.0/10 = 0.2
@@ -467,13 +467,15 @@ class TestHeatLossTrackerFinalization:
         self,
         start_temperature: float = 21.0,
         end_temperature: float = 20.0,
-        duration_min: float = 10.0,
+        duration_minutes: float = 10.0,
         initial_loss: float = 0.01,
     ) -> tuple[HeatLossTracker, HeatLossUpdate]:
         t = HeatLossTracker(heat_loss_rate=initial_loss)
         t.update(start_temperature, HVACAction.IDLE, _NOW)
-        t.update(end_temperature, HVACAction.IDLE, _ts(duration_min))
-        result = t.update(end_temperature, HVACAction.HEATING, _ts(duration_min + 1))
+        t.update(end_temperature, HVACAction.IDLE, _ts(duration_minutes))
+        result = t.update(
+            end_temperature, HVACAction.HEATING, _ts(duration_minutes + 1)
+        )
         return t, result
 
     def test_finalization_on_heating_restart(self):
@@ -503,7 +505,7 @@ class TestHeatLossTrackerFinalization:
         t, _ = self._run_complete_loss_cycle(
             start_temperature=22.0,
             end_temperature=20.0,
-            duration_min=20.0,
+            duration_minutes=20.0,
             initial_loss=0.01,
         )
         # rate = 2/20 = 0.1, EMA: 0.01*0.9 + 0.1*0.1 = 0.019

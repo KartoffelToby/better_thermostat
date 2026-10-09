@@ -26,11 +26,11 @@ def _zero_metrics(**overrides) -> MetricValues:
         steady_state_error_K=0.0,
         rmse_tracking_K=0.0,
         valve_cycle_count=0,
-        integral_valve_pct_min=1000.0,
-        total_valve_travel_pct=100.0,
+        integral_valve_percent_minutes=1000.0,
+        total_valve_travel_percent=100.0,
         time_above_setpoint_K_h=0.0,
         time_below_setpoint_K_h=0.0,
-        valve_sweet_spot_residency_pct=0.0,
+        valve_sweet_spot_residency_percent=0.0,
     )
     return replace(base, **overrides)
 
@@ -97,29 +97,29 @@ def test_comfort_score_clamps_to_zero():
 
 def test_actuator_score_matches_oracle_returns_one():
     """Matching the oracle's travel scores 1.0."""
-    oracle = _zero_metrics(total_valve_travel_pct=500.0)
-    candidate = _zero_metrics(total_valve_travel_pct=500.0)
+    oracle = _zero_metrics(total_valve_travel_percent=500.0)
+    candidate = _zero_metrics(total_valve_travel_percent=500.0)
     assert actuator_score(candidate, oracle) == pytest.approx(1.0)
 
 
 def test_actuator_score_5x_travel_scores_zero():
     """5× the oracle's travel scores 0."""
-    oracle = _zero_metrics(total_valve_travel_pct=500.0)
-    candidate = _zero_metrics(total_valve_travel_pct=2500.0)
+    oracle = _zero_metrics(total_valve_travel_percent=500.0)
+    candidate = _zero_metrics(total_valve_travel_percent=2500.0)
     assert actuator_score(candidate, oracle) == pytest.approx(0.0)
 
 
 def test_actuator_score_less_travel_than_oracle_scores_one():
     """Using *less* travel than the oracle still caps at 1.0."""
-    oracle = _zero_metrics(total_valve_travel_pct=500.0)
-    candidate = _zero_metrics(total_valve_travel_pct=100.0)
+    oracle = _zero_metrics(total_valve_travel_percent=500.0)
+    candidate = _zero_metrics(total_valve_travel_percent=100.0)
     assert actuator_score(candidate, oracle) == pytest.approx(1.0)
 
 
 def test_actuator_score_handles_low_oracle_travel():
     """When the oracle barely moved, the candidate is compared against a floor."""
-    oracle = _zero_metrics(total_valve_travel_pct=0.5)
-    candidate = _zero_metrics(total_valve_travel_pct=250.0)
+    oracle = _zero_metrics(total_valve_travel_percent=0.5)
+    candidate = _zero_metrics(total_valve_travel_percent=250.0)
     # Floor of 500 → 250/500 = 0.5 penalty → score 0.5
     assert 0.4 < actuator_score(candidate, oracle) < 0.6
 
@@ -129,53 +129,53 @@ def test_actuator_score_handles_low_oracle_travel():
 
 def test_energy_score_matches_oracle_returns_one():
     """Matching the oracle's integral flow scores 1.0."""
-    oracle = _zero_metrics(integral_valve_pct_min=5000.0)
-    candidate = _zero_metrics(integral_valve_pct_min=5000.0)
+    oracle = _zero_metrics(integral_valve_percent_minutes=5000.0)
+    candidate = _zero_metrics(integral_valve_percent_minutes=5000.0)
     assert energy_score(candidate, oracle) == pytest.approx(1.0)
 
 
 def test_energy_score_double_oracle_scores_zero():
     """Using 2× the oracle's integral flow scores 0."""
-    oracle = _zero_metrics(integral_valve_pct_min=5000.0)
-    candidate = _zero_metrics(integral_valve_pct_min=10000.0)
+    oracle = _zero_metrics(integral_valve_percent_minutes=5000.0)
+    candidate = _zero_metrics(integral_valve_percent_minutes=10000.0)
     assert energy_score(candidate, oracle) == pytest.approx(0.0)
 
 
 def test_energy_score_low_oracle_neutral_for_matching_candidate():
     """When the oracle barely heated, a candidate near it still scores ~1.0."""
-    oracle = _zero_metrics(integral_valve_pct_min=20.0)
-    candidate = _zero_metrics(integral_valve_pct_min=25.0)
+    oracle = _zero_metrics(integral_valve_percent_minutes=20.0)
+    candidate = _zero_metrics(integral_valve_percent_minutes=25.0)
     assert energy_score(candidate, oracle) == pytest.approx(1.0 - 5.0 / 100.0)
 
 
 def test_energy_score_low_oracle_penalises_gross_overuse():
     """A grossly over-heating candidate must not escape via the low-oracle path."""
-    oracle = _zero_metrics(integral_valve_pct_min=20.0)
-    candidate = _zero_metrics(integral_valve_pct_min=2000.0)
+    oracle = _zero_metrics(integral_valve_percent_minutes=20.0)
+    candidate = _zero_metrics(integral_valve_percent_minutes=2000.0)
     # Excess of ~1980 percent·min against the 100 floor → fully penalised.
     assert energy_score(candidate, oracle) == pytest.approx(0.0)
 
 
 def test_energy_score_low_oracle_penalises_underheating():
     """Under-heating in the low-oracle path is penalised symmetrically (not 1.0)."""
-    oracle = _zero_metrics(integral_valve_pct_min=80.0)
-    candidate = _zero_metrics(integral_valve_pct_min=0.0)
+    oracle = _zero_metrics(integral_valve_percent_minutes=80.0)
+    candidate = _zero_metrics(integral_valve_percent_minutes=0.0)
     # Deviation of 80 percent·min against the 100 floor → score 0.2.
     assert energy_score(candidate, oracle) == pytest.approx(1.0 - 80.0 / 100.0)
 
 
 def test_energy_score_undershoot_penalised_symmetrically():
     """Heating *less* than the oracle is under-heating, not legitimate saving."""
-    oracle = _zero_metrics(integral_valve_pct_min=5000.0)
-    candidate = _zero_metrics(integral_valve_pct_min=3000.0)
+    oracle = _zero_metrics(integral_valve_percent_minutes=5000.0)
+    candidate = _zero_metrics(integral_valve_percent_minutes=3000.0)
     # ratio = 0.6 → |0.6 - 1| = 0.4 → score 0.6
     assert energy_score(candidate, oracle) == pytest.approx(0.6)
 
 
 def test_energy_score_zero_integral_scores_zero():
     """Not heating at all when oracle would heat scores 0."""
-    oracle = _zero_metrics(integral_valve_pct_min=5000.0)
-    candidate = _zero_metrics(integral_valve_pct_min=0.0)
+    oracle = _zero_metrics(integral_valve_percent_minutes=5000.0)
+    candidate = _zero_metrics(integral_valve_percent_minutes=0.0)
     assert energy_score(candidate, oracle) == pytest.approx(0.0)
 
 
@@ -184,9 +184,13 @@ def test_energy_score_zero_integral_scores_zero():
 
 def test_compute_scores_returns_all_dimensions():
     """The aggregate function returns comfort, actuator, energy, overall."""
-    oracle = _zero_metrics(total_valve_travel_pct=500.0, integral_valve_pct_min=5000.0)
+    oracle = _zero_metrics(
+        total_valve_travel_percent=500.0, integral_valve_percent_minutes=5000.0
+    )
     candidate = _zero_metrics(
-        max_overshoot_K=0.5, total_valve_travel_pct=750.0, integral_valve_pct_min=5500.0
+        max_overshoot_K=0.5,
+        total_valve_travel_percent=750.0,
+        integral_valve_percent_minutes=5500.0,
     )
     profile = PROFILES["balanced"]
     s = compute_scores(candidate, oracle, profile)
@@ -198,9 +202,9 @@ def test_compute_scores_returns_all_dimensions():
 
 def test_overall_score_respects_profile_weights():
     """Same dimension scores under different profiles give different overalls."""
-    oracle = _zero_metrics(total_valve_travel_pct=500.0)
+    oracle = _zero_metrics(total_valve_travel_percent=500.0)
     # Candidate: perfect comfort, terrible actuator
-    candidate = _zero_metrics(total_valve_travel_pct=2500.0)
+    candidate = _zero_metrics(total_valve_travel_percent=2500.0)
     score_balanced = compute_scores(candidate, oracle, PROFILES["balanced"]).overall
     score_comfort_first = compute_scores(
         candidate, oracle, PROFILES["comfort_first"]

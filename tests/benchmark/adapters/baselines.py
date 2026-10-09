@@ -28,8 +28,8 @@ class BangBangParams:
     """Hysteresis band for the bang-bang controller."""
 
     band_K: float = 0.2  # +/- around setpoint
-    on_pct: float = 100.0
-    off_pct: float = 0.0
+    on_percent: float = 100.0
+    off_percent: float = 0.0
 
 
 class BangBangAdapter:
@@ -58,7 +58,7 @@ class BangBangAdapter:
             self._state_on = False
         # Inside the band — keep previous state (the hysteresis).
         return BenchmarkOutput(
-            valve_percent=p.on_pct if self._state_on else p.off_pct,
+            valve_percent=p.on_percent if self._state_on else p.off_percent,
             diagnostics={"state_on": self._state_on},
         )
 
@@ -134,7 +134,7 @@ class IdealOracleAdapter:
         self,
         plant_params: Any | None = None,
         feedback_gain_per_K: float = 50.0,
-        feedback_clamp_pct: float = 50.0,
+        feedback_clamp_percent: float = 50.0,
     ) -> None:
         # Defer the plant import to runtime to keep adapters/ free of cycles.
         if plant_params is None:
@@ -143,7 +143,7 @@ class IdealOracleAdapter:
             plant_params = PROFILE_STANDARD
         self._plant = plant_params
         self._feedback_gain = feedback_gain_per_K
-        self._feedback_clamp = feedback_clamp_pct
+        self._feedback_clamp = feedback_clamp_percent
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
         """No state to reset."""
@@ -172,25 +172,25 @@ class IdealOracleAdapter:
         T_rad_ss = sp + loss_ss / coupling
         denom = p.gain_heater * (p.T_water - T_rad_ss)
         if denom <= 0.0:
-            u_ff_pct = 100.0  # cannot reach setpoint with this water temperature
+            u_ff_percent = 100.0  # cannot reach setpoint with this water temperature
         else:
-            u_ff_pct = max(0.0, min(100.0, 100.0 * (T_rad_ss - sp) / denom))
+            u_ff_percent = max(0.0, min(100.0, 100.0 * (T_rad_ss - sp) / denom))
 
         # Aggressive P-feedback so the oracle reacts to transients quickly.
         # Feed back on the plant truth: the oracle is the perfect-knowledge
         # upper bound, so sensor lag/noise must not depress its ceiling.
         error_K = sp - ctx.raw_room_temperature
-        u_fb_pct = max(
+        u_fb_percent = max(
             -self._feedback_clamp,
             min(self._feedback_clamp, error_K * self._feedback_gain),
         )
 
-        valve = max(0.0, min(100.0, u_ff_pct + u_fb_pct))
+        valve = max(0.0, min(100.0, u_ff_percent + u_fb_percent))
         return BenchmarkOutput(
             valve_percent=valve,
             diagnostics={
-                "u_ff_pct": round(u_ff_pct, 2),
-                "u_fb_pct": round(u_fb_pct, 2),
+                "u_ff_pct": round(u_ff_percent, 2),
+                "u_fb_pct": round(u_fb_percent, 2),
                 "error_K": round(error_K, 3),
             },
         )

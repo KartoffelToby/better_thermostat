@@ -242,7 +242,7 @@ _STORED_MPC_KEYS = {
     "last_target_temperature": "last_target_C",
     "last_sensor_temperature": "last_sensor_temp_C",
     "last_room_temperature": "last_room_temp_C",
-    "last_temperature": "last_temp",
+    "last_cycle_temperature": "last_temp",
     "last_trv_temperature": "last_trv_temp",
     "last_trv_temperature_ts": "last_trv_temp_ts",
     "last_learn_temperature": "last_learn_temp",
@@ -278,7 +278,7 @@ def write_mpc_state(state: MpcState) -> StoredMpcState:
         "loss_est": state.loss_est,
         "ka_est": state.ka_est,
         "solar_gain_est": state.solar_gain_est,
-        "last_temp": state.last_temperature,
+        "last_temp": state.last_cycle_temperature,
         "last_time": state.last_time,
         "last_trv_temp": state.last_trv_temperature,
         "last_trv_temp_ts": state.last_trv_temperature_ts,
@@ -763,8 +763,8 @@ def deserialize_mpc(
             loss_est=read.optional("loss_est", number, held.loss_est),
             ka_est=read.optional("ka_est", number, held.ka_est),
             solar_gain_est=read.optional("solar_gain_est", number, held.solar_gain_est),
-            last_temperature=read.optional(
-                "last_temperature", number, held.last_temperature
+            last_cycle_temperature=read.optional(
+                "last_cycle_temperature", number, held.last_cycle_temperature
             ),
             last_time=read.required("last_time", number, held.last_time),
             last_trv_temperature=read.optional(

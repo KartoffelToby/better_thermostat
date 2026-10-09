@@ -274,10 +274,10 @@ class TestExternalTemp1hEMASensor:
         bt = _make_bt_climate(room_temperature_filtered=20.0)
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
         sensor._update_ema(20.0)  # first
-        dt_s = 600.0  # 10 minutes
-        sensor._last_update_ts = monotonic() - dt_s
+        dt_seconds = 600.0  # 10 minutes
+        sensor._last_update_ts = monotonic() - dt_seconds
         sensor._update_ema(25.0)
-        expected_alpha = 1.0 - math.exp(-dt_s / 3600.0)
+        expected_alpha = 1.0 - math.exp(-dt_seconds / 3600.0)
         expected_ema = 20.0 + expected_alpha * (25.0 - 20.0)
         assert abs(sensor._ema_value - expected_ema) < 0.001
 
@@ -290,21 +290,21 @@ class TestExternalTemp1hEMASensor:
 class TestSimpleAttributeSensors:
     """Tests for sensors that read a single attribute."""
 
-    def test_temp_slope_with_value(self):
+    def test_temperature_slope_with_value(self):
         """Temp slope with value."""
         bt = _make_bt_climate(temperature_slope=0.0123)
         sensor = BetterThermostatTempSlopeSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 0.0123
 
-    def test_temp_slope_rounds_to_4_decimals(self):
+    def test_temperature_slope_rounds_to_4_decimals(self):
         """Temp slope rounds to 4 decimals."""
         bt = _make_bt_climate(temperature_slope=0.01236789)
         sensor = BetterThermostatTempSlopeSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 0.0124
 
-    def test_temp_slope_none(self):
+    def test_temperature_slope_none(self):
         """Temp slope none."""
         bt = _make_bt_climate(temperature_slope=None)
         sensor = BetterThermostatTempSlopeSensor(bt)
@@ -458,10 +458,10 @@ class TestMpcSensorState:
             )
         }
 
-    def test_virtual_temp_reads_from_debug(self):
+    def test_virtual_temperature_reads_from_debug(self):
         """Virtual temperature reads from debug."""
         bt = _make_bt_climate(
-            real_trvs=self._make_trv_with_debug(mpc_virtual_temp=22.5)
+            real_trvs=self._make_trv_with_debug(**{"mpc_virtual_temp": 22.5})
         )
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
@@ -523,7 +523,7 @@ class TestMpcSensorState:
     def test_invalid_debug_value_returns_none(self):
         """Invalid debug value returns none."""
         bt = _make_bt_climate(
-            real_trvs=self._make_trv_with_debug(mpc_virtual_temp="bad")
+            real_trvs=self._make_trv_with_debug(**{"mpc_virtual_temp": "bad"})
         )
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
@@ -1761,7 +1761,7 @@ class TestEdgeCasesAndPotentialBugs:
         result = _get_active_algorithms(bt)
         assert result == {DEFAULT_CALIBRATION_MODE}
 
-    def test_external_temp_sensor_with_nan(self):
+    def test_external_temperature_sensor_with_nan(self):
         """NaN as temperature value should be handled."""
         bt = _make_bt_climate(room_temperature_filtered=float("nan"))
         sensor = BetterThermostatExternalTempSensor(bt)
@@ -1770,7 +1770,7 @@ class TestEdgeCasesAndPotentialBugs:
         assert sensor._attr_native_value is not None  # float("nan") is a float
         assert math.isnan(sensor._attr_native_value)
 
-    def test_external_temp_sensor_with_inf(self):
+    def test_external_temperature_sensor_with_inf(self):
         """Infinity as temperature should be handled."""
         bt = _make_bt_climate(room_temperature_filtered=float("inf"))
         sensor = BetterThermostatExternalTempSensor(bt)

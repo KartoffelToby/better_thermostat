@@ -341,7 +341,7 @@ class TestInternalTemperatureChange:
     """Tests for TRV internal-temperature-sensor updates."""
 
     @pytest.mark.asyncio
-    async def test_temp_change_updates_cache(self, mock_bt):
+    async def test_temperature_change_updates_cache(self, mock_bt):
         """A new TRV temperature reading should update the cache."""
         new_temperature = 20.0
         trv_state = _make_state(attributes={"current_temperature": new_temperature})
@@ -500,7 +500,7 @@ class TestInternalTemperatureChange:
         assert mock_bt.real_trvs[ENTITY_ID].current_temperature == 18.5
 
     @pytest.mark.asyncio
-    async def test_fahrenheit_current_temp_without_unit_attr(self, mock_bt):
+    async def test_fahrenheit_current_temperature_without_unit_attr(self, mock_bt):
         """A Fahrenheit TRV with no unit attribute is read via the system unit.
 
         HA climate entities report in the system unit and expose no
@@ -529,10 +529,12 @@ class TestInternalTemperatureChange:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("marker_temp", [126.5, 127.0])
-    async def test_implausible_trv_temp_ignored(self, mock_bt, marker_temp):
+    @pytest.mark.parametrize("marker_temperature", [126.5, 127.0])
+    async def test_implausible_trv_temperature_ignored(
+        self, mock_bt, marker_temperature
+    ):
         """AVM marker values (126.5 °C OFF, 127.0 °C ON) must not overwrite the cache."""
-        trv_state = _make_state(attributes={"current_temperature": marker_temp})
+        trv_state = _make_state(attributes={"current_temperature": marker_temperature})
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 20.0
         mock_bt.real_trvs[ENTITY_ID].calibration_received = True
@@ -548,7 +550,7 @@ class TestInternalTemperatureChange:
         assert mock_bt.real_trvs[ENTITY_ID].current_temperature == 20.0
 
     @pytest.mark.asyncio
-    async def test_temp_change_respects_time_diff(self, mock_bt):
+    async def test_temperature_change_respects_time_diff(self, mock_bt):
         """A reading arriving inside the head's debounce window is discarded.
 
         The window exists because a head that has just been calibrated
@@ -575,7 +577,7 @@ class TestInternalTemperatureChange:
         assert mock_bt.real_trvs[ENTITY_ID].current_temperature == 18.0
 
     @pytest.mark.asyncio
-    async def test_temp_change_homematicip_600s(self, mock_bt):
+    async def test_temperature_change_homematicip_600s(self, mock_bt):
         """A HomematicIP head debounces on its own duty cycle, not the generic one.
 
         Its radio reports far less often, so a reading that would be inside
@@ -2083,7 +2085,7 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == 26.0
 
     @pytest.mark.asyncio
-    async def test_setpoint_clamped_to_min(self, mock_bt):
+    async def test_setpoint_clamped_to_minimum(self, mock_bt):
         """Setpoint below min should be clamped."""
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
@@ -2109,7 +2111,7 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == 5.0
 
     @pytest.mark.asyncio
-    async def test_setpoint_clamped_to_max(self, mock_bt):
+    async def test_setpoint_clamped_to_maximum(self, mock_bt):
         """Setpoint above max should be clamped."""
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
@@ -2321,7 +2323,7 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == 19.0
 
     @pytest.mark.asyncio
-    async def test_setpoint_uses_target_temp_low_fallback(self, mock_bt):
+    async def test_setpoint_uses_target_temperature_low_fallback(self, mock_bt):
         """When 'temperature' is missing, 'target_temp_low' is used."""
         old_state = State(
             ENTITY_ID,
@@ -2629,7 +2631,7 @@ class TestTargetTempAdoption:
         mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_no_off_system_mode_sets_off_at_min(self, mock_bt):
+    async def test_no_off_system_mode_sets_off_at_minimum(self, mock_bt):
         """no_off_system_mode + setpoint==min_temp → OFF."""
         mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
         mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
@@ -2656,7 +2658,7 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_hvac_mode == HVACMode.OFF
 
     @pytest.mark.asyncio
-    async def test_no_off_system_mode_sets_heat_above_min(self, mock_bt):
+    async def test_no_off_system_mode_sets_heat_above_minimum(self, mock_bt):
         """no_off_system_mode: setpoint above min_temp while BT is OFF switches to HEAT."""
         mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
         mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
@@ -2835,7 +2837,7 @@ class TestTargetTempBasedSync:
     distance of BT's known values are still suppressed.
     """
 
-    def _set_target_temp_based(self, mock_bt):
+    def _set_target_temperature_based(self, mock_bt):
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
             CalibrationOutput.TARGET_TEMP_BASED
         )
@@ -2843,7 +2845,7 @@ class TestTargetTempBasedSync:
     @pytest.mark.asyncio
     async def test_user_change_picked_up(self, mock_bt):
         """User raises TRV from 19.0 to 22.0 — heat_target_temperature follows."""
-        self._set_target_temp_based(mock_bt)
+        self._set_target_temperature_based(mock_bt)
         mock_bt.heat_target_temperature = 19.0
         mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
@@ -2872,7 +2874,7 @@ class TestTargetTempBasedSync:
     @pytest.mark.asyncio
     async def test_echo_within_step_suppressed(self, mock_bt):
         """Device echoes 21.3 after BT wrote 21.0 (step=0.5) — treated as echo."""
-        self._set_target_temp_based(mock_bt)
+        self._set_target_temperature_based(mock_bt)
         mock_bt.heat_target_temperature = 21.0
         mock_bt.bt_target_temperature_step = 0.5
         mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 21.0
@@ -2903,7 +2905,7 @@ class TestTargetTempBasedSync:
     @pytest.mark.asyncio
     async def test_change_at_one_step_is_user(self, mock_bt):
         """Change equal to one full step is a user change, not an echo."""
-        self._set_target_temp_based(mock_bt)
+        self._set_target_temperature_based(mock_bt)
         mock_bt.heat_target_temperature = 21.0
         mock_bt.bt_target_temperature_step = 0.5
         mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 21.0
@@ -2940,7 +2942,7 @@ class TestTargetTempBasedSync:
         The user then dials to 21.5. ``_old_heating_setpoint`` is 21.3 (the
         echo), not a BT-written value — it must not feed into echo detection.
         """
-        self._set_target_temp_based(mock_bt)
+        self._set_target_temperature_based(mock_bt)
         mock_bt.heat_target_temperature = 21.0
         mock_bt.bt_target_temperature_step = 0.5
         mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 21.0
@@ -3214,7 +3216,7 @@ class TestConvertOutboundStates:
         assert result["temperature"] == 19.0
         assert result["system_mode"] == HVACMode.HEAT
 
-    def test_target_temp_based_payload(self, mock_bt):
+    def test_target_temperature_based_payload(self, mock_bt):
         """TARGET_TEMP_BASED produces payload with calculated setpoint."""
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
             CalibrationOutput.TARGET_TEMP_BASED
@@ -3274,7 +3276,7 @@ class TestConvertOutboundStates:
         assert result["temperature"] == mock_bt.heat_target_temperature
         assert "local_temperature_calibration" not in result
 
-    def test_off_mode_no_system_modes_uses_min_temp(self, mock_bt):
+    def test_off_mode_no_system_modes_uses_min_temperature(self, mock_bt):
         """When hvac_modes is None → no system mode → OFF uses min_temp."""
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = None
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
@@ -3362,7 +3364,7 @@ class TestConvertOutboundStates:
         assert result["system_mode"] == HVACMode.OFF
         assert result["temperature"] == 19.0
 
-    def test_no_off_in_the_device_spelling_still_uses_min_temp(self, mock_bt):
+    def test_no_off_in_the_device_spelling_still_uses_min_temperature(self, mock_bt):
         """A device genuinely without OFF keeps taking the min_temp path."""
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = ["HVACMode.HEAT"]
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
@@ -3423,7 +3425,9 @@ class TestConvertOutboundStates:
         assert result["system_mode"] == HVACMode.AUTO
         assert result["temperature"] == mock_bt.heat_target_temperature
 
-    def test_off_without_off_in_mode_list_still_substitutes_min_temp(self, mock_bt):
+    def test_off_without_off_in_mode_list_still_substitutes_min_temperature(
+        self, mock_bt
+    ):
         """OFF stays exempt from the clamp so the min-temperature branch fires."""
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.AUTO, HVACMode.HEAT]
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
@@ -3441,7 +3445,9 @@ class TestConvertOutboundStates:
             "local_temperature_calibration": 0.0,
         }
 
-    def test_off_with_no_off_system_mode_flag_still_substitutes_min_temp(self, mock_bt):
+    def test_off_with_no_off_system_mode_flag_still_substitutes_min_temperature(
+        self, mock_bt
+    ):
         """The no_off_system_mode path is unaffected by the clamp."""
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
         mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
@@ -3736,7 +3742,7 @@ class TestGroupedNoOffAdoption:
     _IDS = ["climate.hm_trv1", "climate.hm_trv2"]
 
     @pytest.mark.asyncio
-    async def test_no_off_group_not_off_when_other_above_min(self):
+    async def test_no_off_group_not_off_when_other_above_minimum(self):
         """One no_off valve at min_temp must not switch the group off."""
         trigger, other = self._IDS
         bt = _make_group_bt(self._IDS, no_off=True, bt_hvac_mode=HVACMode.HEAT)
@@ -3764,7 +3770,7 @@ class TestGroupedNoOffAdoption:
         assert bt.bt_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
-    async def test_no_off_group_off_when_all_at_min(self):
+    async def test_no_off_group_off_when_all_at_minimum(self):
         """The group switches off when every no_off member is at min_temp."""
         trigger, other = self._IDS
         bt = _make_group_bt(self._IDS, no_off=True, bt_hvac_mode=HVACMode.HEAT)
@@ -3855,7 +3861,7 @@ class TestDualRoleEntityReports:
 
     @staticmethod
     async def _report(
-        bt, *, device_mode, reported_temp, previous_temperature, step=None
+        bt, *, device_mode, reported_temperature, previous_temperature, step=None
     ):
         """Drive one device report through the real TRV handler.
 
@@ -3873,7 +3879,7 @@ class TestDualRoleEntityReports:
         new_state = _make_state(
             state_str=device_mode,
             attributes={
-                "temperature": reported_temp,
+                "temperature": reported_temperature,
                 "current_temperature": 22.0,
                 **published,
             },
@@ -3905,7 +3911,10 @@ class TestDualRoleEntityReports:
         moment the room switches to cooling.
         """
         await self._report(
-            shared_bt, device_mode="cool", reported_temp=24.0, previous_temperature=20.0
+            shared_bt,
+            device_mode="cool",
+            reported_temperature=24.0,
+            previous_temperature=20.0,
         )
 
         assert shared_bt.heat_target_temperature == 20.0
@@ -3925,7 +3934,10 @@ class TestDualRoleEntityReports:
         shared_bt.cool_max_temperature = 31.0
 
         await self._report(
-            shared_bt, device_mode="cool", reported_temp=29.0, previous_temperature=24.0
+            shared_bt,
+            device_mode="cool",
+            reported_temperature=29.0,
+            previous_temperature=24.0,
         )
 
         assert shared_bt.cool_target_temperature == 29.0
@@ -3937,7 +3949,10 @@ class TestDualRoleEntityReports:
     ):
         """A press on the remote while the unit cools names the cool target."""
         await self._report(
-            shared_bt, device_mode="cool", reported_temp=26.0, previous_temperature=24.0
+            shared_bt,
+            device_mode="cool",
+            reported_temperature=26.0,
+            previous_temperature=24.0,
         )
 
         assert shared_bt.cool_target_temperature == 26.0
@@ -3950,7 +3965,10 @@ class TestDualRoleEntityReports:
     ):
         """A press on the remote while the unit heats names the heat target."""
         await self._report(
-            shared_bt, device_mode="heat", reported_temp=21.0, previous_temperature=20.0
+            shared_bt,
+            device_mode="heat",
+            reported_temperature=21.0,
+            previous_temperature=20.0,
         )
 
         assert shared_bt.heat_target_temperature == 21.0
@@ -3970,7 +3988,10 @@ class TestDualRoleEntityReports:
         shared_bt._cooler_last_sent = {"hvac_mode_decided": HVACMode.COOL}
 
         await self._report(
-            shared_bt, device_mode="heat", reported_temp=26.0, previous_temperature=20.0
+            shared_bt,
+            device_mode="heat",
+            reported_temperature=26.0,
+            previous_temperature=20.0,
         )
 
         assert shared_bt.cool_target_temperature == 26.0
@@ -3991,7 +4012,10 @@ class TestDualRoleEntityReports:
             shared_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
 
         await self._report(
-            shared_bt, device_mode="heat", reported_temp=22.0, previous_temperature=22.0
+            shared_bt,
+            device_mode="heat",
+            reported_temperature=22.0,
+            previous_temperature=22.0,
         )
 
         assert shared_bt.heat_target_temperature == 20.0
@@ -4018,7 +4042,7 @@ class TestDualRoleEntityReports:
         await self._report(
             shared_bt,
             device_mode="cool",
-            reported_temp=pressed,
+            reported_temperature=pressed,
             previous_temperature=held,
             step=1.0,
         )
@@ -4045,7 +4069,7 @@ class TestDualRoleEntityReports:
         await self._report(
             shared_bt,
             device_mode="cool",
-            reported_temp=held,
+            reported_temperature=held,
             previous_temperature=20.0,
             step=1.0,
         )
@@ -4078,7 +4102,7 @@ class TestDualRoleEntityReports:
         await self._report(
             shared_bt,
             device_mode="cool",
-            reported_temp=pressed,
+            reported_temperature=pressed,
             previous_temperature=75.0,
         )
 
@@ -4106,7 +4130,10 @@ class TestDualRoleEntityReports:
         mock_bt.real_trvs[ENTITY_ID].max_temp = 30.0
 
         await self._report(
-            mock_bt, device_mode="heat", reported_temp=24.0, previous_temperature=19.0
+            mock_bt,
+            device_mode="heat",
+            reported_temperature=24.0,
+            previous_temperature=19.0,
         )
 
         assert mock_bt.heat_target_temperature == 23.5

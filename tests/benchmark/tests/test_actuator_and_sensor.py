@@ -33,7 +33,9 @@ def test_actuator_clamps_input_range():
 
 def test_actuator_threshold_profile():
     """Actuator threshold profile."""
-    a = Actuator(ActuatorParams(profile=ActuatorProfile.THRESHOLD, dead_zone_pct=20.0))
+    a = Actuator(
+        ActuatorParams(profile=ActuatorProfile.THRESHOLD, dead_zone_percent=20.0)
+    )
     assert a.apply(10.0) == 0.0  # inside dead zone → zero flow
     # Just above dead zone: small but nonzero.
     out = a.apply(25.0)
@@ -62,7 +64,7 @@ def test_actuator_equal_percentage_curve():
 
 def test_actuator_deadband_zeroes_low_commands():
     """Actuator deadband zeroes low commands."""
-    a = Actuator(ActuatorParams(deadband_pct=10.0))
+    a = Actuator(ActuatorParams(deadband_percent=10.0))
     assert a.apply(5.0) == 0.0
     assert a.apply(9.99) == 0.0
     assert a.apply(10.0) > 0.0
@@ -70,7 +72,7 @@ def test_actuator_deadband_zeroes_low_commands():
 
 def test_actuator_hysteresis_holds_last_value():
     """Actuator hysteresis holds last value."""
-    a = Actuator(ActuatorParams(hysteresis_pct=5.0))
+    a = Actuator(ActuatorParams(hysteresis_percent=5.0))
     a.apply(50.0)  # set baseline
     # Small wiggle inside the band → no movement.
     out_inside = a.apply(52.0)
@@ -82,7 +84,7 @@ def test_actuator_hysteresis_holds_last_value():
 
 def test_actuator_hysteresis_does_not_hold_a_close_command():
     """A 0 % command closes the valve even inside the hysteresis band."""
-    a = Actuator(ActuatorParams(hysteresis_pct=10.0))
+    a = Actuator(ActuatorParams(hysteresis_percent=10.0))
     a.apply(60.0)
     assert a.apply(5.0) == 0.05
     # 3 % is inside the band around 5 %: the valve stays at 5 %.
@@ -94,7 +96,7 @@ def test_actuator_hysteresis_does_not_hold_a_close_command():
 
 def test_actuator_quantize_snaps_to_grid():
     """Actuator quantize snaps to grid."""
-    a = Actuator(ActuatorParams(quantize_pct=10.0))
+    a = Actuator(ActuatorParams(quantize_percent=10.0))
     # 12 → 10, 17 → 20.
     assert a.apply(12.0) == 0.1
     assert a.apply(17.0) == 0.2
@@ -208,9 +210,9 @@ def test_thermal_lag_advances_through_dropout():
 def test_actuator_params_reject_out_of_range_percent_fields():
     """Percent-domain fields outside [0, 100] fail at construction."""
     with pytest.raises(ValueError):
-        ActuatorParams(deadband_pct=-1.0)
+        ActuatorParams(deadband_percent=-1.0)
     with pytest.raises(ValueError):
-        ActuatorParams(dead_zone_pct=150.0)
+        ActuatorParams(dead_zone_percent=150.0)
 
 
 def test_actuator_params_reject_exponent_below_one():
@@ -222,7 +224,7 @@ def test_actuator_params_reject_exponent_below_one():
 def test_actuator_params_reject_non_finite_values():
     """NaN or infinite parameters fail at construction."""
     with pytest.raises(ValueError):
-        ActuatorParams(hysteresis_pct=float("nan"))
+        ActuatorParams(hysteresis_percent=float("nan"))
 
 
 def test_sensor_noise_std_matches_parameter():
