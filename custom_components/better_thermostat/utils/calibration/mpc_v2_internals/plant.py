@@ -83,15 +83,19 @@ class PlantModelRC2:
     ) -> FloatArray:
         """Advance ``x`` over ``dt_s`` under a constant valve fraction.
 
-        Uses the sub-steps :meth:`linearised_system` composes for the same interval
-        but re-evaluates the valve drive ``u·(T_water − T_rad)`` on each one,
-        so across a long interval the radiator settles below the supply water
-        instead of extrapolating the drive it had at the start.
+        Covers the interval with the sub-steps :meth:`linearised_system`
+        composes, each one an Euler step that re-evaluates the valve drive
+        ``u·(T_water − T_rad)``, so across a long interval the radiator settles
+        below the supply water instead of extrapolating the drive it had at
+        the start. Under a constant ``u`` every sub-step is the same affine
+        map, so the composition is one matrix power whose cost grows with the
+        logarithm of the sub-step count.
         """
         n_steps, dt_min = self._substeps(dt_s)
-        for _ in range(n_steps):
-            x = self._euler_step(x, u, outdoor_temperature, 0.0, dt_min)
-        return x
+        step = self._affine_step(u, outdoor_temperature, dt_min)
+        transition = np.linalg.matrix_power(step, n_steps)
+        n = self.state_dim
+        return transition[:n, :n] @ np.asarray(x, dtype=float)[:n] + transition[:n, n]
 
     def _euler_step(
         self,
@@ -113,6 +117,37 @@ class PlantModelRC2:
         ) / p.tau_room_min
         return np.array(
             [T_room + (dT_room + disturbance_rate) * dt_min, T_rad + dT_rad * dt_min]
+        )
+
+    def _affine_step(
+        self, u: float, outdoor_temperature: float, dt_min: float
+    ) -> FloatArray:
+        """Return one Euler step of ``dt_min`` as an augmented affine matrix.
+
+        The 3×3 result ``[[A, c], [0, 1]]`` maps ``[T_room, T_rad, 1]`` the
+        way :meth:`_euler_step` does without a disturbance rate: under a fixed
+        valve fraction the drive ``u·(T_water − T_rad)`` is affine in the
+        state, so one step is ``x ↦ A·x + c``.
+        """
+        p = self.params
+        u_clamped = max(0.0, min(1.0, u))
+        rad_rate = dt_min / p.tau_rad_min
+        room_rate = dt_min / p.tau_room_min
+        drive = p.gain_heater * u_clamped
+        return np.array(
+            [
+                [
+                    1.0 - room_rate * (p.coupling_rad_room + 1.0),
+                    room_rate * p.coupling_rad_room,
+                    room_rate * outdoor_temperature,
+                ],
+                [
+                    rad_rate,
+                    1.0 - rad_rate * (1.0 + drive),
+                    rad_rate * drive * p.T_water,
+                ],
+                [0.0, 0.0, 1.0],
+            ]
         )
 
     @property
@@ -154,16 +189,24 @@ class PlantModelRC2:
         a_room_room = 1.0 - dt_min * (p.coupling_rad_room + 1.0) / p.tau_room_min
         a_room_rad = dt_min * p.coupling_rad_room / p.tau_room_min
         d_room = dt_min * T_outdoor / p.tau_room_min
-        A_step = np.array([[a_room_room, a_room_rad], [a_rad_room, a_rad_rad]])
-        B_step = np.array([[0.0], [b_rad]])
-        d_step = np.array([d_room, 0.0])
-        A = np.eye(self.state_dim)
-        B = np.zeros((self.state_dim, 1))
-        d = np.zeros(self.state_dim)
-        for _ in range(n_steps):
-            B = A_step @ B + B_step
-            d = A_step @ d + d_step
-            A = A_step @ A
+        # One sub-step acts on ``[T_room, T_rad, u, 1]`` as the augmented
+        # matrix ``[[A, B, d], [0, 1, 0], [0, 0, 1]]``; its n-th power holds
+        # ``A^n`` and the accumulated ``Σ A^k·B`` and ``Σ A^k·d`` of the
+        # composed transition. Repeated squaring keeps a long sensor gap at
+        # a few matrix products instead of one product per sub-step.
+        step = np.array(
+            [
+                [a_room_room, a_room_rad, 0.0, d_room],
+                [a_rad_room, a_rad_rad, b_rad, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        transition = np.linalg.matrix_power(step, n_steps)
+        n = self.state_dim
+        A = transition[:n, :n].copy()
+        B = transition[:n, n : n + 1].copy()
+        d = transition[:n, n + 1].copy()
         return A, B, d
 
     def steady_radiator_temperature(
