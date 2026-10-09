@@ -10,7 +10,6 @@ import pytest
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
-    is_calibration_mode,
     is_reasonable_temperature,
     normalize_calibration_mode,
     normalize_hvac_mode,
@@ -42,11 +41,9 @@ class TestNormalizeCalibrationMode:
         result = normalize_calibration_mode("TPI_CALIBRATION")
         assert result == CalibrationMode.TPI_CALIBRATION
 
-    def test_returns_string_for_invalid_calibration_mode(self):
-        """Test that invalid strings are returned as lowercase strings."""
-        result = normalize_calibration_mode("custom_mode")
-        assert result == "custom_mode"
-        assert isinstance(result, str)
+    def test_returns_none_for_an_unknown_mode_name(self):
+        """A string that names no mode this version knows is no mode."""
+        assert normalize_calibration_mode("custom_mode") is None
 
     def test_returns_none_for_none(self):
         """Test that None input returns None."""
@@ -67,51 +64,6 @@ class TestNormalizeCalibrationMode:
     def test_a_number_without_an_integer_value_is_no_mode(self):
         """NaN has no integer value and maps to no calibration mode."""
         assert normalize_calibration_mode(float("nan")) is None
-
-
-class TestIsCalibrationMode:
-    """Test is_calibration_mode function."""
-
-    def test_returns_true_for_matching_enum(self):
-        """Test that matching enum returns True."""
-        result = is_calibration_mode(
-            CalibrationMode.MPC_CALIBRATION, CalibrationMode.MPC_CALIBRATION
-        )
-        assert result is True
-
-    def test_returns_false_for_different_enum(self):
-        """Test that different enum returns False."""
-        result = is_calibration_mode(
-            CalibrationMode.PID_CALIBRATION, CalibrationMode.MPC_CALIBRATION
-        )
-        assert result is False
-
-    def test_returns_true_for_matching_string(self):
-        """Test that matching string returns True."""
-        result = is_calibration_mode("mpc_calibration", CalibrationMode.MPC_CALIBRATION)
-        assert result is True
-
-    def test_returns_false_for_different_string(self):
-        """Test that different string returns False."""
-        result = is_calibration_mode("pid_calibration", CalibrationMode.MPC_CALIBRATION)
-        assert result is False
-
-    def test_handles_string_with_whitespace(self):
-        """Test that strings with whitespace are handled correctly."""
-        result = is_calibration_mode(
-            "  mpc_calibration  ", CalibrationMode.MPC_CALIBRATION
-        )
-        assert result is True
-
-    def test_returns_false_for_none(self):
-        """Test that None returns False."""
-        result = is_calibration_mode(None, CalibrationMode.MPC_CALIBRATION)
-        assert result is False
-
-    def test_returns_false_for_custom_string(self):
-        """Test that custom string mode returns False."""
-        result = is_calibration_mode("custom_mode", CalibrationMode.MPC_CALIBRATION)
-        assert result is False
 
 
 class TestNormalizeHvacMode:

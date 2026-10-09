@@ -351,8 +351,12 @@ def async_normalize_bt_entity_ids(
 
 def normalize_calibration_mode(
     mode: CalibrationMode | str | float | None,
-) -> CalibrationMode | str | None:
-    """Normalize a calibration_mode field from TRV advanced data."""
+) -> CalibrationMode | None:
+    """Normalize a calibration_mode field from TRV advanced data.
+
+    A mode name is matched regardless of case and surrounding whitespace.
+    A name this version does not know, and any other value, is no mode.
+    """
 
     # Backwards compatibility: older configs stored numeric calibration modes
     # (e.g. 0 for DEFAULT). Only map known values.
@@ -368,11 +372,10 @@ def normalize_calibration_mode(
     if isinstance(mode, CalibrationMode):
         return mode
     if isinstance(mode, str):
-        value = mode.strip().lower()
         try:
-            return CalibrationMode(value)
+            return CalibrationMode(mode.strip().lower())
         except ValueError:
-            return value
+            return None
     return None
 
 
@@ -391,14 +394,14 @@ def configured_calibration_mode(
     set up.
     """
     mode = (advanced or {}).get(CONF_CALIBRATION_MODE)
+    if isinstance(mode, str):
+        return normalize_calibration_mode(mode)
     normalized = (
-        normalize_calibration_mode(mode)
-        if isinstance(mode, (str, int, float))
-        else None
+        normalize_calibration_mode(mode) if isinstance(mode, (int, float)) else None
     )
     if normalized is None:
         return DEFAULT_CALIBRATION_MODE
-    return normalized if isinstance(normalized, CalibrationMode) else None
+    return normalized
 
 
 def configured_calibration_output(
@@ -417,19 +420,6 @@ def configured_calibration_output(
         return CalibrationOutput(output)
     except ValueError:
         return None
-
-
-def is_calibration_mode(
-    mode: CalibrationMode | str | None, expected: CalibrationMode
-) -> bool:
-    """Return True if ``mode`` is the expected CalibrationMode."""
-
-    normalized = normalize_calibration_mode(mode)
-    if isinstance(normalized, CalibrationMode):
-        return normalized == expected
-    if isinstance(normalized, str):
-        return normalized == expected.value
-    return False
 
 
 def entity_uses_calibration_mode(
