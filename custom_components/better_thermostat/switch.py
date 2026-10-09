@@ -168,7 +168,7 @@ class BetterThermostatPIDAutoTuneSwitch(
         """Turn the switch off."""
         self._update_state(False)
 
-    def _update_state(self, state: bool):
+    def _update_state(self, state: bool) -> None:
         """Update the state."""
         state_mgr = self._bt_climate.state_mgr
         if state_mgr is None:
@@ -353,7 +353,7 @@ class BetterThermostatChildLockSwitch(
         self._update_state(False)
         await self._set_child_lock(False)
 
-    def _update_state(self, state: bool):
+    def _update_state(self, state: bool) -> None:
         """Update the state."""
         trv = self._bt_climate.real_trvs.get(self._trv_entity_id)
         if trv is None:
@@ -361,7 +361,7 @@ class BetterThermostatChildLockSwitch(
         trv.advanced[CONF_CHILD_LOCK] = state
         self.async_write_ha_state()
 
-    async def _set_child_lock(self, state: bool, *, force: bool = False):
+    async def _set_child_lock(self, state: bool, *, force: bool = False) -> None:
         """Set the child lock on the real device.
 
         With ``force`` the command is sent even when the device already
