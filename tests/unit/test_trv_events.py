@@ -730,11 +730,26 @@ class TestInternalTemperatureChange:
         else:
             mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
 
+    @pytest.mark.parametrize(
+        ("calibration", "reads_offset"),
+        [
+            (CalibrationOutput.LOCAL_BASED, True),
+            (CalibrationOutput.TARGET_TEMP_BASED, False),
+            (CalibrationOutput.DIRECT_VALVE_BASED, False),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_calibration_zero_fetches_offset(self, mock_bt):
-        """When calibration==0, get_calibration_offset() should be called."""
+    async def test_confirmed_calibration_reads_the_offset_back_only_on_offset_trvs(
+        self, mock_bt, calibration, reads_offset
+    ):
+        """A confirmed offset write refreshes the offset BT last saw on the TRV.
+
+        Only a TRV calibrated through its offset has one BT wrote; on any
+        other TRV the recorded offset is left as it is.
+        """
         mock_bt.real_trvs[ENTITY_ID].calibration_received = False
-        mock_bt.real_trvs[ENTITY_ID].calibration = CalibrationOutput.TARGET_TEMP_BASED
+        mock_bt.real_trvs[ENTITY_ID].calibration = calibration
+        mock_bt.real_trvs[ENTITY_ID].last_calibration = 0.0
         trv_state = _make_state(attributes={"current_temperature": 20.0})
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
@@ -754,8 +769,13 @@ class TestInternalTemperatureChange:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        mock_offset.assert_awaited_once_with(mock_bt, ENTITY_ID)
-        assert mock_bt.real_trvs[ENTITY_ID].last_calibration == 2.5
+        assert mock_bt.real_trvs[ENTITY_ID].calibration_received is True
+        if reads_offset:
+            mock_offset.assert_awaited_once_with(mock_bt, ENTITY_ID)
+            assert mock_bt.real_trvs[ENTITY_ID].last_calibration == 2.5
+        else:
+            mock_offset.assert_not_awaited()
+            assert mock_bt.real_trvs[ENTITY_ID].last_calibration == 0.0
 
     @pytest.mark.asyncio
     async def test_entry_removed_during_await_completes(self, mock_bt):
@@ -767,7 +787,7 @@ class TestInternalTemperatureChange:
         """
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.calibration_received = False
-        trv.calibration = CalibrationOutput.TARGET_TEMP_BASED
+        trv.calibration = CalibrationOutput.LOCAL_BASED
         trv_state = _make_state(attributes={"current_temperature": 20.0})
         mock_bt.hass.states.get.return_value = trv_state
         trv.current_temperature = 18.0
@@ -808,7 +828,7 @@ class TestInternalTemperatureChange:
         """
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.calibration_received = False
-        trv.calibration = CalibrationOutput.TARGET_TEMP_BASED
+        trv.calibration = CalibrationOutput.LOCAL_BASED
         trv.model = None
         trv_state = _make_state(
             attributes={"current_temperature": 20.0, "model_id": "TRV-X"}

@@ -489,7 +489,7 @@ async def trigger_trv_change(
                 entity_id,
             )
             _main_change = False
-            if trv.calibration is CalibrationOutput.TARGET_TEMP_BASED:
+            if trv.calibration is CalibrationOutput.LOCAL_BASED:
                 # The awaits above (model detection, quirk loading) can
                 # outlive the entry: the offset read resolves the adapter
                 # through a raw real_trvs index, so skip it once the TRV
