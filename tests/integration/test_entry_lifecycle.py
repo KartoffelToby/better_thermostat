@@ -21,9 +21,11 @@ from homeassistant.components.climate.const import ATTR_HVAC_ACTION
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity import EntityPlatformState
 import pytest
 from pytest_homeassistant_custom_component.common import mock_restore_cache
 
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils.const import CalibrationMode
 
 from .conftest import (
@@ -310,8 +312,10 @@ async def test_a_thermostat_renamed_by_the_user_keeps_its_targets(hass, device_r
     """The targets set before a new entity_id are the ones shown after it.
 
     Home Assistant files the state it saves at the removal under the old
-    entity_id, and a thermostat restoring under the new one would find
-    nothing and fall back to the TRV's own setpoint.
+    entity_id. A thermostat restoring under the new one finds a saved state
+    only if the reload removes the old object after Home Assistant has
+    published it under the new id; otherwise it falls back to the TRV's own
+    setpoint.
     """
     set_room_sensor(hass, 18.0)
     entry = make_entry(device_role.scenario)
@@ -326,6 +330,40 @@ async def test_a_thermostat_renamed_by_the_user_keeps_its_targets(hass, device_r
 
     attributes = hass.states.get(RENAMED_ENTITY).attributes
     assert {key: attributes[key] for key in targets} == targets
+
+
+@pytest.mark.parametrize(
+    "device_role", [HEAT_ONLY, SEPARATE_COOLER], indirect=True, ids=profile_id
+)
+async def test_a_thermostat_renamed_by_the_user_publishes_only_the_new_entity(
+    hass, device_role
+):
+    """Once the new entity has written its state, the old object stays silent.
+
+    Home Assistant finishes adding the old object after its
+    ``async_added_to_hass`` returns: it marks the object as added and writes
+    its state. The reload has to remove the old object after that, or the
+    old object writes its stale state over the new entity's and stays
+    marked as added although nothing drives it.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(device_role.scenario)
+    await setup_entry(hass, entry)
+    old_bt = await wait_for_startup(hass, entry)
+    writers: list[BetterThermostat] = []
+    write_state = BetterThermostat.async_write_ha_state
+
+    def recording_write(entity: BetterThermostat) -> None:
+        writers.append(entity)
+        write_state(entity)
+
+    with patch.object(BetterThermostat, "async_write_ha_state", recording_write):
+        new_bt = await _rename_the_thermostat(hass, entry)
+
+    assert new_bt is not old_bt
+    first_new_write = writers.index(new_bt)
+    assert old_bt not in writers[first_new_write:]
+    assert old_bt._platform_state is EntityPlatformState.REMOVED
 
 
 @contextmanager
