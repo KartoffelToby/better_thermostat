@@ -733,11 +733,12 @@ async def test_a_trv_on_an_external_input_is_not_held_on_the_last_reading_of_a_l
 @pytest.mark.parametrize(
     "returning_reading", [20.5, 20.6, 21.0], ids=["same", "within_noise", "moved"]
 )
+@pytest.mark.parametrize("ladder_steps_down", [True, False], ids=["long", "short"])
 @pytest.mark.parametrize(
     "fake_trv", [EXTERNAL_INPUT_TRVZB], indirect=True, ids=profile_id
 )
 async def test_a_trv_on_an_external_input_gets_the_first_reading_after_an_outage_at_once(
-    hass, fake_trv, returning_reading
+    hass, fake_trv, returning_reading, ladder_steps_down
 ):
     """The reading that ends an outage goes to the device straight away.
 
@@ -745,7 +746,8 @@ async def test_a_trv_on_an_external_input_gets_the_first_reading_after_an_outage
     its own sensor. The first reading puts it back on the external input,
     even when it lies within the noise band of the last reading before the
     outage, which the filter would otherwise hold back until the room
-    moves or the next keepalive.
+    moves or the next keepalive. An outage too short for the ladder to
+    leave OPTIMAL pauses the keepalive as well, so its end counts alike.
     """
     external_input = fake_trv.external_temperature_input
     assert external_input is not None
@@ -757,15 +759,18 @@ async def test_a_trv_on_an_external_input_gets_the_first_reading_after_an_outage
 
     hass.states.async_set(SENSOR_ID, "unavailable")
     await hass.async_block_till_done()
-    clock = FakeClock(monotonic_value=bt.clock.monotonic())
-    bt.clock = clock
-    assert await tick_until(
-        hass,
-        clock,
-        LadderParams().down_debounce_seconds + LADDER_TICK_S,
-        lambda: bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK,
-    )
-    await let_keepalive_ticks_pass(hass, 5)
+    if ladder_steps_down:
+        clock = FakeClock(monotonic_value=bt.clock.monotonic())
+        bt.clock = clock
+        assert await tick_until(
+            hass,
+            clock,
+            LadderParams().down_debounce_seconds + LADDER_TICK_S,
+            lambda: bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK,
+        )
+    await let_keepalive_ticks_pass(hass, 5 if ladder_steps_down else 1)
+    if not ladder_steps_down:
+        assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
     external_input.set_value_calls.clear()
 
     set_room_sensor(hass, returning_reading)

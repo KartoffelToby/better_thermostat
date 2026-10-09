@@ -539,15 +539,20 @@ async def trigger_temperature_change(
                 self.hass, remaining, _plateau_cb
             )
 
-    # A reading that ends a sensor outage is the room's temperature again,
-    # however close it lies to the last one before the outage: the TRVs
-    # received no external temperature meanwhile and may have fallen back
-    # to their own sensors.
-    _sensor_returns = _room_sensor_returns(self, event.data.get("old_state"))
+    # A reading after a state that carried none is the room's temperature
+    # again, however close it lies to the last one before: the keepalive
+    # sent the TRVs no external temperature meanwhile, and they may have
+    # fallen back to their own sensors. That holds for a gap too short for
+    # the ladder to leave OPTIMAL as well.
+    _old_state = event.data.get("old_state")
+    _sensor_returns = _room_sensor_returns(self, _old_state)
+    _reading_returns = _sensor_returns or (
+        _old_state is not None and room_sensor_reading(self, _old_state) is None
+    )
     if _cur_q is None:
         # First reading ever — always accept regardless of interval
         _accept_reason = "first_reading"
-    elif _sensor_returns:
+    elif _reading_returns:
         _accept_reason = "sensor_returned"
     elif _is_significant and _interval_ok:
         _accept_reason = "significant"
