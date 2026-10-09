@@ -15,7 +15,7 @@ Better Thermostat does not poll. It listens for state changes of the configured 
 | Room temperature sensor | The room temperature | Every state change, through the filter described below |
 | Humidity sensor | The humidity, shown on the thermostat and available to device triggers; the control does not use it | Every state change |
 | Window and door sensors | Open or closed | Every state change, then after the open and close delays you configured |
-| Outdoor temperature sensor | The mean of the daily averages of today and yesterday, read from the recorder history | At startup, every day at 5:00 and on every state change; the history is read again at most every 15 minutes |
+| Outdoor temperature sensor | A running average over roughly the last day, each reading weighted by how long it was current; filled from the last three days of recorder history at startup (see [Summer mode](/deep-explanations/summer-mode/)) | At startup, every day at 5:00 and on every state change; a failed history read is retried after 15 minutes |
 | Weather entity | The forecast for roughly the next two days and the current temperature | Once an hour |
 | Cooler (`climate`) | Its mode and target temperature | Every state change |
 
