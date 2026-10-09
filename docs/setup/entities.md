@@ -40,7 +40,7 @@ The Min number replaces the plain preset number, so a device with a cooler has *
 
 **Child Lock** exists for every TRV. It turns the *Ignore all inputs on the TRV like a child lock* option on and off and, where the TRV has a child lock entity of its own, that one too.
 
-**PID Auto Tune** exists for each TRV that uses the PID Controller calibration mode. Turned on, the controller adjusts its gains itself; turned off, the gains stay where you set them. The switch applies to the TRV at every target temperature, including one it has never run at.
+**PID Auto Tune** exists for each TRV that uses the PID Controller calibration mode. Turned on, the controller adjusts its gains itself; turned off, the gains the TRV uses at that moment stay as they are until you set them. The switch applies to the TRV at every target temperature, including one it has never run at.
 
 ## Sensors
 

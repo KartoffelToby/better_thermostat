@@ -22,6 +22,7 @@ from .entity import (
     FollowsThermostat,
     RestoresLastAvailableState,
     TrvNamedEntity,
+    announce_learned_state,
     current_trv_name,
     last_available_state,
     remove_unclaimed_registry_entries,
@@ -34,8 +35,10 @@ from .utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
     build_pid_key,
     build_pid_loop_key,
+    freeze_pid_gains,
     pid_auto_tune,
     pid_loop_state,
+    resolve_unique_id,
 )
 from .utils.const import CONF_CHILD_LOCK, DOMAIN, CalibrationMode
 from .utils.helpers import (
@@ -154,9 +157,14 @@ class BetterThermostatPIDAutoTuneSwitch(
         if state_mgr is None:
             return DEFAULT_PID_AUTO_TUNE
         states = state_mgr.state.pid
+        bucket_key = build_pid_key(self._bt_climate, self._trv_entity_id)
         return pid_auto_tune(
-            states.get(build_pid_loop_key(self._bt_climate, self._trv_entity_id)),
-            states.get(build_pid_key(self._bt_climate, self._trv_entity_id)),
+            pid_loop_state(
+                states,
+                build_pid_loop_key(self._bt_climate, self._trv_entity_id),
+                bucket_key,
+            ),
+            states.get(bucket_key),
         )
 
     @override
@@ -180,13 +188,21 @@ class BetterThermostatPIDAutoTuneSwitch(
             return
 
         # The flag sits on the TRV's loop entry, so it holds at every target.
+        # Turning auto-tuning off keeps the gains in use at the current
+        # target for all targets.
         loop_key = build_pid_loop_key(self._bt_climate, self._trv_entity_id)
-        loop = pid_loop_state(state_mgr.state.pid, loop_key)
-        loop.auto_tune = state
+        bucket_key = build_pid_key(self._bt_climate, self._trv_entity_id)
+        loop = pid_loop_state(state_mgr.state.pid, loop_key, bucket_key)
+        if state:
+            loop.auto_tune = True
+        else:
+            freeze_pid_gains(loop, state_mgr.state.pid.get(bucket_key))
         state_mgr.set_pid(loop_key, loop)
 
         self._bt_climate.schedule_save_state()
         self.async_write_ha_state()
+        # The gain numbers show the gains this may have frozen.
+        announce_learned_state(self.hass, resolve_unique_id(self._bt_climate))
 
 
 def _switch_state_wins(

@@ -1030,7 +1030,9 @@ def _compute_pid_balance(
         loop_key = build_pid_loop_key(self, entity_id)
         loop = pid_observe_standby(
             PIDParams(),
-            pid_loop_state(state_mgr.state.pid, loop_key),
+            pid_loop_state(
+                state_mgr.state.pid, loop_key, build_pid_key(self, entity_id)
+            ),
             _pid_room_temperature,
             self.clock.monotonic(),
             inp_room_temperature_filtered=(
@@ -1048,7 +1050,7 @@ def _compute_pid_balance(
     # carries the gains learned there.
     loop_key = build_pid_loop_key(self, entity_id)
     bucket_key = build_pid_key(self, entity_id)
-    loop = pid_loop_state(state_mgr.state.pid, loop_key)
+    loop = pid_loop_state(state_mgr.state.pid, loop_key, bucket_key)
     bucket = state_mgr.state.pid.get(bucket_key)
     if bucket is None:
         bucket = PIDState()
@@ -1063,7 +1065,7 @@ def _compute_pid_balance(
     annunciate_health(self, entity_id, _pid_health)
 
     params = pid_cycle_params(loop, bucket)
-    cycle = pid_cycle_state(loop, params)
+    cycle = pid_cycle_state(loop, params, self.heat_target_temperature)
 
     _LOGGER.debug(
         "better_thermostat %s: Running PID calibration for %s",

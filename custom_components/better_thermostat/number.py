@@ -519,9 +519,14 @@ class BetterThermostatPIDNumber(
         if state_mgr is None:
             return _PID_GAIN_SETTINGS[self._parameter][3]
         states = state_mgr.state.pid
+        bucket_key = build_pid_key(self._bt_climate, self._trv_entity_id)
         return effective_pid_gain(
-            states.get(build_pid_loop_key(self._bt_climate, self._trv_entity_id)),
-            states.get(build_pid_key(self._bt_climate, self._trv_entity_id)),
+            pid_loop_state(
+                states,
+                build_pid_loop_key(self._bt_climate, self._trv_entity_id),
+                bucket_key,
+            ),
+            states.get(bucket_key),
             self._parameter,
         )
 
@@ -546,7 +551,7 @@ class BetterThermostatPIDNumber(
         # here; the gains learned at other targets stay as they are.
         loop_key = build_pid_loop_key(self._bt_climate, self._trv_entity_id)
         bucket_key = build_pid_key(self._bt_climate, self._trv_entity_id)
-        loop = pid_loop_state(state_mgr.state.pid, loop_key)
+        loop = pid_loop_state(state_mgr.state.pid, loop_key, bucket_key)
         bucket = state_mgr.get_pid(bucket_key)
 
         _LOGGER.debug(

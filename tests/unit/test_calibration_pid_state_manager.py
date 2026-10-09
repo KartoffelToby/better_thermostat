@@ -7,6 +7,7 @@ import pytest
 from custom_components.better_thermostat.calibration import _compute_pid_balance
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.utils.calibration.pid import (
+    DEFAULT_PID_KP,
     PIDState,
     build_pid_key,
     build_pid_loop_key,
@@ -227,3 +228,24 @@ def test_after_a_target_raise_the_room_warms_without_dipping() -> None:
     rooms = [room for _, room in trace]
     assert min(rooms) >= start - 0.01
     assert max(rooms) > 21.4
+
+
+def test_lowering_the_target_to_the_room_is_no_overshoot() -> None:
+    """A lower target the room already sits at leaves the gains learned there.
+
+    Errors measured against the previous target are not compared with the
+    first error at the new one, so the drop from 1 K to 0 K is not read as
+    an overshoot that would lower Kp at the new target.
+    """
+    state_mgr = _PidStateStub()
+    bt = _make_bt(state_mgr)
+    bt.room_temperature = 21.0
+    bt.heat_target_temperature = 22.0
+    for _ in range(2):
+        _compute_pid_balance(bt, "climate.trv")
+        bt.clock.advance(_CYCLE_S)
+
+    bt.heat_target_temperature = 21.0
+    _compute_pid_balance(bt, "climate.trv")
+
+    assert state_mgr.pid[build_pid_key(bt, "climate.trv")].pid_kp == DEFAULT_PID_KP

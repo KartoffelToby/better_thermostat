@@ -7,10 +7,14 @@ import pytest
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
+    DEFAULT_PID_KD,
+    DEFAULT_PID_KI,
     DEFAULT_PID_KP,
+    PIDParams,
     PIDState,
     effective_pid_gain,
     format_bucket,
+    freeze_pid_gains,
     pid_auto_tune,
     pid_cycle_params,
     pid_cycle_state,
@@ -145,6 +149,78 @@ class TestLoopState:
         assert pid_auto_tune(loop, PIDState()) is False
         assert effective_pid_gain(loop, states[f"{_LOOP}:t19.0"], "kp") == 150.0
 
+    def test_continues_from_the_current_target_over_a_later_stamp(self):
+        """The bucket of the current target is where the controller ran last.
+
+        The stamps come from the monotonic clock, which a host reboot
+        restarts: a bucket last run before a reboot can carry a larger
+        stamp than the one the controller ran at afterwards.
+        """
+        states = {
+            f"{_LOOP}:t19.0": PIDState(pid_integral=10.0, pid_last_time=900_000.0),
+            f"{_LOOP}:t21.0": PIDState(pid_integral=40.0, pid_last_time=500.0),
+        }
+
+        loop = pid_loop_state(states, _LOOP, f"{_LOOP}:t21.0")
+
+        assert loop.pid_integral == 40.0
+
+    def test_takes_the_hand_set_gains_from_the_current_target(self):
+        """With auto-tuning off the gains come from the current target too."""
+        states = {
+            f"{_LOOP}:t19.0": PIDState(
+                auto_tune=False, pid_kp=90.0, pid_last_time=900_000.0
+            ),
+            f"{_LOOP}:t21.0": PIDState(
+                auto_tune=False, pid_kp=150.0, pid_last_time=500.0
+            ),
+        }
+
+        loop = pid_loop_state(states, _LOOP, f"{_LOOP}:t21.0")
+
+        assert loop.pid_kp == 150.0
+
+    def test_a_current_target_that_never_ran_falls_back_to_the_stamps(self):
+        """A bucket without a cycle carries no state to continue from."""
+        states = {
+            f"{_LOOP}:t19.0": PIDState(pid_integral=10.0, pid_last_time=900.0),
+            f"{_LOOP}:t21.0": PIDState(pid_kp=70.0),
+        }
+
+        loop = pid_loop_state(states, _LOOP, f"{_LOOP}:t21.0")
+
+        assert loop.pid_integral == 10.0
+
+
+class TestFreezeGains:
+    """Turning auto-tuning off keeps the gains in use at the current target."""
+
+    def test_the_learned_gain_beats_an_older_hand_set_one(self):
+        """A hand-set start value does not return once auto-tuning stops."""
+        loop = PIDState(auto_tune=True, pid_kp=100.0)
+        bucket = PIDState(pid_kp=72.0)
+
+        freeze_pid_gains(loop, bucket)
+
+        assert loop.auto_tune is False
+        assert (loop.pid_kp, loop.pid_ki, loop.pid_kd) == (
+            72.0,
+            DEFAULT_PID_KI,
+            DEFAULT_PID_KD,
+        )
+        assert effective_pid_gain(loop, bucket, "kp") == 72.0
+        assert effective_pid_gain(loop, PIDState(pid_kp=45.0), "kp") == 72.0
+        assert effective_pid_gain(loop, None, "kp") == 72.0
+
+    def test_with_auto_tune_already_off_nothing_moves(self):
+        """A second turn-off keeps the gains set by hand."""
+        loop = PIDState(auto_tune=False, pid_kp=150.0)
+
+        freeze_pid_gains(loop, PIDState(pid_kp=72.0))
+
+        assert loop.pid_kp == 150.0
+        assert loop.pid_ki is None
+
 
 class TestEffectiveGains:
     """The gain in use depends on auto-tuning and where a value is set."""
@@ -180,7 +256,7 @@ class TestCycleSplit:
         loop = PIDState(pid_integral=20.0, pid_kp=150.0, auto_tune=True)
         bucket = PIDState()
         params = pid_cycle_params(loop, bucket)
-        cycle = pid_cycle_state(loop, params)
+        cycle = pid_cycle_state(loop, params, 21.0)
         cycle.pid_integral = 25.0
         cycle.pid_kp = 135.0
 
@@ -191,6 +267,36 @@ class TestCycleSplit:
         assert new_loop.pid_integral == 25.0
         assert new_loop.auto_tune is True
 
+    def test_a_new_target_bucket_starts_without_the_old_errors(self):
+        """Errors measured against the previous target do not carry over.
+
+        Auto-tuning would read the drop from a large error at the old
+        target to a small one at the new target as an overshoot.
+        """
+        loop = PIDState(
+            last_target_temperature=22.0,
+            last_abs_error=1.0,
+            previous_abs_error=1.0,
+            last_delta_sign=1,
+            last_tune_ts=500.0,
+            pid_integral=30.0,
+        )
+
+        cycle = pid_cycle_state(loop, PIDParams(), 21.0)
+
+        assert cycle.last_abs_error is None
+        assert cycle.previous_abs_error is None
+        assert cycle.last_delta_sign is None
+        assert cycle.last_tune_ts == 500.0
+        assert cycle.pid_integral == 30.0
+        assert loop.last_abs_error == 1.0
+
+    def test_a_target_in_the_same_bucket_keeps_the_errors(self):
+        """Within one bucket the errors stay for auto-tuning to compare."""
+        loop = PIDState(last_target_temperature=21.1, last_abs_error=0.4)
+
+        assert pid_cycle_state(loop, PIDParams(), 20.9).last_abs_error == 0.4
+
     def test_without_auto_tune_the_bucket_is_left_alone(self):
         """Auto-tuning off: the learned gains on the bucket stay unchanged."""
         loop = PIDState(auto_tune=False, pid_kp=150.0)
@@ -198,6 +304,6 @@ class TestCycleSplit:
         params = pid_cycle_params(loop, bucket)
         assert params.kp == 150.0
 
-        settle_pid_cycle(loop, bucket, pid_cycle_state(loop, params), params)
+        settle_pid_cycle(loop, bucket, pid_cycle_state(loop, params, 21.0), params)
 
         assert bucket.pid_kp == 45.0

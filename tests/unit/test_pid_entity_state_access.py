@@ -6,7 +6,8 @@ manager (startup failure) they fall back to defaults and refuse writes
 instead of crashing.
 """
 
-from unittest.mock import MagicMock
+from collections.abc import Iterator
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -23,6 +24,15 @@ from tests.factories import ThermostatStandIn
 
 _KEY = "uid:climate.trv:t21.0"
 _LOOP = "uid:climate.trv"
+
+
+@pytest.fixture(autouse=True)
+def announced() -> Iterator[MagicMock]:
+    """Record what the switch tells the thermostat's entities."""
+    with patch(
+        "custom_components.better_thermostat.switch.announce_learned_state"
+    ) as announce:
+        yield announce
 
 
 class _StateMgrStub:
@@ -152,6 +162,43 @@ class TestPidNumber:
         bt.heat_target_temperature = 23.0
         assert number.native_value == 150.0
 
+    def test_turning_auto_tune_off_keeps_the_learned_gain(self, announced: MagicMock):
+        """Auto-tuning off freezes the gain shown, not an older start value.
+
+        The user set Kp 100 as a start, auto-tuning learned 72 at 21 °C.
+        After the switch goes off the number shows 72 at this target and
+        at one never visited.
+        """
+        bt = _make_bt()
+        bt.state_mgr.pid[_LOOP] = PIDState(auto_tune=True, pid_kp=100.0)
+        bt.state_mgr.pid[_KEY] = PIDState(pid_kp=72.0)
+        number = self._make(bt)
+        switch = BetterThermostatPIDAutoTuneSwitch(bt, "climate.trv", True)
+        switch.async_write_ha_state = MagicMock()
+
+        switch._update_state(False)
+
+        announced.assert_called_once_with(switch.hass, "uid")
+        assert number.native_value == 72.0
+        bt.heat_target_temperature = 23.0
+        assert number.native_value == 72.0
+
+    def test_after_an_upgrade_shows_the_gain_set_by_hand(self):
+        """Before the first cycle the number resolves the stored buckets.
+
+        A store from before the loop entry holds the switch flag and the
+        hand-set gain on the bucket it was set at; the bucket of the
+        current target was created later and holds neither.
+        """
+        bt = _make_bt()
+        bt.state_mgr.pid["uid:climate.trv:t19.0"] = PIDState(
+            auto_tune=False, pid_kp=150.0, pid_last_time=900.0
+        )
+        bt.state_mgr.pid[_KEY] = PIDState(pid_kp=60.0, pid_last_time=950.0)
+
+        assert self._make(bt).native_value == 150.0
+        assert _LOOP not in bt.state_mgr.pid
+
     @pytest.mark.asyncio
     async def test_set_without_state_manager_is_a_noop(self):
         """Setting without a state manager neither writes nor schedules a save."""
@@ -188,6 +235,21 @@ class TestAutoTuneSwitch:
         bt = _make_bt()
         bt.state_mgr = None
         assert self._make(bt).is_on is DEFAULT_PID_AUTO_TUNE
+
+    def test_after_an_upgrade_reads_the_flag_of_the_stored_buckets(self):
+        """Before the first cycle the switch resolves the stored buckets.
+
+        The flag sits on the buckets that existed when the switch was
+        turned off; the bucket of the current target was created later.
+        """
+        bt = _make_bt()
+        bt.state_mgr.pid["uid:climate.trv:t19.0"] = PIDState(
+            auto_tune=False, pid_last_time=900.0
+        )
+        bt.state_mgr.pid[_KEY] = PIDState(pid_last_time=950.0)
+
+        assert self._make(bt).is_on is False
+        assert _LOOP not in bt.state_mgr.pid
 
     def test_update_holds_at_every_target_of_this_trv_only(self):
         """Toggling sets the TRV's flag, which shows at an unvisited target too.

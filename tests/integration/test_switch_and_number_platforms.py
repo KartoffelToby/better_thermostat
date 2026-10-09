@@ -234,6 +234,62 @@ async def test_fixed_gains_hold_at_a_target_never_set_before(hass):
     assert float(hass.states.get(kp_number).state) == 150.0
 
 
+async def test_turning_auto_tune_off_keeps_the_gains_it_learned(hass):
+    """Auto-tune off freezes the gains in use, not an older start value.
+
+    The user sets Kp 100 as a start with auto-tuning on, and auto-tuning
+    learns 72 at 21 °C. After the switch goes off, the number shows 72 and
+    the controller runs with 72, at 21 °C and at a target never set before.
+    """
+    set_room_sensor(hass, 19.0)
+    await build_devices(hass, PID_TRV)
+    entry = make_entry(PID_TRV)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    assert bt.state_mgr is not None
+    switch = _auto_tune_switch(hass, entry)
+    kp_number = _kp_number(hass, entry)
+    (trv,) = bt.real_trvs.values()
+
+    await hass.services.async_call(
+        "climate",
+        "set_temperature",
+        {"entity_id": BT_ENTITY, "temperature": 21.0},
+        blocking=True,
+    )
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": kp_number, "value": 100.0}, blocking=True
+    )
+    await hass.async_block_till_done()
+    bt.state_mgr.state.pid[build_pid_key(bt, PID_TRV.entity_id)].pid_kp = 72.0
+
+    await hass.services.async_call(
+        "switch", "turn_off", {"entity_id": switch}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(switch).state == STATE_OFF
+    assert float(hass.states.get(kp_number).state) == 72.0
+
+    await hass.services.async_call(
+        "climate",
+        "set_temperature",
+        {"entity_id": BT_ENTITY, "temperature": 23.0},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert await wait_for(
+        hass,
+        lambda: (
+            trv.calibration_balance is not None
+            and trv.calibration_balance["debug"].get("e_K") == 4.0
+        ),
+    )
+
+    assert trv.calibration_balance is not None
+    assert trv.calibration_balance["debug"]["kp"] == 72.0
+    assert float(hass.states.get(kp_number).state) == 72.0
+
+
 async def test_the_auto_tune_switch_sets_the_learned_flag(hass):
     """Switching auto-tune off and on again is what the PID state holds."""
     set_room_sensor(hass, 19.0)
