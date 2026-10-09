@@ -183,7 +183,11 @@ def _populated_state() -> RuntimeState:
             "bt:defaults": TpiState(),
         },
         thermal=ThermalStats(heating_power=0.0123, heat_loss_rate=0.0045),
-        filters=FilterState(room_temperature_ema=20.7, temperature_slope=0.0021),
+        filters=FilterState(
+            room_temperature_ema=20.7,
+            temperature_slope=0.0021,
+            room_temperature_ema_recorded_at=1700000016.0,
+        ),
     )
 
 

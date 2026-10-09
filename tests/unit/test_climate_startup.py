@@ -1936,8 +1936,15 @@ class TestRestoreState:
             pytest.param("external_temp_ema", "temp_slope_K_min", id="written_by_1_9"),
         ],
     )
-    async def test_restores_ema_and_slope(self, bt, ema_name, slope_name):
-        """The filtered room reading and slope come back under either name."""
+    async def test_a_restored_filter_does_not_replace_the_seeded_one(
+        self, bt, ema_name, slope_name
+    ):
+        """The filtered reading and slope a state carries are not taken over.
+
+        A state attribute carries no time, so the filter it holds may be
+        hours old. Startup seeds the filter from the live reading before the
+        state is restored, and the seed stands under either attribute name.
+        """
         old = MagicMock()
         old.state = "heat"
         old.attributes = {
@@ -1947,13 +1954,16 @@ class TestRestoreState:
         }
         bt._saved_state = old
         bt.preset_mgr.temperatures = {}
+        bt.room_temperature_ema = 18.25
+        bt.room_temperature_filtered = 18.25
+        bt.temperature_slope = None
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
 
-        assert bt.room_temperature_ema == 20.5
-        assert bt.room_temperature_filtered == 20.5
-        assert bt.temperature_slope == 0.0012
+        assert bt.room_temperature_ema == 18.25
+        assert bt.room_temperature_filtered == 18.25
+        assert bt.temperature_slope is None
 
     @pytest.mark.parametrize(
         ("stored", "expected"),

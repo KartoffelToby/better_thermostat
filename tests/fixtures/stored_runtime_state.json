@@ -215,6 +215,7 @@
   },
   "filters": {
     "external_temp_ema": 20.7,
-    "temp_slope": 0.0021
+    "temp_slope": 0.0021,
+    "room_temperature_ema_recorded_at": 1700000016.0
   }
 }

@@ -147,7 +147,6 @@ from .utils.const import (
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_ROOM_TEMPERATURE_FILTERED,
-    ATTR_STATE_TEMPERATURE_SLOPE,
     ATTR_STATE_WINDOW_OPEN,
     CONF_CHILD_LOCK,
     CONF_COOLER,
@@ -241,7 +240,6 @@ from .utils.restore import (
 from .utils.retry import command_cancellation_as_disconnect
 from .utils.scheduler import request_control_cycle
 from .utils.state_manager import StateManager
-from .utils.stored_values import stored_float
 from .utils.telemetry import (
     TELEMETRY_ATTRIBUTES,
     collect_balance_attrs,
@@ -2218,48 +2216,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         ]
         if old_state is not None:
             _LOGGER.debug("better_thermostat %s: restoring state...", self.device_name)
-            # Migration fallback: read the filter state from the last
-            # entity attributes only when the unified store has none.
-            _store_filters = self.state_mgr.filters if self.state_mgr else None
-            if (
-                _store_filters is None or _store_filters.room_temperature_ema is None
-            ) and (
-                stored_ema := _restored_attribute(
-                    old_state, ATTR_STATE_ROOM_TEMPERATURE_FILTERED
-                )
-            ) is not None:
-                try:
-                    _restored_ema = stored_float(stored_ema)
-                    self.room_temperature_ema = _restored_ema
-                    self.room_temperature_filtered = round(_restored_ema, 2)
-                    # Reset timestamp to now so the next delta is calculated from restart time
-                    self._room_temperature_ema_monotonic = self.clock.monotonic()
-                    _LOGGER.debug(
-                        "better_thermostat %s: restored room_temperature_ema from state: %.2f",
-                        self.device_name,
-                        _restored_ema,
-                    )
-                except ValueError, TypeError:
-                    pass
-
-            if (
-                _store_filters is None or _store_filters.temperature_slope is None
-            ) and (
-                stored_slope := _restored_attribute(
-                    old_state, ATTR_STATE_TEMPERATURE_SLOPE
-                )
-            ) is not None:
-                try:
-                    _restored_slope = stored_float(stored_slope)
-                    self.temperature_slope = _restored_slope
-                    _LOGGER.debug(
-                        "better_thermostat %s: restored temperature_slope from state: %.4f",
-                        self.device_name,
-                        _restored_slope,
-                    )
-                except ValueError, TypeError:
-                    pass
-
             _LOGGER.debug(
                 "better_thermostat %s: restoring target temperature...",
                 self.device_name,
@@ -3447,11 +3403,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.kernel_state.window,
                 trigger_window_change,
             ),
-            (
-                self.door_sensor_entity_id,
-                self.kernel_state.door,
-                trigger_door_change,
-            ),
+            (self.door_sensor_entity_id, self.kernel_state.door, trigger_door_change),
         ):
             if entity_id is None:
                 continue
@@ -3702,12 +3654,25 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.heating_power = heating_power
         if heat_loss_rate is not None:
             self.heat_loss_rate = heat_loss_rate
+        # The filter state is as old as the downtime that followed it. The
+        # EMA comes back stamped with the time it was last updated at, so
+        # the first live reading is blended in over the real interval and a
+        # long stop hands the filter to that reading. A slope only describes
+        # the room while the EMA it came from is still current. Without a
+        # stamp the age is unknown, and startup seeds both from the live
+        # reading instead.
         filters = self.state_mgr.filters
-        if filters.room_temperature_ema is not None:
-            self.room_temperature_ema = filters.room_temperature_ema
-            self.room_temperature_filtered = round(filters.room_temperature_ema, 2)
-            self._room_temperature_ema_monotonic = self.clock.monotonic()
-        if filters.temperature_slope is not None:
+        recorded_at = filters.room_temperature_ema_recorded_at
+        if filters.room_temperature_ema is None or recorded_at is None:
+            return
+        age_seconds = max(0.0, self.clock.utcnow().timestamp() - recorded_at)
+        self.room_temperature_ema = filters.room_temperature_ema
+        self.room_temperature_filtered = round(filters.room_temperature_ema, 2)
+        self._room_temperature_ema_monotonic = self.clock.monotonic() - age_seconds
+        if (
+            filters.temperature_slope is not None
+            and age_seconds <= self.room_temperature_ema_tau_seconds
+        ):
             self.temperature_slope = filters.temperature_slope
 
     def _record_runtime_to_state(self) -> None:
@@ -3715,7 +3680,15 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if self.state_mgr is None:
             return
         self.state_mgr.record_thermal(self.heating_power, self.heat_loss_rate)
-        self.state_mgr.record_filters(self.room_temperature_ema, self.temperature_slope)
+        ema_monotonic = self._room_temperature_ema_monotonic
+        self.state_mgr.record_filters(
+            self.room_temperature_ema,
+            self.temperature_slope,
+            None
+            if ema_monotonic is None
+            else self.clock.utcnow().timestamp()
+            - (self.clock.monotonic() - ema_monotonic),
+        )
 
     @callback
     def schedule_save_state(self, delay_seconds: float = 15.0) -> None:
