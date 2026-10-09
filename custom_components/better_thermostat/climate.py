@@ -5198,24 +5198,26 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # task manager and wait for minutes; closing it also stops the workers
         # below from starting new ones while they wind down.
         owned_tasks.extend(self.task_manager.cancel_all())
-        if self._control_task:
-            self._control_task.cancel()
-            try:
-                await self._control_task
-            except asyncio.CancelledError:
-                pass
-        if self._window_task:
-            self._window_task.cancel()
-            try:
-                await self._window_task
-            except asyncio.CancelledError:
-                pass
-        if self._door_task:
-            self._door_task.cancel()
-            try:
-                await self._door_task
-            except asyncio.CancelledError:
-                pass
+        # The control, window and door queues are all cancelled before any is
+        # awaited. A queue that already ended with an error is logged and does
+        # not stop the removal, which still has the other queues to stop and
+        # the final save to wait for.
+        workers = [
+            task
+            for task in (self._control_task, self._window_task, self._door_task)
+            if task is not None
+        ]
+        for worker in workers:
+            worker.cancel()
+        results = await asyncio.gather(*workers, return_exceptions=True)
+        for worker, result in zip(workers, results):
+            if isinstance(result, Exception):
+                _LOGGER.error(
+                    "better_thermostat %s: %s had ended with an error",
+                    self.device_name,
+                    worker.get_name(),
+                    exc_info=result,
+                )
         if owned_tasks:
             await asyncio.gather(*owned_tasks, return_exceptions=True)
         # The final save started by the on_remove callback finishes before
