@@ -798,13 +798,17 @@ class TestPidDerivativeSmoothing:
         step_percent, step_debug, state = compute_pid(
             params, 21.0, 20.1, 20.0, 0.0, "k", state=state, now=now
         )
+        step_d_term = step_debug["d"]
+        assert step_d_term is not None
         for _ in range(3):
             now += gap_seconds
             percent, debug, state = compute_pid(
                 params, 21.0, 20.1, 20.0, 0.0, "k", state=state, now=now
             )
 
-            assert abs(debug["d"]) <= abs(step_debug["d"])
+            d_term = debug["d"]
+            assert d_term is not None
+            assert abs(d_term) <= abs(step_d_term)
             assert abs(percent - step_percent) <= 2
 
     def test_the_smoothed_value_depends_on_elapsed_time_not_on_cycle_count(self):
