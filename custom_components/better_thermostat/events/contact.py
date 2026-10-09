@@ -28,7 +28,10 @@ from custom_components.better_thermostat.core.fsm.window import (
     WindowState,
     step as window_step,
 )
-from custom_components.better_thermostat.utils.helpers import async_fire_logbook_entry
+from custom_components.better_thermostat.utils.helpers import (
+    async_fire_logbook_entry,
+    entry_issue_id,
+)
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 if TYPE_CHECKING:
@@ -156,14 +159,9 @@ DOOR: Final = ContactRole(
 CONTACT_ROLES: Final = (WINDOW, DOOR)
 
 
-def contact_issue_id(role: ContactRole, device_name: str) -> str:
-    """Return the repair issue id of one contact kind of one thermostat."""
-    return f"{role.issue_translation_key}_{device_name}"
-
-
 def _issue_id(self: BetterThermostat, role: ContactRole) -> str:
     """Return the repair issue id for this contact of this thermostat."""
-    return contact_issue_id(role, self.device_name)
+    return entry_issue_id(self._config_entry_id, role.issue_translation_key)
 
 
 def _contact_params(self: BetterThermostat, role: ContactRole) -> WindowParams:
