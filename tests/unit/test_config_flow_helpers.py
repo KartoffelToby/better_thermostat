@@ -7,13 +7,16 @@ a missing tolerance, a retired ``balance_mode``. Each one has to come out as
 the value the current flow would have stored.
 """
 
-from unittest.mock import AsyncMock, patch
+from collections.abc import Mapping
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.const import CONF_NAME
 import pytest
 
+from custom_components.better_thermostat.adapters.types import TrvAdapter
 from custom_components.better_thermostat.config_flow import (
     _USER_FIELD_DEFAULTS,
+    ConfigFlow,
     OptionsFlowHandler,
     _as_bool,
     _build_advanced_fields,
@@ -127,19 +130,19 @@ def test_a_retired_pid_balance_mode_overrides_a_stored_calibration_mode():
 
 
 def test_without_a_thermostat_there_is_no_auto_mode_to_offer():
-    assert _trv_supports_auto(None, None) is False
+    assert _trv_supports_auto(ConfigFlow(), None) is False
 
 
 async def test_a_model_that_cannot_be_read_does_not_claim_valve_support():
     with patch(
         f"{_MODULE}.get_device_model", AsyncMock(side_effect=RuntimeError("no model"))
     ):
-        assert await _quirk_valve_support(None, "climate.trv") is False
+        assert await _quirk_valve_support(ConfigFlow(), "climate.trv") is False
 
 
 async def test_a_thermostat_without_an_integration_reports_no_channels():
     with patch(f"{_MODULE}._quirk_valve_support", AsyncMock(return_value=False)):
-        adapter, info = await _load_adapter_info(None, None, "climate.trv")
+        adapter, info = await _load_adapter_info(ConfigFlow(), None, "climate.trv")
 
     assert (adapter, info) == (None, {})
 
@@ -151,30 +154,32 @@ async def test_an_adapter_that_cannot_be_loaded_reports_no_channels():
         ),
         patch(f"{_MODULE}._quirk_valve_support", AsyncMock(return_value=False)),
     ):
-        adapter, info = await _load_adapter_info(None, "mqtt", "climate.trv")
+        adapter, info = await _load_adapter_info(ConfigFlow(), "mqtt", "climate.trv")
 
     assert (adapter, info) == (None, {})
 
 
 async def test_an_adapter_without_capabilities_reports_no_channels():
-    adapter = object()
+    adapter = MagicMock(spec=TrvAdapter)
+    del adapter.get_info
     with patch(f"{_MODULE}._quirk_valve_support", AsyncMock(return_value=False)):
         loaded, info = await _load_adapter_info(
-            None, "mqtt", "climate.trv", existing_adapter=adapter
+            ConfigFlow(), "mqtt", "climate.trv", existing_adapter=adapter
         )
 
     assert (loaded, info) == (adapter, {})
 
 
 async def test_an_adapter_whose_capability_query_fails_reports_no_channels():
-    class _FailingAdapter:
-        async def get_info(self, _flow, _entity_id):
-            raise RuntimeError("device offline")
+    failing_adapter = MagicMock(spec=TrvAdapter)
+    failing_adapter.get_info.side_effect = RuntimeError("device offline")
 
     with patch(f"{_MODULE}._quirk_valve_support", AsyncMock(return_value=False)):
         _adapter, info = await _load_adapter_info(
-            None, "mqtt", "climate.trv", existing_adapter=_FailingAdapter()
+            ConfigFlow(), "mqtt", "climate.trv", existing_adapter=failing_adapter
         )
+
+    failing_adapter.get_info.assert_awaited_once()
 
     assert info == {}
 
@@ -358,7 +363,9 @@ def test_a_choice_that_is_not_a_scalar_takes_its_default():
         entity_id="climate.trv", integration=None, adapter=None, stored={}
     )
     draft.advanced = advanced
-    assert "mpc_v2_plant_preset" not in draft.to_stored()["advanced"]
+    stored_advanced = draft.to_stored()["advanced"]
+    assert isinstance(stored_advanced, Mapping)
+    assert "mpc_v2_plant_preset" not in stored_advanced
 
 
 def test_a_preset_list_keeps_only_preset_names():
@@ -374,7 +381,11 @@ def test_a_preset_list_keeps_only_preset_names():
 
 
 def test_a_thermostat_not_yet_through_its_advanced_step_is_stored_as_it_was():
-    stored = {"trv": "climate.trv", "integration": "mqtt", "advanced": {"x": 1}}
+    stored: dict[str, object] = {
+        "trv": "climate.trv",
+        "integration": "mqtt",
+        "advanced": {"x": 1},
+    }
     draft = _TrvDraft(
         entity_id="climate.trv", integration="mqtt", adapter=None, stored=stored
     )
@@ -400,7 +411,7 @@ def test_an_entry_without_a_thermostat_list_has_no_stored_thermostats(value):
 
 
 def test_only_stored_thermostats_with_an_entity_id_are_found():
-    found = {"trv": "climate.a", "advanced": {}}
+    found: dict[str, object] = {"trv": "climate.a", "advanced": {}}
 
     assert _stored_thermostats([found, {"trv": ""}, {"trv": 5}, "climate.b"]) == {
         "climate.a": found

@@ -133,7 +133,7 @@ async def _init_with_preset(bt) -> None:
         await init(bt, ENTITY_ID)
 
 
-def _preset_calls(bt) -> list[dict]:
+def _preset_calls(bt) -> list[dict[str, object]]:
     """The preset payloads init dispatched at the TRV."""
     return [
         call.args[2]
