@@ -29,6 +29,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.control_mode import LADDER_TICK_S
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
 from tests.factories import ThermostatStandIn
 
 _CLIMATE = "custom_components.better_thermostat.climate"
@@ -45,7 +46,6 @@ OUTDOOR_ID = "sensor.outdoor_temp"
 # Every optional entity off and no balance, calibration or maintenance
 # mode: the configuration whose sets hold only the unconditional members.
 _BARE = {
-    "advanced": {},
     "sensor_entity_id": SENSOR_ID,
     "humidity_sensor_entity_id": None,
     "window_sensor_entity_id": None,
@@ -55,7 +55,7 @@ _BARE = {
 }
 
 
-def _startup_bt(**overrides):
+def _startup_bt(advanced: TrvAdvanced | None = None, **overrides):
     """A BetterThermostat stand-in for ``_finalize_startup``.
 
     Every attribute the run reads is set explicitly, including the ones
@@ -71,10 +71,12 @@ def _startup_bt(**overrides):
     mock.clock = FakeClock(now_value=_NOW, monotonic_value=1000.0)
     mock._degraded_grace_until = None
     mock.bt_hvac_mode = HVACMode.HEAT
-    mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, advanced=config.pop("advanced"))}
+    mock.real_trvs = {
+        TRV_ID: Trv(entity_id=TRV_ID, advanced={} if advanced is None else advanced)
+    }
     mock.entity_ids = [TRV_ID]
     mock.all_trvs = None
-    mock.all_entities = []
+    mock.all_entities = list[str]()
     mock._async_unsub_state_changed = None
     mock._trigger_time = AsyncMock()
     mock._trigger_check_weather = AsyncMock()

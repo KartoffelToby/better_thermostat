@@ -193,7 +193,7 @@ def _populated_state() -> RuntimeState:
 
 def _stored_bytes(state: RuntimeState) -> bytes:
     """Return the bytes Home Assistant's Store writes for *state*'s payload."""
-    mode, json_data = prepare_save_json(_serialize(state))
+    mode, json_data = prepare_save_json(dict(_serialize(state)))
     assert mode == "wb"
     assert isinstance(json_data, bytes)
     return json_data
@@ -232,7 +232,7 @@ def test_serializing_leaves_the_live_state_unshared():
     x_hat = snapshot["x_hat"]
     assert isinstance(x_hat, list)
     x_hat.append(1.0)
-    assert _stored_bytes(_populated_state()) == prepare_save_json(data)[1]
+    assert _stored_bytes(_populated_state()) == prepare_save_json(dict(data))[1]
 
 
 _FILTER_KEYS = {

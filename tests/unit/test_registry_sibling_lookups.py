@@ -60,7 +60,7 @@ REGISTRY_GETTERS = (
 )
 
 # The state an enabled entry reports, per domain.
-ENABLED_STATE = {
+ENABLED_STATE: dict[str, tuple[str, dict[str, object]]] = {
     "climate": ("heat", {}),
     "number": ("0", {}),
     "select": ("2", {"options": ["1", "2"]}),
