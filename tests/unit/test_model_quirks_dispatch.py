@@ -210,7 +210,7 @@ class TestTheWriteOverrideShims:
             return True
 
         module = ModuleType("answering_quirk")
-        module.override_set_temperature = handled
+        vars(module)["override_set_temperature"] = handled
         host = _host(module)
 
         assert await model_quirks.override_set_temperature(host, ENTITY_ID, 21.0)

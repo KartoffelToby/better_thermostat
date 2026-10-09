@@ -402,7 +402,7 @@ async def test_a_mode_write_that_never_answered_and_lands_later_is_not_a_press(
 async def test_a_cooler_that_never_answers_does_not_hold_up_the_heads(hass, caplog):
     """A cooler that stops answering costs the room one deadline per write.
 
-    The cooler is written first in every cycle, before any head. An air
+    A cooler the room has to correct is written first, before any head. An air
     conditioner behind a cloud API without a request timeout would keep the
     cycle waiting for good, and no head would get another write. The cooler
     write is given up at the deadline, named in the log, and the heads are
@@ -429,6 +429,9 @@ async def test_a_cooler_that_never_answers_does_not_hold_up_the_heads(hass, capl
             patch(COOLER_RESEND, 0.0),
             patch(DEVICE_CALL_DEADLINE, SHORT_DEVICE_DEADLINE),
         ):
+            # Switched on at its remote, the cooler is one the room has to
+            # switch off again, so the cycle writes to it.
+            await SimulatedClimate.async_set_hvac_mode(cooler, HVACMode.COOL)
             baselines = {
                 head.entity_id: len(head.set_temperature_calls) for head in heads
             }
