@@ -4013,9 +4013,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 continue
 
             trv_state = self.hass.states.get(entity_id)
-            if trv_state is not None and trv_report_is_unreadable(
-                self, entity_id, trv_state
-            ):
+            if trv_report_is_unreadable(self, entity_id, trv_state):
                 continue
 
             # Resolve hvac_action: cached first, hass state fallback

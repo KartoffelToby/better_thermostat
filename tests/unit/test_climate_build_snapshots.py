@@ -23,7 +23,7 @@ def bt():
     mock.device_name = "Test BT"
     mock.real_trvs = dict[str, Trv]()
     mock.hass = MagicMock()
-    mock.hass.states.get.return_value = None
+    mock.hass.states.get.return_value = State("climate.trv", "heat")
     return mock
 
 
@@ -66,10 +66,9 @@ def test_fallback_to_legacy_action_attribute(bt):
     assert _snaps(bt)[0].hvac_action == "heating"
 
 
-def test_no_state_yields_none_action(bt):
-    """No cached value and no live state -> hvac_action None."""
+def test_no_reported_action_yields_none_action(bt):
+    """No cached value and a live state without an action -> hvac_action None."""
     bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
-    bt.hass.states.get.return_value = None
     assert _snaps(bt)[0].hvac_action is None
 
 
@@ -98,9 +97,9 @@ def test_snapshot_carries_valve_fields(bt):
     assert snap.last_valve_percent == 17
 
 
-@pytest.mark.parametrize("gone_state", ["unavailable", "unknown"])
+@pytest.mark.parametrize("gone_state", ["unavailable", "unknown", None])
 def test_a_trv_that_is_gone_leaves_no_snapshot(bt, gone_state):
-    """A TRV whose state reads as the device being gone does not speak for the room.
+    """A TRV whose state is missing or reads as gone does not speak for the room.
 
     Its cached action and valve position stay on the record for when it
     returns, but the room's action is built only from TRVs that report.
@@ -113,10 +112,9 @@ def test_a_trv_that_is_gone_leaves_no_snapshot(bt, gone_state):
     )
     present = Trv(entity_id="climate.present", hvac_action="idle")
     bt.real_trvs = {"climate.gone": gone, "climate.present": present}
-    states = {
-        "climate.gone": State("climate.gone", gone_state),
-        "climate.present": State("climate.present", "heat"),
-    }
+    states = {"climate.present": State("climate.present", "heat")}
+    if gone_state is not None:
+        states["climate.gone"] = State("climate.gone", gone_state)
     bt.hass.states.get.side_effect = states.get
 
     snaps = _snaps(bt)
