@@ -900,6 +900,7 @@ class TestEdgeCasesAndRobustness:
         Without this the warning about an implausible reading survives the
         sensor's recovery and the user has to dismiss it by hand.
         """
+        mock_bt._unique_id = "entry_1"
         module = "custom_components.better_thermostat.events.temperature"
 
         with (
@@ -916,7 +917,7 @@ class TestEdgeCasesAndRobustness:
             )
 
         mock_delete_issue.assert_called_once_with(
-            mock_bt.hass, DOMAIN, "invalid_external_temperature_Test Thermostat"
+            mock_bt.hass, DOMAIN, "entry_1_invalid_external_temperature"
         )
 
     @pytest.mark.asyncio
