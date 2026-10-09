@@ -25,7 +25,11 @@ sensor, raise a [degraded mode](/faq/degraded-mode) issue instead.
    rename the entity back, or open the Better Thermostat under
    **Settings → Devices & services → Better Thermostat → Configure** and
    select the new entity in place of the old one.
-3. The issue clears on its own once the entity is available again, or
-   once no Better Thermostat is configured with it any more. Taking a
-   dead TRV out of the settings is enough; the issue that named it goes
-   when the Better Thermostat restarts with the new settings.
+3. If the TRV is gone for good, remove it from the Better Thermostat
+   configuration.
+
+The issue clears on its own when the entity is available again, or when it
+is removed from the Better Thermostat configuration. When Home Assistant
+starts or the Better Thermostat entry reloads, for example after its
+settings were saved, a TRV gets a few minutes to come up before the issue is
+raised again.

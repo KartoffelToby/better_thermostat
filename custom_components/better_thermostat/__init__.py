@@ -21,18 +21,13 @@ import voluptuous as vol
 from .utils.const import (
     BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     CONF_CALIBRATION_MODE,
-    CONF_COOLER,
-    CONF_DOOR_SENSORS,
-    CONF_HUMIDITY_SENSOR,
     CONF_NO_OFF_SYSTEM_MODE,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
-    CONF_TEMPERATURE_SENSOR,
     CONF_THERMOSTAT,
     CONF_WEATHER,
     CONF_WINDOW_OFF_DELAY,
     CONF_WINDOW_OFF_DELAY_AFTER,
-    CONF_WINDOW_SENSORS,
     DOMAIN,
     GENERIC_MODEL,
     NORMALIZED_ID_NAMES,
@@ -43,6 +38,7 @@ from .utils.const import (
 )
 from .utils.entry_schema import BtSettings, InvalidSettingsError, parse_settings
 from .utils.helpers import (
+    async_delete_entry_issues,
     entry_name,
     entry_settings,
     get_device_model,
@@ -200,50 +196,6 @@ def _sync_shared_trv_issues(
             ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 
-def _drop_orphaned_issues(hass: HomeAssistant) -> None:
-    """Delete the repair issues no configured entry accounts for.
-
-    A thermostat's ``missing_entity`` issue is cleared when it comes back,
-    and a Better Thermostat's sensor issues when its sensors do. Neither
-    happens once the thermostat is taken out of every entry or the Better
-    Thermostat is renamed, because no running instance checks the old
-    entity or the old name again. Setup therefore deletes every
-    ``missing_entity`` issue whose entity no entry controls, and every issue
-    named after a Better Thermostat that no entry is called any more.
-
-    Parameters
-    ----------
-    hass : HomeAssistant
-        The running Home Assistant instance.
-    """
-    # Runtime import, for the reason given in async_remove_entry.
-    from .events.contact import CONTACT_ROLES, contact_issue_id  # noqa: PLC0415
-
-    entries = hass.config_entries.async_entries(DOMAIN)
-    controlled = {
-        trv_entity_id for entry in entries for trv_entity_id in trv_entity_ids(entry)
-    }
-    names = {entry_name(entry) for entry in entries}
-    name_prefixes = (
-        "degraded_mode_",
-        "invalid_external_temperature_",
-        *(contact_issue_id(role, "") for role in CONTACT_ROLES),
-    )
-    for domain, issue_id in list(ir.async_get(hass).issues):
-        if domain != DOMAIN:
-            continue
-        if issue_id.startswith("missing_entity_"):
-            orphaned = issue_id.removeprefix("missing_entity_") not in controlled
-        else:
-            orphaned = any(
-                issue_id.startswith(prefix)
-                and issue_id.removeprefix(prefix) not in names
-                for prefix in name_prefixes
-            )
-        if orphaned:
-            ir.async_delete_issue(hass, DOMAIN, issue_id)
-
-
 def _warn_about_an_off_temperature_below_freezing(
     hass: HomeAssistant, entry: BetterThermostatConfigEntry
 ) -> None:
@@ -324,7 +276,6 @@ async def async_setup_entry(
         ) from err
     _warn_about_an_off_temperature_below_freezing(hass, entry)
     _sync_shared_trv_issues(hass, entry)
-    _drop_orphaned_issues(hass)
     entry.runtime_data = BetterThermostatData(settings=settings)
     try:
         # Setup climate platform first to ensure entity is available for other platforms
@@ -377,8 +328,16 @@ async def config_entry_update_listener(
 async def async_unload_entry(
     hass: HomeAssistant, entry: BetterThermostatConfigEntry
 ) -> bool:
-    """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    """Unload a config entry and delete the repair issues it raised.
+
+    A reload after an options change unloads the entry too. An issue whose
+    entity was taken out of the entry goes with the unload, and one that
+    still applies is raised again by the reloaded thermostat.
+    """
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        async_delete_entry_issues(hass, entry.entry_id)
+    return unloaded
 
 
 async def async_remove_entry(
@@ -386,11 +345,11 @@ async def async_remove_entry(
 ) -> None:
     """Clean up everything this Better Thermostat instance left behind.
 
-    Repair-registry issues are scoped by ``device_name`` or by individual
-    ``entity_id`` and persist until explicitly deleted; the unified state
-    store is a per-entry file that would otherwise be orphaned. The reload
-    lock and the recorded entity-id names outlive the entry's unload by
-    design, so removal is where they are dropped.
+    The repair issues of the entry go with it, also when the entry is
+    removed without having been loaded; the unified state store is a
+    per-entry file that would otherwise be orphaned. The reload lock and the
+    recorded entity-id names outlive the entry's unload by design, so
+    removal is where they are dropped.
 
     Parameters
     ----------
@@ -401,10 +360,9 @@ async def async_remove_entry(
     """
     # Runtime import: config_flow and the three device-automation modules
     # execute this package for DOMAIN alone, on installs that may have no
-    # entry set up. A module-level import would put the state store and the
-    # contact handling, and the control kernel, calibration models and numpy
-    # behind them, on those paths.
-    from .events.contact import CONTACT_ROLES, contact_issue_id  # noqa: PLC0415
+    # entry set up. A module-level import would put the state store, and
+    # the control kernel, calibration models and numpy behind it, on those
+    # paths.
     from .utils.state_manager import StateManager  # noqa: PLC0415
 
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
@@ -418,31 +376,7 @@ async def async_remove_entry(
             entry.entry_id,
         )
 
-    settings = entry_settings(entry)
-    device_name = entry_name(entry)
-
-    for issue_id in (
-        f"invalid_external_temperature_{device_name}",
-        *(contact_issue_id(role, device_name) for role in CONTACT_ROLES),
-        f"degraded_mode_{device_name}",
-    ):
-        ir.async_delete_issue(hass, DOMAIN, issue_id)
-
-    entity_ids: list[str] = trv_entity_ids(entry)
-    for conf_key in (
-        CONF_TEMPERATURE_SENSOR,
-        CONF_HUMIDITY_SENSOR,
-        CONF_WINDOW_SENSORS,
-        CONF_DOOR_SENSORS,
-        CONF_OUTDOOR_SENSOR,
-        CONF_COOLER,
-    ):
-        eid = setting_str(settings, conf_key)
-        if eid:
-            entity_ids.append(eid)
-
-    for eid in entity_ids:
-        ir.async_delete_issue(hass, DOMAIN, f"missing_entity_{eid}")
+    async_delete_entry_issues(hass, entry.entry_id)
 
     for trv_entity_id in trv_entity_ids(entry):
         remaining = other_entries_controlling(hass, trv_entity_id, entry.entry_id)

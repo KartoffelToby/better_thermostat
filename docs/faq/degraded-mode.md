@@ -54,5 +54,4 @@ TRV the health of its calibration controller: `healthy`, `non_finite`
 
 The repair issue disappears on its own once all configured sensors are
 available again. Taking a sensor that is gone for good out of the Better
-Thermostat's settings clears it as well, and renaming the Better
-Thermostat drops the issue that carries the old name.
+Thermostat's settings clears it as well.

@@ -27,6 +27,7 @@ from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers import (
     device_registry as dr,
     entity_registry as er,
+    issue_registry as ir,
     translation,
 )
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
@@ -139,6 +140,54 @@ def entry_name(entry: BetterThermostatConfigEntry) -> str:
     """
     name = setting_str(entry_settings(entry), CONF_NAME)
     return entry.title if name is None else name
+
+
+def entry_issue_id(
+    entry_id: str, translation_key: str, entity_id: str | None = None
+) -> str:
+    """Return the id of the repair issue ``translation_key`` of one entry.
+
+    The id starts with the config entry id, so a thermostat keeps its issues
+    when it is renamed, two thermostats of the same name keep theirs apart,
+    and ``async_delete_entry_issues`` finds every issue of the entry. An issue
+    about one entity of the entry carries that entity id as well.
+
+    Parameters
+    ----------
+    entry_id : str
+        The config entry the issue belongs to.
+    translation_key : str
+        The issue's translation key under ``issues`` in ``strings.json``.
+    entity_id : str | None
+        The entity the issue is about, if it is about one.
+
+    Returns
+    -------
+    str
+        The issue id.
+    """
+    if entity_id is None:
+        return f"{entry_id}_{translation_key}"
+    return f"{entry_id}_{translation_key}_{entity_id}"
+
+
+def async_delete_entry_issues(hass: HomeAssistant, entry_id: str) -> None:
+    """Delete every repair issue ``entry_issue_id`` named for ``entry_id``.
+
+    Issues about thermostats shared between entries belong to no single entry
+    and are left alone.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance.
+    entry_id : str
+        The config entry whose issues are deleted.
+    """
+    prefix = f"{entry_id}_"
+    for domain, issue_id in list(ir.async_get(hass).issues):
+        if domain == DOMAIN and issue_id.startswith(prefix):
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 
 def stored_trv_configs(settings: Mapping[str, object]) -> list[dict[str, object]]:

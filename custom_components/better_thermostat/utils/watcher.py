@@ -33,6 +33,7 @@ from custom_components.better_thermostat.utils.helpers import (
     async_fire_logbook_entry,
     attr_to_celsius,
     convert_to_float_celsius,
+    entry_issue_id,
     is_reasonable_temperature,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
@@ -394,8 +395,10 @@ async def check_critical_entities(self: BetterThermostat) -> None:
                 ir.async_create_issue(
                     hass=self.hass,
                     domain=DOMAIN,
-                    issue_id=f"missing_entity_{entity}",
-                    is_fixable=True,
+                    issue_id=entry_issue_id(
+                        self._config_entry_id, "missing_entity", entity
+                    ),
+                    is_fixable=False,
                     is_persistent=False,
                     learn_more_url="https://better-thermostat.org/faq/missing-entity",
                     severity=ir.IssueSeverity.ERROR,
@@ -417,7 +420,11 @@ async def check_critical_entities(self: BetterThermostat) -> None:
                 )
                 self.devices_errors.remove(entity)
                 self.async_write_ha_state()
-            ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
+            ir.async_delete_issue(
+                self.hass,
+                DOMAIN,
+                entry_issue_id(self._config_entry_id, "missing_entity", entity),
+            )
             refresh_battery_reading(self, entity, recovered=recovered)
 
 
@@ -735,7 +742,7 @@ async def check_and_update_degraded_mode(
         ir.async_create_issue(
             hass=self.hass,
             domain=DOMAIN,
-            issue_id=f"degraded_mode_{self.device_name}",
+            issue_id=entry_issue_id(self._config_entry_id, "degraded_mode"),
             is_fixable=False,
             is_persistent=False,
             learn_more_url="https://better-thermostat.org/faq/degraded-mode",
@@ -760,24 +767,21 @@ async def check_and_update_degraded_mode(
             self.device_name,
             ", ".join(unavailable),
         )
-    elif not degraded:
-        # The issue can outlive the instance that raised it: a reload starts
-        # a new one that has warned about nothing, and the sensor may have
-        # come back or left the configuration meanwhile. Deleting is
-        # idempotent, so it happens whenever the room is not degraded.
-        ir.async_delete_issue(self.hass, DOMAIN, f"degraded_mode_{self.device_name}")
-        if has_warned:
-            _LOGGER.info(
-                "better_thermostat %s: Exiting degraded mode. All sensors available.",
-                self.device_name,
-            )
-            self._degraded_warning_emitted = False
+    elif not degraded and has_warned:
+        _LOGGER.info(
+            "better_thermostat %s: Exiting degraded mode. All sensors available.",
+            self.device_name,
+        )
+        ir.async_delete_issue(
+            self.hass, DOMAIN, entry_issue_id(self._config_entry_id, "degraded_mode")
+        )
+        self._degraded_warning_emitted = False
 
-            await async_fire_logbook_entry(
-                self,
-                "degraded_mode_resolved",
-                "exited degraded mode because all sensors are available",
-            )
+        await async_fire_logbook_entry(
+            self,
+            "degraded_mode_resolved",
+            "exited degraded mode because all sensors are available",
+        )
 
     self.async_write_ha_state()
     return degraded
