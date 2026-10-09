@@ -72,6 +72,8 @@ def _make_bt(
     bt.clock = FakeClock(monotonic_value=1_000.0)
     bt.state_mgr = MagicMock()
     bt.state_mgr.get_pid.side_effect = lambda _key: PIDState()
+    pid_entries: dict[str, PIDState] = {}
+    bt.state_mgr.state.pid = pid_entries
 
     quirks = MagicMock()
     quirks.fix_local_calibration.side_effect = lambda _self, _eid, calibration_offset: (

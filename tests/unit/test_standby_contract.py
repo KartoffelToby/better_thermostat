@@ -20,7 +20,10 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcState,
     compute_mpc,
 )
-from custom_components.better_thermostat.utils.calibration.pid import PIDState
+from custom_components.better_thermostat.utils.calibration.pid import (
+    PIDState,
+    build_pid_loop_key,
+)
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
     TpiParams,
@@ -46,9 +49,11 @@ def _pid_bt(*, window_open):
     bt.kernel_state = make_state()
     bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}
     bt.state_mgr = MagicMock()
-    bt.state_mgr.get_pid.return_value = PIDState(
-        pid_integral=12.0, pid_last_meas=19.6, pid_last_time=1000.0
-    )
+    bt.state_mgr.state.pid = {
+        build_pid_loop_key(bt, ENTITY_ID): PIDState(
+            pid_integral=12.0, pid_last_meas=19.6, pid_last_time=1000.0
+        )
+    }
     return bt
 
 

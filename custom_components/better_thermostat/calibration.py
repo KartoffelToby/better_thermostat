@@ -41,16 +41,18 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     run_reid_fit,
 )
 from custom_components.better_thermostat.utils.calibration.pid import (
-    DEFAULT_PID_AUTO_TUNE,
-    DEFAULT_PID_KD,
-    DEFAULT_PID_KI,
-    DEFAULT_PID_KP,
     PIDParams,
+    PIDState,
     build_pid_key,
+    build_pid_loop_key,
     compute_pid,
     observe_standby as pid_observe_standby,
+    pid_cycle_params,
+    pid_cycle_state,
+    pid_loop_state,
     resolve_unique_id,
     sanitize_pid_state,
+    settle_pid_cycle,
 )
 from custom_components.better_thermostat.utils.calibration.strategies import (
     BalanceCalibrator,
@@ -1025,11 +1027,12 @@ def _compute_pid_balance(
         # following the room so control resumes bump-free (the first
         # post-standby cycle sees a fresh measurement and a small dt
         # instead of an hours-old timestamp).
-        key = build_pid_key(self, entity_id)
-        pid_state = state_mgr.get_pid(key)
-        pid_state = pid_observe_standby(
+        loop_key = build_pid_loop_key(self, entity_id)
+        loop = pid_observe_standby(
             PIDParams(),
-            pid_state,
+            pid_loop_state(
+                state_mgr.state.pid, loop_key, build_pid_key(self, entity_id)
+            ),
             _pid_room_temperature,
             self.clock.monotonic(),
             inp_room_temperature_filtered=(
@@ -1038,42 +1041,31 @@ def _compute_pid_balance(
                 else None
             ),
         )
-        state_mgr.set_pid(key, pid_state)
+        state_mgr.set_pid(loop_key, loop)
         trv_state.calibration_balance = None
         return None, False
 
-    # Build PID params from config and learned values
-    key = build_pid_key(self, entity_id)
-    pid_state = state_mgr.get_pid(key)
+    # The loop entry carries the integral, the measurement chain and the
+    # output across target changes; the bucket entry of the current target
+    # carries the gains learned there.
+    loop_key = build_pid_loop_key(self, entity_id)
+    bucket_key = build_pid_key(self, entity_id)
+    loop = pid_loop_state(state_mgr.state.pid, loop_key, bucket_key)
+    bucket = state_mgr.state.pid.get(bucket_key)
+    if bucket is None:
+        bucket = PIDState()
 
     # Self-heal a poisoned state (non-finite values, runaway gains,
     # wound-up integrator) before it reaches the controller.
-    pid_state, _pid_health = sanitize_pid_state(pid_state, PIDParams())
+    loop, _loop_health = sanitize_pid_state(loop, PIDParams())
+    bucket, _bucket_health = sanitize_pid_state(bucket, PIDParams())
+    _pid_health = (
+        _loop_health if _loop_health != CalibratorHealth.HEALTHY else _bucket_health
+    )
     annunciate_health(self, entity_id, _pid_health)
 
-    # Use learned gains if available, otherwise from config, otherwise defaults
-    params = PIDParams(
-        kp=(
-            pid_state.pid_kp
-            if pid_state and pid_state.pid_kp is not None
-            else DEFAULT_PID_KP
-        ),
-        ki=(
-            pid_state.pid_ki
-            if pid_state and pid_state.pid_ki is not None
-            else DEFAULT_PID_KI
-        ),
-        kd=(
-            pid_state.pid_kd
-            if pid_state and pid_state.pid_kd is not None
-            else DEFAULT_PID_KD
-        ),
-        auto_tune=(
-            pid_state.auto_tune
-            if pid_state and pid_state.auto_tune is not None
-            else DEFAULT_PID_AUTO_TUNE
-        ),
-    )
+    params = pid_cycle_params(loop, bucket)
+    cycle = pid_cycle_state(loop, params, self.heat_target_temperature)
 
     _LOGGER.debug(
         "better_thermostat %s: Running PID calibration for %s",
@@ -1082,29 +1074,33 @@ def _compute_pid_balance(
     )
 
     try:
-        percent, debug, pid_state = compute_pid(
+        percent, debug, cycle = compute_pid(
             params,
             self.heat_target_temperature,
             _pid_room_temperature,
             trv_state.current_temperature,
             self.temperature_slope,
-            key,
+            bucket_key,
             inp_room_temperature_filtered=(
                 self.room_temperature_filtered
                 if _pid_room_temperature is self.room_temperature
                 else None
             ),
             max_opening_percent=_get_trv_max_opening(self, entity_id),
-            state=pid_state,
+            state=cycle,
             now=self.clock.monotonic(),
         )
-        state_mgr.set_pid(key, pid_state)
+        state_mgr.set_pid(loop_key, settle_pid_cycle(loop, bucket, cycle, params))
+        if params.auto_tune or _bucket_health != CalibratorHealth.HEALTHY:
+            state_mgr.set_pid(bucket_key, bucket)
     except (ValueError, TypeError, ZeroDivisionError) as err:
         # A healed (sanitized) state must reach the store even when the
         # compute fails, otherwise the poisoned version stays on disk and
         # is re-healed every cycle.
-        if _pid_health != CalibratorHealth.HEALTHY:
-            state_mgr.set_pid(key, pid_state)
+        if _loop_health != CalibratorHealth.HEALTHY:
+            state_mgr.set_pid(loop_key, loop)
+        if _bucket_health != CalibratorHealth.HEALTHY:
+            state_mgr.set_pid(bucket_key, bucket)
         _LOGGER.debug(
             "better_thermostat %s: PID calibration compute failed for %s: %s",
             self.device_name,
