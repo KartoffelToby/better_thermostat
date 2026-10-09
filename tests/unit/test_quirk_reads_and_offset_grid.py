@@ -393,6 +393,101 @@ class TestASelectCalibrationEntityPublishesItsOptionGrid:
         assert host.hass.services.async_call.await_args.args[2]["option"] == "1.5k"
 
 
+NUMBER_CALIBRATION_ENTITY = "number.trv_local_temperature_calibration"
+
+
+def _number_host(value, attributes):
+    state = State(NUMBER_CALIBRATION_ENTITY, value, attributes)
+    host = _host(state=state)
+    host.real_trvs[
+        ENTITY_ID
+    ].local_temperature_calibration_entity = NUMBER_CALIBRATION_ENTITY
+    return host
+
+
+class TestANumberCalibrationEntityIsReadInItsOwnUnit:
+    """Offset, range and step of a number entity are read in Kelvin."""
+
+    @pytest.mark.asyncio
+    async def test_a_number_declaring_nothing_answers_the_defaults(self):
+        """No ``min``, ``max`` or ``step`` leaves the shared table in charge."""
+        host = _number_host("0.0", {})
+
+        assert await generic.get_min_calibration_offset(host, ENTITY_ID) == (
+            generic.DEFAULT_OFFSET_MIN
+        )
+        assert await generic.get_max_calibration_offset(host, ENTITY_ID) == (
+            generic.DEFAULT_OFFSET_MAX
+        )
+        assert await generic.get_calibration_offset_step(host, ENTITY_ID) == (
+            generic.DEFAULT_OFFSET_STEP
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_number_declaring_no_bounds_takes_the_offset_as_it_is(self):
+        """Without published bounds there is nothing to hold the value inside."""
+        host = _number_host("0.0", {})
+
+        await generic.set_calibration_offset(host, ENTITY_ID, 1.5)
+
+        assert host.hass.services.async_call.await_args.args[2]["value"] == 1.5
+
+    @pytest.mark.asyncio
+    async def test_a_difference_in_fahrenheit_is_read_and_written_in_kelvin(self):
+        """A number counting °F differences holds 1.8 of it per Kelvin."""
+        host = _number_host(
+            "3.6",
+            {
+                "unit_of_measurement": UnitOfTemperature.FAHRENHEIT,
+                "device_class": "temperature_delta",
+                "min": -9.0,
+                "max": 9.0,
+                "step": 0.9,
+            },
+        )
+
+        assert await generic.get_calibration_offset(host, ENTITY_ID) == pytest.approx(
+            2.0
+        )
+        assert await generic.get_min_calibration_offset(
+            host, ENTITY_ID
+        ) == pytest.approx(-5.0)
+        assert await generic.get_max_calibration_offset(
+            host, ENTITY_ID
+        ) == pytest.approx(5.0)
+        assert await generic.get_calibration_offset_step(
+            host, ENTITY_ID
+        ) == pytest.approx(0.5)
+
+        await generic.set_calibration_offset(host, ENTITY_ID, 1.5)
+
+        assert host.hass.services.async_call.await_args.args[2][
+            "value"
+        ] == pytest.approx(2.7)
+
+    @pytest.mark.asyncio
+    async def test_a_write_at_the_bound_stays_inside_the_published_range(self):
+        """The round trip through Kelvin cannot push a bound outside itself.
+
+        Home Assistant refuses a value past the ``min`` it publishes, so a
+        float error at the device's lowest offset would turn the write into
+        a refusal.
+        """
+        host = _number_host(
+            "32.0",
+            {
+                "unit_of_measurement": UnitOfTemperature.FAHRENHEIT,
+                "device_class": "temperature",
+                "min": 10.3,
+                "max": 53.7,
+            },
+        )
+
+        await generic.set_calibration_offset(host, ENTITY_ID, -20.0)
+
+        assert host.hass.services.async_call.await_args.args[2]["value"] == 10.3
+
+
 class TestTheForcedZeroCalibrationWaitsForItsAnswer:
     """The zero offset written after the startup wait reports a refusal."""
 

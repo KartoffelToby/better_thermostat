@@ -10,6 +10,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -258,6 +259,40 @@ class TestReconcileTick:
         self._with_states(bt, {"number.offset": self._state("6.1")})
         await reconcile_tick(bt)
         bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("published", "diverged"),
+        [("35.6", False), ("32.0", True)],
+        ids=["holds_the_command", "lost_it"],
+    )
+    @pytest.mark.asyncio
+    async def test_an_offset_published_in_fahrenheit_is_compared_in_kelvin(
+        self, published, diverged
+    ):
+        """A Celsius ``temperature`` number on a °F system reports 2 K as 35.6.
+
+        Home Assistant converts such a number as an absolute temperature, so
+        the device holding the commanded 2 K is converged, and one back at
+        0 K, published as 32 °F, has lost the write.
+        """
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.local_temperature_calibration_entity = "number.offset"
+        trv.last_calibration = 2.0
+        trv.local_calibration_step = 0.5
+        trv.calibration_received = True
+        self._with_states(
+            bt,
+            {
+                "number.offset": State(
+                    "number.offset",
+                    published,
+                    {"unit_of_measurement": "°F", "device_class": "temperature"},
+                )
+            },
+        )
+        await reconcile_tick(bt)
+        assert bt.control_queue_task.put_nowait.called is diverged
 
     @pytest.mark.asyncio
     async def test_unconfirmed_offset_write_is_left_to_the_write_path(self):

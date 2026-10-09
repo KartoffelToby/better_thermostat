@@ -46,6 +46,7 @@ from homeassistant.components.climate import (
 )
 from homeassistant.components.number import (
     DOMAIN as NUMBER_DOMAIN,
+    NumberDeviceClass,
     NumberEntity,
     NumberMode,
 )
@@ -69,6 +70,7 @@ from .device_profiles import (
     OffsetChannel,
     RoleScenario,
     ValveChannel,
+    external_temperature_input_id,
     offset_number_id,
     published_precision,
     published_temperature,
@@ -164,7 +166,7 @@ class SimulatedClimate(ClimateEntity):
 
     ``offset_number`` and ``valve_number`` are the calibration and valve
     entities of a device that exposes those channels, and ``None`` for a
-    device that does not.
+    device that does not; ``external_temperature_input`` likewise.
     """
 
     _attr_should_poll = False
@@ -173,6 +175,7 @@ class SimulatedClimate(ClimateEntity):
         """Publish the profile's capabilities and open the assertion surface."""
         self.profile = profile
         self.offset_number: SimulatedOffsetNumber | None = None
+        self.external_temperature_input: SimulatedExternalTemperatureInput | None = None
         self.valve_number: SimulatedValveNumber | None = None
         self._attr_name = profile.entity_name
         self._attr_temperature_unit = profile.temperature_unit
@@ -261,9 +264,9 @@ class _SimulatedNumber(NumberEntity):
     from the device the climate entity belongs to. Like the climate entity it
     confirms every write into its state and can be told to lose one.
 
-    It publishes no device class on purpose: a temperature device class would
-    make Home Assistant convert the native value, so a read back would not be
-    what was written.
+    It publishes no device class unless the profile names one: a
+    temperature device class makes Home Assistant convert the native value,
+    so a read back is not what was written unless the reader converts too.
     """
 
     _attr_should_poll = False
@@ -299,9 +302,34 @@ class SimulatedOffsetNumber(_SimulatedNumber):
     _attr_native_step = 0.5
 
     def __init__(self, profile: DeviceProfile):
-        """Start the device out uncalibrated."""
+        """Start the device out uncalibrated, declared as the profile says."""
         super().__init__(profile, "local_temperature_calibration")
         self._attr_native_value = 0.0
+        if profile.offset_device_class is not None:
+            self._attr_device_class = profile.offset_device_class
+        if profile.offset_unit is not None:
+            self._attr_native_unit_of_measurement = profile.offset_unit
+
+
+class SimulatedExternalTemperatureInput(_SimulatedNumber):
+    """The external temperature input of a Sonoff TRVZB, as Zigbee2MQTT has it.
+
+    Its native unit is Celsius and its device class ``temperature``, so Home
+    Assistant publishes it, and checks a written value, in the system unit.
+    """
+
+    _attr_name = "external temperature input"
+    _attr_translation_key = "external_temperature_input"
+    _attr_device_class = NumberDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_native_min_value = 0.0
+    _attr_native_max_value = 99.9
+    _attr_native_step = 0.1
+
+    def __init__(self, profile: DeviceProfile):
+        """Start the input out at the device's own reading."""
+        super().__init__(profile, "external_temperature_input")
+        self._attr_native_value = profile.current_temperature
 
 
 class SimulatedValveNumber(_SimulatedNumber):
@@ -392,6 +420,7 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
     if not with_device and any(
         p.offset_channel is OffsetChannel.NUMBER_ENTITY
         or p.valve_channel is ValveChannel.NUMBER_ENTITY
+        or p.external_temperature_input
         for p in profiles
     ):
         raise ValueError("a number channel needs has_device_registry_entry=True")
@@ -421,6 +450,11 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
             offset_number.entity_id = offset_number_id(profile)
             entity.offset_number = offset_number
             numbers.append(offset_number)
+        if profile.external_temperature_input:
+            external_input = SimulatedExternalTemperatureInput(profile)
+            external_input.entity_id = external_temperature_input_id(profile)
+            entity.external_temperature_input = external_input
+            numbers.append(external_input)
         if profile.valve_channel is ValveChannel.NUMBER_ENTITY:
             valve = SimulatedValveNumber(profile)
             valve.entity_id = valve_number_id(profile)

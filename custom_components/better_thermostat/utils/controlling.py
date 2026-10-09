@@ -32,6 +32,10 @@ from homeassistant.core import (
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util.unit_conversion import TemperatureConverter
 
+from custom_components.better_thermostat.adapters.base import (
+    offset_scale,
+    published_to_offset,
+)
 from custom_components.better_thermostat.adapters.delegate import (
     calibration_entity_disabled,
     get_calibration_offset,
@@ -582,6 +586,7 @@ def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
     reported = convert_to_float(state.state, self.device_name, "reconcile()")
     if reported is None:
         return False
+    reported = published_to_offset(offset_scale(state), reported)
     return abs(float(trv.last_calibration) - reported) > _calibration_match_tolerance(
         self, trv.entity_id
     )
