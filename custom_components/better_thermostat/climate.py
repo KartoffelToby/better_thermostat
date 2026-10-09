@@ -4717,30 +4717,50 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         )
 
         # If a specific preset (Comfort, Eco, …) is active and the user manually
-        # changes the target temperature to a value that does not match the
-        # preset's stored temperature, deactivate the preset (return to
-        # PRESET_NONE) while keeping the new manual temperature. The preset's
-        # own Number entity also funnels through this method, but it first
-        # updates the preset's stored temperature so the values match and the
-        # preset stays active.
-        if (
-            _heating_target_set
-            and self.heat_target_temperature is not None
-            and self.preset_mgr.mode != PRESET_NONE
-        ):
-            applied = float(self.heat_target_temperature)
-            preset_stored = self.preset_mgr.get_temperature(self.preset_mgr.mode)
+        # changes the heating or the cooling target to a value that does not
+        # match the preset's stored temperature for that channel, deactivate
+        # the preset (return to PRESET_NONE) while keeping the new manual
+        # targets. The preset's own Number entities do not overwrite their
+        # stored temperatures from here: the heating one updates its stored
+        # temperature before it funnels through this method, so the values
+        # match and the preset stays active, and the cooling one sets the
+        # cooling target without passing through here.
+        if self.preset_mgr.mode != PRESET_NONE:
+            _deviating_target = None
+            if _heating_target_set and self.heat_target_temperature is not None:
+                applied = float(self.heat_target_temperature)
+                preset_stored = self.preset_mgr.get_temperature(self.preset_mgr.mode)
+                if (
+                    preset_stored is None
+                    or abs(applied - self._applied_target(preset_stored)) > 1e-3
+                ):
+                    _deviating_target = applied
             if (
-                preset_stored is None
-                or abs(applied - self._applied_target(preset_stored)) > 1e-3
+                _deviating_target is None
+                and _new_setpointhigh is not None
+                and self.cooler_entity_id is not None
+                and self.cool_target_temperature is not None
             ):
+                applied = float(self.cool_target_temperature)
+                preset_stored = self._preset_cool_temperatures.get(self.preset_mgr.mode)
+                if (
+                    preset_stored is None
+                    or abs(applied - self._applied_target(preset_stored, cooling=True))
+                    > 1e-3
+                ):
+                    _deviating_target = applied
+            if _deviating_target is not None:
                 old_preset = self.preset_mgr.mode
                 self.preset_mgr.deactivate()
+                # The manual targets replace the ones saved on entering the
+                # preset, for cooling as for heating: a later return to
+                # PRESET_NONE keeps what the user set here.
+                self._preset_cool_temperature = None
                 _LOGGER.debug(
                     "better_thermostat %s: Deactivated preset %s due to manual target temperature change to %s",
                     self.device_name,
                     old_preset,
-                    applied,
+                    _deviating_target,
                 )
 
         # If the user manually changes the temperature while in PRESET_NONE (Manual),
