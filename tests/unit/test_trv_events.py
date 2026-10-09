@@ -779,6 +779,58 @@ class TestInternalTemperatureChange:
             mock_offset.assert_not_awaited()
             assert mock_bt.real_trvs[ENTITY_ID].last_calibration == 0.0
 
+    @pytest.mark.parametrize(
+        ("calibration", "taken"),
+        [
+            (CalibrationOutput.LOCAL_BASED, True),
+            (CalibrationOutput.TARGET_TEMP_BASED, False),
+            (CalibrationOutput.DIRECT_VALVE_BASED, False),
+            (None, False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_only_an_unconfirmed_offset_lets_a_reading_past_the_debounce(
+        self, mock_bt, calibration, taken
+    ):
+        """An offset write awaiting confirmation takes the next reading at once.
+
+        The reading is how an offset TRV confirms the write, so it is not
+        held back by the debounce. A TRV that is not calibrated through its
+        offset has no such write to confirm, and its reading inside the
+        debounce window is turned away like any other.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.calibration_received = False
+        trv.calibration = calibration
+        trv.current_temperature = 18.0
+        # The last accepted reading is recent, well inside the 5 s debounce
+        # window.
+        trv.last_internal_sensor_change = dt_util.now()
+        trv_state = _make_state(attributes={"current_temperature": 20.0})
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.get_calibration_offset",
+                autospec=True,
+                return_value=0.0,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv."
+                "_read_internal_temperature_later"
+            ),
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert trv.current_temperature == (20.0 if taken else 18.0)
+        assert trv.calibration_received is taken
+
     @pytest.mark.asyncio
     async def test_entry_removed_during_await_completes(self, mock_bt):
         """The handler survives the entry vanishing mid-flight.

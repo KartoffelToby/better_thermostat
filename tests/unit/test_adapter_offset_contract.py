@@ -803,3 +803,67 @@ class TestATrvWithoutACalibrationEntityIsNamedAtStartup:
 
         assert f"calibration_entity is None for '{ENTITY_ID}'" in caplog.text
         mock_self.hass.services.async_call.assert_not_awaited()
+
+
+class TestOnlyAnOffsetTrvLooksForACalibrationEntity:
+    """The calibration entity is looked up for the TRVs that write to it.
+
+    Only the offset calibration writes to the TRV's calibration entity. A
+    TRV calibrated through its setpoint or its valve, and one configured
+    for no calibration, has no use for one, so startup neither looks it up
+    nor reports it missing.
+    """
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.parametrize(
+        "calibration",
+        [
+            CalibrationOutput.TARGET_TEMP_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
+            None,
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_trv_without_offset_calibration_is_not_looked_up(
+        self, adapter, calibration, caplog
+    ):
+        """No lookup, no wait, no warning about a missing entity."""
+        mock_self = _mock_self(calibration_entity=None)
+        mock_self.real_trvs[ENTITY_ID].calibration = calibration
+        finding = AsyncMock(return_value=None)
+        waiting = AsyncMock()
+
+        with (
+            caplog.at_level(logging.WARNING),
+            patch(_FIND_VALVE, AsyncMock(return_value=None)),
+            patch(_FIND_CALIBRATION, finding),
+            patch(_WAIT_FOR_CALIBRATION, waiting),
+        ):
+            await adapter.init(mock_self, ENTITY_ID)
+
+        finding.assert_not_awaited()
+        waiting.assert_not_awaited()
+        assert (
+            mock_self.real_trvs[ENTITY_ID].local_temperature_calibration_entity is None
+        )
+        assert "no local calibration entity found" not in caplog.text
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_an_offset_trv_is_looked_up_and_adopts_the_entity(self, adapter):
+        """The offset TRV finds its entity and keeps it on its record."""
+        mock_self = _mock_self(calibration_entity=None)
+        finding = AsyncMock(return_value=CALIBRATION_ENTITY)
+
+        with (
+            patch(_FIND_VALVE, AsyncMock(return_value=None)),
+            patch(_FIND_CALIBRATION, finding),
+            patch(_WAIT_FOR_CALIBRATION, AsyncMock()),
+        ):
+            await adapter.init(mock_self, ENTITY_ID)
+
+        finding.assert_awaited_once()
+        assert (
+            mock_self.real_trvs[ENTITY_ID].local_temperature_calibration_entity
+            == CALIBRATION_ENTITY
+        )

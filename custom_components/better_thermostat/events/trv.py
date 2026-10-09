@@ -465,7 +465,10 @@ async def trigger_trv_change(
             trv.consume_accept_next_internal_temperature()
             or _last_internal_change is None
             or (dt_util.now() - _last_internal_change).total_seconds() > _time_diff
-            or (trv.calibration_received is False and trv.calibration is not None)
+            or (
+                trv.calibration_received is False
+                and trv.calibration is CalibrationOutput.LOCAL_BASED
+            )
         )
     ):
         _old_temperature = trv.current_temperature

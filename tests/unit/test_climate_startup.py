@@ -68,9 +68,9 @@ DOOR_ID = "binary_sensor.door"
 HUMIDITY_ID = "sensor.humidity"
 OUTDOOR_ID = "sensor.outdoor_temp"
 
-# The calibration code startup derives for a TRV whose offset lives on its own
-# calibration entity. Any code but 1 makes startup read the device's offset and
-# the bounds it accepts.
+# The calibration type of a TRV whose offset lives on its own calibration
+# entity. Only this type makes startup read the device's offset and the bounds
+# it accepts.
 LOCAL_CALIBRATION = CalibrationOutput.LOCAL_BASED
 
 
@@ -1915,6 +1915,85 @@ class TestInitializeTrvCalibrationFallback:
 
         assert bt.real_trvs[TRV_ID].max_temp == 30.0
         assert bt.real_trvs[TRV_ID].current_temperature == 20.0
+
+
+_OFFSET_READS = (
+    "get_calibration_offset",
+    "get_min_calibration_offset",
+    "get_max_calibration_offset",
+    "get_calibration_offset_step",
+)
+
+
+class TestInitializeTrvReadsOffsetsOnlyForOffsetTrvs:
+    """Startup reads the device's offset only where BT calibrates through it.
+
+    A TRV calibrated through its setpoint or its valve, or configured for
+    no calibration, gets no offset written, so its offset and the bounds
+    around it are not read; it starts from the neutral defaults.
+    """
+
+    async def _run(self, bt, calibration):
+        """Initialize one TRV of ``calibration`` and return the offset reads."""
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=calibration)}
+        bt.hass.states.get.return_value = _make_trv_state()
+        bt._set_trv_calibration_defaults.side_effect = lambda trv: (
+            BetterThermostat._set_trv_calibration_defaults(bt, trv)
+        )
+        reads = {
+            name: AsyncMock(return_value=answer)
+            for name, answer in zip(_OFFSET_READS, (1.5, -5.0, 5.0, 0.1), strict=True)
+        }
+        with (
+            patch("custom_components.better_thermostat.climate.init", autospec=True),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak",
+                autospec=True,
+            ),
+            patch.multiple("custom_components.better_thermostat.climate", **reads),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+        return reads
+
+    @pytest.mark.parametrize(
+        "calibration",
+        [
+            CalibrationOutput.TARGET_TEMP_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
+            None,
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_trv_without_offset_calibration_reads_no_offset(
+        self, bt, calibration
+    ):
+        """No offset read reaches the adapter; the defaults stand."""
+        reads = await self._run(bt, calibration)
+
+        for read in reads.values():
+            read.assert_not_awaited()
+        trv = bt.real_trvs[TRV_ID]
+        assert (
+            trv.last_calibration,
+            trv.min_local_calibration,
+            trv.max_local_calibration,
+            trv.local_calibration_step,
+        ) == (0, -7, 7, 0.5)
+
+    @pytest.mark.asyncio
+    async def test_an_offset_trv_reads_its_offset_and_bounds(self, bt):
+        """The offset TRV takes what its device reports."""
+        reads = await self._run(bt, LOCAL_CALIBRATION)
+
+        for read in reads.values():
+            read.assert_awaited_once_with(bt, TRV_ID)
+        trv = bt.real_trvs[TRV_ID]
+        assert (
+            trv.last_calibration,
+            trv.min_local_calibration,
+            trv.max_local_calibration,
+            trv.local_calibration_step,
+        ) == (1.5, -5.0, 5.0, 0.1)
 
 
 # ---------------------------------------------------------------------------

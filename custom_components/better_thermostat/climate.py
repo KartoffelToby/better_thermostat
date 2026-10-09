@@ -177,6 +177,7 @@ from .utils.const import (
     TARGET_TEMP_BOUND_AUTO,
     VERSION,
     CalibrationMode,
+    CalibrationOutput,
 )
 from .utils.controlling import (
     TaskManager,
@@ -2601,7 +2602,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     exc_info=True,
                 )
 
-            if trv.calibration is not None:
+            # Only a TRV calibrated through its offset has one BT reads or
+            # writes; every other TRV keeps the neutral defaults.
+            if trv.calibration is CalibrationOutput.LOCAL_BASED:
                 _LOGGER.debug(
                     "better_thermostat %s: getting offsets for TRV %s",
                     self.device_name,

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Final
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
+from ..utils.const import CalibrationOutput
 from ..utils.helpers import (
     celsius_to_system_temperature,
     find_local_calibration_entity,
@@ -81,7 +82,8 @@ async def discover_calibration_entity(self: AdapterHost, entity_id: str) -> None
     """Adopt the TRV's local calibration entity and wait for it to report.
 
     A TRV that already carries a calibration entity, and one that is not
-    calibrated through such an entity at all, is left alone. Otherwise the
+    calibrated through its local offset at all, is left alone: only the
+    offset calibration writes to that entity. Otherwise the
     lookup runs once and its result is stored on the TRV record: an entity
     that was found is waited for until it reports a state, and a TRV for
     which the lookup found none is named in the log, because local
@@ -100,7 +102,10 @@ async def discover_calibration_entity(self: AdapterHost, entity_id: str) -> None
         Entity ID of the TRV to run the lookup for.
     """
     trv = self.real_trvs[entity_id]
-    if trv.local_temperature_calibration_entity is not None or trv.calibration is None:
+    if (
+        trv.local_temperature_calibration_entity is not None
+        or trv.calibration is not CalibrationOutput.LOCAL_BASED
+    ):
         return
 
     trv.local_temperature_calibration_entity = await find_local_calibration_entity(
