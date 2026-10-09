@@ -477,10 +477,13 @@ OPTION_HELP_TEXTS = {
 def test_option_help_text_explains_every_option(lang: str, flow: str, field: str):
     """Each dropdown option is explained under the label the dropdown shows."""
     catalog = _load_json(TRANSLATIONS / f"{lang}.json")
-    help_text = catalog[flow]["step"]["advanced"]["data_description"][field]
-    labels = catalog["selector"][OPTION_HELP_TEXTS[field]]["options"].values()
+    help_text = _section(catalog, flow, "step", "advanced", "data_description")[field]
+    labels = _section(catalog, "selector", OPTION_HELP_TEXTS[field], "options")
+    assert isinstance(help_text, str)
 
-    assert sorted(re.findall(r"\*\*\*(.+?)\*\*\*", help_text)) == sorted(labels)
+    assert sorted(re.findall(r"\*\*\*(.+?)\*\*\*", help_text)) == sorted(
+        str(label) for label in labels.values()
+    )
 
 
 def test_reset_pid_learnings_gain_selectors_reach_the_pid_limits():
