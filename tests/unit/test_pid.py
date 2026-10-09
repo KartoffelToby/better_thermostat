@@ -46,7 +46,7 @@ class TestPIDController:
             inp_target_temperature=None,
             inp_room_temperature=20.0,
             inp_trv_temperature=None,
-            inp_temp_slope_K_per_min=None,
+            inp_temperature_slope_K_per_min=None,
             key="test_no_temp",
         )
         assert percent == 0.0
@@ -65,7 +65,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key="test_basic",
         )
         # Error = 2.0, P = 10*2 = 20, I accumulates, D=0
@@ -77,7 +77,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key="test_basic",
         )
         assert percent2 >= percent1
@@ -90,7 +90,7 @@ class TestPIDController:
                 inp_target_temperature=22.0,
                 inp_room_temperature=20.0,
                 inp_trv_temperature=21.0,
-                inp_temp_slope_K_per_min=0.0,
+                inp_temperature_slope_K_per_min=0.0,
                 key="test_basic",
             )
         assert percent_last > percent1
@@ -104,7 +104,7 @@ class TestPIDController:
             inp_target_temperature=30.0,
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key="test_windup",
         )
         # Should be clamped to 100%
@@ -147,7 +147,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=21.95,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key="test_relief",
             state=state,
         )
@@ -173,7 +173,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
 
@@ -183,7 +183,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=22.05,  # error = -0.05 < band
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
 
@@ -210,7 +210,7 @@ class TestPIDController:
                 inp_target_temperature=22.0,
                 inp_room_temperature=room_temperature,
                 inp_trv_temperature=21.0,
-                inp_temp_slope_K_per_min=0.0,
+                inp_temperature_slope_K_per_min=0.0,
                 key=key,
             )
 
@@ -235,7 +235,7 @@ class TestPIDController:
             inp_target_temperature=20.8,  # error = 0.8 < 1.0
             inp_room_temperature=20.0,  # error = 0.8 > band
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.005,  # < threshold
+            inp_temperature_slope_K_per_min=0.005,  # < threshold
             key=key,
         )
 
@@ -259,7 +259,7 @@ class TestPIDController:
             inp_target_temperature=20.1,
             inp_room_temperature=20.0,  # error = 0.1 < band
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
 
@@ -284,7 +284,7 @@ class TestPIDController:
             inp_target_temperature=20.8,  # error = 0.8 < 1.0
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,  # < threshold
+            inp_temperature_slope_K_per_min=0.0,  # < threshold
             key=key,
         )
 
@@ -302,7 +302,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.0,  # same error
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
 
@@ -342,7 +342,7 @@ class TestPIDController:
                 inp_target_temperature=22.0,
                 inp_room_temperature=20.0,
                 inp_trv_temperature=21.0,
-                inp_temp_slope_K_per_min=0.0,
+                inp_temperature_slope_K_per_min=0.0,
                 key=key,
             )
             # Overshoot
@@ -351,7 +351,7 @@ class TestPIDController:
                 inp_target_temperature=22.0,
                 inp_room_temperature=22.2,  # error = -0.2 > threshold
                 inp_trv_temperature=21.0,
-                inp_temp_slope_K_per_min=0.0,
+                inp_temperature_slope_K_per_min=0.0,
                 key=key,
             )
 
@@ -382,7 +382,7 @@ class TestPIDController:
             inp_target_temperature=20.8,  # error = 0.8
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.005,  # sluggish
+            inp_temperature_slope_K_per_min=0.005,  # sluggish
             key=key,
         )
 
@@ -398,7 +398,7 @@ class TestPIDController:
             inp_target_temperature=20.8,  # error = 0.8 > band
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.02,  # > threshold, no sluggish
+            inp_temperature_slope_K_per_min=0.02,  # > threshold, no sluggish
             key=key,
         )
         self._compute(
@@ -406,7 +406,7 @@ class TestPIDController:
             inp_target_temperature=20.8,
             inp_room_temperature=20.83,  # error = -0.03 < band
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
 
@@ -444,7 +444,7 @@ class TestPIDController:
                 inp_target_temperature=22.0,
                 inp_room_temperature=room_temperature,
                 inp_trv_temperature=21.0,
-                inp_temp_slope_K_per_min=0.0,
+                inp_temperature_slope_K_per_min=0.0,
                 key=key,
             )
             state = self._state(key)
@@ -475,7 +475,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key="test_deriv",
         )
         # Second call to have dt > 0
@@ -484,7 +484,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key="test_deriv",
         )
         # Check that smoothed measurement is calculated
@@ -510,7 +510,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key="test_deriv_err",
         )
         # Target jumps +1 K while the measurement stays at 20.0: error rises
@@ -520,7 +520,7 @@ class TestPIDController:
             inp_target_temperature=23.0,
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key="test_deriv_err",
         )
         assert debug["d"] == 5.0
@@ -538,7 +538,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key="test_last_err",
         )
         # e = 22.0 - 20.0; without the fix this stays None in D-on-measurement.
@@ -553,7 +553,7 @@ class TestPIDController:
             ki=0.0,
             kd=0.0,
             min_hold_time_s=300.0,  # 5 minutes hold time
-            big_change_threshold_pct=33.0,
+            big_change_threshold_percent=33.0,
         )
         key = "test_hold_block"
 
@@ -563,7 +563,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.0,  # Error = 2.0, P = 20%
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
         assert percent1 == 20.0  # P-term only: 10 * 2.0 = 20
@@ -574,7 +574,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.5,  # Error = 1.5, P = 15%
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
         # Change would be 20 -> 15 = -5%, which is < 33%, so blocked by hold-time
@@ -588,7 +588,7 @@ class TestPIDController:
             ki=0.0,
             kd=0.0,
             min_hold_time_s=300.0,
-            big_change_threshold_pct=33.0,
+            big_change_threshold_percent=33.0,
         )
         key = "test_hold_big"
 
@@ -598,7 +598,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.0,  # Error = 2.0, P = 20%
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
         assert percent1 == 20.0
@@ -609,7 +609,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=15.0,  # Error = 7.0, P = 70%
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
         # Change is 20 -> 70 = +50%, which is >= 33%, so bypasses hold-time
@@ -623,7 +623,7 @@ class TestPIDController:
             ki=0.0,
             kd=0.0,
             min_hold_time_s=300.0,
-            big_change_threshold_pct=33.0,
+            big_change_threshold_percent=33.0,
         )
         key = "test_hold_target"
 
@@ -633,7 +633,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.0,  # Error = 2.0, P = 20%
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
         assert percent1 == 20.0
@@ -644,7 +644,7 @@ class TestPIDController:
             inp_target_temperature=23.0,  # Target changed by 1.0°C (> 0.05)
             inp_room_temperature=20.0,  # Error = 3.0, P = 30%
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
         # Change is 20 -> 30 = +10% (< 33%), but target changed so bypasses hold-time
@@ -658,7 +658,7 @@ class TestPIDController:
             ki=0.0,
             kd=0.0,
             min_hold_time_s=0.0,  # Disabled
-            big_change_threshold_pct=33.0,
+            big_change_threshold_percent=33.0,
         )
         key = "test_hold_disabled"
 
@@ -668,7 +668,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.0,
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
         assert percent1 == 20.0
@@ -679,7 +679,7 @@ class TestPIDController:
             inp_target_temperature=22.0,
             inp_room_temperature=20.5,  # Small change
             inp_trv_temperature=21.0,
-            inp_temp_slope_K_per_min=0.0,
+            inp_temperature_slope_K_per_min=0.0,
             key=key,
         )
         # With hold-time disabled, small changes go through immediately

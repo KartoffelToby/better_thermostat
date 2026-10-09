@@ -324,8 +324,8 @@ class QpOptimiser:
         # That bound keeps the gain positive only for a setpoint below the
         # supply water, which a room setpoint always is.
         radiator_operating_point = min(
-            self.plant.steady_radiator_temp(T_sp, T_outdoor, D_hat_K_per_min),
-            self.plant.hottest_radiator_temp(T_sp),
+            self.plant.steady_radiator_temperature(T_sp, T_outdoor, D_hat_K_per_min),
+            self.plant.hottest_radiator_temperature(T_sp),
         )
         u_ss = self._steady_input_for(T_sp, T_outdoor, D_hat_K_per_min)
         A, B, d_vec = self.plant.linearised_system(T_outdoor, radiator_operating_point)

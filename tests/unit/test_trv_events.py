@@ -18,7 +18,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.async_ import create_eager_task
 import pytest
 
-from custom_components.better_thermostat.calibration import effective_room_temp
+from custom_components.better_thermostat.calibration import effective_room_temperature
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
@@ -974,18 +974,18 @@ class TestSensorFallbackOnReportsWithoutAUsableTemperature:
                 mock_bt, _make_event(mock_bt, new_state=new_state, old_state=old_state)
             )
 
-        assert effective_room_temp(mock_bt) == 20.0
+        assert effective_room_temperature(mock_bt) == 20.0
         with patch(
             "custom_components.better_thermostat.events.trv.convert_inbound_states",
             return_value=HVACMode.HEAT,
         ):
             await report(marker, live)
             assert put_nowait.call_count == 1
-            assert effective_room_temp(mock_bt) == 19.0
+            assert effective_room_temperature(mock_bt) == 19.0
 
             await report(back, marker)
             assert put_nowait.call_count == 2
-            assert effective_room_temp(mock_bt) == 20.0
+            assert effective_room_temperature(mock_bt) == 20.0
 
             await report(back, back)
             assert put_nowait.call_count == 2
@@ -1018,13 +1018,13 @@ class TestSensorFallbackOnReportsWithoutAUsableTemperature:
         mock_bt.hass.states.get.side_effect = reported.get
         put_nowait = mock_bt.control_queue_task.put_nowait
 
-        assert effective_room_temp(mock_bt) == 20.0
+        assert effective_room_temperature(mock_bt) == 20.0
         reported[ENTITY_ID] = gone
         await trigger_trv_change(
             mock_bt, _make_event(mock_bt, new_state=gone, old_state=live)
         )
 
-        assert effective_room_temp(mock_bt) == 19.0
+        assert effective_room_temperature(mock_bt) == 19.0
         put_nowait.assert_called_once()
 
 
@@ -4389,7 +4389,7 @@ class TestInternalRereadAfterTheDebounce:
             mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
         )
         _set_control_mode(mock_bt, ControlMode.SENSOR_FALLBACK)
-        assert effective_room_temp(mock_bt) == pytest.approx(18.0)
+        assert effective_room_temperature(mock_bt) == pytest.approx(18.0)
         clock = [self.T0 + timedelta(seconds=1)]
         timers = []
         coro = self._start(mock_bt, trv)
@@ -4400,7 +4400,7 @@ class TestInternalRereadAfterTheDebounce:
                 coro, clock, timers, [(self.T0 + timedelta(seconds=5), lambda: None)]
             )
 
-        assert effective_room_temp(mock_bt) == pytest.approx(23.9)
+        assert effective_room_temperature(mock_bt) == pytest.approx(23.9)
         request.assert_called_once_with(mock_bt)
 
     @pytest.mark.asyncio

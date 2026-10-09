@@ -37,7 +37,7 @@ def test_rc3_wall_lags_room_during_heating():
     """During heating, the wall warms much more slowly than the room.
 
     Sanity for the RC3 splitting: the wall is between room and outdoor,
-    and starts at room temp here. Because the wall→outdoor gradient is
+    and starts at room temperature here. Because the wall→outdoor gradient is
     initially much bigger than the room→wall gradient, the wall actually
     drifts toward outdoor while the room warms. The key sanity check is
     that the room is always warmer than the wall (otherwise the room→wall

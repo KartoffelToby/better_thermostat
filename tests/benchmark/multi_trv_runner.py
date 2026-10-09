@@ -93,12 +93,12 @@ def _stabilise_multi_trv(
         plant.step(step_s, u_per_trv, pre_outdoor)
 
 
-def _distribute(u_total_pct: float, plant: MultiTrvPlant) -> list[float]:
+def _distribute(u_total_percent: float, plant: MultiTrvPlant) -> list[float]:
     """Call BT's distribute_valve_percent and return per-radiator u in [0,1]."""
     trv_temps: dict[str, float | None] = {
         f"trv_{i}": t for i, t in enumerate(plant.reported_trv_temps())
     }
-    distribution = distribute_valve_percent(u_total_pct, trv_temps)
+    distribution = distribute_valve_percent(u_total_percent, trv_temps)
     return [distribution[f"trv_{i}"] / 100.0 for i in range(plant.params.n_trvs)]
 
 

@@ -188,7 +188,7 @@ class PIDParams:
     steady_state_band_K: float = 0.1
     # Hold-time
     min_hold_time_s: float = 300.0
-    big_change_threshold_pct: float = 33.0
+    big_change_threshold_percent: float = 33.0
 
 
 # --- Helper Functions -----------------------------------------------
@@ -274,10 +274,10 @@ def compute_pid(
     inp_target_temperature: float | None,
     inp_room_temperature: float | None,
     inp_trv_temperature: float | None,
-    inp_temp_slope_K_per_min: float | None,
+    inp_temperature_slope_K_per_min: float | None,
     key: str,
     inp_room_temperature_filtered: float | None = None,
-    max_opening_pct: float | None = None,
+    max_opening_percent: float | None = None,
     *,
     state: PIDState,
     now: float | None = None,
@@ -294,13 +294,13 @@ def compute_pid(
         Current external temperature.
     inp_trv_temperature:
         TRV internal temperature.
-    inp_temp_slope_K_per_min:
+    inp_temperature_slope_K_per_min:
         Temperature slope.
     key:
         Unique key for state storage.
     inp_room_temperature_filtered:
         Optional EMA-filtered external temperature for learning.
-    max_opening_pct:
+    max_opening_percent:
         Optional maximum valve opening percentage.
     state:
         Mutable controller state, owned by the caller (typically read from
@@ -327,8 +327,8 @@ def compute_pid(
     _forget_stamps_from_a_previous_uptime(st, now)
 
     max_opening = 100.0
-    if isinstance(max_opening_pct, (int, float)):
-        max_opening = max(0.0, min(100.0, float(max_opening_pct)))
+    if isinstance(max_opening_percent, (int, float)):
+        max_opening = max(0.0, min(100.0, float(max_opening_percent)))
 
     _LOGGER.debug(
         "better_thermostat PID: input for %s: target=%.1f current=%.1f trv=%.1f slope=%.3f kp=%.1f ki=%.3f kd=%.1f",
@@ -336,7 +336,7 @@ def compute_pid(
         inp_target_temperature or 0.0,
         inp_room_temperature or 0.0,
         inp_trv_temperature or 0.0,
-        inp_temp_slope_K_per_min or 0.0,
+        inp_temperature_slope_K_per_min or 0.0,
         st.pid_kp or 0.0,
         st.pid_ki or 0.0,
         st.pid_kd or 0.0,
@@ -411,7 +411,7 @@ def compute_pid(
 
     # Update the slope EMA in PID mode too (for logging/diagnostics)
     try:
-        s_in = inp_temp_slope_K_per_min
+        s_in = inp_temperature_slope_K_per_min
         if s_in is not None:
             if st.ema_slope is None:
                 st.ema_slope = s_in
@@ -481,7 +481,7 @@ def compute_pid(
     raw_change = percent_unlimited - st.last_percent
 
     # 2. Check for Big Change (Bypass filters)
-    is_big_change = abs(raw_change) >= params.big_change_threshold_pct
+    is_big_change = abs(raw_change) >= params.big_change_threshold_percent
 
     # 3. Check Target Change
     target_changed = False
@@ -546,7 +546,12 @@ def compute_pid(
     # Optional auto-tuning (conservative)
     if params.auto_tune:
         _auto_tune_pid(
-            params, st, percent, delta_kelvin, inp_temp_slope_K_per_min or 0.0, now
+            params,
+            st,
+            percent,
+            delta_kelvin,
+            inp_temperature_slope_K_per_min or 0.0,
+            now,
         )
 
     # Store debug values
@@ -567,7 +572,7 @@ def compute_pid(
             "anti_windup_blocked": aw_blocked,
             "i_relief": i_relief,
             # Slope (input and EMA)
-            "slope_in": _r(inp_temp_slope_K_per_min, 3),
+            "slope_in": _r(inp_temperature_slope_K_per_min, 3),
             "slope_ema": _r(st.ema_slope, 3),
             # Measurements
             "meas_current_used": _r(room_temperature, 2),
@@ -734,13 +739,13 @@ def resolve_unique_id(obj: _HasUniqueId) -> str:
     return obj.unique_id or "bt"
 
 
-def round_to_bucket(temp: float) -> float:
+def round_to_bucket(temperature: float) -> float:
     """Round a target temperature to its 0.5 °C bucket centre."""
-    return round(float(temp) * 2.0) / 2.0
+    return round(float(temperature) * 2.0) / 2.0
 
 
 def format_bucket(bucket: float) -> str:
-    """Format a bucket centre as a ``t<temp>`` tag (e.g. ``t21.0``)."""
+    """Format a bucket centre as a ``t<temperature>`` tag (e.g. ``t21.0``)."""
     return f"t{bucket:.1f}"
 
 

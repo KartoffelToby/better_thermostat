@@ -72,8 +72,8 @@ def _default_params(
     min_update_interval_s: float = 0.0,
     min_percent_hold_time_s: float = 0.0,
     percent_hysteresis_pts: float = 0.0,
-    mpc_du_max_pct: float = 100.0,
-    use_virtual_temp: bool = False,
+    mpc_du_max_percent: float = 100.0,
+    use_virtual_temperature: bool = False,
     enable_min_effective_percent: bool = False,
     # Fields below keep the MpcParams default when not passed.
     cap_max_K: float | object = _UNSET,
@@ -91,18 +91,18 @@ def _default_params(
     mpc_solar_gain_max: float | object = _UNSET,
     mpc_adapt_alpha: float | object = _UNSET,
     mpc_adapt_window_block_s: float | object = _UNSET,
-    deadzone_threshold_pct: float | object = _UNSET,
-    deadzone_temp_delta_K: float | object = _UNSET,
+    deadzone_threshold_percent: float | object = _UNSET,
+    deadzone_delta_K: float | object = _UNSET,
     deadzone_time_s: float | object = _UNSET,
     deadzone_hits_required: int | object = _UNSET,
-    deadzone_raise_pct: float | object = _UNSET,
-    deadzone_decay_pct: float | object = _UNSET,
-    big_change_force_open_pct: float | object = _UNSET,
-    big_change_force_close_pct: float | object = _UNSET,
+    deadzone_raise_percent: float | object = _UNSET,
+    deadzone_decay_percent: float | object = _UNSET,
+    big_change_force_open_percent: float | object = _UNSET,
+    big_change_force_close_percent: float | object = _UNSET,
     kalman_Q: float | object = _UNSET,
     kalman_R: float | object = _UNSET,
     perf_curve_min_window_s: float | object = _UNSET,
-    perf_curve_bin_pct: float | object = _UNSET,
+    perf_curve_bin_percent: float | object = _UNSET,
 ) -> MpcParams:
     """Return MpcParams with sane test defaults (fast updates, no hold-time).
 
@@ -115,8 +115,8 @@ def _default_params(
         min_update_interval_s=min_update_interval_s,
         min_percent_hold_time_s=min_percent_hold_time_s,
         percent_hysteresis_pts=percent_hysteresis_pts,
-        mpc_du_max_pct=mpc_du_max_pct,
-        use_virtual_temp=use_virtual_temp,
+        mpc_du_max_percent=mpc_du_max_percent,
+        use_virtual_temperature=use_virtual_temperature,
         enable_min_effective_percent=enable_min_effective_percent,
     )
     # Collect only the explicitly passed overrides (not _UNSET).
@@ -132,8 +132,8 @@ def _default_params(
             "min_update_interval_s",
             "min_percent_hold_time_s",
             "percent_hysteresis_pts",
-            "mpc_du_max_pct",
-            "use_virtual_temp",
+            "mpc_du_max_percent",
+            "use_virtual_temperature",
             "enable_min_effective_percent",
         }
     }
@@ -247,9 +247,9 @@ class TestCurveBinLabel:
         assert "p" in label
 
     def test_bin_pct_below_one_clamped_to_one(self):
-        """Test that bin_pct below 1.0 is clamped to 1.0."""
+        """Test that bin_percent below 1.0 is clamped to 1.0."""
         label = _curve_bin_label(50.0, 0.5)
-        # bin_pct should be clamped to 1.0
+        # bin_percent should be clamped to 1.0
         assert "p50_51" == label
 
 
@@ -257,7 +257,7 @@ class TestBuildMpcKey:
     """Tests for build_mpc_key."""
 
     def test_normal_key(self):
-        """Test building a key with normal uid and target temp."""
+        """Test building a key with normal uid and target temperature."""
 
         class FakeBT:
             heat_target_temperature = 21.5
@@ -268,7 +268,7 @@ class TestBuildMpcKey:
         assert key == "bt_123:climate.trv_1:t21.5"
 
     def test_target_none(self):
-        """Test that None target temp produces 'tunknown' bucket."""
+        """Test that None target temperature produces 'tunknown' bucket."""
 
         class FakeBT:
             heat_target_temperature = None
@@ -278,7 +278,7 @@ class TestBuildMpcKey:
         assert "tunknown" in key
 
     def test_target_string(self):
-        """Test that non-numeric target temp produces 'tunknown' bucket."""
+        """Test that non-numeric target temperature produces 'tunknown' bucket."""
 
         class FakeBT:
             heat_target_temperature = "unavailable"
@@ -298,7 +298,7 @@ class TestBuildMpcKey:
         assert key.startswith("bt:")
 
     def test_target_rounding_half_degree(self):
-        """Test that target temp is rounded to 0.5 degree steps."""
+        """Test that target temperature is rounded to 0.5 degree steps."""
 
         class FakeBT:
             heat_target_temperature = 21.3
@@ -388,13 +388,13 @@ class TestComputeMpcBasic:
         assert result.valve_percent == 0
 
     def test_missing_target_temp(self):
-        """Test that None target temp produces 0% valve."""
+        """Test that None target temperature produces 0% valve."""
         result = _compute(_inp(target_temperature=None), _default_params())
         assert result is not None
         assert result.valve_percent == 0
 
     def test_missing_current_temp(self):
-        """Test that None current temp does not crash."""
+        """Test that None current temperature does not crash."""
         result = _compute(_inp(room_temperature=None), _default_params())
         assert result is not None
 
@@ -749,7 +749,7 @@ class TestAdaptiveLearning:
             "insuff",
             params,
             last_percent=16.7,  # near u0 (within 10% absolute)
-            last_learn_temp=21.0,  # same as current -> delta_T=0 -> no temp_changed
+            last_learn_temp=21.0,  # same as current -> delta_T=0 -> no temperature_changed
             last_learn_time=time() - 400,
             last_residual_time=time() - 400,
             gain_est=0.06,
@@ -761,7 +761,7 @@ class TestAdaptiveLearning:
         )
         gain_before = state.gain_est
 
-        # Room is 1K below target, temp unchanged (steady state -> rate ≈ 0)
+        # Room is 1K below target, temperature unchanged (steady state -> rate ≈ 0)
         _compute(
             _inp(key="insuff", room_temperature=21.0, target_temperature=22.0), params
         )
@@ -781,17 +781,17 @@ class TestVirtualTemperature:
 
     def test_virtual_temp_initialized_from_sensor(self):
         """Test that virtual_temp starts at the sensor reading."""
-        params = _default_params(use_virtual_temp=True)
+        params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vinit", room_temperature=20.5), params)
         state = _STATES["vinit"]
         assert state.virtual_temp == pytest.approx(20.5)
 
     def test_virtual_temp_corrects_large_drift(self):
         """Kalman filter should correct virtual_temp when it drifts far from sensor."""
-        params = _default_params(use_virtual_temp=True)
+        params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vreset", room_temperature=20.0), params)
         state = _STATES["vreset"]
-        # Artificially drift virtual temp far from sensor
+        # Artificially drift virtual temperature far from sensor
         state.virtual_temp = 21.0  # 1K off from sensor at 20.0
         state.last_sensor_temperature = (
             19.5  # different from current so update triggers
@@ -805,7 +805,7 @@ class TestVirtualTemperature:
 
     def test_virtual_temp_stays_close_to_sensor(self):
         """Kalman update should keep virtual_temp close to sensor value."""
-        params = _default_params(use_virtual_temp=True)
+        params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vclamp", room_temperature=20.0), params)
         state = _STATES["vclamp"]
         state.virtual_temp = 20.3  # slightly drifted
@@ -818,7 +818,7 @@ class TestVirtualTemperature:
 
     def test_virtual_temp_not_synced_when_sensor_unchanged(self):
         """Sync should be skipped when sensor value hasn't changed."""
-        params = _default_params(use_virtual_temp=True)
+        params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vsame", room_temperature=20.0), params)
         state = _STATES["vsame"]
         state.last_sensor_temperature = 20.0  # same as current
@@ -828,18 +828,18 @@ class TestVirtualTemperature:
         assert state.virtual_temp is not None
 
     def test_virtual_temp_used_for_delta_t(self):
-        """When virtual temp is enabled, delta_kelvin should use virtual temp, not sensor."""
-        params = _default_params(use_virtual_temp=True)
+        """When virtual temperature is enabled, delta_kelvin should use virtual temperature, not sensor."""
+        params = _default_params(use_virtual_temperature=True)
         _compute(
             _inp(key="vdelta", room_temperature=20.0, target_temperature=22.0), params
         )
         state = _STATES["vdelta"]
-        # Virtual temp should be close to sensor on first call
+        # Virtual temperature should be close to sensor on first call
         assert state.virtual_temp is not None
 
     def test_window_open_clears_virtual_temp(self):
         """Test that window_open resets virtual_temp to None."""
-        params = _default_params(use_virtual_temp=True)
+        params = _default_params(use_virtual_temperature=True)
         _compute(_inp(key="vwin", room_temperature=20.0), params)
         assert _STATES["vwin"].virtual_temp is not None
 
@@ -929,14 +929,14 @@ class TestTrvProfileDetection:
     def test_threshold_profile_detected(self):
         """Small command with weak response -> threshold."""
         state = _MpcState()
-        params = _default_params(deadzone_threshold_pct=30.0)
+        params = _default_params(deadzone_threshold_percent=30.0)
         # percent_out=20 (small), response_ratio = 0.1/1.0 = 0.1 (weak)
         _detect_trv_profile(
             state,
             percent_out=20.0,
-            temp_delta=0.1,
+            trv_delta_K=0.1,
             time_delta=300.0,
-            expected_temp_rise=1.0,
+            expected_rise_K=1.0,
             params=params,
         )
         assert state.trv_profile == "threshold"
@@ -945,14 +945,14 @@ class TestTrvProfileDetection:
     def test_linear_profile_detected(self):
         """Response ratio close to 1.0 -> linear."""
         state = _MpcState()
-        params = _default_params(deadzone_threshold_pct=20.0)
+        params = _default_params(deadzone_threshold_percent=20.0)
         # percent_out=50 (above threshold), response close to expected
         _detect_trv_profile(
             state,
             percent_out=50.0,
-            temp_delta=0.9,
+            trv_delta_K=0.9,
             time_delta=300.0,
-            expected_temp_rise=1.0,
+            expected_rise_K=1.0,
             params=params,
         )
         assert state.trv_profile == "linear"
@@ -960,13 +960,13 @@ class TestTrvProfileDetection:
     def test_exponential_profile_detected(self):
         """High command with response > 1.2x expected -> exponential."""
         state = _MpcState()
-        params = _default_params(deadzone_threshold_pct=20.0)
+        params = _default_params(deadzone_threshold_percent=20.0)
         _detect_trv_profile(
             state,
             percent_out=60.0,
-            temp_delta=1.5,
+            trv_delta_K=1.5,
             time_delta=300.0,
-            expected_temp_rise=1.0,
+            expected_rise_K=1.0,
             params=params,
         )
         assert state.trv_profile == "exponential"
@@ -988,7 +988,7 @@ class TestTrvProfileDetection:
         assert state.profile_samples == 0
 
     def test_no_detection_with_zero_expected_rise(self):
-        """Test that zero expected_temp_rise skips profile detection."""
+        """Test that zero expected_rise_K skips profile detection."""
         state = _MpcState()
         params = _default_params()
         _detect_trv_profile(state, 50.0, 0.5, 300.0, 0.0, params)
@@ -1023,7 +1023,7 @@ class TestPostProcessing:
         assert r2.valve_percent == pct1
 
     def test_target_change_bypasses_hysteresis(self):
-        """Changing target temp should bypass hysteresis and hold-time."""
+        """Changing target temperature should bypass hysteresis and hold-time."""
         params = _default_params(
             percent_hysteresis_pts=5.0, min_percent_hold_time_s=300.0
         )
@@ -1044,7 +1044,7 @@ class TestPostProcessing:
 
     def test_du_max_limits_step_size(self):
         """du_max should limit how fast the valve can change when ramping UP."""
-        params = _default_params(mpc_du_max_pct=5.0)
+        params = _default_params(mpc_du_max_percent=5.0)
 
         # First call: cold room -> high valve
         _compute(_inp(key="dumax", room_temperature=18.0), params)
@@ -1061,7 +1061,7 @@ class TestPostProcessing:
 
     def test_du_max_bypassed_on_overshoot(self):
         """du_max should NOT limit valve closing when room is above target (overshoot)."""
-        params = _default_params(mpc_du_max_pct=5.0)
+        params = _default_params(mpc_du_max_percent=5.0)
 
         _compute(_inp(key="dumax_over", room_temperature=18.0), params)
         state = _STATES["dumax_over"]
@@ -1134,7 +1134,7 @@ class TestPerfCurveSampling:
         _update_perf_curve(state, inp1, params, now, {})
         assert state.last_room_temperature == 20.0
 
-        # Second call: 60s later, temp rose
+        # Second call: 60s later, temperature rose
         state.last_percent = 40.0
         debug = {}
         inp2 = _inp(room_temperature=20.5)
@@ -1175,7 +1175,7 @@ class TestForcedCalibration:
     """Tests for forced loss calibration (random valve-off episodes)."""
 
     def test_calibration_ends_when_temp_drops_below_threshold(self):
-        """Active calibration should end when temp < target - hysteresis."""
+        """Active calibration should end when temperature < target - hysteresis."""
         params = _default_params()
         _compute(
             _inp(key="calend", room_temperature=22.5, target_temperature=22.0), params
@@ -1572,7 +1572,7 @@ class TestEdgeCases:
         assert results[-1] == results[-2]
 
     def test_rapid_target_changes(self):
-        """Rapid target temp changes should not crash."""
+        """Rapid target temperature changes should not crash."""
         params = _default_params()
         for target in [18, 22, 15, 25, 20, 23, 17]:
             result = _compute(
@@ -1585,7 +1585,7 @@ class TestEdgeCases:
             assert 0 <= result.valve_percent <= 100
 
     def test_outdoor_temp_affects_loss_calculation(self):
-        """With outdoor temp and ka_est, loss should be dynamic."""
+        """With outdoor temperature and ka_est, loss should be dynamic."""
         params = _default_params(mpc_adapt=True)
         # Cold outside -> higher loss
         r_cold = _compute(
@@ -1628,15 +1628,15 @@ class TestEdgeCases:
         assert r_overshoot.valve_percent <= r_no_overshoot.valve_percent
 
     def test_slope_ema_updated_in_debug(self):
-        """When temp_slope_K_per_min is provided, EMA slope should be tracked."""
+        """When temperature_slope_K_per_min is provided, EMA slope should be tracked."""
         params = _default_params()
-        _compute(_inp(key="slope_ema", temp_slope_K_per_min=0.05), params)
+        _compute(_inp(key="slope_ema", temperature_slope_K_per_min=0.05), params)
         state = _STATES["slope_ema"]
         assert state.ema_slope is not None
         assert state.ema_slope == pytest.approx(0.05)
 
         # Second call with different slope -> EMA blend
-        _compute(_inp(key="slope_ema", temp_slope_K_per_min=0.10), params)
+        _compute(_inp(key="slope_ema", temperature_slope_K_per_min=0.10), params)
         # ema = 0.6 * 0.05 + 0.4 * 0.10 = 0.07
         assert state.ema_slope == pytest.approx(0.07, abs=0.001)
 
@@ -1660,7 +1660,7 @@ class TestBuildMpcGroupKey:
         assert key == "bt_123:group:t21.5"
 
     def test_group_key_target_none(self):
-        """None target temp produces 'tunknown' bucket."""
+        """None target temperature produces 'tunknown' bucket."""
 
         class FakeBT:
             heat_target_temperature = None
@@ -1774,11 +1774,11 @@ class TestDistributeValvePercent:
 
     def test_warmest_is_reference(self):
         """The warmest TRV always receives exactly the MPC output."""
-        for pct in [0.0, 25.0, 50.0, 75.0, 100.0]:
+        for percent in [0.0, 25.0, 50.0, 75.0, 100.0]:
             result = distribute_valve_percent(
-                pct, {"cold": 18.0, "warm": 22.0, "mid": 20.0}
+                percent, {"cold": 18.0, "warm": 22.0, "mid": 20.0}
             )
-            assert result["warm"] == pytest.approx(pct)
+            assert result["warm"] == pytest.approx(percent)
 
 
 # ===================================================================
@@ -1794,7 +1794,7 @@ class TestKalmanFilter:
 
         Init: P=R=0.04, then update: K=P/(P+R)=0.5, P_new=(1-0.5)*0.04=0.02.
         """
-        params = _default_params(use_virtual_temp=True, kalman_R=0.04)
+        params = _default_params(use_virtual_temperature=True, kalman_R=0.04)
         _compute(_inp(key="kp_init", room_temperature=20.0), params)
         state = _STATES["kp_init"]
         # Init sets P=R=0.04, then sensor_changed triggers update:
@@ -1804,7 +1804,7 @@ class TestKalmanFilter:
 
     def test_kalman_p_grows_during_predict(self):
         """P should increase after predict step (uncertainty grows with time)."""
-        params = _default_params(use_virtual_temp=True, kalman_Q=0.001)
+        params = _default_params(use_virtual_temperature=True, kalman_Q=0.001)
         _compute(_inp(key="kp_grow", room_temperature=20.0), params)
         state = _STATES["kp_grow"]
         state.last_percent = 50.0
@@ -1819,7 +1819,9 @@ class TestKalmanFilter:
 
     def test_kalman_p_shrinks_on_update(self):
         """P should decrease after update step (measurement reduces uncertainty)."""
-        params = _default_params(use_virtual_temp=True, kalman_Q=0.001, kalman_R=0.04)
+        params = _default_params(
+            use_virtual_temperature=True, kalman_Q=0.001, kalman_R=0.04
+        )
         _compute(_inp(key="kp_shrink", room_temperature=20.0), params)
         state = _STATES["kp_shrink"]
         state.last_percent = 50.0
@@ -1832,7 +1834,7 @@ class TestKalmanFilter:
 
     def test_kalman_gain_high_P(self):
         """With high P (relative to R), Kalman gain K → 1, trusting sensor more."""
-        params = _default_params(use_virtual_temp=True, kalman_R=0.04)
+        params = _default_params(use_virtual_temperature=True, kalman_R=0.04)
         _compute(_inp(key="kg_high", room_temperature=20.0), params)
         state = _STATES["kg_high"]
         state.kalman_P = 100.0  # Very high uncertainty
@@ -1846,7 +1848,7 @@ class TestKalmanFilter:
 
     def test_kalman_gain_low_P(self):
         """With low P (relative to R), Kalman gain K → 0, trusting model more."""
-        params = _default_params(use_virtual_temp=True, kalman_R=0.04)
+        params = _default_params(use_virtual_temperature=True, kalman_R=0.04)
         _compute(_inp(key="kg_low", room_temperature=20.0), params)
         state = _STATES["kg_low"]
         state.kalman_P = 0.0001  # Very low uncertainty
@@ -1861,7 +1863,7 @@ class TestKalmanFilter:
     def test_kalman_predict_uses_gain_and_loss(self):
         """Predict step should use gain*u - loss to forward-predict temperature."""
         params = _default_params(
-            use_virtual_temp=True,
+            use_virtual_temperature=True,
             mpc_thermal_gain=0.06,
             mpc_loss_coeff=0.01,
             mpc_adapt=True,
@@ -1946,31 +1948,31 @@ class TestAnalyticalSolver:
 
 
 class TestMaxOpeningPct:
-    """Tests for max_opening_pct clamping in post-processing."""
+    """Tests for max_opening_percent clamping in post-processing."""
 
     def test_max_opening_clamps_output(self):
-        """Output should be clamped to max_opening_pct."""
+        """Output should be clamped to max_opening_percent."""
         params = _default_params()
         result = _compute(
             _inp(
                 key="maxop",
                 room_temperature=18.0,
                 target_temperature=22.0,
-                max_opening_pct=30.0,
+                max_opening_percent=30.0,
             ),
             params,
         )
         assert result.valve_percent <= 30
 
     def test_max_opening_none_no_clamp(self):
-        """When max_opening_pct is None, no clamping should occur."""
+        """When max_opening_percent is None, no clamping should occur."""
         params = _default_params()
         result = _compute(
             _inp(
                 key="maxop_none",
                 room_temperature=18.0,
                 target_temperature=22.0,
-                max_opening_pct=None,
+                max_opening_percent=None,
             ),
             params,
         )
@@ -1985,7 +1987,7 @@ class TestMaxOpeningPct:
                 key="maxop_dbg",
                 room_temperature=18.0,
                 target_temperature=22.0,
-                max_opening_pct=30.0,
+                max_opening_percent=30.0,
             ),
             params,
         )
@@ -2114,7 +2116,7 @@ class TestHighUSteadyStateGain:
     """Tests for high-u steady-state gain learning path."""
 
     def test_high_u_ss_reduces_gain_when_below_target(self):
-        """When valve is high, temp flat, below target → gain should decrease."""
+        """When valve is high, temperature flat, below target → gain should decrease."""
         params = _default_params(
             mpc_adapt=True, mpc_adapt_alpha=0.1, enable_min_effective_percent=False
         )
@@ -2123,7 +2125,7 @@ class TestHighUSteadyStateGain:
         state.gain_est = 0.10
         state.loss_est = 0.01
         state.last_percent = 30.0  # u=0.3 > 0.15
-        state.last_learn_temp = 20.0  # no temp change
+        state.last_learn_temp = 20.0  # no temperature change
         state.last_learn_time = time() - 400
         state.last_residual_time = time() - 400
         state.u_integral = 30.0 * 400
@@ -2132,7 +2134,7 @@ class TestHighUSteadyStateGain:
         gain_before = state.gain_est
 
         # target=21, current=20 → e_now=1.0 > 0.1 ✓
-        # temp unchanged → not temp_changed ✓
+        # temperature unchanged → not temperature_changed ✓
         # observed_rate ≈ 0 ✓
         # dt_residual=400 → within [300, 3600] ✓
         _compute(
@@ -2176,7 +2178,7 @@ class TestKaEstDynamicLoss:
         assert state_cold.ka_est < state_warm.ka_est
 
     def test_ka_est_updated_when_loss_learned(self):
-        """ka_est should be updated when loss is learned and outdoor temp is available."""
+        """ka_est should be updated when loss is learned and outdoor temperature is available."""
         params = _default_params(
             mpc_adapt=True,
             mpc_adapt_alpha=0.5,
@@ -2224,7 +2226,7 @@ class TestResidualRateLimiting:
         state.gain_est = 0.06
         state.loss_est = 0.01
         state.last_percent = 17.0  # close to u0 = 0.01/0.06 ≈ 0.167 → 16.7%
-        state.last_learn_temp = 20.0  # no temp change → !temp_changed
+        state.last_learn_temp = 20.0  # no temperature change → !temperature_changed
         state.last_learn_time = now - 300
         state.last_residual_time = now - dt_residual
         state.last_target_temperature = 22.0
@@ -2265,11 +2267,11 @@ class TestBigChangeHoldBypass:
     """Tests for hold-time bypass on big opening/closing changes."""
 
     def test_big_increase_bypasses_hold_time(self):
-        """Change >= big_change_force_open_pct should bypass hold-time."""
+        """Change >= big_change_force_open_percent should bypass hold-time."""
         params = _default_params(
             min_percent_hold_time_s=600.0,
-            big_change_force_open_pct=33.0,
-            big_change_force_close_pct=10.0,
+            big_change_force_open_percent=33.0,
+            big_change_force_close_percent=10.0,
         )
         # First call: set low valve
         _compute(
@@ -2287,11 +2289,11 @@ class TestBigChangeHoldBypass:
         assert result.valve_percent > 10
 
     def test_big_decrease_bypasses_hold_time(self):
-        """Change >= big_change_force_close_pct should bypass hold-time."""
+        """Change >= big_change_force_close_percent should bypass hold-time."""
         params = _default_params(
             min_percent_hold_time_s=600.0,
-            big_change_force_open_pct=33.0,
-            big_change_force_close_pct=10.0,
+            big_change_force_open_percent=33.0,
+            big_change_force_close_percent=10.0,
         )
         _compute(
             _inp(key="bigclose", room_temperature=18.0, target_temperature=22.0), params
@@ -2311,8 +2313,8 @@ class TestBigChangeHoldBypass:
         """Closing below close-threshold should remain hold-time blocked."""
         params = _default_params(
             min_percent_hold_time_s=600.0,
-            big_change_force_open_pct=33.0,
-            big_change_force_close_pct=10.0,
+            big_change_force_open_percent=33.0,
+            big_change_force_close_percent=10.0,
         )
         _compute(
             _inp(key="smallclose", room_temperature=18.0, target_temperature=22.0),
@@ -2447,13 +2449,13 @@ class TestTargetChangeBoundary:
 
 
 class TestDistributeNegativeInput:
-    """Tests for distribute_valve_percent with negative u_total_pct."""
+    """Tests for distribute_valve_percent with negative u_total_percent."""
 
     def test_negative_u_total_clamped_to_zero(self):
-        """Negative u_total_pct should be clamped to 0% for all TRVs."""
+        """Negative u_total_percent should be clamped to 0% for all TRVs."""
         result = distribute_valve_percent(-10.0, {"a": 20.0, "b": 18.0})
         assert all(v >= 0.0 for v in result.values())
-        # Fast-path returns max(0, min(100, u_total_pct)) for each when u_total_pct <= 0
+        # Fast-path returns max(0, min(100, u_total_percent)) for each when u_total_percent <= 0
         assert result["a"] == pytest.approx(0.0)
         assert result["b"] == pytest.approx(0.0)
 
@@ -2583,7 +2585,7 @@ class TestKalmanWithoutElapsedTime:
 
     def test_same_instant_leaves_the_virtual_temperature(self):
         """No elapsed time and an unchanged sensor keep the estimate as is."""
-        params = _default_params(use_virtual_temp=True)
+        params = _default_params(use_virtual_temperature=True)
         state = _MpcState()
         _run_at(_NOW, _inp(key="kal0", room_temperature=20.0), params, state)
         virtual_before = state.virtual_temp
@@ -2598,7 +2600,7 @@ class TestKalmanWithoutElapsedTime:
 
     def test_elapsed_time_predicts_and_grows_the_covariance(self):
         """A minute later the observer predicts and its covariance grows."""
-        params = _default_params(use_virtual_temp=True)
+        params = _default_params(use_virtual_temperature=True)
         state = _MpcState()
         _run_at(_NOW, _inp(key="kal1", room_temperature=20.0), params, state)
         p_before = state.kalman_P
@@ -2897,7 +2899,7 @@ class TestProfileAdjustments:
 
     def test_exponential_profile_raises_the_gain_by_ten_percent(self):
         """An exponential TRV starts from the configured gain, raised 10 %."""
-        params = _default_params(mpc_thermal_gain=0.06, deadzone_threshold_pct=20.0)
+        params = _default_params(mpc_thermal_gain=0.06, deadzone_threshold_percent=20.0)
         state = self._confident(trv_profile="exponential")
 
         _detect_trv_profile(state, 60.0, 1.5, 300.0, 1.0, params)
@@ -2908,7 +2910,7 @@ class TestProfileAdjustments:
 
     def test_exponential_gain_is_capped(self):
         """The raised gain stays within the configured maximum."""
-        params = _default_params(mpc_gain_max=0.5, deadzone_threshold_pct=20.0)
+        params = _default_params(mpc_gain_max=0.5, deadzone_threshold_percent=20.0)
         state = self._confident(trv_profile="exponential", gain_est=0.48)
 
         _detect_trv_profile(state, 60.0, 1.5, 300.0, 1.0, params)
@@ -2917,7 +2919,7 @@ class TestProfileAdjustments:
 
     def test_below_twenty_samples_nothing_is_adjusted(self):
         """At 19 samples the same exponential evidence leaves the gain."""
-        params = _default_params(deadzone_threshold_pct=20.0)
+        params = _default_params(deadzone_threshold_percent=20.0)
         state = self._confident(
             trv_profile="exponential", profile_samples=18, gain_est=0.1
         )
@@ -2928,17 +2930,17 @@ class TestProfileAdjustments:
         assert state.gain_est == 0.1
 
     @pytest.mark.parametrize(
-        ("percent", "temp_delta", "profile"),
+        ("percent", "trv_delta_K", "profile"),
         [(10.0, 0.1, "threshold"), (50.0, 1.0, "linear")],
     )
     def test_threshold_and_linear_profiles_leave_the_gain(
-        self, percent, temp_delta, profile
+        self, percent, trv_delta_K, profile
     ):
         """Threshold and linear TRVs leave the model to dead-zone learning."""
-        params = _default_params(deadzone_threshold_pct=20.0)
+        params = _default_params(deadzone_threshold_percent=20.0)
         state = self._confident(trv_profile=profile, gain_est=0.1)
 
-        _detect_trv_profile(state, percent, temp_delta, 300.0, 1.0, params)
+        _detect_trv_profile(state, percent, trv_delta_K, 300.0, 1.0, params)
 
         assert state.profile_samples == 20
         assert state.trv_profile == profile

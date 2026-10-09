@@ -164,7 +164,7 @@ def _compute_valve_cycles(series: TimeSeries) -> int:
 
 
 def _compute_integral_valve(series: TimeSeries) -> float:
-    """Trapezoidal integral of valve_percent over time (units: pct·min)."""
+    """Trapezoidal integral of valve_percent over time (units: percent·min)."""
     if len(series.t_s) < 2:
         return 0.0
     total = 0.0

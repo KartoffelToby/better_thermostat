@@ -33,13 +33,13 @@ class TestTpiController:
             heating_allowed=True,
         )
         result, state = compute_tpi(inp, params, state=state)
-        assert result.duty_cycle_pct == 0.0
+        assert result.duty_cycle_percent == 0.0
         assert result.debug["reason"] == "blocked"
 
         inp.heating_allowed = False
         inp.window_open = False
         result, state = compute_tpi(inp, params, state=state)
-        assert result.duty_cycle_pct == 0.0
+        assert result.duty_cycle_percent == 0.0
         assert result.debug["reason"] == "blocked"
 
     def test_missing_temperatures(self):
@@ -48,14 +48,14 @@ class TestTpiController:
         state = TpiState()
         inp = TpiInput(key="test", room_temperature=None, target_temperature=22.0)
         result, state = compute_tpi(inp, params, state=state)
-        assert result.duty_cycle_pct == 0.0  # No last_percent, so 0
+        assert result.duty_cycle_percent == 0.0  # No last_percent, so 0
         assert result.debug["reason"] == "missing_temps"
 
         # Now with last_percent
         inp.room_temperature = 20.0
         result, state = compute_tpi(inp, params, state=state)
         # Should calculate normally, clamped to 100
-        assert result.duty_cycle_pct == 100.0
+        assert result.duty_cycle_percent == 100.0
 
     def test_normal_calculation(self):
         """Test normal TPI calculation."""
@@ -68,7 +68,7 @@ class TestTpiController:
             outdoor_temperature=15.0,
         )
         result, state = compute_tpi(inp, params, state=state)
-        assert result.duty_cycle_pct == 100.0  # clamped
+        assert result.duty_cycle_percent == 100.0  # clamped
         assert result.debug["error_K"] == 2.0
         assert result.debug["raw_pct"] == 114.0
 
@@ -82,12 +82,12 @@ class TestTpiController:
             target_temperature=22.0,  # error = -0.6
         )
         result, state = compute_tpi(inp, params, state=state)
-        assert result.duty_cycle_pct == 0.0
+        assert result.duty_cycle_percent == 0.0
         assert result.debug["reason"] == "threshold_high"
 
     def test_clamping(self):
         """Test min/max clamping."""
-        params = TpiParams(clamp_min_pct=10.0, clamp_max_pct=90.0, coef_int=1.0)
+        params = TpiParams(clamp_min_percent=10.0, clamp_max_percent=90.0, coef_int=1.0)
         state = TpiState()
         inp = TpiInput(
             key="test",
@@ -95,11 +95,11 @@ class TestTpiController:
             target_temperature=25.0,  # error=5, duty=500, clamped to 90
         )
         result, state = compute_tpi(inp, params, state=state)
-        assert result.duty_cycle_pct == 90.0
+        assert result.duty_cycle_percent == 90.0
 
         inp.target_temperature = 19.0  # error=-1, duty=-100, clamped to 10
         result, state = compute_tpi(inp, params, state=state)
-        assert result.duty_cycle_pct == 10.0
+        assert result.duty_cycle_percent == 10.0
 
     def test_build_tpi_key(self):
         """Test key building for state tracking."""
@@ -173,12 +173,12 @@ class TestTpiOverManyCycles:
             )
             carried, state = compute_tpi(inp, params, state=state, now=float(cycle))
             fresh, _ = compute_tpi(inp, params, state=TpiState(), now=float(cycle))
-            assert carried.duty_cycle_pct == fresh.duty_cycle_pct
-            duty_cycles.append(carried.duty_cycle_pct)
+            assert carried.duty_cycle_percent == fresh.duty_cycle_percent
+            duty_cycles.append(carried.duty_cycle_percent)
 
         assert (
             sum(
-                params.clamp_min_pct < duty_cycle < params.clamp_max_pct
+                params.clamp_min_percent < duty_cycle < params.clamp_max_percent
                 for duty_cycle in duty_cycles
             )
             > cycles // 2
@@ -208,7 +208,7 @@ class TestTpiOverManyCycles:
             result, state = compute_tpi(
                 inp, params, state=state, now=float(cycle) * 300.0
             )
-            duty_cycles.append(result.duty_cycle_pct)
+            duty_cycles.append(result.duty_cycle_percent)
 
         assert duty_cycles == pytest.approx([expected_pct] * 50)
 
@@ -235,13 +235,13 @@ class TestTpiOverManyCycles:
         )
 
         warm, state = compute_tpi(reading, params, state=state, now=0.0)
-        held_pct = warm.duty_cycle_pct
+        held_pct = warm.duty_cycle_percent
         assert held_pct > 0.0
 
         for cycle in range(1, 13):
             result, state = compute_tpi(gap, params, state=state, now=float(cycle))
             assert result.debug["reason"] == "missing_temps"
-            assert result.duty_cycle_pct == held_pct
+            assert result.duty_cycle_percent == held_pct
 
         colder = TpiInput(
             key="k",
@@ -251,5 +251,5 @@ class TestTpiOverManyCycles:
         )
         after_gap, _ = compute_tpi(colder, params, state=state, now=200.0)
         fresh, _ = compute_tpi(colder, params, state=TpiState(), now=200.0)
-        assert after_gap.duty_cycle_pct == fresh.duty_cycle_pct
-        assert after_gap.duty_cycle_pct != held_pct
+        assert after_gap.duty_cycle_percent == fresh.duty_cycle_percent
+        assert after_gap.duty_cycle_percent != held_pct

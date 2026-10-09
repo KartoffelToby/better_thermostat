@@ -279,7 +279,7 @@ PROFILE_DOE_SFD_2004 = PlantParams(
 
 PROFILE_DOE_SFD_2010 = PlantParams(
     # Energy-efficient single-family at 2012+ IECC / EnEV 2009 envelope.
-    # Wall U ≈ 0.20 W/m²K, triple-pane windows, ACH ≈ 0.3, low-temp heating.
+    # Wall U ≈ 0.20 W/m²K, triple-pane windows, ACH ≈ 0.3, low-temperature heating.
     tau_room_min=720.0,
     tau_rad_min=15.0,
     gain_heater=1.8,

@@ -71,7 +71,7 @@ def compute_mpc_v2(
         inp.target_temperature,
         inp.outdoor_temperature,
         inp.trv_temperature,
-        inp.applied_valve_pct,
+        inp.applied_valve_percent,
     ):
         _LOGGER.warning(
             "better_thermostat %s: MPC v2 (%s) non-finite input "
@@ -106,8 +106,8 @@ def compute_mpc_v2(
     # A successful adapter write (or a device position echo) is the source of
     # truth for the preceding plant input.  In particular, do not assume that
     # the recommendation from the last call made it through a write budget.
-    if inp.applied_valve_pct is not None:
-        state.controller.set_applied_u(inp.applied_valve_pct / 100.0)
+    if inp.applied_valve_percent is not None:
+        state.controller.set_applied_u(inp.applied_valve_percent / 100.0)
 
     if inp.outdoor_temperature is None:
         T_outdoor = OUTDOOR_TEMPERATURE_FALLBACK
@@ -142,12 +142,14 @@ def compute_mpc_v2(
     # micro-percent makes "half" mean half before the half-up step decides,
     # and leaves every fraction that is not one where it was.
     percent_int = int(round(max(0.0, min(1.0, u)) * 100.0, 6) + 0.5)
-    if inp.max_opening_pct is not None:
+    if inp.max_opening_percent is not None:
         # The cap is a percent by contract; clamp it into 0..100 here so an
         # out-of-range value from a caller cannot widen or invert the limit.
         # ``int`` floors the clamped cap, which is the largest whole percent a
         # fractional cap still admits.
-        percent_int = min(percent_int, int(max(0.0, min(100.0, inp.max_opening_pct))))
+        percent_int = min(
+            percent_int, int(max(0.0, min(100.0, inp.max_opening_percent)))
+        )
 
     # This is the bounded command requested this cycle.  It is replaced by the
     # confirmed input above on the next cycle once the adapter has succeeded.
