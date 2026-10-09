@@ -294,7 +294,7 @@ async def async_attach_trigger(
     #   Fires when hvac_action changes from another action TO "heating".
     if trigger_type == "heating_active":
         state_config = _build_state(
-            "hvac_action", to=HVACAction.HEATING, from_=_NOT_HEATING_ACTIONS
+            "hvac_action", to="heating", from_=_NOT_HEATING_ACTIONS
         )
         state_config = await state_trigger.async_validate_trigger_config(
             hass, state_config
@@ -307,7 +307,7 @@ async def async_attach_trigger(
     #   Fires when hvac_action changes FROM "heating" to another action.
     if trigger_type == "heating_stopped":
         state_config = _build_state(
-            "hvac_action", to=_NOT_HEATING_ACTIONS, from_=HVACAction.HEATING
+            "hvac_action", to=_NOT_HEATING_ACTIONS, from_="heating"
         )
         state_config = await state_trigger.async_validate_trigger_config(
             hass, state_config
