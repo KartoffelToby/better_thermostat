@@ -5,6 +5,7 @@ Tests that adapters properly handle None states when entities are unavailable.
 
 from unittest.mock import MagicMock
 
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.adapters import generic, mqtt, shelly, zwave_js
@@ -20,7 +21,7 @@ def _adapter_id(adapter):
     return adapter.__name__.rsplit(".", 1)[-1]
 
 
-def _state_of_a_lowercased_id(entity_id):
+def _state_of_a_lowercased_id(entity_id: str) -> State | None:
     """Answer a state lookup the way Home Assistant's state machine does.
 
     The machine lowercases an entity ID before looking it up, so an adapter
@@ -37,7 +38,8 @@ def _state_of_a_lowercased_id(entity_id):
     State or None
         None, since the lookup holds no states.
     """
-    return {}.get(entity_id.lower())
+    states: dict[str, State] = {}
+    return states.get(entity_id.lower())
 
 
 def _leave_the_trv_without_a_calibration_entity(bt):

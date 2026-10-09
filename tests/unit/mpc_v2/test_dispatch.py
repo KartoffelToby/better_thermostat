@@ -27,6 +27,7 @@ from custom_components.better_thermostat.utils.const import (
     MpcV2PlantPreset,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
+from custom_components.better_thermostat.utils.telemetry import CalibrationBalance
 
 
 class _FakeStateManager:
@@ -71,6 +72,20 @@ class _FakeStateManager:
             runtime = MpcV2ReidRuntime()
             self._mpc_v2_reid_live[key] = runtime
         return runtime
+
+
+def _published_balance(trv: Trv) -> CalibrationBalance:
+    """Return the calibration balance the dispatcher published on the TRV."""
+    balance = trv.calibration_balance
+    assert balance is not None
+    return balance
+
+
+def _debug_number(balance: CalibrationBalance, key: str) -> float:
+    """Read one numeric entry of the balance's debug mapping."""
+    value = balance["debug"][key]
+    assert isinstance(value, int | float)
+    return value
 
 
 def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
@@ -155,8 +170,8 @@ def test_multi_trv_distributes_group_valve() -> None:
     out_warm, _ = _compute_mpc_v2_balance(bt, "climate.living_warm")
 
     assert out_cold is not None and out_warm is not None
-    cal_cold = real_trvs["climate.living_cold"].calibration_balance
-    cal_warm = real_trvs["climate.living_warm"].calibration_balance
+    cal_cold = _published_balance(real_trvs["climate.living_cold"])
+    cal_warm = _published_balance(real_trvs["climate.living_warm"])
 
     # Both TRVs report a v2 group command so telemetry surfaces v2 attrs.
     assert cal_cold["debug"]["controller_version"] == "v2"
@@ -164,9 +179,8 @@ def test_multi_trv_distributes_group_valve() -> None:
 
     # The cold-favouring split is verified through the dispatcher's own
     # per-TRV distributed output (the real wiring), not a standalone call.
-    assert (
-        cal_cold["debug"]["distributed_valve_pct"]
-        >= cal_warm["debug"]["distributed_valve_pct"]
+    assert _debug_number(cal_cold, "distributed_valve_pct") >= _debug_number(
+        cal_warm, "distributed_valve_pct"
     )
 
 
@@ -195,10 +209,10 @@ def test_multi_trv_clamps_to_per_trv_max_opening() -> None:
     out_cold, _ = _compute_mpc_v2_balance(bt, "climate.living_cold")
 
     assert out_cold is not None
-    cal_cold = real_trvs["climate.living_cold"].calibration_balance
+    cal_cold = _published_balance(real_trvs["climate.living_cold"])
     # The group command exceeds the cold TRV's cap, so the clamp is exercised
     # (the distribution only ever adds to the group value for a colder TRV).
-    assert cal_cold["debug"]["group_valve_pct"] > 40.0
+    assert _debug_number(cal_cold, "group_valve_pct") > 40.0
     assert cal_cold["valve_percent"] == 40
     assert out_cold.valve_percent == 40
 
@@ -216,7 +230,7 @@ def test_single_trv_passes_through_without_distribution() -> None:
     assert out is not None
     assert supports is True
 
-    cal = real_trvs["climate.solo"].calibration_balance
+    cal = _published_balance(real_trvs["climate.solo"])
     assert cal["debug"]["group_valve_pct"] == cal["debug"]["distributed_valve_pct"]
     assert cal["debug"]["controller_version"] == "v2"
 
@@ -247,7 +261,11 @@ def test_dispatch_without_a_state_store_publishes_no_valve() -> None:
             "climate.x", current_temperature=19.0, supports_valve=True
         )
     }
-    real_trvs["climate.x"].calibration_balance = {"valve_percent": 80}
+    real_trvs["climate.x"].calibration_balance = {
+        "valve_percent": 80,
+        "apply_valve": True,
+        "debug": {},
+    }
     bt = _make_bt(real_trvs=real_trvs)
     bt.state_mgr = None
 

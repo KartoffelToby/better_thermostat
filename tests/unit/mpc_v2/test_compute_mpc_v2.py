@@ -16,6 +16,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     SNAPSHOT_VERSION,
     ControllerSnapshot,
     MpcV2Controller,
+    MpcV2Diagnostics,
     MpcV2Input,
     MpcV2Params,
     MpcV2State,
@@ -36,17 +37,30 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plan
 )
 
 
-def _baseline_input(**overrides: object) -> MpcV2Input:
+def _baseline_input(
+    *,
+    key: str = "room",
+    target_temperature: float | None = 22.0,
+    room_temperature: float | None = 20.0,
+    trv_temperature: float | None = None,
+    outdoor_temperature: float | None = 5.0,
+    heating_allowed: bool = True,
+    window_open: bool = False,
+    max_opening_percent: float | None = None,
+    applied_valve_percent: float | None = None,
+) -> MpcV2Input:
     """Build a baseline MpcV2Input with optional field overrides."""
-    base = MpcV2Input(
-        key="room",
-        target_temperature=22.0,
-        room_temperature=20.0,
-        outdoor_temperature=5.0,
-        heating_allowed=True,
-        window_open=False,
+    return MpcV2Input(
+        key=key,
+        target_temperature=target_temperature,
+        room_temperature=room_temperature,
+        trv_temperature=trv_temperature,
+        outdoor_temperature=outdoor_temperature,
+        heating_allowed=heating_allowed,
+        window_open=window_open,
+        max_opening_percent=max_opening_percent,
+        applied_valve_percent=applied_valve_percent,
     )
-    return replace(base, **overrides) if overrides else base
 
 
 def test_window_open_returns_none() -> None:
@@ -97,8 +111,22 @@ def _step_returning(fraction: float):
     """
     real_step = MpcV2Controller.step
 
-    def fixed_step(self, *args: object, **kwargs: object):
-        _u, diagnostics = real_step(self, *args, **kwargs)
+    def fixed_step(
+        self: MpcV2Controller,
+        t_s: float,
+        T_room: float,
+        T_target: float,
+        T_outdoor: float,
+        T_rad: float | None = None,
+    ) -> tuple[float, MpcV2Diagnostics]:
+        _u, diagnostics = real_step(
+            self,
+            t_s=t_s,
+            T_room=T_room,
+            T_target=T_target,
+            T_outdoor=T_outdoor,
+            T_rad=T_rad,
+        )
         return fraction, diagnostics
 
     return fixed_step
@@ -155,21 +183,24 @@ def test_diagnostics_exposed() -> None:
     assert diag.T_rad_hat == diag.T_rad_hat
 
 
-def test_confirmed_valve_input_replaces_optimistic_previous_command() -> None:
+def test_confirmed_valve_input_replaces_optimistic_previous_command(
+    monkeypatch,
+) -> None:
     """The next cycle models the adapter-confirmed input, not its proposal."""
     state = MpcV2State()
     _out, state = compute_mpc_v2(_baseline_input(), MpcV2Params(), state, now=100.0)
-    assert state.controller is not None
-    state.controller.set_command_u(0.9)
+    controller = state.controller
+    assert controller is not None
+    controller.set_command_u(0.9)
 
     seen_previous_input: list[float] = []
-    original_step = state.controller.step
+    original_step = controller.step
 
     def _capture_step(*args, **kwargs):
-        seen_previous_input.append(state.controller._last_u)
+        seen_previous_input.append(controller._last_u)
         return original_step(*args, **kwargs)
 
-    state.controller.step = _capture_step  # type: ignore[method-assign]
+    monkeypatch.setattr(controller, "step", _capture_step)
     out, state = compute_mpc_v2(
         _baseline_input(applied_valve_percent=20.0), MpcV2Params(), state, now=400.0
     )
@@ -478,6 +509,7 @@ def _cold_room_percents(state: MpcV2State, now: float, cycles: int) -> list[int]
 def test_a_forward_cycle_opens_the_valve_for_a_cold_room() -> None:
     """On a clock that runs forward, a room 4 K cold opens the valve at once."""
     state, now = _settled_at_target()
+    assert state.last_percent is not None
     held = int(state.last_percent)
 
     percents = _cold_room_percents(state, now, cycles=1)
@@ -494,6 +526,7 @@ def test_a_wall_clock_step_back_does_not_hold_the_valve() -> None:
     rather than repeat the last one until the clock passes the old stamps.
     """
     state, now = _settled_at_target()
+    assert state.last_percent is not None
     held = int(state.last_percent)
     assert state.controller is not None
 
@@ -570,6 +603,8 @@ def test_state_round_trip() -> None:
             state,
         )
 
+    assert state is not None
+    assert state.controller is not None
     exported = export_mpc_v2_state(state)
     assert exported is not None
     assert exported["snapshot"]["v"] == SNAPSHOT_VERSION
@@ -632,6 +667,7 @@ def test_non_finite_input_holds_last_command(caplog) -> None:
 
     assert out is None  # caller treats this as "hold last value"
     # Controller's cached state is unchanged — no NaN propagated.
+    assert state.controller is not None
     assert state.controller._last_u == last_u_before
     assert any("non-finite input" in r.getMessage() for r in caplog.records)
 
@@ -926,7 +962,7 @@ def test_indefinite_covariance_is_refused_on_restore(caplog) -> None:
 # dimension: absent, too short, or the right length but non-finite. ``None``
 # stands for a stored payload whose ``snapshot`` key is null or not a mapping
 # at all, which ``import_mpc_v2_state`` refuses before it builds a controller.
-_SNAPSHOTS_WITHOUT_ESTIMATE = [
+_SNAPSHOTS_WITHOUT_ESTIMATE: list[dict[str, object] | None] = [
     {},
     {"u_prev": 0.5},
     {"v": SNAPSHOT_VERSION},
