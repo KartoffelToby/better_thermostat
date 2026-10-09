@@ -111,12 +111,33 @@ async def test_a_cooling_target_set_in_a_preset_survives_a_reload(hass, device_r
     assert set(_cooler_targets(cooler)) == {22.0}
 
 
-async def test_the_preset_pair_sent_back_keeps_the_preset(hass, device_role):
-    """A card resending the preset's own pair leaves the preset active."""
-    await _started_in_heat_cool(hass, device_role.scenario)
+@pytest.mark.parametrize(
+    "stored_pair",
+    [None, (25.0, 24.0)],
+    ids=["configured", "cooling_stored_below_heating"],
+)
+async def test_the_preset_pair_sent_back_keeps_the_preset(
+    hass, device_role, stored_pair
+):
+    """A card resending the preset's own pair leaves the preset active.
+
+    A preset whose stored cooling temperature lies at or below its heating
+    temperature applies its cooling target one step above the heating one.
+    That ordered pair is the preset's own as well.
+    """
+    entry = await _started_in_heat_cool(hass, device_role.scenario)
+    if stored_pair is not None:
+        bt = entry.runtime_data.climate
+        assert bt is not None
+        heating, cooling = stored_pair
+        bt.preset_mgr.update_temperature("comfort", heating)
+        bt._preset_cool_temperatures["comfort"] = cooling
     await _call(hass, "set_preset_mode", {"preset_mode": "comfort"})
     published = _read_published(hass)
     _, heating_target, cooling_target = published
+    if stored_pair is not None:
+        assert heating_target == stored_pair[0]
+        assert cooling_target > heating_target
 
     await _call(
         hass,
