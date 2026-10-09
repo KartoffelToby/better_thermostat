@@ -56,6 +56,7 @@ from custom_components.better_thermostat.utils.const import (
     MAX_HEATING_POWER,
 )
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
+from custom_components.better_thermostat.utils.state_manager import ThermalStats
 from tests.factories import ThermostatStandIn
 
 SENSOR_ID = "sensor.room_temp"
@@ -1983,7 +1984,7 @@ class TestRestoreState:
         bt._saved_state = old
         bt.preset_mgr.temperatures = {}
         bt.state_mgr = MagicMock()
-        bt.state_mgr.clamped_thermal.return_value = stored
+        bt.state_mgr.clamped_thermal.return_value = ThermalStats(*stored)
         bt.heating_power, bt.heat_loss_rate = stored
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])

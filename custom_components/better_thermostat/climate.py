@@ -245,7 +245,7 @@ from .utils.restore import (
 )
 from .utils.retry import command_cancellation_as_disconnect
 from .utils.scheduler import request_control_cycle
-from .utils.state_manager import StateManager
+from .utils.state_manager import FilterState, StateManager, ThermalStats
 from .utils.stored_values import stored_float
 from .utils.telemetry import (
     TELEMETRY_ATTRIBUTES,
@@ -2427,20 +2427,20 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # authority. The restored attributes only fill in when the
             # store carries nothing — a one-time migration fallback for
             # upgrades from versions that persisted via RestoreEntity.
-            _stored_power, _stored_loss = (
+            stored_thermal = (
                 self.state_mgr.clamped_thermal()
                 if self.state_mgr is not None
-                else (None, None)
+                else ThermalStats()
             )
             if (
-                _stored_power is None
+                stored_thermal.heating_power is None
                 and old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None
             ):
                 self.heating_power = clamp_heating_power(
                     old_state.attributes.get(ATTR_STATE_HEATING_POWER), self.device_name
                 )
             if (
-                _stored_loss is None
+                stored_thermal.heat_loss_rate is None
                 and old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None
             ):
                 _restored_loss = clamp_heat_loss(
@@ -3612,11 +3612,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """
         if self.state_mgr is None:
             return
-        heating_power, heat_loss_rate = self.state_mgr.clamped_thermal()
-        if heating_power is not None:
-            self.heating_power = heating_power
-        if heat_loss_rate is not None:
-            self.heat_loss_rate = heat_loss_rate
+        stored_thermal = self.state_mgr.clamped_thermal()
+        if stored_thermal.heating_power is not None:
+            self.heating_power = stored_thermal.heating_power
+        if stored_thermal.heat_loss_rate is not None:
+            self.heat_loss_rate = stored_thermal.heat_loss_rate
         filters = self.state_mgr.filters
         if filters.room_temperature_ema is not None:
             self.room_temperature_ema = filters.room_temperature_ema
@@ -3629,8 +3629,17 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """Push the entity-held thermal stats and filters into the StateManager."""
         if self.state_mgr is None:
             return
-        self.state_mgr.record_thermal(self.heating_power, self.heat_loss_rate)
-        self.state_mgr.record_filters(self.room_temperature_ema, self.temperature_slope)
+        self.state_mgr.record_thermal(
+            ThermalStats(
+                heating_power=self.heating_power, heat_loss_rate=self.heat_loss_rate
+            )
+        )
+        self.state_mgr.record_filters(
+            FilterState(
+                room_temperature_ema=self.room_temperature_ema,
+                temperature_slope=self.temperature_slope,
+            )
+        )
 
     @callback
     def schedule_save_state(self, delay_seconds: float = 15.0) -> None:

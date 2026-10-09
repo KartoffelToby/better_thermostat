@@ -9,6 +9,10 @@ falling back to legacy entity attributes.
 from unittest.mock import MagicMock
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.utils.state_manager import (
+    FilterState,
+    ThermalStats,
+)
 from tests.factories import ThermostatStandIn
 
 
@@ -23,8 +27,12 @@ def test_record_runtime_pushes_thermal_and_filters():
 
     BetterThermostat._record_runtime_to_state(bt)
 
-    bt.state_mgr.record_thermal.assert_called_once_with(0.02, 0.01)
-    bt.state_mgr.record_filters.assert_called_once_with(20.5, 0.0012)
+    bt.state_mgr.record_thermal.assert_called_once_with(
+        ThermalStats(heating_power=0.02, heat_loss_rate=0.01)
+    )
+    bt.state_mgr.record_filters.assert_called_once_with(
+        FilterState(room_temperature_ema=20.5, temperature_slope=0.0012)
+    )
 
 
 def test_record_runtime_without_store_is_a_noop():
