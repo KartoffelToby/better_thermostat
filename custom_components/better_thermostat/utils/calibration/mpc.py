@@ -10,7 +10,7 @@ import logging
 import math
 import random
 from time import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
@@ -20,6 +20,12 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+
+# How an adaptation step moved the gain or loss estimate.
+type GainMethod = Literal[
+    "insufficient_heat_boost", "heat_rate", "high_u_ss", "recovery"
+]
+type LossMethod = Literal["cool_u0", "residual_u0_ss", "warm_low_u"]
 
 # MPC operates on fixed 5-minute steps and a 6-step horizon.
 MPC_STEP_SECONDS = 300.0
@@ -1162,10 +1168,8 @@ def _compute_predictive_percent(
                 else float(params.mpc_loss_coeff)
             )
 
-            updated_gain = False
-            updated_loss = False
-            loss_method: str | None = None
-            gain_method: str | None = None
+            loss_method: LossMethod | None = None
+            gain_method: GainMethod | None = None
             gain_ss_applied = False
             gain_ss_rate_limited = False
             gain_ss_candidate: float | None = None
@@ -1228,7 +1232,6 @@ def _compute_predictive_percent(
                     if loss_candidate < loss_est:
                         alpha = base_adapt_alpha * 0.1  # slower decrease
                     state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
-                    updated_loss = True
                     loss_method = "cool_u0"
                     state.loss_learn_count += 1
 
@@ -1243,7 +1246,7 @@ def _compute_predictive_percent(
             u0_frac_est = (loss_est / gain_est) if gain_est > 0 else 0.0
             u0_frac_est = max(0.0, min(1.0, u0_frac_est))
 
-            if common_ok and (not updated_loss) and u_last > min_open:
+            if common_ok and loss_method is None and u_last > min_open:
                 ss_rate_thr = 0.02  # °C/min: quasi steady-state threshold
 
                 # Rate-limit residual learning using dt_residual window.
@@ -1294,7 +1297,6 @@ def _compute_predictive_percent(
                         state.loss_est = (
                             1.0 - alpha
                         ) * loss_est + alpha * loss_candidate
-                        updated_loss = True
                         loss_method = "residual_u0_ss"
                         state.consecutive_insufficient_heat = 0
                     else:
@@ -1312,7 +1314,6 @@ def _compute_predictive_percent(
                         state.gain_est = (
                             1.0 - alpha_boost
                         ) * gain_est + alpha_boost * target_gain
-                        updated_gain = True
                         gain_method = "insufficient_heat_boost"
                         adapt_debug["gain_boosted_insuff"] = True
 
@@ -1324,7 +1325,7 @@ def _compute_predictive_percent(
             if (
                 common_ok
                 and learn_signal
-                and (not updated_loss)
+                and loss_method is None
                 and state.gain_learn_count >= 2
                 and u_last < (u0_frac_est - 0.05)
                 and observed_rate > 0.0
@@ -1340,7 +1341,6 @@ def _compute_predictive_percent(
                 # Reduce alpha to not overreact to solar gains etc.
                 alpha = base_adapt_alpha * 0.5
                 state.loss_est = (1.0 - alpha) * loss_est + alpha * loss_candidate
-                updated_loss = True
                 loss_method = "warm_low_u"
 
             # --- GAIN learning: u > min_open and room warming ---
@@ -1348,7 +1348,7 @@ def _compute_predictive_percent(
             if (
                 common_ok
                 and learn_signal
-                and (not updated_loss)
+                and loss_method is None
                 and (u_last >= max(min_open, ident_min_u))
                 and observed_rate > 0.001
             ):
@@ -1364,7 +1364,6 @@ def _compute_predictive_percent(
                 if gain_candidate > gain_est:
                     alpha = base_adapt_alpha * 0.3  # slower increase
                 state.gain_est = (1.0 - alpha) * gain_est + alpha * gain_candidate
-                updated_gain = True
                 gain_method = "heat_rate"
                 state.gain_learn_count += 1
 
@@ -1403,7 +1402,6 @@ def _compute_predictive_percent(
                         state.gain_est = (1.0 - alpha) * gain_est_current + (
                             alpha * gain_ss_candidate
                         )
-                        updated_gain = True
                         gain_method = "high_u_ss"
                         gain_ss_applied = True
 
@@ -1414,7 +1412,7 @@ def _compute_predictive_percent(
             if (
                 common_ok
                 and learn_signal
-                and (not updated_gain)
+                and gain_method is None
                 and u_last >= ident_min_u
                 and observed_rate > 0.01  # clear warming signal
             ):
@@ -1433,7 +1431,6 @@ def _compute_predictive_percent(
                     state.gain_est = (
                         1.0 - alpha_recover
                     ) * gain_current + alpha_recover * gain_implied
-                    updated_gain = True
                     gain_method = "recovery"
                     adapt_debug["gain_recovery"] = True
 
@@ -1465,7 +1462,7 @@ def _compute_predictive_percent(
                 "id_u_last": _round_for_debug(u_last, 3),
                 "id_target_changed": target_changed,
                 "id_gain_method": gain_method,
-                "id_gain_updated": updated_gain,
+                "id_gain_updated": gain_method is not None,
                 "id_gain_ss_applied": gain_ss_applied,
                 "id_gain_ss_candidate": (
                     _round_for_debug(gain_ss_candidate, 4)
@@ -1473,7 +1470,7 @@ def _compute_predictive_percent(
                     else None
                 ),
                 "id_gain_ss_rate_limited": gain_ss_rate_limited,
-                "id_loss_updated": updated_loss,
+                "id_loss_updated": loss_method is not None,
                 "id_loss_method": loss_method,
                 "id_loss_ss_rate_thr": _round_for_debug(0.02, 4),
                 "id_residual_ok": residual_ok,
@@ -1489,14 +1486,12 @@ def _compute_predictive_percent(
                 state.time_integral = 0.0
 
             # Track last residual/steady-state update to rate limit it separately
-            if (updated_loss and loss_method == "residual_u0_ss") or (
-                updated_gain and gain_method == "high_u_ss"
-            ):
+            if loss_method == "residual_u0_ss" or gain_method == "high_u_ss":
                 state.last_residual_time = now
 
             # Update ka_est if loss was updated and we have context
             if (
-                updated_loss
+                loss_method is not None
                 and inp.outdoor_temperature is not None
                 and state.loss_est is not None
             ):
