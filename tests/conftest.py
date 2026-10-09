@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from functools import cache
 import gc
 import json
@@ -18,12 +19,15 @@ DOMAIN = "better_thermostat"
 ENGLISH_CATALOG = REPO_ROOT / "custom_components" / DOMAIN / "translations" / "en.json"
 
 
-def _flatten(obj: dict, prefix: str) -> dict[str, str]:
+type Catalog = Mapping[str, str | Catalog]
+
+
+def _flatten(obj: Catalog, prefix: str) -> dict[str, str]:
     """Flatten a catalog into Home Assistant's dotted translation keys."""
     flat: dict[str, str] = {}
     for key, value in obj.items():
         path = f"{prefix}.{key}"
-        if isinstance(value, dict):
+        if isinstance(value, Mapping):
             flat.update(_flatten(value, path))
         else:
             flat[path] = value
@@ -60,7 +64,7 @@ def mock_async_get_translations():
 
     async def _get_translations(hass, language, category, integrations=None, *args):
         if integrations is not None and DOMAIN not in integrations:
-            return {}
+            return dict[str, str]()
         prefix = f"component.{DOMAIN}.{category}."
         return {
             key: value
