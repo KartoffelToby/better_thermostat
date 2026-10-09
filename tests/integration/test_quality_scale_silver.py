@@ -175,11 +175,15 @@ async def test_a_control_of_a_thermostat_that_is_gone_is_unavailable(
 
     device.set_available(False)
 
-    assert await wait_for(hass, lambda: _unavailable(hass, entity_id), timeout_s=2.0)
+    assert await wait_for(
+        hass, lambda: _unavailable(hass, entity_id), timeout_seconds=2.0
+    )
 
     device.set_available(True)
 
-    assert await wait_for(hass, lambda: _available(hass, entity_id), timeout_s=2.0)
+    assert await wait_for(
+        hass, lambda: _available(hass, entity_id), timeout_seconds=2.0
+    )
 
 
 @pytest.mark.quality_rule("entity-unavailable")
@@ -196,11 +200,15 @@ async def test_a_room_without_any_reachable_thermostat_is_unavailable(hass):
 
     device.set_available(False)
 
-    assert await wait_for(hass, lambda: _unavailable(hass, BT_ENTITY), timeout_s=2.0)
+    assert await wait_for(
+        hass, lambda: _unavailable(hass, BT_ENTITY), timeout_seconds=2.0
+    )
 
     device.set_available(True)
 
-    assert await wait_for(hass, lambda: _available(hass, BT_ENTITY), timeout_s=2.0)
+    assert await wait_for(
+        hass, lambda: _available(hass, BT_ENTITY), timeout_seconds=2.0
+    )
 
 
 def _reports_about(caplog, entity_id: str) -> list[str]:

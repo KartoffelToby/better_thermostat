@@ -20,7 +20,7 @@ from homeassistant.components.climate.const import (
     PRESET_SLEEP,
     HVACMode,
 )
-from homeassistant.const import CONF_NAME, UnitOfTemperature
+from homeassistant.const import CONF_NAME, STATE_UNAVAILABLE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import (
     config_validation as cv,
@@ -86,6 +86,9 @@ from .utils.helpers import (
     entry_settings,
     get_device_model,
     get_trv_intigration,
+    is_bt_climate_entity,
+    supports_single_target_temperature,
+    supports_temperature_range,
 )
 from .utils.preset_manager import DEFAULT_ENABLED_PRESETS
 from .utils.stored_values import is_json_object
@@ -705,8 +708,10 @@ def _build_user_fields(
     current: Mapping[str, object],
     user_input: Mapping[str, object] | None = None,
     system_unit: str | None = None,
+    excluded_climates: Iterable[str] = (),
 ) -> OrderedDict[vol.Marker, object]:
     user_input = user_input or {}
+    excluded_climate_ids = list(excluded_climates)
     is_create = mode == "create"
     fields: OrderedDict[vol.Marker, object] = OrderedDict()
 
@@ -756,16 +761,16 @@ def _build_user_fields(
         device_class: str | None = None,
         multiple: bool = False,
         required: bool = False,
+        exclude_entities: list[str] | None = None,
     ) -> None:
         """Add an entity selector field with domain and device class filtering."""
+        selector_config = selector.EntitySelectorConfig(
+            domain=domain, multiple=multiple
+        )
         if device_class is not None:
-            selector_config = selector.EntitySelectorConfig(
-                domain=domain, multiple=multiple, device_class=device_class
-            )
-        else:
-            selector_config = selector.EntitySelectorConfig(
-                domain=domain, multiple=multiple
-            )
+            selector_config["device_class"] = device_class
+        if exclude_entities:
+            selector_config["exclude_entities"] = exclude_entities
         default = resolve(key)
         if key == CONF_THERMOSTAT and isinstance(default, list):
             # The stored entry holds a bundle per thermostat, while a form
@@ -788,8 +793,20 @@ def _build_user_fields(
 
     add_field(CONF_NAME, str, default=resolve(CONF_NAME, ""))
 
-    add_entity_selector(CONF_THERMOSTAT, domain="climate", multiple=True, required=True)
-    add_entity_selector(CONF_COOLER, domain="climate", multiple=False)
+    # A Better Thermostat climate is never a device of a Better Thermostat.
+    add_entity_selector(
+        CONF_THERMOSTAT,
+        domain="climate",
+        multiple=True,
+        required=True,
+        exclude_entities=excluded_climate_ids,
+    )
+    add_entity_selector(
+        CONF_COOLER,
+        domain="climate",
+        multiple=False,
+        exclude_entities=excluded_climate_ids,
+    )
 
     add_entity_selector(
         CONF_TEMPERATURE_SENSOR,
@@ -1133,6 +1150,93 @@ def _unknown_placeholders(
     return None
 
 
+# The errors a climate field reports for a climate Better Thermostat cannot
+# drive, and the placeholder that names the climate: one for a Better
+# Thermostat climate, one for a climate that takes no target temperature.
+_UNUSABLE_CLIMATE_ERRORS: Final = {
+    CONF_THERMOSTAT: ("trv", "trv_is_better_thermostat", "trv_no_target_temperature"),
+    CONF_COOLER: (
+        "cooler",
+        "cooler_is_better_thermostat",
+        "cooler_no_target_temperature",
+    ),
+}
+
+
+def _better_thermostat_climates(hass: HomeAssistant) -> list[str]:
+    """Return the entity ids of every Better Thermostat climate entity."""
+    return sorted(
+        entry.entity_id
+        for entry in er.async_get(hass).entities.values()
+        if is_bt_climate_entity(entry)
+    )
+
+
+def _unusable_climate_error(
+    hass: HomeAssistant,
+    field: str,
+    climate_entity_ids: Iterable[str],
+    kept: Iterable[str] = (),
+) -> tuple[str, dict[str, str]] | None:
+    """Name the first climate of ``field`` Better Thermostat cannot drive.
+
+    A Better Thermostat climate is never a device of a Better Thermostat; the
+    entity registry tells it apart, so it is refused whether it reports or
+    not. A climate whose state advertises neither a single target temperature
+    nor a range refuses every setpoint Better Thermostat would send. One
+    without a state or an unavailable one says nothing about its features, as
+    on a boot, and is not judged by them; neither are the climates in
+    ``kept``, which the entry drives already. ``None`` means every climate is
+    usable; otherwise the field's error and the placeholder naming the
+    climate.
+    """
+    placeholder, bt_error, no_setpoint_error = _UNUSABLE_CLIMATE_ERRORS[field]
+    registry = er.async_get(hass)
+    kept_ids = set(kept)
+    for entity_id in climate_entity_ids:
+        registry_entry = registry.async_get(entity_id)
+        if registry_entry is not None and is_bt_climate_entity(registry_entry):
+            return bt_error, {placeholder: entity_id}
+        state = hass.states.get(entity_id)
+        if (
+            entity_id in kept_ids
+            or state is None
+            or state.state == STATE_UNAVAILABLE
+            or supports_single_target_temperature(state)
+            or supports_temperature_range(state)
+        ):
+            continue
+        return no_setpoint_error, {placeholder: entity_id}
+    return None
+
+
+def _report_unusable_climates(
+    hass: HomeAssistant,
+    errors: dict[str, str],
+    placeholders: dict[str, str],
+    *,
+    heaters: Iterable[str],
+    cooler: str | None,
+    kept: Iterable[str] = (),
+) -> None:
+    """Add the errors for thermostats and a cooler Better Thermostat cannot drive.
+
+    A thermostat field that reports an error already keeps it. ``kept`` are
+    the climates the entry drives already.
+    """
+    kept_ids = list(kept)
+    if CONF_THERMOSTAT not in errors:
+        unusable = _unusable_climate_error(hass, CONF_THERMOSTAT, heaters, kept_ids)
+        if unusable:
+            errors[CONF_THERMOSTAT] = unusable[0]
+            placeholders.update(unusable[1])
+    if cooler:
+        unusable = _unusable_climate_error(hass, CONF_COOLER, [cooler], kept_ids)
+        if unusable:
+            errors[CONF_COOLER] = unusable[0]
+            placeholders.update(unusable[1])
+
+
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for Better Thermostat."""
 
@@ -1311,6 +1415,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if unknown:
                 errors[CONF_THERMOSTAT] = "trv_not_found"
                 placeholders = unknown
+            _report_unusable_climates(
+                self.hass,
+                errors,
+                placeholders,
+                heaters=heaters,
+                cooler=normalized[CONF_COOLER],
+            )
 
             if not errors:
                 in_use = _in_use_placeholders(self.hass, heaters, None)
@@ -1335,6 +1446,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             current=self.data or {},
             user_input=user_input,
             system_unit=self.hass.config.units.temperature_unit,
+            excluded_climates=_better_thermostat_climates(self.hass),
         )
 
         return self.async_show_form(
@@ -1520,6 +1632,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             if unknown:
                 errors[CONF_THERMOSTAT] = "trv_not_found"
                 in_use_placeholders = unknown
+            _report_unusable_climates(
+                self.hass,
+                errors,
+                in_use_placeholders,
+                heaters=heaters,
+                cooler=normalized[CONF_COOLER],
+                kept=self._kept_climates(),
+            )
 
             if not errors:
                 self.trv_bundle = []
@@ -1567,6 +1687,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             kept=trv_entity_ids(self._config_entry),
         )
 
+    def _kept_climates(self) -> list[str]:
+        """Return the thermostats and the cooler the entry drives already."""
+        cooler = entry_settings(self._config_entry).get(CONF_COOLER)
+        return [
+            *trv_entity_ids(self._config_entry),
+            *([cooler] if isinstance(cooler, str) else []),
+        ]
+
     def _show_user_form(
         self,
         current: Mapping[str, object],
@@ -1575,11 +1703,19 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         user_input: Mapping[str, object] | None = None,
     ) -> config_entries.ConfigFlowResult:
         """Show the user step prefilled from ``current`` and ``user_input``."""
+        # A Better Thermostat climate the entry drives already stays
+        # selectable, so the form can be submitted and name the problem.
+        kept = set(self._kept_climates())
         fields = _build_user_fields(
             mode="update",
             current=current,
             user_input=user_input,
             system_unit=self.hass.config.units.temperature_unit,
+            excluded_climates=[
+                entity_id
+                for entity_id in _better_thermostat_climates(self.hass)
+                if entity_id not in kept
+            ],
         )
 
         return self.async_show_form(

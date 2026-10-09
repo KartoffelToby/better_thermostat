@@ -197,7 +197,7 @@ class TestCoolerSetpointAdoption:
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_uses_target_temp_high_fallback(self, mock_bt):
+    async def test_uses_target_temperature_high_fallback(self, mock_bt):
         """When 'temperature' is missing from old_state, use 'target_temp_high'."""
         old_state = _make_state(attributes={"target_temp_high": 25.0})
         # Remove "temperature" key from old_state
@@ -247,7 +247,7 @@ class TestCoolerSetpointClamping:
     """
 
     @pytest.mark.asyncio
-    async def test_setpoint_clamped_to_min(self, mock_bt):
+    async def test_setpoint_clamped_to_minimum(self, mock_bt):
         """Setpoint below min is clamped to bt_min_temp and then above heat.
 
         The two clamps compose: the range clamp lifts the reported 2.0 to
@@ -279,7 +279,7 @@ class TestCoolerSetpointClamping:
         assert mock_bt.heat_target_temperature is None
 
     @pytest.mark.asyncio
-    async def test_setpoint_clamped_to_max(self, mock_bt):
+    async def test_setpoint_clamped_to_maximum(self, mock_bt):
         """Setpoint above max should be clamped to bt_max_temp."""
         old_state = _make_state(attributes={"temperature": 25.0})
         new_state = _make_state(attributes={"temperature": 35.0})
@@ -1080,7 +1080,9 @@ class TestRangeModeCooler:
     """Coolers running in range mode publish an empty single setpoint."""
 
     @pytest.mark.asyncio
-    async def test_empty_temperature_falls_back_to_target_temp_high(self, mock_bt):
+    async def test_empty_temperature_falls_back_to_target_temperature_high(
+        self, mock_bt
+    ):
         """A present-but-empty 'temperature' does not hide 'target_temp_high'."""
         old_state = State(
             ENTITY_ID,

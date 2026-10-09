@@ -175,7 +175,9 @@ class TestCheckWeatherPrediction:
         bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is False
 
-    async def test_current_temp_below_off_drives_heat_even_if_forecast_warm(self):
+    async def test_current_temperature_below_off_drives_heat_even_if_forecast_warm(
+        self,
+    ):
         """A cold current temperature alone is enough to call for heat."""
         states = {WEATHER_ID: weather_state(temperature=2.0)}
         hass = make_hass(states=states)

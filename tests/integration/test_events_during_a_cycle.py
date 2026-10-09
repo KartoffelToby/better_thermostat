@@ -439,8 +439,8 @@ def _without_off_mode(bt, device: SimulatedClimate) -> None:
     trv.advanced = {**(trv.advanced or {}), "no_off_system_mode": True}
 
 
-async def _count_cycles(hass, bt, *, answer=None, window_s: float = 3.0) -> int:
-    """Count the TRV cycles that run in ``window_s`` after the room sensor moves.
+async def _count_cycles(hass, bt, *, answer=None, window_seconds: float = 3.0) -> int:
+    """Count the TRV cycles that run in ``window_seconds`` after the room sensor moves.
 
     ``answer`` is called at the start of every TRV cycle, which is where a
     device that answers late lands its report.
@@ -459,7 +459,7 @@ async def _count_cycles(hass, bt, *, answer=None, window_s: float = 3.0) -> int:
 
     with patch.object(controlling, "control_trv", counted), patch(WRITE_BUDGET, 0.0):
         set_room_sensor(hass, 18.3)
-        deadline = hass.loop.time() + window_s
+        deadline = hass.loop.time() + window_seconds
         while hass.loop.time() < deadline:
             await asyncio.sleep(0.01)
             await hass.async_block_till_done()

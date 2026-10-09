@@ -74,7 +74,7 @@ def _populated_mpc() -> MpcState:
         loss_est=0.007,
         ka_est=0.0025,
         solar_gain_est=0.4,
-        last_temperature=20.75,
+        last_cycle_temperature=20.75,
         last_time=1700000002.0,
         last_trv_temperature=24.5,
         last_trv_temperature_ts=1700000003.0,

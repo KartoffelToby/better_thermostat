@@ -58,7 +58,7 @@ NARROW_RANGE_TRV = replace(
 """A head whose range differs from the placeholder range on both ends."""
 
 OWN_GRID_TRV = replace(
-    GENERIC_HEAT_TRV, name="own_grid_trv", configured_target_temp_step="0.0"
+    GENERIC_HEAT_TRV, name="own_grid_trv", configured_target_temperature_step="0.0"
 )
 """A head whose half-degree grid is not overridden by the config entry."""
 
