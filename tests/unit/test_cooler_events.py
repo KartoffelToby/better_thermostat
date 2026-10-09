@@ -965,6 +965,41 @@ class TestEchoSuppression:
         assert mock_bt.cool_target_temperature == cool_target_temperature
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
+    @pytest.mark.parametrize("published", [75.0, 76.0])
+    @pytest.mark.asyncio
+    async def test_own_half_degree_write_published_in_whole_degrees_is_an_echo(
+        self, mock_bt, published
+    ):
+        """A write on a half degree Fahrenheit comes back on a whole one.
+
+        The cooler publishes a half-degree step and no precision, so Home
+        Assistant rounds the 75.5 °F it holds to a neighbouring whole degree.
+        """
+        mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        cool_target_temperature = (75.5 - 32.0) * 5.0 / 9.0
+        mock_bt.cool_target_temperature = cool_target_temperature
+        mock_bt._cooler_last_sent = {"temperature": (cool_target_temperature, 0.0)}
+        old_state = _make_state(
+            attributes={
+                "current_temperature": 79.0,
+                "temperature": 70.0,
+                "target_temp_step": 0.5,
+            }
+        )
+        new_state = _make_state(
+            attributes={
+                "current_temperature": 79.0,
+                "temperature": published,
+                "target_temp_step": 0.5,
+            }
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.cool_target_temperature == cool_target_temperature
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # 7. Unit handling

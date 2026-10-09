@@ -55,6 +55,7 @@ from custom_components.better_thermostat.utils.helpers import (
     mode_remap,
     normalize_step,
     published_in_whole_fahrenheit,
+    published_setpoint_grid,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
@@ -628,7 +629,11 @@ async def trigger_trv_change(
     # ``_old_heating_setpoint`` is the TRV's previously published state and is
     # not necessarily a BT-written value, so it does not belong in the
     # echo-suppression set.
-    _step = normalize_step(trv.target_temp_step or self.bt_target_temperature_step)
+    _step = published_setpoint_grid(
+        normalize_step(trv.target_temp_step or self.bt_target_temperature_step),
+        new_state,
+        self.hass.config.units.temperature_unit,
+    )
     # A device that carries both the heating and the cooling role reports one
     # setpoint for two targets, so the set of values BT itself wrote holds what
     # either channel wrote: the cooling channel's own write is no more a user

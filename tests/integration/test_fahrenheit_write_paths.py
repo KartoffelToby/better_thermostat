@@ -46,6 +46,10 @@ from custom_components.better_thermostat.utils.const import (
     CONF_THERMOSTAT,
     SERVICE_RUN_VALVE_MAINTENANCE,
 )
+from custom_components.better_thermostat.utils.controlling import (
+    compute_control_cycle,
+    desired_diverges,
+)
 
 from .conftest import (
     BT_ENTITY,
@@ -239,6 +243,77 @@ async def test_setpoint_reaches_the_device_in_the_system_unit(
     written = setpoint_commands(dispatched, TRV_ID)[-1][ATTR_TEMPERATURE]
     assert written == pytest.approx(requested)
     assert _device_setpoint(hass) == pytest.approx(requested)
+
+
+OFF_GRID_FAHRENHEIT_TRV_TARGET_BASED = replace(
+    OFF_GRID_FAHRENHEIT_TRV,
+    name="off_grid_fahrenheit_trv_target_based",
+    calibration="target_temp_based",
+)
+"""The Celsius head on a Fahrenheit system, calibrated through its setpoint."""
+
+
+@pytest.mark.parametrize(
+    ("fake_trv", "room", "requested"),
+    [
+        pytest.param(
+            OFF_GRID_FAHRENHEIT_TRV_TARGET_BASED, 66.5, 70.0, id="target_temp_based"
+        ),
+        pytest.param(OFF_GRID_FAHRENHEIT_TRV, 68.0, 70.5, id="local_calibration"),
+    ],
+    indirect=["fake_trv"],
+)
+async def test_a_setpoint_published_in_whole_degrees_is_confirmed_and_not_adopted(
+    hass, fake_trv, room, requested
+):
+    """A write the device publishes rounded to a whole degree is the write coming back.
+
+    The head publishes no precision, so Home Assistant rounds the setpoint it
+    holds to a whole degree Fahrenheit, and its half-degree Celsius step reads
+    as half a degree Fahrenheit. A setpoint written on a half degree comes back
+    half a degree away. That report confirms the write, and the head's next
+    routine report leaves the room's target where the user put it.
+    """
+    profile = fake_trv.profile
+    set_room_sensor(hass, room, UnitOfTemperature.FAHRENHEIT)
+    bt = await _start(hass, profile)
+    trv = bt.real_trvs[TRV_ID]
+
+    with patch(WRITE_BUDGET, 0.0):
+        baseline = len(fake_trv.set_temperature_calls)
+        await _set_target(hass, requested)
+        assert await wait_for(
+            hass,
+            lambda: len(fake_trv.set_temperature_calls) > baseline,
+            timeout_seconds=2.0,
+        )
+        written = fake_trv.set_temperature_calls[-1]
+        # The write sits on a half degree, which is the case under test.
+        assert _fahrenheit(written) % 1.0 == pytest.approx(0.5, abs=0.06)
+        assert await wait_for(
+            hass,
+            lambda: (
+                trv.confirmed_setpoint is not None
+                and trv.confirmed_setpoint == pytest.approx(written, abs=0.01)
+            ),
+            timeout_seconds=1.0,
+        ), (trv.confirmed_setpoint, written, _device_setpoint(hass))
+        assert await wait_for(
+            hass, lambda: trv.target_temperature_received and not bt.ignore_states
+        )
+        # The reconciler sees the device where it was sent, not a lost write.
+        assert not desired_diverges(
+            bt, *compute_control_cycle(bt, record=False, commit=False)
+        )
+
+        # The head's next routine report carries the rounded setpoint again.
+        fake_trv._attr_current_temperature = fake_trv.current_temperature + 0.3
+        fake_trv.async_set_context(Context())
+        fake_trv.async_write_ha_state()
+        for _ in range(20):
+            await hass.async_block_till_done()
+
+    assert hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE] == requested
 
 
 # -- bound clamping -----------------------------------------------------------

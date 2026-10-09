@@ -2134,6 +2134,10 @@ def matches_any_setpoint(
 # Assistant published in whole degrees may lie above the one the device holds.
 _HALF_FAHRENHEIT_DEGREE = 5.0 / 18.0
 
+# A whole degree Fahrenheit, in Kelvin: the grid of a setpoint Home Assistant
+# publishes in whole degrees.
+_WHOLE_FAHRENHEIT_DEGREE = 5.0 / 9.0
+
 # The temperatures a climate state publishes at the precision of its entity.
 _PRECISION_ATTRIBUTES = ("min_temp", "max_temp", "current_temperature")
 
@@ -2154,6 +2158,66 @@ def published_in_whole_fahrenheit(state: State | None, system_unit: str | None) 
     ]
     present = [value for value in values if value is not None]
     return bool(present) and all(_published_grid(value) == 1.0 for value in present)
+
+
+def published_setpoint_grid(
+    step: float, state: State | None, system_unit: str | None
+) -> float:
+    """Return the grid, as a °C delta, a device's reported setpoint moves on.
+
+    The device holds its setpoint on its own ``step``. A state Home Assistant
+    publishes in whole degrees Fahrenheit rounds that setpoint once more, so
+    a report moves by whole degrees whatever the step, and a setpoint written
+    between two of them comes back on one of its neighbours. The coarser of
+    the two grids is the one a report is compared on.
+
+    It also covers a step whose unit the state does not tell: Home Assistant
+    publishes ``target_temp_step`` in the device's own unit and names no
+    unit for it, so the step of a head working in Celsius is read in
+    Fahrenheit. Its true grid, half a degree Celsius, is still finer than the
+    whole degree Fahrenheit it is published on.
+
+    Parameters
+    ----------
+    step : float
+            the device's setpoint step in °C
+    state : State | None
+            the device state the reported setpoint is read from
+    system_unit : str | None
+            the configured system temperature unit
+
+    Returns
+    -------
+    float
+            the grid a reported setpoint moves on, as a °C delta
+    """
+    if published_in_whole_fahrenheit(state, system_unit):
+        return max(step, _WHOLE_FAHRENHEIT_DEGREE)
+    return step
+
+
+def published_setpoint_slack(state: State | None, system_unit: str | None) -> float:
+    """Return how far a reported setpoint may lie from the one the device holds.
+
+    A state Home Assistant publishes in whole degrees Fahrenheit carries the
+    device's setpoint rounded to the nearest one, up to half a degree away.
+    Any other state carries it as the device holds it.
+
+    Parameters
+    ----------
+    state : State | None
+            the device state the reported setpoint is read from
+    system_unit : str | None
+            the configured system temperature unit
+
+    Returns
+    -------
+    float
+            the largest rounding distance, as a °C delta
+    """
+    if published_in_whole_fahrenheit(state, system_unit):
+        return _HALF_FAHRENHEIT_DEGREE
+    return 0.0
 
 
 def setpoint_at_minimum(

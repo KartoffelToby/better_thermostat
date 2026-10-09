@@ -15,6 +15,8 @@ from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
     device_setpoint_step,
     normalize_step,
+    published_setpoint_grid,
+    published_setpoint_slack,
     read_setpoint_celsius,
     reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
@@ -227,6 +229,113 @@ class TestSetpointEchoWindow:
     def test_window_stays_positive_for_a_tiny_step(self):
         """A step at or below the read grid still separates two setpoints."""
         assert setpoint_echo_window(0.005) == SETPOINT_MATCH_TOLERANCE
+
+
+# A Celsius head on a Fahrenheit system that states no precision: Home
+# Assistant publishes every temperature it carries in whole degrees.
+_WHOLE_FAHRENHEIT_ATTRIBUTES = {
+    "min_temp": 39,
+    "max_temp": 87,
+    "current_temperature": 68,
+    "temperature": 72,
+    "target_temp_step": 0.5,
+}
+_ONE_FAHRENHEIT_DEGREE = 5.0 / 9.0
+
+
+class TestPublishedSetpointGrid:
+    """The grid a reported setpoint moves on, once Home Assistant rounded it."""
+
+    def test_whole_fahrenheit_coarsens_a_finer_step_to_a_degree(self):
+        """Half a degree written comes back on a whole one."""
+        grid = published_setpoint_grid(
+            0.5 * 5.0 / 9.0,
+            _state(_WHOLE_FAHRENHEIT_ATTRIBUTES),
+            UnitOfTemperature.FAHRENHEIT,
+        )
+        assert grid == pytest.approx(_ONE_FAHRENHEIT_DEGREE)
+
+    def test_whole_fahrenheit_keeps_a_coarser_step(self):
+        """A step of two degrees is already coarser than the published grid."""
+        step = 2.0 * 5.0 / 9.0
+        grid = published_setpoint_grid(
+            step, _state(_WHOLE_FAHRENHEIT_ATTRIBUTES), UnitOfTemperature.FAHRENHEIT
+        )
+        assert grid == step
+
+    def test_a_state_in_tenths_keeps_the_step(self):
+        """A state that carries tenths is not rounded to whole degrees."""
+        attributes = {**_WHOLE_FAHRENHEIT_ATTRIBUTES, "current_temperature": 68.4}
+        step = 0.5 * 5.0 / 9.0
+        grid = published_setpoint_grid(
+            step, _state(attributes), UnitOfTemperature.FAHRENHEIT
+        )
+        assert grid == step
+
+    def test_a_celsius_system_keeps_the_step(self):
+        """Whole degrees Celsius are what the device holds, not a rounding."""
+        grid = published_setpoint_grid(
+            0.5, _state(_WHOLE_FAHRENHEIT_ATTRIBUTES), UnitOfTemperature.CELSIUS
+        )
+        assert grid == 0.5
+
+    def test_a_write_on_a_half_degree_is_its_own_echo(self):
+        """71.5 °F written and 72 °F reported lie inside the echo window."""
+        written = (71.5 - 32.0) * 5.0 / 9.0
+        reported = round((72.0 - 32.0) * 5.0 / 9.0, 2)
+        window = setpoint_echo_window(
+            published_setpoint_grid(
+                0.5 * 5.0 / 9.0,
+                _state(_WHOLE_FAHRENHEIT_ATTRIBUTES),
+                UnitOfTemperature.FAHRENHEIT,
+            )
+        )
+        assert abs(reported - written) < window
+
+    def test_a_turn_by_one_published_degree_is_not_an_echo(self):
+        """A report one whole degree from the written value is a user's turn."""
+        written = (72.0 - 32.0) * 5.0 / 9.0
+        reported = round((73.0 - 32.0) * 5.0 / 9.0, 2)
+        window = setpoint_echo_window(
+            published_setpoint_grid(
+                0.5 * 5.0 / 9.0,
+                _state(_WHOLE_FAHRENHEIT_ATTRIBUTES),
+                UnitOfTemperature.FAHRENHEIT,
+            )
+        )
+        assert abs(reported - written) >= window
+
+
+class TestPublishedSetpointSlack:
+    """How far Home Assistant's rounding can move a reported setpoint."""
+
+    def test_whole_fahrenheit_is_half_a_degree(self):
+        """A whole-degree state is up to half a degree off what the device holds."""
+        slack = published_setpoint_slack(
+            _state(_WHOLE_FAHRENHEIT_ATTRIBUTES), UnitOfTemperature.FAHRENHEIT
+        )
+        assert slack == pytest.approx(_ONE_FAHRENHEIT_DEGREE / 2)
+
+    @pytest.mark.parametrize(
+        ("attributes", "unit"),
+        [
+            pytest.param(
+                {**_WHOLE_FAHRENHEIT_ATTRIBUTES, "current_temperature": 68.4},
+                UnitOfTemperature.FAHRENHEIT,
+                id="tenths",
+            ),
+            pytest.param(
+                _WHOLE_FAHRENHEIT_ATTRIBUTES, UnitOfTemperature.CELSIUS, id="celsius"
+            ),
+        ],
+    )
+    def test_any_other_state_carries_the_setpoint_as_held(self, attributes, unit):
+        """Without the whole-degree rounding there is nothing to allow for."""
+        assert published_setpoint_slack(_state(attributes), unit) == 0.0
+
+    def test_missing_state_has_no_slack(self):
+        """No state, no rounding."""
+        assert published_setpoint_slack(None, UnitOfTemperature.FAHRENHEIT) == 0.0
 
 
 class TestResolveInboundSetpoint:
