@@ -828,13 +828,13 @@ def _compute_mpc_v2_balance(
     confirmed_valve_percent = (
         None if is_multi_trv else _confirmed_valve_percent(trv_state)
     )
-    # The controller's applied input is also its command between re-plans and
-    # the anchor of its rate limit, so it may only be an opening BT wrote
-    # itself. A TRV steered through its setpoint opens by its own regulator:
-    # fed back, that opening would become BT's next command, raise the
-    # setpoint and open the TRV further. The re-identification samples below
-    # keep the reported opening, which there is a measurement of the room's
-    # input.
+    # The controller's applied input is the anchor of its rate limit and of
+    # the smoothing its next plan weighs, so it may only be an opening BT
+    # wrote itself. A TRV steered through its setpoint opens by its own
+    # regulator: fed back, that opening would pull BT's next plan towards it,
+    # raise the setpoint and open the TRV further. The re-identification
+    # samples below keep the reported opening, which there is a measurement
+    # of the room's input.
     controller_applied_percent = (
         confirmed_valve_percent
         if _supports_direct_valve_control(self, entity_id)

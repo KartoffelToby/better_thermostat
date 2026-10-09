@@ -315,8 +315,8 @@ def test_setpoint_steered_trv_keeps_its_reported_opening_out_of_the_controller(
 ) -> None:
     """A TRV BT steers through its setpoint must not feed its opening back as BT's command.
 
-    Between re-plans the controller returns its applied input unchanged, so a
-    reported opening the TRV chose itself would become BT's next command.
+    The next plan starts from the applied input, so a reported opening the
+    TRV chose itself would pull BT's next command towards it.
     """
     seen = _capture_controller_input(monkeypatch)
     trv = _make_trv("climate.x", current_temperature=19.0, supports_valve=False)
@@ -359,3 +359,36 @@ def test_direct_valve_trv_feeds_its_reported_opening_to_the_controller(
 
     assert len(seen) == 1
     assert seen[0].applied_valve_percent == 80.0
+
+
+def test_a_late_position_report_does_not_revert_the_written_opening(
+    monkeypatch,
+) -> None:
+    """A device that echoes its position late keeps getting the planned opening.
+
+    The first cycle plans an opening and the adapter writes it. A minute later
+    the device still reports its old, closed position; that report is the
+    plant input the observer learns from, and the next plan starts from it,
+    but until that plan the dispatcher keeps sending what was written instead
+    of closing the valve again.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+        compute as compute_module,
+    )
+
+    clock = [1_700_000_000.0]
+    monkeypatch.setattr(compute_module, "time", lambda: clock[0])
+    trv = _make_trv("climate.x", current_temperature=19.0, supports_valve=True)
+    trv.valve_position = 0.0
+    trv.last_valve_percent = 0.0
+    bt = _make_bt(real_trvs={"climate.x": trv})
+
+    first, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert first is not None and first.valve_percent > 0
+    trv.last_valve_percent = float(first.valve_percent)
+
+    clock[0] += 60.0
+    second, _ = _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert second is not None
+    assert second.valve_percent == first.valve_percent

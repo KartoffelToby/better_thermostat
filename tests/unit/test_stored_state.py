@@ -123,6 +123,7 @@ def _populated_snapshot() -> dict[str, object]:
         next_mpc_t_s=86700.0,
         last_mpc_t_s=86100.0,
         planning_disturbance=0.003,
+        last_command_u=0.45,
     ).to_mapping()
 
 

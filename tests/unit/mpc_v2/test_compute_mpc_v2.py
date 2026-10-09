@@ -27,6 +27,9 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
 from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
     MIN_STEP_DT_S,
 )
+from custom_components.better_thermostat.utils.calibration.mpc_v2.state import (
+    _plant_signature_of,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     PlantModelRC2,
     PlantParams,
@@ -1217,3 +1220,247 @@ def test_a_snapshot_without_a_planning_reading_plans_from_zero() -> None:
     assert controller.dob.D_hat_K_per_min == pytest.approx(0.02)
     assert controller.dob.planning_filtered == 0.0
     assert controller.dob.planning_rate == 0.0
+
+
+def _hold_room_with_feedback(
+    params: MpcV2Params,
+    truth: PlantModelRC2,
+    state: MpcV2State | None,
+    *,
+    start: tuple[float, np.ndarray, float],
+    cycles: int,
+    disturbance: float = 0.0,
+    max_opening_percent: float | None = None,
+    target: float = 21.0,
+    outdoor: float = 0.0,
+) -> tuple[MpcV2State, tuple[float, np.ndarray, float], list[int], list[float]]:
+    """Run ``cycles`` control cycles against ``truth`` with the valve fed back.
+
+    One cycle lasts one ``truth`` step. ``start`` is ``(now, state, applied
+    fraction)``; the same triple comes back for the next stretch, together
+    with the commanded percents and the room temperature after each cycle.
+    """
+    now, x, applied = start
+    commands: list[int] = []
+    rooms: list[float] = []
+    for _ in range(cycles):
+        out, state = compute_mpc_v2(
+            _baseline_input(
+                key="feedback",
+                target_temperature=target,
+                room_temperature=round(float(x[0]), 2),
+                trv_temperature=float(x[1]),
+                outdoor_temperature=outdoor,
+                applied_valve_percent=applied * 100.0,
+                max_opening_percent=max_opening_percent,
+            ),
+            params,
+            state,
+            now=now,
+        )
+        assert out is not None
+        applied = out.valve_percent / 100.0
+        commands.append(out.valve_percent)
+        x = truth.discrete_step(
+            x, u=applied, T_outdoor=outdoor, D_K_per_min=disturbance
+        )
+        rooms.append(float(x[0]))
+        now += truth.dt_s
+    assert state is not None
+    return state, (now, x, applied), commands, rooms
+
+
+def test_a_drifting_prior_hands_the_room_over_without_a_valve_jump() -> None:
+    """A learned prior that moves past the rebuild tolerance keeps the valve calm.
+
+    Under AUTO the prior follows the learned heat loss, so ``tau_room`` moves by
+    more than the tolerance in normal operation. The rebuilt controller takes
+    over the estimates, the disturbance reading and the error integral, so the
+    opening it commands continues from where the old controller held the room
+    instead of re-learning the offset from a cold start.
+    """
+    truth = PlantModelRC2(PlantParams(tau_room_min=500.0), dt_s=300.0)
+    before = MpcV2Params(plant=make_plant_prior(heat_loss_rate=15.0 / 480.0))
+    state, cursor, commands, _ = _hold_room_with_feedback(
+        before,
+        truth,
+        None,
+        start=(2.0e6, np.array([20.0, 40.0]), 0.3),
+        cycles=144,
+        disturbance=0.006,
+        target=20.0,
+        outdoor=5.0,
+    )
+    held = commands[-1]
+    old_controller = state.controller
+    assert old_controller is not None
+    integral = old_controller.optimiser.e_integral_K_min
+    disturbance_reading = old_controller.dob.D_hat_K_per_min
+
+    after = MpcV2Params(plant=make_plant_prior(heat_loss_rate=15.0 / 540.0))
+    state, _, commands, _ = _hold_room_with_feedback(
+        after,
+        truth,
+        state,
+        start=cursor,
+        cycles=1,
+        disturbance=0.006,
+        target=20.0,
+        outdoor=5.0,
+    )
+
+    assert state.controller is not old_controller
+    assert state.controller is not None
+    assert state.controller.plant_fine.params.tau_room_min == pytest.approx(540.0)
+    assert state.controller.dob.D_hat_K_per_min != 0.0
+    assert abs(state.controller.dob.D_hat_K_per_min - disturbance_reading) < 1e-3
+    # One cycle adds at most one re-plan interval of an in-band error.
+    qp = state.controller.params.qp
+    assert abs(state.controller.optimiser.e_integral_K_min - integral) <= (
+        qp.integral_error_band * qp.step_s / 60.0
+    )
+    assert abs(commands[0] - held) <= 3, (held, commands)
+
+
+def test_a_drifting_prior_keeps_the_room_where_it_was() -> None:
+    """Over the hours after a prior drift the valve and the room stay settled."""
+    truth = PlantModelRC2(PlantParams(tau_room_min=500.0), dt_s=300.0)
+    before = MpcV2Params(plant=make_plant_prior(heat_loss_rate=15.0 / 480.0))
+    state, cursor, commands, _ = _hold_room_with_feedback(
+        before,
+        truth,
+        None,
+        start=(2.0e6, np.array([20.0, 40.0]), 0.3),
+        cycles=144,
+        disturbance=0.006,
+        target=20.0,
+        outdoor=5.0,
+    )
+    held = commands[-1]
+
+    after = MpcV2Params(plant=make_plant_prior(heat_loss_rate=15.0 / 540.0))
+    _, _, commands, rooms = _hold_room_with_feedback(
+        after,
+        truth,
+        state,
+        start=cursor,
+        cycles=72,
+        disturbance=0.006,
+        target=20.0,
+        outdoor=5.0,
+    )
+
+    assert max(abs(c - held) for c in commands) <= 3, (held, commands)
+    assert max(rooms) < 20.08, max(rooms)
+
+
+def test_a_capped_valve_leaves_no_wound_up_integral_behind() -> None:
+    """A user cap that keeps the room just short of the target winds nothing up.
+
+    The valve sits at its 44 % cap and the room settles a few tenths below the
+    setpoint, inside the integration band. Once sun covers the shortfall the
+    controller has no stored demand to work off, so the room barely rises
+    past the target.
+    """
+    truth = PlantModelRC2(PlantParams(), dt_s=60.0)
+    params = MpcV2Params()
+    state, cursor, _, rooms = _hold_room_with_feedback(
+        params,
+        truth,
+        None,
+        start=(5.0e5, np.array([20.0, 35.0]), 0.3),
+        cycles=600,
+        max_opening_percent=44.0,
+    )
+    assert state.controller is not None
+    assert 20.5 < rooms[-1] < 21.0, rooms[-1]
+    assert state.controller.optimiser.e_integral_K_min > -1.0
+
+    _, _, _, rooms = _hold_room_with_feedback(
+        params,
+        truth,
+        state,
+        start=cursor,
+        cycles=360,
+        disturbance=0.005,
+        max_opening_percent=44.0,
+    )
+
+    assert max(rooms) < 21.1, max(rooms)
+
+
+def test_between_replans_a_stale_report_does_not_become_the_command() -> None:
+    """Until the next plan the controller keeps commanding what it planned.
+
+    The applied input still feeds the observer, but a position report that lags
+    the write would otherwise turn the old position into the new command.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+    planned, _ = controller.step(t_s=1_000.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+    assert planned > 0.1
+    controller.set_command_u(planned)
+    controller.set_applied_u(0.0)
+
+    held, _ = controller.step(t_s=1_060.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+
+    assert held == planned
+    assert controller._last_u == 0.0
+
+
+def test_a_restored_controller_keeps_commanding_its_plan() -> None:
+    """The planned command survives a restart between two plans."""
+    controller = MpcV2Controller(MpcV2Params())
+    planned, _ = controller.step(t_s=1_000.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+    controller.set_command_u(planned)
+    controller.set_applied_u(0.0)
+    stored = json.loads(json.dumps(controller.export_snapshot().to_mapping()))
+    snapshot = ControllerSnapshot.from_mapping(stored)
+    assert snapshot is not None
+
+    resumed = MpcV2Controller(MpcV2Params())
+    resumed.restore_snapshot(snapshot)
+    held, _ = resumed.step(t_s=1_060.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+
+    assert held == planned
+
+
+def test_a_snapshot_without_a_planned_command_holds_the_last_input() -> None:
+    """A snapshot stored before the planned command was kept commands its input."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_000.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+    controller.set_applied_u(0.25)
+    stored = controller.export_snapshot().to_mapping()
+    del stored["last_command_u"]
+    snapshot = ControllerSnapshot.from_mapping(stored)
+    assert snapshot is not None
+    assert snapshot.last_command_u is None
+
+    resumed = MpcV2Controller(MpcV2Params())
+    resumed.restore_snapshot(snapshot)
+    held, _ = resumed.step(t_s=1_060.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+
+    assert held == 0.25
+
+
+def test_a_prior_change_before_the_first_cycle_seeds_from_the_measurement() -> None:
+    """The rebuilt controller starts its estimate from the room reading.
+
+    A controller built but not yet stepped holds only the construction default
+    in its observer, which is no estimate of the room to carry over.
+    """
+    before = MpcV2Params(plant=make_plant_prior(preset="small_room"))
+    state = MpcV2State(
+        controller=MpcV2Controller(before), plant_signature=_plant_signature_of(before)
+    )
+    after = MpcV2Params(plant=make_plant_prior(preset="large_room"))
+
+    _, state = compute_mpc_v2(
+        _baseline_input(room_temperature=16.0, trv_temperature=16.0),
+        after,
+        state,
+        now=1_000.0,
+    )
+
+    assert state.controller is not None
+    assert state.controller.plant_fine.params.tau_room_min == after.plant.tau_room_min
+    assert float(state.controller.kalman.x_hat[0]) == pytest.approx(16.0, abs=0.05)
