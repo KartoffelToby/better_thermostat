@@ -15,6 +15,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
 from custom_components.better_thermostat.core.recorder import (
     FlightRecorder,
+    Json,
     replay,
     snapshot_from_dict,
     state_from_dict,
@@ -51,6 +52,12 @@ def _snapshot(target=21.0) -> WorldSnapshot:
     )
 
 
+def _json_object(value: Json) -> dict[str, Json]:
+    """Narrow one exported value to the JSON object it is."""
+    assert isinstance(value, dict)
+    return value
+
+
 def _record_one(recorder: FlightRecorder, snapshot: WorldSnapshot) -> None:
     state = replace(
         running_kernel_state(), window=WindowState(phase=WindowPhase.CLOSED)
@@ -69,11 +76,9 @@ class TestRingBuffer:
             _record_one(recorder, _snapshot(target=target))
         assert len(recorder) == 3
         exported = recorder.export()
-        assert [e["snapshot"]["heat_target_temperature"] for e in exported] == [
-            21.0,
-            22.0,
-            23.0,
-        ]
+        assert [
+            _json_object(e["snapshot"])["heat_target_temperature"] for e in exported
+        ] == [21.0, 22.0, 23.0]
 
     def test_negative_capacity_is_rejected(self):
         """A negative capacity is caught at construction, not on first record."""
@@ -93,9 +98,10 @@ class TestRingBuffer:
         desired, state = decide(snapshot, state)
         recorder.record(snapshot, state, desired)
         with pytest.raises(FrozenInstanceError):
-            state.last_control_monotonic = 999.0
+            setattr(state, "last_control_monotonic", 999.0)
         state = replace(state, last_control_monotonic=999.0)
-        assert recorder.export()[0]["state"]["last_control_monotonic"] is None
+        recorded_state = _json_object(recorder.export()[0]["state"])
+        assert recorded_state["last_control_monotonic"] is None
 
 
 class TestExport:
@@ -119,7 +125,7 @@ class TestExport:
         )
         _record_one(recorder, snapshot)
         exported = recorder.export()
-        entry = exported[0]["snapshot"]
+        entry = _json_object(exported[0]["snapshot"])
         assert entry["room_temperature"] is None
         assert entry["temperature_slope"] is None
         json.dumps(exported, allow_nan=False)

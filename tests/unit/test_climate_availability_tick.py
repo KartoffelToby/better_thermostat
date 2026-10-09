@@ -16,12 +16,14 @@ lands.
 """
 
 from datetime import timedelta
+from typing import NoReturn, override
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.fsm.control_mode import LADDER_TICK_S
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
@@ -175,7 +177,7 @@ async def test_an_unreachable_valve_does_not_stop_the_ladder():
     """
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.devices_errors = []
+    bt.devices_errors = list[str]()
     degraded = AsyncMock()
 
     def record_gone_valve(self):
@@ -193,10 +195,11 @@ async def test_an_unreachable_valve_does_not_stop_the_ladder():
     degraded.assert_awaited_once_with(bt)
 
 
-class _TrvMapThatCannotBeRead(dict):
+class _TrvMapThatCannotBeRead(dict[str, Trv]):
     """A TRV map whose iteration fails, as a corrupted cache would."""
 
-    def values(self):
+    @override
+    def values(self) -> NoReturn:
         """Raise instead of yielding, the way a broken cache reads."""
         raise RuntimeError("TRV cache is unreadable")
 

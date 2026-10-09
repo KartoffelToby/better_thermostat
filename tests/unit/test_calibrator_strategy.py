@@ -19,6 +19,7 @@ from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import MpcOutput
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Output
 from custom_components.better_thermostat.utils.calibration.pid import (
+    PidGain,
     PIDParams,
     PIDState,
     pid_gain,
@@ -31,7 +32,13 @@ from custom_components.better_thermostat.utils.calibration.strategies import (
 )
 from custom_components.better_thermostat.utils.calibration.tpi import TpiOutput
 from custom_components.better_thermostat.utils.const import CalibrationMode
-from tests.factories import ThermostatStandIn, make_state
+from custom_components.better_thermostat.utils.telemetry import CalibrationBalance
+from tests.factories import ThermostatStandIn, make_snapshot, make_state
+
+
+def _balance(valve_percent: float) -> CalibrationBalance:
+    """A calibration result as the balance computation stores it on the TRV."""
+    return {"valve_percent": valve_percent, "apply_valve": False, "debug": {}}
 
 
 class TestCapabilityLevels:
@@ -86,10 +93,10 @@ class TestCalibratorProtocol:
     def test_observe_changes_state_actuate_only_when_ready(self):
         """observe() feeds the model; actuate() emits only when ready."""
         cal = _StubCalibrator()
-        assert cal.actuate(None) is None
+        assert cal.actuate(make_snapshot()) is None
         cal.observe(None, 0.0)
         assert cal.is_ready() is True
-        assert cal.actuate(None) == 42.0
+        assert cal.actuate(make_snapshot()) == 42.0
 
 
 class TestStrategyRegistry:
@@ -155,8 +162,9 @@ class TestStrategyRegistry:
             lambda bt, e: (None, False),
             lambda bt, e: (None, True),
         )
-        assert registry[CalibrationMode.MPC_CALIBRATION].run(None, "x") == (None, False)
-        assert registry[CalibrationMode.PID_CALIBRATION].run(None, "x") == (None, True)
+        bt = ThermostatStandIn()
+        assert registry[CalibrationMode.MPC_CALIBRATION].run(bt, "x") == (None, False)
+        assert registry[CalibrationMode.PID_CALIBRATION].run(bt, "x") == (None, True)
 
     def test_capability_is_monotone(self):
         """Ready implies healthy implies configured for strategy reports."""
@@ -172,7 +180,7 @@ class TestStrategyRegistry:
         cap = strategy.capability(bt, "climate.trv")
         assert cap == CapabilityLevel.HEALTHY
 
-        bt.real_trvs["climate.trv"].calibration_balance = {"valve_percent": 40}
+        bt.real_trvs["climate.trv"].calibration_balance = _balance(40.0)
         cap = strategy.capability(bt, "climate.trv")
         assert cap == CapabilityLevel.READY
 
@@ -218,7 +226,13 @@ class TestStrategyRegistry:
 class TestBalanceCalibrator:
     """The production adapter lifts a BalanceStrategy onto the protocol."""
 
-    def _adapter(self, *, percent=55.0, use_valve=False, balance=None):
+    def _adapter(
+        self,
+        *,
+        percent=55.0,
+        use_valve=False,
+        balance: CalibrationBalance | None = None,
+    ):
         registry = build_strategy_registry(
             lambda bt, e: (MagicMock(spec=MpcOutput, valve_percent=percent), use_valve),
             lambda bt, e: (
@@ -249,19 +263,19 @@ class TestBalanceCalibrator:
     def test_actuate_returns_the_observed_percent(self):
         """observe() runs the balance computation; actuate() emits it."""
         adapter, _ = self._adapter(percent=40.0)
-        assert adapter.actuate(None) is None
+        assert adapter.actuate(make_snapshot()) is None
         adapter.observe(None, 0.0)
-        assert adapter.actuate(None) == 40.0
+        assert adapter.actuate(make_snapshot()) == 40.0
 
     def test_use_valve_results_are_not_emitted_as_percent(self):
         """A use_valve result carries no setpoint-channel percentage."""
         adapter, _ = self._adapter(percent=None, use_valve=True)
         adapter.observe(None, 0.0)
-        assert adapter.actuate(None) is None
+        assert adapter.actuate(make_snapshot()) is None
 
     def test_capability_delegates_to_the_strategy(self):
         """Capability comes from the strategy's report on the live entity."""
-        adapter, bt = self._adapter(balance={"valve_percent": 40})
+        adapter, bt = self._adapter(balance=_balance(40.0))
         assert adapter.capability() == CapabilityLevel.READY
         bt.room_temperature = None
         assert adapter.capability() == CapabilityLevel.CONFIGURED
@@ -280,7 +294,7 @@ class TestBalanceCalibrator:
         nan_adapter, _ = self._adapter(percent=float("nan"))
         nan_adapter.observe(None, 0.0)
         assert nan_adapter.is_ready() is False
-        assert nan_adapter.actuate(None) is None
+        assert nan_adapter.actuate(make_snapshot()) is None
 
     def test_health_flags_non_finite_results(self):
         """A non-finite observed percentage degrades the health grade."""
@@ -310,14 +324,14 @@ class TestPidSelfHealing:
         assert healed.pid_kp is None
 
     @pytest.mark.parametrize("gain", ["kp", "ki", "kd"])
-    def test_a_non_finite_gain_alone_is_dropped(self, gain):
+    def test_a_non_finite_gain_alone_is_dropped(self, gain: PidGain):
         """Only the gain that went non-finite falls back to its default."""
         state = PIDState(pid_kp=60.0, pid_ki=0.01, pid_kd=2000.0)
         set_pid_gain(state, gain, float("nan"))
         healed, health = sanitize_pid_state(state, PIDParams())
         assert health == CalibratorHealth.NON_FINITE
         assert pid_gain(healed, gain) is None
-        kept = {"kp": 60.0, "ki": 0.01, "kd": 2000.0}
+        kept: dict[PidGain, float] = {"kp": 60.0, "ki": 0.01, "kd": 2000.0}
         del kept[gain]
         assert {name: pid_gain(healed, name) for name in kept} == kept
 

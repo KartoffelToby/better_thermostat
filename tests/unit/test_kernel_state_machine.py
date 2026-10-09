@@ -329,7 +329,10 @@ class KernelMachine(RuleBasedStateMachine):
         contact, params = self._contact(kind)
         region = getattr(self.kernel, kind)
         stepped = window_step(region, contact.raw_open, now, params)
-        self.kernel = replace(self.kernel, **{kind: stepped})
+        if kind == "window":
+            self.kernel = replace(self.kernel, window=stepped)
+        else:
+            self.kernel = replace(self.kernel, door=stepped)
         contact.observe(now, params)
         assert stepped.effective_open == contact.committed_open, (
             f"{kind} region {stepped} disagrees with the debounced sensor "

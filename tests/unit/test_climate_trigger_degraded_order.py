@@ -42,7 +42,7 @@ def bt():
     mock.outdoor_sensor_entity_id = None
     mock.weather_entity_id = None
     mock.cooler_entity_id = None
-    mock.unavailable_sensors = []
+    mock.unavailable_sensors = list[str]()
     mock._degraded_warning_emitted = False
     mock.in_maintenance = False
     mock.control_queue_task = asyncio.Queue(maxsize=1)
@@ -54,7 +54,7 @@ def bt():
 @pytest.mark.asyncio
 async def test_trigger_steps_ladder_while_trv_is_unavailable(bt):
     """The ladder leaves OPTIMAL, and the tick runs on, while the TRV is gone."""
-    bt.devices_errors = []
+    bt.devices_errors = list[str]()
     bt._critical_grace_until = None
     with (
         patch(f"{_CLIMATE}.check_ambient_air_temperature", AsyncMock()) as ambient,
