@@ -149,7 +149,7 @@ class TestTrvStateUpdateBug:
             "This test documents the bug - bt_hvac_mode is incorrectly set to OFF"
         )
 
-    def test_bt_hvac_mode_should_remain_heat_when_window_triggered_min_temp(
+    def test_bt_hvac_mode_should_remain_heat_when_window_triggered_min_temperature(
         self, mock_bt_instance
     ):
         """Test that bt_hvac_mode should remain HEAT when window caused the low temperature.
@@ -189,7 +189,9 @@ class TestTrvStateUpdateBug:
 class TestControlTrvWithNoOffMode:
     """Tests for the full control_trv flow with no_off_system_mode."""
 
-    async def test_control_trv_restores_temp_after_window_close(self, mock_bt_instance):
+    async def test_control_trv_restores_temperature_after_window_close(
+        self, mock_bt_instance
+    ):
         """Test that control_trv properly restores temperature after window closes.
 
         This tests the full flow and verifies the fix works end-to-end.

@@ -424,7 +424,7 @@ class TestCheckTargetTemperature:
         assert mock_self.real_trvs["climate.trv1"].target_temperature_received is True
 
     @pytest.mark.asyncio
-    async def test_range_mode_confirms_via_target_temp_low(self):
+    async def test_range_mode_confirms_via_target_temperature_low(self):
         """A range-capable TRV confirms the write through target_temp_low."""
         mock_state = Mock()
         mock_state.attributes = {
@@ -494,11 +494,11 @@ class TestCheckTargetTemperature:
         }
 
         # Simulate temperature change after 0.1 seconds
-        async def update_temp():
+        async def update_temperature():
             await asyncio.sleep(0.1)
             mock_state.attributes["temperature"] = 21.0
 
-        update_task = asyncio.create_task(update_temp())
+        update_task = asyncio.create_task(update_temperature())
 
         result = await _watch_last_write(mock_self, "climate.trv1")
 
@@ -922,7 +922,7 @@ class TestGetValveControlBoostCalibrationOutput:
         assert bal is None
         assert source is None
 
-    def test_boost_target_temp_based_returns_none(self):
+    def test_boost_target_temperature_based_returns_none(self):
         """TARGET_TEMP_BASED + boost → no valve override (None, None)."""
         mock_self = self._mock_in_boost()
         bal, source = _get_valve_control(

@@ -127,7 +127,7 @@ def test_no_off_fahrenheit_above_min_false():
     assert group_all_members_off(self_) is False
 
 
-def test_no_off_target_temp_low_at_min_true():
+def test_no_off_target_temperature_low_at_min_true():
     """A member exposing only target_temp_low at min_temp counts as off."""
     members = {"climate.a": _member(no_off=True), "climate.b": _member(no_off=True)}
     states = {
@@ -137,7 +137,7 @@ def test_no_off_target_temp_low_at_min_true():
     assert group_all_members_off(_fake_self(members, states)) is True
 
 
-def test_no_off_null_temperature_falls_back_to_target_temp_low():
+def test_no_off_null_temperature_falls_back_to_target_temperature_low():
     """A device on a target range publishes ``temperature`` as None.
 
     Home Assistant emits both attributes for a device that supports a single

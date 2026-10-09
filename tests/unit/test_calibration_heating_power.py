@@ -149,7 +149,7 @@ class TestWithoutDirectValveControl:
     """Without valve support the legacy per-channel math applies."""
 
     def test_local_heating_uses_the_legacy_offset_math(self):
-        """Compute last_cal - ((cal_min + trv_temperature) * valve_position)."""
+        """Compute last_cal - ((minimum_calibration + trv_temperature) * valve_position)."""
         bt = _make_bt(HVACAction.HEATING)
         with (
             patch(f"{_CAL}._supports_direct_valve_control", return_value=False),

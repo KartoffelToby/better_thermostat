@@ -170,7 +170,7 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
 
 ### Actuator longevity
 
-* **total_valve_travel_pct** = Σ|Δu| over the run. This — not cycle count
+* **total_valve_travel_percent** = Σ|Δu| over the run. This — not cycle count
   — is the headline wear/battery proxy. A precise controller (the oracle
   included) makes *many small* moves; counting "cycles" would punish it
   for being smooth. Summed absolute travel is the honest measure: every
@@ -181,7 +181,7 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
 
 ### Energy
 
-* **integral_valve_pct_min** = ∫ valve% dt. A proxy for delivered heat.
+* **integral_valve_percent_minutes** = ∫ valve% dt. A proxy for delivered heat.
   Scored *symmetrically* around the oracle's optimum (§6): under-heating
   (missed setpoint) costs the same as over-heating (waste). This is a
   deliberate neutrality — the benchmark does not assume the user prefers
@@ -193,7 +193,7 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
 * **time_above/below_setpoint_K_h** — asymmetric comfort accounting in
   K·h (the BOPTEST `tdis_tot` split), for analyses where overshoot and
   undershoot have different cost.
-* **valve_sweet_spot_residency_pct** — fraction of time the valve sits at
+* **valve_sweet_spot_residency_percent** — fraction of time the valve sits at
   40–60 %. Heat-pump COP suffers at the extremes; mid-range modulation is
   efficient. Surfaced for heat-pump scenarios (§7-G), not folded into the
   score.

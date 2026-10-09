@@ -30,7 +30,7 @@ HALF_DEGREE_TRV_WITH_A_FINE_CONFIGURED_STEP = replace(
     GENERIC_HEAT_TRV,
     name="half_degree_trv_fine_configured_step",
     target_temperature_step=0.5,
-    configured_target_temp_step="0.1",
+    configured_target_temperature_step="0.1",
 )
 
 

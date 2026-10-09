@@ -203,7 +203,7 @@ class TestCommitTemperatureUpdate:
         assert mock_bt.room_temperature == 21.57
 
     @pytest.mark.asyncio
-    async def test_updates_prev_stable_temp_on_change(self, mock_bt):
+    async def test_updates_prev_stable_temperature_on_change(self, mock_bt):
         """Store old room_temperature in prev_stable_temperature when values differ."""
         mock_bt.room_temperature = 20.0
 
@@ -212,7 +212,7 @@ class TestCommitTemperatureUpdate:
         assert mock_bt.prev_stable_temperature == 20.0
 
     @pytest.mark.asyncio
-    async def test_prev_stable_temp_unchanged_when_same(self, mock_bt):
+    async def test_prev_stable_temperature_unchanged_when_same(self, mock_bt):
         """Keep prev_stable_temperature unchanged when new equals old."""
         mock_bt.room_temperature = 20.0
         mock_bt.prev_stable_temperature = 19.0
@@ -297,7 +297,7 @@ class TestCommitTemperatureUpdate:
         assert mock_bt._control_needed_after_maintenance is True
 
     @pytest.mark.asyncio
-    async def test_quirks_external_temp_called(self, mock_bt):
+    async def test_quirks_external_temperature_called(self, mock_bt):
         """Call model_quirks.maybe_set_external_temperature() for each TRV."""
         quirks = _external_temperature_quirks()
         mock_bt.real_trvs = {
@@ -313,7 +313,7 @@ class TestCommitTemperatureUpdate:
         )
 
     @pytest.mark.asyncio
-    async def test_a_trv_awaiting_its_initialization_gets_no_external_temp(
+    async def test_a_trv_awaiting_its_initialization_gets_no_external_temperature(
         self, mock_bt
     ):
         """A reading reaches only the TRVs that are initialized."""
@@ -557,7 +557,7 @@ class TestTriggerTemperatureChangeGuards:
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_returns_early_temp_below_minus_50(self, mock_bt):
+    async def test_returns_early_temperature_below_minus_50(self, mock_bt):
         """Return early and create a repair issue for temperature below -50."""
         event = _make_event(State(SENSOR_ID, "-60.0"))
 
@@ -585,7 +585,7 @@ class TestTemperatureAcceptance:
     """
 
     @pytest.mark.asyncio
-    async def test_first_temp_accepted_when_cur_is_none(self, mock_bt):
+    async def test_first_temperature_accepted_when_cur_is_none(self, mock_bt):
         """Accept the first temperature reading when room_temperature is None."""
         mock_bt.room_temperature = None
         event = _make_event(State(SENSOR_ID, "21.0"))
@@ -654,7 +654,7 @@ class TestTemperatureAcceptance:
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_identical_temp_not_accepted(self, mock_bt):
+    async def test_identical_temperature_not_accepted(self, mock_bt):
         """Reject an identical temperature (diff=0.0 < threshold 0.11)."""
         mock_bt.room_temperature = 20.0
         mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
@@ -665,7 +665,7 @@ class TestTemperatureAcceptance:
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_accepted_temp_written_to_room_temperature(self, mock_bt):
+    async def test_accepted_temperature_written_to_room_temperature(self, mock_bt):
         """Write the accepted temperature to room_temperature."""
         mock_bt.room_temperature = 20.0
         event = _make_event(State(SENSOR_ID, "21.5"))
@@ -757,7 +757,7 @@ class TestAccumulationTracking:
         assert mock_bt.accum_dir == -1
 
     @pytest.mark.asyncio
-    async def test_pending_temp_set_for_sub_threshold_change(self, mock_bt):
+    async def test_pending_temperature_set_for_sub_threshold_change(self, mock_bt):
         """Set pending_temperature for sub-threshold changes (plateau tracking)."""
         mock_bt.room_temperature = 20.0
         event = _make_event(State(SENSOR_ID, "20.05"))

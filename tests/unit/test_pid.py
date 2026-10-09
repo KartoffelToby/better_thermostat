@@ -624,7 +624,7 @@ class TestPIDController:
         # Change is 20 -> 70 = +50%, which is >= 33%, so bypasses hold-time
         assert percent2 == 70.0  # Big change allowed
 
-    def test_hold_time_allows_target_temp_change(self):
+    def test_hold_time_allows_target_temperature_change(self):
         """Test that target temperature changes bypass the hold-time restriction."""
         params = PIDParams(
             auto_tune=False,

@@ -119,14 +119,14 @@ class TestMPCController:
         )
 
         # Raw sensor value (used for learning) is 0.7K below target.
-        base_temp = 21.3
+        base_temperature = 21.3
         target = 22.0
 
         raw, _ = compute_mpc(
             MpcInput(
                 key="test_filtered_raw",
                 target_temperature=target,
-                room_temperature=base_temp,
+                room_temperature=base_temperature,
             ),
             params,
         )
@@ -135,7 +135,7 @@ class TestMPCController:
             MpcInput(
                 key="test_filtered_cost",
                 target_temperature=target,
-                room_temperature=base_temp,
+                room_temperature=base_temperature,
                 room_temperature_filtered=21.9,  # EMA closer to target → lower cost
             ),
             params,
@@ -583,9 +583,9 @@ class TestMPCController:
 
         assert state.min_effective_percent == 16.0
 
-    @pytest.mark.parametrize("hold_time_s", [0.0, 300.0])
+    @pytest.mark.parametrize("hold_time_seconds", [0.0, 300.0])
     def test_a_valve_opened_after_the_trv_warmed_keeps_the_learned_minimum(
-        self, hold_time_s
+        self, hold_time_seconds
     ):
         """Only an opening in force while the TRV warmed lowers the minimum.
 
@@ -601,7 +601,7 @@ class TestMPCController:
             deadzone_decay_percent=1.0,
             percent_hysteresis_pts=0.0,
             min_update_interval_s=0.0,
-            min_percent_hold_time_s=hold_time_s,
+            min_percent_hold_time_s=hold_time_seconds,
         )
         state = MpcState(trv_profile="linear", min_effective_percent=16.0)
         for cycle, raw_percent in enumerate((0.0, 20.0)):
@@ -714,7 +714,7 @@ class TestMPCController:
         assert below_band.debug.get("mpc_tolerance_hold_resume") is True
         assert below_band.valve_percent > 0
 
-    def test_tolerance_hold_keeps_virtual_temp_fresh(self):
+    def test_tolerance_hold_keeps_virtual_temperature_fresh(self):
         """Virtual temperature/Kalman state should keep updating while tolerance hold is active."""
 
         params = MpcParams(
@@ -827,8 +827,8 @@ class TestMPCController:
                 break
 
         # Check that temperature stabilizes near target
-        final_temp = results[-1][0]
-        final_error = target - final_temp
+        final_temperature = results[-1][0]
+        final_error = target - final_temperature
         # With base-load u0 the controller may intentionally keep a small bias
         # (steady-state valve opening) which can slightly change the overshoot
         # behaviour in this simplified plant. Keep the bound a bit looser.

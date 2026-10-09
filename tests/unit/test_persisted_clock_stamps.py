@@ -236,13 +236,15 @@ def test_derivative_does_not_read_the_downtime_drift_as_a_one_second_change():
     """
     params = PIDParams(auto_tune=False)
     state = _restored_after_reboot(_state_at_shutdown())
-    drift_k = 0.3
+    drift_kelvin = 0.3
 
-    _, debug, _ = _cycle(params, state, now=_UPTIME_AFTER_REBOOT_S, room=20.8 - drift_k)
+    _, debug, _ = _cycle(
+        params, state, now=_UPTIME_AFTER_REBOOT_S, room=20.8 - drift_kelvin
+    )
 
     derivative = debug["d"]
     assert derivative is not None
-    assert abs(derivative) <= params.kd * drift_k / MAX_DT_S
+    assert abs(derivative) <= params.kd * drift_kelvin / MAX_DT_S
 
 
 def test_derivative_after_a_core_restart_spreads_the_drift_over_the_gap():
@@ -285,9 +287,9 @@ def test_auto_tune_reads_no_overshoot_across_a_host_reboot():
     """
     params = PIDParams(auto_tune=True, min_hold_time_s=0.0)
     state = _restored_after_reboot(_state_at_shutdown(last_abs_error=1.0))
-    first_cycle_s = params.tune_min_interval_s + 60.0
+    first_cycle_seconds = params.tune_min_interval_s + 60.0
 
-    _, _, state = _cycle(params, state, now=first_cycle_s, room=21.0)
+    _, _, state = _cycle(params, state, now=first_cycle_seconds, room=21.0)
 
     assert (state.pid_kp, state.pid_kd) == (60.0, 2000.0)
 
@@ -316,8 +318,8 @@ def test_integrator_relief_reads_no_setpoint_crossing_across_a_host_reboot():
     assert after_crossing["i"] == fresh["i"]
 
 
-def _tuning_cycles(start_s: float) -> PIDState:
-    """Run a sluggish room for three cycles from ``start_s`` and return the state.
+def _tuning_cycles(start_seconds: float) -> PIDState:
+    """Run a sluggish room for three cycles from ``start_seconds`` and return the state.
 
     The room sits well below target, does not move, and the valve is not yet
     fully open: the pattern auto-tune answers by raising the integral gain.
@@ -325,7 +327,9 @@ def _tuning_cycles(start_s: float) -> PIDState:
     params = PIDParams(auto_tune=True, min_hold_time_s=0.0)
     state = _restored_after_reboot(_state_at_shutdown())
     for cycle in range(3):
-        _, _, state = _cycle(params, state, now=start_s + cycle * 300.0, room=20.7)
+        _, _, state = _cycle(
+            params, state, now=start_seconds + cycle * 300.0, room=20.7
+        )
     return state
 
 
@@ -454,8 +458,10 @@ _WALL_STEP_BACK_S = 4 * 3600.0
 """How far the wall clock steps back, in seconds."""
 
 
-def _mpc_cycle(state: MpcState, wall_s: float, room: float) -> tuple[int, MpcState]:
-    """Run one MPC cycle at the wall-clock reading ``wall_s``."""
+def _mpc_cycle(
+    state: MpcState, wall_seconds: float, room: float
+) -> tuple[int, MpcState]:
+    """Run one MPC cycle at the wall-clock reading ``wall_seconds``."""
     inp = MpcInput(
         key="k",
         target_temperature=21.0,
@@ -464,7 +470,7 @@ def _mpc_cycle(state: MpcState, wall_s: float, room: float) -> tuple[int, MpcSta
         temperature_slope_K_per_min=0.0,
         outdoor_temperature=5.0,
     )
-    with patch.object(mpc_module, "time", return_value=wall_s):
+    with patch.object(mpc_module, "time", return_value=wall_seconds):
         out, state = compute_mpc(inp, MpcParams(), state=state, all_states={})
     assert out is not None
     return out.valve_percent, state
@@ -478,7 +484,7 @@ def test_every_mpc_stamp_ahead_of_the_clock_is_taken_as_absent():
     """
     ahead = _WALL_START_S + 86400.0
     state = MpcState(
-        last_percent=100.0, last_temperature=20.0, last_trv_temperature=21.0
+        last_percent=100.0, last_cycle_temperature=20.0, last_trv_temperature=21.0
     )
     for name in _wall_fields(MpcState):
         setattr(state, name, ahead)

@@ -53,7 +53,7 @@ def test_mpc_against_s01_runs_to_completion():
     assert (m.settling_time_min >= 0.0) or math.isinf(m.settling_time_min)
     assert math.isfinite(m.rmse_tracking_K)
     assert math.isfinite(m.valve_cycle_count)
-    assert math.isfinite(m.integral_valve_pct_min)
+    assert math.isfinite(m.integral_valve_percent_minutes)
 
 
 def test_mpc_run_is_deterministic():
@@ -73,7 +73,7 @@ def test_mpc_run_is_deterministic():
 _COLD_ROOM_WINDOW_OPEN = ScenarioConfig(
     name="window_open_cold_room",
     description="Window open throughout, room 4 K below a 21 °C target",
-    duration_min=20,
+    duration_minutes=20,
     initial=InitialConditions(T_room=17.0, T_rad=17.0),
     plant=S01_SETPOINT_STEP_SMALL.plant,
     setpoint_schedule=schedules.constant(21.0),
@@ -93,7 +93,7 @@ def test_open_window_closes_the_valve_for_every_controller(controller):
     result = run_scenario(
         _make_adapter(controller, _COLD_ROOM_WINDOW_OPEN.plant), _COLD_ROOM_WINDOW_OPEN
     )
-    assert result.metrics.integral_valve_pct_min == 0.0
+    assert result.metrics.integral_valve_percent_minutes == 0.0
 
 
 def test_open_window_closes_the_valve_on_a_multi_trv_plant():
@@ -105,7 +105,7 @@ def test_open_window_closes_the_valve_on_a_multi_trv_plant():
         plant_params=plant,
         initial_state=MultiTrvPlantState(T_room=17.0, T_rads=[17.0] * plant.n_trvs),
     )
-    assert result.metrics.integral_valve_pct_min == 0.0
+    assert result.metrics.integral_valve_percent_minutes == 0.0
 
 
 class _ConstantValveAdapter:
@@ -164,8 +164,8 @@ class _RecordingActuator(Actuator):
         self.flows: list[float] = []
 
     @override
-    def apply(self, cmd_pct: float) -> float:
-        flow = super().apply(cmd_pct)
+    def apply(self, command_percent: float) -> float:
+        flow = super().apply(command_percent)
         self.flows.append(flow)
         return flow
 
@@ -200,7 +200,7 @@ def test_open_window_closes_the_plant_valve_through_actuator_hysteresis():
     )
     adapter = _ScheduledValveAdapter(0.0)
     plant = TwoStatePlant(scenario.plant, PlantState(T_room=17.0, T_rad=17.0))
-    actuator = _RecordingActuator(ActuatorParams(hysteresis_pct=10.0))
+    actuator = _RecordingActuator(ActuatorParams(hysteresis_percent=10.0))
     facade = _SingleTrvFacade(plant, actuator)
 
     _drive_adapter(

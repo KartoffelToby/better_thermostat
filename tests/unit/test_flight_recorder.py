@@ -333,7 +333,7 @@ def test_state_without_pending_target_field_loads():
     assert rebuilt.control_mode.pending_target is None
 
 
-def test_snapshot_exported_as_temp_slope_loads():
+def test_snapshot_exported_as_temperature_slope_loads():
     """Exports from before the slope's rename still reconstruct and replay."""
     recorder = FlightRecorder()
     snapshot = replace(_snapshot(), temperature_slope=0.02)

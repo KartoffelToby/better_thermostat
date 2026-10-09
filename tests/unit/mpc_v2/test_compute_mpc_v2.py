@@ -73,7 +73,7 @@ def test_heating_disallowed_returns_none() -> None:
     assert out is None
 
 
-def test_missing_current_temp_returns_none() -> None:
+def test_missing_current_temperature_returns_none() -> None:
     """A missing current room temperature returns no command."""
     out, _ = compute_mpc_v2(_baseline_input(room_temperature=None), MpcV2Params(), None)
     assert out is None
@@ -89,7 +89,7 @@ def test_first_call_creates_controller_and_returns_percent() -> None:
     assert state.last_percent == float(out.valve_percent)
 
 
-def test_max_opening_pct_is_honoured() -> None:
+def test_max_opening_percent_is_honoured() -> None:
     """The valve percent never exceeds the configured max_opening_percent."""
     params = MpcV2Params()
     out, _ = compute_mpc_v2(
@@ -159,7 +159,7 @@ def test_valve_percent_rounds_half_up(
     assert out.valve_percent == expected
 
 
-def test_fractional_max_opening_pct_is_never_exceeded(monkeypatch) -> None:
+def test_fractional_max_opening_percent_is_never_exceeded(monkeypatch) -> None:
     """A cap of 55.9 % admits 55 %, never a rounded-up 56 %."""
     monkeypatch.setattr(MpcV2Controller, "step", _step_returning(1.0))
     out, _ = compute_mpc_v2(
