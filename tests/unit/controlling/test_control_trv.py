@@ -4699,3 +4699,126 @@ class TestSetpointOnTheDeviceGrid:
 
         assert radio == [pytest.approx(21.0)]
         assert mock_override.call_args.args[2] == pytest.approx(21.0)
+
+
+# ---------------------------------------------------------------------------
+# Room OFF on a TRV without an OFF mode
+# ---------------------------------------------------------------------------
+
+
+def _trv_without_off_mode(variant, calibration=CalibrationOutput.TARGET_TEMP_BASED):
+    """A TRV that is turned off by its minimum setpoint.
+
+    ``modes_without_off`` offers no OFF mode at all; ``flagged`` offers one
+    but is configured not to use it.
+    """
+    return _default_trv_config(
+        hvac_modes=[HVACMode.HEAT]
+        if variant == "modes_without_off"
+        else [HVACMode.HEAT, HVACMode.OFF],
+        commanded_setpoint=21.0,
+        advanced={
+            "calibration_mode": CalibrationMode.NO_CALIBRATION,
+            "calibration": calibration,
+            "no_off_system_mode": variant == "flagged",
+        },
+    )
+
+
+class TestRoomOffOnATrvWithoutOffMode:
+    """Switching the room off sends the minimum setpoint at once."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("variant", ["modes_without_off", "flagged"])
+    @pytest.mark.parametrize(
+        "calibration",
+        [CalibrationOutput.TARGET_TEMP_BASED, CalibrationOutput.LOCAL_BASED],
+    )
+    async def test_the_hold_rung_turns_the_trv_off(self, variant, calibration):
+        """With no usable temperature, a room switched off still turns the TRV off."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 21.0},
+            real_trvs={"climate.trv1": _trv_without_off_mode(variant, calibration)},
+            heat_target_temperature=21.0,
+            bt_hvac_mode=HVACMode.OFF,
+        )
+        mock_self.kernel_state = replace(
+            mock_self.kernel_state, control_mode=ControlModeState(mode=ControlMode.HOLD)
+        )
+
+        with (
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac_mode,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            await control_trv(mock_self, "climate.trv1")
+
+        mock_set_temperature.assert_called_once()
+        assert mock_set_temperature.call_args.args[2] == pytest.approx(5.0)
+        mock_set_hvac_mode.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("variant", ["modes_without_off", "flagged"])
+    async def test_the_minimum_setpoint_does_not_wait_for_the_write_budget(
+        self, variant
+    ):
+        """A setpoint written a moment ago does not hold back the OFF write."""
+        trv = _trv_without_off_mode(variant)
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 21.0},
+            real_trvs={"climate.trv1": trv},
+            heat_target_temperature=21.0,
+            bt_hvac_mode=HVACMode.OFF,
+        )
+        trv.last_write_monotonic = mock_self.clock.monotonic() - 1.0
+
+        with (
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            await control_trv(mock_self, "climate.trv1")
+
+        mock_set_temperature.assert_called_once()
+        assert mock_set_temperature.call_args.args[2] == pytest.approx(5.0)
+
+    @pytest.mark.asyncio
+    async def test_a_heating_setpoint_still_waits_for_the_write_budget(self):
+        """The budget holds back an ordinary setpoint change on the same TRV."""
+        trv = _trv_without_off_mode("modes_without_off")
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 21.0},
+            real_trvs={"climate.trv1": trv},
+            heat_target_temperature=22.0,
+        )
+        trv.last_write_monotonic = mock_self.clock.monotonic() - 1.0
+
+        with (
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temperature,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            await control_trv(mock_self, "climate.trv1")
+
+        mock_set_temperature.assert_not_called()
