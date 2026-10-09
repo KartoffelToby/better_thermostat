@@ -2658,6 +2658,40 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_hvac_mode == HVACMode.OFF
 
     @pytest.mark.asyncio
+    async def test_no_off_system_mode_press_to_minimum_keeps_an_off_room_off(
+        self, mock_bt, caplog
+    ):
+        """A press to the minimum in a room that is already off leaves it off."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["no_off_system_mode"] = True
+        trv.min_temp = 5.0
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 5.0},
+        )
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with (
+            caplog.at_level(logging.DEBUG),
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
+        assert "interpreting as heating OFF" not in caplog.text
+
+    @pytest.mark.asyncio
     async def test_no_off_system_mode_sets_heat_above_minimum(self, mock_bt):
         """no_off_system_mode: setpoint above min_temp while BT is OFF switches to HEAT."""
         mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
