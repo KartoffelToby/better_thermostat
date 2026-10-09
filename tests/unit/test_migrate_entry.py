@@ -64,7 +64,7 @@ def _make_entry(trvs):
         CONF_TEMPERATURE_SENSOR: ROOM_SENSOR,
         CONF_THERMOSTAT: trvs,
     }
-    entry.options = {}
+    entry.options = dict[str, object]()
     return entry
 
 

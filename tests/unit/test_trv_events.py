@@ -6,8 +6,9 @@ and the convert_inbound_states / convert_outbound_states helpers.
 """
 
 import asyncio
+from collections.abc import Callable, Coroutine
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -39,11 +40,18 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import TaskManager
-from custom_components.better_thermostat.utils.helpers import mode_remap
+from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
+from custom_components.better_thermostat.utils.helpers import (
+    CoolerSendCache,
+    mode_remap,
+)
 from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 ENTITY_ID = "climate.test_trv"
 PEER_ID = "climate.test_trv_peer"
+
+# A timer the reread armed: its delay in seconds and the callback it runs.
+type _ArmedTimer = tuple[float, Callable[[datetime], object]]
 
 
 # ---------------------------------------------------------------------------
@@ -1805,7 +1813,8 @@ class TestHvacModeUpdate:
         the outside is a dial that works for temperature and not for mode.
         """
         outcomes = []
-        for flag in ({}, {"child_lock": False}):
+        flags: tuple[TrvAdvanced, ...] = ({}, {"child_lock": False})
+        for flag in flags:
             trv = mock_bt.real_trvs[ENTITY_ID]
             trv.advanced.pop("child_lock", None)
             trv.advanced.update(flag)
@@ -3105,11 +3114,6 @@ class TestControlQueueTrigger:
 class TestConvertInboundStates:
     """Tests for convert_inbound_states()."""
 
-    def test_none_state_raises_typeerror(self, mock_bt):
-        """Raise TypeError when state is None."""
-        with pytest.raises(TypeError):
-            convert_inbound_states(mock_bt, ENTITY_ID, None)  # type: ignore[arg-type]
-
     def test_none_attributes_raises_typeerror(self, mock_bt):
         """Raise TypeError when state.attributes is None."""
         state = MagicMock(spec=State)
@@ -4137,7 +4141,9 @@ class TestDualRoleEntityReports:
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
         shared_bt.cool_target_temperature = cool_target_temperature
         shared_bt._cooler_last_sent = (
-            {"temperature": (cool_target_temperature, 0.0)} if send_cache_primed else {}
+            CoolerSendCache(temperature=(cool_target_temperature, 0.0))
+            if send_cache_primed
+            else CoolerSendCache()
         )
 
         await self._report(
@@ -4236,8 +4242,8 @@ def _prepare_outage_room(bt, *, with_peer: bool):
         unavailable if entity_id == ENTITY_ID else peer_state
     )
     bt.in_maintenance = False
-    bt.devices_errors = []
-    bt.devices_states = {}
+    bt.devices_errors = list[str]()
+    bt.devices_states = dict[str, dict[str, object]]()
     bt._critical_grace_until = None
     # The entity has subscribed to its TRVs' state changes.
     bt._async_unsub_state_changed = MagicMock()
@@ -4333,7 +4339,7 @@ class TestInternalRereadAfterTheDebounce:
 
     def _start(self, mock_bt, trv):
         """Arm the reread and return the work it hands to the entity."""
-        work = []
+        work: list[Coroutine[object, object, None]] = []
         mock_bt.task_manager.create_task = MagicMock(
             side_effect=lambda coro, **kwargs: work.append(coro) or MagicMock()
         )
@@ -4465,7 +4471,7 @@ class TestInternalRereadAfterTheDebounce:
             mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
         )
         clock = [self.T0 + timedelta(seconds=1)]
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
         with patch(
             "custom_components.better_thermostat.events.trv.request_control_cycle"
@@ -4492,7 +4498,7 @@ class TestInternalRereadAfterTheDebounce:
         _set_control_mode(mock_bt, ControlMode.SENSOR_FALLBACK)
         assert effective_room_temperature(mock_bt) == pytest.approx(18.0)
         clock = [self.T0 + timedelta(seconds=1)]
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
         with patch(
             "custom_components.better_thermostat.events.trv.request_control_cycle"
@@ -4517,7 +4523,7 @@ class TestInternalRereadAfterTheDebounce:
             current=None,
         )
         clock = [self.T0 + timedelta(seconds=1)]
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
         await self._run(
             coro, clock, timers, [(self.T0 + timedelta(seconds=5), lambda: None)]
@@ -4536,7 +4542,7 @@ class TestInternalRereadAfterTheDebounce:
             mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
         )
         clock = [self.T0 + timedelta(seconds=1)]
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
         seen_at_first_deadline = []
 
@@ -4578,7 +4584,7 @@ class TestInternalRereadAfterTheDebounce:
             mock_bt, state=_make_state(attributes={"current_temperature": unchanged})
         )
         clock = [self.T0 + timedelta(seconds=1)]
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
         with patch(
             "custom_components.better_thermostat.events.trv.request_control_cycle"
@@ -4605,7 +4611,7 @@ class TestInternalRereadAfterTheDebounce:
         )
         replacement = Trv(entity_id=ENTITY_ID, current_temperature=18.0)
         clock = [self.T0 + timedelta(seconds=1)]
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
 
         def _leave():
@@ -4637,7 +4643,7 @@ class TestInternalRereadAfterTheDebounce:
         trv = self._prepare(
             mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
         )
-        timers = []
+        timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)
         with (
             patch(

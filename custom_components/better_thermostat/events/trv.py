@@ -924,9 +924,6 @@ def convert_inbound_states(
     Modified state
     """
 
-    if state is None:
-        raise TypeError("convert_inbound_states() received None state, cannot convert")
-
     if state.attributes is None or state.state is None:
         raise TypeError("convert_inbound_states() received None state, cannot convert")
 
