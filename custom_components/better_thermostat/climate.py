@@ -118,7 +118,12 @@ from .events.temperature import (
 )
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import initial_tweak, load_model_quirks, lowest_setpoint
+from .model_fixes.model_quirks import (
+    initial_tweak,
+    load_model_quirks,
+    lowest_setpoint,
+    trv_report_is_unreadable,
+)
 from .model_fixes.types import ExternalTemperatureQuirk
 from .switch import restored_child_lock
 from .trv import Trv
@@ -3996,17 +4001,27 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         )
 
     def _build_trv_snapshots(self) -> list[TrvSnapshot]:
-        """Build TrvSnapshot list from real_trvs with hass state fallback."""
+        """Build TrvSnapshot list from real_trvs with hass state fallback.
+
+        A TRV whose state reads as the device being gone is left out: its
+        last action and valve position describe a device that no longer
+        reports, and they must not lift the room's action to heating.
+        """
         snapshots: list[TrvSnapshot] = []
         for entity_id, info in (self.real_trvs or {}).items():
             if not isinstance(info, Trv):
+                continue
+
+            trv_state = self.hass.states.get(entity_id)
+            if trv_state is not None and trv_report_is_unreadable(
+                self, entity_id, trv_state
+            ):
                 continue
 
             # Resolve hvac_action: cached first, hass state fallback
             action_val = info.hvac_action
             action_str = action_val.lower() if action_val is not None else ""
             if not action_str:
-                trv_state = self.hass.states.get(entity_id)
                 action_raw = None
                 if trv_state is not None:
                     action_raw = trv_state.attributes.get("hvac_action")

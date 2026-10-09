@@ -102,3 +102,29 @@ def test_snapshot_carries_valve_fields(bt):
     assert snap.ignore_trv_states is True
     assert snap.valve_position == 42
     assert snap.last_valve_percent == 17
+
+
+@pytest.mark.parametrize("gone_state", ["unavailable", "unknown"])
+def test_a_trv_that_is_gone_leaves_no_snapshot(bt, gone_state):
+    """A TRV whose state reads as the device being gone does not speak for the room.
+
+    Its cached action and valve position stay on the record for when it
+    returns, but the room's action is built only from TRVs that report.
+    """
+    gone = trv_from_legacy_dict(
+        "climate.gone",
+        {"hvac_action": "heating", "valve_position": 40, "last_valve_percent": 40},
+    )
+    present = trv_from_legacy_dict("climate.present", {"hvac_action": "idle"})
+    bt.real_trvs = {"climate.gone": gone, "climate.present": present}
+    states = {
+        "climate.gone": State("climate.gone", gone_state),
+        "climate.present": State("climate.present", "heat"),
+    }
+    bt.hass.states.get.side_effect = states.get
+
+    snaps = _snaps(bt)
+
+    assert [snap.entity_id for snap in snaps] == ["climate.present"]
+    assert gone.hvac_action == "heating"
+    assert gone.valve_position == 40
