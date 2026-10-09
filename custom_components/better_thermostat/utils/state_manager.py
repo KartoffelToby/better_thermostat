@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 import logging
@@ -1311,6 +1311,35 @@ def _quarantine_key(entry_id: str, copy: int = 0) -> str:
     return key if copy == 0 else f"{key}.{copy}"
 
 
+# Keys of the per-thermostat sections
+
+
+# The middle segment of a learned-state key that belongs to the room as a
+# whole rather than to one thermostat.
+GROUP_KEY_SEGMENT = "group"
+
+
+def thermostat_of_key(key: str) -> str | None:
+    """Return the thermostat segment of a learned-state key, or ``None``.
+
+    Learned state is keyed ``<unique_id>:<segment>:t<bucket>``, where the
+    segment is a thermostat's entity id or :data:`GROUP_KEY_SEGMENT`. A key of
+    any other shape, such as the shared ``<unique_id>:reid``, belongs to no
+    thermostat. Entity ids hold no colon, so the segment is read from the
+    right.
+    """
+    parts = key.rsplit(":", 2)
+    if len(parts) != 3 or not parts[2].startswith("t"):
+        return None
+    return parts[1]
+
+
+def _key_for_thermostat(key: str, entity_id: str) -> str:
+    """Return ``key`` with its thermostat segment replaced by ``entity_id``."""
+    unique_id, _, bucket = key.rsplit(":", 2)
+    return f"{unique_id}:{entity_id}:{bucket}"
+
+
 # Migration
 
 
@@ -1564,6 +1593,74 @@ class StateManager:
         """Set TPI state for a key and mark dirty."""
         self._state.tpi[key] = tpi
         self._dirty = True
+
+    def move_thermostat(self, old_entity_id: str, new_entity_id: str) -> int:
+        """Key what was learned for ``old_entity_id`` under ``new_entity_id``.
+
+        Every section moves, the live MPC v2 controllers included, so a
+        thermostat whose entity id changed keeps its learned state. An entry
+        already stored under the new id is replaced: the state that moves is
+        the thermostat's own history.
+
+        Returns the number of moved entries; marks the store dirty when
+        anything moved.
+        """
+
+        def move[T](section: dict[str, T]) -> int:
+            keys = [key for key in section if thermostat_of_key(key) == old_entity_id]
+            for key in keys:
+                section[_key_for_thermostat(key, new_entity_id)] = section.pop(key)
+            return len(keys)
+
+        moved = (
+            move(self._state.mpc)
+            + move(self._state.mpc_v2)
+            + move(self._state.mpc_v2_reid)
+            + move(self._state.pid)
+            + move(self._state.tpi)
+            + move(self._mpc_v2_live)
+            + move(self._mpc_v2_reid_live)
+        )
+        if moved:
+            self._dirty = True
+        return moved
+
+    def forget_thermostats_except(self, entity_ids: Collection[str]) -> int:
+        """Drop the learned state of every thermostat not in ``entity_ids``.
+
+        State learned for a thermostat the entry no longer controls would
+        otherwise come back for whichever device is given that entity id
+        next. Keys of the room as a whole and keys that name no thermostat
+        stay.
+
+        Returns the number of dropped entries; marks the store dirty when
+        anything was dropped.
+        """
+        keep = {*entity_ids, GROUP_KEY_SEGMENT}
+
+        def forget[T](section: dict[str, T]) -> int:
+            keys = [
+                key
+                for key in section
+                if (segment := thermostat_of_key(key)) is not None
+                and segment not in keep
+            ]
+            for key in keys:
+                del section[key]
+            return len(keys)
+
+        dropped = (
+            forget(self._state.mpc)
+            + forget(self._state.mpc_v2)
+            + forget(self._state.mpc_v2_reid)
+            + forget(self._state.pid)
+            + forget(self._state.tpi)
+            + forget(self._mpc_v2_live)
+            + forget(self._mpc_v2_reid_live)
+        )
+        if dropped:
+            self._dirty = True
+        return dropped
 
     @property
     def thermal(self) -> ThermalStats:

@@ -1433,6 +1433,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 entity_prefix=f"{self._unique_id}:",
                 config_entry_id=self._config_entry_id,
             )
+            self.state_mgr.forget_thermostats_except(self.entity_ids)
             self._hydrate_thermal_from_state()
         except (FileNotFoundError, PermissionError, RuntimeError) as e:
             _LOGGER.debug(

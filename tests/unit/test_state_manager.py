@@ -33,7 +33,10 @@ from homeassistant.util.json import json_loads
 import pytest
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Params
+from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+    MpcV2Params,
+    MpcV2State,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
     ControllerSnapshot,
 )
@@ -1899,6 +1902,108 @@ class TestResetPidStates:
         removed = mgr.reset_pid_states("p:")
 
         assert removed == 0
+        assert mgr.dirty is False
+
+
+def _manager_with_every_section(entity_id: str) -> StateManager:
+    """Return a manager holding one entry for ``entity_id`` in every section."""
+    mgr = _make_manager()
+    key = f"uid:{entity_id}:t21.0"
+    mgr.set_mpc(key, MpcState(gain_est=0.7))
+    mgr.state.mpc_v2[key] = MpcV2StateData(last_percent=40.0)
+    mgr.state.mpc_v2_reid[key] = MpcV2ReidData(gain_heater=0.02)
+    mgr.set_pid(key, PIDState(pid_kp=77.0))
+    mgr.set_tpi(key, TpiState(last_percent=35.0))
+    mgr.set_mpc_v2_live(key, MpcV2State())
+    mgr.get_mpc_v2_reid_runtime(key)
+    return mgr
+
+
+def _sections(mgr: StateManager) -> list[dict[str, object]]:
+    return [
+        dict(mgr.state.mpc),
+        dict(mgr.state.mpc_v2),
+        dict(mgr.state.mpc_v2_reid),
+        dict(mgr.state.pid),
+        dict(mgr.state.tpi),
+        dict(mgr._mpc_v2_live),
+        dict(mgr._mpc_v2_reid_live),
+    ]
+
+
+class TestMoveThermostat:
+    """A thermostat that changed its entity id keeps what was learned for it."""
+
+    def test_every_section_moves_to_the_new_entity_id(self):
+        mgr = _manager_with_every_section("climate.old")
+        mgr._dirty = False
+
+        moved = mgr.move_thermostat("climate.old", "climate.new")
+
+        assert moved == 7
+        assert [set(section) for section in _sections(mgr)] == [
+            {"uid:climate.new:t21.0"}
+        ] * 7
+        assert mgr.state.pid["uid:climate.new:t21.0"].pid_kp == 77.0
+        assert mgr.dirty is True
+
+    def test_another_thermostat_and_the_room_keep_their_keys(self):
+        """An id that only starts like the old one is another thermostat."""
+        mgr = _make_manager()
+        for key in ("uid:climate.old_2:t21.0", "uid:group:t21.0", "uid:reid"):
+            mgr.set_pid(key, PIDState())
+        mgr._dirty = False
+
+        moved = mgr.move_thermostat("climate.old", "climate.new")
+
+        assert moved == 0
+        assert set(mgr.state.pid) == {
+            "uid:climate.old_2:t21.0",
+            "uid:group:t21.0",
+            "uid:reid",
+        }
+        assert mgr.dirty is False
+
+    def test_the_moved_state_replaces_one_under_the_new_id(self):
+        mgr = _make_manager()
+        mgr.set_pid("uid:climate.old:t21.0", PIDState(pid_kp=77.0))
+        mgr.set_pid("uid:climate.new:t21.0", PIDState(pid_kp=5.0))
+
+        mgr.move_thermostat("climate.old", "climate.new")
+
+        assert set(mgr.state.pid) == {"uid:climate.new:t21.0"}
+        assert mgr.state.pid["uid:climate.new:t21.0"].pid_kp == 77.0
+
+
+class TestForgetThermostatsExcept:
+    """State learned for a thermostat the entry no longer controls is dropped."""
+
+    def test_every_section_drops_an_unconfigured_thermostat(self):
+        mgr = _manager_with_every_section("climate.removed")
+        mgr._dirty = False
+
+        dropped = mgr.forget_thermostats_except(["climate.kept"])
+
+        assert dropped == 7
+        assert _sections(mgr) == [{}] * 7
+        assert mgr.dirty is True
+
+    def test_configured_thermostats_the_room_and_shared_keys_stay(self):
+        mgr = _make_manager()
+        kept = {
+            "uid:climate.kept:t21.0",
+            "uid:climate.kept:tunknown",
+            "uid:group:t21.0",
+            "uid:reid",
+        }
+        for key in kept:
+            mgr.set_mpc(key, MpcState())
+        mgr._dirty = False
+
+        dropped = mgr.forget_thermostats_except(["climate.kept"])
+
+        assert dropped == 0
+        assert set(mgr.state.mpc) == kept
         assert mgr.dirty is False
 
 
