@@ -188,7 +188,11 @@ def offenders_in(source: str, label: str) -> list[str]:
         scope = scopes.get(id(node), 0)
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                if isinstance(target, ast.Name) and _is_spec_less_stand_in(node.value):
+                if (
+                    isinstance(target, ast.Name)
+                    and isinstance(node.value, ast.Call)
+                    and _is_spec_less_stand_in(node.value)
+                ):
                     bound.setdefault((scope, target.id), []).append(node.value)
                 if isinstance(target, ast.Attribute) and isinstance(
                     target.value, ast.Name
@@ -228,7 +232,7 @@ def offenders_in(source: str, label: str) -> list[str]:
 
     # Entries built inline: MagicMock(device_id=...), SimpleNamespace(device_id=...).
     for node in ast.walk(tree):
-        if _is_spec_less_stand_in(node):
+        if isinstance(node, ast.Call) and _is_spec_less_stand_in(node):
             keywords = {kw.arg for kw in node.keywords if kw.arg}
             if keywords & ENTRY_MARKERS and keywords <= ENTRY_FIELDS:
                 report(node, f"builds a registry entry from {sorted(keywords)}")

@@ -77,7 +77,7 @@ _SEQUENCES = (ast.Tuple, ast.List)
 def _bindings(node: ast.stmt) -> list[tuple[ast.expr, ast.expr | None]]:
     """Return ``(target, value)`` pairs an assignment statement binds."""
     if isinstance(node, ast.Assign):
-        pairs = []
+        pairs: list[tuple[ast.expr, ast.expr | None]] = []
         for target in node.targets:
             if isinstance(target, _SEQUENCES) and isinstance(node.value, _SEQUENCES):
                 pairs.extend(zip(target.elts, node.value.elts, strict=False))

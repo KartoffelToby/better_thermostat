@@ -190,7 +190,7 @@ def test_every_action_has_a_section_listing_its_fields():
         for page in _docs_pages()
         for heading, text in _sections(page).items()
     }
-    undocumented = {}
+    undocumented: dict[str, str | list[str]] = {}
     for name, spec in services.items():
         documented = [
             text

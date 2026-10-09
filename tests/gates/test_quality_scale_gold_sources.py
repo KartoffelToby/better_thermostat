@@ -14,6 +14,7 @@ import ast
 import json
 from pathlib import Path
 import re
+from typing import TypedDict
 
 import pytest
 import yaml
@@ -46,7 +47,21 @@ TRANSLATABLE_ERRORS = frozenset(
 )
 
 
-def _strings() -> dict:
+class _EntityStrings(TypedDict, total=False):
+    """The part of an entity's strings these rules read."""
+
+    name: str
+
+
+class _Strings(TypedDict):
+    """The parts of ``strings.json`` these rules read."""
+
+    entity: dict[str, dict[str, _EntityStrings]]
+    exceptions: dict[str, object]
+    issues: dict[str, dict[str, object]]
+
+
+def _strings() -> _Strings:
     return json.loads((COMPONENT / "strings.json").read_text(encoding="utf-8"))
 
 

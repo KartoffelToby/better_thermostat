@@ -14,17 +14,16 @@ own, so it is charged for that spelling only once production has stopped using
 it.
 """
 
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
-import sys
 import textwrap
 
 import pytest
 
+from scripts import check_naming
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "scripts" / "check_naming.py"
 
 GLOSSARY = textwrap.dedent(
     """
@@ -97,21 +96,10 @@ ONE_IDENTIFIER = textwrap.dedent(
 )
 
 
-def _load_script():
-    """Import the checker as a module."""
-    spec = importlib.util.spec_from_file_location("check_naming", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    # dataclasses resolves a field's module through sys.modules, so the module
-    # has to be registered before its body runs.
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 @pytest.fixture
 def checker(tmp_path, monkeypatch):
     """Point the checker at a glossary and a tree inside the test's directory."""
-    script = _load_script()
+    script = check_naming
     glossary = tmp_path / "glossary.toml"
     glossary.write_text(GLOSSARY, encoding="utf-8")
     # Both scanned roots exist in the repository, and a root that does not is
@@ -354,7 +342,7 @@ def test_an_exception_without_a_reason_is_refused(checker):
 
 def test_the_recorded_budget_names_files_that_exist():
     """A moved or deleted file must not keep a budget nobody can spend."""
-    script = _load_script()
+    script = check_naming
     if not script.BUDGET_FILE.exists():
         pytest.skip("the backlog is gone and the budget with it")
     budget = json.loads(script.BUDGET_FILE.read_text(encoding="utf-8"))
@@ -364,7 +352,7 @@ def test_the_recorded_budget_names_files_that_exist():
 
 def test_the_repository_stays_within_its_recorded_budget():
     """The committed budget describes the tree it was committed with."""
-    script = _load_script()
+    script = check_naming
     assert script.check(None) == 0
 
 
@@ -456,7 +444,7 @@ def test_every_python_source_root_is_scanned():
     reaches `.venv` and the checkout's siblings, and filtering those out by path
     component empties the set and leaves the assertion vacuous.
     """
-    script = _load_script()
+    script = check_naming
     tracked = subprocess.run(
         ["git", "ls-files", "*.py"],
         cwd=REPO_ROOT,

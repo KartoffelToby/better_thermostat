@@ -12,7 +12,6 @@ about a file that stayed level, a file that gained one, a file that fell, and a
 file nobody has budgeted.
 """
 
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -21,28 +20,18 @@ import textwrap
 
 import pytest
 
+from scripts import restated_contracts
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "scripts" / "restated_contracts.py"
 
 FILE = "tests/unit/test_temperature_events.py"
 OTHER = "tests/unit/test_trv_events.py"
 
 
-def _load_script():
-    """Import the candidate list script as a module."""
-    spec = importlib.util.spec_from_file_location("restated_contracts", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    # dataclasses resolves a field's module through sys.modules, so the module
-    # has to be registered before its body runs.
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 @pytest.fixture
 def script(tmp_path, monkeypatch):
     """Point the script at a tree and a budget file of the test's own."""
-    module = _load_script()
+    module = restated_contracts
     monkeypatch.setattr(module, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(module, "BUDGET_FILE", tmp_path / "budget.json")
     return module
@@ -538,7 +527,7 @@ def test_the_mode_named_on_the_command_line_is_the_one_that_runs(script, monkeyp
     gained a candidate, the other accepts today's tree as the new bar. A run
     that confused them would report success while raising the budget.
     """
-    ran = []
+    ran: list[str] = []
     monkeypatch.setattr(script, "check", lambda: ran.append("check") or 0)
     monkeypatch.setattr(script, "update", lambda: ran.append("update") or 0)
     monkeypatch.setattr(script, "show", lambda paths, symptoms: ran.append("list") or 0)

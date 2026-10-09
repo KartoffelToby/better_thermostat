@@ -9,15 +9,15 @@ directive passes a name the declarations do not cover.
 """
 
 from collections import Counter
-import importlib.util
 from pathlib import Path
 import subprocess
 import textwrap
 
 import pytest
 
+from scripts import pep8_naming_exceptions
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "scripts" / "pep8_naming_exceptions.py"
 
 # Every route the lint settings offer to silence a naming rule for one file, at
 # once.
@@ -114,18 +114,10 @@ NEWER_GRAMMAR = textwrap.dedent(
 )
 
 
-def _load_script():
-    """Import the check as a module."""
-    spec = importlib.util.spec_from_file_location("pep8_naming_exceptions", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 @pytest.fixture
 def script():
     """Return a fresh copy of the check."""
-    return _load_script()
+    return pep8_naming_exceptions
 
 
 def _repository(root: Path, monkeypatch, script, config: str, **files: str) -> None:
@@ -349,7 +341,7 @@ def test_every_declared_path_matches_a_file(script):
 
 def test_the_repository_has_no_uncovered_naming_finding():
     """The working tree holds against a real scan."""
-    assert _load_script().check() == 0
+    assert pep8_naming_exceptions.check() == 0
 
 
 def _repository_with(root: Path, *, tracked: str, untracked: str, ignored: str):

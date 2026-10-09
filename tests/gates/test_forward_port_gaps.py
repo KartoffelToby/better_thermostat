@@ -13,7 +13,6 @@ reading this one: the numbers this repository produces change with every
 commit, and a test that asserted them would be a test of the calendar.
 """
 
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -21,24 +20,14 @@ import sys
 
 import pytest
 
+from scripts import forward_port_gaps
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "scripts" / "forward_port_gaps.py"
 
 # Long enough to be a marker, and unique enough that it cannot be met twice by
 # accident. The rules under test reject a line on its shape, not its meaning.
 DISTINCTIVE = 'value = compute_the_annunciation(entry_id, "%s")'
 OTHER_DISTINCTIVE = 'result = resolve_the_selector(bundle, "external")'
-
-
-def _load_script():
-    """Import the gap report as a module."""
-    spec = importlib.util.spec_from_file_location("forward_port_gaps", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    # dataclasses resolves a field's module through sys.modules, so the module
-    # has to be registered before its body runs.
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def _body(count: int, start: int = 0) -> str:
@@ -92,7 +81,7 @@ def lines(tmp_path, monkeypatch):
     line.commit("initial")
     line.git("branch", "maintenance")
 
-    script = _load_script()
+    script = forward_port_gaps
     monkeypatch.setattr(script, "REPO_ROOT", root)
     monkeypatch.setattr(script, "ACKNOWLEDGED_FILE", tmp_path / "gaps.json")
     return script, line

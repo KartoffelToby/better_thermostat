@@ -12,8 +12,12 @@ exempt. A wildcard covers files nobody measured, including files that are
 strict today. A sub-config that sets a rule to ``true`` makes the list an
 enumeration of the clean files instead of the backlog, and settles strictness
 per entry rather than on ``[tool.pyrefly]``, where one declaration reaches
-every file. The fourth way — appending an entry — is visible in the diff but
-still has to raise the recorded ceiling.
+every file. The fourth way, adding an entry or swapping one for another, is
+visible in the diff and also has to change the recorded list.
+
+One block stands outside that list: the one that covers ``tests/``. It is
+policy rather than backlog, and lets a test leave its parameters unannotated,
+since pytest hands fixtures in by name. It may relax that rule and no other.
 """
 
 from pathlib import Path
@@ -22,17 +26,41 @@ import tomllib
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 
-# How many (file, rule) exemptions the list may hold. Lower it as entries
-# leave; raising it is the one way the backlog grows, and says so in the diff.
-EXEMPTION_CEILING = 1
+# The (file, rule) exemptions the list holds. Remove a pair once its file is
+# annotated; adding one is the only way the backlog grows, and says so here.
+RECORDED_EXEMPTIONS = frozenset(
+    {
+        (
+            "custom_components/better_thermostat/number.py",
+            "bad-override-mutable-attribute",
+        )
+    }
+)
 
 GLOB_CHARACTERS = "*?["
 
+TESTS_BLOCK = {"matches": "tests/**", "errors": {"implicit-any-parameter": False}}
 
-def _exemptions():
+
+def _sub_configs():
     """Return the pyrefly sub-config blocks as parsed from pyproject.toml."""
     config = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
     return config["tool"]["pyrefly"]["sub-config"]
+
+
+def _exemptions():
+    """Return the sub-config blocks that exempt a file of the integration."""
+    return [
+        entry for entry in _sub_configs() if not entry["matches"].startswith("tests/")
+    ]
+
+
+def test_the_tests_relax_only_their_parameter_annotations():
+    blocks = [
+        entry for entry in _sub_configs() if entry["matches"].startswith("tests/")
+    ]
+
+    assert blocks == [TESTS_BLOCK]
 
 
 def test_every_exemption_names_a_file_that_exists():
@@ -77,11 +105,29 @@ def test_no_entry_tightens():
     )
 
 
-def test_the_backlog_is_the_size_it_records():
-    recorded = sum(len(entry["errors"]) for entry in _exemptions())
+def _pairs(entries) -> set[tuple[str, str]]:
+    """Return the (file, rule) pairs the given sub-config blocks exempt."""
+    return {(entry["matches"], rule) for entry in entries for rule in entry["errors"]}
 
-    assert recorded == EXEMPTION_CEILING, (
-        f"the list holds {recorded} exemptions, EXEMPTION_CEILING says "
-        f"{EXEMPTION_CEILING}. Lower it once entries leave; raising it means a "
-        "file was exempted instead of annotated."
+
+def test_the_backlog_is_the_one_it_records():
+    held = _pairs(_exemptions())
+
+    assert held == RECORDED_EXEMPTIONS, (
+        f"exempted but not recorded: {sorted(held - RECORDED_EXEMPTIONS)}; "
+        f"recorded but no longer exempted: {sorted(RECORDED_EXEMPTIONS - held)}. "
+        "Remove a pair from RECORDED_EXEMPTIONS once its file is annotated; "
+        "adding one means a file was exempted instead of annotated."
     )
+
+
+def test_a_swapped_exemption_does_not_match_the_record():
+    swapped = [
+        {
+            "matches": "custom_components/better_thermostat/sensor.py",
+            "errors": {"bad-override-mutable-attribute": False},
+        }
+    ]
+
+    assert len(_pairs(swapped)) == len(RECORDED_EXEMPTIONS)
+    assert _pairs(swapped) != RECORDED_EXEMPTIONS
