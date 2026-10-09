@@ -670,7 +670,7 @@ async def test_a_trv_on_an_external_input_is_left_to_its_own_sensor_after_a_fall
     first reading the sensor gives is written to the input, the selector is
     pointed at it, and the keepalive holds the device there from then on.
     """
-    external_input = fake_trv.external_temperature_number
+    external_input = fake_trv.external_temperature_input
     selector = fake_trv.sensor_selector
     assert external_input is not None and selector is not None
 
@@ -709,7 +709,7 @@ async def test_a_trv_on_an_external_input_is_not_held_on_the_last_reading_of_a_l
     keepalive pauses for the outage and the device falls back to its own
     sensor.
     """
-    external_input = fake_trv.external_temperature_number
+    external_input = fake_trv.external_temperature_input
     assert external_input is not None
     set_room_sensor(hass, 20.5)
     entry = make_entry(fake_trv.profile)
@@ -746,7 +746,7 @@ async def test_a_trv_on_an_external_input_gets_the_first_reading_after_an_outage
     outage, which the filter would otherwise hold back until the room
     moves or the next keepalive.
     """
-    external_input = fake_trv.external_temperature_number
+    external_input = fake_trv.external_temperature_input
     assert external_input is not None
     set_room_sensor(hass, 20.5)
     entry = make_entry(fake_trv.profile)

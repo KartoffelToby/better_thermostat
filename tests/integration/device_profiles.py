@@ -87,10 +87,11 @@ class DeviceProfile:
     ``valve_maintenance`` is the per-device option of the same name in the
     config entry.
 
-    ``external_temperature_input`` puts the input a device regulates on in
-    place of its own sensor on the device, together with the selector that
-    switches between the two, the way a Sonoff TRVZB exposes them. The
-    selector starts on ``external_sensor_selection``.
+    ``external_temperature_input`` puts the number a Sonoff TRVZB regulates on
+    when told to use an external sensor onto the device: a ``temperature``
+    number in Celsius, as Zigbee2MQTT discovers it. The selector that switches
+    the device between that number and its own sensor comes with it and
+    starts on ``external_sensor_selection``.
     """
 
     name: str
@@ -170,14 +171,14 @@ def offset_number_id(profile: DeviceProfile) -> str:
     return f"number.{profile.entity_id.split('.', 1)[1]}_calibration"
 
 
+def external_temperature_input_id(profile: DeviceProfile) -> str:
+    """Return the entity id of the external temperature input on this device."""
+    return f"number.{profile.entity_id.split('.', 1)[1]}_external_temperature_input"
+
+
 def valve_number_id(profile: DeviceProfile) -> str:
     """Return the entity id of the valve number on this device."""
     return f"number.{profile.entity_id.split('.', 1)[1]}_valve_position"
-
-
-def external_temperature_number_id(profile: DeviceProfile) -> str:
-    """Return the entity id of the external temperature input on this device."""
-    return f"number.{profile.entity_id.split('.', 1)[1]}_external_temperature_input"
 
 
 def sensor_selector_id(profile: DeviceProfile) -> str:
