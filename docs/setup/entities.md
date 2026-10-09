@@ -48,7 +48,7 @@ These sensors exist for every device.
 
 | Sensor | Unit | What it shows |
 | --- | --- | --- |
-| Temperature EMA | system temperature unit | The room temperature after smoothing: an exponential moving average of your temperature sensor with a time constant of five minutes, updated with every accepted reading and once a minute. |
+| Temperature EMA | system temperature unit | The room temperature after smoothing: an exponential moving average of your temperature sensor with a time constant of five minutes, updated with every accepted reading and once a minute; a new value shows when it moves by at least 0.01 °C. |
 | Temperature EMA 1h | system temperature unit | The same room temperature smoothed again with a time constant of one hour. The sensor computes it itself and starts over from the current temperature after a restart. |
 | Temperature Slope | K/min | How fast the smoothed room temperature changes, in kelvin per minute. Positive while the room warms up, negative while it cools down. |
 | Heating Power | K/min | How fast the room warms up while it heats, as learned from past heating cycles. |
