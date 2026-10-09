@@ -39,6 +39,7 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_hvac_mode,
     set_temperature,
     set_valve,
+    setpoint_on_device_grid,
     valve_channel_available,
 )
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
@@ -2538,6 +2539,11 @@ async def control_trv(
                     snapshot, entity_id, setpoint=_raw_temperature
                 ).setpoint
                 _safety_overrode_setpoint = _temperature != _raw_temperature
+            if _temperature is not None:
+                # The device holds the value the delegate sends, on its own
+                # step and inside its range, so that value is the one
+                # compared with the device's report and recorded as sent.
+                _temperature = setpoint_on_device_grid(self, entity_id, _temperature)
             if _temperature is not None and (
                 _new_hvac_mode != HVACMode.OFF or _trv_has_no_off
             ):

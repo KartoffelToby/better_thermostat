@@ -733,6 +733,7 @@ class TestControlTrvAvailablePath:
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.7}
         )
+        mock_self.real_trvs["climate.trv1"].target_temp_step = 0.1
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
@@ -4079,11 +4080,11 @@ class TestEchoSetpointBookkeeping:
         assert trv.last_setpoint_write_id > awaited_write_id
 
     @pytest.mark.asyncio
-    async def test_the_value_the_delegate_sent_is_remembered_next_to_the_intent(self):
-        """Both the intent and the value the delegate sent may echo.
+    async def test_the_value_the_delegate_sends_is_the_one_remembered(self):
+        """Only the value on the device's grid may echo.
 
-        The cycle asks for 20.7 on a device with a 0.5 step; the delegate
-        rounds and sends 20.5, which is what the device can report back.
+        The cycle asks for 20.7 on a device with a 0.5 step; 20.5 is what
+        goes out and what the device can report back.
         """
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
@@ -4114,7 +4115,7 @@ class TestEchoSetpointBookkeeping:
             mock_self, "climate.trv1", pytest.approx(20.5)
         )
         assert trv.commanded_setpoint == pytest.approx(20.5)
-        assert trv.echo_setpoint_values() == [pytest.approx(20.7), pytest.approx(20.5)]
+        assert trv.echo_setpoint_values() == [pytest.approx(20.5)]
 
 
 # ---------------------------------------------------------------------------
@@ -4243,11 +4244,10 @@ class TestSetpointWatchdogAcrossAFailingWrite:
     @pytest.mark.parametrize(
         ("max_temp", "intent", "sent", "remembered"),
         [
-            pytest.param(
-                30.0, 20.7, 20.5, [22.0, 20.7, 20.5], id="rounded_onto_the_grid"
-            ),
-            # The safety hull clamps the intent to the device maximum before
-            # the write, so the intent and the value sent are one entry.
+            # The intent is put onto the device's grid and inside its range
+            # before the write, so the intent and the value sent are one
+            # entry.
+            pytest.param(30.0, 20.7, 20.5, [22.0, 20.5], id="rounded_onto_the_grid"),
             pytest.param(
                 25.0, 27.0, 25.0, [22.0, 25.0], id="clamped_to_the_device_maximum"
             ),
@@ -4260,8 +4260,7 @@ class TestSetpointWatchdogAcrossAFailingWrite:
 
         After a write of 22.0, the cycle asks for ``intent`` on a device with
         a 0.5 step and a maximum of ``max_temp``; the delegate sends ``sent``
-        and the call raises. The value sent is remembered with the intent
-        and watched under its own id, so a report of it after a later write
+        and the call raises. The value sent is remembered and watched under its own id, so a report of it after a later write
         of 21.0 is BT's own write coming back, not a knob turn.
         """
         mock_self = _make_mock_self(
@@ -4589,3 +4588,114 @@ class TestHomematicIPWritePacing:
         mock_self.clock.advance(delays[0])
         await self._cycle(mock_self, [self.HMIP], 24.0, written)
         assert written[1:] == [(self.HMIP, 24.0)]
+
+
+# ---------------------------------------------------------------------------
+# Setpoint on the device's grid
+# ---------------------------------------------------------------------------
+
+
+class TestSetpointOnTheDeviceGrid:
+    """A target off the TRV's grid is compared as the value the TRV holds.
+
+    The delegate rounds every setpoint onto the TRV's step before it goes
+    out, so the TRV holds and reports the rounded value. Only the adapter's
+    radio write is replaced here; the delegate's rounding and clamping run.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("target", "held"),
+        [
+            pytest.param(21.111, 21.0, id="seventy_fahrenheit"),
+            pytest.param(21.3, 21.5, id="automation_tenth"),
+            pytest.param(21.0, 21.0, id="on_the_grid"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "calibration",
+        [CalibrationOutput.TARGET_TEMP_BASED, CalibrationOutput.LOCAL_BASED],
+    )
+    async def test_a_held_target_is_not_written_again(self, target, held, calibration):
+        """A TRV that holds the rounded target receives no further write."""
+        trv = _default_trv_config(
+            target_temp_step=0.5,
+            commanded_setpoint=held,
+            advanced={
+                "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                "calibration": calibration,
+                "no_off_system_mode": False,
+            },
+        )
+        radio = []
+
+        async def _write_on_the_radio(_self, _entity_id, value):
+            radio.append(value)
+            return True
+
+        trv.adapter = SimpleNamespace(
+            set_temperature=_write_on_the_radio, CAPABILITIES=generic.CAPABILITIES
+        )
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": held},
+            real_trvs={"climate.trv1": trv},
+            heat_target_temperature=target,
+        )
+        mock_self.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+
+        with (
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            for _ in range(4):
+                await control_trv(mock_self, "climate.trv1")
+                mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+
+        assert radio == []
+        assert trv.commanded_setpoint == pytest.approx(held)
+
+    @pytest.mark.asyncio
+    async def test_a_target_off_the_grid_goes_out_once_on_the_grid(self):
+        """The first write carries the rounded value; the next cycle sends none."""
+        trv = _default_trv_config(target_temp_step=0.5)
+        radio = []
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={"climate.trv1": trv},
+            heat_target_temperature=21.111,
+        )
+        device_state = mock_self.hass.states.get.return_value
+
+        async def _held_by_the_device(_self, _entity_id, value):
+            radio.append(value)
+            device_state.attributes = {"temperature": value}
+            return True
+
+        trv.adapter = SimpleNamespace(
+            set_temperature=_held_by_the_device, CAPABILITIES=generic.CAPABILITIES
+        )
+
+        with (
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ) as mock_override,
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            for _ in range(3):
+                await control_trv(mock_self, "climate.trv1")
+                mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+
+        assert radio == [pytest.approx(21.0)]
+        assert mock_override.call_args.args[2] == pytest.approx(21.0)
