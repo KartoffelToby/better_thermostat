@@ -15,6 +15,7 @@ the valve is what reaches the device either way.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
 
@@ -248,6 +249,7 @@ def test_the_mpc_v2_balance_carries_every_diagnostic() -> None:
     assert balance is not None
     diagnostics = output.diagnostics
     assert isinstance(diagnostics, MpcV2Diagnostics)
+    debug: Mapping[str, object] = balance["debug"]
     assert {
-        name: balance["debug"][name] for name in MpcV2Diagnostics.__dataclass_fields__
+        name: debug[name] for name in MpcV2Diagnostics.__dataclass_fields__
     } == vars(diagnostics)
