@@ -45,8 +45,10 @@ from .device_profiles import (
     DUAL_ROLE,
     GENERIC_HEAT_TRV,
     HEAT_COOL_TRV,
+    HEAT_ONLY,
     INTEGER_GRID_TRV,
     ROLE_SCENARIOS,
+    SEPARATE_COOLER,
 )
 
 
@@ -241,6 +243,89 @@ async def test_climate_entity_id_follows_device_name_after_rename(hass, device_r
         == "sensor.bt_livingroom_temperature_ema"
     )
     assert hass.states.get("climate.bt_livingroom") is not None
+
+
+RENAMED_ENTITY = "climate.living_room_heating"
+
+
+def _targets(scenario, heat: float) -> dict[str, float]:
+    """The set_temperature data for a heating target, with a cooler or without."""
+    if scenario.cooler_entity_id is None:
+        return {ATTR_TEMPERATURE: heat}
+    return {"target_temp_low": heat, "target_temp_high": 27.0}
+
+
+async def _rename_the_thermostat(hass, entry):
+    """Give the thermostat a new entity_id, as the entity settings dialog does."""
+    er.async_get(hass).async_update_entity(BT_ENTITY, new_entity_id=RENAMED_ENTITY)
+    await hass.async_block_till_done()
+    return await wait_for_startup(hass, entry)
+
+
+@pytest.mark.parametrize(
+    "device_role", [HEAT_ONLY, SEPARATE_COOLER], indirect=True, ids=profile_id
+)
+async def test_a_thermostat_renamed_by_the_user_keeps_driving_the_trv(
+    hass, device_role, caplog
+):
+    """A new entity_id from the user leaves a thermostat that still writes.
+
+    Home Assistant answers an entity_id change in the registry by removing
+    the entity and adding the same object again under the new id. The
+    removal stops everything that writes to the TRV, so the entity has to
+    come back as one that runs: the target set under the new id reaches the
+    device. With a cooler the mode list changes at startup, which is where
+    a second start of the same object breaks, so both wirings run.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(device_role.scenario)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    bt = await _rename_the_thermostat(hass, entry)
+
+    assert bt.entity_id == RENAMED_ENTITY
+    assert hass.states.get(BT_ENTITY) is None
+    assert hass.states.get(RENAMED_ENTITY).state == bt.map_on_hvac_mode
+    assert [r.message for r in caplog.records if r.levelname == "ERROR"] == []
+
+    trv = device_role.thermostat
+    trv.set_temperature_calls.clear()
+    # The reloaded startup has just written to the head; without the budget
+    # the target would wait out the minimum interval between two writes.
+    with patch(WRITE_BUDGET, 0.0):
+        await hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {"entity_id": RENAMED_ENTITY, **_targets(device_role.scenario, 23.5)},
+            blocking=True,
+        )
+        assert await wait_for(hass, lambda: trv.set_temperature_calls)
+
+
+@pytest.mark.parametrize(
+    "device_role", [HEAT_ONLY, SEPARATE_COOLER], indirect=True, ids=profile_id
+)
+async def test_a_thermostat_renamed_by_the_user_keeps_its_targets(hass, device_role):
+    """The targets set before a new entity_id are the ones shown after it.
+
+    Home Assistant files the state it saves at the removal under the old
+    entity_id, and a thermostat restoring under the new one would find
+    nothing and fall back to the TRV's own setpoint.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(device_role.scenario)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    targets = _targets(device_role.scenario, 22.5)
+    await hass.services.async_call(
+        "climate", "set_temperature", {"entity_id": BT_ENTITY, **targets}, blocking=True
+    )
+
+    await _rename_the_thermostat(hass, entry)
+
+    attributes = hass.states.get(RENAMED_ENTITY).attributes
+    assert {key: attributes[key] for key in targets} == targets
 
 
 @contextmanager

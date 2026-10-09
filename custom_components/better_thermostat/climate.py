@@ -56,7 +56,11 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_registry as er,
+    restore_state,
+)
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
@@ -1173,6 +1177,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # TRVs startup went ahead without whose initialisation is running now.
         self._trvs_initializing: set[str] = set()
         self.is_removed = False
+        # The entity_id the entity was published under when it was removed.
+        self._entity_id_at_removal: str | None = None
         # Valve maintenance control
         # If control actions are requested during valve maintenance, defer them and
         # trigger one control cycle once maintenance finishes.
@@ -1281,6 +1287,23 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         -------
         None
         """
+        if self.is_removed:
+            # Home Assistant removes an entity whose entity_id changes in the
+            # registry and adds the same object again under the new id. The
+            # removal ended the control loop, closed the task manager and the
+            # state store, and the startup already shaped the mode list, so
+            # this object cannot run a second time. Reloading the entry builds
+            # a new entity, which the registry hands the new id. The state
+            # Home Assistant saved at the removal is filed under the old id,
+            # and the new entity restores its targets and preset from it.
+            restore_data = restore_state.async_get(self.hass)
+            if self._entity_id_at_removal is not None and (
+                saved := restore_data.last_states.pop(self._entity_id_at_removal, None)
+            ):
+                restore_data.last_states[self.entity_id] = saved
+            self.hass.config_entries.async_schedule_reload(self._config_entry_id)
+            return
+
         self.task_manager.hass = self.hass
 
         # Home Assistant writes its restore cache once it has started and
@@ -1379,6 +1402,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         def on_remove() -> None:
             self.is_removed = True
+            self._entity_id_at_removal = self.entity_id
             self.kernel_state = replace(
                 self.kernel_state, lifecycle=lifecycle_stop(self.kernel_state.lifecycle)
             )
