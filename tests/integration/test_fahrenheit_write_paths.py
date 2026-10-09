@@ -570,7 +570,8 @@ async def test_a_stored_off_temperature_is_read_in_the_system_unit(
     assert await wait_for(
         hass,
         lambda: (
-            bt.outdoor_source.damping.reading
+            bt.outdoor_source.damping is not None
+            and bt.outdoor_source.damping.reading
             == pytest.approx((outdoor + 0.5 - 32) / 1.8, abs=0.01)
         ),
     )
@@ -634,7 +635,8 @@ async def test_accepting_the_suggested_off_temperature_keeps_a_cold_room_heating
     assert await wait_for(
         hass,
         lambda: (
-            bt.outdoor_source.damping.reading
+            bt.outdoor_source.damping is not None
+            and bt.outdoor_source.damping.reading
             == pytest.approx((40.5 - 32) / 1.8, abs=0.01)
         ),
     )

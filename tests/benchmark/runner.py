@@ -181,7 +181,7 @@ def _stabilise_plant(
     pre_setpoint = scenario.setpoint_schedule(0.0)
     pre_outdoor = scenario.outdoor_schedule(0.0)
     oracle = IdealOracleAdapter(plant_params=scenario.plant)
-    steps = int(round(stabilisation_min * 60.0 / step_s))
+    steps = round(stabilisation_min * 60.0 / step_s)
     for _ in range(steps):
         ctx = BenchmarkContext(
             t=0.0,  # logical time; not exposed to test controller
@@ -441,18 +441,20 @@ def _replace_plant(scenario: ScenarioConfig, plant: PlantParams) -> ScenarioConf
     return replace(scenario, plant=plant)
 
 
-#: Factory keys for adapters that accept ``plant_params=`` and should
+#: Factories for adapters that accept ``plant_params=`` and should
 #: receive the override. Other registered factories either ignore the
 #: override (e.g. the RLS-learning variants are meant to discover the
 #: plant from data) or take no constructor arguments.
-PLANT_AWARE_FACTORIES: set[str] = {"ideal_oracle"}
+PLANT_AWARE_FACTORIES: dict[str, Callable[[PlantParams], ControllerAdapter]] = {
+    "ideal_oracle": lambda plant: IdealOracleAdapter(plant_params=plant)
+}
 
 
 def _make_adapter(name: str, plant_override: PlantParams | None) -> ControllerAdapter:
     """Instantiate an adapter, threading plant params into model-aware adapters."""
-    if plant_override is not None and name in PLANT_AWARE_FACTORIES:
-        factory = ADAPTER_FACTORIES[name]
-        return factory(plant_params=plant_override)  # type: ignore[call-arg]
+    plant_aware_factory = PLANT_AWARE_FACTORIES.get(name)
+    if plant_override is not None and plant_aware_factory is not None:
+        return plant_aware_factory(plant_override)
     return ADAPTER_FACTORIES[name]()
 
 

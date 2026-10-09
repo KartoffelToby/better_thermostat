@@ -137,9 +137,13 @@ async def test_a_sensor_the_user_enabled_stays_enabled_across_an_algorithm_chang
 
     await _choose_algorithm(hass, entry, PID)
 
-    assert registry.async_get(output).disabled_by is None
+    output_entry = registry.async_get(output)
+    assert output_entry is not None
+    assert output_entry.disabled_by is None
     assert hass.states.get(output) is not None
-    assert registry.async_get(error).disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    error_entry = registry.async_get(error)
+    assert error_entry is not None
+    assert error_entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
     assert hass.states.get(error) is None
 
 

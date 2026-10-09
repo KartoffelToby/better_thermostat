@@ -23,14 +23,17 @@ that kept what was written to it answers with the same value. That test moves
 the device off the value first.
 """
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TypedDict
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, HVACMode
 from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.core import HomeAssistant, State
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.better_thermostat.climate import BetterThermostat
 
 from .conftest import (
     BT_ENTITY,
@@ -136,9 +139,24 @@ def _close_the_window(hass):
     hass.states.async_set(WINDOW_ID, "off")
 
 
-def _read(attribute):
+def _published_state(hass: HomeAssistant) -> State:
+    """Return the state the thermostat publishes."""
+    state = hass.states.get(BT_ENTITY)
+    assert state is not None
+    return state
+
+
+def _read(attribute: str) -> Callable[[HomeAssistant], object]:
     """Return a reader for one attribute of the thermostat state."""
-    return lambda hass: hass.states.get(BT_ENTITY).attributes.get(attribute)
+    return lambda hass: _published_state(hass).attributes.get(attribute)
+
+
+class EntryOptions(TypedDict, total=False):
+    """The ``make_entry`` keywords that wire a sensor to the entry."""
+
+    with_window: bool
+    with_humidity: bool
+    with_outdoor_sensor: bool
 
 
 @dataclass(frozen=True)
@@ -173,13 +191,13 @@ class Setting:
     """
 
     name: str
-    configure: Callable
-    read: Callable
-    expected: Any
-    default: Any
-    entry_options: dict[str, Any] = field(default_factory=dict)
-    entry_data: dict[str, Any] = field(default_factory=dict)
-    prepare: Callable | None = None
+    configure: Callable[[HomeAssistant, BetterThermostat], Awaitable[None]]
+    read: Callable[[HomeAssistant], object]
+    expected: object
+    default: object
+    entry_options: EntryOptions = field(default_factory=EntryOptions)
+    entry_data: dict[str, object] = field(default_factory=dict)
+    prepare: Callable[[HomeAssistant], None] | None = None
     room: DeviceProfile | RoleScenario = GENERIC_HEAT_TRV
 
 
@@ -212,7 +230,7 @@ SETTINGS = [
     Setting(
         name="hvac_mode",
         configure=_configure_hvac_mode,
-        read=lambda hass: hass.states.get(BT_ENTITY).state,
+        read=lambda hass: _published_state(hass).state,
         expected=HVACMode.OFF,
         default=HVACMode.HEAT,
     ),

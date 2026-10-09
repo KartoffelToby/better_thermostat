@@ -6,6 +6,7 @@ icon of their own, and every sensor and switch they register resolves to
 one through Home Assistant's icon translations.
 """
 
+from collections.abc import Mapping
 from dataclasses import replace
 
 from homeassistant.const import STATE_OFF
@@ -22,14 +23,23 @@ from .device_profiles import GENERIC_HEAT_TRV, GROUP_OF_THREE
 _DEVICE_CLASS_ICONS = {"external_temp_ema", "external_temp_ema_1h"}
 
 
-def _state_icon(icons: dict, reg: er.RegistryEntry, state: str) -> str:
-    """Return the icon the frontend shows for ``reg`` in ``state``.
+def _state_icon(
+    icons: Mapping[str, Mapping[str, Mapping[str, object]]],
+    domain: str,
+    translation_key: str,
+    state: str,
+) -> str:
+    """Return the icon the frontend shows for ``translation_key`` in ``state``.
 
     The frontend takes the icon its translation declares for the state and
     falls back to the translation's default.
     """
-    translation = icons[reg.domain][reg.translation_key]
-    return translation.get("state", {}).get(state, translation["default"])
+    translation = icons[domain][translation_key]
+    state_icons = translation.get("state", {})
+    assert isinstance(state_icons, Mapping)
+    icon = state_icons.get(state, translation["default"])
+    assert isinstance(icon, str)
+    return icon
 
 
 async def _child_lock_icons(hass, entry) -> dict[str, set[str]]:
@@ -41,7 +51,11 @@ async def _child_lock_icons(hass, entry) -> dict[str, set[str]]:
             continue
         state = hass.states.get(reg.entity_id).state
         assert state == STATE_OFF, reg.entity_id
-        shown.setdefault(reg.translation_key, set()).add(_state_icon(icons, reg, state))
+        translation_key = reg.translation_key
+        assert translation_key is not None, reg.entity_id
+        shown.setdefault(translation_key, set()).add(
+            _state_icon(icons, reg.domain, translation_key, state)
+        )
     return shown
 
 

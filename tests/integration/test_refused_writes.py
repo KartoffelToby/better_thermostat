@@ -10,6 +10,7 @@ does take still reaches it.
 import asyncio
 from datetime import timedelta
 import logging
+from typing import override
 from unittest.mock import patch
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
@@ -70,6 +71,7 @@ class _RoundLog(logging.Handler):
         self.clock = clock
         self.rounds: list[tuple[float, logging.LogRecord]] = []
 
+    @override
     def emit(self, record: logging.LogRecord) -> None:
         if "controlling TRV" in record.getMessage():
             self.rounds.append((self.clock.t, record))

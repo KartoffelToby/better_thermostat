@@ -97,6 +97,7 @@ async def test_a_nan_pid_gain_is_refused(hass, parameter):
 
     await _set(hass, number, "nan")
 
+    assert bt.state_mgr is not None
     pid_state = bt.state_mgr.state.pid.get(build_pid_key(bt, profile.entity_id))
     stored = getattr(pid_state, f"pid_{parameter}") if pid_state else None
     assert stored is None or math.isfinite(stored)

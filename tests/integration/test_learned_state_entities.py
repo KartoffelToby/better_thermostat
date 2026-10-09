@@ -12,6 +12,7 @@ from dataclasses import replace
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.entity import (
     LEARNED_STATE_SIGNAL,
     announce_learned_state,
@@ -25,6 +26,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
+from custom_components.better_thermostat.utils.state_manager import StateManager
 
 from .conftest import (
     DOMAIN,
@@ -57,8 +59,13 @@ async def _started(hass):
     return await wait_for_startup(hass, entry)
 
 
+def _state_manager(bt: BetterThermostat) -> StateManager:
+    assert bt.state_mgr is not None
+    return bt.state_mgr
+
+
 def _stored_pid(bt):
-    return bt.state_mgr.get_pid(build_pid_key(bt, PID_TRV.entity_id))
+    return _state_manager(bt).get_pid(build_pid_key(bt, PID_TRV.entity_id))
 
 
 async def test_every_control_cycle_announces_the_learned_state(hass):
@@ -81,7 +88,7 @@ async def test_a_gain_changed_in_the_store_shows_once_announced(hass):
     kp = _entity_id(hass, bt, "number", "pid_kp")
     pid_state = _stored_pid(bt)
     pid_state.pid_kp = 123.4
-    bt.state_mgr.set_pid(build_pid_key(bt, PID_TRV.entity_id), pid_state)
+    _state_manager(bt).set_pid(build_pid_key(bt, PID_TRV.entity_id), pid_state)
     assert float(hass.states.get(kp).state) != 123.4
 
     announce_learned_state(hass, bt.unique_id)
@@ -96,7 +103,7 @@ async def test_an_auto_tune_flag_changed_in_the_store_shows_once_announced(hass)
     before = hass.states.get(switch).state
     pid_state = _stored_pid(bt)
     pid_state.auto_tune = before != "on"
-    bt.state_mgr.set_pid(build_pid_key(bt, PID_TRV.entity_id), pid_state)
+    _state_manager(bt).set_pid(build_pid_key(bt, PID_TRV.entity_id), pid_state)
 
     announce_learned_state(hass, bt.unique_id)
     await hass.async_block_till_done()

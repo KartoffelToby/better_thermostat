@@ -7,6 +7,7 @@ to publish on its climate entity can hold hardware addresses; those are
 redacted.
 """
 
+from collections.abc import Mapping
 import json
 
 from homeassistant.const import __version__ as ha_version
@@ -29,6 +30,14 @@ from .conftest import (
     wait_for_startup,
 )
 from .device_profiles import ZHA_VALVE_QUIRK_TRV
+
+
+def _at(document: object, *path: str) -> object:
+    """Return the value ``path`` leads to through nested mappings."""
+    for key in path:
+        assert isinstance(document, Mapping), f"no mapping to look {key!r} up in"
+        document = document[key]
+    return document
 
 
 @pytest.mark.quality_rule("diagnostics")
@@ -57,16 +66,18 @@ async def test_the_download_carries_what_a_bug_report_needs(hass, fake_trv):
         "better_thermostat": VERSION,
         "home_assistant": ha_version,
     }
-    assert download["climate"]["entity_id"] == bt.entity_id
-    assert "control_mode" in download["climate"]["attributes"]
-    valve = download["thermostat"][entity_id]
-    assert valve["device"]["model"] == "TRVZB"
-    assert valve["device"]["integration"] == "test"
-    assert valve["attributes"]["ieee"] == "**REDACTED**"
-    assert download["sensors"]["humidity_sensor"]["state"] == "55.0"
-    assert download["sensors"]["outdoor_sensor"]["state"] == "4.0"
-    assert download["summer_mode"]["damped_outdoor_temperature"] == 4.0
-    assert download["summer_mode"]["outdoor_reading"] == 4.0
-    assert download["summer_mode"]["call_for_heat"] is True
-    assert download["sensors"]["humidity_sensor"]["entity_id"] == HUMIDITY_ID
+    assert _at(download, "climate", "entity_id") == bt.entity_id
+    climate_attributes = _at(download, "climate", "attributes")
+    assert isinstance(climate_attributes, Mapping)
+    assert "control_mode" in climate_attributes
+    valve = _at(download, "thermostat", entity_id)
+    assert _at(valve, "device", "model") == "TRVZB"
+    assert _at(valve, "device", "integration") == "test"
+    assert _at(valve, "attributes", "ieee") == "**REDACTED**"
+    assert _at(download, "sensors", "humidity_sensor", "state") == "55.0"
+    assert _at(download, "sensors", "outdoor_sensor", "state") == "4.0"
+    assert _at(download, "summer_mode", "damped_outdoor_temperature") == 4.0
+    assert _at(download, "summer_mode", "outdoor_reading") == 4.0
+    assert _at(download, "summer_mode", "call_for_heat") is True
+    assert _at(download, "sensors", "humidity_sensor", "entity_id") == HUMIDITY_ID
     json.dumps(download, cls=JSONEncoder)

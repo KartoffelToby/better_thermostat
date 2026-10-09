@@ -72,4 +72,6 @@ async def test_a_heating_target_above_the_cooling_one_leaves_the_pair_ordered(
     )
 
     assert bt.heat_target_temperature == 26.0
+    assert bt.cool_target_temperature is not None
+    assert bt.heat_target_temperature is not None
     assert bt.cool_target_temperature > bt.heat_target_temperature

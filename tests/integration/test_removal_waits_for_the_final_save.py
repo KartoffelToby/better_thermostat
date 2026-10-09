@@ -56,6 +56,7 @@ async def test_removal_waits_for_the_final_save(hass, hass_storage, fake_trv):
     set_room_sensor(hass, 19.0)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
+    assert bt.state_mgr is not None
     bt.heating_power = 0.77
     bt.state_mgr.mark_dirty()
 
@@ -81,6 +82,7 @@ async def test_removal_waits_for_the_final_copy(hass, hass_storage, fake_trv):
         set_room_sensor(hass, 19.0)
         await setup_entry(hass, entry)
         bt = await wait_for_startup(hass, entry)
+        assert bt.state_mgr is not None
         assert bt.state_mgr.copy_pending
         disk["full"] = False
         bt.heating_power = 0.77

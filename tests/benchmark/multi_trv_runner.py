@@ -74,7 +74,7 @@ def _stabilise_multi_trv(
     pre_outdoor = scenario.outdoor_schedule(0.0)
     equiv = _equivalent_single_plant(plant.params)
     oracle = IdealOracleAdapter(plant_params=equiv)
-    steps = int(round(stabilisation_min * 60.0 / step_s))
+    steps = round(stabilisation_min * 60.0 / step_s)
     for _ in range(steps):
         ctx = BenchmarkContext(
             t=0.0,
