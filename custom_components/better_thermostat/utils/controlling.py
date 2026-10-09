@@ -39,6 +39,7 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_hvac_mode,
     set_temperature,
     set_valve,
+    setpoint_on_device_grid,
     valve_channel_available,
 )
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
@@ -2172,16 +2173,19 @@ async def control_trv(
             # so no calibration runs. The kernel's intent carries the raw
             # user target (passthrough); it is re-sent only when the device
             # diverges, and the safety hull enforces the frost floor. Mode
-            # suppression (OFF / window) below stays active.
+            # suppression (OFF / window) below stays active. An OFF intent
+            # carries no target: the remap's setpoint stands, which for a
+            # TRV without an OFF mode is its minimum.
             if self.kernel_state.control_mode.mode == ControlMode.HOLD:
-                _LOGGER.debug(
-                    "better_thermostat %s: control mode HOLD - locking %s on the "
-                    "last known target %s",
-                    self.device_name,
-                    entity_id,
-                    trv_desired.setpoint,
-                )
-                _temperature = trv_desired.setpoint
+                if trv_desired.hvac_mode != HVACMode.OFF:
+                    _LOGGER.debug(
+                        "better_thermostat %s: control mode HOLD - locking %s on "
+                        "the last known target %s",
+                        self.device_name,
+                        entity_id,
+                        trv_desired.setpoint,
+                    )
+                    _temperature = trv_desired.setpoint
                 _calibration = None
 
             # Optional: set valve position if supported (e.g., MQTT/Z2M)
@@ -2538,6 +2542,11 @@ async def control_trv(
                     snapshot, entity_id, setpoint=_raw_temperature
                 ).setpoint
                 _safety_overrode_setpoint = _temperature != _raw_temperature
+            if _temperature is not None:
+                # The device holds the value the delegate sends, on its own
+                # step and inside its range, so that value is the one
+                # compared with the device's report and recorded as sent.
+                _temperature = setpoint_on_device_grid(self, entity_id, _temperature)
             if _temperature is not None and (
                 _new_hvac_mode != HVACMode.OFF or _trv_has_no_off
             ):
@@ -2548,13 +2557,14 @@ async def control_trv(
                     trv = self.real_trvs[entity_id]
                     # Safety-relevant writes (frost floor / OFF) bypass the
                     # write budget; everything else waits for the next slot
-                    # and converges via the scheduled retry.
+                    # and converges via the scheduled retry. A TRV without an
+                    # OFF mode is turned off by this very write.
                     if _consume_budget(
                         self,
                         entity_id,
                         "setpoint",
                         bypass=_safety_overrode_setpoint
-                        or _new_hvac_mode == HVACMode.OFF,
+                        or HVACMode.OFF in (_new_hvac_mode, trv_desired.hvac_mode),
                     ):
                         old = trv.commanded_setpoint
                         _LOGGER.debug(

@@ -10,7 +10,10 @@ from unittest.mock import AsyncMock, MagicMock
 from homeassistant.core import State
 import pytest
 
-from custom_components.better_thermostat.adapters.delegate import set_temperature
+from custom_components.better_thermostat.adapters.delegate import (
+    set_temperature,
+    setpoint_on_device_grid,
+)
 from custom_components.better_thermostat.trv import Trv
 from tests.factories import ThermostatStandIn
 
@@ -142,3 +145,11 @@ async def test_the_delegate_leaves_the_echo_setpoints_alone(bt):
 
     assert vars(trv)[_RECORDED_SETPOINT_FIELD] == 30.0
     assert trv.echo_setpoint_values() == [21.0]
+
+
+@pytest.mark.parametrize("target", [float("nan"), float("inf"), float("-inf")])
+def test_a_target_that_is_not_finite_is_compared_as_it_is(bt, target):
+    """A non-finite target has no place on the grid and is returned unchanged."""
+    held = setpoint_on_device_grid(bt, ENTITY_ID, target)
+
+    assert held is target

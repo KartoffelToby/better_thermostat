@@ -229,6 +229,45 @@ async def set_temperature(
         )
         return None
 
+    rounded, step = _onto_device_grid(self, entity_id, t)
+
+    if rounded != t:
+        _LOGGER.debug(
+            "better_thermostat %s: delegate.set_temperature rounded %s -> %s (step=%s)",
+            self.device_name,
+            t,
+            rounded,
+            step,
+        )
+    # The recorded setpoint is what the TRV event handler compares an inbound
+    # report against to tell BT's own write apart from someone turning the
+    # knob. The state change this write causes can be handled while the
+    # service call is still in flight, so the value is recorded before it goes
+    # out: recorded afterwards, the device's echo would arrive while the
+    # previous value still stood and would be adopted as a user setpoint.
+    # ``set_calibration_offset`` records after its write for the opposite reason: its
+    # record says a calibration command is in flight, which a write that never
+    # went out must not claim.
+    self.real_trvs[entity_id].commanded_setpoint = rounded
+
+    await _write_on_channel(
+        self,
+        entity_id,
+        "temperature",
+        f"setpoint {rounded}",
+        _adapter(self, entity_id).set_temperature,
+        rounded,
+    )
+
+
+def _onto_device_grid(
+    self: BetterThermostat, entity_id: str, temperature: float
+) -> tuple[float, float]:
+    """Round a finite setpoint onto the TRV's step and clamp it to its range.
+
+    Returns the value and the step it was rounded by.
+    """
+    t = temperature
     # Initialize step with default value
     step = 0.5
     try:
@@ -275,33 +314,20 @@ async def set_temperature(
         else:
             rounded = rv
 
-    if rounded != t:
-        _LOGGER.debug(
-            "better_thermostat %s: delegate.set_temperature rounded %s -> %s (step=%s)",
-            self.device_name,
-            t,
-            rounded,
-            step,
-        )
-    # The recorded setpoint is what the TRV event handler compares an inbound
-    # report against to tell BT's own write apart from someone turning the
-    # knob. The state change this write causes can be handled while the
-    # service call is still in flight, so the value is recorded before it goes
-    # out: recorded afterwards, the device's echo would arrive while the
-    # previous value still stood and would be adopted as a user setpoint.
-    # ``set_calibration_offset`` records after its write for the opposite reason: its
-    # record says a calibration command is in flight, which a write that never
-    # went out must not claim.
-    self.real_trvs[entity_id].commanded_setpoint = rounded
+    return rounded, step
 
-    await _write_on_channel(
-        self,
-        entity_id,
-        "temperature",
-        f"setpoint {rounded}",
-        _adapter(self, entity_id).set_temperature,
-        rounded,
-    )
+
+def setpoint_on_device_grid(
+    self: BetterThermostat, entity_id: str, temperature: float
+) -> float:
+    """Return the setpoint :func:`set_temperature` writes for ``temperature``.
+
+    The TRV holds and reports that value, not the one asked for, so a
+    comparison against the TRV's report has to use it.
+    """
+    if not math.isfinite(temperature):
+        return temperature
+    return _onto_device_grid(self, entity_id, temperature)[0]
 
 
 async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> bool:

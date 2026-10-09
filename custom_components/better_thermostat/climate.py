@@ -4661,6 +4661,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         )
 
         self.last_user_change_monotonic = self.clock.monotonic()
+        _mode_changed = (
+            _new_hvac_mode is not None and _new_hvac_mode != self.bt_hvac_mode
+        )
         if _new_hvac_mode is not None:
             self.bt_hvac_mode = _new_hvac_mode
 
@@ -4778,9 +4781,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         )
 
         self.async_write_ha_state()
-        # Only trigger control queue if thermostat is not OFF
-        # When OFF, we still save the temperature but don't send it to the physical device
-        if self.bt_hvac_mode != HVACMode.OFF:
+        # A room that stays OFF keeps the new target for later and sends
+        # nothing; a room the payload switched, OFF included, is applied
+        # like a mode change.
+        if self.bt_hvac_mode != HVACMode.OFF or _mode_changed:
             # During valve maintenance we must not block on the control queue
             # (Queue maxsize=1) and must not override maintenance.
             if self.in_maintenance:
