@@ -21,7 +21,7 @@ import logging
 import math
 from typing import TYPE_CHECKING
 
-from ...core.calibrator import CalibratorHealth, Capability, detect_oscillation
+from ...core.calibrator import CalibratorHealth, CapabilityLevel, detect_oscillation
 from ...core.snapshot import WorldSnapshot
 from ..const import CalibrationMode
 from .mpc import MpcOutput
@@ -172,7 +172,7 @@ class BalanceStrategy:
             recovers=(CalibratorHealth.OSCILLATING,),
         )
 
-    def capability(self, bt: BetterThermostat, entity_id: str) -> Capability:
+    def capability(self, bt: BetterThermostat, entity_id: str) -> CapabilityLevel:
         """Report the capability level for this TRV (annunciation only).
 
         A strategy is configured when selected, healthy when its inputs
@@ -186,14 +186,16 @@ class BalanceStrategy:
         from ...calibration import effective_room_temperature  # noqa: PLC0415
 
         trv = bt.real_trvs.get(entity_id)
-        healthy = (
-            trv is not None
-            and effective_room_temperature(bt) is not None
-            and bt.heat_target_temperature is not None
-            and trv.calibrator_health == CalibratorHealth.HEALTHY
-        )
-        ready = healthy and trv is not None and trv.calibration_balance is not None
-        return Capability(configured=True, healthy=healthy, ready=ready)
+        if (
+            trv is None
+            or effective_room_temperature(bt) is None
+            or bt.heat_target_temperature is None
+            or trv.calibrator_health != CalibratorHealth.HEALTHY
+        ):
+            return CapabilityLevel.CONFIGURED
+        if trv.calibration_balance is None:
+            return CapabilityLevel.HEALTHY
+        return CapabilityLevel.READY
 
 
 class BalanceCalibrator:
@@ -258,7 +260,7 @@ class BalanceCalibrator:
             return None, False
         return self._last_percent, self._last_use_valve
 
-    def capability(self) -> Capability:
+    def capability(self) -> CapabilityLevel:
         """Report the strategy's capability on the live entity.
 
         Annunciation only: the shell never gates actuation on this.

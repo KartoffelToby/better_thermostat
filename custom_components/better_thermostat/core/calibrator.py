@@ -6,16 +6,15 @@ converging) versus ``actuate`` (only when the control mode allows it
 and the calibrator is ready) — the precondition for bumpless transfer
 when a degraded mode hands control back.
 
-Capabilities are strictly nested: ``ready`` implies ``healthy`` implies
-``configured``. A cold start needs only ``healthy``; ``ready`` guards
-the re-promotion after a gap.
+Capabilities are strictly nested levels: ``READY`` implies ``HEALTHY``
+implies ``CONFIGURED``. A cold start needs only ``HEALTHY``; ``READY``
+guards the re-promotion after a gap.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from typing import Protocol, runtime_checkable
 
 from .snapshot import WorldSnapshot
@@ -31,24 +30,17 @@ class CalibratorHealth(StrEnum):
     WINDUP_SUSPECT = "windup_suspect"
 
 
-@dataclass(frozen=True)
-class Capability:
-    """Nested capability levels of a calibrator.
+class CapabilityLevel(IntEnum):
+    """Nested capability levels of a calibrator, ordered by strength.
 
-    Construction enforces the nesting invariant, so an inconsistent
-    combination cannot exist.
+    Each level implies every lower one, so ``level >= HEALTHY`` reads as
+    "healthy (and therefore configured)".
     """
 
-    configured: bool = False
-    healthy: bool = False
-    ready: bool = False
-
-    def __post_init__(self) -> None:
-        """Enforce ready ⊆ healthy ⊆ configured."""
-        if self.ready and not self.healthy:
-            raise ValueError("ready requires healthy")
-        if self.healthy and not self.configured:
-            raise ValueError("healthy requires configured")
+    NONE = 0
+    CONFIGURED = 1
+    HEALTHY = 2
+    READY = 3
 
 
 @runtime_checkable
@@ -79,7 +71,7 @@ class Calibrator(Protocol):
 class AnnunciatingCalibrator(Calibrator, Protocol):
     """Calibrator that additionally self-reports capability and health."""
 
-    def capability(self) -> Capability:
+    def capability(self) -> CapabilityLevel:
         """Report the current capability level."""
         ...
 
