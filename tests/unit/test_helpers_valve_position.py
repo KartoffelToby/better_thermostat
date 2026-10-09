@@ -85,11 +85,11 @@ class TestHeatingPowerValvePosition:
         """Test that lower heating power (worse insulation) needs higher valve position."""
         # Better insulation (higher heating power value = less power needed)
         mock_bt_good_insulation = _thermostat(
-            heat_target_temperature=22.0, room_temperature=20.0, heating_power=0.03
+            heat_target_temperature=20.5, room_temperature=20.0, heating_power=0.03
         )
         # Worse insulation (lower heating power value = more power needed)
         mock_bt_poor_insulation = _thermostat(
-            heat_target_temperature=22.0, room_temperature=20.0, heating_power=0.01
+            heat_target_temperature=20.5, room_temperature=20.0, heating_power=0.01
         )
 
         result_good = heating_power_valve_position(
@@ -104,10 +104,12 @@ class TestHeatingPowerValvePosition:
         )
 
         # Poor insulation needs higher valve position
-        # Note: Both should be clamped to same minimum valve opening
         assert result_good is not None
         assert result_poor is not None
-        assert result_poor >= result_good
+        # Half a kelvin keeps both openings below the fully open valve, so
+        # the comparison sees the heating power and not the clamp.
+        assert result_poor < 1.0
+        assert result_poor > result_good
 
     def test_clamps_heating_power_to_min_max(self):
         """Test that heating_power is clamped to MIN/MAX values."""
