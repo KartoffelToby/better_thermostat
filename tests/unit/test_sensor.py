@@ -13,7 +13,6 @@ import math
 from time import monotonic
 from unittest.mock import MagicMock, patch
 
-from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat import BetterThermostatData
@@ -31,12 +30,12 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatMpcGainSensor,
     BetterThermostatMpcKaSensor,
     BetterThermostatMpcLossSensor,
+    BetterThermostatMpcV2CouplingSensor,
+    BetterThermostatMpcV2DisturbanceSensor,
+    BetterThermostatMpcV2RoomTimeConstantSensor,
+    BetterThermostatMpcV2VirtualTempSensor,
     BetterThermostatPidErrorSensor,
-    BetterThermostatPidKdSensor,
-    BetterThermostatPidKiSensor,
-    BetterThermostatPidKpSensor,
     BetterThermostatPidOutputSensor,
-    BetterThermostatSolarIntensitySensor,
     BetterThermostatTempSlopeSensor,
     BetterThermostatVirtualTempSensor,
     _BtMpcSensorBase,
@@ -48,19 +47,23 @@ from custom_components.better_thermostat.sensor import (
     _cleanup_stale_algorithm_entities,
     _debug_number,
     _get_active_algorithms,
-    _get_filtered_temp,
+    _get_filtered_temperature,
     _handle_dynamic_entity_update,
     _release_entry,
     _setup_algorithm_sensors,
     async_setup_entry,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
 )
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_from_legacy_dict,
+)
 
 DOMAIN = "better_thermostat"
 
@@ -114,7 +117,7 @@ def _make_entity_registry():
 def _trvs_in_modes(*modes):
     """Build one real Trv per calibration mode, keyed trv_1, trv_2, ..."""
     return {
-        f"trv_{index}": Trv.from_legacy_dict(
+        f"trv_{index}": trv_from_legacy_dict(
             f"trv_{index}", {"advanced": {CONF_CALIBRATION_MODE: mode}}
         )
         for index, mode in enumerate(modes, start=1)
@@ -166,7 +169,7 @@ class TestExternalTempSensor:
         assert sensor._attr_native_value == 21.5
 
     def test_fallback_to_room_temperature_ema(self):
-        """Fallback to external temp ema."""
+        """Fallback to external temperature ema."""
         bt = _make_bt_climate(room_temperature_filtered=None, room_temperature_ema=22.3)
         sensor = BetterThermostatExternalTempSensor(bt)
         sensor._update_state()
@@ -450,13 +453,13 @@ class TestMpcSensorState:
 
     def _make_trv_with_debug(self, **debug_values):
         return {
-            "trv_1": Trv.from_legacy_dict(
+            "trv_1": trv_from_legacy_dict(
                 "trv_1", {"calibration_balance": {"debug": debug_values}}
             )
         }
 
     def test_virtual_temp_reads_from_debug(self):
-        """Virtual temp reads from debug."""
+        """Virtual temperature reads from debug."""
         bt = _make_bt_climate(
             real_trvs=self._make_trv_with_debug(mpc_virtual_temp=22.5)
         )
@@ -487,7 +490,7 @@ class TestMpcSensorState:
 
     def test_no_calibration_balance_returns_none(self):
         """No calibration balance returns none."""
-        bt = _make_bt_climate(real_trvs={"trv_1": Trv.from_legacy_dict("trv_1", {})})
+        bt = _make_bt_climate(real_trvs={"trv_1": trv_from_legacy_dict("trv_1", {})})
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
@@ -496,7 +499,7 @@ class TestMpcSensorState:
         """No debug key returns none."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict("trv_1", {"calibration_balance": {}})
+                "trv_1": trv_from_legacy_dict("trv_1", {"calibration_balance": {}})
             }
         )
         sensor = BetterThermostatVirtualTempSensor(bt)
@@ -530,8 +533,8 @@ class TestMpcSensorState:
         """When multiple TRVs exist, the first with debug data should be used."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict("trv_1", {}),
-                "trv_2": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict("trv_1", {}),
+                "trv_2": trv_from_legacy_dict(
                     "trv_2",
                     {"calibration_balance": {"debug": {"mpc_virtual_temp": 23.0}}},
                 ),
@@ -542,12 +545,84 @@ class TestMpcSensorState:
         assert sensor._attr_native_value == 23.0
 
 
+class TestMpcV2SensorState:
+    """The MPC v2 sensors read the payload MPC v2 publishes, and only that one."""
+
+    @staticmethod
+    def _trv(name, debug):
+        return trv_from_legacy_dict(name, {"calibration_balance": {"debug": debug}})
+
+    @pytest.mark.parametrize(
+        ("sensor_class", "debug_key", "value"),
+        [
+            (BetterThermostatMpcV2VirtualTempSensor, "T_room_hat", 20.75),
+            (BetterThermostatMpcV2CouplingSensor, "coupling_rad_room", 0.42),
+            (BetterThermostatMpcV2DisturbanceSensor, "D_hat_K_per_min", -0.012),
+            (BetterThermostatMpcV2RoomTimeConstantSensor, "tau_room_min", 185.0),
+        ],
+    )
+    def test_each_sensor_shows_its_value_of_the_v2_payload(
+        self, sensor_class, debug_key, value
+    ):
+        bt = _make_bt_climate(
+            real_trvs={
+                "trv_1": self._trv(
+                    "trv_1", {"controller_version": "V2", debug_key: value}
+                )
+            }
+        )
+        sensor = sensor_class(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value == value
+
+    def test_a_payload_of_another_controller_is_not_read(self):
+        """An MPC v1 payload under the same key leaves the sensor empty."""
+        bt = _make_bt_climate(
+            real_trvs={
+                "trv_1": self._trv(
+                    "trv_1", {"controller_version": "v1", "T_room_hat": 21.0}
+                )
+            }
+        )
+        sensor = BetterThermostatMpcV2VirtualTempSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value is None
+
+    def test_the_first_head_with_a_v2_value_is_shown(self):
+        """Heads without the value, or on another controller, are passed over."""
+        bt = _make_bt_climate(
+            real_trvs={
+                "trv_1": trv_from_legacy_dict("trv_1", {}),
+                "trv_2": self._trv(
+                    "trv_2", {"controller_version": "v1", "tau_room_min": 1.0}
+                ),
+                "trv_3": self._trv("trv_3", {"controller_version": "v2"}),
+                "trv_4": self._trv(
+                    "trv_4", {"controller_version": "v2", "tau_room_min": 90.0}
+                ),
+                "trv_5": self._trv(
+                    "trv_5", {"controller_version": "v2", "tau_room_min": 30.0}
+                ),
+            }
+        )
+        sensor = BetterThermostatMpcV2RoomTimeConstantSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value == 90.0
+
+    def test_no_heads_leave_the_sensor_empty(self):
+        bt = _make_bt_climate(real_trvs={})
+        sensor = BetterThermostatMpcV2CouplingSensor(bt)
+        sensor._attr_native_value = 0.5
+        sensor._update_state()
+        assert sensor._attr_native_value is None
+
+
 class TestPidSensorState:
     """Tests for PID sensor state retrieval from calibration_balance debug."""
 
     def _make_trv_with_debug(self, **debug_values):
         return {
-            "trv_1": Trv.from_legacy_dict(
+            "trv_1": trv_from_legacy_dict(
                 "trv_1", {"calibration_balance": {"debug": debug_values}}
             )
         }
@@ -555,9 +630,6 @@ class TestPidSensorState:
     @pytest.mark.parametrize(
         ("sensor_class", "debug_key", "value"),
         [
-            (BetterThermostatPidKpSensor, "kp", 60.0),
-            (BetterThermostatPidKiSensor, "ki", 0.01),
-            (BetterThermostatPidKdSensor, "kd", 2000.0),
             (BetterThermostatPidOutputSensor, "u", 42.5),
             (BetterThermostatPidErrorSensor, "e_K", -0.3),
         ],
@@ -571,27 +643,21 @@ class TestPidSensorState:
 
     def test_missing_debug_key_returns_none(self):
         """A PID sensor whose key is absent from debug reports None."""
-        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(kp=60.0))
+        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(u=42.5))
         sensor = BetterThermostatPidErrorSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
 
     def test_invalid_debug_value_returns_none(self):
         """A non-numeric debug value is coerced to None."""
-        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(kp="bad"))
-        sensor = BetterThermostatPidKpSensor(bt)
+        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(u="bad"))
+        sensor = BetterThermostatPidOutputSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
 
     @pytest.mark.parametrize(
         "sensor_class",
-        [
-            BetterThermostatPidKpSensor,
-            BetterThermostatPidKiSensor,
-            BetterThermostatPidKdSensor,
-            BetterThermostatPidOutputSensor,
-            BetterThermostatPidErrorSensor,
-        ],
+        [BetterThermostatPidOutputSensor, BetterThermostatPidErrorSensor],
     )
     def test_unavailable_when_hvac_off(self, sensor_class):
         """PID sensors are unavailable when the thermostat is off."""
@@ -601,76 +667,6 @@ class TestPidSensorState:
 
 
 # ===========================================================================
-# 5. Solar Intensity Sensor
-# ===========================================================================
-
-
-class TestSolarIntensitySensor:
-    """Tests for BetterThermostatSolarIntensitySensor."""
-
-    def test_unique_id(self):
-        """Unique id."""
-        bt = _make_bt_climate()
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        assert sensor._attr_unique_id == "test_bt_123_solar_intensity"
-
-    @patch("custom_components.better_thermostat.sensor._get_current_solar_intensity")
-    def test_normal_value_converted_to_percent(self, mock_solar):
-        """Normal value converted to percent."""
-        mock_solar.return_value = 0.75
-        bt = _make_bt_climate()
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        sensor._update_state()
-        assert sensor._attr_native_value == 75.0
-
-    @patch("custom_components.better_thermostat.sensor._get_current_solar_intensity")
-    def test_zero_intensity(self, mock_solar):
-        """Zero intensity."""
-        mock_solar.return_value = 0.0
-        bt = _make_bt_climate()
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        sensor._update_state()
-        assert sensor._attr_native_value == 0.0
-
-    @patch("custom_components.better_thermostat.sensor._get_current_solar_intensity")
-    def test_none_returns_zero(self, mock_solar):
-        """When _get_current_solar_intensity returns None, sensor shows 0.0."""
-        mock_solar.return_value = None
-        bt = _make_bt_climate()
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        sensor._update_state()
-        assert sensor._attr_native_value == 0.0
-
-    def test_unreadable_weather_attributes_fall_back_to_the_condition(self):
-        """Attributes that are not numbers give the condition-based estimate."""
-        bt = _make_bt_climate(weather_entity_id="weather.home")
-        bt.hass.states.get.return_value = State(
-            "weather.home", "unknown", {"cloud_coverage": "n/a", "uv_index": "high"}
-        )
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        sensor._update_state()
-        assert sensor._attr_native_value == 10.0
-
-    def test_weather_numbers_beyond_float_range_fall_back_to_the_condition(self):
-        """Integers too large for a float give the condition-based estimate."""
-        bt = _make_bt_climate(weather_entity_id="weather.home")
-        bt.hass.states.get.return_value = State(
-            "weather.home", "sunny", {"cloud_coverage": 10**400, "uv_index": 10**400}
-        )
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        sensor._update_state()
-        assert sensor._attr_native_value == 100.0
-
-    @patch("custom_components.better_thermostat.sensor._get_current_solar_intensity")
-    def test_full_intensity_gives_100_percent(self, mock_solar):
-        """Full intensity gives 100 percent."""
-        mock_solar.return_value = 1.0
-        bt = _make_bt_climate()
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        sensor._update_state()
-        assert sensor._attr_native_value == 100.0
-
-
 # ===========================================================================
 # 6. _get_active_algorithms
 # ===========================================================================
@@ -693,7 +689,7 @@ class TestGetActiveAlgorithms:
         """Mpc calibration detected."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1",
                     {
                         "advanced": {
@@ -710,7 +706,7 @@ class TestGetActiveAlgorithms:
         """String values should be auto-converted to CalibrationMode enum."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1", {"advanced": {CONF_CALIBRATION_MODE: "mpc_calibration"}}
                 )
             }
@@ -722,7 +718,7 @@ class TestGetActiveAlgorithms:
         """Invalid calibration mode skipped."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1",
                     {"advanced": {CONF_CALIBRATION_MODE: "totally_invalid_mode"}},
                 )
@@ -735,7 +731,7 @@ class TestGetActiveAlgorithms:
         """Multiple trvs different modes."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1",
                     {
                         "advanced": {
@@ -743,7 +739,7 @@ class TestGetActiveAlgorithms:
                         }
                     },
                 ),
-                "trv_2": Trv.from_legacy_dict(
+                "trv_2": trv_from_legacy_dict(
                     "trv_2",
                     {
                         "advanced": {
@@ -763,7 +759,7 @@ class TestGetActiveAlgorithms:
         """A stored ``None`` runs the default mode, so that mode is active."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1", {"advanced": {CONF_CALIBRATION_MODE: None}}
                 )
             }
@@ -773,7 +769,7 @@ class TestGetActiveAlgorithms:
 
     def test_missing_advanced_key_reports_the_default_mode(self):
         """A TRV without advanced settings runs the default mode."""
-        bt = _make_bt_climate(real_trvs={"trv_1": Trv.from_legacy_dict("trv_1", {})})
+        bt = _make_bt_climate(real_trvs={"trv_1": trv_from_legacy_dict("trv_1", {})})
         result = _get_active_algorithms(bt)
         assert result == {DEFAULT_CALIBRATION_MODE}
 
@@ -781,7 +777,7 @@ class TestGetActiveAlgorithms:
         """A mis-cased mode name brings the sensors of the mode the calibration runs."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1", {"advanced": {CONF_CALIBRATION_MODE: "MPC_Calibration"}}
                 )
             }
@@ -812,7 +808,7 @@ class TestSetupAlgorithmSensors:
         entry = _make_entry(climate=None)
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1",
                     {
                         "advanced": {
@@ -850,7 +846,7 @@ class TestSetupAlgorithmSensors:
         entry = _make_entry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1",
                     {
                         "advanced": {
@@ -1005,8 +1001,8 @@ class TestAsyncSetupEntry:
         async_add_entities.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_creates_six_core_sensors(self):
-        """Should create 6 core sensors when climate exists."""
+    async def test_creates_five_core_sensors(self):
+        """Should create 5 core sensors when climate exists."""
         bt = _make_bt_climate()
         hass = MagicMock()
         entry = _make_entry(climate=bt)
@@ -1025,7 +1021,7 @@ class TestAsyncSetupEntry:
 
         async_add_entities.assert_called_once()
         sensors = async_add_entities.call_args[0][0]
-        assert len(sensors) == 6
+        assert len(sensors) == 5
 
     @pytest.mark.asyncio
     async def test_a_setup_retried_after_a_failure_creates_the_algorithm_sensors(self):
@@ -1360,9 +1356,6 @@ class TestDynamicAlgorithmSensors:
         reg.async_remove.assert_not_called()
         assert len(registered) == len(mpc_sensors)
         assert {type(s) for s in added} == {
-            BetterThermostatPidKpSensor,
-            BetterThermostatPidKiSensor,
-            BetterThermostatPidKdSensor,
             BetterThermostatPidOutputSensor,
             BetterThermostatPidErrorSensor,
         }
@@ -1504,7 +1497,7 @@ class TestCleanupPidNumberEntities:
         _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": {"trv": "trv_1", "param": "kp"}}
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1",
                     {"advanced": {CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT}},
                 )
@@ -1522,7 +1515,7 @@ class TestCleanupPidNumberEntities:
         _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": {"trv": "trv_1", "param": "kp"}}
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1",
                     {
                         "advanced": {
@@ -1543,7 +1536,7 @@ class TestCleanupPidNumberEntities:
         reg = _make_entity_registry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1",
                     {
                         "advanced": {
@@ -1579,7 +1572,7 @@ class TestCleanupPidNumberEntities:
         reg = _make_entity_registry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1", {"advanced": {CONF_CALIBRATION_MODE: "totally_bogus"}}
                 )
             }
@@ -1611,7 +1604,7 @@ class TestCleanupPidSwitchEntities:
         }
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1",
                     {"advanced": {CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT}},
                 )
@@ -1633,7 +1626,7 @@ class TestCleanupPidSwitchEntities:
         }
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1",
                     {"advanced": {CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT}},
                 )
@@ -1653,7 +1646,7 @@ class TestCleanupPidSwitchEntities:
         }
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1",
                     {"advanced": {CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT}},
                 )
@@ -1670,7 +1663,7 @@ class TestCleanupPidSwitchEntities:
         reg = _make_entity_registry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv.from_legacy_dict(
+                "trv_1": trv_from_legacy_dict(
                     "trv_1",
                     {
                         "advanced": {
@@ -1721,30 +1714,6 @@ class TestEdgeCasesAndPotentialBugs:
         sensor._update_state()
         assert sensor._attr_native_value is None
 
-    def test_solar_sensor_negative_intensity(self):
-        """What happens if solar intensity returns a negative value?."""
-        with patch(
-            "custom_components.better_thermostat.sensor._get_current_solar_intensity"
-        ) as mock_solar:
-            mock_solar.return_value = -0.5
-            bt = _make_bt_climate()
-            sensor = BetterThermostatSolarIntensitySensor(bt)
-            sensor._update_state()
-            # Code does val * 100.0 → would show -50.0%
-            # This might be unexpected behavior
-            assert sensor._attr_native_value == -50.0
-
-    def test_solar_sensor_above_one_intensity(self):
-        """What happens if solar intensity returns > 1.0?."""
-        with patch(
-            "custom_components.better_thermostat.sensor._get_current_solar_intensity"
-        ) as mock_solar:
-            mock_solar.return_value = 1.5
-            bt = _make_bt_climate()
-            sensor = BetterThermostatSolarIntensitySensor(bt)
-            sensor._update_state()
-            assert sensor._attr_native_value == 150.0
-
     def test_1h_ema_negative_dt_clamped(self):
         """If monotonic() goes backward (shouldn't happen but defensive), dt is clamped to 0."""
         bt = _make_bt_climate(room_temperature_filtered=20.0)
@@ -1787,7 +1756,7 @@ class TestEdgeCasesAndPotentialBugs:
     async def test_get_active_algorithms_with_empty_advanced(self):
         """A TRV with empty advanced settings runs the default mode."""
         bt = _make_bt_climate(
-            real_trvs={"trv_1": Trv.from_legacy_dict("trv_1", {"advanced": {}})}
+            real_trvs={"trv_1": trv_from_legacy_dict("trv_1", {"advanced": {}})}
         )
         result = _get_active_algorithms(bt)
         assert result == {DEFAULT_CALIBRATION_MODE}
@@ -1859,7 +1828,6 @@ class TestBtSensorBase:
             BetterThermostatMpcGainSensor,
             BetterThermostatMpcLossSensor,
             BetterThermostatMpcKaSensor,
-            BetterThermostatSolarIntensitySensor,
         ]:
             sensor = cls(bt)
             assert isinstance(sensor, _BtSensorBase), (
@@ -1895,27 +1863,27 @@ class TestBtSensorBase:
 
 
 class TestGetFilteredTemp:
-    """Tests for _get_filtered_temp helper."""
+    """Tests for _get_filtered_temperature helper."""
 
     def test_prefers_room_temperature_filtered(self):
         """Prefers the filtered room temperature."""
         bt = _make_bt_climate(room_temperature_filtered=21.5, room_temperature_ema=22.0)
-        assert _get_filtered_temp(bt) == 21.5
+        assert _get_filtered_temperature(bt) == 21.5
 
     def test_falls_back_to_room_temperature_ema(self):
-        """Falls back to external temp ema."""
+        """Falls back to external temperature ema."""
         bt = _make_bt_climate(room_temperature_filtered=None, room_temperature_ema=22.0)
-        assert _get_filtered_temp(bt) == 22.0
+        assert _get_filtered_temperature(bt) == 22.0
 
     def test_returns_none_when_both_missing(self):
         """Returns none when both missing."""
         bt = _make_bt_climate(room_temperature_filtered=None, room_temperature_ema=None)
-        assert _get_filtered_temp(bt) is None
+        assert _get_filtered_temperature(bt) is None
 
     def test_zero_value_not_treated_as_none(self):
         """Zero value not treated as none."""
         bt = _make_bt_climate(room_temperature_filtered=0.0, room_temperature_ema=22.0)
-        assert _get_filtered_temp(bt) == 0.0
+        assert _get_filtered_temperature(bt) == 0.0
 
 
 class TestBtSimpleAttributeSensor:

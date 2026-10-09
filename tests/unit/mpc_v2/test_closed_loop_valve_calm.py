@@ -101,7 +101,7 @@ def _settled_run(case: _Case) -> tuple[list[int], list[float]]:
     room = PlantModelRC2(case.room, dt_s=ROOM_STEP_S)
     x = np.array([case.setpoint, case.setpoint])
     state = None
-    applied_pct: int | None = None
+    applied_percent: int | None = None
     valves: list[int] = []
     errors: list[float] = []
     t_s = 0.0
@@ -119,19 +119,21 @@ def _settled_run(case: _Case) -> tuple[list[int], list[float]]:
                 trv_temperature=float(x[1]),
                 outdoor_temperature=case.outdoor_temperature,
                 window_open=False,
-                applied_valve_pct=None if applied_pct is None else float(applied_pct),
+                applied_valve_percent=None
+                if applied_percent is None
+                else float(applied_percent),
             ),
             params,
             state,
             now=1_700_000_000.0 + t_s,
         )
         assert out is not None
-        applied_pct = out.valve_percent
+        applied_percent = out.valve_percent
         if t_s / 3600.0 >= SETTLED_FROM_H:
-            valves.append(applied_pct)
+            valves.append(applied_percent)
             errors.append(float(x[0]) - case.setpoint)
         for _step in range(int(CYCLE_S / ROOM_STEP_S)):
-            x = room.discrete_step(x, applied_pct / 100.0, case.outdoor_temperature)
+            x = room.discrete_step(x, applied_percent / 100.0, case.outdoor_temperature)
             t_s += ROOM_STEP_S
     return valves, errors
 

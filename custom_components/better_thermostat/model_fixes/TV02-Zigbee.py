@@ -7,7 +7,10 @@ import logging
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+from custom_components.better_thermostat.model_fixes.types import (
+    ModelFixHost,
+    ModelQuirks,
+)
 from custom_components.better_thermostat.utils.helpers import (
     celsius_to_system_temperature,
 )
@@ -166,3 +169,17 @@ async def override_set_temperature(
         )
         return False
     return True
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()

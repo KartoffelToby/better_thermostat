@@ -10,6 +10,7 @@ from custom_components.better_thermostat.trv import (
     PendingSetpoint,
     Trv,
 )
+from tests.factories import trv_from_legacy_dict
 
 
 def _make() -> Trv:
@@ -24,7 +25,7 @@ class TestTypedAccess:
         trv = _make()
         assert trv.entity_id == "climate.trv"
         assert trv.valve_max_opening == 100.0
-        assert trv.local_calibration_min == -7
+        assert trv.min_local_calibration == -7
         assert trv.calibration_received is True
         assert trv.ignore_trv_states is False
         assert trv.current_temperature is None
@@ -59,7 +60,7 @@ class TestExtraScratchpad:
 
     def test_from_legacy_dict_splits_fields_and_extras(self):
         """Known keys become fields; unknown keys land in ``extra``."""
-        trv = Trv.from_legacy_dict(
+        trv = trv_from_legacy_dict(
             "climate.trv",
             {
                 "current_temperature": 21.0,
@@ -73,7 +74,7 @@ class TestExtraScratchpad:
 
     def test_from_legacy_dict_maps_the_requested_calibration(self):
         """The pre-clamp offset intent is a typed field, not a scratch key."""
-        trv = Trv.from_legacy_dict(
+        trv = trv_from_legacy_dict(
             "climate.trv",
             {"last_calibration": -3.0, "last_calibration_requested": -5.0},
         )
@@ -83,7 +84,7 @@ class TestExtraScratchpad:
 
     def test_from_legacy_dict_explicit_entity_id_wins(self):
         """An ``entity_id`` key in the dict yields to the explicit argument."""
-        trv = Trv.from_legacy_dict(
+        trv = trv_from_legacy_dict(
             "climate.trv", {"entity_id": "climate.stale", "current_temperature": 21.0}
         )
         assert trv.entity_id == "climate.trv"
@@ -92,14 +93,14 @@ class TestExtraScratchpad:
 
     def test_from_legacy_dict_merges_extra_key(self):
         """An ``extra`` key is merged into the scratchpad, not nested under it."""
-        trv = Trv.from_legacy_dict(
+        trv = trv_from_legacy_dict(
             "climate.trv", {"extra": {"_quirk_scratch": 3}, "_other_scratch": 7}
         )
         assert trv.extra == {"_quirk_scratch": 3, "_other_scratch": 7}
 
     def test_from_legacy_dict_keeps_non_dict_extra_value(self):
         """A non-dict legacy ``extra`` value survives under the ``extra`` key."""
-        trv = Trv.from_legacy_dict("climate.trv", {"extra": 42})
+        trv = trv_from_legacy_dict("climate.trv", {"extra": 42})
         assert trv.extra == {"extra": 42}
 
     def test_no_dict_protocol(self):
@@ -323,10 +324,10 @@ class TestEchoSetpoints:
 
     def test_from_legacy_dict_fills_the_writes_from_the_dict(self):
         """The list is a typed field like the rest, with its own default."""
-        seeded = Trv.from_legacy_dict(
+        seeded = trv_from_legacy_dict(
             "climate.trv", {"pending_setpoints": [PendingSetpoint(26.0, 1)]}
         )
-        bare = Trv.from_legacy_dict("climate.trv", {})
+        bare = trv_from_legacy_dict("climate.trv", {})
         assert seeded.echo_setpoint_values() == [26.0]
         assert bare.echo_setpoint_values() == []
 
@@ -363,7 +364,7 @@ class TestTrvCapabilities:
     def test_unknown_hvac_modes_disable_off(self):
         """A TRV that never reported its modes is conservatively no-off.
 
-        BT then sends min temp instead of an OFF the device may not
+        BT then sends min temperature instead of an OFF the device may not
         support.
         """
         trv = _make()
@@ -426,7 +427,7 @@ class TestTrvCapabilities:
 
         class _Quirk:
             @staticmethod
-            async def override_set_valve(bt, entity_id, pct):
+            async def override_set_valve(bt, entity_id, percent):
                 return True
 
         trv = _make()
@@ -453,28 +454,3 @@ class TestTrvCapabilities:
             f"custom_components.better_thermostat.model_fixes.{model}"
         )
         assert trv.capabilities().supports_valve_write is True
-
-
-class TestModelQuirksProtocol:
-    """Every quirk module satisfies the structural quirk contract."""
-
-    def test_all_quirk_modules_satisfy_the_protocol(self):
-        """Each model_fixes module provides the full required surface."""
-        import importlib
-        import pkgutil
-
-        from custom_components.better_thermostat import model_fixes
-        from custom_components.better_thermostat.trv import ModelQuirks
-
-        checked = []
-        for info in pkgutil.iter_modules(model_fixes.__path__):
-            if info.name in ("model_quirks", "types"):
-                continue
-            module = importlib.import_module(
-                f"custom_components.better_thermostat.model_fixes.{info.name}"
-            )
-            assert isinstance(module, ModelQuirks), (
-                f"{info.name} is missing part of the quirk surface"
-            )
-            checked.append(info.name)
-        assert "default" in checked

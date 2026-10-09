@@ -3,8 +3,8 @@
 Swapping the configured thermostat of an existing entry to an entity without a
 device-registry device (a ``generic_thermostat``, for example) sends the
 options flow down the "new TRV" branch, where the model has to be resolved from
-scratch. Neither flow carries a ``model`` attribute, so ``get_device_model``
-must treat that fallback as optional.
+scratch. Neither flow has a configured model to hand to ``get_device_model``,
+so that fallback is optional.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -28,20 +28,12 @@ GENERIC_TRV = "climate.generic_thermostat"
 STORED_TRV = "climate.stored_trv"
 
 
-class _CallerWithoutModel:
-    """Duck-typed ``get_device_model`` caller that carries no model attribute."""
+class _Caller:
+    """Duck-typed ``get_device_model`` caller."""
 
     def __init__(self, hass):
         self.hass = hass
         self.device_name = "Living Room"
-
-
-class _CallerWithModel(_CallerWithoutModel):
-    """Duck-typed ``get_device_model`` caller that carries a configured model."""
-
-    def __init__(self, hass, model):
-        super().__init__(hass)
-        self.model = model
 
 
 def _make_config_entry():
@@ -144,8 +136,8 @@ async def test_config_flow_swap_to_generic_thermostat_resolves_generic_model():
 
 @pytest.mark.asyncio
 async def test_get_device_model_without_model_attribute_returns_generic():
-    """A caller that carries no model attribute falls through to 'generic'."""
-    caller = _CallerWithoutModel(MagicMock())
+    """A caller without a configured model falls through to 'generic'."""
+    caller = _Caller(MagicMock())
     patch_er, patch_dr = _patch_empty_registries()
 
     with patch_er, patch_dr:
@@ -155,18 +147,23 @@ async def test_get_device_model_without_model_attribute_returns_generic():
 @pytest.mark.asyncio
 async def test_get_device_model_prefers_configured_model_over_generic():
     """A caller with a configured model keeps it when the registry knows nothing."""
-    caller = _CallerWithModel(MagicMock(), "TRVZB")
+    caller = _Caller(MagicMock())
     patch_er, patch_dr = _patch_empty_registries()
 
     with patch_er, patch_dr:
-        assert await get_device_model(caller, STORED_TRV) == "TRVZB"
+        assert (
+            await get_device_model(caller, STORED_TRV, configured_model="TRVZB")
+            == "TRVZB"
+        )
 
 
 @pytest.mark.asyncio
 async def test_get_device_model_ignores_non_string_configured_model():
     """A configured model of the wrong type is not used as a fallback."""
-    caller = _CallerWithModel(MagicMock(), 42)
+    caller = _Caller(MagicMock())
     patch_er, patch_dr = _patch_empty_registries()
 
     with patch_er, patch_dr:
-        assert await get_device_model(caller, STORED_TRV) == "generic"
+        assert (
+            await get_device_model(caller, STORED_TRV, configured_model=42) == "generic"
+        )

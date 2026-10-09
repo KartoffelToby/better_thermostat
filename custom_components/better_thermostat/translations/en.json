@@ -539,23 +539,11 @@
       "mpc_v2_room_time_constant": {
         "name": "MPC v2 Room Time Constant"
       },
-      "pid_kp": {
-        "name": "PID Kp"
-      },
-      "pid_ki": {
-        "name": "PID Ki"
-      },
-      "pid_kd": {
-        "name": "PID Kd"
-      },
       "pid_output": {
         "name": "PID Output"
       },
       "pid_error": {
         "name": "PID Error"
-      },
-      "solar_intensity": {
-        "name": "Sun Intensity Heatup"
       }
     }
   },

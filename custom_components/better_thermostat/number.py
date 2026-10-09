@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import TYPE_CHECKING, Literal, override
+from typing import TYPE_CHECKING, override
 
 from homeassistant.components.climate.const import (
     PRESET_ACTIVITY,
@@ -39,7 +39,11 @@ from .utils.calibration.pid import (
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
+    PID_GAIN_LIMITS,
+    PidGain,
     build_pid_key,
+    pid_gain,
+    set_pid_gain,
 )
 from .utils.const import CalibrationMode, CalibrationOutput
 from .utils.helpers import (
@@ -78,13 +82,13 @@ _PRESET_MAX_TRANSLATION_KEYS = {
     preset: f"{key}_max" for preset, key in _PRESET_TRANSLATION_KEYS.items()
 }
 
-type PidGain = Literal["kp", "ki", "kd"]
 # Per PID gain: the lowest and highest value and the step its number offers,
-# and the value it shows before the gain has been learned or set.
+# and the value it shows before the gain has been learned or set. The range is
+# the one the controller keeps a stored gain to.
 _PID_GAIN_SETTINGS: dict[PidGain, tuple[float, float, float, float]] = {
-    "kp": (0.0, 1000.0, 0.1, DEFAULT_PID_KP),
-    "ki": (0.0, 100.0, 0.001, DEFAULT_PID_KI),
-    "kd": (0.0, 10000.0, 1.0, DEFAULT_PID_KD),
+    "kp": (*PID_GAIN_LIMITS["kp"], 0.1, DEFAULT_PID_KP),
+    "ki": (*PID_GAIN_LIMITS["ki"], 0.001, DEFAULT_PID_KI),
+    "kd": (*PID_GAIN_LIMITS["kd"], 1.0, DEFAULT_PID_KD),
 }
 
 
@@ -511,7 +515,7 @@ class BetterThermostatPIDNumber(
             key = build_pid_key(self._bt_climate, self._trv_entity_id)
             pid_state = state_mgr.state.pid.get(key)
             if pid_state is not None:
-                value = getattr(pid_state, f"pid_{self._parameter}")
+                value = pid_gain(pid_state, self._parameter)
                 if value is not None:
                     return value
 
@@ -540,10 +544,10 @@ class BetterThermostatPIDNumber(
         _LOGGER.debug(
             "Updating PID state key %s: %s -> %s",
             key,
-            getattr(pid_state, f"pid_{self._parameter}"),
+            pid_gain(pid_state, self._parameter),
             value,
         )
-        setattr(pid_state, f"pid_{self._parameter}", value)
+        set_pid_gain(pid_state, self._parameter, value)
         state_mgr.set_pid(key, pid_state)
 
         self._bt_climate.schedule_save_state()

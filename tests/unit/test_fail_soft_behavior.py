@@ -15,7 +15,7 @@ import pytest
 
 from custom_components.better_thermostat.calibration import (
     calculate_calibration_setpoint,
-    effective_room_temp,
+    effective_room_temperature,
 )
 from custom_components.better_thermostat.core.decide import (
     KernelState,
@@ -32,9 +32,8 @@ from custom_components.better_thermostat.core.snapshot import (
     WorldSnapshot,
 )
 from custom_components.better_thermostat.core.watchdog import control_loop_stalled
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 
 def _bt(mode: ControlMode) -> MagicMock:
@@ -43,8 +42,8 @@ def _bt(mode: ControlMode) -> MagicMock:
     bt.room_temperature = 20.0
     bt.kernel_state = KernelState(control_mode=ControlModeState(mode=mode))
     bt.real_trvs = {
-        "climate.a": Trv.from_legacy_dict("climate.a", {"current_temperature": 21.0}),
-        "climate.b": Trv.from_legacy_dict("climate.b", {"current_temperature": 23.0}),
+        "climate.a": trv_from_legacy_dict("climate.a", {"current_temperature": 21.0}),
+        "climate.b": trv_from_legacy_dict("climate.b", {"current_temperature": 23.0}),
     }
     _publish(bt, {"climate.a": 21.0, "climate.b": 23.0})
     return bt
@@ -67,18 +66,18 @@ class TestSensorFallbackSubstitution:
 
     def test_optimal_uses_the_room_sensor(self):
         """On OPTIMAL the room sensor value is used unchanged."""
-        assert effective_room_temp(_bt(ControlMode.OPTIMAL)) == 20.0
+        assert effective_room_temperature(_bt(ControlMode.OPTIMAL)) == 20.0
 
     def test_fallback_uses_the_trv_mean(self):
         """On SENSOR_FALLBACK the mean of the TRV temperatures substitutes."""
-        assert effective_room_temp(_bt(ControlMode.SENSOR_FALLBACK)) == 22.0
+        assert effective_room_temperature(_bt(ControlMode.SENSOR_FALLBACK)) == 22.0
 
     def test_fallback_without_trv_temps_keeps_the_last_reading(self):
         """Without any TRV temperature the (stale) room reading remains."""
         bt = _bt(ControlMode.SENSOR_FALLBACK)
         for trv in bt.real_trvs.values():
             trv.current_temperature = None
-        assert effective_room_temp(bt) == 20.0
+        assert effective_room_temperature(bt) == 20.0
 
     def test_fallback_leaves_out_an_unreachable_trv(self):
         """Only TRVs that are reachable contribute to the substitute.
@@ -92,17 +91,17 @@ class TestSensorFallbackSubstitution:
             if entity_id == "climate.b"
             else State(entity_id, "heat", {"current_temperature": 21.0})
         )
-        assert effective_room_temp(bt) == 21.0
+        assert effective_room_temperature(bt) == 21.0
 
     def test_fallback_with_every_trv_unreachable_keeps_the_last_reading(self):
         """Stored readings of unreachable TRVs do not replace the room reading."""
         bt = _bt(ControlMode.SENSOR_FALLBACK)
         bt.hass.states.get.side_effect = lambda entity_id: None
-        assert effective_room_temp(bt) == 20.0
+        assert effective_room_temperature(bt) == 20.0
 
     def test_hold_does_not_substitute(self):
         """HOLD does not fabricate temperatures; the controller pauses."""
-        assert effective_room_temp(_bt(ControlMode.HOLD)) == 20.0
+        assert effective_room_temperature(_bt(ControlMode.HOLD)) == 20.0
 
     @pytest.mark.parametrize(
         "reported",
@@ -124,7 +123,7 @@ class TestSensorFallbackSubstitution:
         """
         bt = _bt(ControlMode.SENSOR_FALLBACK)
         _publish(bt, {"climate.a": 21.0, "climate.b": reported})
-        assert effective_room_temp(bt) == 21.0
+        assert effective_room_temperature(bt) == 21.0
 
 
 class TestFallbackSetpointChannel:
@@ -150,7 +149,7 @@ class TestFallbackSetpointChannel:
             control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
         )
         bt.real_trvs = {
-            "climate.a": Trv.from_legacy_dict(
+            "climate.a": trv_from_legacy_dict(
                 "climate.a",
                 {
                     "advanced": {"calibration_mode": CalibrationMode.DEFAULT},
@@ -161,7 +160,7 @@ class TestFallbackSetpointChannel:
                     "model_quirks": quirks,
                 },
             ),
-            "climate.b": Trv.from_legacy_dict(
+            "climate.b": trv_from_legacy_dict(
                 "climate.b", {"current_temperature": -4.0}
             ),
         }
@@ -170,7 +169,7 @@ class TestFallbackSetpointChannel:
 
         result = calculate_calibration_setpoint(bt, "climate.a")
 
-        # (target 5.0 - fallback mean 0.0) + TRV temp 4.0 = 9.0
+        # (target 5.0 - fallback mean 0.0) + TRV temperature 4.0 = 9.0
         assert result == pytest.approx(9.0)
 
 

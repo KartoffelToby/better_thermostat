@@ -62,7 +62,7 @@ def _option_to_offset(option: str) -> float | None:
         Offset in Kelvin, or None when the option carries no number.
     """
     try:
-        return float(str(option).replace("k", ""))
+        return float(option.replace("k", ""))
     except ValueError, TypeError:
         return None
 
@@ -104,7 +104,7 @@ async def discover_calibration_entity(self: AdapterHost, entity_id: str) -> None
         return
 
     trv.local_temperature_calibration_entity = await find_local_calibration_entity(
-        self, entity_id
+        self, entity_id, trv=trv
     )
     _LOGGER.debug(
         "better_thermostat %s: uses local calibration entity %s",
@@ -142,7 +142,7 @@ async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
             return 0.0
         try:
             # For SELECT entities, remove the 'k' suffix if present (e.g., "1.5k" -> "1.5")
-            state_str = str(state.state).replace("k", "")
+            state_str = state.state.replace("k", "")
             return float(state_str)
         except ValueError, TypeError:
             _LOGGER.warning(
@@ -200,8 +200,11 @@ def _offered_offsets(state: State) -> list[float]:
     list of float
         Offset each usable option stands for.
     """
+    # Attribute values are untyped, so each option is read as text, as the
+    # write path reads the same list.
     parsed = [
-        _option_to_offset(option) for option in state.attributes.get("options") or []
+        _option_to_offset(str(option))
+        for option in state.attributes.get("options") or []
     ]
     return [value for value in parsed if value is not None]
 
@@ -354,20 +357,13 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> No
         hvac_mode,
         hvac_mode_norm,
     )
-    try:
-        await self.hass.services.async_call(
-            "climate",
-            "set_hvac_mode",
-            {"entity_id": entity_id, "hvac_mode": hvac_mode_norm},
-            blocking=True,
-            context=self.context,
-        )
-    except TypeError:
-        _LOGGER.debug(
-            "TypeError in set_hvac_mode (entity=%s, hvac_mode=%s)",
-            entity_id,
-            hvac_mode_norm,
-        )
+    await self.hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {"entity_id": entity_id, "hvac_mode": hvac_mode_norm},
+        blocking=True,
+        context=self.context,
+    )
 
 
 async def set_calibration_offset(

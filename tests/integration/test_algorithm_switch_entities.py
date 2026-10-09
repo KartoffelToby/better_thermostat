@@ -7,11 +7,15 @@ the ones of the algorithm it runs now must be there and alive.
 """
 
 from dataclasses import replace
+from datetime import timedelta
 from unittest.mock import patch
 
+from homeassistant.config_entries import RELOAD_AFTER_UPDATE_DELAY
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 import pytest
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.better_thermostat import climate as climate_module
 from custom_components.better_thermostat.utils.const import (
@@ -35,7 +39,7 @@ MPC = CalibrationMode.MPC_CALIBRATION.value
 DEFAULT = CalibrationMode.DEFAULT.value
 
 _ALGORITHM_SENSOR_SUFFIXES = {
-    PID: {"pid_kp", "pid_ki", "pid_kd", "pid_output", "pid_error"},
+    PID: {"pid_output", "pid_error"},
     MPC: {"virtual_temp", "mpc_gain", "mpc_loss", "mpc_ka"},
     DEFAULT: set(),
 }
@@ -77,6 +81,7 @@ async def _choose_algorithm(hass, entry, mode: str) -> None:
     ("first", "then"),
     [(PID, MPC), (MPC, PID), (PID, DEFAULT), (MPC, DEFAULT), (DEFAULT, PID)],
 )
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_the_sensors_follow_the_chosen_algorithm(hass, first, then):
     """After an algorithm change the registry holds the new algorithm's sensors only."""
     set_room_sensor(hass, 19.0)
@@ -91,6 +96,51 @@ async def test_the_sensors_follow_the_chosen_algorithm(hass, first, then):
 
     assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[then]
     assert _unavailable(hass, entry, "sensor") == []
+
+
+async def test_a_sensor_the_user_enabled_stays_enabled_across_an_algorithm_change(hass):
+    """Switching away from an algorithm and back keeps the user's choice.
+
+    An algorithm's sensors start disabled and leave the registry while no TRV
+    uses the algorithm. The one the user turned on comes back on, the one
+    they left alone comes back off.
+    """
+    set_room_sensor(hass, 19.0)
+    profile = replace(GENERIC_HEAT_TRV, calibration_mode=PID)
+    await build_devices(hass, profile)
+    entry = make_entry(profile)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    registry = er.async_get(hass)
+    output = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_pid_output"
+    )
+    error = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_pid_error"
+    )
+    assert output is not None
+    assert error is not None
+    assert hass.states.get(output) is None
+
+    # Home Assistant reloads the entry a while after an entity is enabled.
+    registry.async_update_entity(output, disabled_by=None)
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=RELOAD_AFTER_UPDATE_DELAY + 1)
+    )
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+    assert hass.states.get(output) is not None
+
+    await _choose_algorithm(hass, entry, MPC)
+    assert registry.async_get(output) is None
+
+    await _choose_algorithm(hass, entry, PID)
+
+    assert registry.async_get(output).disabled_by is None
+    assert hass.states.get(output) is not None
+    assert registry.async_get(error).disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert hass.states.get(error) is None
 
 
 def _algorithm_controls(hass, entry) -> set[str]:
@@ -199,6 +249,59 @@ async def test_a_boot_removes_controls_left_by_an_earlier_algorithm(hass):
     }
     assert left == set()
     assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[MPC]
+
+
+async def test_a_boot_removes_the_gain_sensors_the_gain_numbers_replace(hass):
+    """The PID gains are numbers only; their former sensors leave on setup.
+
+    An installation that had the gain sensors keeps running PID, so they go
+    although the algorithm stays. The numbers with the same keys stay.
+    """
+    set_room_sensor(hass, 19.0)
+    profile = replace(GENERIC_HEAT_TRV, calibration_mode=PID)
+    await build_devices(hass, profile)
+    entry = make_entry(profile)
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    retired = {f"{entry.entry_id}_pid_{gain}" for gain in ("kp", "ki", "kd")}
+    for unique_id in retired:
+        registry.async_get_or_create("sensor", DOMAIN, unique_id, config_entry=entry)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    assert {
+        unique_id
+        for unique_id in retired
+        if registry.async_get_entity_id("sensor", DOMAIN, unique_id)
+    } == set()
+    assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[PID]
+    trv = profile.entity_id
+    for gain in ("kp", "ki", "kd"):
+        unique_id = f"{entry.entry_id}_{trv}_pid_{gain}"
+        assert registry.async_get_entity_id("number", DOMAIN, unique_id)
+
+
+async def test_a_boot_removes_the_retired_sun_intensity_sensor(hass):
+    """An installation that had the sun intensity sensor loses it on setup."""
+    set_room_sensor(hass, 19.0)
+    profile = replace(GENERIC_HEAT_TRV, calibration_mode=MPC)
+    await build_devices(hass, profile)
+    entry = make_entry(profile)
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    unique_id = f"{entry.entry_id}_solar_intensity"
+    registry.async_get_or_create("sensor", DOMAIN, unique_id, config_entry=entry)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    assert registry.async_get_entity_id("sensor", DOMAIN, unique_id) is None
+    assert registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_external_temp_ema"
+    )
 
 
 @pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True)

@@ -18,7 +18,6 @@ from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
 from custom_components.better_thermostat.core.watchdog import WATCHDOG_MAX_AGE_S
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationOutput,
@@ -27,7 +26,12 @@ from custom_components.better_thermostat.utils.controlling import (
     control_trv,
     reconcile_tick,
 )
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_from_legacy_dict,
+)
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 
@@ -60,13 +64,14 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt.outdoor_sensor_entity_id = None
     bt.weather_entity_id = None
     bt.flight_recorder = FlightRecorder()
-    trv = Trv.from_legacy_dict(
+    trv = trv_from_legacy_dict(
         "climate.trv",
         {"commanded_setpoint": commanded, "min_temp": 5.0, "max_temp": 30.0},
     )
     trv.model_quirks = MagicMock()
     trv.model_quirks.override_set_temperature = AsyncMock(return_value=False)
     trv.model_quirks.override_set_hvac_mode = AsyncMock(return_value=False)
+    trv.model_quirks.override_set_valve = AsyncMock(return_value=True)
     bt.real_trvs = {"climate.trv": trv}
     state = Mock()
     state.state = trv_mode
@@ -291,6 +296,27 @@ class TestReconcileTick:
         bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_a_quirk_driven_valve_is_not_held_to_a_read_only_entity(self):
+        """A valve the quirk writes is not compared with what a sensor reports.
+
+        Only a position written to the number entity can be read back as
+        the commanded one. A quirk reaches the valve through a channel of its
+        own, so a read-only position entity reporting something else is no
+        lost write and must not queue a cycle on every tick.
+        """
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.model_quirks.override_set_valve = AsyncMock(return_value=True)
+        trv.valve_position_entity = "number.valve"
+        trv.valve_position_writable = False
+        trv.last_valve_percent = 80
+        self._with_states(bt, {"number.valve": self._state("0")})
+
+        assert trv.capabilities().supports_valve_write is True
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_reconcile_probe_is_not_recorded(self):
         """The periodic probe leaves no flight-recorder entry.
 
@@ -346,7 +372,7 @@ def _close_coro(coro, name=None):
 
 def _control_bt():
     bt = _make_bt()
-    bt._temp_lock = asyncio.Lock()
+    bt._temperature_lock = asyncio.Lock()
     bt.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     bt.real_trvs["climate.trv"].hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     bt.real_trvs["climate.trv"].advanced = {
@@ -355,7 +381,7 @@ def _control_bt():
         "no_off_system_mode": False,
     }
     bt.real_trvs["climate.trv"].system_mode_received = False
-    bt.real_trvs["climate.trv"].target_temp_received = False
+    bt.real_trvs["climate.trv"].target_temperature_received = False
     bt.real_trvs["climate.trv"].calibration_received = False
     return bt
 
@@ -364,14 +390,14 @@ async def _run_setpoint_cycle(bt, target):
     """Run one control_trv cycle that wants ``target`` written."""
     with (
         patch(f"{_CTRL}.convert_outbound_states") as conv,
-        patch(f"{_CTRL}.set_temperature", autospec=True) as set_temp,
+        patch(f"{_CTRL}.set_temperature", autospec=True) as set_temperature,
         patch(f"{_CTRL}.set_hvac_mode", autospec=True),
         patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
         patch("asyncio.sleep", new=AsyncMock()),
     ):
         conv.return_value = {"temperature": target, "system_mode": HVACMode.HEAT}
         await control_trv(bt, "climate.trv")
-    return set_temp
+    return set_temperature
 
 
 class TestControlWatchdog:
@@ -468,8 +494,8 @@ class TestBudgetRetry:
         assert captured == []
 
         bt.clock.advance(10.0)
-        set_temp = await _run_setpoint_cycle(bt, target=23.0)
-        set_temp.assert_not_called()
+        set_temperature = await _run_setpoint_cycle(bt, target=23.0)
+        set_temperature.assert_not_called()
         assert len(captured) == 1
         coro, name = captured[0]
         assert "budget_retry" in name
@@ -517,14 +543,14 @@ class TestWatchdogHeartbeat:
     async def _run_setpoint(self, bt, target):
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
-            patch(f"{_CTRL}.set_temperature", autospec=True) as set_temp,
+            patch(f"{_CTRL}.set_temperature", autospec=True) as set_temperature,
             patch(f"{_CTRL}.set_hvac_mode", autospec=True),
             patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             conv.return_value = {"temperature": target, "system_mode": HVACMode.HEAT}
             await control_trv(bt, "climate.trv")
-        return set_temp
+        return set_temperature
 
     @pytest.mark.asyncio
     async def test_budget_deferred_write_stamps_heartbeat(self):
@@ -532,8 +558,8 @@ class TestWatchdogHeartbeat:
         bt = _control_bt()
         await self._run_setpoint(bt, target=22.0)
         bt.clock.advance(10.0)
-        set_temp = await self._run_setpoint(bt, target=23.0)
-        set_temp.assert_not_called()
+        set_temperature = await self._run_setpoint(bt, target=23.0)
+        set_temperature.assert_not_called()
         assert bt.kernel_state.last_control_monotonic == 10.0
 
     @pytest.mark.asyncio
@@ -569,23 +595,23 @@ class TestWriteBudget:
     async def _run(self, bt, target):
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
-            patch(f"{_CTRL}.set_temperature", autospec=True) as set_temp,
+            patch(f"{_CTRL}.set_temperature", autospec=True) as set_temperature,
             patch(f"{_CTRL}.set_hvac_mode", autospec=True),
             patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             conv.return_value = {"temperature": target, "system_mode": HVACMode.HEAT}
             result = await control_trv(bt, "climate.trv")
-        return result, set_temp
+        return result, set_temperature
 
     @pytest.mark.asyncio
     async def test_first_write_passes_and_stamps_budget(self):
         """The first write goes through and records the write time."""
         bt = _control_bt()
         bt.clock.advance(100.0)
-        result, set_temp = await self._run(bt, target=22.0)
+        result, set_temperature = await self._run(bt, target=22.0)
         assert result is True
-        set_temp.assert_called_once()
+        set_temperature.assert_called_once()
         assert bt.real_trvs["climate.trv"].last_write_monotonic == 100.0
 
     @pytest.mark.asyncio
@@ -594,9 +620,9 @@ class TestWriteBudget:
         bt = _control_bt()
         await self._run(bt, target=22.0)
         bt.clock.advance(10.0)
-        result, set_temp = await self._run(bt, target=23.0)
+        result, set_temperature = await self._run(bt, target=23.0)
         assert result is True
-        set_temp.assert_not_called()
+        set_temperature.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_write_after_budget_window_passes(self):
@@ -604,8 +630,8 @@ class TestWriteBudget:
         bt = _control_bt()
         await self._run(bt, target=22.0)
         bt.clock.advance(30.0)
-        _, set_temp = await self._run(bt, target=23.0)
-        set_temp.assert_called_once()
+        _, set_temperature = await self._run(bt, target=23.0)
+        set_temperature.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_frost_floor_write_bypasses_budget(self):
@@ -614,9 +640,9 @@ class TestWriteBudget:
         await self._run(bt, target=22.0)
         bt.clock.advance(1.0)
         # 1.0 °C is below the 5.0 °C frost floor -> hull rewrites -> bypass
-        _, set_temp = await self._run(bt, target=1.0)
-        set_temp.assert_called_once()
-        assert set_temp.call_args[0][2] == 5.0
+        _, set_temperature = await self._run(bt, target=1.0)
+        set_temperature.assert_called_once()
+        assert set_temperature.call_args[0][2] == 5.0
 
 
 class TestOffsetWriteBudget:
@@ -631,8 +657,8 @@ class TestOffsetWriteBudget:
         }
         bt.real_trvs["climate.trv"].calibration_received = True
         bt.real_trvs["climate.trv"].last_calibration = 0.0
-        bt.real_trvs["climate.trv"].local_calibration_min = -5.0
-        bt.real_trvs["climate.trv"].local_calibration_max = 5.0
+        bt.real_trvs["climate.trv"].min_local_calibration = -5.0
+        bt.real_trvs["climate.trv"].max_local_calibration = 5.0
         return bt
 
     async def _run(self, bt, calibration_offset):

@@ -359,7 +359,7 @@ def test_tpi_duty_cycle_ignores_its_stamp_from_the_previous_uptime():
         inp, TpiParams(), state=restored(0.0), now=_UPTIME_AFTER_REBOOT_S
     )
 
-    assert after_reboot.duty_cycle_pct == fresh.duty_cycle_pct != 10.0
+    assert after_reboot.duty_cycle_percent == fresh.duty_cycle_percent != 10.0
     assert state.last_update_ts == _UPTIME_AFTER_REBOOT_S
 
 
@@ -396,7 +396,7 @@ def test_mpc_stamps_are_read_from_the_wall_clock():
                 target_temperature=21.0,
                 room_temperature=19.0 + cycle * 0.01,
                 trv_temperature=22.0 + cycle * 0.05,
-                temp_slope_K_per_min=0.01,
+                temperature_slope_K_per_min=0.01,
                 window_open=cycle == 3,
                 outdoor_temperature=5.0,
             )
@@ -445,7 +445,7 @@ def _mpc_cycle(state: MpcState, wall_s: float, room: float) -> tuple[int, MpcSta
         target_temperature=21.0,
         room_temperature=room,
         trv_temperature=22.0,
-        temp_slope_K_per_min=0.0,
+        temperature_slope_K_per_min=0.0,
         outdoor_temperature=5.0,
     )
     with patch.object(mpc_module, "time", return_value=wall_s):

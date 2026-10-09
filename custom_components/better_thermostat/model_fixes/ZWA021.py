@@ -14,7 +14,12 @@ from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNKNOWN
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+from custom_components.better_thermostat.model_fixes.types import (
+    ModelFixHost,
+    ModelQuirks,
+    UnknownStateQuirk,
+    ValveQuirk,
+)
 
 from ..utils.const import CalibrationOutput
 from ..utils.helpers import configured_calibration_output
@@ -178,7 +183,7 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
     if not _is_direct_valve(self, entity_id):
         return False
     try:
-        value = int(round(min(max(float(percent), 0.0), 100.0) / 100.0 * _VALVE_MAX))
+        value = round(min(max(float(percent), 0.0), 100.0) / 100.0 * _VALVE_MAX)
     except TypeError, ValueError:
         return False
 
@@ -215,3 +220,21 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
         )
         return False
     return True
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+    override_set_valve = staticmethod(override_set_valve)
+    trv_state_unknown_as_available = staticmethod(trv_state_unknown_as_available)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()
+_UNKNOWN_STATE_QUIRK: UnknownStateQuirk = _Surface()
+_VALVE_QUIRK: ValveQuirk = _Surface()

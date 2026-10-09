@@ -97,11 +97,14 @@ def _written(host: Any) -> set[str]:
 
 
 async def _calibration_found(host, _registry, candidate):
-    return await helpers.find_local_calibration_entity(host, TRV_ID) == candidate
+    found = await helpers.find_local_calibration_entity(
+        host, TRV_ID, trv=host.real_trvs[TRV_ID]
+    )
+    return found == candidate
 
 
 async def _valve_found(host, _registry, candidate):
-    found = await helpers.find_valve_entity(host, TRV_ID)
+    found = await helpers.find_valve_entity(host, TRV_ID, trv=host.real_trvs[TRV_ID])
     return found is not None and found["entity_id"] == candidate
 
 

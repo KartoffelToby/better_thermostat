@@ -166,7 +166,7 @@ class PlantModelRC2:
             A = A_step @ A
         return A, B, d
 
-    def steady_radiator_temp(
+    def steady_radiator_temperature(
         self, T_setpoint: float, T_outdoor: float, D_hat_K_per_min: float = 0.0
     ) -> float:
         """Return the radiator temperature that holds ``T_setpoint`` at steady state.
@@ -179,7 +179,7 @@ class PlantModelRC2:
         loss_K = (T_setpoint - T_outdoor) - D_hat_K_per_min * p.tau_room_min
         return T_setpoint + loss_K / max(p.coupling_rad_room, 1e-6)
 
-    def hottest_radiator_temp(self, room_temperature: float) -> float:
+    def hottest_radiator_temperature(self, room_temperature: float) -> float:
         """Return the radiator temperature a fully open valve holds.
 
         The radiator balance at ``u = 1`` with the room at
@@ -213,6 +213,8 @@ class PlantModelRC2:
             Steady-state valve fraction (unclamped).
         """
         p = self.params
-        T_rad_ss = self.steady_radiator_temp(T_setpoint, T_outdoor, D_hat_K_per_min)
+        T_rad_ss = self.steady_radiator_temperature(
+            T_setpoint, T_outdoor, D_hat_K_per_min
+        )
         denom = max(p.gain_heater * (p.T_water - T_rad_ss), 1e-6)
         return (T_rad_ss - T_setpoint) / denom

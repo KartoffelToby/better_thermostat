@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
-from ..calibration import _get_current_outdoor_temp, _get_solar_context
+from ..calibration import _get_current_outdoor_temperature, _get_solar_context
 from ..core.snapshot import TrvReported, WorldSnapshot, parse_hvac_mode
 from ..model_fixes.model_quirks import trv_state_unknown_as_available
 from .helpers import convert_to_float
@@ -54,8 +54,8 @@ def _build_trv_reported(
         min_temp=_as_float(self, trv.min_temp),
         max_temp=_as_float(self, trv.max_temp),
         valve_max_opening=_as_float(self, trv.valve_max_opening),
-        local_calibration_min=_as_float(self, trv.local_calibration_min),
-        local_calibration_max=_as_float(self, trv.local_calibration_max),
+        min_local_calibration=_as_float(self, trv.min_local_calibration),
+        max_local_calibration=_as_float(self, trv.max_local_calibration),
     )
 
 
@@ -106,11 +106,11 @@ def build_snapshot(self: BetterThermostat) -> WorldSnapshot:
         room_temperature=_as_float(self, self.room_temperature),
         room_temperature_filtered=_as_float(self, self.room_temperature_filtered),
         temperature_slope=_as_float(self, self.temperature_slope),
-        call_for_heat=bool(self.call_for_heat),
+        call_for_heat=self.call_for_heat,
         window_open=_raw_window_open(self),
         preset_mode=self.preset_mode,
         tolerance=_as_float(self, self.tolerance) or 0.0,
-        outdoor_temperature=_get_current_outdoor_temp(self),
+        outdoor_temperature=_get_current_outdoor_temperature(self),
         is_day=is_day,
         solar_intensity=solar_intensity,
         min_temp=_as_float(self, self.bt_min_temp),

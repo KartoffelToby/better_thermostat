@@ -149,32 +149,27 @@ class TestTheModeAndValveChannels:
     """The climate mode write and the absent valve channel."""
 
     @pytest.mark.asyncio
-    async def test_a_type_error_from_the_mode_call_is_swallowed(self, caplog):
-        """Some ZHA heads raise TypeError on a mode write that went out.
-
-        The adapter logs it at debug level and returns, so the caller does
-        not count the write as refused.
-        """
+    async def test_the_mode_goes_out_normalised(self):
+        """The mode is written to the TRV's climate entity in HA's spelling."""
         host = _host(calibration_entity=None)
-        host.hass.services.async_call = AsyncMock(side_effect=TypeError("bad"))
 
-        with caplog.at_level(logging.DEBUG, logger=generic.__name__):
-            assert await generic.set_hvac_mode(host, ENTITY_ID, "heat") is None
+        await generic.set_hvac_mode(host, ENTITY_ID, "heat")
 
         host.hass.services.async_call.assert_awaited_once()
-        assert host.hass.services.async_call.await_args.args[2] == {
-            "entity_id": ENTITY_ID,
-            "hvac_mode": HVACMode.HEAT,
-        }
-        assert "TypeError in set_hvac_mode" in caplog.text
+        assert host.hass.services.async_call.await_args.args[:3] == (
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": ENTITY_ID, "hvac_mode": HVACMode.HEAT},
+        )
 
+    @pytest.mark.parametrize("error", [TypeError("bad"), ValueError("refused")])
     @pytest.mark.asyncio
-    async def test_any_other_error_from_the_mode_call_propagates(self):
-        """Only the TypeError is absorbed; a refusal still reaches the caller."""
+    async def test_every_error_from_the_mode_call_reaches_the_caller(self, error):
+        """A refused mode raises, so the caller retries it instead of caching it."""
         host = _host(calibration_entity=None)
-        host.hass.services.async_call = AsyncMock(side_effect=ValueError("refused"))
+        host.hass.services.async_call = AsyncMock(side_effect=error)
 
-        with pytest.raises(ValueError, match="refused"):
+        with pytest.raises(type(error)):
             await generic.set_hvac_mode(host, ENTITY_ID, "heat")
 
     @pytest.mark.asyncio

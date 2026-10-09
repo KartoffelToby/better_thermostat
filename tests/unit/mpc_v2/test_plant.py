@@ -55,7 +55,7 @@ def test_discrete_step_with_zero_u_cools_toward_outdoor() -> None:
 
 
 def test_discrete_step_with_full_u_heats_toward_water() -> None:
-    """At full heat the radiator approaches water temp and the room warms well above setpoint."""
+    """At full heat the radiator approaches water temperature and the room warms well above setpoint."""
     plant = PlantModelRC2(
         PlantParams(tau_room_min=120.0, tau_rad_min=5.0, gain_heater=5.0, T_water=65.0),
         dt_s=30.0,
@@ -63,7 +63,7 @@ def test_discrete_step_with_full_u_heats_toward_water() -> None:
     x = np.array([20.0, 20.0])
     for _ in range(2000):
         x = plant.discrete_step(x, u=1.0, T_outdoor=10.0)
-    # Room equilibrates well above setpoint; T_rad approaches water temp.
+    # Room equilibrates well above setpoint; T_rad approaches water temperature.
     assert float(x[1]) > 50.0
     assert float(x[0]) > 30.0
 

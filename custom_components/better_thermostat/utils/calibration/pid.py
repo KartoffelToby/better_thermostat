@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import logging
 import math
 from time import monotonic
-from typing import TYPE_CHECKING, Protocol, TypedDict
+from typing import TYPE_CHECKING, Literal, Protocol, TypedDict
 
 from ...core.calibrator import CalibratorHealth
 
@@ -99,6 +99,58 @@ DEFAULT_PID_KI = 0.01
 DEFAULT_PID_KD = 2000.0
 DEFAULT_PID_AUTO_TUNE = True
 
+type PidGain = Literal["kp", "ki", "kd"]
+# The range a gain may hold, set by hand through its number or loaded from the
+# store. A gain outside it is a poisoned state and goes back to its default.
+# Auto-tuning keeps to the narrower ranges in ``PIDParams``.
+PID_GAIN_LIMITS: dict[PidGain, tuple[float, float]] = {
+    "kp": (0.0, 1000.0),
+    "ki": (0.0, 100.0),
+    "kd": (0.0, 10000.0),
+}
+
+
+def pid_gain(state: PIDState, gain: PidGain) -> float | None:
+    """Return the learned or user-set value of one PID gain.
+
+    Parameters
+    ----------
+    state : PIDState
+        the PID state holding the gain
+    gain : PidGain
+        which gain to read
+
+    Returns
+    -------
+    float | None
+        the gain, or None while the configured default applies
+    """
+    if gain == "kp":
+        return state.pid_kp
+    if gain == "ki":
+        return state.pid_ki
+    return state.pid_kd
+
+
+def set_pid_gain(state: PIDState, gain: PidGain, value: float | None) -> None:
+    """Set one PID gain; None hands it back to the configured default.
+
+    Parameters
+    ----------
+    state : PIDState
+        the PID state holding the gain
+    gain : PidGain
+        which gain to set
+    value : float | None
+        the new gain
+    """
+    if gain == "kp":
+        state.pid_kp = value
+    elif gain == "ki":
+        state.pid_ki = value
+    else:
+        state.pid_kd = value
+
 
 @dataclass
 class PIDParams:
@@ -136,7 +188,7 @@ class PIDParams:
     steady_state_band_K: float = 0.1
     # Hold-time
     min_hold_time_s: float = 300.0
-    big_change_threshold_pct: float = 33.0
+    big_change_threshold_percent: float = 33.0
 
 
 # --- Helper Functions -----------------------------------------------
@@ -222,10 +274,10 @@ def compute_pid(
     inp_target_temperature: float | None,
     inp_room_temperature: float | None,
     inp_trv_temperature: float | None,
-    inp_temp_slope_K_per_min: float | None,
+    inp_temperature_slope_K_per_min: float | None,
     key: str,
     inp_room_temperature_filtered: float | None = None,
-    max_opening_pct: float | None = None,
+    max_opening_percent: float | None = None,
     *,
     state: PIDState,
     now: float | None = None,
@@ -242,13 +294,13 @@ def compute_pid(
         Current external temperature.
     inp_trv_temperature:
         TRV internal temperature.
-    inp_temp_slope_K_per_min:
+    inp_temperature_slope_K_per_min:
         Temperature slope.
     key:
         Unique key for state storage.
     inp_room_temperature_filtered:
         Optional EMA-filtered external temperature for learning.
-    max_opening_pct:
+    max_opening_percent:
         Optional maximum valve opening percentage.
     state:
         Mutable controller state, owned by the caller (typically read from
@@ -275,8 +327,8 @@ def compute_pid(
     _forget_stamps_from_a_previous_uptime(st, now)
 
     max_opening = 100.0
-    if isinstance(max_opening_pct, (int, float)):
-        max_opening = max(0.0, min(100.0, float(max_opening_pct)))
+    if isinstance(max_opening_percent, (int, float)):
+        max_opening = max(0.0, min(100.0, float(max_opening_percent)))
 
     _LOGGER.debug(
         "better_thermostat PID: input for %s: target=%.1f current=%.1f trv=%.1f slope=%.3f kp=%.1f ki=%.3f kd=%.1f",
@@ -284,7 +336,7 @@ def compute_pid(
         inp_target_temperature or 0.0,
         inp_room_temperature or 0.0,
         inp_trv_temperature or 0.0,
-        inp_temp_slope_K_per_min or 0.0,
+        inp_temperature_slope_K_per_min or 0.0,
         st.pid_kp or 0.0,
         st.pid_ki or 0.0,
         st.pid_kd or 0.0,
@@ -359,7 +411,7 @@ def compute_pid(
 
     # Update the slope EMA in PID mode too (for logging/diagnostics)
     try:
-        s_in = inp_temp_slope_K_per_min
+        s_in = inp_temperature_slope_K_per_min
         if s_in is not None:
             if st.ema_slope is None:
                 st.ema_slope = s_in
@@ -429,7 +481,7 @@ def compute_pid(
     raw_change = percent_unlimited - st.last_percent
 
     # 2. Check for Big Change (Bypass filters)
-    is_big_change = abs(raw_change) >= params.big_change_threshold_pct
+    is_big_change = abs(raw_change) >= params.big_change_threshold_percent
 
     # 3. Check Target Change
     target_changed = False
@@ -465,7 +517,7 @@ def compute_pid(
     # Clamp final result
     percent = max(0.0, min(100.0, percent))
     # Round to nearest integer to avoid micro-updates that trigger TRV logic
-    percent = int(round(percent))
+    percent = round(percent)
 
     # Update last_percent
     st.last_percent = percent
@@ -494,7 +546,12 @@ def compute_pid(
     # Optional auto-tuning (conservative)
     if params.auto_tune:
         _auto_tune_pid(
-            params, st, percent, delta_kelvin, inp_temp_slope_K_per_min or 0.0, now
+            params,
+            st,
+            percent,
+            delta_kelvin,
+            inp_temperature_slope_K_per_min or 0.0,
+            now,
         )
 
     # Store debug values
@@ -515,7 +572,7 @@ def compute_pid(
             "anti_windup_blocked": aw_blocked,
             "i_relief": i_relief,
             # Slope (input and EMA)
-            "slope_in": _r(inp_temp_slope_K_per_min, 3),
+            "slope_in": _r(inp_temperature_slope_K_per_min, 3),
             "slope_ema": _r(st.ema_slope, 3),
             # Measurements
             "meas_current_used": _r(room_temperature, 2),
@@ -577,9 +634,9 @@ def _auto_tune_pid(
         st.last_delta_sign = sign if sign != 0 else st.last_delta_sign
 
         tuned = False
-        kp = float(st.pid_kp or params.kp)
-        ki = float(st.pid_ki or params.ki)
-        kd = float(st.pid_kd or params.kd)
+        kp = params.kp if st.pid_kp is None else float(st.pid_kp)
+        ki = params.ki if st.pid_ki is None else float(st.pid_ki)
+        kd = params.kd if st.pid_kd is None else float(st.pid_kd)
 
         # 1) Overshoot: kp slightly down, kd slightly up, ki slightly down
         if overshoot:
@@ -638,24 +695,14 @@ def sanitize_pid_state(
     if not _finite(state.pid_last_error):
         state.pid_last_error = None
         health = CalibratorHealth.NON_FINITE
-    for gain_attr in ("pid_kp", "pid_ki", "pid_kd"):
-        if not _finite(getattr(state, gain_attr)):
-            setattr(state, gain_attr, None)
+    for name in PID_GAIN_LIMITS:
+        if not _finite(pid_gain(state, name)):
+            set_pid_gain(state, name, None)
             health = CalibratorHealth.NON_FINITE
 
-    runaway = (
-        (
-            state.pid_kp is not None
-            and not params.kp_min <= state.pid_kp <= params.kp_max
-        )
-        or (
-            state.pid_ki is not None
-            and not params.ki_min <= state.pid_ki <= params.ki_max
-        )
-        or (
-            state.pid_kd is not None
-            and not params.kd_min <= state.pid_kd <= params.kd_max
-        )
+    runaway = any(
+        (gain := pid_gain(state, name)) is not None and not low <= gain <= high
+        for name, (low, high) in PID_GAIN_LIMITS.items()
     )
     if runaway:
         state.pid_kp = None
@@ -692,13 +739,13 @@ def resolve_unique_id(obj: _HasUniqueId) -> str:
     return obj.unique_id or "bt"
 
 
-def round_to_bucket(temp: float) -> float:
+def round_to_bucket(temperature: float) -> float:
     """Round a target temperature to its 0.5 °C bucket centre."""
-    return round(float(temp) * 2.0) / 2.0
+    return round(float(temperature) * 2.0) / 2.0
 
 
 def format_bucket(bucket: float) -> str:
-    """Format a bucket centre as a ``t<temp>`` tag (e.g. ``t21.0``)."""
+    """Format a bucket centre as a ``t<temperature>`` tag (e.g. ``t21.0``)."""
     return f"t{bucket:.1f}"
 
 

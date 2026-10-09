@@ -456,7 +456,7 @@ class TurnDuringCycle(RoomEvent):
             assert await poll_until(
                 room.hass,
                 lambda: (
-                    trv.target_temp_received
+                    trv.target_temperature_received
                     and len(head.set_temperature_calls) > writes
                 ),
             ), f"head {self.turned} never took the command\n{room.describe()}"
@@ -885,7 +885,7 @@ async def _quiet(room: Room) -> None:
         lambda: (
             not room.bt.ignore_states
             and all(
-                trvs[i].target_temp_received and trvs[i].system_mode_received
+                trvs[i].target_temperature_received and trvs[i].system_mode_received
                 for i in ids
             )
         ),

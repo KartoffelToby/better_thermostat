@@ -72,7 +72,9 @@ async def test_a_finer_configured_step_writes_on_the_device_grid(
         blocking=True,
     )
     assert await wait_for(hass, lambda: len(fake_trv.set_temperature_calls) > baseline)
-    assert await wait_for(hass, lambda: bt.real_trvs[TRV_ID].target_temp_received, 5.0)
+    assert await wait_for(
+        hass, lambda: bt.real_trvs[TRV_ID].target_temperature_received, 5.0
+    )
 
     assert bt.heat_target_temperature == pytest.approx(21.9)
     assert fake_trv.set_temperature_calls[baseline:] == [pytest.approx(22.0)]

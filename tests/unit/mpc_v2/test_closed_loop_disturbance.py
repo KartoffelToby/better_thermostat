@@ -7,7 +7,7 @@ error that remains belongs to the controller and not to model mismatch.
 
 Free heat (sun, a second heat source) enters the room equation as a constant
 rate in K/min. That is the term the controller's disturbance estimate stands
-for: ``steady_radiator_temp`` subtracts ``D·tau_room`` from the room's heat
+for: ``steady_radiator_temperature`` subtracts ``D·tau_room`` from the room's heat
 loss, which is exactly what a constant ``D`` in ``dT_room/dt`` does to the
 fixed point.
 
@@ -96,7 +96,7 @@ def _simulate(
     room = PlantModelRC2(plant, dt_s=ROOM_STEP_S)
     x = np.array([start, start])
     state: MpcV2State | None = None
-    applied_pct: int | None = None
+    applied_percent: int | None = None
     hours: list[float] = []
     rooms: list[float] = []
     setpoints: list[float] = []
@@ -117,7 +117,9 @@ def _simulate(
                 trv_temperature=float(x[1]),
                 outdoor_temperature=outdoor,
                 window_open=is_open,
-                applied_valve_pct=None if applied_pct is None else float(applied_pct),
+                applied_valve_percent=None
+                if applied_percent is None
+                else float(applied_percent),
             ),
             params,
             state,
@@ -125,14 +127,14 @@ def _simulate(
         )
         if is_open:
             assert out is None
-            applied_pct = 0
+            applied_percent = 0
         else:
             assert out is not None
-            applied_pct = out.valve_percent
+            applied_percent = out.valve_percent
         hours.append(hour)
         rooms.append(float(x[0]))
         setpoints.append(setpoint)
-        valves.append(applied_pct)
+        valves.append(applied_percent)
         windows.append(is_open)
         draft = DRAFT_K_PER_MIN if is_open else 0.0
         for _step in range(int(CYCLE_S / ROOM_STEP_S)):
@@ -141,7 +143,9 @@ def _simulate(
                 if callable(free_heat_k_per_min)
                 else free_heat_k_per_min
             )
-            x = room.discrete_step(x, applied_pct / 100.0, outdoor, free_heat + draft)
+            x = room.discrete_step(
+                x, applied_percent / 100.0, outdoor, free_heat + draft
+            )
             t_s += ROOM_STEP_S
     return _Trace(
         tuple(hours), tuple(rooms), tuple(setpoints), tuple(valves), tuple(windows)
@@ -160,7 +164,7 @@ def _ceiling(plant: PlantParams, outdoor: float, free_heat: float) -> float:
     return (g * water + k * (outdoor + free_heat * plant.tau_room_min)) / (g + k)
 
 
-def _start_temp(outdoor: float, free_heat: float, setpoint: float) -> float:
+def _start_temperature(outdoor: float, free_heat: float, setpoint: float) -> float:
     """Return a start temperature the room can hold at ``setpoint``."""
     return min(setpoint, _ceiling(PlantParams(), outdoor, free_heat) - 0.5)
 
@@ -173,7 +177,7 @@ def _step_run(outdoor: float, free_heat: float) -> _Trace:
         outdoor=outdoor,
         free_heat_k_per_min=free_heat,
         setpoint_at=lambda h: STEP_FROM_SETPOINT if h < STEP_AT_H else SETPOINT,
-        start=_start_temp(outdoor, free_heat, STEP_FROM_SETPOINT),
+        start=_start_temperature(outdoor, free_heat, STEP_FROM_SETPOINT),
     )
 
 
@@ -185,7 +189,7 @@ def _gap_run(outdoor: float, free_heat: float) -> _Trace:
         outdoor=outdoor,
         free_heat_k_per_min=free_heat,
         setpoint_at=lambda h: SETPOINT,
-        start=_start_temp(outdoor, free_heat, SETPOINT),
+        start=_start_temperature(outdoor, free_heat, SETPOINT),
         window_open_h=WINDOW_OPEN_H,
     )
 

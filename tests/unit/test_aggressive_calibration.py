@@ -23,10 +23,9 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_setpoint,
 )
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.pid import PIDState
 from custom_components.better_thermostat.utils.const import CalibrationMode
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_from_legacy_dict
 
 ENTITY_ID = "climate.test_trv"
 
@@ -37,7 +36,7 @@ def _make_bt(
     room_temperature=20.0,
     heat_target_temperature=21.0,
     tolerance=0.5,
-    trv_temp=21.0,
+    trv_temperature=21.0,
     last_calibration=0.0,
     calibration_step=0.1,
     cal_min=-5.0,
@@ -82,18 +81,18 @@ def _make_bt(
     )
 
     bt.real_trvs = {
-        ENTITY_ID: Trv.from_legacy_dict(
+        ENTITY_ID: trv_from_legacy_dict(
             ENTITY_ID,
             {
                 "advanced": {
                     "calibration_mode": calibration_mode,
                     "protect_overheating": False,
                 },
-                "current_temperature": trv_temp,
+                "current_temperature": trv_temperature,
                 "last_calibration": last_calibration,
                 "local_calibration_step": calibration_step,
-                "local_calibration_min": cal_min,
-                "local_calibration_max": cal_max,
+                "min_local_calibration": cal_min,
+                "max_local_calibration": cal_max,
                 "target_temp_step": target_temp_step,
                 "min_temp": min_temp,
                 "max_temp": max_temp,
@@ -111,7 +110,7 @@ class TestToleranceDelayBehavior:
     """Tolerance-delay post-adjustment is skipped for DEFAULT, AGGRESSIVE, and MPC/TPI/PID modes.
 
     Each mode skips through a different code-path.
-    With the mock inputs (room_temperature=20.0, trv_temp=21.0, last_calibration=0.0)
+    With the mock inputs (room_temperature=20.0, trv_temperature=21.0, last_calibration=0.0)
     the base calibration is ``(20.0 − 21.0) + 0.0 = −1.0``.  All three modes
     return that value unchanged because no post-adjustments fire.
     """
@@ -154,7 +153,7 @@ class TestAggressiveCalibrationOffset:
     """The -2.5 offset only fires for AGGRESSIVE + HEATING + cal > -2.5.
 
     Mock inputs use ``room_temperature=20.5, heat_target_temperature=22.0`` (outside tolerance)
-    and ``trv_temp=21.0, last_calibration=0.0`` to produce a base calibration
+    and ``trv_temperature=21.0, last_calibration=0.0`` to produce a base calibration
     of ``(20.5 − 21.0) + 0.0 = −0.5``.
     """
 
@@ -231,9 +230,9 @@ class TestCombinedBehavior:
 # Setpoint calibration
 # ---------------------------------------------------------------------------
 class TestSetpointCalibration:
-    """Setpoint calibration: ``(target − external) + trv_temp``.
+    """Setpoint calibration: ``(target − external) + trv_temperature``.
 
-    Mock inputs: ``heat_target_temperature=21.3, room_temperature=20.0, trv_temp=20.0``
+    Mock inputs: ``heat_target_temperature=21.3, room_temperature=20.0, trv_temperature=20.0``
     → base setpoint = ``(21.3 − 20.0) + 20.0 = 21.3``.
     """
 
@@ -244,7 +243,7 @@ class TestSetpointCalibration:
             HVACAction.IDLE,
             heat_target_temperature=21.3,
             room_temperature=20.0,
-            trv_temp=20.0,
+            trv_temperature=20.0,
         )
         result = calculate_calibration_setpoint(bt, ENTITY_ID)
         assert result == pytest.approx(21.3)
@@ -256,7 +255,7 @@ class TestSetpointCalibration:
             HVACAction.IDLE,
             heat_target_temperature=21.3,
             room_temperature=20.0,
-            trv_temp=20.0,
+            trv_temperature=20.0,
         )
         result = calculate_calibration_setpoint(bt, ENTITY_ID)
         assert result == pytest.approx(21.3)
@@ -268,7 +267,7 @@ class TestSetpointCalibration:
             HVACAction.HEATING,
             heat_target_temperature=22.0,
             room_temperature=20.0,
-            trv_temp=20.0,
+            trv_temperature=20.0,
         )
         # base setpoint = (22.0 - 20.0) + 20.0 = 22.0
         # gap = 22.0 - 20.0 = 2.0 < 2.5 → setpoint += 2.5 → 24.5
@@ -282,7 +281,7 @@ class TestSetpointCalibration:
             HVACAction.IDLE,
             heat_target_temperature=21.3,
             room_temperature=20.0,
-            trv_temp=20.0,
+            trv_temperature=20.0,
         )
         result = calculate_calibration_setpoint(bt, ENTITY_ID)
         # MPC compute short-circuits (hvac_mode OFF), base setpoint stays
@@ -293,7 +292,7 @@ class TestSetpointCalibration:
 # Real-world hysteresis scenario (issue #1790)
 # ---------------------------------------------------------------------------
 class TestHysteresisScenario:
-    """Scenario from issue #1790: temp drops below tolerance band while IDLE."""
+    """Scenario from issue #1790: temperature drops below tolerance band while IDLE."""
 
     def test_scenario_temperature_drops_below_tolerance(self):
         """Both DEFAULT and AGGRESSIVE produce the same base calibration.
@@ -309,7 +308,7 @@ class TestHysteresisScenario:
             "room_temperature": 20.4,
             "heat_target_temperature": 21.0,
             "tolerance": 0.5,
-            "trv_temp": 21.0,
+            "trv_temperature": 21.0,
             "last_calibration": 0.0,
         }
 

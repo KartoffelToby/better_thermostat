@@ -94,14 +94,24 @@ def _door_close_delay(self: BetterThermostat) -> float:
     return self.door_close_delay_seconds
 
 
+def _window_queue(self: BetterThermostat) -> asyncio.Queue[bool | None]:
+    """Return the queue feeding the window settle worker."""
+    return self.window_queue_task
+
+
+def _door_queue(self: BetterThermostat) -> asyncio.Queue[bool | None]:
+    """Return the queue feeding the door settle worker."""
+    return self.door_queue_task
+
+
 @dataclass(frozen=True)
 class ContactRole:
     """Binding of the shared contact logic to one sensor kind.
 
-    The entity id and delay accessors and the queue attribute name say
-    where the configuration of this kind of contact lives on the
-    BetterThermostat instance; the two region accessors say
-    which kernel region it drives. Naming the region through a pair of
+    The entity id, delay and queue accessors say where the configuration
+    and the settle queue of this kind of contact live on the
+    BetterThermostat instance; the two region accessors say which kernel
+    region it drives. Naming the region through a pair of
     functions keeps the two regions separate types-wise, so a window event
     cannot reach the door region by a typo in a string.
     """
@@ -110,7 +120,7 @@ class ContactRole:
     entity_id_of: Callable[[BetterThermostat], str | None]
     open_delay_of: Callable[[BetterThermostat], float]
     close_delay_of: Callable[[BetterThermostat], float]
-    queue_attr: str
+    queue_of: Callable[[BetterThermostat], asyncio.Queue[bool | None]]
     region_of: Callable[[KernelState], WindowState]
     with_region: Callable[[KernelState, WindowState], KernelState]
     issue_translation_key: str
@@ -122,7 +132,7 @@ WINDOW: Final = ContactRole(
     entity_id_of=_window_sensor_entity_id,
     open_delay_of=_window_open_delay,
     close_delay_of=_window_close_delay,
-    queue_attr="window_queue_task",
+    queue_of=_window_queue,
     region_of=_window_region,
     with_region=_with_window_region,
     issue_translation_key="invalid_window_state",
@@ -134,7 +144,7 @@ DOOR: Final = ContactRole(
     entity_id_of=_door_sensor_entity_id,
     open_delay_of=_door_open_delay,
     close_delay_of=_door_close_delay,
-    queue_attr="door_queue_task",
+    queue_of=_door_queue,
     region_of=_door_region,
     with_region=_with_door_region,
     issue_translation_key="invalid_door_state",
@@ -235,10 +245,7 @@ async def trigger_contact_change(
             learn_more_url=role.learn_more_url,
             severity=ir.IssueSeverity.ERROR,
             translation_key=role.issue_translation_key,
-            translation_placeholders={
-                "name": str(self.device_name),
-                "state": str(new_state),
-            },
+            translation_placeholders={"name": self.device_name, "state": new_state},
         )
         return
 
@@ -262,7 +269,7 @@ async def trigger_contact_change(
 
     if new_contact_open:
         # contact was opened, disable heating power calculation for this period
-        self._heating_tracker.start_temp = None
+        self._heating_tracker.start_temperature = None
         self.async_write_ha_state()
 
     # Step the region; the queued task settles it (the region owns the
@@ -279,7 +286,7 @@ async def trigger_contact_change(
         ),
     )
     try:
-        getattr(self, role.queue_attr).put_nowait(was_open)
+        role.queue_of(self).put_nowait(was_open)
     except asyncio.QueueFull:
         # A settle run is already pending; it re-reads the stepped region.
         # Only the first-ever item seeds the announced state, and a full
@@ -374,7 +381,7 @@ async def contact_queue(self: BetterThermostat, role: ContactRole) -> None:
     self : BetterThermostat
         the thermostat whose queue is drained
     role : ContactRole
-        which contact kind this worker serves, naming the queue attribute
+        which contact kind this worker serves, naming the queue
         and the kernel-state region it settles
 
     Returns
@@ -385,7 +392,7 @@ async def contact_queue(self: BetterThermostat, role: ContactRole) -> None:
     announced: bool | None = None
     try:
         while True:
-            queue = getattr(self, role.queue_attr)
+            queue = role.queue_of(self)
             queued = await queue.get()
             try:
                 if queued is not None:

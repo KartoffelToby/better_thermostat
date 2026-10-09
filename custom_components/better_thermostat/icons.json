@@ -34,23 +34,11 @@
       "mpc_v2_room_time_constant": {
         "default": "mdi:home-clock-outline"
       },
-      "pid_kp": {
-        "default": "mdi:alpha-p-circle-outline"
-      },
-      "pid_ki": {
-        "default": "mdi:alpha-i-circle-outline"
-      },
-      "pid_kd": {
-        "default": "mdi:alpha-d-circle-outline"
-      },
       "pid_output": {
         "default": "mdi:valve"
       },
       "pid_error": {
         "default": "mdi:thermometer-alert"
-      },
-      "solar_intensity": {
-        "default": "mdi:solar-power"
       }
     },
     "switch": {

@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Any, Final, NamedTuple, Protocol, TypedDict
+from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -99,11 +99,7 @@ class _RegistryHost(Protocol):
 
 
 class _DeviceModelHost(_RegistryHost, Protocol):
-    """The instance surface model detection reads.
-
-    ``model`` is optional and only consulted as a fallback, so it is not part
-    of the required surface.
-    """
+    """The instance surface model detection reads."""
 
     @property
     def device_name(self) -> str:
@@ -186,16 +182,19 @@ _ENABLE_AND_RELOAD: Final = (
 
 
 def _report_disabled_sibling(
-    self: object, trv_entity_id: str, sibling_entity_id: str, role: str, outcome: str
+    self: AdapterProbeHost,
+    trv: Trv | None,
+    trv_entity_id: str,
+    sibling_entity_id: str,
+    role: str,
+    outcome: str,
 ) -> None:
     """Warn that the ``role`` entity of a TRV is disabled in Home Assistant.
 
     The TRV record remembers the warning, so it is logged once per entity
-    while the entity stays disabled. A host without TRV records, such as
-    the config flow, warns on every call.
+    while the entity stays disabled. Without a record, as in the config
+    flow, the warning is logged on every call.
     """
-    trvs = getattr(self, "real_trvs", None)
-    trv = trvs.get(trv_entity_id) if isinstance(trvs, dict) else None
     if trv is not None:
         if sibling_entity_id in trv.disabled_siblings_logged:
             return
@@ -203,7 +202,7 @@ def _report_disabled_sibling(
     _LOGGER.warning(
         "better_thermostat %s: %s, the %s entity of %s, is disabled in Home "
         "Assistant; %s",
-        getattr(self, "device_name", "unknown"),
+        self.device_name,
         sibling_entity_id,
         role,
         trv_entity_id,
@@ -229,6 +228,7 @@ def sibling_disabled_at_write(
         return False
     _report_disabled_sibling(
         self,
+        self.real_trvs.get(trv_entity_id),
         trv_entity_id,
         sibling_entity_id,
         role,
@@ -565,14 +565,14 @@ def offered_mode_signature(
     return frozenset(str(normalize_hvac_mode(mode)) for mode in trv_modes)
 
 
-def adopt_reported_hvac_modes(trv: Trv, reported_modes: Any) -> None:
+def adopt_reported_hvac_modes(trv: Trv, reported_modes: object) -> None:
     """Cache the HVAC modes a device reports on its state.
 
     Parameters
     ----------
     trv : Trv
             Per-TRV state holding the cached mode list.
-    reported_modes : Any
+    reported_modes : object
             Value of the device's ``hvac_modes`` attribute. An absent or
             empty list keeps the cached one: it means the device published
             no capabilities in this event, not that it lost them. The modes
@@ -922,9 +922,9 @@ def heating_power_valve_position(
     Returns ``None`` when the room temperature or the heating target is
     missing: without both there is no demand to size the valve from.
 
-    Examples (resulting valve_fraction for a given temp_diff and heating_power):
+    Examples (resulting valve_fraction for a given delta_kelvin and heating_power):
 
-    | temp_diff | hp=0.02 | hp=0.01 | hp=0.005 |
+    | delta_kelvin | hp=0.02 | hp=0.01 | hp=0.005 |
     |-----------|---------|---------|----------|
     | 0.1       | 0.0871  | 0.1678  | 0.3232   |
     | 0.2       | 0.1678  | 0.3232  | 0.6227   |
@@ -943,12 +943,12 @@ def heating_power_valve_position(
             target_temperature,
         )
         return None
-    _temp_diff = float(target_temperature) - float(room_temperature)
+    _delta_kelvin = float(target_temperature) - float(room_temperature)
 
-    # Guard against negative temp_diff (room warmer than target)
+    # Guard against negative delta_kelvin (room warmer than target)
     # This can occur in TRV override edge case when temperature rises
     # above target but TRV still reports heating (delayed update)
-    if _temp_diff <= 0:
+    if _delta_kelvin <= 0:
         _LOGGER.debug(
             f"better_thermostat {self.device_name}: {entity_id} "
             f"room temperature >= target ({room_temperature} >= {target_temperature}), "
@@ -965,18 +965,18 @@ def heating_power_valve_position(
     # Original formula with improved robustness
     a = 0.019
     b = 0.946
-    valve_fraction = a * (_temp_diff / heating_power) ** b
+    valve_fraction = a * (_delta_kelvin / heating_power) ** b
 
     # Apply minimum valve position when heating is actively needed
-    # If temp_diff > threshold, ensure minimum valve opening
+    # If delta_kelvin > threshold, ensure minimum valve opening
     # This prevents the system from getting stuck with too-low valve positions
-    if _temp_diff > VALVE_MIN_THRESHOLD_TEMP_DIFF:
+    if _delta_kelvin > VALVE_MIN_THRESHOLD_TEMP_DIFF:
         valve_fraction = max(VALVE_MIN_OPENING_LARGE_DIFF, valve_fraction)
-    elif _temp_diff >= VALVE_MIN_SMALL_DIFF_THRESHOLD:
+    elif _delta_kelvin >= VALVE_MIN_SMALL_DIFF_THRESHOLD:
         # For smaller differences, use a proportional minimum
         min_valve = (
             VALVE_MIN_BASE
-            + (_temp_diff - VALVE_MIN_SMALL_DIFF_THRESHOLD)
+            + (_delta_kelvin - VALVE_MIN_SMALL_DIFF_THRESHOLD)
             * VALVE_MIN_PROPORTIONAL_SLOPE
         )
         valve_fraction = max(min_valve, valve_fraction)
@@ -988,7 +988,7 @@ def heating_power_valve_position(
         "better_thermostat %s: %s / heating_power_valve_position - temp diff: %s - heating power: %s (bounded) - expected valve position: %s%%",
         self.device_name,
         entity_id,
-        round(_temp_diff, 1),
+        round(_delta_kelvin, 1),
         round(heating_power, 4),
         round(valve_fraction * 100),
     )
@@ -1021,7 +1021,7 @@ def clamp_valve_percent(value: float) -> int:
     numeric = float(value)
     if not math.isfinite(numeric):
         raise ValueError("valve percent must be finite")
-    return int(round(max(0.0, min(100.0, numeric))))
+    return round(max(0.0, min(100.0, numeric)))
 
 
 def is_reasonable_temperature(value: float | None) -> bool:
@@ -1361,7 +1361,7 @@ def reported_setpoint_step_celsius(
             the reported step as a Celsius delta, or None when the state
             publishes no convertible step
     """
-    attributes: Mapping[str, Any] = state.attributes if state is not None else {}
+    attributes: Mapping[str, object] = state.attributes if state is not None else {}
     raw_step = attributes.get(ATTR_TARGET_TEMP_STEP)
     if raw_step is None:
         return None
@@ -1638,11 +1638,40 @@ def resolve_inbound_setpoint(
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
 
 
-def cooler_send_cache(self: BetterThermostat) -> dict[str, Any]:
+# The command one cooler channel attempted, as the failure backoff compares
+# it: the wanted mode on the mode channel, and the (high, low) bound pair on
+# the setpoint channel, where the lower bound is absent for a single-setpoint
+# write.
+CoolerCommand = HVACMode | tuple[float, float | None] | None
+
+# A channel's run of consecutive send failures of one command, at least one
+# long, as ``(count, monotonic_timestamp, attempted_command)``.
+CoolerFailureRun = tuple[int, float, CoolerCommand]
+
+# The cooler send cache :func:`cooler_send_cache` returns. Spelled
+# functionally because the keys are lookup strings, not attribute names.
+CoolerSendCache = TypedDict(  # noqa: UP013
+    "CoolerSendCache",
+    {
+        "temperature": tuple[float, float | None],
+        "temperature_settled": float,
+        "temperature_failed": CoolerFailureRun,
+        "target_temp_low": tuple[float, float],
+        "target_temp_low_settled": float,
+        "hvac_mode": tuple[HVACMode, float | None],
+        "hvac_mode_decided": HVACMode,
+        "hvac_mode_failed": CoolerFailureRun,
+    },
+    total=False,
+)
+
+
+def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     """Return the cooler send-cache, creating it on first use.
 
     Holds the last successfully sent command per channel as
-    ``(value, monotonic_timestamp)`` for the resend throttle, the settled
+    ``(value, monotonic_timestamp)`` for the resend throttle, with no
+    timestamp once the throttle no longer paces that value, the settled
     reading of each written channel, the mode the last cycle decided on for
     the hysteresis band, and each channel's run of consecutive send failures
     as ``(count, monotonic_timestamp, attempted_value)``. Created lazily
@@ -1655,12 +1684,15 @@ def cooler_send_cache(self: BetterThermostat) -> dict[str, Any]:
 
     Returns
     -------
-    dict
+    CoolerSendCache
             the cache, which the caller mutates in place
     """
-    last_sent: dict[str, Any] | None = getattr(self, "_cooler_last_sent", None)
+    try:
+        last_sent: CoolerSendCache | None = self._cooler_last_sent
+    except AttributeError:
+        last_sent = None
     if not isinstance(last_sent, dict):
-        last_sent = {}
+        last_sent = CoolerSendCache()
         self._cooler_last_sent = last_sent
     return last_sent
 
@@ -2270,12 +2302,25 @@ _MODELS_WITHOUT_VALVE_ENTITY = frozenset({"trv-zbt"})
 
 
 async def find_valve_entity(
-    self: AdapterProbeHost, entity_id: str
+    self: AdapterProbeHost, entity_id: str, *, trv: Trv | None = None
 ) -> ValveEntityInfo | None:
     """Locate a per-TRV valve position helper entity, if available.
 
-    Returns a mapping with the entity_id, whether it appears writable, and the
-    detection reason. ``None`` if no related entity could be found.
+    Parameters
+    ----------
+    self : AdapterProbeHost
+        Host providing Home Assistant access and the name to log under.
+    entity_id : str
+        Entity ID of the TRV to look up.
+    trv : Trv or None
+        Record of the TRV, which remembers the warning about a disabled
+        helper so it is logged once; None where no record exists yet.
+
+    Returns
+    -------
+    ValveEntityInfo or None
+        The entity_id, whether it appears writable, and the detection
+        reason; None if no related entity could be found.
     """
     entity_registry = er.async_get(self.hass)
     reg_entity = entity_registry.async_get(entity_id)
@@ -2292,7 +2337,10 @@ async def find_valve_entity(
         base_device.identifiers if base_device is not None else set()
     )
 
-    base_model_id = getattr(base_device, "model_id", None)
+    # Only a main device carries a model; a child device has none.
+    base_model_id = (
+        base_device.model_id if isinstance(base_device, dr.DeviceEntry) else None
+    )
     if (
         isinstance(base_model_id, str)
         and base_model_id.strip().lower() in _MODELS_WITHOUT_VALVE_ENTITY
@@ -2428,7 +2476,7 @@ async def find_valve_entity(
 
     if disabled_match is not None:
         _report_disabled_sibling(
-            self, entity_id, disabled_match, "valve position", _ENABLE_AND_RELOAD
+            self, trv, entity_id, disabled_match, "valve position", _ENABLE_AND_RELOAD
         )
     _LOGGER.debug(
         "better thermostat: Could not find valve position entity for %s", entity_id
@@ -2551,7 +2599,7 @@ _CALIBRATION_ENTITY_DOMAINS: set[str] = {"number", "select"}
 
 
 async def find_local_calibration_entity(
-    self: AdapterProbeHost, entity_id: str
+    self: AdapterProbeHost, entity_id: str, *, trv: Trv | None = None
 ) -> str | None:
     """Find the local calibration entity for the TRV.
 
@@ -2567,6 +2615,9 @@ async def find_local_calibration_entity(
             self instance of better_thermostat
     entity_id :
             entity id of the TRV to find the local calibration entity for
+    trv :
+            record of the TRV, which remembers the warning about a disabled
+            helper so it is logged once; None where no record exists yet
 
     Returns
     -------
@@ -2637,7 +2688,12 @@ async def find_local_calibration_entity(
     if calibration_entity is None:
         if disabled_match is not None:
             _report_disabled_sibling(
-                self, entity_id, disabled_match, "local calibration", _ENABLE_AND_RELOAD
+                self,
+                trv,
+                entity_id,
+                disabled_match,
+                "local calibration",
+                _ENABLE_AND_RELOAD,
             )
         _LOGGER.debug(
             "better thermostat: Could not find local calibration entity for %s",
@@ -2672,7 +2728,9 @@ async def get_trv_intigration(self: _RegistryHost, entity_id: str) -> str:
         return "generic_thermostat"
 
 
-async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
+async def get_device_model(
+    self: _DeviceModelHost, entity_id: str, *, configured_model: str | None = None
+) -> str:
     """Determine the device model from the Device Registry entry.
 
     Priority: model_id > model (before parens) > model > config > "generic"
@@ -2680,11 +2738,13 @@ async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
     Parameters
     ----------
     self :
-            any object exposing ``hass`` and ``device_name``. A ``model``
-            attribute is optional and only consulted as a fallback; callers
-            without one fall through to ``"generic"``.
+            any object exposing ``hass`` and ``device_name``
     entity_id :
             entity id of the TRV to look up
+    configured_model :
+            model the caller already has configured, consulted only when the
+            device registry names none; without one the answer falls through
+            to ``"generic"``
 
     Returns
     -------
@@ -2702,36 +2762,40 @@ async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
         dev_id = entry.device_id if entry is not None else None
         if isinstance(dev_id, str) and dev_id:
             device = dev_reg.async_get(dev_id)
-        # Selection exclusively via Device-Registry
+        # Selection exclusively via Device-Registry. Only a main device
+        # carries a manufacturer and a model; a child device has neither.
+        manufacturer, dev_model, dev_model_id = (
+            (device.manufacturer, device.model, device.model_id)
+            if isinstance(device, dr.DeviceEntry)
+            else (None, None, None)
+        )
         _LOGGER.debug(
             "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",
             self.device_name,
-            getattr(device, "manufacturer", None),
-            getattr(device, "model", None),
-            getattr(device, "model_id", None),
-            getattr(device, "name", None),
-            list(getattr(device, "identifiers", []) or []),
+            manufacturer,
+            dev_model,
+            dev_model_id,
+            device.name if device is not None else None,
+            list(device.identifiers) if device is not None else [],
         )
 
-        dev_model_id = getattr(device, "model_id", None)
         if isinstance(dev_model_id, str) and len(dev_model_id.strip()) >= 2:
             selected = dev_model_id.strip()
             source = "devreg.model_id"
         else:
-            model_str = getattr(device, "model", None)
             _LOGGER.debug(
                 "better_thermostat %s: device.model raw='%s'",
                 self.device_name,
-                model_str,
+                dev_model,
             )
-            if isinstance(model_str, str) and model_str.strip():
+            if isinstance(dev_model, str) and dev_model.strip():
                 # Extract model before parentheses: "MODEL (Desc)" -> "MODEL"
-                model_clean: str = re.sub(r"\s*\(.*\)\s*$", "", model_str).strip()
+                model_clean: str = re.sub(r"\s*\(.*\)\s*$", "", dev_model).strip()
                 if len(model_clean) >= 2:
                     selected = model_clean
                     source = "devreg.model(before_parens)"
-                elif len(model_str.strip()) >= 2:
-                    selected = model_str.strip()
+                elif len(dev_model.strip()) >= 2:
+                    selected = dev_model.strip()
                     source = "devreg.model"
     except Exception:
         # Registry access is best effort; the fallback chain below still
@@ -2744,7 +2808,6 @@ async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
         )
 
     # Final fallback: configured model, then generic
-    configured_model = getattr(self, "model", None)
     if (
         not selected
         and isinstance(configured_model, str)

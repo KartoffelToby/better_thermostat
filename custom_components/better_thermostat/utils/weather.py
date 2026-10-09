@@ -108,17 +108,17 @@ async def check_weather(self: BetterThermostat) -> bool:
             _now = self.clock.monotonic()
             if self.weather_verdict_missing_since is None:
                 self.weather_verdict_missing_since = _now
-            _silent_s = _now - self.weather_verdict_missing_since
+            _silent_seconds = _now - self.weather_verdict_missing_since
             if (
                 not self.weather_fallback_active
-                and _silent_s >= WEATHER_VERDICT_HOLD.total_seconds()
+                and _silent_seconds >= WEATHER_VERDICT_HOLD.total_seconds()
             ):
                 _LOGGER.warning(
                     "better_thermostat %s: weather entity %s has given no forecast "
                     "for %.1f hours, resuming heating until it does",
                     self.device_name,
                     self.weather_entity_id,
-                    _silent_s / 3600.0,
+                    _silent_seconds / 3600.0,
                 )
                 self.weather_fallback_active = True
             if self.weather_fallback_active:
@@ -313,7 +313,7 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
             )
             cond_cur = damped_current is not None and damped_current < threshold
             cond_fc = forecast_mean is not None and forecast_mean < threshold
-            return bool(cond_cur or cond_fc)
+            return cond_cur or cond_fc
         else:
             raise TypeError
     except TypeError, ServiceNotSupported, HomeAssistantError:

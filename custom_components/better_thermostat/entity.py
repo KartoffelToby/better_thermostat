@@ -145,8 +145,7 @@ class TrvNamedEntity(Entity):
 
     def _follow_trv_name(self) -> None:
         """Name the entity after the TRV now and whenever the TRV reports."""
-        placeholders = getattr(self, "_attr_translation_placeholders", None)
-        if not placeholders or "trv_name" not in placeholders:
+        if "trv_name" not in self.translation_placeholders:
             return
         self._adopt_trv_name(self.hass.states.get(self._trv_entity_id))
         self.async_on_remove(

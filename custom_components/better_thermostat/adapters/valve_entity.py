@@ -40,7 +40,9 @@ async def discover_valve_entity(self: AdapterHost, entity_id: str) -> None:
         Entity ID of the TRV to run the lookup for.
     """
     try:
-        valve = await find_valve_entity(self, entity_id)
+        valve = await find_valve_entity(
+            self, entity_id, trv=self.real_trvs.get(entity_id)
+        )
     except Exception:
         _LOGGER.exception(
             "better_thermostat %s: valve entity discovery for %s failed",
@@ -54,7 +56,7 @@ async def discover_valve_entity(self: AdapterHost, entity_id: str) -> None:
 
     trv = self.real_trvs[entity_id]
     trv.valve_position_entity = valve.get("entity_id")
-    trv.valve_position_writable = bool(valve.get("writable", False))
+    trv.valve_position_writable = valve.get("writable", False)
 
 
 async def write_valve_percent(
@@ -121,8 +123,8 @@ async def write_valve_percent(
 
     min_valve = float(str(valve_entity.attributes.get("min", 0)))
     max_valve = float(str(valve_entity.attributes.get("max", 100)))
-    pct = max(0.0, min(100.0, valve_percent))
-    value = min_valve + (pct / 100.0) * (max_valve - min_valve)
+    percent = max(0.0, min(100.0, valve_percent))
+    value = min_valve + (percent / 100.0) * (max_valve - min_valve)
     step = float(str(valve_entity.attributes.get("step", 1)))
     if step > 0:
         value = min_valve + round((value - min_valve) / step) * step

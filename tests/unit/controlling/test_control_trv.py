@@ -40,7 +40,6 @@ from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode as _parse_mode,
 )
 from custom_components.better_thermostat.model_fixes import TRVZB, ZWA021
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -54,7 +53,12 @@ from custom_components.better_thermostat.utils.controlling import (
     control_trv,
 )
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_from_legacy_dict,
+)
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
 # *controlling* module level because that is where they are imported.
@@ -134,7 +138,7 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_self.attr_hvac_action = None
     mock_self.hass = mock_hass
     mock_self.device_name = "test_thermostat"
-    mock_self._temp_lock = asyncio.Lock()
+    mock_self._temperature_lock = asyncio.Lock()
     mock_self.calculate_heating_power = AsyncMock()
     mock_self.bt_hvac_mode = kwargs.pop("bt_hvac_mode", HVACMode.HEAT)
     mock_self.window_open = kwargs.pop("window_open", False)
@@ -186,7 +190,7 @@ def _default_trv_config(**overrides):
         "last_hvac_mode": HVACMode.HEAT,
         "last_calibration": 0.0,
         "system_mode_received": False,
-        "target_temp_received": False,
+        "target_temperature_received": False,
         "calibration_received": False,
         "hvac_mode": HVACMode.HEAT,
         "advanced": {
@@ -196,7 +200,7 @@ def _default_trv_config(**overrides):
         },
     }
     config.update(overrides)
-    return Trv.from_legacy_dict("climate.trv1", config)
+    return trv_from_legacy_dict("climate.trv1", config)
 
 
 def _with_valve_channel(trv):
@@ -792,7 +796,7 @@ class TestControlTrvAvailablePath:
         lock_held_during_sleep = []
 
         async def record_lock_state(*args, **kwargs):
-            lock_held_during_sleep.append(mock_self._temp_lock.locked())
+            lock_held_during_sleep.append(mock_self._temperature_lock.locked())
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
@@ -1257,7 +1261,7 @@ class TestControlTrvAvailablePath:
 
     @pytest.mark.asyncio
     async def test_lock_usage(self):
-        """Test that _temp_lock is acquired during TRV control.
+        """Test that _temperature_lock is acquired during TRV control.
 
         The lock prevents race conditions when multiple TRVs are controlled
         in parallel by control_queue's asyncio.gather().
@@ -1269,7 +1273,7 @@ class TestControlTrvAvailablePath:
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
         )
-        mock_self._temp_lock = lock
+        mock_self._temperature_lock = lock
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
@@ -1578,7 +1582,7 @@ class TestControlTrvIgnoreFlagReset:
         """Cancelling a caller queued on the lock leaves the holder's flag alone.
 
         Only the invocation that set ignore_trv_states may clear it. A second
-        invocation cancelled while still waiting for _temp_lock never set the
+        invocation cancelled while still waiting for _temperature_lock never set the
         flag, so its cleanup must not clear it for the concurrent holder that
         is mid-write.
         """
@@ -1669,7 +1673,7 @@ class TestBoostModeSafetyOverride:
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
-        mock_self._temp_lock = asyncio.Lock()
+        mock_self._temperature_lock = asyncio.Lock()
         mock_self.preset_mode = PRESET_BOOST
         mock_self.room_temperature = 18.0
         mock_self.heat_target_temperature = 22.0
@@ -1696,7 +1700,7 @@ class TestBoostModeSafetyOverride:
         mock_self.bt_max_temp = 30.0
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1",
                 {
                     "ignore_trv_states": False,
@@ -1704,7 +1708,8 @@ class TestBoostModeSafetyOverride:
                     "temperature": 20.0,
                     "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
                     "model_quirks": Mock(
-                        override_set_hvac_mode=AsyncMock(return_value=False)
+                        override_set_hvac_mode=AsyncMock(return_value=False),
+                        override_set_valve=AsyncMock(return_value=True),
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
@@ -1712,7 +1717,7 @@ class TestBoostModeSafetyOverride:
                         "no_off_system_mode": False,
                     },
                     "system_mode_received": True,
-                    "target_temp_received": False,
+                    "target_temperature_received": False,
                     "calibration_received": False,
                     "last_hvac_mode": HVACMode.HEAT,
                 },
@@ -2017,7 +2022,7 @@ class TestBoostModeSafetyOverride:
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
-        mock_self._temp_lock = asyncio.Lock()
+        mock_self._temperature_lock = asyncio.Lock()
         mock_self.preset_mode = PRESET_BOOST
         mock_self.room_temperature = 18.0
         mock_self.heat_target_temperature = 22.0
@@ -2044,7 +2049,7 @@ class TestBoostModeSafetyOverride:
         mock_self.bt_max_temp = 30.0
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1",
                 {
                     "ignore_trv_states": False,
@@ -2052,7 +2057,8 @@ class TestBoostModeSafetyOverride:
                     "temperature": 20.0,
                     "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
                     "model_quirks": Mock(
-                        override_set_hvac_mode=AsyncMock(return_value=False)
+                        override_set_hvac_mode=AsyncMock(return_value=False),
+                        override_set_valve=AsyncMock(return_value=True),
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
@@ -2060,7 +2066,7 @@ class TestBoostModeSafetyOverride:
                         "no_off_system_mode": False,
                     },
                     "system_mode_received": True,
-                    "target_temp_received": False,
+                    "target_temperature_received": False,
                     "calibration_received": False,
                     "last_hvac_mode": HVACMode.HEAT,
                 },
@@ -2361,7 +2367,7 @@ class TestValveWriteResult:
 class TestRaceConditionLockCoverage:
     """Test that parallel TRV control does not cause race conditions.
 
-    The _temp_lock must protect all critical operations including
+    The _temperature_lock must protect all critical operations including
     set_valve(), set_hvac_mode(), set_calibration_offset(), and set_temperature()
     to prevent shared state corruption when multiple TRVs are controlled
     concurrently via asyncio.gather().
@@ -2401,7 +2407,7 @@ class TestRaceConditionLockCoverage:
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_grouped_thermostat"
-        mock_self._temp_lock = asyncio.Lock()
+        mock_self._temperature_lock = asyncio.Lock()
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
         mock_self.clock = FakeClock()
@@ -2427,7 +2433,7 @@ class TestRaceConditionLockCoverage:
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1",
                 {
                     "ignore_trv_states": False,
@@ -2438,7 +2444,7 @@ class TestRaceConditionLockCoverage:
                     "commanded_setpoint": 18.0,
                     "last_hvac_mode": HVACMode.OFF,
                     "system_mode_received": True,
-                    "target_temp_received": True,
+                    "target_temperature_received": True,
                     "calibration_received": False,
                     "model_quirks": Mock(
                         override_set_hvac_mode=AsyncMock(return_value=False)
@@ -2449,7 +2455,7 @@ class TestRaceConditionLockCoverage:
                     },
                 },
             ),
-            "climate.trv2": Trv.from_legacy_dict(
+            "climate.trv2": trv_from_legacy_dict(
                 "climate.trv2",
                 {
                     "ignore_trv_states": False,
@@ -2460,7 +2466,7 @@ class TestRaceConditionLockCoverage:
                     "commanded_setpoint": 18.0,
                     "last_hvac_mode": HVACMode.OFF,
                     "system_mode_received": True,
-                    "target_temp_received": True,
+                    "target_temperature_received": True,
                     "calibration_received": False,
                     "model_quirks": Mock(
                         override_set_hvac_mode=AsyncMock(return_value=False)
@@ -2477,7 +2483,7 @@ class TestRaceConditionLockCoverage:
 
         execution_log = []
         lock_acquired_count = 0
-        original_lock_acquire = mock_self._temp_lock.acquire
+        original_lock_acquire = mock_self._temperature_lock.acquire
 
         async def tracked_acquire(*args, **kwargs):
             nonlocal lock_acquired_count
@@ -2487,7 +2493,7 @@ class TestRaceConditionLockCoverage:
             execution_log.append(f"lock_acquired_{lock_acquired_count}")
             return result
 
-        mock_self._temp_lock.acquire = tracked_acquire
+        mock_self._temperature_lock.acquire = tracked_acquire
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
@@ -2605,7 +2611,7 @@ class TestRaceConditionLockCoverage:
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
-        mock_self._temp_lock = asyncio.Lock()
+        mock_self._temperature_lock = asyncio.Lock()
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
         mock_self.clock = FakeClock()
@@ -2631,7 +2637,7 @@ class TestRaceConditionLockCoverage:
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1",
                 {
                     "ignore_trv_states": False,
@@ -2641,7 +2647,7 @@ class TestRaceConditionLockCoverage:
                     "temperature": 22.0,
                     "last_hvac_mode": HVACMode.HEAT,
                     "system_mode_received": False,
-                    "target_temp_received": False,
+                    "target_temperature_received": False,
                     "calibration_received": False,
                     "model_quirks": Mock(
                         override_set_hvac_mode=AsyncMock(return_value=False)
@@ -2652,7 +2658,7 @@ class TestRaceConditionLockCoverage:
                     },
                 },
             ),
-            "climate.trv2": Trv.from_legacy_dict(
+            "climate.trv2": trv_from_legacy_dict(
                 "climate.trv2",
                 {
                     "ignore_trv_states": False,
@@ -2662,7 +2668,7 @@ class TestRaceConditionLockCoverage:
                     "temperature": 22.0,
                     "last_hvac_mode": HVACMode.HEAT,
                     "system_mode_received": False,
-                    "target_temp_received": False,
+                    "target_temperature_received": False,
                     "calibration_received": False,
                     "model_quirks": Mock(
                         override_set_hvac_mode=AsyncMock(return_value=False)
@@ -2725,7 +2731,7 @@ class TestRaceConditionLockCoverage:
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
-        mock_self._temp_lock = asyncio.Lock()
+        mock_self._temperature_lock = asyncio.Lock()
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
         mock_self.clock = FakeClock()
@@ -2750,7 +2756,7 @@ class TestRaceConditionLockCoverage:
         mock_self.window_open = False
         mock_self.call_for_heat = True
         mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1",
                 {
                     "ignore_trv_states": False,
@@ -2760,7 +2766,7 @@ class TestRaceConditionLockCoverage:
                     "temperature": 22.0,
                     "last_hvac_mode": HVACMode.HEAT,
                     "system_mode_received": False,
-                    "target_temp_received": False,
+                    "target_temperature_received": False,
                     "calibration_received": False,
                     "model_quirks": Mock(
                         override_set_hvac_mode=AsyncMock(return_value=False)
@@ -2803,24 +2809,24 @@ class TestRaceConditionLockCoverage:
 
             async def check_lock_on_set_valve(*args, **kwargs):
                 lock_state_during_operations.append(
-                    ("set_valve", mock_self._temp_lock.locked())
+                    ("set_valve", mock_self._temperature_lock.locked())
                 )
                 return True
 
             async def check_lock_on_set_hvac_mode(*args, **kwargs):
                 lock_state_during_operations.append(
-                    ("set_hvac_mode", mock_self._temp_lock.locked())
+                    ("set_hvac_mode", mock_self._temperature_lock.locked())
                 )
 
             async def check_lock_on_set_calibration_offset(*args, **kwargs):
                 lock_state_during_operations.append(
-                    ("set_calibration_offset", mock_self._temp_lock.locked())
+                    ("set_calibration_offset", mock_self._temperature_lock.locked())
                 )
                 return True
 
             async def check_lock_on_set_temp(*args, **kwargs):
                 lock_state_during_operations.append(
-                    ("set_temperature", mock_self._temp_lock.locked())
+                    ("set_temperature", mock_self._temperature_lock.locked())
                 )
 
             mock_set_valve.side_effect = check_lock_on_set_valve
@@ -2844,7 +2850,7 @@ class TestRaceConditionLockCoverage:
     async def test_deferred_setpoint_settles_outside_the_lock(self):
         """A budget-deferred setpoint must not hold the TRV lock while settling.
 
-        Every TRV of a cycle contends for the same _temp_lock, so a
+        Every TRV of a cycle contends for the same _temperature_lock, so a
         settle sleep taken inside it serialises the whole cycle on the
         slowest deferral instead of overlapping them.
         """
@@ -2862,7 +2868,7 @@ class TestRaceConditionLockCoverage:
         lock_held_during_sleep = []
 
         async def record_lock_state(*args, **kwargs):
-            lock_held_during_sleep.append(mock_self._temp_lock.locked())
+            lock_held_during_sleep.append(mock_self._temperature_lock.locked())
 
         set_temperature_calls = []
 
@@ -2894,7 +2900,7 @@ class TestRaceConditionLockCoverage:
         # The settle sleep ran, and never while holding the lock.
         assert lock_held_during_sleep
         assert not any(lock_held_during_sleep)
-        assert mock_self._temp_lock.locked() is False
+        assert mock_self._temperature_lock.locked() is False
 
 
 # ---------------------------------------------------------------------------
@@ -2932,13 +2938,13 @@ def mock_bt_grouped():
     bt.window_open = False
     bt.call_for_heat = True
     bt.tolerance = 0.5
-    bt._temp_lock = asyncio.Lock()
+    bt._temperature_lock = asyncio.Lock()
     bt.calculate_heating_power = AsyncMock()
 
     bt.kernel_state = _kernel_state_for(bt)
     bt.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     bt.real_trvs = {
-        "climate.trv_1": Trv.from_legacy_dict(
+        "climate.trv_1": trv_from_legacy_dict(
             "climate.trv_1",
             {
                 "calibration_received": True,
@@ -2954,7 +2960,7 @@ def mock_bt_grouped():
                 },
             },
         ),
-        "climate.trv_2": Trv.from_legacy_dict(
+        "climate.trv_2": trv_from_legacy_dict(
             "climate.trv_2",
             {
                 "calibration_received": True,
@@ -2967,7 +2973,7 @@ def mock_bt_grouped():
                 "advanced": {"calibration": 0, "calibration_mode": 0},
             },
         ),
-        "climate.trv_3": Trv.from_legacy_dict(
+        "climate.trv_3": trv_from_legacy_dict(
             "climate.trv_3",
             {
                 "calibration_received": False,  # Stuck at False!
@@ -3225,7 +3231,7 @@ class TestControlTrvOnADualRoleEntity:
     @classmethod
     def _make_shared_self(cls, device_modes, *, heat_auto_swapped=False):
         """Build a mock whose cooler is also the controlled thermostat."""
-        trv = Trv.from_legacy_dict(
+        trv = trv_from_legacy_dict(
             cls.SHARED_ID,
             {
                 "ignore_trv_states": False,
@@ -3346,11 +3352,11 @@ def _offset_trv_config(**overrides):
         "last_hvac_mode": HVACMode.HEAT,
         "hvac_mode": HVACMode.HEAT,
         "system_mode_received": False,
-        "target_temp_received": False,
+        "target_temperature_received": False,
         "calibration_received": True,
         "last_calibration": 0.0,
-        "local_calibration_min": -7.0,
-        "local_calibration_max": 7.0,
+        "min_local_calibration": -7.0,
+        "max_local_calibration": 7.0,
         "local_calibration_step": 0.5,
         "local_temperature_calibration_entity": "number.trv1_offset",
         "advanced": {
@@ -3360,7 +3366,7 @@ def _offset_trv_config(**overrides):
         },
     }
     config.update(overrides)
-    return Trv.from_legacy_dict("climate.trv1", config)
+    return trv_from_legacy_dict("climate.trv1", config)
 
 
 def _make_offset_self(**overrides):
@@ -4138,7 +4144,7 @@ class TestSetpointWatchdogAcrossAFailingWrite:
 
         The cycle writes 23.0; the next writes 24.0 and the call raises, yet
         the device takes the value. The 24.0 write is watched like any other,
-        so the device's report of it releases ``target_temp_received`` and
+        so the device's report of it releases ``target_temperature_received`` and
         the next cycle, finding 24.0 in place, leaves the channel open.
         """
         trv_attrs = {"temperature": 20.0}
@@ -4183,13 +4189,13 @@ class TestSetpointWatchdogAcrossAFailingWrite:
             trv_attrs["temperature"] = 24.0
             for watchdog in watchdogs:
                 await watchdog
-            assert trv.target_temp_received is True
+            assert trv.target_temperature_received is True
 
             mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
             await control_trv(mock_self, "climate.trv1")
 
         assert set_temperature.await_count == 2
-        assert trv.target_temp_received is True
+        assert trv.target_temperature_received is True
         assert trv.confirmed_setpoint == 24.0
 
     @pytest.mark.asyncio
@@ -4333,7 +4339,7 @@ class TestSetpointWatchdogAcrossAFailingWrite:
 
 def _paced_trv(entity_id, *, homematicip):
     """Return a TRV holding 20 °C whose config marks it HomematicIP or not."""
-    return Trv.from_legacy_dict(
+    return trv_from_legacy_dict(
         entity_id,
         {
             "ignore_trv_states": False,

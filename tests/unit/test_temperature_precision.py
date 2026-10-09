@@ -111,7 +111,7 @@ class TestHvacActionPrecision:
 
         Scenario from issue #1792:
         - External sensor: 19.97 C
-        - Target temp: 20.0 C
+        - Target temperature: 20.0 C
         - Expected: should_heat = True (19.97 < 20.0)
         """
         heat_target_temperature = 20.0
@@ -166,7 +166,7 @@ class TestDirectionAwareRounding:
     Bug: TRVs that only accept whole-degree steps (step=1.0) round setpoints
     using nearest-rounding. When BT decides IDLE and the calibrated setpoint is
     e.g. 19.7, nearest-rounding produces 20.0 — equal to the TRV's internal
-    temp — keeping the valve open. Direction-aware rounding fixes this:
+    temperature — keeping the valve open. Direction-aware rounding fixes this:
     - IDLE  → round setpoint DOWN (19.7 → 19.0) so valve closes
     - HEATING → round setpoint UP (20.3 → 21.0) so valve opens
     """

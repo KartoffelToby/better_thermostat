@@ -74,7 +74,7 @@ class TestMPCController:
             key="test_basic",
             target_temperature=22.0,
             room_temperature=21.5,  # Smaller error to get valve <100%
-            temp_slope_K_per_min=0.0,
+            temperature_slope_K_per_min=0.0,
         )
         result, _ = compute_mpc(inp, params)
         assert result is not None
@@ -96,7 +96,7 @@ class TestMPCController:
             key=key,
             target_temperature=22.0,
             room_temperature=room_temperature,
-            temp_slope_K_per_min=0.0,
+            temperature_slope_K_per_min=0.0,
         )
         with patch(f"{_MPC}.random.random", return_value=0.99):
             result, _ = compute_mpc(inp, params)
@@ -114,7 +114,7 @@ class TestMPCController:
             percent_hysteresis_pts=0.0,
             mpc_control_penalty=0.0,
             mpc_change_penalty=0.0,
-            use_virtual_temp=False,
+            use_virtual_temperature=False,
         )
 
         # Raw sensor value (used for learning) is 0.7K below target.
@@ -168,7 +168,7 @@ class TestMPCController:
             key=key,
             target_temperature=target,
             room_temperature=current,
-            # temp_slope_K_per_min=slope,
+            # temperature_slope_K_per_min=slope,
         )
         result1, _ = compute_mpc(inp1, params)
         assert result1 is not None
@@ -180,14 +180,14 @@ class TestMPCController:
         assert state.gain_est == 0.1
         assert state.loss_est == 0.02
 
-        # Simulate heating: assume valve opens to 50%, temp rises by 0.5K in 5 min
+        # Simulate heating: assume valve opens to 50%, temperature rises by 0.5K in 5 min
         # But since step_minutes=1 in test, adjust
         # For simplicity, simulate by calling again with reduced error
         inp2 = MpcInput(
             key=key,
             target_temperature=target,
             room_temperature=21.0,  # Error reduced from 2.0 to 1.0
-            temp_slope_K_per_min=slope,
+            temperature_slope_K_per_min=slope,
         )
         result2, _ = compute_mpc(inp2, params)
         assert result2 is not None
@@ -204,7 +204,7 @@ class TestMPCController:
             key=key,
             target_temperature=target,
             room_temperature=21.0,  # Error still 1.0
-            temp_slope_K_per_min=slope,
+            temperature_slope_K_per_min=slope,
         )
         result3, _ = compute_mpc(inp3, params)
         assert result3 is not None
@@ -219,7 +219,7 @@ class TestMPCController:
             key=key,
             target_temperature=target,
             room_temperature=20.5,  # Error back to 1.5
-            temp_slope_K_per_min=slope,
+            temperature_slope_K_per_min=slope,
         )
         gain_before_decrease = state.gain_est
         result4, _ = compute_mpc(inp4, params)
@@ -259,7 +259,7 @@ class TestMPCController:
             key=key,
             target_temperature=22.0,
             room_temperature=21.5,
-            temp_slope_K_per_min=0.08,
+            temperature_slope_K_per_min=0.08,
         )
         _ = compute_mpc(inp1, params)
 
@@ -275,7 +275,7 @@ class TestMPCController:
             key=key,
             target_temperature=22.0,
             room_temperature=21.5,
-            temp_slope_K_per_min=0.08,
+            temperature_slope_K_per_min=0.08,
         )
         _ = compute_mpc(inp2, params)
         st = _STATES[key]
@@ -315,7 +315,7 @@ class TestMPCController:
                 key=key,
                 target_temperature=22.0,
                 room_temperature=21.5,
-                temp_slope_K_per_min=0.0,
+                temperature_slope_K_per_min=0.0,
             ),
             params,
         )
@@ -356,7 +356,7 @@ class TestMPCController:
                 target_temperature=22.0,
                 room_temperature=21.8,
                 # slope may be noisy; steady-state learning should prefer delta when sensor flat
-                temp_slope_K_per_min=-0.07,
+                temperature_slope_K_per_min=-0.07,
             ),
             params,
         )
@@ -373,11 +373,11 @@ class TestMPCController:
         """
         params = MpcParams(
             enable_min_effective_percent=True,
-            deadzone_threshold_pct=50.0,
-            deadzone_temp_delta_K=0.05,
+            deadzone_threshold_percent=50.0,
+            deadzone_delta_K=0.05,
             deadzone_time_s=60.0,
             deadzone_hits_required=hits_required,
-            deadzone_raise_pct=5.0,
+            deadzone_raise_percent=5.0,
             percent_hysteresis_pts=0.0,
             min_update_interval_s=0.0,
         )
@@ -425,11 +425,11 @@ class TestMPCController:
         """
         params = MpcParams(
             enable_min_effective_percent=True,
-            deadzone_threshold_pct=50.0,
-            deadzone_temp_delta_K=0.05,
+            deadzone_threshold_percent=50.0,
+            deadzone_delta_K=0.05,
             deadzone_time_s=60.0,
             deadzone_hits_required=1,
-            deadzone_raise_pct=5.0,
+            deadzone_raise_percent=5.0,
             percent_hysteresis_pts=0.0,
             min_update_interval_s=0.0,
         )
@@ -494,9 +494,9 @@ class TestMPCController:
         """
         params = MpcParams(
             enable_min_effective_percent=True,
-            deadzone_temp_delta_K=0.05,
+            deadzone_delta_K=0.05,
             deadzone_time_s=60.0,
-            deadzone_decay_pct=1.0,
+            deadzone_decay_percent=1.0,
             percent_hysteresis_pts=0.0,
             min_update_interval_s=0.0,
         )
@@ -528,9 +528,9 @@ class TestMPCController:
         """
         params = MpcParams(
             enable_min_effective_percent=True,
-            deadzone_temp_delta_K=0.05,
+            deadzone_delta_K=0.05,
             deadzone_time_s=60.0,
-            deadzone_decay_pct=1.0,
+            deadzone_decay_percent=1.0,
             percent_hysteresis_pts=0.0,
             min_update_interval_s=0.0,
         )
@@ -560,9 +560,9 @@ class TestMPCController:
         """
         params = MpcParams(
             enable_min_effective_percent=True,
-            deadzone_temp_delta_K=0.05,
+            deadzone_delta_K=0.05,
             deadzone_time_s=60.0,
-            deadzone_decay_pct=1.0,
+            deadzone_decay_percent=1.0,
             percent_hysteresis_pts=0.0,
             min_update_interval_s=0.0,
         )
@@ -595,9 +595,9 @@ class TestMPCController:
         """
         params = MpcParams(
             enable_min_effective_percent=True,
-            deadzone_temp_delta_K=0.05,
+            deadzone_delta_K=0.05,
             deadzone_time_s=60.0,
-            deadzone_decay_pct=1.0,
+            deadzone_decay_percent=1.0,
             percent_hysteresis_pts=0.0,
             min_update_interval_s=0.0,
             min_percent_hold_time_s=hold_time_s,
@@ -652,7 +652,7 @@ class TestMPCController:
             percent_hysteresis_pts=1.0,
             min_update_interval_s=1.0,
             min_percent_hold_time_s=0.0,
-            mpc_du_max_pct=None,
+            mpc_du_max_percent=None,
         )
         state = MpcState()
         state.last_percent = 40.0
@@ -676,7 +676,7 @@ class TestMPCController:
             percent_hysteresis_pts=0.0,
             mpc_control_penalty=0.0,
             mpc_change_penalty=0.0,
-            use_virtual_temp=False,
+            use_virtual_temperature=False,
         )
         key = "test_tol_hyst"
 
@@ -723,7 +723,7 @@ class TestMPCController:
             percent_hysteresis_pts=0.0,
             mpc_control_penalty=0.0,
             mpc_change_penalty=0.0,
-            use_virtual_temp=True,
+            use_virtual_temperature=True,
         )
         key = "test_tol_kalman"
 
@@ -783,7 +783,7 @@ class TestMPCController:
                 key=key,
                 target_temperature=target,
                 room_temperature=current_rounded,
-                # temp_slope_K_per_min=slope,
+                # temperature_slope_K_per_min=slope,
             )
             result, _ = compute_mpc(inp, params)
             assert result is not None
@@ -811,7 +811,7 @@ class TestMPCController:
             )
 
             # Simulate temperature rise based on valve opening
-            # Simple model: temp increases by gain * percent / 100 per step
+            # Simple model: temperature increases by gain * percent / 100 per step
             step_minutes = 5  # Finer steps for more detail
             heating_effect = (
                 params.mpc_thermal_gain * (valve_percent / 100.0) * step_minutes
@@ -833,7 +833,7 @@ class TestMPCController:
         # behaviour in this simplified plant. Keep the bound a bit looser.
         assert abs(final_error) < 1.1  # Should be close to target
 
-        # Check that valve percent decreases as temp approaches target
+        # Check that valve percent decreases as temperature approaches target
         # Initial should be high, final should be lower
         initial_percent = results[0][1]
         final_percent = results[-1][1]
@@ -849,7 +849,7 @@ class TestMPCController:
             percent_hysteresis_pts=0.0,
             mpc_control_penalty=0.0,
             mpc_change_penalty=0.0,
-            use_virtual_temp=False,
+            use_virtual_temperature=False,
         )
 
         low_overshoot, _ = compute_mpc(
@@ -881,7 +881,7 @@ class TestMPCController:
             "min_percent_hold_time_s": 0.0,
             "percent_hysteresis_pts": 0.0,
             "mpc_control_penalty": 0.0,
-            "use_virtual_temp": False,
+            "use_virtual_temperature": False,
             "mpc_overshoot_penalty": 0.0,
         }
 

@@ -70,7 +70,7 @@ class MpcV2Adapter:
         """Compute one MPC v2 step for the given benchmark context.
 
         The valve the plant received on the previous step goes in as
-        ``applied_valve_pct``, as production passes the last confirmed write
+        ``applied_valve_percent``, as production passes the last confirmed write
         of a single direct-valve TRV.
         """
         inp = MpcV2Input(
@@ -81,7 +81,7 @@ class MpcV2Adapter:
             outdoor_temperature=ctx.outdoor_temperature,
             window_open=ctx.window_open,
             heating_allowed=True,
-            applied_valve_pct=ctx.last_valve_percent,
+            applied_valve_percent=ctx.last_valve_percent,
             bt_name="benchmark",
             entity_id="bench_trv",
         )

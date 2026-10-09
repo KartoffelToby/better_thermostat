@@ -41,8 +41,8 @@ class TestDistributeValvePercent:
     def test_zero_command(self):
         """When group command is 0 %, all TRVs get 0 %."""
         result = distribute_valve_percent(0.0, {"trv_a": 18.0, "trv_b": 25.0})
-        for pct in result.values():
-            assert pct == pytest.approx(0.0, abs=0.01)
+        for percent in result.values():
+            assert percent == pytest.approx(0.0, abs=0.01)
 
     def test_cold_trv_gets_more_than_warm(self):
         """A colder TRV should get more valve opening than the warmest."""
@@ -57,7 +57,7 @@ class TestDistributeValvePercent:
         assert result["trv_cold"] == pytest.approx(expected_cold, abs=0.01)
 
     def test_warmest_always_gets_mpc_value(self):
-        """The warmest TRV always receives exactly u_total_pct."""
+        """The warmest TRV always receives exactly u_total_percent."""
         trv_temps = {"trv_a": 28.1, "trv_b": 20.3}
         result = distribute_valve_percent(60.0, trv_temps)
 
@@ -90,11 +90,11 @@ class TestDistributeValvePercent:
         assert result["trv_3"] == pytest.approx(100.0, abs=0.01)
 
         # All within [0, 100]
-        for pct in result.values():
-            assert 0.0 <= pct <= 100.0
+        for percent in result.values():
+            assert 0.0 <= percent <= 100.0
 
     def test_all_same_temperature(self):
-        """All TRVs at same temp → uniform distribution (all get MPC value)."""
+        """All TRVs at same temperature → uniform distribution (all get MPC value)."""
         trv_temps = {"a": 21.0, "b": 21.0, "c": 21.0}
         result = distribute_valve_percent(60.0, trv_temps)
 
@@ -118,7 +118,7 @@ class TestDistributeValvePercent:
         trv_temps = {"trv_cold": 18.0, "trv_none": None, "trv_warm": 25.0}
         result = distribute_valve_percent(60.0, trv_temps)
 
-        # trv_none gets neutral = u_total_pct
+        # trv_none gets neutral = u_total_percent
         assert result["trv_none"] == pytest.approx(60.0, abs=0.01)
         # cold still gets the most
         assert result["trv_cold"] > result["trv_warm"]
@@ -130,8 +130,8 @@ class TestDistributeValvePercent:
         trv_temps = {"a": None, "b": None, "c": None}
         result = distribute_valve_percent(50.0, trv_temps)
 
-        for pct in result.values():
-            assert pct == pytest.approx(50.0, abs=0.01)
+        for percent in result.values():
+            assert percent == pytest.approx(50.0, abs=0.01)
 
     def test_clamped_to_100(self):
         """Extreme cold TRV with high group command doesn't exceed 100 %."""
@@ -143,7 +143,7 @@ class TestDistributeValvePercent:
         assert result["trv_extreme_cold"] == pytest.approx(100.0, abs=0.01)
 
     def test_total_power_at_least_mpc_times_n(self):
-        """Total heating power is ≥ u_total_pct * N (only boosts, no cuts)."""
+        """Total heating power is ≥ u_total_percent * N (only boosts, no cuts)."""
         trv_temps = {"a": 18.0, "b": 20.0, "c": 22.0, "d": 25.0}
         result = distribute_valve_percent(50.0, trv_temps)
 
@@ -200,7 +200,7 @@ class TestBuildMpcGroupKey:
         assert group_bucket == entity_bucket
 
     def test_group_key_none_target(self):
-        """Group key handles None target temp gracefully."""
+        """Group key handles None target temperature gracefully."""
         bt = ThermostatStandIn()
         bt.unique_id = "bt_test"
         bt.heat_target_temperature = None

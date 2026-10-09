@@ -53,7 +53,7 @@ def _compute(params: PIDParams, state: PIDState, **overrides):
         "inp_target_temperature": 21.0,
         "inp_room_temperature": 20.0,
         "inp_trv_temperature": 20.0,
-        "inp_temp_slope_K_per_min": 0.02,
+        "inp_temperature_slope_K_per_min": 0.02,
         "key": "bt:climate.trv",
     }
     kwargs.update(overrides)

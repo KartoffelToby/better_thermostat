@@ -28,7 +28,7 @@ class MpcV2State:
     # signature (e.g. user switched preset), the controller is rebuilt so
     # the new prior actually takes effect.
     plant_signature: tuple[float, ...] | None = None
-    # Latched once the controller falls back to a hardcoded outdoor temp;
+    # Latched once the controller falls back to a hardcoded outdoor temperature;
     # used to throttle the WARN to one line per controller instance.
     outdoor_fallback_logged: bool = False
 
@@ -94,6 +94,40 @@ def export_mpc_v2_state(state: MpcV2State) -> MpcV2Payload | None:
     )
 
 
+def _stored_finite(
+    payload: Mapping[str, object], name: str, key: str | None
+) -> float | None:
+    """Return the finite number *payload* holds under *name*, if it holds one.
+
+    A missing value and a stored null return ``None`` silently. Anything
+    else that is not a finite number returns ``None`` as well and is named,
+    so the caller leaves the field at its default.
+    """
+    value = payload.get(name)
+    if value is None:
+        return None
+    try:
+        number = stored_float(value)
+        # `float()` takes "NaN", "Infinity" and anything that overflows to
+        # one, and an unusable field keeps its default. A non-finite command
+        # or timestamp poisons every calculation that reads it afterwards,
+        # so it goes down the same refusal path as an unreadable one.
+        if not math.isfinite(number):
+            raise ValueError(f"{name} is not finite: {value!r}")
+    except TypeError, ValueError, OverflowError:
+        # The field keeps the default a first start leaves there, so a value
+        # the store lost is indistinguishable from one it never held unless
+        # this line says so.
+        _LOGGER.warning(
+            "MPC v2 stored %s for %s is not a usable number, continuing without it",
+            name,
+            key or "an unnamed state entry",
+            exc_info=True,
+        )
+        return None
+    return number
+
+
 def import_mpc_v2_state(
     payload: Mapping[str, object],
     params: MpcV2Params | None = None,
@@ -123,30 +157,12 @@ def import_mpc_v2_state(
         the rehydrated state, with any unusable field left at its default
     """
     state = MpcV2State()
-    for attr in ("last_percent", "last_compute_ts", "created_ts"):
-        value = payload.get(attr)
-        if value is not None:
-            try:
-                number = stored_float(value)
-                # `float()` takes "NaN", "Infinity" and anything that
-                # overflows to one, and the contract above says an unusable
-                # field keeps its default. A non-finite command or timestamp
-                # poisons every calculation that reads it afterwards, so it
-                # goes down the same refusal path as an unreadable one.
-                if not math.isfinite(number):
-                    raise ValueError(f"{attr} is not finite: {value!r}")
-                setattr(state, attr, number)
-            except TypeError, ValueError, OverflowError:
-                # The field keeps the default a first start leaves there, so
-                # a value the store lost is indistinguishable from one it
-                # never held unless this line says so.
-                _LOGGER.warning(
-                    "MPC v2 stored %s for %s is not a usable number, "
-                    "continuing without it",
-                    attr,
-                    key or "an unnamed state entry",
-                    exc_info=True,
-                )
+    if (number := _stored_finite(payload, "last_percent", key)) is not None:
+        state.last_percent = number
+    if (number := _stored_finite(payload, "last_compute_ts", key)) is not None:
+        state.last_compute_ts = number
+    if (number := _stored_finite(payload, "created_ts", key)) is not None:
+        state.created_ts = number
     # The fallback-WARN latch is per controller instance; restoring it keeps
     # the throttle intact across the export/import round-trip the dispatcher
     # performs every cycle (otherwise the WARN fires on every compute).

@@ -12,12 +12,12 @@ the adapter serving the ecosystem it is paired through reports none.
 
 import contextlib
 import importlib
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import CONF_NAME
 from homeassistant.core import State
+from homeassistant.helpers import device_registry as dr
 import pytest
 
 from custom_components.better_thermostat.config_flow import (
@@ -173,7 +173,8 @@ def _a_device_of_model(model):
         make_registry_entry(TRV_ID, device_id="device")
     )
     device_registry = MagicMock()
-    device_registry.async_get.return_value = SimpleNamespace(
+    device_registry.async_get.return_value = dr.DeviceEntry(
+        config_entry_id="entry",
         manufacturer="Vendor",
         model=model,
         model_id=model,

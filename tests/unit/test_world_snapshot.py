@@ -20,10 +20,9 @@ from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode,
 )
 from custom_components.better_thermostat.model_fixes import ZWA021
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationOutput
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 
 def _make_bt() -> MagicMock:
@@ -53,7 +52,7 @@ def _make_bt() -> MagicMock:
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
     bt.real_trvs = {
-        "climate.trv": Trv.from_legacy_dict(
+        "climate.trv": trv_from_legacy_dict(
             "climate.trv",
             {
                 "hvac_mode": "heat",
@@ -196,8 +195,8 @@ class TestTrvReportedBuilding:
             min_temp=5.0,
             max_temp=30.0,
             valve_max_opening=80.0,
-            local_calibration_min=-7,
-            local_calibration_max=7,
+            min_local_calibration=-7,
+            max_local_calibration=7,
         )
 
     def test_unavailable_state_marks_trv_unavailable(self):

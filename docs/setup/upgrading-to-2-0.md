@@ -63,11 +63,13 @@ itself.
   values now shows the error in its trace.
 - **Fahrenheit systems:** `target_temp_step` is now Home Assistant's own
   attribute, in °F. 1.9.2 overwrote it with the step in °C.
-- **Temperature differences in the learning attributes are renamed.** In
-  `heating_cycle_last`, the key `delta_t` is now `delta_kelvin`. In
-  `heat_loss_stats`, the key `dT` is now `delta_kelvin`. The values are the
-  same. A template that reads the old key gets nothing and has to use the
-  new one.
+- **Keys in the learning attributes are renamed.** In `heating_cycle_last`,
+  `delta_t` is now `delta_kelvin`, `temp_start` `start_temperature`,
+  `temp_peak` `peak_temperature` and `rate_c_min` `rate_kelvin_per_min`. In
+  `heat_loss_cycle_last`, `temp_start` is now `start_temperature` and
+  `temp_min` `min_temperature`. In `heat_loss_stats`, `dT` is now
+  `delta_kelvin`. The values are the same. A template that reads an old key
+  gets nothing and has to use the new one.
 - **The preset attributes lose their `bt_` prefix.** `bt_preset_cool_temperature`,
   `bt_preset_cool_temperatures` and `bt_preset_heat_temperatures` are now
   `preset_cool_temperature`, `preset_cool_temperatures` and

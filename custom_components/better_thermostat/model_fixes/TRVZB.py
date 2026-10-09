@@ -14,8 +14,13 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.better_thermostat.model_fixes.types import (
+    ExternalTemperatureQuirk,
+    MaintenanceIntervalQuirk,
     ModelFixHost,
     ModelFixTrv,
+    ModelQuirks,
+    ValveChannelQuirk,
+    ValveQuirk,
 )
 from custom_components.better_thermostat.utils.helpers import is_sibling_entry
 
@@ -31,7 +36,7 @@ _TRV_ZBT_MODEL = "trv-zbt"
 # Some users report that the TRVZB motor can occasionally lose its calibration and
 # fail to fully close the valve when commanded to very small openings.
 #
-# Workaround: when requesting a further close (target_pct < last_pct), briefly
+# Workaround: when requesting a further close (target_percent < last_percent), briefly
 # command the valve to open a bit more and then to the requested target. A
 # close that arrives while that delayed write is still due is written straight
 # away instead of bumping again, so the requested position always reaches the
@@ -152,7 +157,7 @@ def _valve_number_candidates(
     Returns the opening, closing and generic candidates, in registry order,
     or ``None`` when the TRV is no Sonoff model or has no registry entry.
     """
-    model = str(self.real_trvs[entity_id].model or "")
+    model = self.real_trvs[entity_id].model or ""
     # The TRV-ZBT's valve numbers configure its own controller and position
     # nothing, so it is ruled out before the Sonoff match below takes it in.
     if _TRV_ZBT_MODEL in model.lower():
@@ -276,14 +281,14 @@ async def maybe_set_sonoff_valve_percent(
             return False
         opening_candidates, closing_candidates, generic_candidates = candidates
 
-        pct = max(0, min(100, int(percent)))
+        clamped_percent = max(0, min(100, percent))
         _LOGGER.debug(
             "better_thermostat %s: TRVZB valve write candidates (open=%s, close=%s, generic=%s) target=%s%% for %s",
             self.device_name,
             opening_candidates,
             closing_candidates,
             generic_candidates,
-            pct,
+            clamped_percent,
             entity_id,
         )
         wrote = False
@@ -294,23 +299,23 @@ async def maybe_set_sonoff_valve_percent(
             await self.hass.services.async_call(
                 "number",
                 "set_value",
-                {"entity_id": target_open, "value": pct},
+                {"entity_id": target_open, "value": clamped_percent},
                 blocking=True,
                 context=self.context,
             )
             _LOGGER.debug(
                 "better_thermostat %s: set TRVZB valve_opening_degree=%s on %s (for %s)",
                 self.device_name,
-                pct,
+                clamped_percent,
                 target_open,
                 entity_id,
             )
             wrote = True
 
-        # If we have explicit closing, set complement 100 - pct
+        # If we have explicit closing, set complement 100 - clamped_percent
         if closing_candidates:
             target_close = closing_candidates[0]
-            comp = 100 - pct
+            comp = 100 - clamped_percent
             await self.hass.services.async_call(
                 "number",
                 "set_value",
@@ -337,14 +342,14 @@ async def maybe_set_sonoff_valve_percent(
             await self.hass.services.async_call(
                 "number",
                 "set_value",
-                {"entity_id": target, "value": pct},
+                {"entity_id": target, "value": clamped_percent},
                 blocking=True,
                 context=self.context,
             )
             _LOGGER.debug(
                 "better_thermostat %s: set TRVZB generic valve percent %s%% on %s (for %s)",
                 self.device_name,
-                pct,
+                clamped_percent,
                 target,
                 entity_id,
             )
@@ -354,7 +359,7 @@ async def maybe_set_sonoff_valve_percent(
             _LOGGER.debug(
                 "better_thermostat %s: TRVZB valve percent write had no matching number entity (target=%s%%, %s)",
                 self.device_name,
-                pct,
+                clamped_percent,
                 entity_id,
             )
         return wrote
@@ -386,7 +391,7 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
     Returns True if handled (write attempted), False to let adapter fallback run.
     """
     try:
-        target_pct = max(0, min(100, int(percent)))
+        target_percent = max(0, min(100, percent))
 
         trv_state = self.real_trvs.get(entity_id)
         if trv_state is None:
@@ -394,33 +399,37 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
 
         # During valve maintenance we don't want to add additional delayed steps.
         if self.in_maintenance:
-            ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
-            return bool(ok)
+            ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_percent)
+            return ok
 
         # Cancel any previous pending delayed "bump then set".
         bump_pending = _cancel_pending_valve_bump(trv_state)
 
         # The delegate records the position only once it is a finite int.
-        last_pct_raw = trv_state.last_valve_percent
-        last_pct = None if last_pct_raw is None else int(last_pct_raw)
+        last_percent_raw = trv_state.last_valve_percent
+        last_percent = None if last_percent_raw is None else int(last_percent_raw)
 
         # If we don't know the last commanded percent, just set directly.
-        if last_pct is None:
-            ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
-            return bool(ok)
+        if last_percent is None:
+            ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_percent)
+            return ok
 
         # Only apply workaround when closing further, and only when the motor
         # was not already driven open by a bump whose write is still due.
-        if target_pct < last_pct and not bump_pending:
-            bump_pct = min(100, int(last_pct) + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT)
+        if target_percent < last_percent and not bump_pending:
+            bump_percent = min(100, last_percent + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT)
 
             # If we can't "bump open", fall back to direct set.
-            ok_bump = await maybe_set_sonoff_valve_percent(self, entity_id, bump_pct)
+            ok_bump = await maybe_set_sonoff_valve_percent(
+                self, entity_id, bump_percent
+            )
             if not ok_bump:
-                ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
-                return bool(ok)
+                ok = await maybe_set_sonoff_valve_percent(
+                    self, entity_id, target_percent
+                )
+                return ok
 
-            seq = int(trv_state.extra.get("_trvzb_valve_bump_seq", 0)) + 1
+            seq = trv_state.extra.get("_trvzb_valve_bump_seq", 0) + 1
             trv_state.extra["_trvzb_valve_bump_seq"] = seq
 
             async def _delayed_set() -> None:
@@ -428,10 +437,12 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
                     await asyncio.sleep(float(_TRVZB_CLOSE_BUMP_DELAY_S))
                     cur_state = self.real_trvs.get(entity_id)
                     if cur_state is None or (
-                        int(cur_state.extra.get("_trvzb_valve_bump_seq", 0)) != seq
+                        cur_state.extra.get("_trvzb_valve_bump_seq", 0) != seq
                     ):
                         return
-                    await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
+                    await maybe_set_sonoff_valve_percent(
+                        self, entity_id, target_percent
+                    )
                 except asyncio.CancelledError:
                     return
                 except (RuntimeError, ValueError, KeyError) as ex:
@@ -452,8 +463,8 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
         # write the requested position. Bumping again would drive the valve
         # further open on every closing step while the target the cancelled
         # write was carrying never reaches the device.
-        ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
-        return bool(ok)
+        ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_percent)
+        return ok
     except TypeError, ValueError, KeyError, AttributeError:
         return False
 
@@ -588,7 +599,7 @@ async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bo
         # A selector that is not reporting names no option, and the device
         # behind it is in no state to take one either.
         return False
-    if str(state.state).startswith(_ON_A_REMOTE_SENSOR):
+    if state.state.startswith(_ON_A_REMOTE_SENSOR):
         return True
     options = state.attributes.get("options")
     option = next(
@@ -653,7 +664,7 @@ async def maybe_set_external_temperature(
         TRVZB or TRV-ZBT, names no such input, or the value is not a number.
     """
     try:
-        model = str(self.real_trvs[entity_id].model or "")
+        model = self.real_trvs[entity_id].model or ""
         if not (
             "sonoff" in model.lower()
             or "trvzb" in model.lower()
@@ -740,3 +751,25 @@ async def maybe_set_external_temperature(
             ex,
         )
         return False
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+    VALVE_MAINTENANCE_INTERVAL_HOURS = VALVE_MAINTENANCE_INTERVAL_HOURS
+    maybe_set_external_temperature = staticmethod(maybe_set_external_temperature)
+    override_set_valve = staticmethod(override_set_valve)
+    has_valve_channel = staticmethod(has_valve_channel)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()
+_EXTERNAL_TEMPERATURE_QUIRK: ExternalTemperatureQuirk = _Surface()
+_MAINTENANCE_INTERVAL_QUIRK: MaintenanceIntervalQuirk = _Surface()
+_VALVE_QUIRK: ValveQuirk = _Surface()
+_VALVE_CHANNEL_QUIRK: ValveChannelQuirk = _Surface()

@@ -57,7 +57,7 @@ async def test_registry_model_is_read_up_to_its_description(
     entity = er.async_get(hass).async_get_or_create(
         "climate", "mqtt", "trv_unique", device_id=device.id, config_entry=config_entry
     )
-    host = SimpleNamespace(hass=hass, device_name="Test Thermostat", model=None)
+    host = SimpleNamespace(hass=hass, device_name="Test Thermostat")
 
     assert await get_device_model(host, entity.entity_id) == expected
 
@@ -71,7 +71,6 @@ class TestGetDeviceModelFunction:
         mock = ThermostatStandIn()
         mock.hass = MagicMock()
         mock.device_name = "Test Thermostat"
-        mock.model = "configured_model"
         return mock
 
     async def test_get_device_model_z2m_format(self, mock_self):
@@ -82,7 +81,7 @@ class TestGetDeviceModelFunction:
         mock_entry = make_registry_entry("climate.test_trv", device_id="device_123")
 
         # Mock device with Z2M format model string
-        mock_device = MagicMock()
+        mock_device = MagicMock(spec=dr.DeviceEntry)
         mock_device.model_id = None  # No model_id, so it falls back to model
         mock_device.model = "TS0601 _TZE284_cvub6xbb (Beok wall thermostat)"
         mock_device.manufacturer = "TuYa"
@@ -116,7 +115,7 @@ class TestGetDeviceModelFunction:
 
         mock_entry = make_registry_entry("climate.test_trv", device_id="device_123")
 
-        mock_device = MagicMock()
+        mock_device = MagicMock(spec=dr.DeviceEntry)
         mock_device.model_id = "TS0601"  # Has model_id
         mock_device.model = "TS0601 _TZE284_cvub6xbb (Beok wall thermostat)"
         mock_device.manufacturer = "TuYa"
@@ -147,7 +146,7 @@ class TestGetDeviceModelFunction:
 
         mock_entry = make_registry_entry("climate.test_trv", device_id="device_123")
 
-        mock_device = MagicMock()
+        mock_device = MagicMock(spec=dr.DeviceEntry)
         mock_device.model_id = None
         mock_device.model = "TRVZB"  # Plain string, no parentheses
         mock_device.manufacturer = "Sonoff"

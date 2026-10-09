@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import logging
 
-from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+from custom_components.better_thermostat.model_fixes.types import (
+    ModelFixHost,
+    ModelQuirks,
+)
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     entity_uses_mpc_calibration,
@@ -43,15 +46,15 @@ def fix_local_calibration(
     """
     if entity_uses_mpc_calibration(self, entity_id):
         return calibration_offset
-    _cur_external_temp = self.room_temperature
+    _cur_external_temperature = self.room_temperature
     _heat_target_temperature = self.heat_target_temperature
 
-    if _cur_external_temp is None or _heat_target_temperature is None:
+    if _cur_external_temperature is None or _heat_target_temperature is None:
         return calibration_offset
 
-    if (_cur_external_temp + 0.1) >= _heat_target_temperature:
+    if (_cur_external_temperature + 0.1) >= _heat_target_temperature:
         calibration_offset = round(calibration_offset + 0.5, 1)
-    elif (_cur_external_temp + 0.5) >= _heat_target_temperature:
+    elif (_cur_external_temperature + 0.5) >= _heat_target_temperature:
         calibration_offset -= 2.5
 
     return calibration_offset
@@ -80,10 +83,10 @@ def fix_target_temperature_calibration(
         The adjusted setpoint temperature.
     """
     _state = self.hass.states.get(entity_id)
-    _cur_trv_temp = None
+    _cur_trv_temperature = None
     if _state is not None and _state.attributes.get("current_temperature") is not None:
         # A climate entity reports in the system unit; the setpoint is °C.
-        _cur_trv_temp = convert_to_float_celsius(
+        _cur_trv_temperature = convert_to_float_celsius(
             _state.attributes.get("current_temperature"),
             self.device_name,
             "fix_target_temperature_calibration",
@@ -91,20 +94,20 @@ def fix_target_temperature_calibration(
                 _state.attributes, self.hass.config.units.temperature_unit
             ),
         )
-    if _cur_trv_temp is None:
+    if _cur_trv_temperature is None:
         return temperature
 
     if entity_uses_mpc_calibration(self, entity_id):
         return temperature
 
     if (
-        round(temperature, 1) > round(_cur_trv_temp, 1)
-        and temperature - _cur_trv_temp < 1.5
+        round(temperature, 1) > round(_cur_trv_temperature, 1)
+        and temperature - _cur_trv_temperature < 1.5
     ):
         # Instead of bumping the target temperature by a flat 1.5°C,
-        # set it to at least (current TRV temp + 1.5°C).
+        # set it to at least (current TRV temperature + 1.5°C).
         # This guarantees the minimum gap without overshooting unnecessarily.
-        temperature = round(_cur_trv_temp + 1.5, 1)
+        temperature = round(_cur_trv_temperature + 1.5, 1)
 
     return temperature
 
@@ -157,3 +160,17 @@ async def override_set_temperature(
         True if the model handled the change, otherwise False.
     """
     return False
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()

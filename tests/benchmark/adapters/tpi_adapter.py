@@ -2,7 +2,7 @@
 
 TPI emits a duty cycle. For the benchmark, the duty cycle is interpreted
 as an equivalent steady-state valve fraction over the simulator step —
-i.e. ``duty_cycle_pct`` is fed directly to the plant as ``valve_percent``.
+i.e. ``duty_cycle_percent`` is fed directly to the plant as ``valve_percent``.
 This is the standard interpretation when the duty cycle's period is short
 relative to the simulator step.
 """
@@ -87,11 +87,13 @@ class TpiAdapter:
             # benchmark has no fallback controller, so map it to a zero
             # duty cycle — the same floor the window-open path emits.
             return BenchmarkOutput(
-                duty_cycle_pct=0.0, valve_percent=0.0, diagnostics={"early_exit": True}
+                duty_cycle_percent=0.0,
+                valve_percent=0.0,
+                diagnostics={"early_exit": True},
             )
         return BenchmarkOutput(
-            duty_cycle_pct=float(out.duty_cycle_pct),
-            valve_percent=float(out.duty_cycle_pct),
+            duty_cycle_percent=float(out.duty_cycle_percent),
+            valve_percent=float(out.duty_cycle_percent),
             diagnostics=dict(out.debug) if out.debug else {},
         )
 

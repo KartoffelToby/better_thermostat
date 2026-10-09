@@ -19,12 +19,11 @@ from custom_components.better_thermostat.model_fixes import COZB0001, default
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     local_calibration_shifts_setpoint,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_PROTECT_OVERHEATING,
     CalibrationMode,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_from_legacy_dict
 
 ENTITY_ID = "climate.comet"
 ROOM = 20.0
@@ -48,7 +47,7 @@ def _host(
     bt.room_temperature = ROOM
     bt.heat_target_temperature = None
     bt.real_trvs = {
-        ENTITY_ID: Trv.from_legacy_dict(
+        ENTITY_ID: trv_from_legacy_dict(
             ENTITY_ID,
             {
                 "advanced": {
@@ -58,8 +57,8 @@ def _host(
                 "current_temperature": READING,
                 "last_calibration": 0.0,
                 "local_calibration_step": step,
-                "local_calibration_min": -2.5,
-                "local_calibration_max": 2.5,
+                "min_local_calibration": -2.5,
+                "max_local_calibration": 2.5,
                 "target_temp_step": 0.5,
                 "min_temp": 5.0,
                 "max_temp": 30.0,

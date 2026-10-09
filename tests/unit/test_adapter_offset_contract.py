@@ -72,8 +72,8 @@ def _mock_self(calibration_entity=CALIBRATION_ENTITY):
     )
     trv = Trv(entity_id=ENTITY_ID)
     trv.local_temperature_calibration_entity = calibration_entity
-    trv.local_calibration_min = -5.0
-    trv.local_calibration_max = 5.0
+    trv.min_local_calibration = -5.0
+    trv.max_local_calibration = 5.0
     mock_self.real_trvs = {ENTITY_ID: trv}
     return mock_self
 

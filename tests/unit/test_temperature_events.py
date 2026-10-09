@@ -10,6 +10,7 @@ from dataclasses import replace
 from datetime import timedelta
 import logging
 from time import monotonic
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
@@ -34,9 +35,8 @@ from custom_components.better_thermostat.events.temperature import (
     temperature_filter_lock,
     trigger_temperature_change,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 SENSOR_ID = "sensor.external_temp"
 
@@ -57,9 +57,9 @@ def mock_bt():
 
     # Current temperature state
     bt.room_temperature = 20.0
-    bt.prev_stable_temp = 20.0
+    bt.prev_stable_temperature = 20.0
     bt.last_change_direction = 0
-    bt.last_known_external_temp = 20.0
+    bt.last_known_external_temperature = 20.0
     bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
 
     # EMA state
@@ -73,7 +73,7 @@ def mock_bt():
     bt.accum_dir = 0
 
     # Pending / plateau state
-    bt.pending_temp = None
+    bt.pending_temperature = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
 
@@ -108,10 +108,10 @@ def _make_event(new_state):
     return event
 
 
-async def _commit_in_turn(bt, new_temp):
+async def _commit_in_turn(bt, new_temperature):
     """Commit a value the way the plateau timer does, holding the filter lock."""
     async with temperature_filter_lock(bt):
-        await _commit_temperature_update(bt, new_temp)
+        await _commit_temperature_update(bt, new_temperature)
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +143,7 @@ class TestUpdateExternalTempEma:
         assert 20.0 < result < 22.0
 
     def test_zero_tau_defaults_to_300(self, mock_bt):
-        """Fall back to tau=300 when tau_s is zero."""
+        """Fall back to tau=300 when tau_seconds is zero."""
         mock_bt.room_temperature_ema_tau_seconds = 0.0
         mock_bt._room_temperature_ema_monotonic = None
         mock_bt.room_temperature_ema = None
@@ -153,7 +153,7 @@ class TestUpdateExternalTempEma:
         assert result == 21.0
 
     def test_none_tau_defaults_to_300(self, mock_bt):
-        """Fall back to tau=300 when tau_s is None."""
+        """Fall back to tau=300 when tau_seconds is None."""
         mock_bt.room_temperature_ema_tau_seconds = None
         mock_bt._room_temperature_ema_monotonic = None
         mock_bt.room_temperature_ema = None
@@ -179,6 +179,18 @@ class TestUpdateExternalTempEma:
 # ---------------------------------------------------------------------------
 
 
+def _external_temperature_quirks(refusal=None):
+    """Model quirks whose ``maybe_set_external_temperature`` is a mock.
+
+    The dispatch looks the function up on the quirks before it calls, so
+    the double carries it as a real attribute rather than one a mock would
+    only make up once it is asked for.
+    """
+    return SimpleNamespace(
+        maybe_set_external_temperature=AsyncMock(side_effect=refusal)
+    )
+
+
 class TestCommitTemperatureUpdate:
     """Tests for _commit_temperature_update()."""
 
@@ -191,22 +203,22 @@ class TestCommitTemperatureUpdate:
 
     @pytest.mark.asyncio
     async def test_updates_prev_stable_temp_on_change(self, mock_bt):
-        """Store old room_temperature in prev_stable_temp when values differ."""
+        """Store old room_temperature in prev_stable_temperature when values differ."""
         mock_bt.room_temperature = 20.0
 
         await _commit_temperature_update(mock_bt, 21.0)
 
-        assert mock_bt.prev_stable_temp == 20.0
+        assert mock_bt.prev_stable_temperature == 20.0
 
     @pytest.mark.asyncio
     async def test_prev_stable_temp_unchanged_when_same(self, mock_bt):
-        """Keep prev_stable_temp unchanged when new equals old."""
+        """Keep prev_stable_temperature unchanged when new equals old."""
         mock_bt.room_temperature = 20.0
-        mock_bt.prev_stable_temp = 19.0
+        mock_bt.prev_stable_temperature = 19.0
 
         await _commit_temperature_update(mock_bt, 20.0)
 
-        assert mock_bt.prev_stable_temp == 19.0
+        assert mock_bt.prev_stable_temperature == 19.0
 
     @pytest.mark.asyncio
     async def test_direction_up(self, mock_bt):
@@ -239,13 +251,13 @@ class TestCommitTemperatureUpdate:
 
     @pytest.mark.asyncio
     async def test_resets_pending(self, mock_bt):
-        """Reset pending_temp and pending_since to None after accepting."""
-        mock_bt.pending_temp = 21.0
+        """Reset pending_temperature and pending_since to None after accepting."""
+        mock_bt.pending_temperature = 21.0
         mock_bt.pending_since = dt_util.now()
 
         await _commit_temperature_update(mock_bt, 21.0)
 
-        assert mock_bt.pending_temp is None
+        assert mock_bt.pending_temperature is None
         assert mock_bt.pending_since is None
 
     @pytest.mark.asyncio
@@ -286,9 +298,9 @@ class TestCommitTemperatureUpdate:
     @pytest.mark.asyncio
     async def test_quirks_external_temp_called(self, mock_bt):
         """Call model_quirks.maybe_set_external_temperature() for each TRV."""
-        quirks = AsyncMock()
+        quirks = _external_temperature_quirks()
         mock_bt.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1", {"model_quirks": quirks}
             )
         }
@@ -304,12 +316,12 @@ class TestCommitTemperatureUpdate:
         self, mock_bt
     ):
         """A reading reaches only the TRVs that are initialized."""
-        quirks = AsyncMock()
-        waiting = Trv.from_legacy_dict("climate.trv1", {"model_quirks": quirks})
+        quirks = _external_temperature_quirks()
+        waiting = trv_from_legacy_dict("climate.trv1", {"model_quirks": quirks})
         waiting.awaiting_initialization = True
         mock_bt.real_trvs = {
             "climate.trv1": waiting,
-            "climate.trv2": Trv.from_legacy_dict(
+            "climate.trv2": trv_from_legacy_dict(
                 "climate.trv2", {"model_quirks": quirks}
             ),
         }
@@ -340,10 +352,9 @@ class TestCommitTemperatureUpdate:
         the next room sensor change: the room is then regulated on a
         temperature Better Thermostat has already discarded.
         """
-        quirks = AsyncMock()
-        quirks.maybe_set_external_temperature.side_effect = refusal
+        quirks = _external_temperature_quirks(refusal)
         mock_bt.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1", {"model_quirks": quirks}
             )
         }
@@ -360,16 +371,15 @@ class TestCommitTemperatureUpdate:
         refuses must not cost the remaining heads their reading, or they keep
         regulating on a room temperature Better Thermostat has discarded.
         """
-        refusing = AsyncMock()
-        refusing.maybe_set_external_temperature.side_effect = HomeAssistantError(
-            "device did not answer"
+        refusing = _external_temperature_quirks(
+            HomeAssistantError("device did not answer")
         )
-        answering = AsyncMock()
+        answering = _external_temperature_quirks()
         mock_bt.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1", {"model_quirks": refusing}
             ),
-            "climate.trv2": Trv.from_legacy_dict(
+            "climate.trv2": trv_from_legacy_dict(
                 "climate.trv2", {"model_quirks": answering}
             ),
         }
@@ -379,6 +389,39 @@ class TestCommitTemperatureUpdate:
         answering.maybe_set_external_temperature.assert_awaited_once_with(
             mock_bt, "climate.trv2", 21.0
         )
+
+    @pytest.mark.asyncio
+    async def test_a_reading_withdrawn_mid_round_is_not_written_on(self, mock_bt):
+        """Heads still waiting for their write get no reading once it is gone.
+
+        The write goes out head by head. A room temperature withdrawn while
+        an earlier head is being written leaves nothing to mirror into the
+        later ones.
+        """
+
+        async def _withdraw(*_args):
+            mock_bt.room_temperature = None
+            return True
+
+        first = SimpleNamespace(
+            maybe_set_external_temperature=AsyncMock(side_effect=_withdraw)
+        )
+        later = _external_temperature_quirks()
+        mock_bt.real_trvs = {
+            "climate.trv1": trv_from_legacy_dict(
+                "climate.trv1", {"model_quirks": first}
+            ),
+            "climate.trv2": trv_from_legacy_dict(
+                "climate.trv2", {"model_quirks": later}
+            ),
+        }
+
+        await _commit_temperature_update(mock_bt, 21.0)
+
+        first.maybe_set_external_temperature.assert_awaited_once_with(
+            mock_bt, "climate.trv1", 21.0
+        )
+        later.maybe_set_external_temperature.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_a_missing_trv_map_still_starts_a_control_cycle(
@@ -714,25 +757,25 @@ class TestAccumulationTracking:
 
     @pytest.mark.asyncio
     async def test_pending_temp_set_for_sub_threshold_change(self, mock_bt):
-        """Set pending_temp for sub-threshold changes (plateau tracking)."""
+        """Set pending_temperature for sub-threshold changes (plateau tracking)."""
         mock_bt.room_temperature = 20.0
         event = _make_event(State(SENSOR_ID, "20.05"))
 
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.pending_temp == 20.05
+        assert mock_bt.pending_temperature == 20.05
 
     @pytest.mark.asyncio
     async def test_pending_cleared_when_value_returns_to_current(self, mock_bt):
-        """Clear pending_temp when the new value equals room_temperature."""
+        """Clear pending_temperature when the new value equals room_temperature."""
         mock_bt.room_temperature = 20.0
-        mock_bt.pending_temp = 20.05
+        mock_bt.pending_temperature = 20.05
         mock_bt.pending_since = dt_util.now()
 
         event = _make_event(State(SENSOR_ID, "20.0"))
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.pending_temp is None
+        assert mock_bt.pending_temperature is None
 
 
 # ---------------------------------------------------------------------------
@@ -747,7 +790,7 @@ class TestPlateauLogic:
     async def test_plateau_accepts_stable_sub_threshold_change(self, mock_bt):
         """Accept a sub-threshold change that has been stable for 120s."""
         mock_bt.room_temperature = 20.0
-        mock_bt.pending_temp = 20.05
+        mock_bt.pending_temperature = 20.05
         mock_bt.pending_since = dt_util.now() - timedelta(seconds=300)
 
         event = _make_event(State(SENSOR_ID, "20.05"))
@@ -926,7 +969,7 @@ class TestEdgeCasesAndRobustness:
     async def test_ema_failure_does_not_block_update(self, mock_bt):
         """EMA calculation failure should not prevent temperature update."""
         mock_bt.room_temperature = None
-        # Force EMA to fail by making tau_s non-numeric
+        # Force EMA to fail by making tau_seconds non-numeric
         mock_bt.room_temperature_ema_tau_seconds = "invalid"
         event = _make_event(State(SENSOR_ID, "21.0"))
 
@@ -938,7 +981,7 @@ class TestEdgeCasesAndRobustness:
     async def test_plateau_timer_cancelled_on_pending_value_change(self, mock_bt):
         """Changing pending value should cancel the old plateau timer."""
         mock_bt.room_temperature = 20.0
-        mock_bt.pending_temp = 20.03
+        mock_bt.pending_temperature = 20.03
         mock_bt.pending_since = dt_util.now() - timedelta(seconds=10)
         cancel_fn = MagicMock()
         mock_bt.plateau_timer_cancel = cancel_fn
@@ -954,7 +997,7 @@ class TestEdgeCasesAndRobustness:
 
         # Old timer should be cancelled, new pending set
         cancel_fn.assert_called_once()
-        assert mock_bt.pending_temp == 20.07
+        assert mock_bt.pending_temperature == 20.07
 
     @pytest.mark.asyncio
     async def test_last_external_sensor_change_typeerror_handled(self, mock_bt):
@@ -1050,7 +1093,7 @@ class TestConcurrentReadings:
     def _attach_trvs(mock_bt, quirks, entity_ids):
         """Give the thermostat TRVs that all share one quirks recorder."""
         mock_bt.real_trvs = {
-            entity_id: Trv.from_legacy_dict(entity_id, {"model_quirks": quirks})
+            entity_id: trv_from_legacy_dict(entity_id, {"model_quirks": quirks})
             for entity_id in entity_ids
         }
 
@@ -1084,9 +1127,9 @@ class TestConcurrentReadings:
             ("climate.trv1", 22.0),
             ("climate.trv2", 22.0),
         ]
-        assert mock_bt.last_known_external_temp == 22.0
+        assert mock_bt.last_known_external_temperature == 22.0
         assert mock_bt.accum_delta == 0.0
-        assert mock_bt.pending_temp is None
+        assert mock_bt.pending_temperature is None
 
     @pytest.mark.asyncio
     async def test_overlapping_applies_do_not_share_the_write_loop(self, mock_bt):
@@ -1100,7 +1143,7 @@ class TestConcurrentReadings:
 
         assert quirks.max_in_flight == 1
         assert quirks.writes == [("climate.trv1", 21.0), ("climate.trv1", 22.0)]
-        assert mock_bt.last_known_external_temp == 22.0
+        assert mock_bt.last_known_external_temperature == 22.0
 
     @pytest.mark.asyncio
     async def test_cancelled_update_lets_the_next_one_through(self, mock_bt):
@@ -1121,7 +1164,7 @@ class TestConcurrentReadings:
         await queued
 
         assert quirks.writes == [("climate.trv1", 22.0)]
-        assert mock_bt.last_known_external_temp == 22.0
+        assert mock_bt.last_known_external_temperature == 22.0
 
     async def _arm_plateau_timer(self, mock_bt, quirks):
         """Leave 20.05 pending and return the plateau timer it arms.
@@ -1136,7 +1179,7 @@ class TestConcurrentReadings:
             side_effect=lambda _hass, _delay, callback: armed.append(callback),
         ):
             await self._take_turn_and_read(mock_bt, State(SENSOR_ID, "20.05"))
-        assert (mock_bt.pending_temp, len(armed)) == (20.05, 1)
+        assert (mock_bt.pending_temperature, len(armed)) == (20.05, 1)
         return armed[0]
 
     @pytest.mark.asyncio
@@ -1186,7 +1229,7 @@ class TestConcurrentReadings:
         await plateau_timer(dt_util.now())
 
         assert quirks.writes == []
-        assert (mock_bt.room_temperature, mock_bt.pending_temp) == (20.0, 20.05)
+        assert (mock_bt.room_temperature, mock_bt.pending_temperature) == (20.0, 20.05)
 
     @pytest.mark.asyncio
     async def test_a_superseded_plateau_value_is_not_applied(self, mock_bt):
@@ -1252,7 +1295,7 @@ class TestConcurrentReadings:
         await plateau_timer(dt_util.now())
 
         assert quirks.writes == []
-        assert (mock_bt.room_temperature, mock_bt.pending_temp) == (20.0, 20.05)
+        assert (mock_bt.room_temperature, mock_bt.pending_temperature) == (20.0, 20.05)
 
     @pytest.mark.asyncio
     async def test_a_plateau_value_replaced_below_the_threshold_is_not_applied(
@@ -1284,11 +1327,11 @@ class TestConcurrentReadings:
             await asyncio.gather(newer, timer)
 
         assert quirks.writes == []
-        assert (mock_bt.room_temperature, mock_bt.pending_temp, len(rearmed)) == (
-            20.0,
-            19.97,
-            1,
-        )
+        assert (
+            mock_bt.room_temperature,
+            mock_bt.pending_temperature,
+            len(rearmed),
+        ) == (20.0, 19.97, 1)
 
     @pytest.mark.asyncio
     async def test_a_plateau_value_that_left_and_returned_waits_its_own_window(
@@ -1325,11 +1368,11 @@ class TestConcurrentReadings:
             await asyncio.gather(away, back, timer)
 
         assert quirks.writes == []
-        assert (mock_bt.room_temperature, mock_bt.pending_temp, len(rearmed)) == (
-            20.0,
-            20.05,
-            2,
-        )
+        assert (
+            mock_bt.room_temperature,
+            mock_bt.pending_temperature,
+            len(rearmed),
+        ) == (20.0, 20.05, 2)
 
 
 async def _suspending_translations(*args, **kwargs):
@@ -1401,7 +1444,7 @@ class TestArrivalOrder:
         self._make_thermostat_checkable(mock_bt)
         quirks = _RecordingQuirks()
         mock_bt.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1", {"model_quirks": quirks}
             )
         }
@@ -1432,7 +1475,7 @@ class TestArrivalOrder:
             await asyncio.gather(*handlers)
 
         assert quirks.writes == [("climate.trv1", 21.0), ("climate.trv1", 22.0)]
-        assert mock_bt.last_known_external_temp == 22.0
+        assert mock_bt.last_known_external_temperature == 22.0
 
 
 class TestKeepaliveTick:
@@ -1451,7 +1494,7 @@ class TestKeepaliveTick:
         quirks.gate = asyncio.Event()
         quirks.gated_writes = 1
         mock_bt.real_trvs = {
-            entity_id: Trv.from_legacy_dict(entity_id, {"model_quirks": quirks})
+            entity_id: trv_from_legacy_dict(entity_id, {"model_quirks": quirks})
             for entity_id in ("climate.trv1", "climate.trv2")
         }
 
@@ -1472,7 +1515,7 @@ class TestKeepaliveTick:
             ("climate.trv1", 22.0),
             ("climate.trv2", 22.0),
         ]
-        assert mock_bt.last_known_external_temp == 22.0
+        assert mock_bt.last_known_external_temperature == 22.0
 
 
 class TestPendingReadingAfterTheDebounce:
@@ -1484,7 +1527,7 @@ class TestPendingReadingAfterTheDebounce:
         The sensor still reports the pending reading.
         """
         mock_bt.hass.states.get.return_value = State(SENSOR_ID, str(value))
-        mock_bt.pending_temp = value
+        mock_bt.pending_temperature = value
         mock_bt.pending_since = dt_util.now()
         armed = []
         with patch(
@@ -1540,7 +1583,7 @@ class TestPendingReadingAfterTheDebounce:
         filter while the timer waited for its turn.
         """
         callback = self._arm(mock_bt)
-        mock_bt.pending_temp = 21.0
+        mock_bt.pending_temperature = 21.0
         with patch(
             "custom_components.better_thermostat.events.temperature._commit_temperature_update",
             new=AsyncMock(),
@@ -1602,7 +1645,7 @@ class TestPendingReadingAfterTheDebounce:
 
     def test_nothing_pending_arms_no_timer(self, mock_bt):
         """Without a pending reading there is nothing to apply later."""
-        mock_bt.pending_temp = None
+        mock_bt.pending_temperature = None
         with patch(
             "custom_components.better_thermostat.events.temperature.async_call_later"
         ) as call_later:
@@ -1665,7 +1708,7 @@ class TestLadderSeesTheHandledReading:
         mock_bt._degraded_warning_emitted = False
         trv_entity_id = "climate.trv1"
         mock_bt.real_trvs = {
-            trv_entity_id: Trv.from_legacy_dict(
+            trv_entity_id: trv_from_legacy_dict(
                 trv_entity_id, {"current_temperature": 21.0}
             )
         }

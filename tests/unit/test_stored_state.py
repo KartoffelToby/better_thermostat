@@ -12,11 +12,14 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import fields
+import json
+import math
 from pathlib import Path
 
 from homeassistant.helpers.json import prepare_save_json
 import pytest
 
+from custom_components.better_thermostat.utils import state_manager
 from custom_components.better_thermostat.utils.calibration.mpc import MpcState
 from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
     ControllerSnapshot,
@@ -33,6 +36,7 @@ from custom_components.better_thermostat.utils.state_manager import (
     MpcV2StateData,
     RuntimeState,
     ThermalStats,
+    _deserialize,
     _serialize,
     write_filters,
     write_mpc_state,
@@ -193,6 +197,23 @@ def _stored_bytes(state: RuntimeState) -> bytes:
 def test_a_populated_state_is_written_as_the_golden_payload():
     """Every stored key, its order and its value shape match the fixture."""
     assert _stored_bytes(_populated_state()) == GOLDEN_PATH.read_bytes().rstrip(b"\n")
+
+
+def test_the_golden_payload_reads_back_as_the_populated_state(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Every stored key is read into its field, so nothing is left at its default.
+
+    The fixture's re-identification results sit outside the plausible band
+    the reader enforces, so the band is opened for this read.
+    """
+    unbounded = (-math.inf, math.inf)
+    monkeypatch.setattr(f"{state_manager.__name__}.TAU_ROOM_BOUNDS_MIN", unbounded)
+    monkeypatch.setattr(f"{state_manager.__name__}.GAIN_HEATER_BOUNDS", unbounded)
+    poisoned: list[str] = []
+    restored = _deserialize(json.loads(GOLDEN_PATH.read_bytes()), poisoned=poisoned)
+    assert poisoned == []
+    assert restored == _populated_state()
 
 
 def test_serializing_leaves_the_live_state_unshared():

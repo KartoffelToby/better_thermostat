@@ -142,7 +142,7 @@ def bt():
     mock._room_temperature_ema_monotonic = None
     mock.room_temperature_ema_tau_seconds = 300.0
     mock.temperature_slope = None
-    mock.last_known_external_temp = None
+    mock.last_known_external_temperature = None
     mock._current_humidity = None
     mock.window_open = None
     mock.contact_open = None
@@ -210,11 +210,11 @@ def plateau_bt(bt, hass):
     bt.in_maintenance = False
     bt._control_needed_after_maintenance = False
     bt.last_external_sensor_change = dt_util.now() - timedelta(hours=2)
-    bt.prev_stable_temp = None
+    bt.prev_stable_temperature = None
     bt.last_change_direction = 0
     bt.accum_delta = 0.0
     bt.accum_dir = 0
-    bt.pending_temp = None
+    bt.pending_temperature = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
     bt._temperature_filter_lock = None
@@ -273,9 +273,9 @@ def _make_no_off_trv(entity_id):
     )
 
 
-def _make_sensor_state(temp="21.5", state_val=None):
+def _make_sensor_state(temperature="21.5", state_val=None):
     """Build a sensor State."""
-    return State(SENSOR_ID, state_val or temp)
+    return State(SENSOR_ID, state_val or temperature)
 
 
 def _make_cooler_state(attrs, state="cool"):
@@ -410,7 +410,7 @@ async def _arm_plateau_timer(entity):
 
     await _feed_sensor_reading(entity, SUB_THRESHOLD_TEMP)
     assert entity.plateau_timer_cancel is not None
-    assert entity.pending_temp == SUB_THRESHOLD_TEMP
+    assert entity.pending_temperature == SUB_THRESHOLD_TEMP
     _external_temperature_writes(entity).assert_not_awaited()
 
 
@@ -697,6 +697,33 @@ class TestOwnedBackgroundTasks:
         await asyncio.sleep(0)
 
         assert owned_task_bt._owned_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_adding_the_entity_binds_its_task_manager(self, hass, owned_task_bt):
+        """Tasks the control loop spawns run as Home Assistant background tasks."""
+        state_mgr = MagicMock()
+        state_mgr.load = AsyncMock()
+        state_mgr.flush = AsyncMock()
+        owned_task_bt.all_trvs = []
+        owned_task_bt._unique_id = "uid"
+        owned_task_bt._config_entry_id = "entry"
+        owned_task_bt.entity_id = "climate.bt_test"
+
+        async def idle_worker(_entity):
+            await asyncio.Event().wait()
+
+        module = "custom_components.better_thermostat.climate"
+        with (
+            patch(f"{module}.control_queue", side_effect=idle_worker),
+            patch(f"{module}.StateManager", return_value=state_mgr),
+            patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
+        ):
+            assert owned_task_bt.task_manager.hass is None
+            await BetterThermostat.async_added_to_hass(owned_task_bt)
+
+        assert owned_task_bt.task_manager.hass is hass
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+        await hass.async_block_till_done()
 
     @pytest.mark.asyncio
     async def test_removal_keeps_the_last_state_write(self, hass, owned_task_bt):
@@ -1319,7 +1346,7 @@ class TestInitializeSensors:
             "custom_components.better_thermostat.climate._update_room_temperature_ema"
         ):
             BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.last_known_external_temp is not None
+        assert bt.last_known_external_temperature is not None
 
 
 # ---------------------------------------------------------------------------
@@ -1870,8 +1897,8 @@ class TestInitializeTrvCalibrationFallback:
         trv = bt.real_trvs[TRV_ID]
         assert trv.local_calibration_step == 0.5
         assert trv.last_calibration == 1.5
-        assert trv.local_calibration_min == -6.0
-        assert trv.local_calibration_max == 6.0
+        assert trv.min_local_calibration == -6.0
+        assert trv.max_local_calibration == 6.0
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

@@ -21,7 +21,6 @@ from custom_components.better_thermostat import (
     config_flow as config_flow_module,
 )
 from custom_components.better_thermostat.calibration import calculate_calibration_local
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils import (
     controlling as controlling_module,
     helpers as helpers_module,
@@ -35,7 +34,7 @@ from custom_components.better_thermostat.utils.helpers import (
     is_calibration_mode,
     normalize_calibration_mode,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_from_legacy_dict
 
 _RUNTIME_MODULES = (calibration_module, controlling_module)
 
@@ -62,15 +61,15 @@ def _thermostat_without_target(stored_mode: object) -> ThermostatStandIn:
     )
 
     bt.real_trvs = {
-        "climate.trv": Trv.from_legacy_dict(
+        "climate.trv": trv_from_legacy_dict(
             "climate.trv",
             {
                 "advanced": {"calibration_mode": stored_mode},
                 "current_temperature": 22.0,
                 "last_calibration": 2.0,
                 "local_calibration_step": 0.1,
-                "local_calibration_min": -5.0,
-                "local_calibration_max": 5.0,
+                "min_local_calibration": -5.0,
+                "max_local_calibration": 5.0,
                 "target_temp_step": 0.5,
                 "min_temp": 5.0,
                 "max_temp": 30.0,

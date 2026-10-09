@@ -15,7 +15,6 @@ import pytest
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import (
     COOLER_FAILURE_BACKOFF_BASE_S,
     COOLER_FAILURE_BACKOFF_MAX_RUN,
@@ -29,7 +28,7 @@ from custom_components.better_thermostat.utils.helpers import (
     cooling_owns_dual_role_device,
     last_sent_cooler_temperature,
 )
-from tests.factories import ThermostatStandIn, make_snapshot
+from tests.factories import ThermostatStandIn, make_snapshot, trv_from_legacy_dict
 
 
 def _mock_cooler_state(state=HVACMode.COOL):
@@ -144,7 +143,7 @@ class TestControlCooler:
 
     @pytest.mark.asyncio
     async def test_cooling_needed_above_target(self):
-        """Test cooling turns on when temp >= cool_target_temperature + tolerance AND > heat_target_temperature."""
+        """Test cooling turns on when temperature >= cool_target_temperature + tolerance AND > heat_target_temperature."""
         mock_hass = Mock()
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
@@ -221,7 +220,7 @@ class TestControlCooler:
 
     @pytest.mark.asyncio
     async def test_stop_cooling_below_threshold(self):
-        """Test cooling stops when temp < cool_target_temperature."""
+        """Test cooling stops when temperature < cool_target_temperature."""
         mock_hass = Mock()
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
@@ -1853,8 +1852,8 @@ class TestControlCoolerLatchOfAFreshThermostat:
             outdoor_sensor_entity_id=None,
             off_temperature=None,
             tolerance=tolerance,
-            target_temp_min=None,
-            target_temp_max=None,
+            min_target_temperature=None,
+            max_target_temperature=None,
             target_temp_step=None,
             model="generic",
             cooler_entity_id="climate.cooler",
@@ -2521,7 +2520,7 @@ class TestControlCoolerOnADualRoleEntity:
         mock_self, mock_hass, cooler_state = _make_cooler_setup(**kwargs)
         mock_self.cooler_entity_id = cls.SHARED_ID
         mock_self.real_trvs = {
-            cls.SHARED_ID: Trv.from_legacy_dict(
+            cls.SHARED_ID: trv_from_legacy_dict(
                 cls.SHARED_ID,
                 {
                     "hvac_modes": [
@@ -2532,7 +2531,7 @@ class TestControlCoolerOnADualRoleEntity:
                     ],
                     "min_temp": 16.0,
                     "max_temp": 30.0,
-                    "target_temp_received": True,
+                    "target_temperature_received": True,
                     "system_mode_received": True,
                 },
             )
@@ -2645,12 +2644,12 @@ class TestControlCoolerOnADualRoleEntity:
             cooler_state=HVACMode.HEAT, cooler_temp_attr=30.0
         )
         shared_trv = mock_self.real_trvs[self.SHARED_ID]
-        shared_trv.target_temp_received = False
+        shared_trv.target_temperature_received = False
         shared_trv.system_mode_received = False
 
         await control_cooler(mock_self, self._cooling_snapshot())
 
-        assert shared_trv.target_temp_received is True
+        assert shared_trv.target_temperature_received is True
         assert shared_trv.system_mode_received is True
 
     @pytest.mark.asyncio

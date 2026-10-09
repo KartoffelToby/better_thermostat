@@ -103,7 +103,7 @@ async def test_the_registered_ladder_tick_comes_round_within_both_windows(
     for bt, registered in (recomputing, not_recomputing):
         tick = _interval_s(bt, registered, "_availability_tick")
 
-        assert tick < min(params.down_debounce_s, params.up_stability_s)
+        assert tick < min(params.down_debounce_seconds, params.up_stability_seconds)
 
 
 # ---------------------------------------------------------------------------

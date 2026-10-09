@@ -33,7 +33,7 @@ def _pid_call(state: PIDState, key: str = "k") -> PIDState:
         inp_target_temperature=22.0,
         inp_room_temperature=20.0,
         inp_trv_temperature=21.0,
-        inp_temp_slope_K_per_min=0.0,
+        inp_temperature_slope_K_per_min=0.0,
         key=key,
         state=state,
     )
@@ -84,7 +84,7 @@ class TestMpcStateContract:
             key=key,
             target_temperature=22.0,
             room_temperature=21.5,
-            temp_slope_K_per_min=0.0,
+            temperature_slope_K_per_min=0.0,
         )
 
     def test_explicit_state_is_returned_and_accumulates(self) -> None:
@@ -110,7 +110,7 @@ class TestMpcStateContract:
                 key="uid:climate.trv:t22.0",
                 target_temperature=22.0,
                 room_temperature=21.5,
-                temp_slope_K_per_min=0.0,
+                temperature_slope_K_per_min=0.0,
             ),
             MpcParams(enable_min_effective_percent=True),
             state=state,

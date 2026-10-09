@@ -141,8 +141,8 @@ def _host():
     trv.local_temperature_calibration_entity = "number.trv_calibration"
     trv.valve_position_entity = "number.trv_valve"
     trv.valve_position_writable = True
-    trv.local_calibration_min = -10.0
-    trv.local_calibration_max = 10.0
+    trv.min_local_calibration = -10.0
+    trv.max_local_calibration = 10.0
     trv.last_hvac_mode = "heat"
     trv.commanded_setpoint = 20.0
     host.real_trvs = {ENTITY_ID: trv}

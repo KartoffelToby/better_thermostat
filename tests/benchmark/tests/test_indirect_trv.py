@@ -35,8 +35,8 @@ class _FakeValveAdapter:
     name = "fake"
     family: ControllerFamily = "valve"
 
-    def __init__(self, pct: float, *, early_exit: bool = False) -> None:
-        self.pct = pct
+    def __init__(self, percent: float, *, early_exit: bool = False) -> None:
+        self.percent = percent
         self.early_exit = early_exit
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
@@ -46,7 +46,7 @@ class _FakeValveAdapter:
         _ = ctx
         if self.early_exit:
             return BenchmarkOutput(valve_percent=0.0, diagnostics={"early_exit": True})
-        return BenchmarkOutput(valve_percent=self.pct)
+        return BenchmarkOutput(valve_percent=self.percent)
 
     def export_state(self) -> dict[str, Any]:
         return {}
@@ -155,7 +155,7 @@ def test_command_latency_delays_setpoint_change():
     assert old_sp == pytest.approx(22.0)
 
     # Inner controller now demands full heat → new setpoint target+headroom.
-    inner.pct = 100.0
+    inner.percent = 100.0
     for _ in range(params.command_latency_steps):
         out = adapter.step(_ctx(target=22.0, current=18.0))
         assert out.diagnostics["indirect_setpoint"] == pytest.approx(old_sp)
@@ -167,7 +167,7 @@ def test_command_latency_delays_setpoint_change():
 
 
 def test_inversion_mapping_uses_current_temp():
-    """Inversion mapping uses current temp."""
+    """Inversion mapping uses current temperature."""
     params = IndirectTrvParams(
         setpoint_step_K=0.5,
         internal_hysteresis_K=0.0,
@@ -183,7 +183,7 @@ def test_inversion_mapping_uses_current_temp():
 
 
 def test_heuristic_mapping_uses_target_temp():
-    """Heuristic mapping uses target temp."""
+    """Heuristic mapping uses target temperature."""
     params = IndirectTrvParams(
         setpoint_step_K=0.5,
         internal_hysteresis_K=0.0,
@@ -210,7 +210,7 @@ def test_zero_error_yields_zero_valve():
     """Zero error yields zero valve."""
     adapter = IndirectTrvAdapter(PidAdapter(), TADO_PARAMS)
     # Inner PID with target == current → zero demand; quantised setpoint
-    # lands at/near room temp, so internal P-loop produces ~0 %.
+    # lands at/near room temperature, so internal P-loop produces ~0 %.
     out = adapter.step(_ctx(target=20.0, current=20.0))
     assert out.valve_percent is not None
     assert out.valve_percent == pytest.approx(0.0, abs=1e-6)
@@ -297,8 +297,8 @@ def test_indirect_params_rejects_non_physical_trv_fields(fields):
 class _RecordingValveAdapter(_FakeValveAdapter):
     """Fake inner adapter that also records the contexts it was handed."""
 
-    def __init__(self, pct: float) -> None:
-        super().__init__(pct)
+    def __init__(self, percent: float) -> None:
+        super().__init__(percent)
         self.seen: list[BenchmarkContext] = []
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:

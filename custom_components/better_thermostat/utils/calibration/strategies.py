@@ -108,6 +108,12 @@ class ChannelAdjustment:
     boost_neutral: float
 
 
+# A mode's adjustment of one calibration channel, as ``ModeTraits`` describes.
+type ChannelAdjust = Callable[
+    [BetterThermostat, str, float, bool, ChannelAdjustment], tuple[float, bool]
+]
+
+
 @dataclass(frozen=True)
 class ModeTraits:
     """Per-mode behavior of the calibration cascade.
@@ -124,7 +130,7 @@ class ModeTraits:
     uses_tolerance_band: bool = True
     skip_post_adjustments: bool = False
     tolerance_delay: bool = True
-    adjust: Callable[..., tuple[float, bool]] | None = None
+    adjust: ChannelAdjust | None = None
 
 
 @dataclass(frozen=True)
@@ -143,12 +149,12 @@ class BalanceStrategy:
         """
         result, use_valve = self.compute(bt, entity_id)
         if result is None:
-            return None, bool(use_valve)
+            return None, use_valve
         percent = self.percent_of(result)
         if not isinstance(percent, (int, float)):
-            return None, bool(use_valve)
+            return None, use_valve
         self._watch_oscillation(bt, entity_id, float(percent))
-        return float(percent), bool(use_valve)
+        return float(percent), use_valve
 
     def _watch_oscillation(
         self, bt: BetterThermostat, entity_id: str, percent: float
@@ -177,19 +183,17 @@ class BalanceStrategy:
         """
         # Runtime import: calibration.py builds the strategy registry from
         # this module, so a module-level import would be circular.
-        from ...calibration import effective_room_temp  # noqa: PLC0415
+        from ...calibration import effective_room_temperature  # noqa: PLC0415
 
         trv = bt.real_trvs.get(entity_id)
         healthy = (
             trv is not None
-            and effective_room_temp(bt) is not None
+            and effective_room_temperature(bt) is not None
             and bt.heat_target_temperature is not None
             and trv.calibrator_health == CalibratorHealth.HEALTHY
         )
-        ready = bool(
-            healthy and trv is not None and trv.calibration_balance is not None
-        )
-        return Capability(configured=True, healthy=bool(healthy), ready=ready)
+        ready = healthy and trv is not None and trv.calibration_balance is not None
+        return Capability(configured=True, healthy=healthy, ready=ready)
 
 
 class BalanceCalibrator:
@@ -280,7 +284,7 @@ def _percent_of_mpc_v2(result: BalanceResult) -> float | None:
 
 
 def _percent_of_tpi(result: BalanceResult) -> float | None:
-    return result.duty_cycle_pct if isinstance(result, TpiOutput) else None
+    return result.duty_cycle_percent if isinstance(result, TpiOutput) else None
 
 
 def _percent_of_pid(result: BalanceResult) -> float | None:

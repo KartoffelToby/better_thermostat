@@ -539,23 +539,11 @@
       "mpc_v2_room_time_constant": {
         "name": "Časová konštanta miestnosti MPC v2"
       },
-      "pid_kp": {
-        "name": "PID Kp"
-      },
-      "pid_ki": {
-        "name": "PID Ki"
-      },
-      "pid_kd": {
-        "name": "PID Kd"
-      },
       "pid_output": {
         "name": "Výstup PID"
       },
       "pid_error": {
         "name": "Odchýlka PID"
-      },
-      "solar_intensity": {
-        "name": "Solárny tepelný zisk"
       }
     }
   },

@@ -33,7 +33,7 @@ from custom_components.better_thermostat.utils.controlling import (
     read_reports_held_during_cycle,
     refresh_cached_trv_modes,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 ENTITY_ID = "climate.test_trv"
 _CTRL = "custom_components.better_thermostat.utils.controlling"
@@ -117,7 +117,7 @@ def thermostat(reported_states):
         BetterThermostat._clamp_inbound_heat_target(bt, value)
     )
     bt.real_trvs = {
-        ENTITY_ID: Trv.from_legacy_dict(
+        ENTITY_ID: trv_from_legacy_dict(
             ENTITY_ID,
             {
                 "hvac_mode": "heat",
@@ -128,7 +128,7 @@ def thermostat(reported_states):
                 "temperature": 19.0,
                 "commanded_setpoint": 19.0,
                 "last_hvac_mode": "heat",
-                "target_temp_received": True,
+                "target_temperature_received": True,
                 "system_mode_received": True,
                 "calibration_received": True,
                 "calibration": 1,
@@ -840,7 +840,7 @@ class TestALockedPressHeldDuringACycle:
         trv = self._lock(thermostat)
         trv.remember_setpoint_confirmed(19.0)
         trv.commanded_setpoint = 22.0
-        trv.target_temp_received = False
+        trv.target_temperature_received = False
         reported_states[ENTITY_ID] = _reported_state("heat", setpoint=19.0)
 
         with patch(f"{_CTRL}.request_control_cycle") as request:

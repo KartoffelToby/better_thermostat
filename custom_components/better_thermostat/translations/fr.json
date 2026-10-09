@@ -539,23 +539,11 @@
       "mpc_v2_room_time_constant": {
         "name": "Constante de temps de la pièce MPC v2"
       },
-      "pid_kp": {
-        "name": "PID Kp"
-      },
-      "pid_ki": {
-        "name": "PID Ki"
-      },
-      "pid_kd": {
-        "name": "PID Kd"
-      },
       "pid_output": {
         "name": "Sortie PID"
       },
       "pid_error": {
         "name": "Écart PID"
-      },
-      "solar_intensity": {
-        "name": "Apport de chaleur solaire"
       }
     }
   },

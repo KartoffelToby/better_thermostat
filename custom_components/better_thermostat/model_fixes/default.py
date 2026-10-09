@@ -12,7 +12,13 @@ from homeassistant.components.lock import LockState
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.helpers import entity_registry as er
 
-from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+from custom_components.better_thermostat.model_fixes.types import (
+    InitialTweakQuirk,
+    MaintenanceIntervalQuirk,
+    ModelFixHost,
+    ModelQuirks,
+    UnknownStateQuirk,
+)
 
 from ..utils.advanced_flags import as_bool
 from ..utils.const import CONF_CHILD_LOCK
@@ -227,3 +233,23 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                     away_entity,
                     e,
                 )
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+    VALVE_MAINTENANCE_INTERVAL_HOURS = VALVE_MAINTENANCE_INTERVAL_HOURS
+    initial_tweak = staticmethod(initial_tweak)
+    trv_state_unknown_as_available = staticmethod(trv_state_unknown_as_available)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()
+_INITIAL_TWEAK_QUIRK: InitialTweakQuirk = _Surface()
+_MAINTENANCE_INTERVAL_QUIRK: MaintenanceIntervalQuirk = _Surface()
+_UNKNOWN_STATE_QUIRK: UnknownStateQuirk = _Surface()

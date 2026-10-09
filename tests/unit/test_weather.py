@@ -105,7 +105,7 @@ async def hanging_service_call(*_args, **_kwargs):
 def weather_state(
     features=int(WeatherEntityFeature.FORECAST_DAILY), temperature=20.0, unit="°C"
 ):
-    """Build a weather entity state advertising forecast support and a temp."""
+    """Build a weather entity state advertising forecast support and a temperature."""
     return make_state(
         state="cloudy",
         attrs={
@@ -166,7 +166,7 @@ class TestCheckWeatherPrediction:
         assert await check_weather_prediction(bt) is True
 
     async def test_warm_forecast_and_warm_now_no_heat(self):
-        """A warm forecast and warm current temp do not call for heat."""
+        """A warm forecast and warm current temperature do not call for heat."""
         states = {WEATHER_ID: weather_state(temperature=18.0)}
         hass = make_hass(states=states)
         hass.services.async_call = AsyncMock(
@@ -303,7 +303,7 @@ class TestCheckWeatherPrediction:
     async def test_forecast_temps_are_averaged(self):
         """Up to two forecast temps are averaged before the comparison.
 
-        Forecast = [15, 1] with off_temperature 10 and a warm current temp:
+        Forecast = [15, 1] with off_temperature 10 and a warm current temperature:
         the mean (8) is below the threshold, so heating is requested.
         """
         states = {WEATHER_ID: weather_state(temperature=15.0)}

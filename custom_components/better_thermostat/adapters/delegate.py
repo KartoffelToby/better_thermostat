@@ -8,8 +8,7 @@ from datetime import datetime
 import logging
 import math
 import time
-from types import ModuleType
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final
 
 from homeassistant.helpers.importlib import async_import_module
 from homeassistant.util import dt as dt_util
@@ -19,23 +18,60 @@ from custom_components.better_thermostat.utils.helpers import (
     sibling_disabled_at_write,
 )
 
+from ..model_fixes.types import ValveChannelQuirk, ValveQuirk
 from ..utils.retry import async_retry, command_cancellation_as_disconnect
+from .types import TrvAdapter
 
 if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
     from custom_components.better_thermostat.climate import BetterThermostat
 
     from .types import AdapterHost, AdapterProbeHost
 
 _LOGGER = logging.getLogger(__name__)
 
+_ADAPTER_PACKAGE: Final = "custom_components.better_thermostat.adapters"
+
+
+class AdapterContractError(ImportError):
+    """An adapter module imported but lacks a member of :class:`.TrvAdapter`.
+
+    It derives from ``ImportError``: a module that cannot serve as an
+    adapter is as unusable as one that cannot be imported, and every
+    handler of the import failure handles it the same way.
+    """
+
+
+async def _import_adapter(hass: HomeAssistant, name: str) -> TrvAdapter:
+    """Import one adapter module and check that it provides every member.
+
+    Raises
+    ------
+    ImportError
+        The module cannot be imported
+    AdapterContractError
+        The module imported but lacks a member of :class:`.TrvAdapter`
+    """
+    # Held as ``object`` so the check below narrows it: the type checker does
+    # not narrow a ``ModuleType``, whose attributes are read-only, to a
+    # protocol whose members are not.
+    module: object = await async_import_module(hass, f"{_ADAPTER_PACKAGE}.{name}")
+    if not isinstance(module, TrvAdapter):
+        raise AdapterContractError(
+            f"adapter module {name} lacks a member of the adapter protocol"
+        )
+    return module
+
 
 async def load_adapter(
     self: AdapterProbeHost, integration: str, entity_id: str
-) -> ModuleType:
+) -> TrvAdapter:
     """Load the adapter module that speaks to one integration.
 
     An integration without an adapter module of its own is served by the
-    generic adapter. The import error that leads there is logged with its
+    generic adapter, and so is one whose module lacks a member of
+    :class:`.TrvAdapter`. The error that leads there is logged with its
     traceback: a broken adapter module reads exactly like an unsupported
     ecosystem from the outside, and only the traceback tells them apart.
 
@@ -51,16 +87,20 @@ async def load_adapter(
 
     Returns
     -------
-    ModuleType
+    TrvAdapter
         The adapter module
+
+    Raises
+    ------
+    ImportError
+        The generic adapter itself cannot be imported, or lacks a member of
+        :class:`.TrvAdapter`
     """
     if integration == "generic_thermostat":
         integration = "generic"
 
     try:
-        adapter = await async_import_module(
-            self.hass, "custom_components.better_thermostat.adapters." + integration
-        )
+        adapter = await _import_adapter(self.hass, integration)
         _LOGGER.debug(
             "better_thermostat %s: uses adapter %s for trv %s",
             self.device_name,
@@ -75,9 +115,7 @@ async def load_adapter(
             entity_id,
             exc_info=True,
         )
-        adapter = await async_import_module(
-            self.hass, "custom_components.better_thermostat.adapters.generic"
-        )
+        adapter = await _import_adapter(self.hass, "generic")
         _LOGGER.info(
             "better_thermostat %s: integration: %s isn't native supported, feel free to open an issue, fallback adapter %s",
             self.device_name,
@@ -99,7 +137,7 @@ class AdapterNotLoadedError(AttributeError):
     """
 
 
-def _adapter(self: AdapterHost, entity_id: str) -> ModuleType:
+def _adapter(self: AdapterHost, entity_id: str) -> TrvAdapter:
     """Answer the adapter module of the TRV, raising when it has none.
 
     Raises
@@ -117,7 +155,7 @@ def _adapter(self: AdapterHost, entity_id: str) -> ModuleType:
     return adapter
 
 
-async def init(self: AdapterHost, entity_id: str) -> Any:
+async def init(self: AdapterHost, entity_id: str) -> None:
     """Init adapter.
 
     Transient unavailability is handled inside the adapter's
@@ -128,38 +166,38 @@ async def init(self: AdapterHost, entity_id: str) -> Any:
 
 
 @async_retry(retries=5)
-async def get_info(self: AdapterHost, entity_id: str) -> Any:
+async def get_info(self: AdapterHost, entity_id: str) -> dict[str, bool]:
     """Get info."""
     return await _adapter(self, entity_id).get_info(self, entity_id)
 
 
 @async_retry(retries=5)
-async def get_calibration_offset(self: AdapterHost, entity_id: str) -> Any:
+async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Get current offset."""
     return await _adapter(self, entity_id).get_calibration_offset(self, entity_id)
 
 
 @async_retry(retries=5)
-async def get_calibration_offset_step(self: AdapterHost, entity_id: str) -> Any:
+async def get_calibration_offset_step(self: AdapterHost, entity_id: str) -> float:
     """Get offset steps."""
     return await _adapter(self, entity_id).get_calibration_offset_step(self, entity_id)
 
 
 @async_retry(retries=5)
-async def get_min_calibration_offset(self: AdapterHost, entity_id: str) -> Any:
+async def get_min_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Get min offset."""
     return await _adapter(self, entity_id).get_min_calibration_offset(self, entity_id)
 
 
 @async_retry(retries=5)
-async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> Any:
+async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Get max offset."""
     return await _adapter(self, entity_id).get_max_calibration_offset(self, entity_id)
 
 
 async def set_temperature(
     self: BetterThermostat, entity_id: str, temperature: float | str | None
-) -> Any:
+) -> None:
     """Set new target temperature.
 
     Round to device step if known and clamp to min/max before delegating.
@@ -204,27 +242,31 @@ async def set_temperature(
         if global_cfg_step in (0, 0.0):
             global_cfg_step = None
         step = per_trv_step or global_cfg_step or 0.5
-        rounded = round_by_step(float(t), float(step))
+        stepped = round_by_step(float(t), float(step))
+        # The rounding answers None only for a missing argument.
+        rounded = t if stepped is None else stepped
     except TypeError, ValueError, OverflowError:
         rounded = float(t)
 
     # Clamp to device min/max if available
     trv = self.real_trvs.get(entity_id)
-    t_min_raw = trv.min_temp if trv is not None else None
-    t_max_raw = trv.max_temp if trv is not None else None
-    t_min = None
-    t_max = None
+    min_temperature_raw = trv.min_temp if trv is not None else None
+    max_temperature_raw = trv.max_temp if trv is not None else None
+    min_temperature = None
+    max_temperature = None
     try:
-        if t_min_raw is not None:
-            t_min = float(t_min_raw)
-        if t_max_raw is not None:
-            t_max = float(t_max_raw)
+        if min_temperature_raw is not None:
+            min_temperature = float(min_temperature_raw)
+        if max_temperature_raw is not None:
+            max_temperature = float(max_temperature_raw)
     except TypeError, ValueError:
-        t_min = None
-        t_max = None
-    if isinstance(t_min, (int, float)) and isinstance(t_max, (int, float)):
-        low = float(t_min)
-        high = float(t_max)
+        min_temperature = None
+        max_temperature = None
+    if isinstance(min_temperature, (int, float)) and isinstance(
+        max_temperature, (int, float)
+    ):
+        low = float(min_temperature)
+        high = float(max_temperature)
         rv = float(rounded) if isinstance(rounded, (int, float)) else float(t)
         if rv < low:
             rounded = low
@@ -252,7 +294,7 @@ async def set_temperature(
     # went out must not claim.
     self.real_trvs[entity_id].commanded_setpoint = rounded
 
-    return await _write_on_channel(
+    await _write_on_channel(
         self,
         entity_id,
         "temperature",
@@ -309,14 +351,14 @@ class WriteOutage:
     reported_at: float
 
 
-async def _write_on_channel(
-    self: AdapterHost,
+async def _write_on_channel[H: AdapterHost, T, R](
+    self: H,
     entity_id: str,
     channel: str,
     what: str,
-    write: Callable[..., Awaitable[Any]],
-    value: Any,
-) -> Any:
+    write: Callable[[H, str, T], Awaitable[R]],
+    value: T,
+) -> R:
     """Put one value on one write channel of the TRV and answer the write's answer.
 
     The write runs under the room's control lock, so every attempt it
@@ -343,12 +385,12 @@ async def _write_on_channel(
         The command as the log names it
     write : Callable
         The adapter or quirk write, called as ``write(self, entity_id, value)``
-    value : Any
+    value : T
         The value to write
 
     Returns
     -------
-    Any
+    R
         What the write answered
 
     Raises
@@ -360,7 +402,7 @@ async def _write_on_channel(
     device_name = self.device_name
     outage = outages.get(channel)
 
-    async def write_to_device(host: AdapterHost, target: str, payload: Any) -> Any:
+    async def write_to_device(host: H, target: str, payload: T) -> R:
         with command_cancellation_as_disconnect():
             return await write(host, target, payload)
 
@@ -511,9 +553,12 @@ async def set_calibration_offset(
     return True
 
 
+type ValveWrite = Callable[[BetterThermostat, str, int], Awaitable[bool | None]]
+
+
 def _valve_channels(
-    self: AdapterHost, entity_id: str
-) -> list[tuple[str, Callable[..., Awaitable[bool | None]], bool]]:
+    self: BetterThermostat, entity_id: str
+) -> list[tuple[str, ValveWrite, bool]]:
     """List the channels a valve position can go out through, in the order tried."""
     trv_state = self.real_trvs.get(entity_id)
 
@@ -521,10 +566,9 @@ def _valve_channels(
     # the adapter's own declaration rather than to the discovered entity: an
     # ecosystem that declares no valve channel writes nothing, and reporting
     # the discovery as a completed write would tell the caller a position was
-    # taken that the device never saw. An adapter without a declaration falls
-    # back to the discovered surface, as elsewhere.
+    # taken that the device never saw.
     adapter = trv_state.adapter if trv_state is not None else None
-    declared = getattr(adapter, "CAPABILITIES", None)
+    declared = adapter.CAPABILITIES if adapter is not None else None
     adapter_writes_valve = declared is None or declared.valve_write
     # An adapter whose valve channel is an ecosystem service call has no
     # helper entity to discover. `Trv.capabilities` already reads the flag
@@ -535,7 +579,7 @@ def _valve_channels(
     valve_writable = (
         trv_state.valve_position_writable if trv_state is not None else None
     )
-    adapter_write = getattr(adapter, "set_valve", None)
+    adapter_write = adapter.set_valve if adapter is not None else None
 
     # Each channel carries whether its own answer decides the outcome: a quirk
     # reports whether it took the position, while an adapter call that returns
@@ -546,14 +590,13 @@ def _valve_channels(
     # A quirk that can tell whether its device offers a valve to write to
     # answers ``has_valve_channel``; one that cannot is taken at its word
     # that ``override_set_valve`` is a channel.
-    channels: list[tuple[str, Callable[..., Awaitable[bool | None]], bool]] = []
+    channels: list[tuple[str, ValveWrite, bool]] = []
     model_quirks = trv_state.model_quirks if trv_state is not None else None
-    quirk_write = getattr(model_quirks, "override_set_valve", None)
-    quirk_has_channel = getattr(model_quirks, "has_valve_channel", None)
-    if quirk_write is not None and (
-        quirk_has_channel is None or quirk_has_channel(self, entity_id)
+    if isinstance(model_quirks, ValveQuirk) and (
+        not isinstance(model_quirks, ValveChannelQuirk)
+        or model_quirks.has_valve_channel(self, entity_id)
     ):
-        channels.append(("override", quirk_write, True))
+        channels.append(("override", model_quirks.override_set_valve, True))
     # A valve entity disabled in Home Assistant since it was adopted drops
     # every write, so it is no channel until it is enabled again.
     if (
@@ -572,7 +615,7 @@ def _valve_channels(
     return channels
 
 
-def valve_channel_available(self: AdapterHost, entity_id: str) -> bool:
+def valve_channel_available(self: BetterThermostat, entity_id: str) -> bool:
     """Whether any channel exists to write the TRV's valve position through.
 
     Without one, the valve is out of reach for a reason that lasts until
@@ -584,7 +627,7 @@ def valve_channel_available(self: AdapterHost, entity_id: str) -> bool:
     return bool(_valve_channels(self, entity_id))
 
 
-async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> bool:
+async def set_valve(self: BetterThermostat, entity_id: str, valve: float) -> bool:
     """Set a new valve position and record the value that went out.
 
     A model quirk's ``override_set_valve`` owns the valve channel where
@@ -616,7 +659,7 @@ async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> bool:
         has no valve channel or every attempt raised
     """
     try:
-        target_pct = int(valve)
+        target_percent = int(valve)
     except TypeError, ValueError, OverflowError:
         # `int()` refuses the infinities with OverflowError rather than
         # ValueError, and a position that cannot be converted is not one to
@@ -640,9 +683,9 @@ async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> bool:
                 self,
                 entity_id,
                 f"valve {method}",
-                f"valve position {target_pct}% through the {method} channel",
+                f"valve position {target_percent}% through the {method} channel",
                 write,
-                target_pct,
+                target_percent,
             )
         except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
             continue
@@ -650,7 +693,7 @@ async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> bool:
             continue
         # A channel exists only for a TRV the thermostat holds.
         trv = self.real_trvs[entity_id]
-        trv.last_valve_percent = target_pct
+        trv.last_valve_percent = target_percent
         trv.last_valve_method = method
         return True
     return False
