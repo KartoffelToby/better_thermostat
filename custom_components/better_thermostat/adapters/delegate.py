@@ -20,6 +20,7 @@ from custom_components.better_thermostat.utils.helpers import (
 
 from ..model_fixes.types import ValveChannelQuirk, ValveQuirk
 from ..utils.retry import (
+    DeviceCallTimeoutError,
     async_retry,
     command_cancellation_as_disconnect,
     device_call_deadline,
@@ -324,12 +325,20 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> bo
     -------
     bool
         True when the mode went out, False when every attempt raised
+
+    Raises
+    ------
+    DeviceCallTimeoutError
+        When the write did not return within ``DEVICE_CALL_TIMEOUT_S``. Unlike
+        a refusal, the device may still apply the mode once it answers.
     """
     write = _adapter(self, entity_id).set_hvac_mode
     try:
         await _write_on_channel(
             self, entity_id, "hvac_mode", f"hvac mode {hvac_mode}", write, hvac_mode
         )
+    except DeviceCallTimeoutError:
+        raise
     except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
         return False
     return True

@@ -10,6 +10,7 @@ and how one room-level valve command is split between them.
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
+import contextlib
 from dataclasses import dataclass, replace
 from datetime import timedelta
 import time
@@ -275,6 +276,193 @@ async def test_a_head_that_never_answers_does_not_hold_up_the_others(
             assert await wait_for(hass, lambda: not bt.ignore_states)
     finally:
         del hung.async_set_temperature
+
+
+async def _set_room_mode(hass, mode: HVACMode) -> None:
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_HVAC_MODE,
+        {"entity_id": BT_ENTITY, "hvac_mode": mode},
+        blocking=True,
+    )
+
+
+async def _quirk_writes_the_mode(
+    bt: BetterThermostat, entity_id: str, hvac_mode: str
+) -> bool:
+    """A model quirk that switches the mode with its own service call."""
+    await bt.hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_HVAC_MODE,
+        {"entity_id": entity_id, "hvac_mode": hvac_mode},
+        blocking=True,
+        context=bt.context,
+    )
+    return True
+
+
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
+@pytest.mark.parametrize("through_quirk", [False, True], ids=["adapter", "quirk"])
+async def test_a_mode_write_that_never_answered_and_lands_later_is_not_a_press(
+    hass, trv_group, through_quirk
+):
+    """A mode the room gave up waiting for is not a press when it lands later.
+
+    A sleeping Z-Wave node queues a command and keeps the call open until it
+    wakes. The write is given up at the deadline, but the command is still
+    queued and the device applies it whenever it wakes. When the user has
+    turned the room off in the meantime, that late heat is Better
+    Thermostat's own command, and the room stays off. While its mode channel
+    does not answer, the head still gets its setpoints. Both hold whether the
+    adapter or a model quirk sends the mode.
+    """
+    set_room_sensor(hass, 19.5)
+    entry = make_entry(trv_group.scenario)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    hung = trv_group[0]
+    others = [head for head in trv_group.entities if head is not hung]
+    quirks = bt.real_trvs[hung.entity_id].model_quirks
+    assert quirks is not None
+    with (
+        patch(WRITE_BUDGET, 0.0),
+        patch(DEVICE_CALL_DEADLINE, SHORT_DEVICE_DEADLINE),
+        patch.object(
+            quirks,
+            "override_set_hvac_mode",
+            autospec=True,
+            side_effect=_quirk_writes_the_mode,
+        )
+        if through_quirk
+        else contextlib.nullcontext(),
+    ):
+        await _set_room_mode(hass, HVACMode.OFF)
+        assert await wait_for(
+            hass,
+            lambda: all(
+                hass.states.get(head.entity_id).state == HVACMode.OFF
+                for head in trv_group.entities
+            ),
+        )
+        assert await wait_for(hass, lambda: not bt.ignore_states)
+
+        queued: list[str] = []
+
+        async def queue_and_never_answer(hvac_mode: str) -> None:
+            queued.append(hvac_mode)
+            await asyncio.Event().wait()
+
+        # An instance attribute shadows the method the service handler looks up.
+        hung.async_set_hvac_mode = queue_and_never_answer
+        try:
+            await _set_room_mode(hass, HVACMode.HEAT)
+            assert await wait_for(
+                hass,
+                lambda: all(
+                    hass.states.get(head.entity_id).state == HVACMode.HEAT
+                    for head in others
+                ),
+            )
+            assert await wait_for(hass, lambda: not bt.ignore_states)
+            assert HVACMode.HEAT in queued
+            assert await room_target_reaches(hass, trv_group.entities, 23.0), {
+                head.entity_id: head.set_temperature_calls
+                for head in trv_group.entities
+            }
+
+            await _set_room_mode(hass, HVACMode.OFF)
+            assert await wait_for(
+                hass,
+                lambda: all(
+                    hass.states.get(head.entity_id).state == HVACMode.OFF
+                    for head in others
+                ),
+            )
+            assert await wait_for(hass, lambda: not bt.ignore_states)
+        finally:
+            del hung.async_set_hvac_mode
+
+        # The node wakes and applies the command it queued. The report comes
+        # long after the call, so it carries none of Better Thermostat's
+        # contexts.
+        hung.async_set_context(Context())
+        hung._attr_hvac_mode = HVACMode.HEAT
+        hung.async_write_ha_state()
+        await hass.async_block_till_done()
+        assert await wait_for(hass, lambda: not bt.ignore_states)
+
+        assert await wait_for(
+            hass, lambda: hass.states.get(hung.entity_id).state == HVACMode.OFF
+        ), hung.set_hvac_mode_calls
+        assert bt.bt_hvac_mode == HVACMode.OFF
+        assert hass.states.get(BT_ENTITY).state == HVACMode.OFF
+
+
+async def test_a_cooler_that_never_answers_does_not_hold_up_the_heads(hass, caplog):
+    """A cooler that stops answering costs the room one deadline per write.
+
+    The cooler is written first in every cycle, before any head. An air
+    conditioner behind a cloud API without a request timeout would keep the
+    cycle waiting for good, and no head would get another write. The cooler
+    write is given up at the deadline, named in the log, and the heads are
+    written as before.
+    """
+    *heads, cooler = await build_devices(hass, *GROUP_OF_THREE.profiles, ROOM_AC_COOLER)
+    set_room_sensor(hass, 19.5)
+    base = make_entry(GROUP_OF_THREE)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=base.version,
+        data={**base.data, "cooler": COOLER_ID},
+        title=base.title,
+    )
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    # Instance attributes shadow the methods the service handler looks up.
+    cooler.async_set_temperature = _never_answers
+    cooler.async_set_hvac_mode = _never_answers
+    try:
+        with (
+            patch(WRITE_BUDGET, 0.0),
+            patch(COOLER_RESEND, 0.0),
+            patch(DEVICE_CALL_DEADLINE, SHORT_DEVICE_DEADLINE),
+        ):
+            baselines = {
+                head.entity_id: len(head.set_temperature_calls) for head in heads
+            }
+            await hass.services.async_call(
+                CLIMATE_DOMAIN,
+                "set_temperature",
+                {
+                    "entity_id": BT_ENTITY,
+                    "target_temp_low": 23.0,
+                    "target_temp_high": 27.0,
+                },
+                blocking=True,
+            )
+            assert await wait_for(
+                hass,
+                lambda: all(
+                    len(head.set_temperature_calls) > baselines[head.entity_id]
+                    for head in heads
+                ),
+            ), {head.entity_id: head.set_temperature_calls for head in heads}
+            for head in heads:
+                written = head.set_temperature_calls[-1]
+                assert isinstance(written, float), written
+                assert_write_is(written, 23.0, head.profile)
+            assert any(
+                record.levelname == "WARNING"
+                and COOLER_ID in record.getMessage()
+                and "failed" in record.getMessage()
+                for record in caplog.records
+            ), [record.getMessage() for record in caplog.records]
+            assert await wait_for(hass, lambda: not bt.ignore_states)
+    finally:
+        del cooler.async_set_temperature
+        del cooler.async_set_hvac_mode
 
 
 @pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
