@@ -32,9 +32,11 @@ from pytest_homeassistant_custom_component.components.recorder.common import (
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.utils.const import CalibrationMode
+from custom_components.better_thermostat.utils.state_manager import CURRENT_VERSION
 
 from .conftest import (
     BT_ENTITY,
+    DOMAIN,
     OUTDOOR_ID,
     build_devices,
     make_entry,
@@ -69,13 +71,8 @@ def _is_telemetry(key: str) -> bool:
     return key.startswith(("pid_", "mpc_v2_")) or key in _TELEMETRY
 
 
-async def _recorded_attributes(hass, state) -> dict[str, object]:
-    """Return the attributes the recorder stored for the live ``state``.
-
-    Most writes of the climate entity change attributes only, so the query
-    keeps insignificant rows and picks the one whose update time is the
-    live state's.
-    """
+async def _recorded_rows(hass, entity_id: str) -> list[State]:
+    """Return every state the recorder stored for ``entity_id`` in the last hour."""
     await async_wait_recording_done(hass)
     start = dt_util.utcnow() - timedelta(hours=1)
     states = await get_instance(hass).async_add_executor_job(
@@ -84,15 +81,29 @@ async def _recorded_attributes(hass, state) -> dict[str, object]:
             hass,
             start,
             None,
-            [state.entity_id],
+            [entity_id],
             significant_changes_only=False,
         )
     )
     rows: list[State] = []
-    for row in states[state.entity_id]:
+    for row in states.get(entity_id, []):
         assert isinstance(row, State), row
-        if row.last_updated_timestamp == state.last_updated_timestamp:
-            rows.append(row)
+        rows.append(row)
+    return rows
+
+
+async def _recorded_attributes(hass, state) -> dict[str, object]:
+    """Return the attributes the recorder stored for the live ``state``.
+
+    Most writes of the climate entity change attributes only, so the query
+    keeps insignificant rows and picks the one whose update time is the
+    live state's.
+    """
+    rows = [
+        row
+        for row in await _recorded_rows(hass, state.entity_id)
+        if row.last_updated_timestamp == state.last_updated_timestamp
+    ]
     assert len(rows) == 1
     return dict(rows[0].attributes)
 
@@ -238,13 +249,38 @@ async def test_a_degraded_room_keeps_counting_its_degraded_seconds(hass):
     assert len(set(counted)) == len(counted)
 
 
-@pytest.mark.parametrize("name", ["room_temperature_filtered", "external_temp_ema"])
-async def test_the_filter_restores_from_the_saved_state(hass, name):
-    """A restart takes the filter from the saved state, not from the recorder."""
-    mock_restore_cache(hass, [State(BT_ENTITY, "heat", {name: 19.37})])
+async def test_the_filter_restores_from_the_saved_runtime_state(hass, hass_storage):
+    """A restart takes the filter from the runtime store, not from the recorder.
+
+    The recorder holds no row of the entity and no restored attribute
+    carries the filter, yet the average comes back instead of being seeded
+    from the live reading.
+    """
     set_room_sensor(hass, 19.0)
     await build_devices(hass, GENERIC_HEAT_TRV)
     entry = make_entry(GENERIC_HEAT_TRV)
+    key = f"{DOMAIN}_{entry.entry_id}_state"
+    hass_storage[key] = {
+        "version": CURRENT_VERSION,
+        "minor_version": 1,
+        "key": key,
+        "data": {
+            "version": CURRENT_VERSION,
+            "mpc": {},
+            "pid": {},
+            "tpi": {},
+            "thermal": {},
+            "filters": {
+                "external_temp_ema": 19.37,
+                "temp_slope": None,
+                "room_temperature_ema_recorded_at": dt_util.utcnow().timestamp(),
+            },
+        },
+    }
+    mock_restore_cache(hass, [State(BT_ENTITY, "heat", {})])
+    await async_wait_recording_done(hass)
+    assert await _recorded_rows(hass, BT_ENTITY) == []
+
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
 
