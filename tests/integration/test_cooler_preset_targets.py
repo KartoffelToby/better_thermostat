@@ -148,6 +148,37 @@ async def test_the_preset_pair_sent_back_keeps_the_preset(
     assert _read_published(hass) == published
 
 
+async def test_the_stored_cooling_value_below_the_heating_one_is_a_manual_change(
+    hass, device_role
+):
+    """A cooling target sent alone at the preset's stored value leaves the preset.
+
+    The preset stores 24 °C for cooling below its 25 °C heating temperature,
+    so selecting it applies a cooling target one step above 25 °C. A caller
+    passing 24 °C alone lowers the heating target beneath it, which moves the
+    heating target off the preset's own and leaves the preset. The climate
+    service takes both bounds together, so the entity is called directly.
+    """
+    entry = await _started_in_heat_cool(hass, device_role.scenario)
+    bt = entry.runtime_data.climate
+    assert bt is not None
+    bt.preset_mgr.update_temperature("comfort", 25.0)
+    bt._preset_cool_temperatures["comfort"] = 24.0
+    await _call(hass, "set_preset_mode", {"preset_mode": "comfort"})
+    preset, heating_target, cooling_target = _read_published(hass)
+    assert (preset, heating_target) == ("comfort", 25.0)
+    assert cooling_target > 25.0
+
+    with patch(WRITE_BUDGET, 0.0), patch(COOLER_RESEND, 0.0):
+        await bt.async_set_temperature(target_temp_high=24.0)
+        await hass.async_block_till_done()
+
+    preset, heating_target, cooling_target = _read_published(hass)
+    assert preset == "none"
+    assert cooling_target == 24.0
+    assert heating_target < 24.0
+
+
 async def test_a_manual_pair_set_in_a_preset_outlasts_the_next_preset(
     hass, device_role
 ):
