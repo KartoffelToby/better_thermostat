@@ -142,7 +142,9 @@ entities (e.g. a new GPS position) do not restart the delay.
 > targeted thermostat (see [Presets](/setup/presets/#choosing-which-presets-appear)).
 > A new configuration enables Eco only, so enable Away first; otherwise Home
 > Assistant rejects the preset and the automation stops with
-> `Preset mode away is not valid`.
+> `Preset mode away is not valid`. With several thermostats targeted, those
+> that offer the preset may have switched already, and the actions after it
+> do not run.
 
 | Input | Description | Default |
 |---|---|---|
