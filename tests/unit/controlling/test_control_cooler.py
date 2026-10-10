@@ -14,6 +14,7 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.containers import BtConfig
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import (
@@ -2083,25 +2084,16 @@ class TestControlCoolerLatchOfAFreshThermostat:
         which stays whatever a fresh instance carries.
         """
         thermostat = BetterThermostat(
-            name="cooler band",
+            config=BtConfig(
+                device_name="cooler band",
+                model="generic",
+                cooler_entity_id="climate.cooler",
+                tolerance=tolerance,
+            ),
             trv_configs=[],
-            sensor_entity_id=None,
-            humidity_sensor_entity_id=None,
-            window_sensor_entity_id=None,
-            window_open_delay_seconds=0,
-            window_close_delay_seconds=0,
-            door_sensor_entity_id=None,
-            door_open_delay_seconds=0,
-            door_close_delay_seconds=0,
-            weather_entity_id=None,
-            outdoor_sensor_entity_id=None,
-            off_temperature=None,
-            tolerance=tolerance,
             min_target_temperature=None,
             max_target_temperature=None,
-            target_temp_step=None,
-            model="generic",
-            cooler_entity_id="climate.cooler",
+            target_temperature_step=None,
             enabled_presets=None,
             unit=UnitOfTemperature.CELSIUS,
             unique_id="cooler_band",

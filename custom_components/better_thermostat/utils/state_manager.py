@@ -39,7 +39,7 @@ from datetime import datetime
 import logging
 import math
 from time import monotonic
-from typing import NoReturn
+from typing import Final, Literal, NoReturn
 
 from homeassistant.core import (
     CALLBACK_TYPE,
@@ -218,6 +218,12 @@ class RuntimeState:
     # they are deliberately not duplicated here.
 
 
+# The sections of the store: one per controller, keyed by state key, and the
+# two unkeyed sections of entity-held values.
+type StoreSection = Literal[
+    "mpc", "mpc_v2", "mpc_v2_reid", "pid", "tpi", "thermal", "filters"
+]
+
 # Serialization helpers
 
 
@@ -242,7 +248,7 @@ _STORED_TEMPERATURE_SLOPE = "temp_slope"
 
 # Store keys of the ``MpcState`` fields whose stored name differs from the
 # field name. The other fields are stored under their own names.
-_STORED_MPC_KEYS = {
+_STORED_MPC_KEYS: Final[Mapping[str, str]] = {
     "last_target_temperature": "last_target_C",
     "last_sensor_temperature": "last_sensor_temp_C",
     "last_room_temperature": "last_room_temp_C",
@@ -256,11 +262,13 @@ _STORED_MPC_KEYS = {
 
 # Store keys of the ``PIDState`` fields whose stored name differs from the
 # field name. The other fields are stored under their own names.
-_STORED_PID_KEYS = {"last_target_temperature": "last_target_temp"}
+_STORED_PID_KEYS: Final[Mapping[str, str]] = {
+    "last_target_temperature": "last_target_temp"
+}
 
 # Store keys of the ``MpcV2ReidData`` fields whose stored name differs from
 # the field name. The other fields are stored under their own names.
-_STORED_MPC_V2_REID_KEYS = {
+_STORED_MPC_V2_REID_KEYS: Final[Mapping[str, str]] = {
     "tau_room_minutes": "tau_room_min",
     "rmse_prior_kelvin": "rmse_prior_K",
     "rmse_fit_kelvin": "rmse_fit_K",
@@ -460,7 +468,7 @@ def _finite_or_poison(value: object, attr: str) -> float:
     return number
 
 
-def _report_unreadable_field(attr: str, kind: str, key: str | None) -> None:
+def _report_unreadable_field(attr: str, kind: StoreSection, key: str | None) -> None:
     """Name a stored field that keeps its default because it cannot be read.
 
     Past the load path the field carries the default a first start leaves
@@ -478,7 +486,10 @@ def _report_unreadable_field(attr: str, kind: str, key: str | None) -> None:
 
 
 def _discard_poisoned_entry(
-    error: _PoisonedStateError, kind: str, key: str | None, poisoned: list[str] | None
+    error: _PoisonedStateError,
+    kind: StoreSection,
+    key: str | None,
+    poisoned: list[str] | None,
 ) -> None:
     """Name an entry whose stored values are discarded, and note it when asked.
 
@@ -602,7 +613,7 @@ class _StoredEntryReader:
     ----------
     raw : Mapping[str, object]
         the stored entry to read
-    kind : str
+    kind : StoreSection
         the store section the entry belongs to, for the reports
     key : str | None
         names the state entry, so a report about a value that cannot be read
@@ -617,7 +628,7 @@ class _StoredEntryReader:
     def __init__(
         self,
         raw: Mapping[str, object],
-        kind: str,
+        kind: StoreSection,
         key: str | None,
         *,
         renamed: Mapping[str, str] | None = None,
@@ -1118,7 +1129,7 @@ def deserialize_tpi(
 
 
 def _stored_section(
-    raw: Mapping[str, object], section: str, poisoned: list[str] | None
+    raw: Mapping[str, object], section: StoreSection, poisoned: list[str] | None
 ) -> Mapping[str, object]:
     """Return one section of the store, or an empty one when it has none.
 
@@ -1141,7 +1152,7 @@ def _stored_section(
 
 
 def _stored_entries(
-    raw: Mapping[str, object], section: str, poisoned: list[str] | None
+    raw: Mapping[str, object], section: StoreSection, poisoned: list[str] | None
 ) -> list[tuple[str, Mapping[str, object]]]:
     """Return the entries of one keyed section that are mappings.
 
@@ -1165,7 +1176,7 @@ def _stored_entries(
 
 
 def _stored_optional_number(
-    values: Mapping[str, object], section: str, attr: str
+    values: Mapping[str, object], section: StoreSection, attr: str
 ) -> float | None:
     """Return one optional number of an unkeyed section, naming an unusable one.
 
@@ -1391,7 +1402,8 @@ def _migrate_v0_to_v1(raw: Mapping[str, object]) -> dict[str, object]:
     """
     migrated = dict(raw)
     migrated.setdefault("version", 1)
-    for section in ("mpc", "pid", "tpi", "thermal", "filters"):
+    v0_sections: tuple[StoreSection, ...] = ("mpc", "pid", "tpi", "thermal", "filters")
+    for section in v0_sections:
         migrated.setdefault(section, {})
     return migrated
 
@@ -1719,27 +1731,24 @@ class StateManager:
 
     # -- Thermal stats ---------------------------------------------------------
 
-    def clamped_thermal(self) -> tuple[float | None, float | None]:
+    def clamped_thermal(self) -> ThermalStats:
         """Return persisted thermal stats clamped to their valid bounds.
 
-        Returns ``(heating_power, heat_loss_rate)``; an element is ``None`` when
-        the persisted value is absent or not finite.
+        A field is ``None`` when the persisted value is absent or not finite.
         """
         thermal = self._state.thermal
         heating_power = thermal.heating_power
         heat_loss_rate = thermal.heat_loss_rate
-        return (
-            clamp(heating_power, MIN_HEATING_POWER, MAX_HEATING_POWER)
+        return ThermalStats(
+            heating_power=clamp(heating_power, MIN_HEATING_POWER, MAX_HEATING_POWER)
             if heating_power is not None and math.isfinite(heating_power)
             else None,
-            clamp(heat_loss_rate, MIN_HEAT_LOSS, MAX_HEAT_LOSS)
+            heat_loss_rate=clamp(heat_loss_rate, MIN_HEAT_LOSS, MAX_HEAT_LOSS)
             if heat_loss_rate is not None and math.isfinite(heat_loss_rate)
             else None,
         )
 
-    def record_thermal(
-        self, heating_power: float | None, heat_loss_rate: float | None
-    ) -> None:
+    def record_thermal(self, stats: ThermalStats) -> None:
         """Record the entity-held thermal stats before a save.
 
         Non-finite samples (NaN/inf) are dropped to ``None`` so a bad reading
@@ -1747,8 +1756,8 @@ class StateManager:
         ``clamped_thermal()``.
         """
         self.thermal = ThermalStats(
-            heating_power=finite_or_none(heating_power),
-            heat_loss_rate=finite_or_none(heat_loss_rate),
+            heating_power=finite_or_none(stats.heating_power),
+            heat_loss_rate=finite_or_none(stats.heat_loss_rate),
         )
 
     @property
@@ -1756,33 +1765,18 @@ class StateManager:
         """Return the persisted runtime filter state."""
         return self._state.filters
 
-    def record_filters(
-        self,
-        room_temperature_ema: float | None,
-        temperature_slope: float | None,
-        room_temperature_ema_recorded_at: float | None = None,
-    ) -> None:
+    def record_filters(self, filters: FilterState) -> None:
         """Record the entity-held filter state before a save.
 
         Non-finite samples (NaN/inf) are dropped to ``None`` for the same
         reason ``record_thermal`` drops them: the store's encoder writes
         them back as null, so a bad reading would be persisted and reloaded.
-
-        Parameters
-        ----------
-        room_temperature_ema : float | None
-            Exponential moving average of the external temperature.
-        temperature_slope : float | None
-            Estimated room-temperature slope.
-        room_temperature_ema_recorded_at : float | None
-            Wall-clock time the EMA was last updated at, in seconds since
-            the epoch.
         """
         self._state.filters = FilterState(
-            room_temperature_ema=finite_or_none(room_temperature_ema),
-            temperature_slope=finite_or_none(temperature_slope),
+            room_temperature_ema=finite_or_none(filters.room_temperature_ema),
+            temperature_slope=finite_or_none(filters.temperature_slope),
             room_temperature_ema_recorded_at=finite_or_none(
-                room_temperature_ema_recorded_at
+                filters.room_temperature_ema_recorded_at
             ),
         )
         self._dirty = True

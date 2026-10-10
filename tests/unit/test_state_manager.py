@@ -1851,9 +1851,9 @@ class TestClampedThermal:
     """clamped_thermal() returns persisted thermal stats clamped to valid bounds."""
 
     def test_both_none_returns_none(self):
-        """Absent thermal stats yield (None, None)."""
+        """Absent thermal stats yield no values."""
         mgr = _make_manager()
-        assert mgr.clamped_thermal() == (None, None)
+        assert mgr.clamped_thermal() == ThermalStats()
 
     def test_valid_values_passed_through(self):
         """In-range values are returned unchanged."""
@@ -1861,29 +1861,29 @@ class TestClampedThermal:
         hp = (MIN_HEATING_POWER + MAX_HEATING_POWER) / 2
         hl = (MIN_HEAT_LOSS + MAX_HEAT_LOSS) / 2
         mgr.thermal = ThermalStats(heating_power=hp, heat_loss_rate=hl)
-        assert mgr.clamped_thermal() == (hp, hl)
+        assert mgr.clamped_thermal() == ThermalStats(
+            heating_power=hp, heat_loss_rate=hl
+        )
 
     def test_heating_power_clamped_to_maximum(self):
         """A heating_power above the max is clamped down."""
         mgr = _make_manager()
         mgr.thermal = ThermalStats(heating_power=MAX_HEATING_POWER * 10)
-        hp, _ = mgr.clamped_thermal()
-        assert hp == MAX_HEATING_POWER
+        assert mgr.clamped_thermal().heating_power == MAX_HEATING_POWER
 
     def test_heating_power_clamped_to_minimum(self):
         """A heating_power below the min is clamped up."""
         mgr = _make_manager()
         mgr.thermal = ThermalStats(heating_power=-5.0)
-        hp, _ = mgr.clamped_thermal()
-        assert hp == MIN_HEATING_POWER
+        assert mgr.clamped_thermal().heating_power == MIN_HEATING_POWER
 
     def test_heat_loss_clamped_to_bounds(self):
         """heat_loss_rate is clamped to its min/max."""
         mgr = _make_manager()
         mgr.thermal = ThermalStats(heat_loss_rate=MAX_HEAT_LOSS * 10)
-        assert mgr.clamped_thermal()[1] == MAX_HEAT_LOSS
+        assert mgr.clamped_thermal().heat_loss_rate == MAX_HEAT_LOSS
         mgr.thermal = ThermalStats(heat_loss_rate=-1.0)
-        assert mgr.clamped_thermal()[1] == MIN_HEAT_LOSS
+        assert mgr.clamped_thermal().heat_loss_rate == MIN_HEAT_LOSS
 
     def test_non_finite_values_yield_none(self):
         """NaN/inf persisted thermal stats degrade to None instead of leaking."""
@@ -1891,7 +1891,7 @@ class TestClampedThermal:
         mgr.thermal = ThermalStats(
             heating_power=float("nan"), heat_loss_rate=float("inf")
         )
-        assert mgr.clamped_thermal() == (None, None)
+        assert mgr.clamped_thermal() == ThermalStats()
 
 
 # ---------------------------------------------------------------------------
@@ -1905,7 +1905,7 @@ class TestRecordThermal:
     def test_records_thermal_and_dirties(self):
         """Supplied thermal stats are stored and the store is marked dirty."""
         mgr = _make_manager()
-        mgr.record_thermal(0.07, 0.02)
+        mgr.record_thermal(ThermalStats(heating_power=0.07, heat_loss_rate=0.02))
         assert mgr.thermal.heating_power == 0.07
         assert mgr.thermal.heat_loss_rate == 0.02
         assert mgr.dirty is True
@@ -1917,7 +1917,7 @@ class TestRecordThermal:
         mgr.set_pid("p:trv1", PIDState(pid_kp=42.0))
         mgr.set_tpi("p:trv1", TpiState(last_percent=33.0))
 
-        mgr.record_thermal(None, None)
+        mgr.record_thermal(ThermalStats())
 
         assert mgr.state.mpc["p:trv1"].gain_est == 1.23
         assert mgr.state.pid["p:trv1"].pid_kp == 42.0
@@ -1926,11 +1926,13 @@ class TestRecordThermal:
     def test_non_finite_values_dropped_to_none(self):
         """NaN/inf samples are not persisted; finite ones are kept."""
         mgr = _make_manager()
-        mgr.record_thermal(float("nan"), float("inf"))
+        mgr.record_thermal(
+            ThermalStats(heating_power=float("nan"), heat_loss_rate=float("inf"))
+        )
         assert mgr.thermal.heating_power is None
         assert mgr.thermal.heat_loss_rate is None
 
-        mgr.record_thermal(1500.0, 0.5)
+        mgr.record_thermal(ThermalStats(heating_power=1500.0, heat_loss_rate=0.5))
         assert mgr.thermal.heating_power == 1500.0
         assert mgr.thermal.heat_loss_rate == 0.5
 
@@ -2137,7 +2139,9 @@ class TestFilterState:
     def test_record_and_read_back(self):
         """record_filters stores the values and marks dirty."""
         mgr = _make_manager()
-        mgr.record_filters(20.5, 0.0012)
+        mgr.record_filters(
+            FilterState(room_temperature_ema=20.5, temperature_slope=0.0012)
+        )
         assert mgr.filters.room_temperature_ema == 20.5
         assert mgr.filters.temperature_slope == 0.0012
         assert mgr.dirty is True
@@ -2145,7 +2149,9 @@ class TestFilterState:
     def test_roundtrip_through_serialization(self):
         """Filter values survive a serialize/deserialize cycle."""
         mgr = _make_manager()
-        mgr.record_filters(20.5, 0.0012)
+        mgr.record_filters(
+            FilterState(room_temperature_ema=20.5, temperature_slope=0.0012)
+        )
         restored = _deserialize(_serialize(mgr.state))
         assert restored.filters.room_temperature_ema == 20.5
         assert restored.filters.temperature_slope == 0.0012
@@ -2165,11 +2171,17 @@ class TestFilterState:
         filter value the next start silently cannot restore.
         """
         mgr = _make_manager()
-        mgr.record_filters(float("nan"), float("inf"))
+        mgr.record_filters(
+            FilterState(
+                room_temperature_ema=float("nan"), temperature_slope=float("inf")
+            )
+        )
         assert mgr.filters.room_temperature_ema is None
         assert mgr.filters.temperature_slope is None
 
-        mgr.record_filters(20.5, 0.0012)
+        mgr.record_filters(
+            FilterState(room_temperature_ema=20.5, temperature_slope=0.0012)
+        )
         assert mgr.filters.room_temperature_ema == 20.5
         assert mgr.filters.temperature_slope == 0.0012
 

@@ -76,7 +76,7 @@ from .utils.const import (
     CalibrationOutput,
     MpcV2PlantPreset,
 )
-from .utils.entry_schema import StoredChoice
+from .utils.entry_schema import StoredChoice, target_temperature_bound
 from .utils.helpers import (
     configured_calibration_mode,
     device_offers_mode,
@@ -1053,15 +1053,18 @@ def _normalize_user_submission(
 
     if errors is not None:
         try:
-            lower_bound = float(normalized[CONF_TARGET_TEMP_MIN])
-            upper_bound = float(normalized[CONF_TARGET_TEMP_MAX])
+            lower_bound = target_temperature_bound(normalized[CONF_TARGET_TEMP_MIN])
+            upper_bound = target_temperature_bound(normalized[CONF_TARGET_TEMP_MAX])
         except ValueError:
             pass
         else:
             # A bound left on auto imposes no limit, and an entry whose two
             # bounds are equal pins the setpoint to a single value on purpose.
-            auto = float(TARGET_TEMP_BOUND_AUTO)
-            if auto not in (lower_bound, upper_bound) and lower_bound > upper_bound:
+            if (
+                lower_bound is not None
+                and upper_bound is not None
+                and lower_bound > upper_bound
+            ):
                 errors[CONF_TARGET_TEMP_MIN] = "target_temp_min_above_max"
 
     return normalized
