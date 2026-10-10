@@ -389,6 +389,33 @@ async def test_a_confirmed_setpoint_in_whole_degrees_is_not_written_again(
     assert fake_trv.set_temperature_calls[writes:] == []
 
 
+@pytest.mark.parametrize("fake_trv", [OFF_GRID_FAHRENHEIT_TRV], indirect=True)
+async def test_a_whole_celsius_step_reported_in_whole_fahrenheit_is_not_resent(
+    hass, fake_trv
+):
+    """A head held on whole degrees Celsius is not written again for its report.
+
+    Configured on a step of one degree Celsius, the head is written 21 °C for
+    a target of 70.5 °F. Home Assistant reports that as 70 °F, 21.11 °C. The
+    write is confirmed and the cycles after it find no difference to send,
+    though the report never equals the value written.
+    """
+    bt = await _start_in_room(hass, fake_trv.profile, 68.0)
+    bt.real_trvs[TRV_ID].target_temp_step = 1.0
+
+    with patch(WRITE_BUDGET, 0.0):
+        written = await _write_and_confirm(hass, bt, fake_trv, 70.5)
+        writes = len(fake_trv.set_temperature_calls)
+        for _ in range(4):
+            request_control_cycle(bt)
+            await bt.control_queue_task.join()
+            await hass.async_block_till_done()
+
+    assert written == pytest.approx(21.0)
+    assert _device_setpoint(hass) == pytest.approx(70.0)
+    assert fake_trv.set_temperature_calls[writes:] == []
+
+
 @pytest.mark.parametrize(
     "turn", [pytest.param(-0.5, id="down"), pytest.param(0.5, id="up")]
 )

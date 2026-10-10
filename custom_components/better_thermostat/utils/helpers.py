@@ -2376,6 +2376,39 @@ def published_setpoint_grid(
     return step
 
 
+def as_published_setpoint(
+    value: float | None, state: State | None, system_unit: str | None
+) -> float | None:
+    """Return ``value`` the way Home Assistant publishes it back, in °C.
+
+    A state published in whole degrees Fahrenheit reports a setpoint the
+    device holds on the whole degree nearest to it. A device step coarser
+    than a whole degree Fahrenheit, a whole degree Celsius say, puts the
+    held setpoint between two of them, so the report differs from the value
+    written by up to half a degree Fahrenheit. Compared with a report, the
+    written value is taken on that same degree. Any other state publishes
+    the value as it is, and no value stays none.
+
+    Parameters
+    ----------
+    value : float | None
+            the setpoint in °C as the device holds it
+    state : State | None
+            the device state the setpoint is published in
+    system_unit : str | None
+            the configured system temperature unit
+
+    Returns
+    -------
+    float | None
+            the setpoint in °C as the state reports it
+    """
+    if value is None or not published_in_whole_fahrenheit(state, system_unit):
+        return value
+    fahrenheit = round(value * 9.0 / 5.0 + 32.0)
+    return (fahrenheit - 32.0) * 5.0 / 9.0
+
+
 def setpoint_at_minimum(
     setpoint: float | None,
     min_temp: float | None,
