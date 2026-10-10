@@ -75,9 +75,15 @@ async def _call(hass, service, data):
         await hass.async_block_till_done()
 
 
-async def _started(hass, scenario):
+# A room warm enough for the cooler to run at every cooling target these
+# tests set. A cooler held off receives no setpoint, so a test that reads the
+# write off the cooler needs one that cools.
+ROOM_ABOVE_EVERY_COOLING_TARGET = 34.0
+
+
+async def _started(hass, scenario, room_temperature=22.0):
     """Set up a thermostat on ``scenario`` and return it once started."""
-    set_room_sensor(hass, 22.0)
+    set_room_sensor(hass, room_temperature)
     entry = make_entry(scenario)
     await setup_entry(hass, entry)
     return await wait_for_startup(hass, entry)
@@ -103,7 +109,9 @@ async def test_the_published_range_spans_the_heater_and_the_cooler(hass, device_
 )
 async def test_a_cooling_target_above_the_heater_reaches_the_cooler(hass, device_role):
     """A cooling target only the cooler can hold is accepted and written to it."""
-    bt = await _started(hass, device_role.scenario)
+    bt = await _started(
+        hass, device_role.scenario, room_temperature=ROOM_ABOVE_EVERY_COOLING_TARGET
+    )
     await _call(hass, "set_hvac_mode", {"hvac_mode": HVACMode.HEAT_COOL})
 
     await _call(
@@ -158,7 +166,9 @@ async def test_a_heating_target_above_the_heater_is_held_to_its_range(
 )
 async def test_a_cooling_preset_above_the_heater_reaches_the_cooler(hass, device_role):
     """A cooling preset takes the cooler's range, not the head's."""
-    bt = await _started(hass, device_role.scenario)
+    bt = await _started(
+        hass, device_role.scenario, room_temperature=ROOM_ABOVE_EVERY_COOLING_TARGET
+    )
     await _call(hass, "set_hvac_mode", {"hvac_mode": HVACMode.HEAT_COOL})
     number_id = er.async_get(hass).async_get_entity_id(
         "number", DOMAIN, f"{bt.unique_id}_preset_comfort_cool"
@@ -194,7 +204,9 @@ async def test_a_heating_target_below_the_cooler_keeps_the_band_inside_it(
     the cooler's minimum, so the bound is raised onto that minimum: Home
     Assistant refuses a band that leaves the device's range.
     """
-    bt = await _started(hass, device_role.scenario)
+    bt = await _started(
+        hass, device_role.scenario, room_temperature=ROOM_ABOVE_EVERY_COOLING_TARGET
+    )
     await _call(hass, "set_hvac_mode", {"hvac_mode": HVACMode.HEAT_COOL})
     cooler = device_role.cooler
 
