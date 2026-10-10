@@ -305,3 +305,79 @@ async def test_options_flow_keeps_the_active_preset_and_its_temperature(hass, fa
     assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "comfort"
     assert hass.states.get(COMFORT_NUMBER).state == str(COMFORT_CONFIGURED)
     assert _target(hass) == COMFORT_CONFIGURED
+
+
+async def _set_target(hass, temperature):
+    """Set the target the way the climate card does."""
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        "set_temperature",
+        {ATTR_ENTITY_ID: BT_ENTITY, "temperature": temperature},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+
+async def test_a_preset_removed_while_active_hands_back_the_target_it_replaced(
+    hass, fake_trv
+):
+    """Removing the active preset returns the room to the target set before it.
+
+    A preset keeps the target it replaced and hands it back when it is left.
+    A preset the options take away is left by the reload, so the thermostat
+    comes back on that target, and nothing is kept for a later preset to hand
+    back in its place.
+    """
+    entry = _entry(hass, presets=("away", "comfort", "eco"))
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    await _activate(hass, "none")
+    await _set_target(hass, 21.0)
+    await _activate(hass, "away")
+    assert _target(hass) != 21.0
+
+    await click_through_the_options(hass, entry, presets=["comfort", "eco"])
+    bt = await wait_for_startup(hass, entry)
+
+    assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "none"
+    assert _target(hass) == 21.0
+    assert bt.preset_mgr.saved_temperature is None
+
+    await _set_target(hass, 22.5)
+    await _activate(hass, "eco")
+    await _activate(hass, "none")
+
+    assert _target(hass) == 22.5
+
+
+async def test_a_restart_outside_a_preset_keeps_no_target_to_hand_back(hass, fake_trv):
+    """A target saved for a preset does not outlive the preset across a restart.
+
+    The thermostat left the preset before it stopped; the saved state still
+    names a target to return to. Once a manual target is set, the next round
+    through a preset returns to that manual target.
+    """
+    mock_restore_cache(
+        hass,
+        [
+            State(
+                BT_ENTITY,
+                "heat",
+                {
+                    "temperature": 20.0,
+                    "preset_mode": "none",
+                    "preset_temperature": 18.0,
+                },
+            )
+        ],
+    )
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    assert bt.preset_mgr.saved_temperature is None
+
+    await _set_target(hass, 22.5)
+    await _activate(hass, "eco")
+    await _activate(hass, "none")
+
+    assert _target(hass) == 22.5

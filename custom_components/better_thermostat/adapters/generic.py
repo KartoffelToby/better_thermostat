@@ -22,7 +22,14 @@ from ..utils.helpers import (
     supports_single_target_temperature,
     supports_temperature_range,
 )
-from .base import AdapterCapabilities, wait_for_calibration_entity_or_timeout
+from .base import (
+    AdapterCapabilities,
+    offset_scale,
+    offset_to_published,
+    published_step_to_offset,
+    published_to_offset,
+    wait_for_calibration_entity_or_timeout,
+)
 from .delegate import set_hvac_mode as delegate_set_hvac_mode
 from .types import AdapterHost, AdapterProbeHost
 
@@ -139,7 +146,22 @@ async def init(self: AdapterHost, entity_id: str) -> None:
 
 
 async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
-    """Get current offset."""
+    """Read the offset the calibration entity currently reports.
+
+    Parameters
+    ----------
+    self : AdapterHost
+        Host providing Home Assistant access and the per-TRV records.
+    entity_id : str
+        Entity ID of the TRV to read for.
+
+    Returns
+    -------
+    float
+        Offset in Kelvin, whatever unit the entity publishes it in, or 0.0
+        when the TRV has no calibration entity or it reports nothing
+        readable.
+    """
     calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
     if calibration_entity is not None:
         state = self.hass.states.get(calibration_entity)
@@ -148,7 +170,7 @@ async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
         try:
             # For SELECT entities, remove the 'k' suffix if present (e.g., "1.5k" -> "1.5")
             state_str = state.state.replace("k", "")
-            return float(state_str)
+            return published_to_offset(offset_scale(state), float(state_str))
         except ValueError, TypeError:
             _LOGGER.warning(
                 "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
@@ -238,7 +260,11 @@ async def get_calibration_offset_step(self: AdapterHost, entity_id: str) -> floa
         offered = sorted(set(_offered_offsets(state)))
         spacings = [high - low for low, high in pairwise(offered)]
         return min(spacings, default=DEFAULT_OFFSET_STEP)
-    return float(str(state.attributes.get("step", DEFAULT_OFFSET_STEP)))
+    if "step" not in state.attributes:
+        return DEFAULT_OFFSET_STEP
+    return published_step_to_offset(
+        offset_scale(state), float(str(state.attributes["step"]))
+    )
 
 
 async def get_min_calibration_offset(self: AdapterHost, entity_id: str) -> float:
@@ -263,7 +289,9 @@ async def get_min_calibration_offset(self: AdapterHost, entity_id: str) -> float
         return DEFAULT_OFFSET_MIN
     if state.domain == "select":
         return min(_offered_offsets(state), default=DEFAULT_OFFSET_MIN)
-    return float(str(state.attributes.get("min", DEFAULT_OFFSET_MIN)))
+    if "min" not in state.attributes:
+        return DEFAULT_OFFSET_MIN
+    return published_to_offset(offset_scale(state), float(str(state.attributes["min"])))
 
 
 async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> float:
@@ -288,7 +316,9 @@ async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> float
         return DEFAULT_OFFSET_MAX
     if state.domain == "select":
         return max(_offered_offsets(state), default=DEFAULT_OFFSET_MAX)
-    return float(str(state.attributes.get("max", DEFAULT_OFFSET_MAX)))
+    if "max" not in state.attributes:
+        return DEFAULT_OFFSET_MAX
+    return published_to_offset(offset_scale(state), float(str(state.attributes["max"])))
 
 
 def _setpoint_payload(
@@ -369,6 +399,39 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> No
         blocking=True,
         context=self.context,
     )
+
+
+def _published_offset(state: State | None, calibration_offset: float) -> float:
+    """Return the value a calibration number takes for ``calibration_offset``.
+
+    The value is converted into the unit the entity publishes and held
+    inside the ``min`` and ``max`` it publishes, which are what Home
+    Assistant checks a written value against. The offset was clamped in
+    Kelvin already; holding the converted value inside the published bounds
+    keeps the float error of the round trip from pushing a value at a bound
+    just outside it.
+
+    Parameters
+    ----------
+    state : State or None
+        State of the calibration number, or None when it has none yet.
+    calibration_offset : float
+        Offset in Kelvin.
+
+    Returns
+    -------
+    float
+        The value to write, in the entity's published unit.
+    """
+    value = offset_to_published(offset_scale(state), calibration_offset)
+    if state is None:
+        return value
+    for bound, pick in (("min", max), ("max", min)):
+        try:
+            value = pick(value, float(str(state.attributes[bound])))
+        except KeyError, TypeError, ValueError:
+            continue
+    return value
 
 
 async def set_calibration_offset(
@@ -456,11 +519,13 @@ async def set_calibration_offset(
                 context=self.context,
             )
         else:
-            # For NUMBER entities, use the original set_value service
             await self.hass.services.async_call(
                 "number",
                 SERVICE_SET_VALUE,
-                {"entity_id": calibration_entity, "value": calibration_offset},
+                {
+                    "entity_id": calibration_entity,
+                    "value": _published_offset(entity_state, calibration_offset),
+                },
                 blocking=True,
                 context=self.context,
             )

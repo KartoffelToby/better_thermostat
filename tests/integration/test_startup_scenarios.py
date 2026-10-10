@@ -32,7 +32,10 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.better_thermostat.calibration import effective_room_temperature
-from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.climate import (
+    EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
+    BetterThermostat,
+)
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.fsm.control_mode import (
     LADDER_TICK_S,
@@ -50,6 +53,7 @@ from .conftest import (
     CRITICAL_GRACE,
     DEGRADED_GRACE,
     DOMAIN,
+    HUMIDITY_ID,
     SENSOR_ID,
     WINDOW_ID,
     WRITE_BUDGET,
@@ -57,12 +61,18 @@ from .conftest import (
     assert_write_is,
     make_entry,
     profile_id,
+    set_room_humidity,
     set_room_sensor,
     setup_entry,
     wait_for,
     wait_for_startup,
 )
-from .device_profiles import GENERIC_HEAT_TRV, MQTT_OFFSET_TRV, TRV_ID
+from .device_profiles import (
+    EXTERNAL_INPUT_TRVZB,
+    GENERIC_HEAT_TRV,
+    MQTT_OFFSET_TRV,
+    TRV_ID,
+)
 
 # A grace window that is already over by the time the first check runs, for
 # the tests that are about what happens once waiting has to stop.
@@ -627,6 +637,151 @@ async def test_a_room_sensor_that_reports_after_a_fallback_start_takes_over(
     assert bt.unavailable_sensors == []
 
 
+async def let_keepalive_ticks_pass(hass, ticks: int) -> None:
+    """Run the external temperature keepalive ``ticks`` times on its timer."""
+    start = dt_util.utcnow()
+    for tick in range(1, ticks + 1):
+        async_fire_time_changed(
+            hass,
+            start
+            + tick * (EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL + timedelta(seconds=1)),
+        )
+        await hass.async_block_till_done()
+
+
+REPAIRED_EXTERNAL_INPUT_TRVZB = replace(
+    EXTERNAL_INPUT_TRVZB,
+    name="repaired_external_input_trvzb",
+    external_sensor_selection="internal",
+)
+"""A TRVZB that came back from re-pairing on its own sensor."""
+
+
+@pytest.mark.parametrize(
+    "fake_trv", [REPAIRED_EXTERNAL_INPUT_TRVZB], indirect=True, ids=profile_id
+)
+async def test_a_trv_on_an_external_input_is_left_to_its_own_sensor_after_a_fallback_start(
+    hass, fake_trv
+):
+    """A device is not held on a room temperature no sensor has measured.
+
+    A room that starts without its sensor takes its temperature from a TRV,
+    or makes one up, and controls on the TRV temperature from then on. A
+    device that regulates on an external input is left without writes for
+    as long, so it falls back to its own sensor rather than regulating on a
+    value nothing measures, and its sensor selector stays where it is. The
+    first reading the sensor gives is written to the input, the selector is
+    pointed at it, and the keepalive holds the device there from then on.
+    """
+    external_input = fake_trv.external_temperature_input
+    selector = fake_trv.sensor_selector
+    assert external_input is not None and selector is not None
+
+    bt = await start_without_room_sensor(hass, fake_trv, "unavailable")
+    await hass.async_block_till_done()
+    assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+
+    await let_keepalive_ticks_pass(hass, 3)
+
+    assert external_input.set_value_calls == []
+    assert selector.select_option_calls == []
+
+    set_room_sensor(hass, 22.0)
+    assert await wait_for(hass, lambda: external_input.set_value_calls == [22.0])
+    assert selector.select_option_calls == ["external"]
+
+    await let_keepalive_ticks_pass(hass, 1)
+
+    assert external_input.set_value_calls == [22.0, 22.0]
+
+
+@pytest.mark.parametrize(
+    "sensor_state", ["unavailable", "unknown"], ids=["unavailable", "unknown"]
+)
+@pytest.mark.parametrize(
+    "fake_trv", [EXTERNAL_INPUT_TRVZB], indirect=True, ids=profile_id
+)
+async def test_a_trv_on_an_external_input_is_not_held_on_the_last_reading_of_a_lost_sensor(
+    hass, fake_trv, sensor_state
+):
+    """The last reading of a sensor that went away is not kept alive.
+
+    The room temperature stays at the sensor's last reading through an
+    outage, and the room itself moves on. Re-sending that reading would
+    keep the device regulating on a temperature the room has left, so the
+    keepalive pauses for the outage and the device falls back to its own
+    sensor.
+    """
+    external_input = fake_trv.external_temperature_input
+    assert external_input is not None
+    set_room_sensor(hass, 20.5)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+
+    await let_keepalive_ticks_pass(hass, 1)
+    assert external_input.set_value_calls[-1] == 20.5
+    external_input.set_value_calls.clear()
+
+    hass.states.async_set(SENSOR_ID, sensor_state)
+    await hass.async_block_till_done()
+    await let_keepalive_ticks_pass(hass, 3)
+
+    assert bt.room_temperature == 20.5
+    assert external_input.set_value_calls == []
+
+
+@pytest.mark.parametrize(
+    "returning_reading", [20.5, 20.6, 21.0], ids=["same", "within_noise", "moved"]
+)
+@pytest.mark.parametrize("ladder_steps_down", [True, False], ids=["long", "short"])
+@pytest.mark.parametrize(
+    "fake_trv", [EXTERNAL_INPUT_TRVZB], indirect=True, ids=profile_id
+)
+async def test_a_trv_on_an_external_input_gets_the_first_reading_after_an_outage_at_once(
+    hass, fake_trv, returning_reading, ladder_steps_down
+):
+    """The reading that ends an outage goes to the device straight away.
+
+    The device spent the outage without writes and may have fallen back to
+    its own sensor. The first reading puts it back on the external input,
+    even when it lies within the noise band of the last reading before the
+    outage, which the filter would otherwise hold back until the room
+    moves or the next keepalive. An outage too short for the ladder to
+    leave OPTIMAL pauses the keepalive as well, so its end counts alike.
+    """
+    external_input = fake_trv.external_temperature_input
+    assert external_input is not None
+    set_room_sensor(hass, 20.5)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+
+    hass.states.async_set(SENSOR_ID, "unavailable")
+    await hass.async_block_till_done()
+    if ladder_steps_down:
+        clock = FakeClock(monotonic_value=bt.clock.monotonic())
+        bt.clock = clock
+        assert await tick_until(
+            hass,
+            clock,
+            LadderParams().down_debounce_seconds + LADDER_TICK_S,
+            lambda: bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK,
+        )
+    await let_keepalive_ticks_pass(hass, 5 if ladder_steps_down else 1)
+    if not ladder_steps_down:
+        assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+    external_input.set_value_calls.clear()
+
+    set_room_sensor(hass, returning_reading)
+    await hass.async_block_till_done()
+
+    assert external_input.set_value_calls == [returning_reading]
+    assert bt.room_temperature == returning_reading
+
+
 async def test_a_room_sensor_with_an_implausible_reading_at_boot_hands_the_room_to_the_trv(
     hass, fake_trv
 ):
@@ -682,6 +837,21 @@ def publish_room_sensor_while_trvs_initialise(hass, state: str):
 
     async def publishing_first(bt, *args, **kwargs):
         hass.states.async_set(SENSOR_ID, state)
+        return await initialise_trvs(bt, *args, **kwargs)
+
+    return patch.object(BetterThermostat, "_initialize_trvs", publishing_first)
+
+
+def publish_while_trvs_initialise(hass, entity_id: str, state: str):
+    """Publish ``state`` for ``entity_id`` while startup writes to the TRVs.
+
+    That is after startup has read the sensors and before it listens to
+    them, so the state change itself is never handed to the room.
+    """
+    initialise_trvs = BetterThermostat._initialize_trvs
+
+    async def publishing_first(bt, *args, **kwargs):
+        hass.states.async_set(entity_id, state)
         return await initialise_trvs(bt, *args, **kwargs)
 
     return patch.object(BetterThermostat, "_initialize_trvs", publishing_first)
@@ -816,3 +986,103 @@ async def test_a_weather_service_that_never_answers_does_not_hold_up_startup(
         await wait_for_startup(hass, entry)
 
     assert hass.states.get(BT_ENTITY).state == "heat"
+
+
+@pytest.mark.parametrize(
+    ("at_boot", "during_startup"),
+    [("off", "on"), ("on", "off")],
+    ids=["opened", "closed"],
+)
+async def test_a_window_moved_during_startup_is_followed_once_startup_ends(
+    hass, fake_trv, at_boot, during_startup
+):
+    """The room follows the window as it is when startup ends.
+
+    Startup reads the window when it begins and listens to it only when it
+    ends. A window opened or closed in between publishes no further change,
+    and a room left on the old reading heats against an open window or stays
+    idle behind a closed one until the window moves again.
+    """
+    set_room_sensor(hass, 19.0)
+    hass.states.async_set(WINDOW_ID, at_boot)
+    entry = make_entry(fake_trv.profile, with_window=True)
+    with publish_while_trvs_initialise(hass, WINDOW_ID, during_startup):
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+
+    window_open = during_startup == "on"
+    assert await wait_for(hass, lambda: bt.window_open is window_open)
+    assert await wait_for(
+        hass,
+        lambda: hass.states.get(BT_ENTITY).attributes["window_open"] is window_open,
+    )
+
+
+async def test_an_unrecognized_window_state_during_startup_raises_its_issue(
+    hass, fake_trv
+):
+    """A window state nobody recognizes is reported once startup ends.
+
+    The window is closed when startup reads it. An unrecognized state reads
+    as closed as well, so it agrees with the region, yet the handler raises a
+    repair issue for it. Handed over only on disagreement, it would leave the
+    sensor's state unreported until the window moves again.
+    """
+    set_room_sensor(hass, 19.0)
+    hass.states.async_set(WINDOW_ID, "off")
+    entry = make_entry(fake_trv.profile, with_window=True)
+    with publish_while_trvs_initialise(hass, WINDOW_ID, "tilted"):
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+
+    issue_id = entry_issue_id(entry.entry_id, "invalid_window_state")
+    assert await wait_for(
+        hass, lambda: ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+    )
+    assert bt.window_open is False
+
+
+async def test_a_door_closed_during_startup_resumes_heating(hass, fake_trv):
+    """A door closed while startup runs does not hold the room idle.
+
+    The door is open when startup reads it and closed before startup listens
+    to it, so the close reaches the room only by being read again.
+    """
+    door_sensor_entity_id = "binary_sensor.door"
+    set_room_sensor(hass, 19.0)
+    hass.states.async_set(door_sensor_entity_id, "on")
+    base = make_entry(fake_trv.profile)
+    data = dict(base.data) | {
+        "door_sensors": door_sensor_entity_id,
+        "door_off_delay": 0,
+        "door_off_delay_after": 0,
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=base.version, data=data, title=base.title
+    )
+    with publish_while_trvs_initialise(hass, door_sensor_entity_id, "off"):
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+
+    assert await wait_for(hass, lambda: bt.door_open is False)
+    assert not bt.contact_open
+
+
+async def test_a_humidity_reading_published_during_startup_is_taken(hass, fake_trv):
+    """The published humidity is the sensor's current reading once startup ends.
+
+    Startup reads the humidity when it begins and listens to the sensor only
+    when it ends; a sensor that reported in between may not report again for
+    a long time.
+    """
+    set_room_sensor(hass, 19.0)
+    set_room_humidity(hass, 42.5)
+    entry = make_entry(fake_trv.profile, with_humidity=True)
+    with publish_while_trvs_initialise(hass, HUMIDITY_ID, "55.0"):
+        await setup_entry(hass, entry)
+        await wait_for_startup(hass, entry)
+
+    assert await wait_for(
+        hass,
+        lambda: hass.states.get(BT_ENTITY).attributes.get("current_humidity") == 55.0,
+    )

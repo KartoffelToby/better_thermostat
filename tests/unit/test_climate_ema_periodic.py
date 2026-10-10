@@ -2,9 +2,10 @@
 
 The periodic EMA tick keeps the external-temperature filter converging when the
 sensor is silent, and derives a temperature slope from the EMA change.  These
-tests pin the skip conditions and the slope math.
+tests pin the skip conditions, the slope math and which ticks write the state.
 """
 
+from functools import partial
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,9 +28,23 @@ def bt():
     mock.room_temperature_ema = None
     mock._slope_periodic_last_ts = None
     mock.temperature_slope = None
+    mock.room_temperature_filtered = None
+    mock._minute_tick_attributes = partial(
+        BetterThermostat._minute_tick_attributes, mock
+    )
     mock.async_write_ha_state = MagicMock()
     mock.clock = FakeClock()
     return mock
+
+
+def _filter_update(ema: float):
+    """Return an EMA update that publishes ``ema`` the way the real one does."""
+
+    def update(bt, _raw: float) -> float:
+        bt.room_temperature_filtered = round(ema, 2)
+        return ema
+
+    return update
 
 
 @pytest.mark.asyncio
@@ -58,7 +73,7 @@ async def test_updates_ema_and_writes_state_without_slope(bt):
     bt.room_temperature_ema = None
     bt._slope_periodic_last_ts = None
     bt.clock = FakeClock(monotonic_value=1000.0)
-    with patch(_EMA, MagicMock(return_value=20.5)):
+    with patch(_EMA, _filter_update(20.5)):
         await BetterThermostat._async_update_ema_periodic(bt)
     assert bt.temperature_slope is None
     assert bt._slope_periodic_last_ts == 1000.0
@@ -101,3 +116,45 @@ async def test_ema_error_is_caught(bt):
     # No slope written, no crash
     assert bt.temperature_slope is None
     bt.async_write_ha_state.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_tick_that_moves_no_published_value_writes_nothing(bt):
+    """The filter and slope stay on their published steps: no state write."""
+    bt.room_temperature_ema = 20.0
+    bt.room_temperature_filtered = 20.0
+    bt.temperature_slope = 0.0
+    bt._slope_periodic_last_ts = 1000.0
+    bt.clock = FakeClock(monotonic_value=1060.0)
+    with patch(_EMA, _filter_update(20.000_001)):
+        await BetterThermostat._async_update_ema_periodic(bt)
+    assert bt.temperature_slope == pytest.approx(0.000_001)
+    bt.async_write_ha_state.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_slope_step_alone_writes_the_state(bt):
+    """A slope that moves one published step writes, though the filter holds."""
+    bt.room_temperature_ema = 20.0
+    bt.room_temperature_filtered = 20.0
+    bt.temperature_slope = 0.0
+    bt._slope_periodic_last_ts = 1000.0
+    bt.clock = FakeClock(monotonic_value=1060.0)
+    with patch(_EMA, _filter_update(20.0002)):
+        await BetterThermostat._async_update_ema_periodic(bt)
+    assert bt.room_temperature_filtered == 20.0
+    bt.async_write_ha_state.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_a_filter_step_alone_writes_the_state(bt):
+    """A filter that moves one hundredth writes, though the slope holds."""
+    bt.room_temperature_ema = 20.0
+    bt.room_temperature_filtered = 20.0
+    bt.temperature_slope = 0.01
+    bt._slope_periodic_last_ts = 1000.0
+    bt.clock = FakeClock(monotonic_value=1060.0)
+    with patch(_EMA, _filter_update(20.01)):
+        await BetterThermostat._async_update_ema_periodic(bt)
+    assert bt.temperature_slope == pytest.approx(0.01)
+    bt.async_write_ha_state.assert_called_once()

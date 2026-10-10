@@ -88,9 +88,20 @@ class OutboundTrvPayload(TypedDict):
 
 
 def accepts_user_setpoint(
-    trv: Trv, *, is_echo: bool, child_lock: bool, contact_open: bool, was_off: bool
+    trv: Trv, *, is_echo: bool, child_lock: bool, was_off: bool
 ) -> bool:
     """Decide whether a setpoint a TRV reports is a user press to adopt.
+
+    An open window or door does not decide it: a turn at the knob then is
+    the user's word on the room's target, as a target set in Home Assistant
+    is. The contact keeps suppressing the heating, and the cycle the adopted
+    turn requests writes the suppressed setpoint back to the device; once
+    the contact closes the room heats to the adopted target. A device
+    without an off mode stays on while the contact is open, parked at its
+    minimum, and that minimum coming back is an echo. A device BT switches
+    off for the contact falls under the ``hvac_mode`` and ``was_off`` rules
+    below, so neither what it reports while off nor the setpoint it shows
+    when switched on at the device is a press.
 
     Parameters
     ----------
@@ -104,8 +115,6 @@ def accepts_user_setpoint(
     child_lock
         Whether the device is configured as child-locked, so a press on
         its knob does not speak for the user.
-    contact_open
-        Whether a window or door contact of the room is open.
     was_off
         Whether the device was off before this report. A report that
         switches it on carries a setpoint turned while it was off, which is
@@ -124,7 +133,6 @@ def accepts_user_setpoint(
         and trv.system_mode_received is True
         and trv.hvac_mode != HVACMode.OFF
         and not was_off
-        and contact_open is False
         and not trv.ignore_trv_states
     )
 
@@ -148,6 +156,9 @@ def _hold_report(
     reference was set to off, makes the state before that move the reference
     and its mode the mode it is judged against: outside a cycle the handler
     has cached the device as on by then, and reads the move as a press.
+    Any report that moves the setpoint of a device that is on is kept as
+    the held turn, for the end of the cycle to read when a later report
+    switches the device off or brings it back.
     """
     previous_setpoint = _held_setpoint(self, old_state)
     returned = previous_setpoint is None
@@ -176,7 +187,90 @@ def _hold_report(
     if pressed_after_switch_on and old_state is not None:
         trv.state_before_held_report = old_state
         trv.hvac_mode_before_held_report = old_state.state
+    if (
+        old_state is not None
+        and new_state is not None
+        and _reports_on(old_state)
+        and _reports_on(new_state)
+        and previous_setpoint is not None
+        and _held_setpoint(self, new_state) not in (None, previous_setpoint)
+    ):
+        trv.held_turn = (old_state, new_state)
     trv.report_unread = True
+
+
+def reports_written_setpoint(
+    self: BetterThermostat, entity_id: str, trv: Trv, state: State | None
+) -> bool | None:
+    """Return whether a TRV state carries a setpoint Better Thermostat wrote.
+
+    The setpoint counts as written when it lies within the echo window of the
+    last command, the setpoint the device last confirmed, or a write since,
+    and on the device that also serves as the cooler, of the cooling
+    channel's writes as the device holds them.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The thermostat whose writes the setpoint is compared with.
+    entity_id : str
+        The TRV the state belongs to; it decides whether the cooling
+        channel's writes count as well.
+    trv : Trv
+        The TRV's record, which holds its writes and its step.
+    state : State | None
+        The state the TRV reported.
+
+    Returns
+    -------
+    bool | None
+        None when the state carries no setpoint or nothing has been written
+        to compare it with, else whether the setpoint is one of those writes.
+    """
+    reported = read_setpoint_celsius(
+        self, state, TRV_SETPOINT_KEYS, "reports_written_setpoint()"
+    )
+    known: list[float | None] = [
+        trv.commanded_setpoint,
+        trv.confirmed_setpoint,
+        *trv.echo_setpoint_values(),
+    ]
+    if state is not None and entity_id == dual_role_entity_id(self):
+        known += cooling_writes_as_held(self, state)
+    written = [value for value in known if value is not None]
+    if reported is None or not written:
+        return None
+    window = setpoint_echo_window(
+        normalize_step(trv.target_temp_step or self.bt_target_temperature_step)
+    )
+    return any(abs(reported - value) < window for value in written)
+
+
+def _reports_only_own_writes(
+    self: BetterThermostat, trv: Trv, entity_id: str, old_state: State, new_state: State
+) -> bool:
+    """Return whether a report under BT's own context carries only BT's writes.
+
+    Home Assistant stamps every state an entity writes for a few seconds after
+    a service call with the context of that call, and an integration that
+    receives the device's reports over a radio or a broker sets no context of
+    its own. A press at the device inside those seconds therefore reaches the
+    handler under BT's context as well, so the context alone does not say the
+    report is BT's write coming back. The values do: a report is BT's own when
+    its mode is the one the device already reported or the one BT last sent
+    it, and its setpoint is the one the device already reported or one BT
+    wrote to it.
+    """
+    if new_state.state not in (old_state.state, trv.last_hvac_mode):
+        return False
+    reported = read_setpoint_celsius(
+        self, new_state, TRV_SETPOINT_KEYS, "_reports_only_own_writes()"
+    )
+    if reported is None or reported == read_setpoint_celsius(
+        self, old_state, TRV_SETPOINT_KEYS, "_reports_only_own_writes()"
+    ):
+        return True
+    return reports_written_setpoint(self, entity_id, trv, new_state) is True
 
 
 def _reports_on(state: State | None) -> bool:
@@ -319,7 +413,9 @@ async def trigger_trv_change(
     if self.bt_update_lock:
         return
     _main_change = False
-    resolved_event = resolve_state_change_event(self, event, "TRV")
+    resolved_event = resolve_state_change_event(
+        self, event, "TRV", skip_own_context=False
+    )
     if resolved_event is None:
         return
     old_state, new_state, entity_id = resolved_event
@@ -339,6 +435,10 @@ async def trigger_trv_change(
             self.device_name,
             entity_id,
         )
+        return
+    if event.context == self.context and _reports_only_own_writes(
+        self, trv, entity_id, old_state, new_state
+    ):
         return
 
     if trv_report_is_unreadable(self, entity_id, _org_trv_state):
@@ -697,11 +797,7 @@ async def trigger_trv_change(
         _new_heating_setpoint = _setpoint.value
         _is_echo = _setpoint.is_echo
         _accept_user_setpoint = accepts_user_setpoint(
-            trv,
-            is_echo=_is_echo,
-            child_lock=child_lock,
-            contact_open=self.contact_open,
-            was_off=_was_off,
+            trv, is_echo=_is_echo, child_lock=child_lock, was_off=_was_off
         )
         if _was_off and trv.hvac_mode != HVACMode.OFF and not _is_echo:
             # The report that switches the device on shows the setpoint it
@@ -822,7 +918,7 @@ async def trigger_trv_change(
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s setpoint change %s -> %s NOT adopted "
                 "(echo=%s child_lock=%s target_temperature_received=%s system_mode_received=%s "
-                "hvac_mode=%s window_open=%s door_open=%s ignore_trv_states=%s "
+                "hvac_mode=%s ignore_trv_states=%s "
                 "heat_target_temperature=%s commanded_setpoint=%s pending_setpoints=%s step=%s)",
                 self.device_name,
                 entity_id,
@@ -833,8 +929,6 @@ async def trigger_trv_change(
                 trv.target_temperature_received,
                 trv.system_mode_received,
                 trv.hvac_mode,
-                self.window_open,
-                self.door_open,
                 trv.ignore_trv_states,
                 self.heat_target_temperature,
                 trv.commanded_setpoint,
@@ -842,9 +936,16 @@ async def trigger_trv_change(
                 _step,
             )
 
-        if advanced_flag(advanced, CONF_NO_OFF_SYSTEM_MODE):
+        if _is_no_off_device and _accept_user_setpoint:
             # The setpoint of a device without an off mode carries the room's
             # mode, so a report is a control change only where it moves it.
+            # Only a press the room adopts speaks for that mode: BT parks the
+            # device at its minimum itself while it calls for no heat or a
+            # contact is open, and that value coming back is BT's own write,
+            # just as a turn at a locked device or one BT ignores is no word
+            # from the user. A turn while a contact is open switches the room
+            # all the same; the contact keeps the heating suppressed until it
+            # closes.
             _room_before = (self.bt_hvac_mode, self.cool_target_temperature)
             if setpoint_at_minimum(
                 _raw_heating_setpoint,
@@ -854,12 +955,9 @@ async def trigger_trv_change(
                     new_state, self.hass.config.units.temperature_unit
                 ),
             ):
-                # Only set OFF if no window/door contact is open - min_temp
-                # during an open contact was set by BT, not by the user turning
-                # off heating - and only
-                # when the whole group agrees, so a single no_off valve dropping
-                # to min_temp cannot switch the room off.
-                if not self.contact_open and group_all_members_off(self):
+                # Only when the whole group agrees, so a single no_off valve
+                # dropping to min_temp cannot switch the room off.
+                if group_all_members_off(self):
                     if self.bt_hvac_mode != HVACMode.OFF:
                         _LOGGER.debug(
                             "better_thermostat %s: TRV %s reported min_temp %s on a "

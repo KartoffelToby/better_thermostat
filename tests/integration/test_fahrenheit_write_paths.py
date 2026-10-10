@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, HVACMode
+from homeassistant.components.number import NumberDeviceClass
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_TEMPERATURE,
@@ -46,6 +47,11 @@ from custom_components.better_thermostat.utils.const import (
     CONF_THERMOSTAT,
     SERVICE_RUN_VALVE_MAINTENANCE,
 )
+from custom_components.better_thermostat.utils.controlling import (
+    compute_control_cycle,
+    desired_diverges,
+)
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 from .conftest import (
     BT_ENTITY,
@@ -69,6 +75,7 @@ from .device_profiles import (
     OFF_GRID_FAHRENHEIT_TRV,
     TRV_ID,
     DeviceProfile,
+    external_temperature_input_id,
     published_temperature,
     published_unit,
 )
@@ -239,6 +246,217 @@ async def test_setpoint_reaches_the_device_in_the_system_unit(
     written = setpoint_commands(dispatched, TRV_ID)[-1][ATTR_TEMPERATURE]
     assert written == pytest.approx(requested)
     assert _device_setpoint(hass) == pytest.approx(requested)
+
+
+OFF_GRID_FAHRENHEIT_TRV_TARGET_BASED = replace(
+    OFF_GRID_FAHRENHEIT_TRV,
+    name="off_grid_fahrenheit_trv_target_based",
+    calibration="target_temp_based",
+)
+"""The Celsius head on a Fahrenheit system, calibrated through its setpoint."""
+
+WHOLE_DEGREE_CASES = [
+    pytest.param(
+        OFF_GRID_FAHRENHEIT_TRV_TARGET_BASED, 66.5, 70.0, id="target_temp_based"
+    ),
+    pytest.param(OFF_GRID_FAHRENHEIT_TRV, 68.0, 70.5, id="local_calibration"),
+]
+"""Rooms whose setpoint lands between two whole degrees Fahrenheit.
+
+Calibrated through the setpoint, a room at 66.5 °F with a target of 70 °F
+asks the head for 71.5 °F. Calibrated through the offset, the head is asked
+for the target itself, 70.5 °F.
+"""
+
+
+def _publish_device_setpoint(fake_trv, celsius: float) -> None:
+    """Publish the head holding ``celsius``, as a report of its own."""
+    fake_trv._attr_target_temperature = celsius
+    fake_trv.async_set_context(Context())
+    fake_trv.async_write_ha_state()
+
+
+async def _start_in_room(hass, profile: DeviceProfile, room: float):
+    """Start the thermostat for ``profile`` in a room at ``room`` °F."""
+    set_room_sensor(hass, room, UnitOfTemperature.FAHRENHEIT)
+    return await _start(hass, profile)
+
+
+async def _write_and_confirm(hass, bt, fake_trv, requested: float):
+    """Ask for ``requested`` and wait for the write to confirm.
+
+    Returns the setpoint written, in °C.
+    """
+    trv = bt.real_trvs[TRV_ID]
+    baseline = len(fake_trv.set_temperature_calls)
+    await _set_target(hass, requested)
+    assert await wait_for(
+        hass,
+        lambda: len(fake_trv.set_temperature_calls) > baseline,
+        timeout_seconds=2.0,
+    )
+    written = fake_trv.set_temperature_calls[-1]
+    assert await wait_for(
+        hass,
+        lambda: (
+            trv.confirmed_setpoint is not None
+            and trv.confirmed_setpoint == pytest.approx(written, abs=0.01)
+        ),
+        timeout_seconds=1.0,
+    ), (trv.confirmed_setpoint, written, _device_setpoint(hass))
+    assert await wait_for(
+        hass, lambda: trv.target_temperature_received and not bt.ignore_states
+    )
+    return written
+
+
+@pytest.mark.parametrize(
+    ("fake_trv", "room", "requested"), WHOLE_DEGREE_CASES, indirect=["fake_trv"]
+)
+async def test_a_setpoint_published_in_whole_degrees_is_confirmed_and_not_adopted(
+    hass, fake_trv, room, requested
+):
+    """A head Home Assistant publishes in whole degrees is written on them.
+
+    The head publishes no precision, so Home Assistant rounds the setpoint it
+    holds to a whole degree Fahrenheit, and its half-degree Celsius step reads
+    as half a degree Fahrenheit. A setpoint written between two whole degrees
+    would come back on one of them, never as written. Written on a whole
+    degree, it comes back unchanged: the write confirms, the reconciler sees
+    the device where it was sent, and the head's next routine report leaves
+    the room's target where the user put it.
+    """
+    bt = await _start_in_room(hass, fake_trv.profile, room)
+
+    with patch(WRITE_BUDGET, 0.0):
+        written = await _write_and_confirm(hass, bt, fake_trv, requested)
+        assert _fahrenheit(written) == pytest.approx(round(_fahrenheit(written)))
+        assert _device_setpoint(hass) == pytest.approx(_fahrenheit(written))
+        assert not desired_diverges(
+            bt, *compute_control_cycle(bt, record=False, commit=False)
+        )
+
+        # The head's next routine report carries the setpoint again.
+        fake_trv._attr_current_temperature = fake_trv.current_temperature + 0.3
+        fake_trv.async_set_context(Context())
+        fake_trv.async_write_ha_state()
+        for _ in range(20):
+            await hass.async_block_till_done()
+
+    assert hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE] == requested
+
+
+@pytest.mark.parametrize(
+    "fake_trv", [OFF_GRID_FAHRENHEIT_TRV_TARGET_BASED], indirect=True
+)
+async def test_a_room_above_its_target_rounds_down_to_a_whole_degree(hass, fake_trv):
+    """The calibrated setpoint rounds away from heating on the grid it is written on.
+
+    A room at 71.3 °F with a target of 70 °F calibrates the head, which reads
+    68 °F, to 66.7 °F. The room is not calling for heat, so the setpoint
+    rounds down, to 66 °F, and not up to 67 °F, where the head would hold its
+    valve open longer than the calibration asked for.
+    """
+    bt = await _start_in_room(hass, fake_trv.profile, 71.3)
+
+    with patch(WRITE_BUDGET, 0.0):
+        written = await _write_and_confirm(hass, bt, fake_trv, 70.0)
+
+    assert _fahrenheit(written) == pytest.approx(66.0)
+
+
+@pytest.mark.parametrize(
+    ("fake_trv", "room", "requested"), WHOLE_DEGREE_CASES, indirect=["fake_trv"]
+)
+async def test_a_confirmed_setpoint_in_whole_degrees_is_not_written_again(
+    hass, fake_trv, room, requested
+):
+    """Control cycles after the confirmation leave the head alone.
+
+    The write gate compares the setpoint the room asks for with the one the
+    head reports. Both lie on the whole degree the head was written on, so
+    no cycle finds a difference to send, however often the write budget
+    allows it.
+    """
+    bt = await _start_in_room(hass, fake_trv.profile, room)
+
+    with patch(WRITE_BUDGET, 0.0):
+        await _write_and_confirm(hass, bt, fake_trv, requested)
+        writes = len(fake_trv.set_temperature_calls)
+        for _ in range(4):
+            request_control_cycle(bt)
+            await bt.control_queue_task.join()
+            await hass.async_block_till_done()
+
+    assert fake_trv.set_temperature_calls[writes:] == []
+
+
+@pytest.mark.parametrize("fake_trv", [OFF_GRID_FAHRENHEIT_TRV], indirect=True)
+async def test_a_whole_celsius_step_reported_in_whole_fahrenheit_is_not_resent(
+    hass, fake_trv
+):
+    """A head held on whole degrees Celsius is not written again for its report.
+
+    Configured on a step of one degree Celsius, the head is written 21 °C for
+    a target of 70.5 °F. Home Assistant reports that as 70 °F, 21.11 °C. The
+    write is confirmed and the cycles after it find no difference to send,
+    though the report never equals the value written.
+    """
+    bt = await _start_in_room(hass, fake_trv.profile, 68.0)
+    bt.real_trvs[TRV_ID].target_temp_step = 1.0
+
+    with patch(WRITE_BUDGET, 0.0):
+        written = await _write_and_confirm(hass, bt, fake_trv, 70.5)
+        writes = len(fake_trv.set_temperature_calls)
+        for _ in range(4):
+            request_control_cycle(bt)
+            await bt.control_queue_task.join()
+            await hass.async_block_till_done()
+
+    assert written == pytest.approx(21.0)
+    assert _device_setpoint(hass) == pytest.approx(70.0)
+    assert fake_trv.set_temperature_calls[writes:] == []
+
+
+@pytest.mark.parametrize(
+    "turn", [pytest.param(-0.5, id="down"), pytest.param(0.5, id="up")]
+)
+@pytest.mark.parametrize("fake_trv", [OFF_GRID_FAHRENHEIT_TRV], indirect=True)
+async def test_one_step_at_a_head_published_in_whole_degrees_is_adopted(
+    hass, fake_trv, turn
+):
+    """A turn of one step at the head that Home Assistant shows is the user's.
+
+    The room asks for 70.5 °F and calls for heat, so the head is written
+    71 °F. It holds that on its half-degree Celsius grid as 21.5 °C, still
+    published as 71 °F. One step down, 21 °C, is published as 70 °F; one step
+    up, 22 °C, as 72 °F. Either is a whole degree from the write, and the
+    room's target follows it in both directions.
+    """
+    bt = await _start_in_room(hass, fake_trv.profile, 68.0)
+
+    with patch(WRITE_BUDGET, 0.0):
+        written = await _write_and_confirm(hass, bt, fake_trv, 70.5)
+        # The head holds the write on its own half-degree Celsius grid.
+        held = round(written * 2.0) / 2.0
+        _publish_device_setpoint(fake_trv, held)
+        await hass.async_block_till_done()
+        assert hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE] == 70.5
+
+        _publish_device_setpoint(fake_trv, held + turn)
+        adopted = round(_fahrenheit(held + turn))
+        assert _device_setpoint(hass) == adopted
+        assert await wait_for(
+            hass,
+            lambda: (
+                hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE]
+                == pytest.approx(adopted, abs=0.01)
+            ),
+            timeout_seconds=2.0,
+        ), (
+            hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE],
+            _device_setpoint(hass),
+        )
 
 
 # -- bound clamping -----------------------------------------------------------
@@ -808,3 +1026,135 @@ async def test_a_preset_number_steps_in_the_system_unit(hass):
 
     assert hass.states.get("number.bt_test_eco").attributes["step"] == 0.9
     assert hass.states.get(BT_ENTITY).attributes["target_temp_step"] == 0.9
+
+
+# -- calibration number -------------------------------------------------------
+
+
+TEMPERATURE_OFFSET_TRV = replace(
+    OFF_GRID_FAHRENHEIT_TRV,
+    name="temperature_offset_trv",
+    offset_device_class=NumberDeviceClass.TEMPERATURE,
+    offset_unit=UnitOfTemperature.CELSIUS,
+)
+"""A head whose offset number is a Celsius ``temperature``, like eQ-3 or Plugwise.
+
+Home Assistant converts it as an absolute temperature: an offset of 0 K is
+published as 32 °F and the device's -12 to 12 K as 10.4 to 53.6 °F.
+"""
+
+FAHRENHEIT_DIFFERENCE_OFFSET_TRV = replace(
+    OFF_GRID_FAHRENHEIT_TRV,
+    name="fahrenheit_difference_offset_trv",
+    offset_device_class=NumberDeviceClass.TEMPERATURE_DELTA,
+    offset_unit=UnitOfTemperature.FAHRENHEIT,
+)
+"""A head whose offset number counts a difference in degrees Fahrenheit.
+
+Home Assistant publishes it as it is, so one Kelvin of offset is 1.8 of it.
+"""
+
+
+@pytest.mark.parametrize(
+    ("fake_trv", "native_per_kelvin"),
+    [
+        pytest.param(TEMPERATURE_OFFSET_TRV, 1.0, id="temperature_in_celsius"),
+        pytest.param(
+            FAHRENHEIT_DIFFERENCE_OFFSET_TRV, 1.8, id="difference_in_fahrenheit"
+        ),
+    ],
+    indirect=["fake_trv"],
+)
+async def test_a_calibration_number_in_the_system_unit_takes_the_offset_in_kelvin(
+    hass, fake_trv, native_per_kelvin
+):
+    """An offset reaches the device as the difference it is, in the device's unit.
+
+    The device reads 20 °C and the room 22.5 °C, so the head is corrected by
+    2.5 K, to within the device's step. A ``temperature`` number in Celsius
+    receives it as it is, although Home Assistant publishes the number in
+    °F; a number counting Fahrenheit differences receives 1.8 times it. The
+    device's range is read the same way, and the zero offset the startup
+    writes is a zero on the device as well.
+    """
+    profile = fake_trv.profile
+    set_room_sensor(hass, _fahrenheit(22.5), UnitOfTemperature.FAHRENHEIT)
+    bt = await _start(hass, profile)
+    trv = bt.real_trvs[TRV_ID]
+
+    offset_number = fake_trv.offset_number
+    assert offset_number is not None
+    assert await wait_for(hass, lambda: trv.last_calibration not in (None, 0.0)), (
+        offset_number.set_value_calls
+    )
+
+    assert trv.last_calibration == pytest.approx(2.5, abs=trv.local_calibration_step)
+    assert offset_number.set_value_calls[-1] == pytest.approx(
+        trv.last_calibration * native_per_kelvin
+    )
+    assert offset_number.set_value_calls[:-1] == [0.0] * (
+        len(offset_number.set_value_calls) - 1
+    )
+    assert trv.local_calibration_step == pytest.approx(0.5 / native_per_kelvin)
+    # Home Assistant publishes the bounds of a converted number floored and
+    # ceiled to a tenth of a degree Fahrenheit.
+    assert trv.min_local_calibration == pytest.approx(
+        -12.0 / native_per_kelvin, abs=0.06
+    )
+    assert trv.max_local_calibration == pytest.approx(
+        12.0 / native_per_kelvin, abs=0.06
+    )
+
+
+# -- external temperature input -----------------------------------------------
+
+
+TRVZB_ON_A_FAHRENHEIT_SYSTEM = DeviceProfile(
+    name="trvzb_on_a_fahrenheit_system",
+    integration="mqtt",
+    calibration="target_temp_based",
+    has_device_registry_entry=True,
+    model="TRVZB",
+    current_temperature=20.0,
+    target_temperature=20.0,
+    precision=0.1,
+    system_unit=UnitOfTemperature.FAHRENHEIT,
+    external_temperature_input=True,
+)
+"""A Sonoff TRVZB in Celsius whose external temperature input is published in °F."""
+
+
+@pytest.mark.parametrize(
+    ("fake_trv", "room_celsius", "native_input"),
+    [
+        pytest.param(TRVZB_ON_A_FAHRENHEIT_SYSTEM, 21.3, 21.3, id="in_range"),
+        pytest.param(TRVZB_ON_A_FAHRENHEIT_SYSTEM, -5.0, 0.0, id="below_the_input"),
+    ],
+    indirect=["fake_trv"],
+)
+async def test_the_room_temperature_reaches_the_external_input_in_its_unit(
+    hass, fake_trv, room_celsius, native_input
+):
+    """The room temperature goes into the external input as the same temperature.
+
+    The input publishes its value and its range, 0 to 99.9 °C, in Fahrenheit,
+    and Home Assistant refuses a value outside 32 to 211.9 °F. The room
+    temperature is written in that unit, so the device receives the room's
+    Celsius reading; a room colder than the input goes down to accept
+    receives the input's lower end.
+    """
+    profile = fake_trv.profile
+    _publish_room_at_device_reading(hass, profile)
+    await _start(hass, profile)
+    external_input = fake_trv.external_temperature_input
+    assert external_input is not None
+    written_so_far = len(external_input.set_value_calls)
+
+    set_room_sensor(hass, _fahrenheit(room_celsius), UnitOfTemperature.FAHRENHEIT)
+    assert await wait_for(
+        hass, lambda: len(external_input.set_value_calls) > written_so_far
+    ), external_input.set_value_calls
+
+    assert external_input.set_value_calls[-1] == pytest.approx(native_input)
+    published = float(hass.states.get(external_temperature_input_id(profile)).state)
+    assert published == pytest.approx(_fahrenheit(native_input), abs=0.05)
