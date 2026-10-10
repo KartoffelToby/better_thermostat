@@ -58,12 +58,10 @@ def _make_valve_self(last_percent=40, *, in_maintenance=False):
     """Create a mock BetterThermostat whose TRV records a commanded valve percent."""
     mock_self = _make_self()
     mock_self.in_maintenance = in_maintenance
+    mock_self.is_removed = False
     trv_state = Trv(entity_id=ENTITY)
     trv_state.last_valve_percent = last_percent
     mock_self.real_trvs = {ENTITY: trv_state}
-    mock_self.hass.async_create_background_task = lambda coro, name=None: (
-        asyncio.ensure_future(coro)
-    )
     return mock_self, trv_state
 
 
@@ -187,6 +185,26 @@ class TestOverrideSetValve:
 
         assert handled is True
         assert writes == [0]
+        assert "_trvzb_valve_bump_task" not in trv_state.extra
+
+    @pytest.mark.asyncio
+    async def test_valve_maintenance_drops_a_deferred_close(self, writes, monkeypatch):
+        """A close still due from before maintenance stays off the valve.
+
+        Maintenance opens the valve fully and holds it there; the target a
+        bump deferred just before would land in that hold and close it.
+        """
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.01)
+        mock_self, trv_state = _make_valve_self(last_percent=60)
+        await quirk.override_set_valve(mock_self, ENTITY, 20)
+        deferred = trv_state.extra["_trvzb_valve_bump_task"]
+
+        mock_self.in_maintenance = True
+        await quirk.override_set_valve(mock_self, ENTITY, 100)
+        await asyncio.wait([deferred])
+        await asyncio.sleep(0.02)
+
+        assert writes == [70, 100]
         assert "_trvzb_valve_bump_task" not in trv_state.extra
 
     @pytest.mark.asyncio
@@ -566,10 +584,8 @@ class TestValveWriteTheDeviceRefuses:
 
         mock_self = _make_self()
         mock_self.in_maintenance = False
+        mock_self.is_removed = False
         mock_self.real_trvs = {ENTITY: Trv(entity_id=ENTITY, model="TRVZB")}
-        mock_self.hass.async_create_background_task = lambda coro, name=None: (
-            asyncio.ensure_future(coro)
-        )
         return mock_self
 
     @pytest.mark.parametrize(
@@ -915,6 +931,51 @@ class TestTheDeferredValveWrite:
         await trv_state.extra["_trvzb_valve_bump_task"]
 
         assert writes == [50]
+
+    @pytest.mark.asyncio
+    async def test_a_thermostat_removed_meanwhile_does_not_write(
+        self, writes, monkeypatch
+    ):
+        """A thermostat removed during the delay leaves the valve alone."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        mock_self.is_removed = True
+        await trv_state.extra["_trvzb_valve_bump_task"]
+
+        assert writes == [50]
+
+    @pytest.mark.asyncio
+    async def test_the_removal_cancels_the_waiting_write(self, writes, monkeypatch):
+        """The deferred write is the thermostat's own work and ends with it."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.01)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        task = trv_state.extra["_trvzb_valve_bump_task"]
+        cancelled = mock_self.task_manager.cancel_all()
+        await asyncio.wait(cancelled)
+        await asyncio.sleep(0.02)
+
+        assert task in cancelled
+        assert writes == [50]
+
+    @pytest.mark.asyncio
+    async def test_a_removed_thermostat_closes_without_deferring(self, writes):
+        """Once the removal has closed the task owner, the close goes out at once.
+
+        The bump has already opened the valve; with no deferred write to
+        follow it, leaving the valve there would hold it further open than
+        asked for.
+        """
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+        mock_self.task_manager.cancel_all()
+
+        assert await quirk.override_set_valve(mock_self, ENTITY, 30) is True
+
+        assert writes == [50, 30]
+        assert "_trvzb_valve_bump_task" not in trv_state.extra
 
     @pytest.mark.asyncio
     async def test_a_superseded_write_is_dropped(self, writes, monkeypatch):

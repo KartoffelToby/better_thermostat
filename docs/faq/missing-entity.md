@@ -21,8 +21,10 @@ sensor, raise a [degraded mode](/faq/degraded-mode) issue instead.
 
 1. Open **Settings → Devices & services** and find the entity named in
    the issue. Check the device's battery and reconnect it if necessary.
-2. If the device was replaced by one with a different entity id, select
-   the new entity in the Better Thermostat options.
+2. If the device was replaced by one with a different entity id, open the
+   Better Thermostat under
+   **Settings → Devices & services → Better Thermostat → Configure** and
+   select the new entity in place of the old one.
 3. If the TRV is gone for good, remove it from the Better Thermostat
    configuration.
 

@@ -102,6 +102,16 @@ COOLER_RESEND = (
     "custom_components.better_thermostat.utils.controlling.COOLER_RESEND_INTERVAL_S"
 )
 
+# How long a device call may take before it counts as failed, and how long a
+# TRV's initial tweak may take. Both are tens of seconds of wall-clock time,
+# so a test with a device that never answers shortens them here.
+DEVICE_CALL_DEADLINE = (
+    "custom_components.better_thermostat.utils.retry.DEVICE_CALL_TIMEOUT_S"
+)
+INITIAL_TWEAK_BUDGET = (
+    "custom_components.better_thermostat.climate.INITIAL_TWEAK_BUDGET_S"
+)
+
 # The two startup grace windows, during which an unavailable entity is waited
 # for instead of reported. Both are minutes long, so a test that wants to see
 # what happens after one has closed shortens it here rather than waiting.
@@ -200,6 +210,22 @@ class SimulatedClimate(ClimateEntity):
         self.set_temperature_calls: list[float | dict[str, float]] = []
         self.set_hvac_mode_calls: list[str] = []
         self.drop_next_setpoint_write = False
+
+    @property
+    @override
+    def target_temperature(self) -> float | None:
+        """Return the setpoint the device publishes.
+
+        A device whose profile names an ``off_target_temperature`` publishes
+        that placeholder while it is off and keeps the setpoint it holds for
+        the next time it runs.
+        """
+        if (
+            self.profile.off_target_temperature is not None
+            and self.hvac_mode == HVACMode.OFF
+        ):
+            return self.profile.off_target_temperature
+        return self._attr_target_temperature
 
     def set_available(self, available: bool) -> None:
         """Take the device off the air, or put it back on.

@@ -397,8 +397,14 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
         if trv_state is None:
             return False
 
-        # During valve maintenance we don't want to add additional delayed steps.
+        # During valve maintenance we don't want to add additional delayed steps,
+        # and a delayed step still pending from before would overwrite the
+        # position maintenance drives the valve to.
         if self.in_maintenance:
+            _cancel_pending_valve_bump(trv_state)
+            trv_state.extra["_trvzb_valve_bump_seq"] = (
+                trv_state.extra.get("_trvzb_valve_bump_seq", 0) + 1
+            )
             ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_percent)
             return ok
 
@@ -435,6 +441,8 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
             async def _delayed_set() -> None:
                 try:
                     await asyncio.sleep(float(_TRVZB_CLOSE_BUMP_DELAY_S))
+                    if self.is_removed:
+                        return
                     cur_state = self.real_trvs.get(entity_id)
                     if cur_state is None or (
                         cur_state.extra.get("_trvzb_valve_bump_seq", 0) != seq
@@ -452,11 +460,20 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
                         ex,
                     )
 
-            trv_state.extra["_trvzb_valve_bump_task"] = (
-                self.hass.async_create_background_task(
-                    _delayed_set(), name=f"bt_trvzb_valve_bump_{entity_id}"
-                )
+            # The thermostat owns the deferred write, so unloading or removing
+            # it cancels the write along with the rest of its work.
+            bump_task = self.task_manager.create_task(
+                _delayed_set(), name=f"bt_trvzb_valve_bump_{entity_id}"
             )
+            if bump_task is None:
+                # The thermostat is being removed and starts no deferred
+                # work. The bump has opened the valve already, so the target
+                # goes out now rather than leaving it open.
+                ok = await maybe_set_sonoff_valve_percent(
+                    self, entity_id, target_percent
+                )
+                return ok
+            trv_state.extra["_trvzb_valve_bump_task"] = bump_task
             return True
 
         # Opening, unchanged, or a close following a bump that has not run yet:

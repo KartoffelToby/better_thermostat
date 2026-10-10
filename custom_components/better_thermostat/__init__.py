@@ -14,6 +14,7 @@ from homeassistant.const import Platform, UnitOfTemperature
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import entity_registry as er, issue_registry as ir, service
+from homeassistant.helpers.entity_platform import async_get_platforms
 from homeassistant.helpers.typing import ConfigType, VolDictType, VolSchemaType
 from homeassistant.util.unit_conversion import TemperatureConverter
 import voluptuous as vol
@@ -292,9 +293,30 @@ async def async_setup_entry(
         _LOGGER.exception(
             "better_thermostat: error loading platforms for entry %s", entry.entry_id
         )
+        await _unload_forwarded_platforms(hass, entry)
         return False
     entry.async_on_unload(entry.add_update_listener(config_entry_update_listener))
     return True
+
+
+async def _unload_forwarded_platforms(
+    hass: HomeAssistant, entry: BetterThermostatConfigEntry
+) -> None:
+    """Unload the platforms a failed setup had already set the entry up on.
+
+    Home Assistant does not unload an entry whose setup failed. A climate
+    platform set up before a later platform failed would keep its entity
+    running and writing to the TRVs, and every retry of the setup would fail
+    on the platform it finds already set up.
+    """
+    forwarded = [
+        platform.domain
+        for platform in async_get_platforms(hass, DOMAIN)
+        if platform.config_entry is not None
+        and platform.config_entry.entry_id == entry.entry_id
+    ]
+    if forwarded:
+        await hass.config_entries.async_unload_platforms(entry, forwarded)
 
 
 def _reload_lock(hass: HomeAssistant, entry: BetterThermostatConfigEntry) -> Lock:

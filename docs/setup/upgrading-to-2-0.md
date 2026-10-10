@@ -79,7 +79,8 @@ itself.
 - **Two more attributes are renamed the same way.** `external_temp_ema` is now
   `room_temperature_filtered`, and `temp_slope_K_min` is now
   `temperature_slope_kelvin_per_min`. 2.x publishes the old names as well;
-  3.0 drops them.
+  3.0 drops them. The recorder keeps neither name of either attribute: their
+  history is on the Temperature EMA and Temperature Slope sensors.
 - **The PID and MPC v2 diagnostic attributes spell out their units.**
   `pid_e_K` is now `pid_error_kelvin`, `pid_meas_smooth_C`
   `pid_measurement_filtered`, `pid_d_meas_K_per_min`
@@ -100,7 +101,9 @@ itself.
 The option "Minimum seconds between repeated cooler commands" is gone.
 Better Thermostat now holds back an unchanged temperature or mode command
 if it sent the same value less than 240 seconds earlier, to protect the
-compressor. A changed value goes out with the next control cycle; if the
+compressor. A mode the cooler left on its own since that command, through
+its remote or an outage, is sent again at once, but only once in those 240
+seconds. A changed value goes out with the next control cycle; if the
 previous command failed, it waits at least 30 seconds after that failure. A
 failed command is retried with its own growing pause, from 30 seconds up to
 30 minutes. You don't need to do anything; a
