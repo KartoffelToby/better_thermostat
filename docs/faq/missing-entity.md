@@ -13,16 +13,16 @@ sensor, raise a [degraded mode](/faq/degraded-mode) issue instead.
 
 - The device's battery is empty or the device lost its radio connection.
 - The integration providing the entity is not loaded or failed to start.
-- The entity was renamed or removed, so the entity id Better Thermostat
-  was configured with no longer exists.
+- The entity was removed, so the entity id Better Thermostat was
+  configured with no longer exists. A renamed entity does not cause this:
+  Better Thermostat follows a new entity id on its own.
 
 ## How to fix it
 
 1. Open **Settings → Devices & services** and find the entity named in
    the issue. Check the device's battery and reconnect it if necessary.
-2. If the entity was renamed or the device replaced, its entity id
-   changed and Better Thermostat still looks for the old one. Either
-   rename the entity back, or open the Better Thermostat under
+2. If the device was replaced by one with a different entity id, open the
+   Better Thermostat under
    **Settings → Devices & services → Better Thermostat → Configure** and
    select the new entity in place of the old one.
 3. If the TRV is gone for good, remove it from the Better Thermostat

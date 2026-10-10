@@ -58,6 +58,33 @@ heat loss) is read only when the store holds no value for that field. The
 temperature EMA and slope are not read from attributes, since an
 attribute carries no time to judge their age by.
 
+## Keys follow the thermostat
+
+Controller state is keyed `<unique_id>:<segment>:t<bucket>`: the entry's
+unique id, the thermostat's entity id (or `group` for state the room's
+thermostats share), and the 0.5 °C target bucket. A key without a bucket
+whose last part is an entity id, `<unique_id>:<entity_id>`, names that
+thermostat too; a shared key such as `<unique_id>:reid` names none and is
+left alone by both rules below. Because the entity id is
+part of the key, two rules keep the state attached to the device rather
+than to the id:
+
+- When the user gives a configured thermostat a new entity id, every key
+  that names the old id moves to the new one, in each section (PID, MPC,
+  MPC v2 and its re-identification results, TPI), before the entry
+  reloads under the new id. A running thermostat moves the state it holds
+  in memory, which its unload then saves. Otherwise the move is recorded
+  and applied by whichever loads the stored state next under the entry's
+  lock: the rename itself, after the final save of a thermostat being
+  removed, or a thermostat being set up. The setup holds the lock from
+  reading the store until it holds the state in memory, so neither reads a
+  store the other is about to replace. The thermostat's own entities move
+  their registry rows to unique ids built from the new id as well.
+- At load, after the legacy-store import, every key whose segment is
+  neither a configured thermostat nor `group` is dropped. State learned
+  for a removed thermostat would otherwise come back for whichever device
+  is given its entity id next.
+
 ## Poison resistance
 
 Persisted state is treated as untrusted input, absorbed at three
