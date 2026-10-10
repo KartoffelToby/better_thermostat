@@ -874,9 +874,7 @@ class TestOnlyAnOffsetTrvWaitsForItsCalibrationEntity:
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
     @pytest.mark.parametrize("calibration", NON_OFFSET_CALIBRATIONS)
     @pytest.mark.asyncio
-    async def test_an_absent_entity_is_not_reported(
-        self, adapter, calibration, caplog
-    ):
+    async def test_an_absent_entity_is_not_reported(self, adapter, calibration, caplog):
         """No warning about a missing entity, and nothing is waited for."""
         mock_self = _mock_self(calibration_entity=None)
         mock_self.real_trvs[ENTITY_ID].calibration = calibration

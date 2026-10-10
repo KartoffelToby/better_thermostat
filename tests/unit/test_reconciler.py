@@ -1022,7 +1022,9 @@ class TestOffsetReconcileHandoff:
         [CalibrationOutput.TARGET_TEMP_BASED, CalibrationOutput.DIRECT_VALVE_BASED],
     )
     @pytest.mark.asyncio
-    async def test_the_offset_of_a_trv_calibrated_otherwise_is_no_divergence(self, calibration):
+    async def test_the_offset_of_a_trv_calibrated_otherwise_is_no_divergence(
+        self, calibration
+    ):
         """The offset of a TRV calibrated otherwise is the device's own.
 
         Such a TRV can still carry a calibration entity, and its offset can
