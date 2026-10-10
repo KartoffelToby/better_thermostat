@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from custom_components.better_thermostat.core.fsm.maintenance import (
     MaintenancePhase,
     MaintenanceState,
@@ -93,16 +95,23 @@ def test_running_cannot_block_forever():
     assert running.is_blocking(now_monotonic=100.0 + 3600.0) is False
 
 
-def test_running_without_timestamp_does_not_block():
-    """A RUNNING phase without a start timestamp never blocks.
+@pytest.mark.parametrize(
+    ("phase", "running_since"),
+    [
+        (MaintenancePhase.RUNNING, None),
+        (MaintenancePhase.IDLE, 100.0),
+        (MaintenancePhase.DUE, 100.0),
+    ],
+)
+def test_start_timestamp_without_running_phase_is_rejected(phase, running_since):
+    """running_since is set exactly while RUNNING.
 
-    Such a state cannot come from start_run, only from deserialized or
-    hand-built state; with no age to measure it could never hit the
-    max_run_seconds bound, so honoring it would block control forever.
+    A RUNNING phase without a start timestamp has no age to measure, so
+    it could never hit the max_run_seconds bound and would block control
+    forever; a timestamp outside RUNNING has no meaning.
     """
-    state = MaintenanceState(phase=MaintenancePhase.RUNNING, running_since=None)
-    assert state.is_blocking(now_monotonic=0.0) is False
-    assert state.is_blocking(now_monotonic=99_999.0) is False
+    with pytest.raises(ValueError, match="exactly while RUNNING"):
+        MaintenanceState(phase=phase, running_since=running_since)
 
 
 def test_tick_leaves_non_idle_phases_alone():

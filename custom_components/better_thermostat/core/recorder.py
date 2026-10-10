@@ -13,16 +13,17 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 import math
+from typing import NamedTuple, TypedDict
 
 from .decide import KernelState, decide
 from .desired import DesiredState, Suppression, TrvDesired
-from .fsm.control_mode import ControlMode, ControlModeState
+from .fsm.control_mode import ControlMode, ControlModeState, PendingWindow
 from .fsm.lifecycle import LifecyclePhase, LifecycleState
 from .fsm.maintenance import MaintenancePhase, MaintenanceState
 from .fsm.mode import ModeState
 from .fsm.reachability import ReachabilityState
 from .fsm.window import WindowPhase, WindowState
-from .snapshot import TrvReported, WorldSnapshot, parse_hvac_mode
+from .snapshot import TrvReported, WorldSnapshot, parse_hvac_mode, parse_preset
 
 DEFAULT_CAPACITY = 50
 
@@ -42,6 +43,22 @@ type _Recordable = (
     | Mapping[str, "_Recordable"]
     | Sequence["_Recordable"]
 )
+
+
+class DecisionRecord(NamedTuple):
+    """One recorded decision: the inputs of ``decide()`` and its output."""
+
+    snapshot: WorldSnapshot
+    state: KernelState
+    desired: DesiredState
+
+
+class ExportedDecision(TypedDict):
+    """JSON form of one :class:`DecisionRecord`."""
+
+    snapshot: Json
+    state: Json
+    desired: Json
 
 
 def _json_safe(value: _Recordable) -> Json:
@@ -145,20 +162,13 @@ def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
     dict
         Mapping of field name to its ``asdict`` representation.
     """
-    # A missing key and an explicit None both reconstruct to "no pending
-    # target"; drop the None so that export stays free of the null field.
-    control_mode = {
-        key: value
-        for key, value in asdict(state.control_mode).items()
-        if key != "pending_target" or value is not None
-    }
     return {
         "window": asdict(state.window),
         "door": asdict(state.door),
         "maintenance": asdict(state.maintenance),
         "lifecycle": asdict(state.lifecycle),
         "mode": asdict(state.mode),
-        "control_mode": control_mode,
+        "control_mode": asdict(state.control_mode),
         "reachability": {
             entity_id: asdict(entry) for entity_id, entry in state.reachability.items()
         },
@@ -171,9 +181,7 @@ class FlightRecorder:
     """Bounded ring buffer of decision tuples."""
 
     capacity: int = DEFAULT_CAPACITY
-    _entries: deque[tuple[WorldSnapshot, KernelState, DesiredState]] = field(
-        default_factory=deque, repr=False
-    )
+    _entries: deque[DecisionRecord] = field(default_factory=deque, repr=False)
 
     def __post_init__(self) -> None:
         """Validate the configured capacity and trim any over-capacity entries.
@@ -203,21 +211,21 @@ class FlightRecorder:
         recorded reference cannot be mutated by a later cycle and needs
         no defensive copy.
         """
-        self._entries.append((snapshot, state, desired))
+        self._entries.append(DecisionRecord(snapshot, state, desired))
 
     def __len__(self) -> int:
         """Return the number of recorded tuples."""
         return len(self._entries)
 
-    def export(self) -> list[dict[str, Json]]:
+    def export(self) -> list[ExportedDecision]:
         """Serialize the buffer to JSON-safe dicts (oldest first)."""
         return [
-            {
-                "snapshot": _json_safe(asdict(snapshot)),
-                "state": _json_safe(_state_asdict(state)),
-                "desired": _json_safe(asdict(desired)),
-            }
-            for snapshot, state, desired in self._entries
+            ExportedDecision(
+                snapshot=_json_safe(asdict(record.snapshot)),
+                state=_json_safe(_state_asdict(record.state)),
+                desired=_json_safe(asdict(record.desired)),
+            )
+            for record in self._entries
         ]
 
 
@@ -271,7 +279,7 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
         ),
         call_for_heat=_bool_of(data["call_for_heat"]),
         window_open=_bool_or_none(data.get("window_open")),
-        preset_mode=_str_or_none(data["preset_mode"]),
+        preset_mode=parse_preset(_str_or_none(data["preset_mode"])),
         tolerance=_float_or_default(data["tolerance"], 0.0),
         outdoor_temperature=_float_or_none(data["outdoor_temperature"]),
         is_day=_bool_of(data["is_day"]),
@@ -280,6 +288,61 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
         max_temp=_float_or_none(data["max_temp"]),
         trvs=trvs,
     )
+
+
+def _pending_window_of(control_mode: dict[str, Json]) -> PendingWindow | None:
+    """Read the ladder's pending window from an exported ``control_mode``.
+
+    The window is exported as one ``pending`` mapping. An export without
+    that key carries it as ``down_pending_since``/``up_pending_since``
+    plus an optional ``pending_target``. A window missing its start time
+    (nulled by the exporter when non-finite) or its target loads as no
+    window, which the ladder treats identically: the window restarts on
+    the next observation.
+    """
+    if "pending" in control_mode:
+        raw = control_mode["pending"]
+        if raw is None:
+            return None
+        window = _dict_of(raw)
+        since = _float_or_none(window["since"])
+        if since is None:
+            return None
+        return PendingWindow(
+            deeper=_bool_of(window["deeper"]),
+            since=since,
+            target=ControlMode(_str_of(window["target"])),
+        )
+    target = _str_or_none(control_mode.get("pending_target"))
+    down_since = _float_or_none(control_mode.get("down_pending_since"))
+    up_since = _float_or_none(control_mode.get("up_pending_since"))
+    if down_since is not None and up_since is not None:
+        raise ValueError("pending window runs in both directions")
+    if target is None:
+        return None
+    if down_since is not None:
+        return PendingWindow(deeper=True, since=down_since, target=ControlMode(target))
+    if up_since is not None:
+        return PendingWindow(deeper=False, since=up_since, target=ControlMode(target))
+    return None
+
+
+def _maintenance_of(raw: dict[str, Json]) -> MaintenanceState:
+    """Read the maintenance region from its exported form.
+
+    A start timestamp counts only alongside a RUNNING phase. A RUNNING
+    phase without one loads as IDLE: with no age to measure it never
+    blocked control, and IDLE is the consistent state that behaves the
+    same way in ``decide()``.
+    """
+    phase = MaintenancePhase(_str_of(raw["phase"]))
+    next_due = _datetime_or_none(raw["next_due"])
+    running_since = _float_or_none(raw["running_since"])
+    if phase != MaintenancePhase.RUNNING:
+        return MaintenanceState(phase=phase, next_due=next_due)
+    if running_since is None:
+        return MaintenanceState(next_due=next_due)
+    return MaintenanceState(phase=phase, next_due=next_due, running_since=running_since)
 
 
 def state_from_dict(data: dict[str, Json]) -> KernelState:
@@ -294,8 +357,8 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
     reachability = {}
     for entity_id, raw_entry in _dict_of(data["reachability"]).items():
         raw = _dict_of(raw_entry)
+        # An "online" key is derived from offline_since and ignored.
         reachability[entity_id] = ReachabilityState(
-            online=_bool_of(raw["online"]),
             offline_since=_float_or_none(raw["offline_since"]),
             retry_count=_int_of(raw["retry_count"]),
             retry_at=_float_or_none(raw["retry_at"]),
@@ -303,8 +366,6 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
     unavailable = control_mode["unavailable_sensors"]
     if not isinstance(unavailable, list):
         raise ValueError("unavailable_sensors must be a list")
-    # A missing "pending_target" key loads as no pending target.
-    pending_target = _str_or_none(control_mode.get("pending_target"))
     return KernelState(
         window=WindowState(
             phase=WindowPhase(_str_of(window["phase"])),
@@ -318,11 +379,7 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
             if door is not None
             else WindowState()
         ),
-        maintenance=MaintenanceState(
-            phase=MaintenancePhase(_str_of(maintenance["phase"])),
-            next_due=_datetime_or_none(maintenance["next_due"]),
-            running_since=_float_or_none(maintenance["running_since"]),
-        ),
+        maintenance=_maintenance_of(maintenance),
         lifecycle=LifecycleState(
             phase=LifecyclePhase(_str_of(lifecycle["phase"])),
             grace_until=_datetime_or_none(lifecycle["grace_until"]),
@@ -330,17 +387,13 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
         mode=ModeState(
             hvac_mode=parse_hvac_mode(_str_or_none(mode["hvac_mode"]))
             or ModeState().hvac_mode,
-            preset=_str_or_none(mode["preset"]),
+            preset=parse_preset(_str_or_none(mode["preset"])),
         ),
         control_mode=ControlModeState(
             mode=ControlMode(_str_of(control_mode["mode"])),
             unavailable_sensors=tuple(_str_of(item) for item in unavailable),
             degraded_since=_float_or_none(control_mode["degraded_since"]),
-            down_pending_since=_float_or_none(control_mode["down_pending_since"]),
-            up_pending_since=_float_or_none(control_mode["up_pending_since"]),
-            pending_target=(
-                ControlMode(pending_target) if pending_target is not None else None
-            ),
+            pending=_pending_window_of(control_mode),
         ),
         reachability=reachability,
         last_control_monotonic=_float_or_none(data["last_control_monotonic"]),
@@ -367,7 +420,7 @@ def desired_from_dict(data: dict[str, Json]) -> DesiredState:
     return DesiredState(call_for_heat=_bool_of(data["call_for_heat"]), trvs=trvs)
 
 
-def replay(entry: dict[str, Json]) -> tuple[bool, DesiredState]:
+def replay(entry: ExportedDecision) -> tuple[bool, DesiredState]:
     """Re-run one exported decision tuple through the kernel.
 
     Returns ``(matches, recomputed_desired)`` — ``matches`` is True when

@@ -8,7 +8,7 @@ import pytest
 from custom_components.better_thermostat.core.calibrator import (
     Calibrator,
     CalibratorHealth,
-    Capability,
+    CapabilityLevel,
 )
 from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
@@ -41,25 +41,17 @@ def _balance(valve_percent: float) -> CalibrationBalance:
     return {"valve_percent": valve_percent, "apply_valve": False, "debug": {}}
 
 
-class TestCapabilityNesting:
-    """ready implies healthy implies configured, by construction."""
+class TestCapabilityLevels:
+    """READY implies HEALTHY implies CONFIGURED, by order."""
 
-    def test_valid_levels(self):
-        """All nested combinations construct fine."""
-        Capability()
-        Capability(configured=True)
-        Capability(configured=True, healthy=True)
-        Capability(configured=True, healthy=True, ready=True)
-
-    def test_ready_requires_healthy(self):
-        """Ready without healthy is rejected."""
-        with pytest.raises(ValueError):
-            Capability(configured=True, ready=True)
-
-    def test_healthy_requires_configured(self):
-        """Healthy without configured is rejected."""
-        with pytest.raises(ValueError):
-            Capability(healthy=True)
+    def test_levels_are_ordered_by_strength(self):
+        """Each level compares above every level it implies."""
+        assert (
+            CapabilityLevel.NONE
+            < CapabilityLevel.CONFIGURED
+            < CapabilityLevel.HEALTHY
+            < CapabilityLevel.READY
+        )
 
 
 class _StubCalibrator:
@@ -84,7 +76,7 @@ class _StubCalibrator:
 
     def capability(self):
         """Report configured always; healthy/ready follow observations."""
-        return Capability(configured=True, healthy=self._ready, ready=self._ready)
+        return CapabilityLevel.READY if self._ready else CapabilityLevel.CONFIGURED
 
     def health(self):
         """Report healthy unconditionally in the stub."""
@@ -186,15 +178,15 @@ class TestStrategyRegistry:
         bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
 
         cap = strategy.capability(bt, "climate.trv")
-        assert cap.configured and cap.healthy and not cap.ready
+        assert cap == CapabilityLevel.HEALTHY
 
         bt.real_trvs["climate.trv"].calibration_balance = _balance(40.0)
         cap = strategy.capability(bt, "climate.trv")
-        assert cap.configured and cap.healthy and cap.ready
+        assert cap == CapabilityLevel.READY
 
         bt.room_temperature = None
         cap = strategy.capability(bt, "climate.trv")
-        assert cap.configured and not cap.healthy and not cap.ready
+        assert cap == CapabilityLevel.CONFIGURED
 
     def test_capability_healthy_under_sensor_fallback(self):
         """SENSOR_FALLBACK keeps the strategy healthy on the TRV mean.
@@ -223,12 +215,12 @@ class TestStrategyRegistry:
         bt.hass.config.units.temperature_unit = "°C"
 
         cap = strategy.capability(bt, "climate.trv")
-        assert cap.configured and cap.healthy
+        assert cap >= CapabilityLevel.HEALTHY
 
         # Without any TRV temperature either, the fallback has no input.
         bt.real_trvs["climate.trv"].current_temperature = None
         cap = strategy.capability(bt, "climate.trv")
-        assert not cap.healthy
+        assert cap == CapabilityLevel.CONFIGURED
 
 
 class TestBalanceCalibrator:
@@ -284,10 +276,9 @@ class TestBalanceCalibrator:
     def test_capability_delegates_to_the_strategy(self):
         """Capability comes from the strategy's report on the live entity."""
         adapter, bt = self._adapter(balance=_balance(40.0))
-        cap = adapter.capability()
-        assert cap.configured and cap.healthy and cap.ready
+        assert adapter.capability() == CapabilityLevel.READY
         bt.room_temperature = None
-        assert adapter.capability().healthy is False
+        assert adapter.capability() == CapabilityLevel.CONFIGURED
 
     def test_readiness_means_a_finite_observed_result(self):
         """is_ready() gates actuation on a usable observed result.

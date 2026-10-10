@@ -51,11 +51,7 @@ from hypothesis.stateful import (
 )
 import pytest
 
-from custom_components.better_thermostat.core.decide import (
-    PRESET_BOOST,
-    KernelState,
-    decide,
-)
+from custom_components.better_thermostat.core.decide import KernelState, decide
 from custom_components.better_thermostat.core.desired import (
     DesiredState,
     Suppression,
@@ -99,6 +95,7 @@ from custom_components.better_thermostat.core.safety import (
 )
 from custom_components.better_thermostat.core.snapshot import (
     HvacMode,
+    Preset,
     TrvReported,
     WorldSnapshot,
 )
@@ -122,7 +119,7 @@ LADDER = LadderParams()
 # the core does not know, and preset names including the "no preset"
 # spellings.
 HVAC_MODE_INPUTS = ("off", "heat", "cool", "heat_cool", "auto", "dry", "", None)
-PRESET_INPUTS = ("none", "", None, "eco", "comfort", PRESET_BOOST, "away")
+PRESET_INPUTS = ("none", "", None, "eco", "comfort", Preset.BOOST, "away")
 
 temperatures = st.floats(min_value=5.0, max_value=30.0).map(lambda t: round(t, 1))
 # Device bounds as TRVs report them, including garbage the hull must survive.
@@ -701,7 +698,7 @@ class KernelMachine(RuleBasedStateMachine):
             return DesiredState(call_for_heat=self.call_for_heat)
 
         boost = (
-            self.model_preset == PRESET_BOOST
+            self.model_preset == Preset.BOOST
             and self.room_temperature is not None
             and self.heat_target_temperature is not None
             and self.room_temperature < self.heat_target_temperature
@@ -761,12 +758,7 @@ class KernelMachine(RuleBasedStateMachine):
             pre,
             window=committed(pre.window),
             door=committed(pre.door),
-            control_mode=replace(
-                pre.control_mode,
-                down_pending_since=None,
-                up_pending_since=None,
-                pending_target=None,
-            ),
+            control_mode=replace(pre.control_mode, pending=None),
             reachability={},
             last_control_monotonic=None,
         )

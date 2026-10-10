@@ -32,8 +32,8 @@ from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.fsm.reachability import ReachabilityState
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
 from custom_components.better_thermostat.core.recorder import (
+    ExportedDecision,
     FlightRecorder,
-    Json,
     replay,
 )
 from custom_components.better_thermostat.core.snapshot import (
@@ -90,7 +90,7 @@ def _scenarios() -> dict[str, tuple[WorldSnapshot, KernelState]]:
             make_state(
                 reachability={
                     "climate.trv1": ReachabilityState(
-                        online=False, offline_since=800.0, retry_at=1100.0
+                        offline_since=800.0, retry_at=1100.0
                     )
                 }
             ),
@@ -114,7 +114,7 @@ def _scenarios() -> dict[str, tuple[WorldSnapshot, KernelState]]:
     }
 
 
-def _export_entry(name: str) -> dict[str, Json]:
+def _export_entry(name: str) -> ExportedDecision:
     """Export one recorded decision entry for the named scenario.
 
     Parameters
@@ -124,7 +124,7 @@ def _export_entry(name: str) -> dict[str, Json]:
 
     Returns
     -------
-    dict
+    ExportedDecision
         The exported flight-recorder entry.
     """
     snapshot, state = _scenarios()[name]

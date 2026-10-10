@@ -58,6 +58,20 @@ LADDER_TICK_S = 60.0
 
 
 @dataclass(frozen=True)
+class PendingWindow:
+    """A running debounce (deeper) or stability (shallower) window.
+
+    ``target`` is the rung the window commits to on elapse: the
+    shallowest deeper rung (downgrade) or the deepest shallower rung
+    (upgrade) continuously supported since ``since``.
+    """
+
+    deeper: bool
+    since: float
+    target: ControlMode
+
+
+@dataclass(frozen=True)
 class ControlModeState:
     """State of the control-mode region."""
 
@@ -67,16 +81,9 @@ class ControlModeState:
     # availability and owned solely by step(). The ladder rung is tracked
     # separately in `mode` and does not write here.
     degraded_since: float | None = None
-    # Pending downgrade (capability lost, debounce running).
-    down_pending_since: float | None = None
-    # Pending upgrade (capability restored, stability window running).
-    up_pending_since: float | None = None
-    # Rung the running debounce/stability window commits to on elapse:
-    # the shallowest deeper rung (downgrade) or deepest shallower rung
-    # (upgrade) continuously supported since the window started. The
-    # window restarts when the observation returns to the current rung
-    # or crosses to the other side of it.
-    pending_target: ControlMode | None = None
+    # Running ladder window, if any. It restarts when the observation
+    # returns to the current rung or crosses to the other side of it.
+    pending: PendingWindow | None = None
 
     @property
     def degraded(self) -> bool:
@@ -94,19 +101,12 @@ def step(
     control-law-relevant capabilities.
     """
     if not unavailable_sensors:
-        return ControlModeState(
-            mode=state.mode,
-            down_pending_since=state.down_pending_since,
-            up_pending_since=state.up_pending_since,
-            pending_target=state.pending_target,
-        )
+        return ControlModeState(mode=state.mode, pending=state.pending)
     return ControlModeState(
         mode=state.mode,
         unavailable_sensors=tuple(unavailable_sensors),
         degraded_since=state.degraded_since if state.degraded else now,
-        down_pending_since=state.down_pending_since,
-        up_pending_since=state.up_pending_since,
-        pending_target=state.pending_target,
+        pending=state.pending,
     )
 
 
@@ -151,7 +151,7 @@ def step_ladder(
     target = _target_rung(room_sensor_ok, trv_temperature_ok)
 
     if target == state.mode:
-        return _with_pending(state, down=None, up=None, target=None)
+        return _with_pending(state, None)
 
     deeper = _depth(target) > _depth(state.mode)
     threshold_seconds = (
@@ -173,15 +173,6 @@ def _toward(deeper: bool, rung: ControlMode, reference: ControlMode) -> bool:
     return _depth(rung) < _depth(reference)
 
 
-def _pend_toward(
-    state: ControlModeState, deeper: bool, since: float, target: ControlMode
-) -> ControlModeState:
-    """Store the window start in the direction's pending field."""
-    if deeper:
-        return _with_pending(state, down=since, up=None, target=target)
-    return _with_pending(state, down=None, up=since, target=target)
-
-
 def _advance_window(
     state: ControlModeState,
     *,
@@ -198,15 +189,16 @@ def _advance_window(
     the window elapses. A commit short of the instantaneous target seeds
     the follow-up window toward the remaining rung.
     """
-    since_before = state.down_pending_since if deeper else state.up_pending_since
-    pending = state.pending_target
+    window = state.pending
     if (
-        since_before is not None
-        and pending is not None
-        and _toward(deeper, pending, state.mode)
+        window is not None
+        and window.deeper == deeper
+        and _toward(deeper, window.target, state.mode)
     ):
-        since = since_before
-        commit_rung = pending if _toward(deeper, target, pending) else target
+        since = window.since
+        commit_rung = (
+            window.target if _toward(deeper, target, window.target) else target
+        )
     else:
         since = now
         commit_rung = target
@@ -214,8 +206,8 @@ def _advance_window(
         committed = _with_mode(state, commit_rung)
         if commit_rung == target:
             return committed
-        return _pend_toward(committed, deeper, now, target)
-    return _pend_toward(state, deeper, since, commit_rung)
+        return _with_pending(committed, PendingWindow(deeper, now, target))
+    return _with_pending(state, PendingWindow(deeper, since, commit_rung))
 
 
 def start_on_rung(state: ControlModeState, mode: ControlMode) -> ControlModeState:
@@ -245,22 +237,13 @@ def _with_mode(state: ControlModeState, mode: ControlMode) -> ControlModeState:
 
 
 def _with_pending(
-    state: ControlModeState,
-    down: float | None,
-    up: float | None,
-    target: ControlMode | None,
+    state: ControlModeState, pending: PendingWindow | None
 ) -> ControlModeState:
-    if (
-        state.down_pending_since == down
-        and state.up_pending_since == up
-        and state.pending_target == target
-    ):
+    if state.pending == pending:
         return state
     return ControlModeState(
         mode=state.mode,
         unavailable_sensors=state.unavailable_sensors,
         degraded_since=state.degraded_since,
-        down_pending_since=down,
-        up_pending_since=up,
-        pending_target=target,
+        pending=pending,
     )
