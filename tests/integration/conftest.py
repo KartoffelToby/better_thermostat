@@ -211,6 +211,22 @@ class SimulatedClimate(ClimateEntity):
         self.set_hvac_mode_calls: list[str] = []
         self.drop_next_setpoint_write = False
 
+    @property
+    @override
+    def target_temperature(self) -> float | None:
+        """Return the setpoint the device publishes.
+
+        A device whose profile names an ``off_target_temperature`` publishes
+        that placeholder while it is off and keeps the setpoint it holds for
+        the next time it runs.
+        """
+        if (
+            self.profile.off_target_temperature is not None
+            and self.hvac_mode == HVACMode.OFF
+        ):
+            return self.profile.off_target_temperature
+        return self._attr_target_temperature
+
     def set_available(self, available: bool) -> None:
         """Take the device off the air, or put it back on.
 

@@ -35,6 +35,8 @@ A room with radiators and an air conditioner should not heat and cool against it
 
 Select the air conditioner as **The cooling device**. Better Thermostat then keeps a heating target and a cooling target, runs the TRVs below the one and the air conditioner above the other, and gives each preset a heating and a cooling temperature. The **Tolerance** setting sets how far the room may drift before the cooler starts.
 
+Better Thermostat decides whether the air conditioner runs. While it should be off, it is switched off and gets no target temperature, because some integrations start an air conditioner on any target temperature write. When it starts, it is switched to cooling first and gets its target temperature after that. An air conditioner that starts while Better Thermostat holds it off, after an outage or from its own remote or app, is switched off again right away. One that is switched off while Better Thermostat wants it cooling is switched back on with the next control cycle, at the latest after five minutes.
+
 ## A lower temperature at night or while you are away
 
 Presets give a temperature a name, such as Sleep, Away or Eco. Enable the ones you want and set their temperatures on the device; see [Presets](/setup/presets/). Switching between them is up to you or an automation. The [automation blueprints](/setup/automation-blueprints/) include a night mode, an away preset when nobody is home and a weekly heating schedule.

@@ -88,9 +88,20 @@ class OutboundTrvPayload(TypedDict):
 
 
 def accepts_user_setpoint(
-    trv: Trv, *, is_echo: bool, child_lock: bool, contact_open: bool, was_off: bool
+    trv: Trv, *, is_echo: bool, child_lock: bool, was_off: bool
 ) -> bool:
     """Decide whether a setpoint a TRV reports is a user press to adopt.
+
+    An open window or door does not decide it: a turn at the knob then is
+    the user's word on the room's target, as a target set in Home Assistant
+    is. The contact keeps suppressing the heating, and the cycle the adopted
+    turn requests writes the suppressed setpoint back to the device; once
+    the contact closes the room heats to the adopted target. A device
+    without an off mode stays on while the contact is open, parked at its
+    minimum, and that minimum coming back is an echo. A device BT switches
+    off for the contact falls under the ``hvac_mode`` and ``was_off`` rules
+    below, so neither what it reports while off nor the setpoint it shows
+    when switched on at the device is a press.
 
     Parameters
     ----------
@@ -104,8 +115,6 @@ def accepts_user_setpoint(
     child_lock
         Whether the device is configured as child-locked, so a press on
         its knob does not speak for the user.
-    contact_open
-        Whether a window or door contact of the room is open.
     was_off
         Whether the device was off before this report. A report that
         switches it on carries a setpoint turned while it was off, which is
@@ -124,7 +133,6 @@ def accepts_user_setpoint(
         and trv.system_mode_received is True
         and trv.hvac_mode != HVACMode.OFF
         and not was_off
-        and contact_open is False
         and not trv.ignore_trv_states
     )
 
@@ -694,11 +702,7 @@ async def trigger_trv_change(
         _new_heating_setpoint = _setpoint.value
         _is_echo = _setpoint.is_echo
         _accept_user_setpoint = accepts_user_setpoint(
-            trv,
-            is_echo=_is_echo,
-            child_lock=child_lock,
-            contact_open=self.contact_open,
-            was_off=_was_off,
+            trv, is_echo=_is_echo, child_lock=child_lock, was_off=_was_off
         )
         if _was_off and trv.hvac_mode != HVACMode.OFF and not _is_echo:
             # The report that switches the device on shows the setpoint it
@@ -819,7 +823,7 @@ async def trigger_trv_change(
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s setpoint change %s -> %s NOT adopted "
                 "(echo=%s child_lock=%s target_temperature_received=%s system_mode_received=%s "
-                "hvac_mode=%s window_open=%s door_open=%s ignore_trv_states=%s "
+                "hvac_mode=%s ignore_trv_states=%s "
                 "heat_target_temperature=%s commanded_setpoint=%s pending_setpoints=%s step=%s)",
                 self.device_name,
                 entity_id,
@@ -830,8 +834,6 @@ async def trigger_trv_change(
                 trv.target_temperature_received,
                 trv.system_mode_received,
                 trv.hvac_mode,
-                self.window_open,
-                self.door_open,
                 trv.ignore_trv_states,
                 self.heat_target_temperature,
                 trv.commanded_setpoint,
@@ -839,9 +841,16 @@ async def trigger_trv_change(
                 _step,
             )
 
-        if advanced_flag(advanced, CONF_NO_OFF_SYSTEM_MODE):
+        if _is_no_off_device and _accept_user_setpoint:
             # The setpoint of a device without an off mode carries the room's
             # mode, so a report is a control change only where it moves it.
+            # Only a press the room adopts speaks for that mode: BT parks the
+            # device at its minimum itself while it calls for no heat or a
+            # contact is open, and that value coming back is BT's own write,
+            # just as a turn at a locked device or one BT ignores is no word
+            # from the user. A turn while a contact is open switches the room
+            # all the same; the contact keeps the heating suppressed until it
+            # closes.
             _room_before = (self.bt_hvac_mode, self.cool_target_temperature)
             if setpoint_at_minimum(
                 _raw_heating_setpoint,
@@ -851,12 +860,9 @@ async def trigger_trv_change(
                     new_state, self.hass.config.units.temperature_unit
                 ),
             ):
-                # Only set OFF if no window/door contact is open - min_temp
-                # during an open contact was set by BT, not by the user turning
-                # off heating - and only
-                # when the whole group agrees, so a single no_off valve dropping
-                # to min_temp cannot switch the room off.
-                if not self.contact_open and group_all_members_off(self):
+                # Only when the whole group agrees, so a single no_off valve
+                # dropping to min_temp cannot switch the room off.
+                if group_all_members_off(self):
                     if self.bt_hvac_mode != HVACMode.OFF:
                         _LOGGER.debug(
                             "better_thermostat %s: TRV %s reported min_temp %s on a "

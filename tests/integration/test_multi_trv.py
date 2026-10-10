@@ -734,6 +734,13 @@ async def _present_head_reports(room: OutageRoom) -> None:
 
 
 async def _cooler_reports(room: OutageRoom) -> None:
+    """Switch the cooler on at its own controls, then press its setpoint up.
+
+    A cooler that is off publishes no setpoint a press could be read from, so
+    the unit is switched to cooling first and the press follows in that mode.
+    """
+    room.cooler._attr_hvac_mode = HVACMode.COOL
+    _report_on_its_own(room.cooler)
     room.cooler._attr_target_temperature = 26.0
     _report_on_its_own(room.cooler)
 

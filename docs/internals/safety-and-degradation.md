@@ -62,6 +62,9 @@ a returning room sensor lifts HOLD straight to OPTIMAL.
   only valve write on HOLD is the overheat-safe boost reset: while boost
   heating is active and a suppression (open window, no heat demand)
   forces the TRV to OFF, a direct-valve TRV gets its valve closed to 0 %.
+  A room switched off turns its devices off on HOLD as on every other
+  rung: the last known target is not locked in, and a TRV without an OFF
+  mode receives its minimum setpoint.
 
 Downgrades are debounced (`down_debounce_s`, 120 s) so a flapping sensor
 does not flip behavior; upgrades require sustained recovery

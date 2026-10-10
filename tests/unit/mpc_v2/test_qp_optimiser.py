@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import numpy as np
@@ -159,6 +160,51 @@ def test_anti_windup_skips_saturated_integration() -> None:
     assert opt.e_integral_K_min == 0.0
 
 
+def test_a_valve_held_at_the_user_maximum_does_not_wind_the_integral_up() -> None:
+    """The user's maximum opening is the upper rail for the anti-windup.
+
+    A valve pinned at a 44 % cap cannot add heat any more than a fully open
+    one can; integrating the remaining shortfall would only leave an overshoot
+    once the cap stops binding.
+    """
+    opt = _make_optimiser()
+    opt.update_integral(T_room=21.6, T_sp=22.0, u_applied=0.44, dt_s=300.0, u_max=0.44)
+    assert opt.e_integral_K_min == 0.0
+
+    # Below the cap the valve still has room to open, so the error counts.
+    opt.update_integral(T_room=21.6, T_sp=22.0, u_applied=0.30, dt_s=300.0, u_max=0.44)
+    assert opt.e_integral_K_min == pytest.approx(-2.0)
+
+
+def test_the_plan_stays_below_the_cycle_limit() -> None:
+    """A cold room asks for more than the cap allows; the plan stops at it."""
+    opt = _make_optimiser()
+
+    u = opt.solve(
+        np.array([18.0, 18.0]), T_sp=22.0, T_outdoor=5.0, u_last=0.3, u_max=0.4
+    )
+
+    assert u == pytest.approx(0.4, abs=1e-6)
+
+
+def test_a_lowered_limit_takes_effect_at_once_without_a_solver_failure(caplog) -> None:
+    """A cap below the last command bounds the next one without a rate limit.
+
+    With the rate limit anchored at the old opening, no command at or below the
+    new cap would be reachable within one step and the solver would report the
+    problem infeasible.
+    """
+    opt = _make_optimiser(delta_u_max=0.2)
+    caplog.set_level("DEBUG")
+
+    u = opt.solve(
+        np.array([21.0, 40.0]), T_sp=22.0, T_outdoor=5.0, u_last=0.9, u_max=0.3
+    )
+
+    assert 0.0 <= u <= 0.3 + 1e-9
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
 @pytest.mark.parametrize(
     ("room_temperature", "expected_integral"),
     [(21.4, 0.0), (21.6, -2.0), (22.4, 2.0), (22.6, 0.0)],
@@ -264,17 +310,22 @@ def test_portable_solver_commands_the_valve_daqp_commands(
     assert worst <= 1e-6, f"{100 * worst:.6f} percentage points apart"
 
 
-def test_missing_daqp_is_logged_once_per_optimiser(monkeypatch, caplog) -> None:
-    """A controller built without daqp says in the log which solver plans."""
+def test_missing_daqp_is_logged_once_per_process(monkeypatch, caplog) -> None:
+    """Every controller plans with the same solver, so the log says so once.
+
+    A thermostat holds one optimiser per target bucket and rebuilds it on a
+    restore or a prior change; none of them repeats the note.
+    """
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
         qp_optimiser,
     )
 
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
     monkeypatch.setattr(qp_optimiser, "_daqp", None)
+    monkeypatch.setattr(qp_optimiser, "_logged_solver_notes", set())
     caplog.set_level("INFO", logger=qp_optimiser.__name__)
-    opt = _make_optimiser()
-    for _ in range(3):
+    for _ in range(4):
+        opt = _make_optimiser()
         opt.solve(np.array([19.0, 30.0]), T_sp=21.0, T_outdoor=0.0, u_last=0.3)
 
     notes = [r for r in caplog.records if "daqp" in r.getMessage()]
@@ -804,3 +855,23 @@ def test_a_non_finite_objective_holds_the_command_and_warns_once(
     held = [r for r in caplog.records if "not finite" in r.getMessage()]
     assert commands == [pytest.approx(0.3)] * 3
     assert [r.levelname for r in held] == ["WARNING", "DEBUG", "DEBUG"]
+
+
+def test_a_non_finite_last_command_does_not_become_the_cycle_limit() -> None:
+    """A last command that is not a number closes the valve, capped or not."""
+    opt = _make_optimiser()
+
+    u = opt.solve(
+        np.array([18.0, 18.0]), T_sp=22.0, T_outdoor=5.0, u_last=float("nan"), u_max=0.4
+    )
+
+    assert u == 0.0
+
+
+def test_a_negative_rate_limit_returns_the_clamped_last_command() -> None:
+    """A rate limit below zero leaves no command; the last one holds."""
+    opt = _make_optimiser(delta_u_max=-0.1)
+
+    u = opt.solve(np.array([18.0, 18.0]), T_sp=22.0, T_outdoor=5.0, u_last=0.3)
+
+    assert u == pytest.approx(0.3)
