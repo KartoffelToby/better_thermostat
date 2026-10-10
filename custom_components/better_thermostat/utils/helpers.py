@@ -1501,7 +1501,9 @@ def on_cooler_grid(
     lands on that grid point again. A cooler that publishes no usable step
     holds whole degrees on a Fahrenheit system, Home Assistant's precision
     for that unit, and on a Celsius system is rounded onto the step its
-    reports are compared with.
+    reports are compared with. A cooler published in whole degrees
+    Fahrenheit reports a finer step back rounded, so it is written on whole
+    degrees whatever its step.
     """
     if value is None:
         return None
@@ -1518,6 +1520,8 @@ def on_cooler_grid(
             )
         step = 1.0
     if fahrenheit:
+        if published_in_whole_fahrenheit(cooler_state, UnitOfTemperature.FAHRENHEIT):
+            step = max(step, 1.0)
         on_grid = round_by_step(
             TemperatureConverter.convert(
                 value, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
@@ -2302,17 +2306,29 @@ def matches_any_setpoint(
 # Assistant published in whole degrees may lie above the one the device holds.
 _HALF_FAHRENHEIT_DEGREE = 5.0 / 18.0
 
+# A whole degree Fahrenheit, in Kelvin: the grid of a setpoint Home Assistant
+# publishes in whole degrees.
+_WHOLE_FAHRENHEIT_DEGREE = 5.0 / 9.0
+
 # The temperatures a climate state publishes at the precision of its entity.
-_PRECISION_ATTRIBUTES = ("min_temp", "max_temp", "current_temperature")
+_PRECISION_ATTRIBUTES = (
+    "min_temp",
+    "max_temp",
+    "current_temperature",
+    "temperature",
+    "target_temp_low",
+    "target_temp_high",
+)
 
 
 def published_in_whole_fahrenheit(state: State | None, system_unit: str | None) -> bool:
     """Whether Home Assistant publishes this climate state in whole degrees Fahrenheit.
 
     The state does not name the precision it was rounded to, so it is read
-    off the temperatures published with it: every one of them a whole
-    degree. An entity that states halves or tenths shows a finer value in
-    at least one of them nearly always.
+    off the temperatures published with it, the setpoints among them: every
+    one of them a whole degree. An entity that states halves or tenths shows
+    a finer value in at least one of them nearly always; a reading and a
+    setpoint that both land on a whole degree at once are rare.
     """
     if system_unit != UnitOfTemperature.FAHRENHEIT or state is None:
         return False
@@ -2322,6 +2338,75 @@ def published_in_whole_fahrenheit(state: State | None, system_unit: str | None) 
     ]
     present = [value for value in values if value is not None]
     return bool(present) and all(_published_grid(value) == 1.0 for value in present)
+
+
+def published_setpoint_grid(
+    step: float, state: State | None, system_unit: str | None
+) -> float:
+    """Return the grid, as a °C delta, a setpoint is written to a device on.
+
+    The device holds its setpoint on its own ``step``. A state Home Assistant
+    publishes in whole degrees Fahrenheit rounds that setpoint once more, so
+    a setpoint written between two whole degrees comes back on one of its
+    neighbours and never as written. Written on whole degrees, it comes back
+    unchanged; a head holding half degrees Celsius (0.9 °F) is barely finer
+    than that. The coarser of the two grids is the one written on.
+
+    It also covers a step whose unit the state does not tell: Home Assistant
+    publishes ``target_temp_step`` in the device's own unit and names no
+    unit for it, so the step of a head working in Celsius is read in
+    Fahrenheit.
+
+    Parameters
+    ----------
+    step : float
+            the device's setpoint step in °C
+    state : State | None
+            the device state the setpoint is published in
+    system_unit : str | None
+            the configured system temperature unit
+
+    Returns
+    -------
+    float
+            the grid a setpoint is written on, as a °C delta
+    """
+    if published_in_whole_fahrenheit(state, system_unit):
+        return max(step, _WHOLE_FAHRENHEIT_DEGREE)
+    return step
+
+
+def as_published_setpoint(
+    value: float | None, state: State | None, system_unit: str | None
+) -> float | None:
+    """Return ``value`` the way Home Assistant publishes it back, in °C.
+
+    A state published in whole degrees Fahrenheit reports a setpoint the
+    device holds on the whole degree nearest to it. A device step coarser
+    than a whole degree Fahrenheit, a whole degree Celsius say, puts the
+    held setpoint between two of them, so the report differs from the value
+    written by up to half a degree Fahrenheit. Compared with a report, the
+    written value is taken on that same degree. Any other state publishes
+    the value as it is, and no value stays none.
+
+    Parameters
+    ----------
+    value : float | None
+            the setpoint in °C as the device holds it
+    state : State | None
+            the device state the setpoint is published in
+    system_unit : str | None
+            the configured system temperature unit
+
+    Returns
+    -------
+    float | None
+            the setpoint in °C as the state reports it
+    """
+    if value is None or not published_in_whole_fahrenheit(state, system_unit):
+        return value
+    fahrenheit = round(value * 9.0 / 5.0 + 32.0)
+    return (fahrenheit - 32.0) * 5.0 / 9.0
 
 
 def setpoint_at_minimum(

@@ -147,6 +147,16 @@ async def test_the_delegate_leaves_the_echo_setpoints_alone(bt):
     assert trv.echo_setpoint_values() == [21.0]
 
 
+@pytest.mark.asyncio
+async def test_a_target_above_the_range_goes_out_as_the_maximum(bt):
+    """The TRV holds no setpoint above its range, so the maximum is written."""
+    await set_temperature(bt, ENTITY_ID, 35.0)
+
+    bt.real_trvs[ENTITY_ID].adapter.set_temperature.assert_awaited_once_with(
+        bt, ENTITY_ID, pytest.approx(30.0)
+    )
+
+
 @pytest.mark.parametrize("target", [float("nan"), float("inf"), float("-inf")])
 def test_a_target_that_is_not_finite_is_compared_as_it_is(bt, target):
     """A non-finite target has no place on the grid and is returned unchanged."""

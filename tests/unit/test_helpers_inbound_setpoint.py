@@ -15,6 +15,7 @@ from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
     device_setpoint_step,
     normalize_step,
+    published_setpoint_grid,
     read_setpoint_celsius,
     reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
@@ -227,6 +228,58 @@ class TestSetpointEchoWindow:
     def test_window_stays_positive_for_a_tiny_step(self):
         """A step at or below the read grid still separates two setpoints."""
         assert setpoint_echo_window(0.005) == SETPOINT_MATCH_TOLERANCE
+
+
+# A Celsius head on a Fahrenheit system that states no precision: Home
+# Assistant publishes every temperature it carries in whole degrees.
+_WHOLE_FAHRENHEIT_ATTRIBUTES = {
+    "min_temp": 39,
+    "max_temp": 87,
+    "current_temperature": 68,
+    "temperature": 72,
+    "target_temp_step": 0.5,
+}
+_ONE_FAHRENHEIT_DEGREE = 5.0 / 9.0
+
+
+class TestPublishedSetpointGrid:
+    """The grid a setpoint is written on, so it comes back as written."""
+
+    def test_whole_fahrenheit_coarsens_a_finer_step_to_a_degree(self):
+        """Half a degree written would come back on a whole one."""
+        grid = published_setpoint_grid(
+            0.5 * 5.0 / 9.0,
+            _state(_WHOLE_FAHRENHEIT_ATTRIBUTES),
+            UnitOfTemperature.FAHRENHEIT,
+        )
+        assert grid == pytest.approx(_ONE_FAHRENHEIT_DEGREE)
+
+    def test_whole_fahrenheit_keeps_a_coarser_step(self):
+        """A step of two degrees is already coarser than the published grid."""
+        step = 2.0 * 5.0 / 9.0
+        grid = published_setpoint_grid(
+            step, _state(_WHOLE_FAHRENHEIT_ATTRIBUTES), UnitOfTemperature.FAHRENHEIT
+        )
+        assert grid == step
+
+    def test_a_celsius_system_keeps_the_step(self):
+        """Whole degrees Celsius are what the device holds, not a rounding."""
+        grid = published_setpoint_grid(
+            0.5, _state(_WHOLE_FAHRENHEIT_ATTRIBUTES), UnitOfTemperature.CELSIUS
+        )
+        assert grid == 0.5
+
+    @pytest.mark.parametrize(
+        "attribute", ["current_temperature", "temperature", "target_temp_high"]
+    )
+    def test_a_finer_published_temperature_keeps_the_step(self, attribute):
+        """One temperature off the whole degrees, the setpoints among them, is enough."""
+        attributes = {**_WHOLE_FAHRENHEIT_ATTRIBUTES, attribute: 70.5}
+        step = 0.5 * 5.0 / 9.0
+        grid = published_setpoint_grid(
+            step, _state(attributes), UnitOfTemperature.FAHRENHEIT
+        )
+        assert grid == step
 
 
 class TestResolveInboundSetpoint:

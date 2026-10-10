@@ -992,6 +992,49 @@ class TestEchoSuppression:
         assert mock_bt.cool_target_temperature == cool_target_temperature
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("published", "adopted"),
+        [
+            pytest.param(75.0, None, id="the_write_held"),
+            pytest.param(76.0, 76.0, id="a_press_one_degree_up"),
+            pytest.param(74.0, 74.0, id="a_press_one_degree_down"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_cooler_published_in_whole_degrees_is_written_on_them(
+        self, mock_bt, published, adopted
+    ):
+        """A cooler with a half-degree step that Home Assistant publishes whole.
+
+        The cooler states no precision, so every temperature it carries is
+        published in whole degrees Fahrenheit and a half-degree write could
+        never come back as sent. A cool target of 75.5 °F goes out as 75 °F,
+        a report of 75 °F is that write, and one degree either way is a press.
+        """
+        mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        cool_target_temperature = (75.5 - 32.0) * 5.0 / 9.0
+        mock_bt.cool_target_temperature = cool_target_temperature
+        attributes = {
+            "min_temp": 45,
+            "max_temp": 95,
+            "current_temperature": 79,
+            "target_temp_step": 0.5,
+        }
+        old_state = _make_state(attributes={**attributes, "temperature": 70.0})
+        new_state = _make_state(attributes={**attributes, "temperature": published})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        if adopted is None:
+            assert mock_bt.cool_target_temperature == cool_target_temperature
+            mock_bt.control_queue_task.put_nowait.assert_not_called()
+        else:
+            assert mock_bt.cool_target_temperature == pytest.approx(
+                (adopted - 32.0) * 5.0 / 9.0, abs=0.01
+            )
+            mock_bt.control_queue_task.put_nowait.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # 7. Unit handling

@@ -84,6 +84,7 @@ from custom_components.better_thermostat.utils.helpers import (
     CoolerCommand,
     CoolerFailureRun,
     CoolerSendCache,
+    as_published_setpoint,
     attr_to_celsius,
     clamp_valve_percent,
     configured_calibration_mode,
@@ -2794,7 +2795,12 @@ async def control_trv(
                         self.device_name,
                         entity_id,
                     )
-                elif not matches_any_setpoint(_temperature, _current_set_temperatures):
+                elif not matches_any_setpoint(
+                    as_published_setpoint(
+                        _temperature, _trv, self.hass.config.units.temperature_unit
+                    ),
+                    _current_set_temperatures,
+                ):
                     trv = self.real_trvs[entity_id]
                     # Everything but a safety-relevant write waits for the
                     # next slot and converges via the scheduled retry.
@@ -3072,7 +3078,12 @@ async def check_target_temperature(
         if not _current_set_temperatures:
             _timeout = 0
             break
-        if matches_any_setpoint(_awaited_setpoint, _current_set_temperatures):
+        if matches_any_setpoint(
+            as_published_setpoint(
+                _awaited_setpoint, _trv_state, self.hass.config.units.temperature_unit
+            ),
+            _current_set_temperatures,
+        ):
             trv.remember_setpoint_confirmed(_awaited_setpoint, _awaited_write_id)
             _timeout = 0
             break
