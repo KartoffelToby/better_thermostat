@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, fields
 import logging
 import math
 from time import monotonic
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, TypedDict, overload
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
@@ -50,12 +50,33 @@ class TpiInput:
     entity_id: str | None = None
 
 
+# Why a cycle skipped the TPI calculation.
+type TpiSkipReason = Literal["blocked", "missing_temps", "threshold_high"]
+
+# Debug information from one TPI cycle. The keys become state attributes, so
+# they stay as they are; the functional syntax keeps them as strings rather
+# than identifiers, so the naming checks never see a debug key as a new
+# attribute.
+TpiDebugInfo = TypedDict(  # noqa: UP013
+    "TpiDebugInfo",
+    {
+        "reason": TpiSkipReason,
+        "error_K": float | None,
+        "coef_int": float,
+        "coef_ext": float,
+        "raw_pct": float,
+        "duty_cycle_pct": float,
+    },
+    total=False,
+)
+
+
 @dataclass
 class TpiOutput:
     """Output result from TPI calibration calculation."""
 
     duty_cycle_percent: float
-    debug: dict[str, object] = field(default_factory=dict)
+    debug: TpiDebugInfo = field(default_factory=TpiDebugInfo)
 
 
 @dataclass
@@ -82,7 +103,19 @@ def sanitize_tpi_state(state: _TpiState) -> tuple[_TpiState, CalibratorHealth]:
 TpiState = _TpiState
 
 
-def _round_dbg(v: float | int | None, d: int = 3) -> float | int | None:
+@overload
+def _round_dbg(v: float, d: int = 3) -> float: ...
+
+
+@overload
+def _round_dbg(v: None, d: int = 3) -> None: ...
+
+
+@overload
+def _round_dbg(v: float | None, d: int = 3) -> float | None: ...
+
+
+def _round_dbg(v: float | None, d: int = 3) -> float | None:
     if v is None:
         return None
     try:
@@ -137,7 +170,7 @@ def compute_tpi(
 
     if not inp.heating_allowed or inp.window_open:
         duty_percent = 0.0
-        debug: dict[str, object] = {"reason": "blocked"}
+        debug: TpiDebugInfo = {"reason": "blocked"}
         return _finalize_output(inp, params, state, now, duty_percent, None, debug)
 
     if inp.room_temperature is None or inp.target_temperature is None:
@@ -183,7 +216,7 @@ def _finalize_output(
     now: float,
     duty_percent_raw: float,
     error_K: float | None,
-    debug: dict[str, object],
+    debug: TpiDebugInfo,
 ) -> tuple[TpiOutput, _TpiState]:
     # Clamp
     duty_percent = max(
@@ -193,12 +226,8 @@ def _finalize_output(
     state.last_percent = duty_percent
     state.last_update_ts = now
 
-    debug.update(
-        {
-            "duty_cycle_pct": _round_dbg(duty_percent, 2),
-            "error_K": _round_dbg(error_K) if error_K is not None else None,
-        }
-    )
+    debug["duty_cycle_pct"] = _round_dbg(duty_percent, 2)
+    debug["error_K"] = _round_dbg(error_K) if error_K is not None else None
 
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"

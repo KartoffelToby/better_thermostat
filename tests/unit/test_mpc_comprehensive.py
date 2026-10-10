@@ -15,9 +15,11 @@ from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_module
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
+    MpcDebugInfo,
     MpcInput,
     MpcOutput,
     MpcParams,
+    TrvProfile,
     _curve_bin_label,
     _detect_regime_change,
     _detect_trv_profile,
@@ -189,9 +191,11 @@ class TestRoundForDebug:
         """Test that None input passes through unchanged."""
         assert _round_for_debug(None) is None
 
-    def test_returns_string_for_string(self):
-        """Test that string input passes through unchanged."""
-        assert _round_for_debug("hello") == "hello"
+    def test_returns_float_for_int(self):
+        """Test that an integer comes back as a float."""
+        result = _round_for_debug(7, 2)
+        assert result == 7.0
+        assert isinstance(result, float)
 
     def test_handles_inf(self):
         """Test that infinity passes through without error."""
@@ -208,22 +212,26 @@ class TestSplitMpcKey:
 
     def test_valid_key(self):
         """Test splitting a valid three-part MPC key."""
-        uid, entity, bucket = _split_mpc_key("abc:climate.trv:t22.0")
+        parts = _split_mpc_key("abc:climate.trv:t22.0")
+        assert parts is not None
+        uid, entity, bucket = parts
         assert uid == "abc"
         assert entity == "climate.trv"
         assert bucket == "t22.0"
 
     def test_invalid_key_no_colons(self):
-        """Test that a key without colons returns all None."""
-        assert _split_mpc_key("nocolons") == (None, None, None)
+        """Test that a key without colons returns None."""
+        assert _split_mpc_key("nocolons") is None
 
     def test_key_with_one_colon(self):
-        """Test that a key with only one colon returns all None."""
-        assert _split_mpc_key("one:two") == (None, None, None)
+        """Test that a key with only one colon returns None."""
+        assert _split_mpc_key("one:two") is None
 
     def test_key_with_extra_colons(self):
         """Test that extra colons are kept in the bucket part."""
-        uid, entity, bucket = _split_mpc_key("a:b:c:d:e")
+        parts = _split_mpc_key("a:b:c:d:e")
+        assert parts is not None
+        uid, entity, bucket = parts
         assert uid == "a"
         assert entity == "b"
         assert bucket == "c:d:e"
@@ -328,7 +336,7 @@ class TestStatePersistence:
         state.min_effective_percent = 12.0
         state.dead_zone_hits = 3
         state.is_calibration_active = True
-        state.trv_profile = "threshold"
+        state.trv_profile = TrvProfile.THRESHOLD
         state.profile_confidence = 0.85
 
         restored = deserialize_mpc(asdict(state))
@@ -1127,7 +1135,7 @@ class TestPerfCurveSampling:
         state = _MpcState()
         params = _default_params()
         inp = _inp(room_temperature=None)
-        debug = {}
+        debug: MpcDebugInfo = {}
         _update_perf_curve(state, inp, params, time(), debug)
         assert state.perf_curve == {}
 
@@ -1144,7 +1152,7 @@ class TestPerfCurveSampling:
 
         # Second call: 60s later, temperature rose
         state.last_percent = 40.0
-        debug = {}
+        debug: MpcDebugInfo = {}
         inp2 = _inp(room_temperature=20.5)
         _update_perf_curve(state, inp2, params, now + 60, debug)
         assert len(state.perf_curve) > 0
@@ -1156,7 +1164,7 @@ class TestPerfCurveSampling:
         state.last_room_temperature = 20.0
         state.last_room_temperature_ts = time() - 600
         params = _default_params()
-        debug = {}
+        debug: MpcDebugInfo = {}
         inp = _inp(window_open=True, room_temperature=20.5)
         _update_perf_curve(state, inp, params, time(), debug)
         # Should reset baseline but not record a bin
@@ -1168,7 +1176,7 @@ class TestPerfCurveSampling:
         state.last_room_temperature = 20.0
         state.last_room_temperature_ts = time() - 1  # 1 second ago
         params = _default_params(perf_curve_min_window_s=300.0)
-        debug = {}
+        debug: MpcDebugInfo = {}
         inp = _inp(room_temperature=20.5)
         _update_perf_curve(state, inp, params, time(), debug)
         assert "perf_curve_bin" not in debug
@@ -1333,7 +1341,7 @@ class TestSeedFromSiblings:
         """A fresh bucket inherits a confirmed TRV profile from its nearest sibling."""
         params = _default_params()
         sibling = _MpcState()
-        sibling.trv_profile = "threshold"
+        sibling.trv_profile = TrvProfile.THRESHOLD
         sibling.profile_confidence = 0.82
         sibling.profile_samples = 17
         _STATES["uidB:climate.trv:t20.0"] = sibling
@@ -1384,7 +1392,7 @@ class TestSeedFromSiblings:
         params = _default_params()
         sibling = _MpcState()
         sibling.solar_gain_est = 0.040
-        sibling.trv_profile = "threshold"
+        sibling.trv_profile = TrvProfile.THRESHOLD
         sibling.profile_confidence = 0.9
         sibling.profile_samples = 30
         sibling.perf_curve = {"p10_12": {"count": 1, "avg_room_rate": 0.02}}
@@ -1392,7 +1400,7 @@ class TestSeedFromSiblings:
 
         already_trained = _MpcState()
         already_trained.solar_gain_est = 0.005
-        already_trained.trv_profile = "linear"
+        already_trained.trv_profile = TrvProfile.LINEAR
         already_trained.profile_confidence = 0.7
         already_trained.profile_samples = 11
         already_trained.perf_curve = {"p50_52": {"count": 8, "avg_room_rate": 0.05}}
@@ -1424,6 +1432,35 @@ class TestSeedFromSiblings:
         assert fresh.trv_profile == "unknown"
         assert fresh.solar_gain_est is None
 
+    def test_seeding_skips_a_sibling_key_without_three_parts(self):
+        """A stored key that does not split into three parts seeds nothing."""
+        params = _default_params()
+        malformed = _MpcState(solar_gain_est=0.03)
+        sibling = _MpcState(solar_gain_est=0.02)
+        all_states = {"uidG": malformed, "uidG:climate.trv:t21.0": sibling}
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(
+            "uidG:climate.trv:t22.0", fresh, params, all_states=all_states
+        )
+
+        assert fresh.solar_gain_est == pytest.approx(0.02)
+
+    @pytest.mark.parametrize("key", ["uidH", ":climate.trv:t22.0", "uidH::t22.0"])
+    def test_a_key_without_owner_or_entity_is_not_seeded(self, key):
+        """Without a unique id and an entity there is no sibling to match."""
+        params = _default_params()
+        all_states = {
+            "uidH:climate.trv:t21.0": _MpcState(solar_gain_est=0.02),
+            ":climate.trv:t21.0": _MpcState(solar_gain_est=0.02),
+            "uidH::t21.0": _MpcState(solar_gain_est=0.02),
+        }
+
+        fresh = _MpcState()
+        _seed_state_from_siblings(key, fresh, params, all_states=all_states)
+
+        assert fresh.solar_gain_est is None
+
     def test_seeding_skips_group_keys_for_entity_keys(self):
         """Group-keyed siblings (uid:group:tX.X) must not seed entity-keyed states."""
         params = _default_params()
@@ -1453,7 +1490,7 @@ class TestSeedFromSiblings:
         poisoned.perf_curve = {
             "p20_22": {"count": 3, "avg_room_rate": float("inf"), "avg_percent": 21.0}
         }
-        poisoned.trv_profile = "threshold"
+        poisoned.trv_profile = TrvProfile.THRESHOLD
         poisoned.profile_confidence = float("nan")
         poisoned.profile_samples = 9
         poisoned.solar_gain_est = float("nan")
@@ -1462,7 +1499,7 @@ class TestSeedFromSiblings:
         clean.perf_curve = {
             "p20_22": {"count": 6, "avg_room_rate": 0.03, "avg_percent": 21.0}
         }
-        clean.trv_profile = "linear"
+        clean.trv_profile = TrvProfile.LINEAR
         clean.profile_confidence = 0.8
         clean.profile_samples = 12
         clean.solar_gain_est = 0.02
@@ -1529,7 +1566,7 @@ class TestSeedFromSiblings:
         sibling = _MpcState()
         sibling.solar_gain_est = 0.022
         sibling.perf_curve = {"p20_22": {"count": 4, "avg_room_rate": 0.03}}
-        sibling.trv_profile = "threshold"
+        sibling.trv_profile = TrvProfile.THRESHOLD
         sibling.profile_confidence = 0.7
         sibling.profile_samples = 8
         _STATES["uidH:climate.trv:t20.0"] = sibling
@@ -2665,6 +2702,30 @@ class TestAdaptationFromARestoredAnchor:
         assert output.debug["id_loss_method"] == "cool_u0"
         assert state.loss_learn_count == 1
 
+    def test_skipped_loss_update_reaches_the_debug_payload(self):
+        """A cooling rate beyond the realistic loss is reported next to the id fields."""
+        params = _default_params(mpc_adapt=True, mpc_adapt_alpha=0.1)
+        state = self._anchored_state(last_percent=None)
+
+        # 2 K in 10 min is 0.2 °C/min, above 1.5 x mpc_loss_max (0.15).
+        output = _run_at(_NOW, _inp(key="skip", room_temperature=18.0), params, state)
+
+        assert output.debug["loss_skipped_high_rate"] is True
+        assert output.debug["id_loss_method"] is None
+        assert state.loss_est == 0.01
+
+    def test_regime_boost_flags_reach_the_debug_payload(self):
+        """An ending regime boost is reported next to the id fields."""
+        params = _default_params(mpc_adapt=True, mpc_adapt_alpha=0.1)
+        state = self._anchored_state(last_percent=60.0, regime_boost_active=True)
+
+        output = _run_at(_NOW, _inp(key="boost", room_temperature=20.1), params, state)
+
+        assert output.debug["regime_boost_active"] is True
+        assert output.debug["regime_boost_reset"] is True
+        assert output.debug["id_gain_method"] == "heat_rate"
+        assert state.regime_boost_active is False
+
 
 class TestLearnedMinimumOpeningInIdentification:
     """With min-effective learning on, openings below the minimum count as closed."""
@@ -2753,7 +2814,7 @@ class TestPerfCurveWithoutElapsedTime:
         """With no minimum window, a repeat at the same instant adds nothing."""
         params = _default_params(perf_curve_min_window_s=0.0)
         state = _MpcState(last_room_temperature=20.0, last_room_temperature_ts=_NOW)
-        debug: dict[str, object] = {}
+        debug: MpcDebugInfo = {}
 
         _update_perf_curve(state, self._inp(20.2), params, _NOW, debug)
 
@@ -2770,7 +2831,7 @@ class TestPerfCurveWithoutElapsedTime:
         state = _MpcState(
             last_room_temperature=20.0, last_room_temperature_ts=_NOW, last_percent=40.0
         )
-        debug: dict[str, object] = {}
+        debug: MpcDebugInfo = {}
 
         _update_perf_curve(state, self._inp(20.2), params, _NOW + 60.0, debug)
 
@@ -2911,7 +2972,7 @@ class TestProfileAdjustments:
     def test_exponential_profile_raises_the_gain_by_ten_percent(self):
         """An exponential TRV starts from the configured gain, raised 10 %."""
         params = _default_params(mpc_thermal_gain=0.06, deadzone_threshold_percent=20.0)
-        state = self._confident(trv_profile="exponential")
+        state = self._confident(trv_profile=TrvProfile.EXPONENTIAL)
 
         _detect_trv_profile(state, 60.0, 1.5, 300.0, 1.0, params)
 
@@ -2922,7 +2983,7 @@ class TestProfileAdjustments:
     def test_exponential_gain_is_capped(self):
         """The raised gain stays within the configured maximum."""
         params = _default_params(mpc_gain_max=0.5, deadzone_threshold_percent=20.0)
-        state = self._confident(trv_profile="exponential", gain_est=0.48)
+        state = self._confident(trv_profile=TrvProfile.EXPONENTIAL, gain_est=0.48)
 
         _detect_trv_profile(state, 60.0, 1.5, 300.0, 1.0, params)
 
@@ -2932,7 +2993,7 @@ class TestProfileAdjustments:
         """At 19 samples the same exponential evidence leaves the gain."""
         params = _default_params(deadzone_threshold_percent=20.0)
         state = self._confident(
-            trv_profile="exponential", profile_samples=18, gain_est=0.1
+            trv_profile=TrvProfile.EXPONENTIAL, profile_samples=18, gain_est=0.1
         )
 
         _detect_trv_profile(state, 60.0, 1.5, 300.0, 1.0, params)
@@ -2942,7 +3003,7 @@ class TestProfileAdjustments:
 
     @pytest.mark.parametrize(
         ("percent", "trv_delta_K", "profile"),
-        [(10.0, 0.1, "threshold"), (50.0, 1.0, "linear")],
+        [(10.0, 0.1, TrvProfile.THRESHOLD), (50.0, 1.0, TrvProfile.LINEAR)],
     )
     def test_threshold_and_linear_profiles_leave_the_gain(
         self, percent, trv_delta_K, profile
