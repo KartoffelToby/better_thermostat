@@ -40,6 +40,7 @@ The save happens on the way *into* a preset, and only from `none`:
 - From `none` into any preset, the current target is stored and the preset temperature applied.
 - Between two presets, nothing is stored again, so the value kept is still the target you had before the first preset.
 - Back to `none`, the stored target is restored and forgotten.
+- A manual target change while a preset is active leaves the preset for `none` and forgets the stored target, so the value you just set is the one that stays. With a cooler, a manual cooling target that differs from the preset's `Max` value does the same.
 
 The stored value is published as the `preset_temperature` state attribute and read back at startup, so a restart in the middle of an away period does not lose your normal target.
 

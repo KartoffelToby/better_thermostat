@@ -10,6 +10,8 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -825,6 +827,21 @@ class TestReconcileOnADualRoleEntity:
         bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_a_heating_mode_under_an_off_cooling_decision_is_not_diverged(self):
+        """The heating channel's mode is no lost cooling write.
+
+        The cooling channel decided OFF and handed the device to the heating
+        channel, which holds it in a heating mode it reconciles as a TRV.
+        """
+        bt = self._make_shared_bt(
+            hvac_mode_decided=HVACMode.OFF, reported_target=21.0, commanded=21.0
+        )
+
+        await reconcile_tick(bt)
+
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_a_distinct_cooler_leaves_every_thermostat_reconciled(self):
         """A cooler of its own never shields a thermostat from the tick."""
         bt = _make_bt(reported_target=18.0, commanded=21.0)
@@ -835,6 +852,78 @@ class TestReconcileOnADualRoleEntity:
         await reconcile_tick(bt)
 
         bt.control_queue_task.put_nowait.assert_called_once()
+
+
+class TestReconcileOfADistinctCooler:
+    """A cooler of its own is reconciled against the mode the cycle decided.
+
+    The thermostat around it is converged in every case, so a queued cycle is
+    the cooler's doing.
+    """
+
+    COOLER_ID = "climate.split_unit"
+
+    @classmethod
+    def _make_cooler_bt(cls, *, cooler_state, hvac_mode_decided=HVACMode.OFF):
+        bt = _make_bt()
+        bt.cooler_entity_id = cls.COOLER_ID
+        bt.cool_target_temperature = 24.0
+        if hvac_mode_decided is not None:
+            bt._cooler_last_sent = {"hvac_mode_decided": hvac_mode_decided}
+        trv_state = bt.hass.states.get.return_value
+        cooler = State(cls.COOLER_ID, cooler_state, {"temperature": 24.0})
+        bt.hass.states.get.side_effect = lambda entity_id: (
+            cooler if entity_id == cls.COOLER_ID else trv_state
+        )
+        return bt
+
+    @pytest.mark.asyncio
+    async def test_a_cooler_cooling_against_an_off_decision_queues_a_cycle(self):
+        """A lost switch-off or a remote press leaves the unit running."""
+        bt = self._make_cooler_bt(cooler_state=HVACMode.COOL)
+
+        await reconcile_tick(bt)
+
+        bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_cooler_off_against_a_cool_decision_queues_a_cycle(self):
+        """A lost switch-on leaves the room warm."""
+        bt = self._make_cooler_bt(
+            cooler_state=HVACMode.OFF, hvac_mode_decided=HVACMode.COOL
+        )
+
+        await reconcile_tick(bt)
+
+        bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_cooler_holding_the_decision_queues_nothing(self):
+        """A converged cooler costs no cycle."""
+        bt = self._make_cooler_bt(cooler_state=HVACMode.OFF)
+
+        await reconcile_tick(bt)
+
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cooler_state", [STATE_UNAVAILABLE, STATE_UNKNOWN])
+    async def test_a_cooler_that_says_nothing_queues_nothing(self, cooler_state):
+        """A cooler that is away has no mode to compare."""
+        bt = self._make_cooler_bt(cooler_state=cooler_state)
+
+        await reconcile_tick(bt)
+
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_cooler_without_a_decision_queues_nothing(self):
+        """Before the first cycle there is no decision to diverge from."""
+        bt = self._make_cooler_bt(cooler_state=HVACMode.COOL, hvac_mode_decided=None)
+
+        await reconcile_tick(bt)
+
+        bt.control_queue_task.put_nowait.assert_not_called()
 
 
 class TestOffsetReconcileHandoff:

@@ -414,6 +414,15 @@ class TestDeserializeMpcFieldSpellings:
         raw = {"last_target_C": 22.0, "last_target_temperature": 18.0}
         assert deserialize_mpc(raw).last_target_temperature == 22.0
 
+    def test_an_entry_from_an_earlier_release_keeps_its_other_fields(self, caplog):
+        """``last_temp``, which earlier releases stored, is skipped without a report."""
+        raw = {"last_temp": 20.75, "last_time": 1700000002.0, "gain_est": 0.05}
+        with caplog.at_level(logging.DEBUG):
+            restored = deserialize_mpc(raw, key="bt:room")
+        assert restored.last_time == 1700000002.0
+        assert restored.gain_est == 0.05
+        assert "last_temp" not in caplog.text
+
 
 class TestDeserializeMpcTypeCoercion:
     """deserialize_mpc should coerce types correctly."""
@@ -1759,6 +1768,32 @@ class TestScheduleDelaySave:
 
         assert isinstance(data, dict)
         assert mgr.dirty is True
+
+    async def test_a_closed_manager_does_not_recreate_a_removed_store(
+        self, hass, hass_storage
+    ):
+        """No write reaches the store once the entity's final save is made.
+
+        Removing an entry deletes its store after the entity's final flush.
+        A save scheduled later, by work that finished after the removal,
+        would write the file back for an entry that no longer exists.
+        """
+        key = "better_thermostat_gone_entry_state"
+        mgr = StateManager(hass, "gone_entry")
+        await mgr.load()
+        mgr.get_pid("k").pid_kp = 11.0
+        mgr.mark_dirty()
+        mgr.close()
+        await mgr.flush()
+        await StateManager.async_remove_store(hass, "gone_entry")
+        assert key not in hass_storage
+
+        mgr.mark_dirty()
+        mgr.schedule_delay_save()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=60))
+        await hass.async_block_till_done()
+
+        assert key not in hass_storage
 
 
 # ---------------------------------------------------------------------------

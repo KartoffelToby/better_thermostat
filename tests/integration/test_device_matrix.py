@@ -451,6 +451,48 @@ async def test_valve_percentage_reaches_the_valve_number_entity(hass, fake_trv):
     assert bt.real_trvs[TRV_ID].last_valve_percent == pytest.approx(opened)
 
 
+@pytest.mark.parametrize("fake_trv", [VALVE_TRV], indirect=True, ids=profile_id)
+async def test_a_valve_closes_while_the_device_reports_no_temperature(hass, fake_trv):
+    """The valve follows the room while the device reports no reading of its own.
+
+    The percentage is sized from the room sensor; the device's internal
+    temperature only feeds the setpoint. A device that publishes no reading
+    of its own must not leave the valve where it was when the room warms up.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    valve_number = fake_trv.valve_number
+
+    with patch(WRITE_BUDGET, 0.0):
+        await hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {"entity_id": BT_ENTITY, "temperature": 22.0},
+            blocking=True,
+        )
+        assert await wait_for(
+            hass,
+            lambda: (
+                valve_number.set_value_calls and valve_number.set_value_calls[-1] > 0
+            ),
+        )
+
+        fake_trv._attr_current_temperature = None
+        fake_trv.async_write_ha_state()
+        assert await wait_for(
+            hass, lambda: bt.real_trvs[TRV_ID].current_temperature is None
+        )
+
+        set_room_sensor(hass, 24.0)
+        assert await wait_for(
+            hass, lambda: valve_number.set_value_calls[-1] == pytest.approx(0.0)
+        ), valve_number.set_value_calls
+
+    assert float(hass.states.get(valve_number.entity_id).state) == pytest.approx(0.0)
+
+
 async def test_options_flow_swaps_the_thermostat_to_a_device_less_entity(hass):
     """The configured thermostat can be swapped for an entity without a device.
 

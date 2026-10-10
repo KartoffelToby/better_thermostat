@@ -173,6 +173,9 @@ def bt():
     mock._seed_cool_target.side_effect = lambda setpoint, entity_id: (
         BetterThermostat._seed_cool_target(mock, setpoint, entity_id)
     )
+    mock._seed_cool_target_from_preset.side_effect = lambda entity_id, reason: (
+        BetterThermostat._seed_cool_target_from_preset(mock, entity_id, reason)
+    )
     mock._enforce_cool_above_heat.side_effect = lambda **kwargs: (
         BetterThermostat._enforce_cool_above_heat(mock, **kwargs)
     )
@@ -2935,21 +2938,23 @@ class TestCoolerTargetReadAtListenerRegistration:
         assert bt.heat_target_temperature == 21.0
 
     @pytest.mark.asyncio
-    async def test_cooler_reporting_off_seeds_the_cool_target(self, bt):
-        """An air conditioner at rest reports off and still carries a setpoint.
+    async def test_cooler_reporting_off_seeds_the_preset_cool_temperature(self, bt):
+        """An air conditioner at rest seeds the preset's cooling temperature.
 
         Off is where an idle cooler sits and the only state a cooler that never
-        switches on will ever publish, so it is the state this read exists for.
-        The read asks whether a setpoint can be obtained, not whether the device
-        is currently cooling.
+        switches on will ever publish, so the cool target has to be filled while
+        the cooler is off. The setpoint an off cooler reports is whatever its
+        integration shows for that state, Tado's 5 °C placeholder for one, so
+        the preset's cooling temperature is taken instead of it.
         """
         bt.cooler_entity_id = COOLER_ID
         bt.bt_hvac_mode = HVACMode.HEAT
+        bt._preset_cool_temperatures = {"none": 24.0}
         _install_states(
             bt,
             {
                 COOLER_ID: _make_cooler_state(
-                    {ATTR_TEMPERATURE: 24.0}, state=HVACMode.OFF
+                    {ATTR_TEMPERATURE: 5.0}, state=HVACMode.OFF
                 )
             },
         )
@@ -2957,8 +2962,40 @@ class TestCoolerTargetReadAtListenerRegistration:
         await _run_finalize_startup(bt)
 
         assert bt.cool_target_temperature == 24.0
-        bt._seed_cool_target.assert_called_once()
+        bt._seed_cool_target.assert_not_called()
         assert bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.parametrize("mode", [HVACMode.HEAT, HVACMode.DRY, HVACMode.FAN_ONLY])
+    @pytest.mark.asyncio
+    async def test_cooler_outside_the_cooling_modes_seeds_the_preset(self, bt, mode):
+        """A cooler in another mode reports that mode's setpoint, not a cooling one."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt._preset_cool_temperatures = {"none": 24.0}
+        _install_states(
+            bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 26.0}, state=mode)}
+        )
+
+        await _run_finalize_startup(bt)
+
+        assert bt.cool_target_temperature == 24.0
+        bt._seed_cool_target.assert_not_called()
+
+    @pytest.mark.parametrize("mode", [HVACMode.COOL, HVACMode.HEAT_COOL])
+    @pytest.mark.asyncio
+    async def test_cooler_in_a_cooling_mode_seeds_its_setpoint(self, bt, mode):
+        """A cooler in a cooling mode reports the cooling setpoint it holds."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt._preset_cool_temperatures = {"none": 24.0}
+        _install_states(
+            bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 26.0}, state=mode)}
+        )
+
+        await _run_finalize_startup(bt)
+
+        assert bt.cool_target_temperature == 26.0
+        bt._seed_cool_target.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_unavailable_cooler_leaves_the_cool_target_unknown(self, bt):

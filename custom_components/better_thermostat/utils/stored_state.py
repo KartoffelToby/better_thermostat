@@ -27,7 +27,6 @@ StoredMpcState = TypedDict(  # noqa: UP013
         "loss_est": float | None,
         "ka_est": float | None,
         "solar_gain_est": float | None,
-        "last_temp": float | None,
         "last_time": float,
         "last_trv_temp": float | None,
         "last_trv_temp_ts": float,

@@ -521,3 +521,14 @@ class TestResolveStateChangeEvent:
             context=mock_self.context,
         )
         assert resolve_state_change_event(mock_self, event, "TRV") is None
+
+    def test_own_context_is_kept_for_a_caller_that_reads_the_values(self):
+        """A caller that tells BT's writes apart by value gets the event."""
+        mock_self = _fake_self()
+        old_state = _state({"temperature": 20.0})
+        new_state = _state({"temperature": 21.0})
+        event = self._event(mock_self, old_state, new_state, context=mock_self.context)
+        resolved = resolve_state_change_event(
+            mock_self, event, "TRV", skip_own_context=False
+        )
+        assert resolved == (old_state, new_state, ENTITY_ID)

@@ -246,7 +246,6 @@ _STORED_MPC_KEYS = {
     "last_target_temperature": "last_target_C",
     "last_sensor_temperature": "last_sensor_temp_C",
     "last_room_temperature": "last_room_temp_C",
-    "last_cycle_temperature": "last_temp",
     "last_trv_temperature": "last_trv_temp",
     "last_trv_temperature_ts": "last_trv_temp_ts",
     "last_learn_temperature": "last_learn_temp",
@@ -282,7 +281,6 @@ def write_mpc_state(state: MpcState) -> StoredMpcState:
         "loss_est": state.loss_est,
         "ka_est": state.ka_est,
         "solar_gain_est": state.solar_gain_est,
-        "last_temp": state.last_cycle_temperature,
         "last_time": state.last_time,
         "last_trv_temp": state.last_trv_temperature,
         "last_trv_temp_ts": state.last_trv_temperature_ts,
@@ -768,9 +766,6 @@ def deserialize_mpc(
             loss_est=read.optional("loss_est", number, held.loss_est),
             ka_est=read.optional("ka_est", number, held.ka_est),
             solar_gain_est=read.optional("solar_gain_est", number, held.solar_gain_est),
-            last_cycle_temperature=read.optional(
-                "last_cycle_temperature", number, held.last_cycle_temperature
-            ),
             last_time=read.required("last_time", number, held.last_time),
             last_trv_temperature=read.optional(
                 "last_trv_temperature", number, held.last_trv_temperature
@@ -1387,6 +1382,8 @@ class StateManager:
         # The last runtime save skipped while the copy is pending, as
         # ``(pre_save, delay_seconds)``; the timer schedules it once the copy exists.
         self._held_save: tuple[Callable[[], None] | None, float] | None = None
+        # Set by close(); a closed manager schedules no delayed save.
+        self._closed = False
 
     @staticmethod
     async def async_remove_store(hass: HomeAssistant, entry_id: str) -> None:
@@ -1672,6 +1669,11 @@ class StateManager:
         write time, so the earliest deadline already covers later
         changes — and a steady trigger stream cannot starve the save.
 
+        A closed manager schedules nothing: ``flush()`` makes its final
+        write, and a delayed one landing after it would recreate a store
+        that removing the entry deletes, or overwrite the one a reloaded
+        entity has written meanwhile.
+
         Parameters
         ----------
         pre_save : callable or None
@@ -1680,7 +1682,7 @@ class StateManager:
         delay_seconds : float
             Coalescing window in seconds before the disk write fires.
         """
-        if self._delay_save_pending:
+        if self._delay_save_pending or self._closed:
             return
         if self._payload_awaiting_copy is not None:
             # The delayed write cannot take the copy first. Once the retry is
@@ -1736,13 +1738,15 @@ class StateManager:
         return self._payload_awaiting_copy is not None
 
     def close(self) -> None:
-        """Stop trying the copy on a timer; call when the entity is removed.
+        """Stop scheduling saves of its own; call when the entity is removed.
 
-        ``flush()`` and ``save()`` still try the copy, but no timer is left
-        behind, and a copy already under way schedules no save afterwards, so
-        it cannot write into a store that removal deletes or another entity
-        owns by then.
+        ``flush()`` and ``save()`` still try the copy and write, but no timer
+        is left behind, a copy already under way schedules no save
+        afterwards, and ``schedule_delay_save()`` schedules nothing, so no
+        write lands in a store that removal deletes or another entity owns by
+        then.
         """
+        self._closed = True
         self._copy_retry_timed = False
         self._held_save = None
         self._cancel_copy_retry_timer()

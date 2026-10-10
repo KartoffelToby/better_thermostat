@@ -62,6 +62,9 @@ a returning room sensor lifts HOLD straight to OPTIMAL.
   only valve write on HOLD is the overheat-safe boost reset: while boost
   heating is active and a suppression (open window, no heat demand)
   forces the TRV to OFF, a direct-valve TRV gets its valve closed to 0 %.
+  A room switched off turns its devices off on HOLD as on every other
+  rung: the last known target is not locked in, and a TRV without an OFF
+  mode receives its minimum setpoint.
 
 Downgrades are debounced (`down_debounce_s`, 120 s) so a flapping sensor
 does not flip behavior; upgrades require sustained recovery
@@ -88,7 +91,11 @@ reconciler tick reads it: a device that diverges from the intent while
 no cycle has completed for 15 minutes is a silent hang, which raises an
 error and forces a cycle. A room whose devices hold the intent has
 nothing for a cycle to do, so a loop that stays quiet there is not
-reported, however long ago its last cycle ran.
+reported, however long ago its last cycle ran. A running cycle holds the
+reconciler off, so the tick also checks how long the current cycle has
+been running: one that has not ended 15 minutes after it began is
+logged as an error once. Valve maintenance holds the reconciler off on
+purpose and is not counted.
 
 ## Calibrator self-healing and health
 
