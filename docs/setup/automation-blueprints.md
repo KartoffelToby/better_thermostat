@@ -137,6 +137,15 @@ the delay expires, presence is re-checked once more, and the Away preset is
 only applied if still nobody is home. Attribute-only updates of the presence
 entities (e.g. a new GPS position) do not restart the delay.
 
+> **Prerequisite:** The Away preset, and the preset restored on arrival if it
+> is not `none`, must be enabled in Better Thermostat's configuration for each
+> targeted thermostat (see [Presets](/setup/presets/#choosing-which-presets-appear)).
+> A new configuration enables Eco only, so enable Away first; otherwise Home
+> Assistant rejects the preset and the automation stops with
+> `Preset mode away is not valid`. With several thermostats targeted, those
+> that offer the preset may have switched already, and the actions after it
+> do not run.
+
 | Input | Description | Default |
 |---|---|---|
 | Thermostats | Better Thermostat devices / climate entities to control | – |
@@ -175,6 +184,18 @@ Slot 1 is the earliest in the day; slots must be ordered chronologically.
 
 All 8 BT presets are available per slot per day type: `none`, `eco`, `away`,
 `boost`, `comfort`, `home`, `sleep`, `activity`.
+
+> **Prerequisite:** Every preset you choose for a slot must be enabled in
+> Better Thermostat's configuration for each targeted thermostat (see
+> [Presets](/setup/presets/#choosing-which-presets-appear)); `none` is always
+> available. The vacation preset needs to be enabled only if you use
+> presence-based away mode. A new configuration enables Eco only, while the
+> default slots use `comfort`, `sleep` and `eco` and the vacation preset is
+> `away`. Enable those presets, or pick enabled ones for every slot;
+> otherwise Home Assistant rejects the preset at the first slot change. A
+> thermostat that does not offer the preset keeps the one it has, and with
+> several thermostats targeted, those that do offer it may have switched
+> already.
 
 #### Additional features
 
