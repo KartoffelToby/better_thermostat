@@ -543,9 +543,21 @@ async def trigger_temperature_change(
                 self.hass, remaining, _plateau_cb
             )
 
+    # A reading after a state that carried none is the room's temperature
+    # again, however close it lies to the last one before: the keepalive
+    # sent the TRVs no external temperature meanwhile, and they may have
+    # fallen back to their own sensors. That holds for a gap too short for
+    # the ladder to leave OPTIMAL as well.
+    _old_state = event.data.get("old_state")
+    _sensor_returns = _room_sensor_returns(self, _old_state)
+    _reading_returns = _sensor_returns or (
+        _old_state is not None and room_sensor_reading(self, _old_state) is None
+    )
     if _cur_q is None:
         # First reading ever — always accept regardless of interval
         _accept_reason = "first_reading"
+    elif _reading_returns:
+        _accept_reason = "sensor_returned"
     elif _is_significant and _interval_ok:
         _accept_reason = "significant"
     elif _accum_ok:
@@ -554,9 +566,10 @@ async def trigger_temperature_change(
         _accept_reason = "plateau"
 
     if _accept_reason is not None:
-        # One of the accept paths above matched (first reading, or a
-        # significant / accumulated / plateau change once the debounce
-        # interval elapsed); log the decision and apply the update.
+        # One of the accept paths above matched (first reading, a reading
+        # that ends a sensor outage, or a significant / accumulated /
+        # plateau change once the debounce interval elapsed); log the
+        # decision and apply the update.
         _LOGGER.debug(
             "better_thermostat %s: external_temperature update accepted (old=%.2f new=%.2f diff=%.2f "
             "age=%.1fs threshold=%.2f interval=%ss reason=%s accum=%.2f dir=%s)",
@@ -571,7 +584,7 @@ async def trigger_temperature_change(
             (self.accum_delta if _cur_q is not None else 0.0),
             ("+" if self.accum_dir > 0 else ("-" if self.accum_dir < 0 else "0")),
         )
-        if _room_sensor_returns(self, event.data.get("old_state")):
+        if _sensor_returns:
             # During the outage the minute tick kept feeding the filter the
             # last reading from before it, which says nothing about the room
             # since. The filter starts over from the returning reading, and
