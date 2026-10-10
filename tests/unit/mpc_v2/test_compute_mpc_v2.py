@@ -617,6 +617,131 @@ def test_state_round_trip() -> None:
     assert rehydrated.last_percent == state.last_percent
 
 
+_ESTIMATE = {"x_hat": [20.0, 21.0], "kalman_P": [[1.0, 0.0], [0.0, 1.0]]}
+
+
+@pytest.mark.parametrize("version", [0, 1, 2])
+def test_sentinel_stamps_of_an_older_snapshot_load_as_absent(version: int) -> None:
+    """``0.0`` / ``-1.0`` in a version 2 or older snapshot mean "no cycle yet"."""
+    raw = {
+        "v": version,
+        **_ESTIMATE,
+        "last_t_s": 0.0,
+        "next_mpc_t_s": -1.0,
+        "last_mpc_t_s": -1.0,
+    }
+    snap = ControllerSnapshot.from_mapping(raw)
+    assert snap is not None
+    assert snap.last_t_s is None
+    assert snap.next_mpc_t_s is None
+    assert snap.last_mpc_t_s is None
+
+
+def test_missing_stamps_of_an_older_snapshot_load_as_absent() -> None:
+    """A version 2 snapshot without the stamp keys loads them as ``None``."""
+    snap = ControllerSnapshot.from_mapping({"v": 2, **_ESTIMATE})
+    assert snap is not None
+    assert (snap.last_t_s, snap.next_mpc_t_s, snap.last_mpc_t_s) == (None, None, None)
+
+
+def test_real_stamps_of_an_older_snapshot_are_kept() -> None:
+    """Only the sentinels map to ``None``; a stored cycle stamp stays."""
+    raw = {
+        "v": 2,
+        **_ESTIMATE,
+        "last_t_s": 1_790_000_000.0,
+        "next_mpc_t_s": 1_790_000_300.0,
+        "last_mpc_t_s": 1_789_999_700.0,
+    }
+    snap = ControllerSnapshot.from_mapping(raw)
+    assert snap is not None
+    assert snap.last_t_s == 1_790_000_000.0
+    assert snap.next_mpc_t_s == 1_790_000_300.0
+    assert snap.last_mpc_t_s == 1_789_999_700.0
+
+
+def test_planned_at_zero_of_an_older_snapshot_is_kept() -> None:
+    """A stored ``0.0`` plan stamp counted as a plan, so it stays a stamp."""
+    raw = {"v": 2, **_ESTIMATE, "next_mpc_t_s": 0.0, "last_mpc_t_s": 0.0}
+    snap = ControllerSnapshot.from_mapping(raw)
+    assert snap is not None
+    assert snap.next_mpc_t_s == 0.0
+    assert snap.last_mpc_t_s == 0.0
+
+
+def test_older_sentinel_snapshot_steps_like_a_current_null_one() -> None:
+    """A version 2 cold snapshot runs its next cycle as a version 3 one does."""
+    stored = {"last_u": 0.3, "u_history": [0.3], "e_integral_K_min": 0.5}
+    older = ControllerSnapshot.from_mapping(
+        {
+            "v": 2,
+            **_ESTIMATE,
+            **stored,
+            "last_t_s": 0.0,
+            "next_mpc_t_s": -1.0,
+            "last_mpc_t_s": -1.0,
+        }
+    )
+    current = ControllerSnapshot.from_mapping(
+        {
+            "v": SNAPSHOT_VERSION,
+            **_ESTIMATE,
+            **stored,
+            "last_t_s": None,
+            "next_mpc_t_s": None,
+            "last_mpc_t_s": None,
+        }
+    )
+    assert older is not None
+    assert current is not None
+    results = []
+    for snap in (older, current):
+        controller = MpcV2Controller(MpcV2Params())
+        controller.restore_snapshot(snap)
+        u, _ = controller.step(
+            t_s=1_790_000_000.0, T_room=19.0, T_target=22.0, T_outdoor=5.0
+        )
+        results.append(
+            (u, controller.optimiser.e_integral_K_min, controller.dob.D_hat_K_per_min)
+        )
+    assert results[0] == results[1]
+
+
+def test_a_fresh_controller_writes_null_stamps() -> None:
+    """Absent stamps are stored as JSON nulls and load back as ``None``."""
+    stored = MpcV2Controller(MpcV2Params()).export_snapshot().to_mapping()
+    assert stored["v"] == SNAPSHOT_VERSION
+    on_disk = json.loads(json.dumps(stored))
+    assert on_disk["last_t_s"] is None
+    assert on_disk["next_mpc_t_s"] is None
+    assert on_disk["last_mpc_t_s"] is None
+    snap = ControllerSnapshot.from_mapping(on_disk)
+    assert snap is not None
+    assert (snap.last_t_s, snap.next_mpc_t_s, snap.last_mpc_t_s) == (None, None, None)
+
+
+def test_snapshot_stamps_round_trip_through_json() -> None:
+    """A stepped controller's snapshot survives the store unchanged."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_790_000_000.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+    snap = controller.export_snapshot()
+    assert snap.last_t_s == 1_790_000_000.0
+    assert snap.last_mpc_t_s == 1_790_000_000.0
+    assert snap.next_mpc_t_s is not None
+
+    loaded = ControllerSnapshot.from_mapping(json.loads(json.dumps(snap.to_mapping())))
+    assert loaded == snap
+
+
+def test_negative_stamps_of_a_current_snapshot_are_kept() -> None:
+    """From version 3 on only a null marks a stamp absent."""
+    raw = {"v": 3, **_ESTIMATE, "last_t_s": 0.0, "last_mpc_t_s": -1.0}
+    snap = ControllerSnapshot.from_mapping(raw)
+    assert snap is not None
+    assert snap.last_t_s == 0.0
+    assert snap.last_mpc_t_s == -1.0
+
+
 def test_export_state_without_controller_returns_none() -> None:
     """A state that never produced a controller has nothing to persist."""
     assert export_mpc_v2_state(MpcV2State()) is None
@@ -993,8 +1118,8 @@ def _snapshot_carrying(raw: dict[str, object]) -> ControllerSnapshot:
         e_integral_K_min=0.0,
         u_history=[],
         rg_v=None,
-        last_t_s=0.0,
-        next_mpc_t_s=-1.0,
+        last_t_s=None,
+        next_mpc_t_s=None,
     )
 
 

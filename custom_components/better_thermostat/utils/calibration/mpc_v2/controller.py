@@ -25,7 +25,13 @@ _LOGGER = logging.getLogger(__name__)
 # Snapshot format version. Bump when adding/renaming persisted fields so
 # restore_snapshot can refuse payloads from a future Better Thermostat
 # release. Pre-versioning snapshots are treated as version 0.
-SNAPSHOT_VERSION = 2
+SNAPSHOT_VERSION = 3
+
+# Snapshots up to this version mark an absent cycle stamp with a number
+# instead of a null: ``last_t_s`` with ``0.0``, ``next_mpc_t_s`` and
+# ``last_mpc_t_s`` with ``-1.0``. The stamps are wall-clock epoch seconds, so
+# no real cycle carries either value.
+_LAST_SENTINEL_STAMP_VERSION = 2
 
 # Steps arriving closer together than this carry no new information: in a
 # multi-TRV group every TRV dispatch steps the same shared controller within
@@ -67,6 +73,22 @@ def _optional_float(value: object) -> float | None:
     return None if value is None else stored_float(value)
 
 
+def _stored_stamp(value: object, version: int, *, zero_is_absent: bool) -> float | None:
+    """Return a stored cycle stamp, ``None`` when the snapshot marks it absent.
+
+    An absent stamp is a missing key or a null. A snapshot up to
+    ``_LAST_SENTINEL_STAMP_VERSION`` marks it with a number the controller
+    read as absent instead: a negative one, and also ``0.0`` when
+    ``zero_is_absent`` is set.
+    """
+    stamp = _optional_float(value)
+    if stamp is None or version > _LAST_SENTINEL_STAMP_VERSION:
+        return stamp
+    if stamp < 0.0 or (zero_is_absent and stamp == 0.0):
+        return None
+    return stamp
+
+
 @dataclass
 class ControllerSnapshot:
     """Typed, JSON-round-trippable snapshot of the full controller state.
@@ -85,9 +107,11 @@ class ControllerSnapshot:
     e_integral_K_min: float
     u_history: list[float]
     rg_v: float | None
-    last_t_s: float
-    next_mpc_t_s: float
-    last_mpc_t_s: float = -1.0
+    # Wall-clock seconds of the last observer cycle, the next due plan and
+    # the last plan; ``None`` while there is none.
+    last_t_s: float | None
+    next_mpc_t_s: float | None
+    last_mpc_t_s: float | None = None
     # ``None`` for a snapshot written before the planning reading existed;
     # the restore then starts it from zero.
     planning_disturbance: float | None = None
@@ -111,10 +135,14 @@ class ControllerSnapshot:
         non-numeric or non-finite values is dropped entirely — ``float`` accepts
         ``NaN`` and infinity, and either one spreads through the observer into
         every later command, so the controller boots fresh instead of running on
-        poisoned state. Three fields are nullable: a stored ``null`` in ``rg_v_C``
-        means "no governor state", a missing or ``null``
-        ``planning_disturbance`` means "start it from zero", and a missing or
-        ``null`` ``last_command_u`` means "the last input is the command". ``x_hat``,
+        poisoned state. A stored ``null`` in ``rg_v_C`` means "no governor
+        state", a missing or ``null`` ``planning_disturbance`` means "start it
+        from zero", and a missing or ``null`` ``last_command_u`` means "the
+        last input is the command". A missing or ``null`` cycle stamp
+        (``last_t_s``, ``next_mpc_t_s``, ``last_mpc_t_s``) means "no such cycle
+        yet"; a snapshot of version 2 or older marks that with ``0.0`` in
+        ``last_t_s`` and a negative number in the other two, which load as
+        ``None``. ``x_hat``,
         ``u_history``, ``kalman_P`` and each row of ``kalman_P`` have to be
         lists; a value of any other shape drops the snapshot as non-numeric.
         """
@@ -139,9 +167,15 @@ class ControllerSnapshot:
                 e_integral_K_min=stored_float(raw.get("e_integral_K_min", 0.0)),
                 u_history=_stored_floats(raw.get("u_history", []), "u_history"),
                 rg_v=_optional_float(raw.get(_STORED_RG_V)),
-                last_t_s=stored_float(raw.get("last_t_s", 0.0)),
-                next_mpc_t_s=stored_float(raw.get("next_mpc_t_s", -1.0)),
-                last_mpc_t_s=stored_float(raw.get("last_mpc_t_s", -1.0)),
+                last_t_s=_stored_stamp(
+                    raw.get("last_t_s"), version, zero_is_absent=True
+                ),
+                next_mpc_t_s=_stored_stamp(
+                    raw.get("next_mpc_t_s"), version, zero_is_absent=False
+                ),
+                last_mpc_t_s=_stored_stamp(
+                    raw.get("last_mpc_t_s"), version, zero_is_absent=False
+                ),
                 planning_disturbance=_optional_float(raw.get("planning_disturbance")),
                 last_command_u=_optional_float(raw.get("last_command_u")),
             )
@@ -155,14 +189,16 @@ class ControllerSnapshot:
             snapshot.D_hat_K_per_min,
             snapshot.last_u,
             snapshot.e_integral_K_min,
-            snapshot.last_t_s,
-            snapshot.next_mpc_t_s,
-            snapshot.last_mpc_t_s,
-            *([] if snapshot.rg_v is None else [snapshot.rg_v]),
             *(
-                []
-                if snapshot.planning_disturbance is None
-                else [snapshot.planning_disturbance]
+                x
+                for x in (
+                    snapshot.last_t_s,
+                    snapshot.next_mpc_t_s,
+                    snapshot.last_mpc_t_s,
+                    snapshot.rg_v,
+                    snapshot.planning_disturbance,
+                )
+                if x is not None
             ),
             *([] if snapshot.last_command_u is None else [snapshot.last_command_u]),
         ]
@@ -225,9 +261,9 @@ class MpcV2Controller:
         # controller keeps commanding it, whatever the device reported since.
         self._last_u: float = 0.0
         self._command_u: float = 0.0
-        self._last_t_s: float = 0.0
-        self._next_mpc_t_s: float = -1.0
-        self._last_mpc_t_s: float = -1.0
+        self._last_t_s: float | None = None
+        self._next_mpc_t_s: float | None = None
+        self._last_mpc_t_s: float | None = None
         self._initialised: bool = False
 
     @property
@@ -279,13 +315,17 @@ class MpcV2Controller:
             self._initialised = True
 
         self._forget_stamps_ahead_of_the_clock(t_s)
-        dt_s = t_s - self._last_t_s if self._last_t_s > 0 else self.params.plant_step_s
-        if self._last_t_s > 0 and dt_s < MIN_STEP_DT_S:
-            # Stamps a second or more ahead of the clock are gone by now, so
-            # this sees only a repeat less than 1 s before or after the last
-            # cycle. It reuses the previous state and must NOT advance
-            # _last_t_s, otherwise a stale timestamp would reach dob.update.
-            return self._command_u, self._diagnostics()
+        if self._last_t_s is None:
+            dt_s = self.params.plant_step_s
+        else:
+            dt_s = t_s - self._last_t_s
+            if dt_s < MIN_STEP_DT_S:
+                # Stamps a second or more ahead of the clock are gone by now,
+                # so this sees only a repeat less than 1 s before or after the
+                # last cycle. It reuses the previous state and must NOT advance
+                # _last_t_s, otherwise a stale timestamp would reach
+                # dob.update.
+                return self._command_u, self._diagnostics()
         self._last_t_s = t_s
 
         # The observer follows real elapsed time.  The QP below intentionally
@@ -308,7 +348,7 @@ class MpcV2Controller:
             D_hat_K_per_min=self.dob.D_hat_K_per_min,
         )
 
-        if t_s < self._next_mpc_t_s:
+        if self._next_mpc_t_s is not None and t_s < self._next_mpc_t_s:
             return self._command_u, self._diagnostics()
 
         plant_delay_s = self.params.plant.valve_command_delay_s
@@ -319,7 +359,7 @@ class MpcV2Controller:
         # Hand over the time since the previous plan; the optimiser counts at
         # most one re-plan step of it. The first plan has no preceding
         # control interval.
-        if self._last_mpc_t_s >= 0.0:
+        if self._last_mpc_t_s is not None:
             self.optimiser.update_integral(
                 T_room=T_room,
                 T_sp=sp_for_opt,
@@ -361,9 +401,9 @@ class MpcV2Controller:
         measured from it is floored at zero and the plan replaces it. The
         estimates, the error integral and the command history are kept.
         """
-        if self._last_t_s - t_s >= MIN_STEP_DT_S:
-            self._last_t_s = 0.0
-            self._next_mpc_t_s = -1.0
+        if self._last_t_s is not None and self._last_t_s - t_s >= MIN_STEP_DT_S:
+            self._last_t_s = None
+            self._next_mpc_t_s = None
 
     def export_snapshot(self) -> ControllerSnapshot:
         """Return a typed snapshot of the controller state for persistence."""

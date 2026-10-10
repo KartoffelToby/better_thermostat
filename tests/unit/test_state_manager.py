@@ -1685,8 +1685,8 @@ def _make_snapshot(last_u: float) -> ControllerSnapshot:
         e_integral_K_min=0.0,
         u_history=[],
         rg_v=None,
-        last_t_s=0.0,
-        next_mpc_t_s=0.0,
+        last_t_s=None,
+        next_mpc_t_s=None,
     )
 
 
