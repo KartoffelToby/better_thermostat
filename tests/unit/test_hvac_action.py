@@ -225,6 +225,15 @@ class TestComputeHvacAction:
         r = compute_hvac_action(**_default_kwargs(bt_hvac_mode=HVACMode.OFF))
         assert r.action == HVACAction.OFF
 
+    @pytest.mark.parametrize(
+        "missing", [{"room_temperature": None}, {"heat_target_temperature": None}]
+    )
+    def test_off_mode_reports_off_without_temperatures(self, missing):
+        """A thermostat switched off reports off, known temperatures or not."""
+        r = compute_hvac_action(**_default_kwargs(hvac_mode=HVACMode.OFF, **missing))
+        assert r.action == HVACAction.OFF
+        assert r.tolerance_decision == HVACAction.OFF
+
     def test_window_open_returns_idle(self):
         """Test Window open returns idle."""
         r = compute_hvac_action(**_default_kwargs(window_open=True))

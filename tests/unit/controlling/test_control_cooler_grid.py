@@ -36,7 +36,12 @@ def _payload(mock_hass):
         pytest.param(UnitOfTemperature.CELSIUS, 27.0, 0.5, 23.2, 23.0, id="c-down"),
         # 24.3 °C is 75.74 °F.
         pytest.param(UnitOfTemperature.FAHRENHEIT, 80.0, 1.0, 24.3, 76.0, id="f-whole"),
-        pytest.param(UnitOfTemperature.FAHRENHEIT, 80.0, 0.5, 24.3, 75.5, id="f-half"),
+        pytest.param(UnitOfTemperature.FAHRENHEIT, 80.5, 0.5, 24.3, 75.5, id="f-half"),
+        # A cooler that publishes every temperature in whole degrees reports a
+        # half-degree setpoint rounded, so it is sent whole degrees.
+        pytest.param(
+            UnitOfTemperature.FAHRENHEIT, 80.0, 0.5, 24.3, 76.0, id="f-half-shown-whole"
+        ),
     ],
 )
 async def test_the_cooling_setpoint_lands_on_the_coolers_grid(

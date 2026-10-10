@@ -291,15 +291,18 @@ def find_device_entity(
     device_id: str,
     domains: Iterable[str],
     keywords: Iterable[str],
+    excluded: Iterable[str] = (),
 ) -> str | None:
     """Return the entity_id of the first matching entity on a device.
 
     A match is any enabled entity belonging to ``device_id`` whose domain is
     in ``domains`` and whose name, unique_id or object-id contains any of
-    ``keywords`` (case-insensitive). Returns ``None`` if nothing matches.
+    ``keywords`` and none of ``excluded`` (case-insensitive). Returns
+    ``None`` if nothing matches.
     """
     domains = tuple(domains)
     keywords = tuple(k.lower() for k in keywords)
+    excluded = tuple(k.lower() for k in excluded)
     for ent in entity_registry.entities.values():
         if not is_sibling_entry(ent, device_id) or ent.domain not in domains:
             continue
@@ -310,6 +313,8 @@ def find_device_entity(
         # entity, not just the intended child-lock one.
         object_id = (ent.entity_id or "").lower().split(".", 1)[-1]
 
+        if any(k in text for k in excluded for text in (name, uid, object_id)):
+            continue
         if (
             any(k in name for k in keywords)
             or any(k in uid for k in keywords)
@@ -317,6 +322,35 @@ def find_device_entity(
         ):
             return ent.entity_id
     return None
+
+
+_CHILD_LOCK_DOMAINS = ("switch", "lock")
+# Locks a TRV exposes beside its child lock; the bare "lock" fallback must
+# never take one of these for the child lock.
+_OTHER_LOCK_KINDS = ("window", "valve", "door")
+
+
+def find_child_lock_entity(
+    entity_registry: er.EntityRegistry, device_id: str
+) -> str | None:
+    """Return the entity_id of the device's child lock, if it exposes one.
+
+    Zigbee2MQTT offers the child lock as a switch, other integrations as a
+    lock. An entity named for the child lock wins over any other entity
+    whose name merely contains "lock", wherever the registry lists it, so a
+    device that also exposes a window or valve lock keeps that one
+    untouched. A bare "lock" match is taken only when nothing is named for
+    the child lock.
+    """
+    return find_device_entity(
+        entity_registry, device_id, _CHILD_LOCK_DOMAINS, ["child_lock", "child lock"]
+    ) or find_device_entity(
+        entity_registry,
+        device_id,
+        _CHILD_LOCK_DOMAINS,
+        ["lock"],
+        excluded=_OTHER_LOCK_KINDS,
+    )
 
 
 # Sentinel for "this platform has not been set up in this process yet".
@@ -1457,7 +1491,9 @@ def on_cooler_grid(
     lands on that grid point again. A cooler that publishes no usable step
     holds whole degrees on a Fahrenheit system, Home Assistant's precision
     for that unit, and on a Celsius system is rounded onto the step its
-    reports are compared with.
+    reports are compared with. A cooler published in whole degrees
+    Fahrenheit reports a finer step back rounded, so it is written on whole
+    degrees whatever its step.
     """
     if value is None:
         return None
@@ -1474,6 +1510,8 @@ def on_cooler_grid(
             )
         step = 1.0
     if fahrenheit:
+        if published_in_whole_fahrenheit(cooler_state, UnitOfTemperature.FAHRENHEIT):
+            step = max(step, 1.0)
         on_grid = round_by_step(
             TemperatureConverter.convert(
                 value, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
@@ -1677,6 +1715,11 @@ def resolve_inbound_setpoint(
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
 
 
+# A cooler may snap a received setpoint onto its own step grid (e.g. 0.5 °C,
+# or a whole-°F grid). A post-send reading within this distance of the sent
+# value counts as that device-side quantization, not as an unapplied command.
+COOLER_QUANTIZATION_TOLERANCE_K = 0.5
+
 # The command one cooler channel attempted, as the failure backoff compares
 # it: the wanted mode on the mode channel, and the (high, low) bound pair on
 # the setpoint channel, where the lower bound is absent for a single-setpoint
@@ -1731,6 +1774,8 @@ CoolerSendCache = TypedDict(  # noqa: UP013
         "hvac_mode": SentCommand[HVACMode],
         "hvac_mode_decided": HVACMode,
         "hvac_mode_failed": CoolerFailureRun,
+        "hvac_mode_reported": float,
+        "hvac_mode_resent_early": bool,
     },
     total=False,
 )
@@ -1740,9 +1785,12 @@ def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     """Return the cooler send-cache, creating it on first use.
 
     Holds the last successfully sent command per channel as a
-    :class:`SentCommand` for the resend throttle, the settled reading of each
-    written channel, the mode the last cycle decided on for the hysteresis
-    band, and each channel's :class:`CoolerFailureRun`. Created lazily
+    :class:`SentCommand` for the resend throttle, with no send time once the
+    throttle no longer paces that value, the settled reading of each written
+    channel, the mode the last cycle decided on for the hysteresis band, each
+    channel's :class:`CoolerFailureRun`, the monotonic time the cooler last
+    reported a mode change of its own, and whether the last mode command went
+    out ahead of the resend throttle. Created lazily
     because only cooler-equipped instances need it.
 
     Parameters
@@ -1781,6 +1829,42 @@ def last_sent_cooler_temperature(self: BetterThermostat) -> float | None:
     """
     sent = cooler_send_cache(self).get("temperature")
     return sent.value if sent is not None else None
+
+
+def settle_cooler_reading(self: BetterThermostat, reading: float) -> float | None:
+    """Return the cooler's answer to BT's last setpoint write, latching it.
+
+    A cooler may hold a written setpoint on a coarser grid than the one it
+    publishes, or than the one BT falls back to when it publishes none: a
+    whole-degree unit sent 22.5 °C holds 22 °C. The first reading within
+    ``COOLER_QUANTIZATION_TOLERANCE_K`` of the last write is taken as that
+    answer and kept as the settled reading until the next write replaces it.
+    The control cycle counts the write as applied while the device stays on
+    that reading, and the inbound handler reads a report on it as the write
+    coming back rather than as a press on the device.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat, carrying the send cache
+    reading : float
+            the cooling setpoint the cooler reports, in °C
+
+    Returns
+    -------
+    float | None
+            the settled reading, or None while the cooler has not answered the
+            last write, or no write has succeeded yet
+    """
+    last_sent = cooler_send_cache(self)
+    settled = last_sent.get("temperature_settled")
+    if settled is not None:
+        return settled
+    sent = last_sent_cooler_temperature(self)
+    if sent is None or abs(reading - sent) > COOLER_QUANTIZATION_TOLERANCE_K:
+        return None
+    last_sent["temperature_settled"] = reading
+    return reading
 
 
 def dual_role_entity_id(self: BetterThermostat) -> str | None:
@@ -1877,6 +1961,39 @@ def cooling_owns_dual_role_report(
     return cooler_send_cache(self).get("hvac_mode_decided") == HVACMode.COOL
 
 
+def cooler_mode_diverges(self: BetterThermostat, state: State | None) -> bool:
+    """Answer whether a cooler reports a mode other than the one BT decided.
+
+    The cooling decision :func:`control_cooler` latched is the mode the cooler
+    should hold. A cooler that holds another one, because it came back from
+    an outage in the mode it had before, or because something other than
+    Better Thermostat switched it, needs a control cycle to be put back.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat, supplying the cooling decision
+            latch
+    state :
+            the cooler's reported state
+
+    Returns
+    -------
+    bool
+            True when the cooler reports a mode and it differs from the
+            latched decision; False while no decision has been taken yet, for
+            a state that says nothing about the device, and for a cooler that
+            carries the heating role as well, whose mode the heating channel
+            reconciles
+    """
+    if self.cooler_entity_id is None or dual_role_entity_id(self) is not None:
+        return False
+    decided = cooler_send_cache(self).get("hvac_mode_decided")
+    if decided is None or state is None or state_says_nothing(state):
+        return False
+    return state.state != decided
+
+
 def state_says_nothing(state: State | None) -> bool:
     """Answer whether a state carries no statement about its own device.
 
@@ -1902,14 +2019,18 @@ def state_says_nothing(state: State | None) -> bool:
 
 
 def resolve_state_change_event(
-    self: BetterThermostat, event: Event[EventStateChangedData], device_label: str
+    self: BetterThermostat,
+    event: Event[EventStateChangedData],
+    device_label: str,
+    *,
+    skip_own_context: bool = True,
 ) -> tuple[State, State, str] | None:
     """Return the states of a device event worth acting on, or None.
 
     Shared prologue of the device event handlers: an event is actionable when
     it carries both states, both are States with attributes, it names an
-    entity, and it was not caused by BT's own service call — those carry
-    ``self.context``.
+    entity, and, unless ``skip_own_context`` is False, it does not carry
+    ``self.context``, the context of BT's own service calls.
 
     Parameters
     ----------
@@ -1919,6 +2040,9 @@ def resolve_state_change_event(
             the state change event to inspect
     device_label : str
             role of the device in log messages, e.g. ``"TRV"`` or ``"Cooler"``
+    skip_own_context : bool
+            whether an event under BT's own context is skipped; a caller that
+            tells BT's writes apart from a press by their values passes False
 
     Returns
     -------
@@ -1966,7 +2090,7 @@ def resolve_state_change_event(
         )
         return None
 
-    if self.context == event.context:
+    if skip_own_context and self.context == event.context:
         return None
 
     return old_state, new_state, entity_id
@@ -2202,17 +2326,29 @@ def matches_any_setpoint(
 # Assistant published in whole degrees may lie above the one the device holds.
 _HALF_FAHRENHEIT_DEGREE = 5.0 / 18.0
 
+# A whole degree Fahrenheit, in Kelvin: the grid of a setpoint Home Assistant
+# publishes in whole degrees.
+_WHOLE_FAHRENHEIT_DEGREE = 5.0 / 9.0
+
 # The temperatures a climate state publishes at the precision of its entity.
-_PRECISION_ATTRIBUTES = ("min_temp", "max_temp", "current_temperature")
+_PRECISION_ATTRIBUTES = (
+    "min_temp",
+    "max_temp",
+    "current_temperature",
+    "temperature",
+    "target_temp_low",
+    "target_temp_high",
+)
 
 
 def published_in_whole_fahrenheit(state: State | None, system_unit: str | None) -> bool:
     """Whether Home Assistant publishes this climate state in whole degrees Fahrenheit.
 
     The state does not name the precision it was rounded to, so it is read
-    off the temperatures published with it: every one of them a whole
-    degree. An entity that states halves or tenths shows a finer value in
-    at least one of them nearly always.
+    off the temperatures published with it, the setpoints among them: every
+    one of them a whole degree. An entity that states halves or tenths shows
+    a finer value in at least one of them nearly always; a reading and a
+    setpoint that both land on a whole degree at once are rare.
     """
     if system_unit != UnitOfTemperature.FAHRENHEIT or state is None:
         return False
@@ -2222,6 +2358,75 @@ def published_in_whole_fahrenheit(state: State | None, system_unit: str | None) 
     ]
     present = [value for value in values if value is not None]
     return bool(present) and all(_published_grid(value) == 1.0 for value in present)
+
+
+def published_setpoint_grid(
+    step: float, state: State | None, system_unit: str | None
+) -> float:
+    """Return the grid, as a °C delta, a setpoint is written to a device on.
+
+    The device holds its setpoint on its own ``step``. A state Home Assistant
+    publishes in whole degrees Fahrenheit rounds that setpoint once more, so
+    a setpoint written between two whole degrees comes back on one of its
+    neighbours and never as written. Written on whole degrees, it comes back
+    unchanged; a head holding half degrees Celsius (0.9 °F) is barely finer
+    than that. The coarser of the two grids is the one written on.
+
+    It also covers a step whose unit the state does not tell: Home Assistant
+    publishes ``target_temp_step`` in the device's own unit and names no
+    unit for it, so the step of a head working in Celsius is read in
+    Fahrenheit.
+
+    Parameters
+    ----------
+    step : float
+            the device's setpoint step in °C
+    state : State | None
+            the device state the setpoint is published in
+    system_unit : str | None
+            the configured system temperature unit
+
+    Returns
+    -------
+    float
+            the grid a setpoint is written on, as a °C delta
+    """
+    if published_in_whole_fahrenheit(state, system_unit):
+        return max(step, _WHOLE_FAHRENHEIT_DEGREE)
+    return step
+
+
+def as_published_setpoint(
+    value: float | None, state: State | None, system_unit: str | None
+) -> float | None:
+    """Return ``value`` the way Home Assistant publishes it back, in °C.
+
+    A state published in whole degrees Fahrenheit reports a setpoint the
+    device holds on the whole degree nearest to it. A device step coarser
+    than a whole degree Fahrenheit, a whole degree Celsius say, puts the
+    held setpoint between two of them, so the report differs from the value
+    written by up to half a degree Fahrenheit. Compared with a report, the
+    written value is taken on that same degree. Any other state publishes
+    the value as it is, and no value stays none.
+
+    Parameters
+    ----------
+    value : float | None
+            the setpoint in °C as the device holds it
+    state : State | None
+            the device state the setpoint is published in
+    system_unit : str | None
+            the configured system temperature unit
+
+    Returns
+    -------
+    float | None
+            the setpoint in °C as the state reports it
+    """
+    if value is None or not published_in_whole_fahrenheit(state, system_unit):
+        return value
+    fahrenheit = round(value * 9.0 / 5.0 + 32.0)
+    return (fahrenheit - 32.0) * 5.0 / 9.0
 
 
 def setpoint_at_minimum(
@@ -2352,12 +2557,18 @@ class ValveEntityInfo(TypedDict):
 _VALVE_TRANSLATION_KEYS: dict[str, str] = {
     "valve_position": "valve_position",
     "valve_opening_degree": "valve_opening_degree",
-    "valve_closing_degree": "valve_closing_degree",
     "pi_heating_demand": "pi_heating_demand",
     "heating_demand": "pi_heating_demand",
     # Shelly BLU TRV uses this translation_key
     "valve": "valve_position",
 }
+
+# The closing degree is the share of the valve held shut: the complement of
+# the opening Better Thermostat writes and reads back. Taken as the valve
+# entity it would receive the opening percentage as it stands and report the
+# opposite of what was sent, so it is never one.
+_VALVE_CLOSING_TRANSLATION_KEY = "valve_closing_degree"
+_VALVE_CLOSING_DESCRIPTORS = ("valve_closing_degree", "valve closing degree")
 
 # Device models whose valve-related numbers configure the device's own
 # controller rather than position the valve. The Sonoff TRV-ZBT publishes
@@ -2426,7 +2637,6 @@ async def find_valve_entity(
         return None
     entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
     preferred_domains = {"number", "input_number"}
-    readonly_candidate: ValveEntityInfo | None = None
 
     def _device_matches(candidate: er.RegistryEntry) -> bool:
         # Strong match: same device
@@ -2455,8 +2665,6 @@ async def find_valve_entity(
         # Sonoff TRVZB (and some others) expose explicit valve degree entities
         if "valve_opening_degree" in descriptor:
             return "valve_opening_degree"
-        if "valve_closing_degree" in descriptor:
-            return "valve_closing_degree"
 
         # Existing patterns
         if "pi_heating_demand" in descriptor:
@@ -2476,19 +2684,28 @@ async def find_valve_entity(
             return "position"
         return None
 
+    def _is_closing_degree(entity: er.RegistryEntry) -> bool:
+        if entity.translation_key == _VALVE_CLOSING_TRANSLATION_KEY:
+            return True
+        descriptor = (
+            f"{entity.unique_id or ''} {entity.entity_id or ''} "
+            f"{entity.original_name or ''}"
+        ).lower()
+        return any(marker in descriptor for marker in _VALVE_CLOSING_DESCRIPTORS)
+
     def _score(reason: str, writable: bool, domain: str) -> tuple[int, int, int]:
-        # Higher is better.
+        # Higher is better. A writable entity is a valve channel and a
+        # read-only one only reports, so writability ranks above the name.
         reason_score = {
             "valve_opening_degree": 100,
-            "valve_closing_degree": 95,
             "valve_position": 90,
             "pi_heating_demand": 80,
             "valve_generic": 60,
             "position": 50,
         }.get(reason, 0)
-        writable_score = 10 if writable else 0
+        writable_score = 1 if writable else 0
         domain_score = 1 if domain in preferred_domains else 0
-        return (reason_score, writable_score, domain_score)
+        return (writable_score, reason_score, domain_score)
 
     best: ValveEntityInfo | None = None
     best_score: tuple[int, int, int] = (-1, -1, -1)
@@ -2496,7 +2713,7 @@ async def find_valve_entity(
 
     for entity in entity_entries:
         uid = entity.unique_id or ""
-        if not _device_matches(entity):
+        if not _device_matches(entity) or _is_closing_degree(entity):
             continue
 
         # Prefer translation_key (stable, language-independent) over string matching
@@ -2521,26 +2738,16 @@ async def find_valve_entity(
         if best is None or score > best_score:
             best = info
             best_score = score
-        if not writable and readonly_candidate is None:
-            readonly_candidate = info
 
-    if best is not None and best.get("writable"):
+    if best is not None:
         _LOGGER.debug(
-            "better thermostat: Found writable valve helper %s for %s (reason=%s)",
-            best.get("entity_id"),
+            "better thermostat: Found %s valve helper %s for %s (reason=%s)",
+            "writable" if best["writable"] else "read-only",
+            best["entity_id"],
             entity_id,
-            best.get("reason"),
+            best["reason"],
         )
         return best
-
-    if readonly_candidate is not None:
-        _LOGGER.debug(
-            "better thermostat: Found read-only valve helper %s for %s (reason=%s)",
-            readonly_candidate.get("entity_id"),
-            entity_id,
-            readonly_candidate.get("reason"),
-        )
-        return readonly_candidate
 
     if disabled_match is not None:
         _report_disabled_sibling(
@@ -2665,6 +2872,21 @@ _CALIBRATION_TRANSLATION_KEYS: set[str] = {
 # sensor.*_local_temperature must never be picked as calibration target.
 _CALIBRATION_ENTITY_DOMAINS: set[str] = {"number", "select"}
 
+# Unique id of a number Z-Wave JS creates for a configuration parameter:
+# ``<home id>.<node id>-112-<endpoint>-<parameter>``, where 112 is the
+# Configuration command class. Such a number publishes the parameter's raw
+# value in whatever unit the parameter defines (the Eurotronic Spirit's
+# temperature offset counts tenths of a degree and reserves -128 for
+# "external sensor"), so it is never read or written as an offset in Kelvin.
+_ZWAVE_CONFIGURATION_PARAMETER: Final = re.compile(r"^\d+\.\d+-112-\d+-")
+
+
+def _is_zwave_configuration_parameter(entry: er.RegistryEntry) -> bool:
+    """Whether ``entry`` is a Z-Wave JS configuration parameter number."""
+    return entry.platform == "zwave_js" and bool(
+        _ZWAVE_CONFIGURATION_PARAMETER.match(entry.unique_id)
+    )
+
 
 async def find_local_calibration_entity(
     self: AdapterProbeHost, entity_id: str, *, trv: Trv | None = None
@@ -2675,7 +2897,8 @@ async def find_local_calibration_entity(
     for a stable, language-independent lookup.  Falls back to the legacy
     unique_id / entity_id string matching for older integrations.
     Only writable candidates (``number`` or ``select`` entities) are
-    considered.
+    considered, and a Z-Wave JS configuration parameter is none, because
+    its raw value carries the parameter's own unit.
 
     Parameters
     ----------
@@ -2704,12 +2927,15 @@ async def find_local_calibration_entity(
     entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
     calibration_entity = None
     disabled_match: str | None = None
+    candidates = [
+        entity
+        for entity in entity_entries
+        if _shares_device(entity, reg_entity.device_id)
+        and entity.domain in _CALIBRATION_ENTITY_DOMAINS
+        and not _is_zwave_configuration_parameter(entity)
+    ]
     # First pass: match by translation_key (preferred, stable approach)
-    for entity in entity_entries:
-        if not _shares_device(entity, reg_entity.device_id):
-            continue
-        if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
-            continue
+    for entity in candidates:
         tk = entity.translation_key
         if tk and tk in _CALIBRATION_TRANSLATION_KEYS:
             if entity.disabled_by is not None:
@@ -2730,11 +2956,7 @@ async def find_local_calibration_entity(
     # match, and without the restriction the winner depended on registry
     # iteration order, which is not guaranteed.
     if calibration_entity is None:
-        for entity in entity_entries:
-            if not _shares_device(entity, reg_entity.device_id):
-                continue
-            if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
-                continue
+        for entity in candidates:
             descriptor = f"{entity.unique_id} {entity.entity_id} {entity.original_name or ''}".lower()
             if (
                 "temperature_calibration" in descriptor

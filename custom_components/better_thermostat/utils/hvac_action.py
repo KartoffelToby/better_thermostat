@@ -154,18 +154,18 @@ def compute_hvac_action(
     """
     prev_action = hysteresis.last_action
 
-    if heat_target_temperature is None or room_temperature is None:
-        return HvacActionResult(
-            action=HVACAction.IDLE,
-            tolerance_decision=HVACAction.IDLE,
-            new_last_action=HVACAction.IDLE,
-            new_hold_active=False,
-        )
-
     if HVACMode.OFF in (hvac_mode, bt_hvac_mode):
         return HvacActionResult(
             action=HVACAction.OFF,
             tolerance_decision=HVACAction.OFF,
+            new_last_action=HVACAction.IDLE,
+            new_hold_active=False,
+        )
+
+    if heat_target_temperature is None or room_temperature is None:
+        return HvacActionResult(
+            action=HVACAction.IDLE,
+            tolerance_decision=HVACAction.IDLE,
             new_last_action=HVACAction.IDLE,
             new_hold_active=False,
         )

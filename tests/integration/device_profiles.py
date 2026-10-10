@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
+from homeassistant.components.number import NumberDeviceClass
 from homeassistant.const import UnitOfTemperature
 from homeassistant.util.unit_conversion import TemperatureConverter
 
@@ -86,6 +87,23 @@ class DeviceProfile:
 
     ``valve_maintenance`` is the per-device option of the same name in the
     config entry.
+
+    ``offset_device_class`` and ``offset_unit`` describe the calibration
+    number the way its integration declares it. ``None`` for both is a number
+    that declares neither, which Home Assistant publishes as it is. A number of
+    device class ``temperature`` in Celsius or Fahrenheit is converted into
+    the system unit as an absolute temperature, the way the eQ-3 Bluetooth and
+    Plugwise offsets are.
+
+    ``external_temperature_input`` puts the number a Sonoff TRVZB regulates on
+    when told to use an external sensor onto the device: a ``temperature``
+    number in Celsius, as Zigbee2MQTT discovers it. The selector that switches
+    the device between that number and its own sensor comes with it and
+    starts on ``external_sensor_selection``.
+
+    ``off_target_temperature`` is the setpoint the device publishes while it
+    is off, in place of the one it holds: a Tado unit shows its 5 °C minimum
+    there. ``None`` publishes the held setpoint in every mode.
     """
 
     name: str
@@ -113,6 +131,11 @@ class DeviceProfile:
     valve_channel: ValveChannel = ValveChannel.NONE
     system_unit: UnitOfTemperature | None = None
     valve_maintenance: bool = False
+    offset_device_class: NumberDeviceClass | None = None
+    offset_unit: UnitOfTemperature | None = None
+    external_temperature_input: bool = False
+    external_sensor_selection: str = "external"
+    off_target_temperature: float | None = None
 
 
 def published_unit(profile: DeviceProfile) -> UnitOfTemperature:
@@ -163,9 +186,19 @@ def offset_number_id(profile: DeviceProfile) -> str:
     return f"number.{profile.entity_id.split('.', 1)[1]}_calibration"
 
 
+def external_temperature_input_id(profile: DeviceProfile) -> str:
+    """Return the entity id of the external temperature input on this device."""
+    return f"number.{profile.entity_id.split('.', 1)[1]}_external_temperature_input"
+
+
 def valve_number_id(profile: DeviceProfile) -> str:
     """Return the entity id of the valve number on this device."""
     return f"number.{profile.entity_id.split('.', 1)[1]}_valve_position"
+
+
+def sensor_selector_id(profile: DeviceProfile) -> str:
+    """Return the entity id of the temperature sensor selector on this device."""
+    return f"select.{profile.entity_id.split('.', 1)[1]}_temperature_sensor_select"
 
 
 @dataclass(frozen=True)
@@ -382,6 +415,23 @@ Its valve is driven by the quirk module of its model rather than by anything
 the ecosystem publishes, so the valve channel of this device is invisible to
 the adapter that serves it. The device registry model is the whole of what
 makes it this device: it is what selects the quirk.
+"""
+
+EXTERNAL_INPUT_TRVZB = DeviceProfile(
+    name="external_input_trvzb",
+    integration="mqtt",
+    calibration="local_calibration_based",
+    has_device_registry_entry=True,
+    model="TRVZB",
+    current_temperature=19.0,
+    offset_channel=OffsetChannel.NUMBER_ENTITY,
+    external_temperature_input=True,
+)
+"""A Zigbee2MQTT Sonoff TRVZB that regulates on the room temperature BT writes.
+
+The device carries an external temperature input and the selector that
+points its control loop at that input instead of its own sensor. The model
+selects the TRVZB quirk, which is what writes the input and the selector.
 """
 
 RANGE_ONLY_HEAT_TRV = DeviceProfile(

@@ -14,12 +14,18 @@ from homeassistant.helpers.importlib import async_import_module
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.utils.helpers import (
+    published_setpoint_grid,
     round_by_step,
     sibling_disabled_at_write,
 )
 
 from ..model_fixes.types import ValveChannelQuirk, ValveQuirk
-from ..utils.retry import async_retry, command_cancellation_as_disconnect
+from ..utils.retry import (
+    DeviceCallTimeoutError,
+    async_retry,
+    command_cancellation_as_disconnect,
+    device_call_deadline,
+)
 from .types import TrvAdapter
 
 if TYPE_CHECKING:
@@ -195,6 +201,27 @@ async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> float
     return await _adapter(self, entity_id).get_max_calibration_offset(self, entity_id)
 
 
+def setpoint_write_step(self: BetterThermostat, entity_id: str) -> float:
+    """Return the step, as a °C delta, a setpoint is written to the TRV on.
+
+    Step precedence: per-TRV > global config > default 0.5. Both sources
+    hold a Celsius step, matching the Celsius temperature being rounded; the
+    device's raw attribute carries the device's unit and is therefore not a
+    candidate here. A TRV Home Assistant publishes in whole degrees
+    Fahrenheit is written on whole degrees: those are the only setpoints it
+    reports back as written.
+    """
+    trv = self.real_trvs.get(entity_id)
+    per_trv_step = trv.target_temp_step if trv is not None else None
+    global_cfg_step = self.bt_target_temperature_step
+    if global_cfg_step in (0, 0.0):
+        global_cfg_step = None
+    step = float(per_trv_step or global_cfg_step or 0.5)
+    return published_setpoint_grid(
+        step, self.hass.states.get(entity_id), self.hass.config.units.temperature_unit
+    )
+
+
 async def set_temperature(
     self: BetterThermostat, entity_id: str, temperature: float | str | None
 ) -> None:
@@ -229,20 +256,50 @@ async def set_temperature(
         )
         return None
 
+    rounded, step = _onto_device_grid(self, entity_id, t)
+
+    if rounded != t:
+        _LOGGER.debug(
+            "better_thermostat %s: delegate.set_temperature rounded %s -> %s (step=%s)",
+            self.device_name,
+            t,
+            rounded,
+            step,
+        )
+    # The recorded setpoint is what the TRV event handler compares an inbound
+    # report against to tell BT's own write apart from someone turning the
+    # knob. The state change this write causes can be handled while the
+    # service call is still in flight, so the value is recorded before it goes
+    # out: recorded afterwards, the device's echo would arrive while the
+    # previous value still stood and would be adopted as a user setpoint.
+    # ``set_calibration_offset`` records after its write for the opposite reason: its
+    # record says a calibration command is in flight, which a write that never
+    # went out must not claim.
+    self.real_trvs[entity_id].commanded_setpoint = rounded
+
+    await _write_on_channel(
+        self,
+        entity_id,
+        "temperature",
+        f"setpoint {rounded}",
+        _adapter(self, entity_id).set_temperature,
+        rounded,
+    )
+
+
+def _onto_device_grid(
+    self: BetterThermostat, entity_id: str, temperature: float
+) -> tuple[float, float]:
+    """Round a finite setpoint onto the TRV's step and clamp it to its range.
+
+    Returns the value and the step it was rounded by.
+    """
+    t = temperature
     # Initialize step with default value
     step = 0.5
     try:
-        # Step precedence: per-TRV > global config > default 0.5. Both sources
-        # hold a Celsius step, matching the Celsius temperature being rounded;
-        # the device's raw attribute carries the device's unit and is therefore
-        # not a candidate here.
-        trv = self.real_trvs.get(entity_id)
-        per_trv_step = trv.target_temp_step if trv is not None else None
-        global_cfg_step = self.bt_target_temperature_step
-        if global_cfg_step in (0, 0.0):
-            global_cfg_step = None
-        step = per_trv_step or global_cfg_step or 0.5
-        stepped = round_by_step(float(t), float(step))
+        step = setpoint_write_step(self, entity_id)
+        stepped = round_by_step(float(t), step)
         # The rounding answers None only for a missing argument.
         rounded = t if stepped is None else stepped
     except TypeError, ValueError, OverflowError:
@@ -275,33 +332,20 @@ async def set_temperature(
         else:
             rounded = rv
 
-    if rounded != t:
-        _LOGGER.debug(
-            "better_thermostat %s: delegate.set_temperature rounded %s -> %s (step=%s)",
-            self.device_name,
-            t,
-            rounded,
-            step,
-        )
-    # The recorded setpoint is what the TRV event handler compares an inbound
-    # report against to tell BT's own write apart from someone turning the
-    # knob. The state change this write causes can be handled while the
-    # service call is still in flight, so the value is recorded before it goes
-    # out: recorded afterwards, the device's echo would arrive while the
-    # previous value still stood and would be adopted as a user setpoint.
-    # ``set_calibration_offset`` records after its write for the opposite reason: its
-    # record says a calibration command is in flight, which a write that never
-    # went out must not claim.
-    self.real_trvs[entity_id].commanded_setpoint = rounded
+    return rounded, step
 
-    await _write_on_channel(
-        self,
-        entity_id,
-        "temperature",
-        f"setpoint {rounded}",
-        _adapter(self, entity_id).set_temperature,
-        rounded,
-    )
+
+def setpoint_on_device_grid(
+    self: BetterThermostat, entity_id: str, temperature: float
+) -> float:
+    """Return the setpoint :func:`set_temperature` writes for ``temperature``.
+
+    The TRV holds and reports that value, not the one asked for, so a
+    comparison against the TRV's report has to use it.
+    """
+    if not math.isfinite(temperature):
+        return temperature
+    return _onto_device_grid(self, entity_id, temperature)[0]
 
 
 async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> bool:
@@ -320,12 +364,20 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> bo
     -------
     bool
         True when the mode went out, False when every attempt raised
+
+    Raises
+    ------
+    DeviceCallTimeoutError
+        When the write did not return within ``DEVICE_CALL_TIMEOUT_S``. Unlike
+        a refusal, the device may still apply the mode once it answers.
     """
     write = _adapter(self, entity_id).set_hvac_mode
     try:
         await _write_on_channel(
             self, entity_id, "hvac_mode", f"hvac mode {hvac_mode}", write, hvac_mode
         )
+    except DeviceCallTimeoutError:
+        raise
     except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
         return False
     return True
@@ -380,6 +432,11 @@ async def _write_on_channel[H: AdapterHost, T, R](
     return. The outage is named at WARNING when it begins, once an hour
     while it lasts, and at INFO when it ends.
 
+    Each attempt is bounded by ``DEVICE_CALL_TIMEOUT_S``. A write that does
+    not return by then is cancelled and fails like one that raised, without
+    the rest of the retry chain: the device did not answer, and the room has
+    already waited the full deadline for it.
+
     Parameters
     ----------
     self : BetterThermostat
@@ -411,8 +468,9 @@ async def _write_on_channel[H: AdapterHost, T, R](
     outage = outages.get(channel)
 
     async def write_to_device(host: H, target: str, payload: T) -> R:
-        with command_cancellation_as_disconnect():
-            return await write(host, target, payload)
+        async with device_call_deadline():
+            with command_cancellation_as_disconnect():
+                return await write(host, target, payload)
 
     attempt = (
         write_to_device
