@@ -7,6 +7,7 @@ the queue handler committing or cancelling them, and the control kicks.
 
 import asyncio
 from dataclasses import replace
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -19,6 +20,10 @@ from custom_components.better_thermostat.events.window import (
     window_queue,
 )
 from custom_components.better_thermostat.utils.const import DOMAIN
+from custom_components.better_thermostat.utils.thermal_learning import (
+    HeatingPowerTracker,
+    Reading,
+)
 from tests.factories import ThermostatStandIn
 
 _CONTACT = "custom_components.better_thermostat.events.contact"
@@ -41,7 +46,10 @@ def _make_bt(*, sensor_state="off", window_open=False, open_delay=0, close_delay
         ),
     )
     bt.in_maintenance = False
-    bt._heating_tracker = Mock()
+    # A heating cycle is running, so an opening contact has one to abort.
+    bt._heating_tracker = HeatingPowerTracker(
+        start=Reading(20.0, datetime(2026, 1, 1, tzinfo=UTC))
+    )
     bt.async_write_ha_state = Mock()
     bt.window_queue_task = asyncio.Queue()
     bt.control_queue_task = asyncio.Queue()
@@ -71,7 +79,7 @@ class TestTriggerWindowChange:
         assert bt.kernel_state.window.phase == WindowPhase.OPENING
         assert bt.window_queue_task.get_nowait() is False
         # Heating power learning is disabled for the open period.
-        assert bt._heating_tracker.start_temperature is None
+        assert bt._heating_tracker.start is None
 
     @pytest.mark.asyncio
     async def test_close_event_starts_pending_transition(self):

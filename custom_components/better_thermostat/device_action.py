@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from homeassistant.components.climate import (
     ATTR_HVAC_MODE,
     ATTR_TARGET_TEMP_HIGH,
@@ -28,14 +30,22 @@ import voluptuous as vol
 from . import DOMAIN
 from .utils.helpers import is_bt_climate_entity
 
-ACTION_TYPES = {"set_hvac_mode", "set_temperature"}
+
+class ActionType(StrEnum):
+    """The action types this platform offers, as stored in an automation."""
+
+    SET_HVAC_MODE = "set_hvac_mode"
+    SET_TEMPERATURE = "set_temperature"
+
+
+ACTION_TYPES = frozenset(ActionType)
 
 # One schema per action type, because each type carries its own fields and
 # ``async_call_action_from_config`` reads the hvac mode back without a
 # fallback. Home Assistant looks the schema up by this exact name.
 SET_HVAC_MODE_SCHEMA = cv.DEVICE_ACTION_BASE_SCHEMA.extend(
     {
-        vol.Required(CONF_TYPE): "set_hvac_mode",
+        vol.Required(CONF_TYPE): ActionType.SET_HVAC_MODE,
         vol.Required(CONF_ENTITY_ID): cv.entity_domain(CLIMATE_DOMAIN),
         vol.Required(ATTR_HVAC_MODE): vol.In(
             [HVACMode.HEAT, HVACMode.OFF, HVACMode.HEAT_COOL]
@@ -45,7 +55,7 @@ SET_HVAC_MODE_SCHEMA = cv.DEVICE_ACTION_BASE_SCHEMA.extend(
 
 SET_TEMPERATURE_SCHEMA = cv.DEVICE_ACTION_BASE_SCHEMA.extend(
     {
-        vol.Required(CONF_TYPE): "set_temperature",
+        vol.Required(CONF_TYPE): ActionType.SET_TEMPERATURE,
         vol.Required(CONF_ENTITY_ID): cv.entity_domain(CLIMATE_DOMAIN),
         vol.Optional(ATTR_TEMPERATURE): vol.Coerce(float),
         vol.Optional(ATTR_TARGET_TEMP_HIGH): vol.Coerce(float),
@@ -76,8 +86,8 @@ async def async_get_actions(
 
         actions.extend(
             [
-                {**base_action, CONF_TYPE: "set_hvac_mode"},
-                {**base_action, CONF_TYPE: "set_temperature"},
+                {**base_action, CONF_TYPE: ActionType.SET_HVAC_MODE},
+                {**base_action, CONF_TYPE: ActionType.SET_TEMPERATURE},
             ]
         )
 
@@ -93,10 +103,10 @@ async def async_call_action_from_config(
     """Execute a device action."""
     service_data = {ATTR_ENTITY_ID: config[CONF_ENTITY_ID]}
 
-    if config[CONF_TYPE] == "set_hvac_mode":
+    if config[CONF_TYPE] == ActionType.SET_HVAC_MODE:
         service = SERVICE_SET_HVAC_MODE
         service_data[ATTR_HVAC_MODE] = config[ATTR_HVAC_MODE]
-    else:  # config[CONF_TYPE] == "set_temperature"
+    else:  # config[CONF_TYPE] == ActionType.SET_TEMPERATURE
         service = SERVICE_SET_TEMPERATURE
         if ATTR_TARGET_TEMP_HIGH in config:
             service_data[ATTR_TARGET_TEMP_HIGH] = config[ATTR_TARGET_TEMP_HIGH]
@@ -116,7 +126,7 @@ async def async_get_action_capabilities(
     """List action capabilities."""
     action_type = config[CONF_TYPE]
 
-    if action_type == "set_hvac_mode":
+    if action_type == ActionType.SET_HVAC_MODE:
         return {
             "extra_fields": vol.Schema(
                 {
@@ -127,7 +137,7 @@ async def async_get_action_capabilities(
             )
         }
 
-    if action_type == "set_temperature":
+    if action_type == ActionType.SET_TEMPERATURE:
         return {
             "extra_fields": vol.Schema(
                 {

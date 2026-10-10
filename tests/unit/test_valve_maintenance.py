@@ -121,7 +121,7 @@ def _info(
     use_direct_valve: bool = False,
     max_temp: float = 30,
     min_temp: float = 5,
-    wake_mode: str | None = None,
+    wake_mode: HVACMode | None = None,
 ) -> MaintenanceTrvInfo:
     """Create a MaintenanceTrvInfo with sensible defaults."""
     return MaintenanceTrvInfo(
@@ -784,7 +784,7 @@ class TestRunValveMaintenance:
                 setpoint=20.0,
                 max_temp=30.0,
                 min_temp=5.0,
-                wake_mode="heat",
+                wake_mode=HVACMode.HEAT,
             )
         ]
 
@@ -832,7 +832,7 @@ class TestRunValveMaintenance:
                 setpoint=20.0,
                 max_temp=30.0,
                 min_temp=5.0,
-                wake_mode="heat",
+                wake_mode=HVACMode.HEAT,
             ),
             _info(
                 entity_id="trv2",
@@ -889,7 +889,7 @@ class TestRunValveMaintenance:
                 cur_mode="off",
                 use_direct_valve=False,
                 setpoint=20.0,
-                wake_mode="heat",
+                wake_mode=HVACMode.HEAT,
             )
         ]
 
@@ -1273,7 +1273,7 @@ class TestWakeStep:
         """The step switches the device into its wake mode."""
         mode_fn = AsyncMock()
         await wake_step(
-            _info(entity_id="trv1", wake_mode="heat"), set_hvac_mode_fn=mode_fn
+            _info(entity_id="trv1", wake_mode=HVACMode.HEAT), set_hvac_mode_fn=mode_fn
         )
         mode_fn.assert_awaited_once_with("trv1", "heat")
 
@@ -1309,7 +1309,7 @@ class TestModeNeedsRestoring:
         the mode the run started from would otherwise leave the TRV in the
         mode it was woken into.
         """
-        info = _info(cur_mode=HVACMode.OFF, wake_mode="heat")
+        info = _info(cur_mode=HVACMode.OFF, wake_mode=HVACMode.HEAT)
         assert mode_needs_restoring(info, _reports(HVACMode.OFF), woken=True) is True
 
     def test_a_trv_still_in_its_own_mode_is_left_alone(self):
@@ -1333,7 +1333,7 @@ class TestModeNeedsRestoring:
         TRV from the cycle. Its mode is then still the one the snapshot was
         taken in, so repeating the write that just failed buys nothing.
         """
-        info = _info(cur_mode=HVACMode.OFF, wake_mode="heat")
+        info = _info(cur_mode=HVACMode.OFF, wake_mode=HVACMode.HEAT)
         assert mode_needs_restoring(info, _reports(HVACMode.OFF), woken=False) is False
 
     def test_a_trv_without_a_state_is_restored(self):
