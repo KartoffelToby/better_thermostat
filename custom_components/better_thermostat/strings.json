@@ -185,7 +185,7 @@
   "issues": {
     "missing_entity": {
       "title": "BT: {name} - related entity is missing",
-      "description": "The reason for this is that the entity ({entity}) is not available in your Home Assistant.\n\nYou can fix this by checking if the battery of the device is full or reconnecting it to HA. This issue clears itself once the entity is available again, or once it is removed from the settings of this Better Thermostat."
+      "description": "The reason for this is that the entity ({entity}) is not available in your Home Assistant.\n\nIf the entity was renamed or the device was replaced, its entity ID changed and Better Thermostat still looks for {entity}. Open the settings of this Better Thermostat (Settings → Devices & services → Better Thermostat → Configure) and select the new entity.\n\nYou can fix this by checking if the battery of the device is full or reconnecting it to HA. This issue clears itself once the entity is available again, or once it is removed from the settings of this Better Thermostat."
     },
     "degraded_mode": {
       "title": "BT: {name} - sensor error: {sensors} running in degraded mode",

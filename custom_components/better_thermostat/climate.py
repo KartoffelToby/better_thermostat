@@ -438,6 +438,27 @@ def _contact_reads_open(state: State | None) -> bool:
     return state is not None and state.state in OPEN_WORDS
 
 
+def _room_sensor_reads(self: BetterThermostat) -> bool:
+    """Return whether the room sensor gives a reading right now.
+
+    The external temperature keepalive re-sends the room temperature only
+    while it does; a skipped tick is logged.
+    """
+    sensor_entity_id = self.sensor_entity_id
+    if (
+        sensor_entity_id is not None
+        and room_sensor_reading(self, self.hass.states.get(sensor_entity_id))
+        is not None
+    ):
+        return True
+    _LOGGER.debug(
+        "better_thermostat %s: external_temperature keepalive skipped (room sensor %s gives no reading)",
+        self.device_name,
+        sensor_entity_id,
+    )
+    return False
+
+
 def _room_sensor_missing(sensor_state: State | None) -> bool:
     """Return whether the room sensor's state carries no reading at all."""
     return sensor_state is None or sensor_state.state in (
@@ -1661,6 +1682,15 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         other way of getting it back, and it reads the temperature once the
         turn is its own, so it re-sends the temperature the thermostat is
         regulating on.
+
+        The tick only re-sends a temperature the room sensor still stands
+        behind. While the sensor gives no reading, the room temperature is
+        the last one it gave, or one startup took from a TRV or made up, and
+        nothing measures it any more. A device left without writes falls
+        back to its own sensor after its silence window and returns to the
+        external value with the next reading, which is the same fallback the
+        thermostat itself takes. Re-sending the old value would hold the
+        device on a temperature the room has long left.
         """
         try:
             async with temperature_filter_lock(self):
@@ -1670,6 +1700,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                         "better_thermostat %s: external_temperature keepalive skipped (room_temperature is None)",
                         self.device_name,
                     )
+                    return
+                if not _room_sensor_reads(self):
                     return
 
                 # Use the known TRV entity IDs (keys in real_trvs)
@@ -1691,6 +1723,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     )
 
                 for entity_id in trv_ids:
+                    # A write can block for a while, and the sensor can go
+                    # away meanwhile; the TRVs after it then get nothing.
+                    if not _room_sensor_reads(self):
+                        return
                     try:
                         _mq_trv = self.real_trvs.get(entity_id)
                         if _mq_trv is not None and _mq_trv.awaiting_initialization:

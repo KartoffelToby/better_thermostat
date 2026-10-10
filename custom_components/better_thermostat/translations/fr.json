@@ -185,7 +185,7 @@
   "issues": {
     "missing_entity": {
       "title": "BT: {name} - l'entité associée est manquante",
-      "description": "La raison en est que l'entité ({entity}) n'est pas disponible dans votre Home Assistant.\n\nVous pouvez résoudre ce problème en vérifiant si la batterie du dispositif est pleine ou en le reconnectant à HA. Ce problème se résout de lui-même une fois l'entité de nouveau disponible ou retirée des paramètres de ce Better Thermostat."
+      "description": "La raison en est que l'entité ({entity}) n'est pas disponible dans votre Home Assistant.\n\nSi l'entité a été renommée ou l'appareil remplacé, son identifiant d'entité a changé et Better Thermostat cherche toujours {entity}. Ouvrez les paramètres de ce Better Thermostat (Paramètres → Appareils et services → Better Thermostat → Configurer) et sélectionnez la nouvelle entité.\n\nVous pouvez résoudre ce problème en vérifiant si la batterie du dispositif est pleine ou en le reconnectant à HA. Ce problème se résout de lui-même une fois l'entité de nouveau disponible ou retirée des paramètres de ce Better Thermostat."
     },
     "degraded_mode": {
       "title": "BT: {name} - erreur de capteur : {sensors} fonctionne en mode dégradé",
