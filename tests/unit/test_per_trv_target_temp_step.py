@@ -84,7 +84,7 @@ def bt():
     mock.real_trvs = {
         TRV_ID: Trv(
             entity_id=TRV_ID,
-            calibration=1,
+            calibration=None,
             model="SomeModel",
             hvac_mode=HVACMode.HEAT,
             last_hvac_mode=HVACMode.HEAT,
