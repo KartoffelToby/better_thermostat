@@ -527,6 +527,21 @@ def _bound_into(value: float, lower: float | None, upper: float | None) -> float
     return value
 
 
+def _cool_target_above(
+    heating_target: float, step: float | None, maximum: float | None
+) -> float:
+    """Return the cooling target one step above ``heating_target``.
+
+    The step is normalised to a positive value, and the result is capped at
+    the cooling range's ``maximum`` unless the heating target lies above it;
+    :meth:`BetterThermostat._enforce_cool_above_heat` describes both cases.
+    """
+    adjusted = heating_target + normalize_step(step)
+    if maximum is not None and maximum >= heating_target:
+        adjusted = min(adjusted, maximum)
+    return adjusted
+
+
 def _target_temperature_step_celsius(
     state: State | None, device_name: str, system_unit: str | None
 ) -> float | None:
@@ -4402,11 +4417,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             or self.cool_target_temperature > self.heat_target_temperature
         ):
             return
-        step = normalize_step(self.bt_target_temperature_step)
-        adjusted = self.heat_target_temperature + step
-        maximum = get_cool_temperature_bounds(self)[1]
-        if maximum is not None and maximum >= self.heat_target_temperature:
-            adjusted = min(adjusted, maximum)
+        adjusted = _cool_target_above(
+            self.heat_target_temperature,
+            self.bt_target_temperature_step,
+            get_cool_temperature_bounds(self)[1],
+        )
         if adjusted == self.cool_target_temperature:
             # The maximum and the heating target coincide and the cooling target
             # already rests on them, so the bump has nowhere to land.
@@ -4674,6 +4689,23 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         on_grid = self._onto_target_grid(in_range)
         return min(highest, max(lowest, in_range if on_grid is None else on_grid))
 
+    def _preset_cool_target(self, stored: float) -> float:
+        """Return the cooling target a preset's stored value applies as.
+
+        Selecting the preset applies the stored value and then orders it above
+        the heating target, so a stored value at or below the heating target
+        applies one step above it.
+        """
+        applied = self._applied_target(stored, cooling=True)
+        heating = self.heat_target_temperature
+        if heating is None or applied > heating:
+            return applied
+        return _cool_target_above(
+            heating,
+            self.bt_target_temperature_step,
+            get_cool_temperature_bounds(self)[1],
+        )
+
     @override
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
@@ -4811,30 +4843,49 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         )
 
         # If a specific preset (Comfort, Eco, …) is active and the user manually
-        # changes the target temperature to a value that does not match the
-        # preset's stored temperature, deactivate the preset (return to
-        # PRESET_NONE) while keeping the new manual temperature. The preset's
-        # own Number entity also funnels through this method, but it first
-        # updates the preset's stored temperature so the values match and the
-        # preset stays active.
-        if (
-            _heating_target_set
-            and self.heat_target_temperature is not None
-            and self.preset_mgr.mode != PRESET_NONE
-        ):
-            applied = float(self.heat_target_temperature)
-            preset_stored = self.preset_mgr.get_temperature(self.preset_mgr.mode)
+        # changes the heating or the cooling target to a value that does not
+        # match the preset's stored temperature for that channel, deactivate
+        # the preset (return to PRESET_NONE) while keeping the new manual
+        # targets. The preset's own Number entities do not overwrite their
+        # stored temperatures from here: the heating one updates its stored
+        # temperature before it funnels through this method, so the values
+        # match and the preset stays active, and the cooling one sets the
+        # cooling target without passing through here.
+        if self.preset_mgr.mode != PRESET_NONE:
+            _deviating_target = None
+            if _heating_target_set and self.heat_target_temperature is not None:
+                applied = float(self.heat_target_temperature)
+                preset_stored = self.preset_mgr.get_temperature(self.preset_mgr.mode)
+                if (
+                    preset_stored is None
+                    or abs(applied - self._applied_target(preset_stored)) > 1e-3
+                ):
+                    _deviating_target = applied
             if (
-                preset_stored is None
-                or abs(applied - self._applied_target(preset_stored)) > 1e-3
+                _deviating_target is None
+                and _new_setpointhigh is not None
+                and self.cooler_entity_id is not None
+                and self.cool_target_temperature is not None
             ):
+                applied = float(self.cool_target_temperature)
+                preset_stored = self._preset_cool_temperatures.get(self.preset_mgr.mode)
+                if (
+                    preset_stored is None
+                    or abs(applied - self._preset_cool_target(preset_stored)) > 1e-3
+                ):
+                    _deviating_target = applied
+            if _deviating_target is not None:
                 old_preset = self.preset_mgr.mode
                 self.preset_mgr.deactivate()
+                # The manual targets replace the ones saved on entering the
+                # preset, for cooling as for heating: a later return to
+                # PRESET_NONE keeps what the user set here.
+                self._preset_cool_temperature = None
                 _LOGGER.debug(
                     "better_thermostat %s: Deactivated preset %s due to manual target temperature change to %s",
                     self.device_name,
                     old_preset,
-                    applied,
+                    _deviating_target,
                 )
 
         # If the user manually changes the temperature while in PRESET_NONE (Manual),
