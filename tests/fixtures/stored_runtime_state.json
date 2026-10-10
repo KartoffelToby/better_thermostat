@@ -9,7 +9,6 @@
       "loss_est": 0.007,
       "ka_est": 0.0025,
       "solar_gain_est": 0.4,
-      "last_temp": 20.75,
       "last_time": 1700000002.0,
       "last_trv_temp": 24.5,
       "last_trv_temp_ts": 1700000003.0,
@@ -62,7 +61,6 @@
       "loss_est": null,
       "ka_est": null,
       "solar_gain_est": null,
-      "last_temp": null,
       "last_time": 0.0,
       "last_trv_temp": null,
       "last_trv_temp_ts": 0.0,
@@ -130,6 +128,7 @@
         "next_mpc_t_s": 86700.0,
         "last_mpc_t_s": 86100.0,
         "planning_disturbance": 0.003,
+        "last_command_u": 0.45,
         "rg_v_C": 21.0
       }
     },
@@ -215,6 +214,7 @@
   },
   "filters": {
     "external_temp_ema": 20.7,
-    "temp_slope": 0.0021
+    "temp_slope": 0.0021,
+    "room_temperature_ema_recorded_at": 1700000016.0
   }
 }

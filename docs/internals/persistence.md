@@ -36,6 +36,14 @@ runtime filters (temperature EMA, slope). The entity pushes its held
 values into the store through one seam before every debounced save,
 and hydrates from it at startup.
 
+The filters describe the room only for as long as the downtime is short.
+The EMA is stored with the wall-clock time of its last update, and the
+first live reading after a restart is blended in over the real interval,
+so a long stop hands the filter to that reading. The slope comes back
+only when the stop was shorter than the EMA's time constant. A filter
+stored without that time has an unknown age and is not restored; the
+first live reading seeds it.
+
 The PID parameter numbers and the PID auto-tune switch read their value
 from the PID controller state in the store and write changes back
 through it; they do not restore Home Assistant's last state, so their
@@ -45,9 +53,37 @@ values come back once the climate entity has loaded the store.
 the climate entity's target/mode and the user inputs on the preset,
 valve max opening and child-lock helpers. The legacy attribute fallback in the
 restore path stays as a migration window for installations that predate
-the store. It works per field: each old entity attribute (temperature
-EMA, slope, heating power, heat loss) is read only when the store holds
-no value for that field.
+the store. It works per field: each old entity attribute (heating power,
+heat loss) is read only when the store holds no value for that field. The
+temperature EMA and slope are not read from attributes, since an
+attribute carries no time to judge their age by.
+
+## Keys follow the thermostat
+
+Controller state is keyed `<unique_id>:<segment>:t<bucket>`: the entry's
+unique id, the thermostat's entity id (or `group` for state the room's
+thermostats share), and the 0.5 °C target bucket. A key without a bucket
+whose last part is an entity id, `<unique_id>:<entity_id>`, names that
+thermostat too; a shared key such as `<unique_id>:reid` names none and is
+left alone by both rules below. Because the entity id is
+part of the key, two rules keep the state attached to the device rather
+than to the id:
+
+- When the user gives a configured thermostat a new entity id, every key
+  that names the old id moves to the new one, in each section (PID, MPC,
+  MPC v2 and its re-identification results, TPI), before the entry
+  reloads under the new id. A running thermostat moves the state it holds
+  in memory, which its unload then saves. Otherwise the move is recorded
+  and applied by whichever loads the stored state next under the entry's
+  lock: the rename itself, after the final save of a thermostat being
+  removed, or a thermostat being set up. The setup holds the lock from
+  reading the store until it holds the state in memory, so neither reads a
+  store the other is about to replace. The thermostat's own entities move
+  their registry rows to unique ids built from the new id as well.
+- At load, after the legacy-store import, every key whose segment is
+  neither a configured thermostat nor `group` is dropped. State learned
+  for a removed thermostat would otherwise come back for whichever device
+  is given its entity id next.
 
 ## Poison resistance
 

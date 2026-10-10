@@ -362,6 +362,33 @@ class TestForcedZeroAddressesTheEntitysOwnDomain:
 
         assert _selected_option(mock_self) == "0k"
 
+    @pytest.mark.asyncio
+    async def test_a_number_published_as_fahrenheit_temperature_gets_its_zero(self):
+        """The device's 0 K reads 32 °F on a Celsius ``temperature`` number.
+
+        Home Assistant publishes the unit and device class of an entity that
+        is unavailable as well, so the zero goes out in the published unit.
+        """
+        mock_self = _mock_self_with_select()
+        mock_self.hass.states.get = lambda requested: State(
+            CALIBRATION_ENTITY,
+            "unavailable",
+            {"unit_of_measurement": "°F", "device_class": "temperature"},
+        )
+
+        with patch(
+            "custom_components.better_thermostat.adapters.base.asyncio.sleep",
+            AsyncMock(),
+        ):
+            await base.wait_for_calibration_entity_or_timeout(
+                mock_self, ENTITY_ID, CALIBRATION_ENTITY
+            )
+
+        assert mock_self.hass.services.async_call.await_args.args[2] == {
+            "entity_id": CALIBRATION_ENTITY,
+            "value": 32.0,
+        }
+
 
 class TestNoOffsetChannelReportsFalse:
     """A TRV without a calibration entity gets no write and no false claim."""

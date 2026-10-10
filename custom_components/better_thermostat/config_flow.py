@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 import copy
 from dataclasses import dataclass
 import logging
@@ -169,32 +169,36 @@ TEMP_STEP_SELECTOR = selector.SelectSelector(
 )
 
 
+_CALIBRATION_MODE_CHOICES: tuple[CalibrationMode, ...] = (
+    CalibrationMode.HEATING_POWER_CALIBRATION,
+    CalibrationMode.DEFAULT,
+    CalibrationMode.MPC_CALIBRATION,
+    CalibrationMode.MPC_V2_CALIBRATION,
+    CalibrationMode.AGGRESSIVE_CALIBRATION,
+    CalibrationMode.TPI_CALIBRATION,
+    CalibrationMode.PID_CALIBRATION,
+    CalibrationMode.NO_CALIBRATION,
+)
+
 CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
-        options=[
-            CalibrationMode.HEATING_POWER_CALIBRATION,
-            CalibrationMode.DEFAULT,
-            CalibrationMode.MPC_CALIBRATION,
-            CalibrationMode.MPC_V2_CALIBRATION,
-            CalibrationMode.AGGRESSIVE_CALIBRATION,
-            CalibrationMode.TPI_CALIBRATION,
-            CalibrationMode.PID_CALIBRATION,
-            CalibrationMode.NO_CALIBRATION,
-        ],
+        options=list(_CALIBRATION_MODE_CHOICES),
         mode=selector.SelectSelectorMode.DROPDOWN,
         translation_key="calibration_mode",
     )
 )
 
 
+_MPC_V2_PLANT_PRESET_CHOICES: tuple[MpcV2PlantPreset, ...] = (
+    MpcV2PlantPreset.AUTO,
+    MpcV2PlantPreset.SMALL_ROOM,
+    MpcV2PlantPreset.MEDIUM_ROOM,
+    MpcV2PlantPreset.LARGE_ROOM,
+)
+
 MPC_V2_PLANT_PRESET_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
-        options=[
-            MpcV2PlantPreset.AUTO,
-            MpcV2PlantPreset.SMALL_ROOM,
-            MpcV2PlantPreset.MEDIUM_ROOM,
-            MpcV2PlantPreset.LARGE_ROOM,
-        ],
+        options=list(_MPC_V2_PLANT_PRESET_CHOICES),
         mode=selector.SelectSelectorMode.DROPDOWN,
         translation_key="mpc_v2_plant_preset",
     )
@@ -570,9 +574,15 @@ def _build_advanced_fields(
         """Get boolean value from sources, converting string representations."""
         return _as_bool(get_value(key, fallback), fallback)
 
-    # Build fields directly in the final desired order without post-reordering
-    # Compute values used below
-    calib_default = get_value(CONF_CALIBRATION, default_calibration)
+    def get_choice(key: str, choices: Collection[str], fallback: str) -> str:
+        """Get a value the selector offers, or ``fallback`` for any other.
+
+        A stored value the selector does not offer, such as an output the
+        thermostat no longer supports or a mode that is not a string, would
+        be refused when the user submits the form unchanged.
+        """
+        value = get_value(key, fallback)
+        return value if isinstance(value, str) and value in choices else fallback
 
     options = []
     if support_valve:
@@ -582,6 +592,8 @@ def _build_advanced_fields(
 
     if support_offset:
         options.append(CalibrationOutput.LOCAL_BASED)
+
+    calib_default = get_choice(CONF_CALIBRATION, options, default_calibration)
 
     calib_selector = selector.SelectSelector(
         selector.SelectSelectorConfig(
@@ -597,14 +609,22 @@ def _build_advanced_fields(
     ordered[
         vol.Required(
             CONF_CALIBRATION_MODE,
-            default=get_value(CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE),
+            default=get_choice(
+                CONF_CALIBRATION_MODE,
+                _CALIBRATION_MODE_CHOICES,
+                DEFAULT_CALIBRATION_MODE,
+            ),
         )
     ] = CALIBRATION_MODE_SELECTOR
 
     ordered[
         vol.Optional(
             CONF_MPC_V2_PLANT_PRESET,
-            default=get_value(CONF_MPC_V2_PLANT_PRESET, MpcV2PlantPreset.AUTO),
+            default=get_choice(
+                CONF_MPC_V2_PLANT_PRESET,
+                _MPC_V2_PLANT_PRESET_CHOICES,
+                MpcV2PlantPreset.AUTO,
+            ),
         )
     ] = MPC_V2_PLANT_PRESET_SELECTOR
 
@@ -1083,16 +1103,27 @@ async def _new_trv_draft(
     return draft, model
 
 
-def _stored_trv_draft(entity_id: str, stored: Mapping[str, object]) -> _TrvDraft:
-    """Return the draft of a thermostat the entry has, from its stored mapping."""
+async def _stored_trv_draft(
+    flow: OptionsFlowHandler, entity_id: str, stored: Mapping[str, object]
+) -> _TrvDraft:
+    """Return the draft of a thermostat the entry has, from its stored mapping.
+
+    The mapping is kept as stored, except that an integration or a model
+    that is not a string is looked up again the way a new thermostat's is.
+    Setup refuses a thermostat without an integration, so saving the
+    options is how such an entry is repaired.
+    """
     copied = copy.deepcopy(dict(stored))
     copied["adapter"] = None
     integration = copied.get("integration")
+    if not isinstance(integration, str):
+        integration = await get_trv_intigration(flow, entity_id)
+        copied["integration"] = integration
+    model = copied.get("model")
+    if "model" in copied and model is not None and not isinstance(model, str):
+        copied["model"] = await get_device_model(flow, entity_id)
     return _TrvDraft(
-        entity_id=entity_id,
-        integration=integration if isinstance(integration, str) else None,
-        adapter=None,
-        stored=copied,
+        entity_id=entity_id, integration=integration, adapter=None, stored=copied
     )
 
 
@@ -1551,6 +1582,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data={}, options=options
             )
+            if self._config_entry.state is config_entries.ConfigEntryState.SETUP_ERROR:
+                # The update listener that reloads the entry on a write is
+                # registered by a setup that succeeded, so an entry whose
+                # setup failed is set up again here, with the settings just
+                # written.
+                self.hass.config_entries.async_schedule_reload(
+                    self._config_entry.entry_id
+                )
             if algorithms_changed:
                 # Dynamic entity management adds and removes algorithm sensors.
                 signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
@@ -1647,7 +1686,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 for entity_id in heaters:
                     if entity_id in existing_trvs:
                         self.trv_bundle.append(
-                            _stored_trv_draft(entity_id, existing_trvs[entity_id])
+                            await _stored_trv_draft(
+                                self, entity_id, existing_trvs[entity_id]
+                            )
                         )
                     else:
                         # This is a new TRV added during edit
