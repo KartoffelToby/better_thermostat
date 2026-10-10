@@ -14,6 +14,7 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.events.cooler import trigger_cooler_change
 from custom_components.better_thermostat.utils.preset_manager import PresetManager
 from tests.factories import ThermostatStandIn
@@ -47,6 +48,7 @@ def mock_bt():
     # controlled thermostats does not contain it.
     bt.real_trvs = {"climate.radiator": MagicMock()}
     bt._cooler_last_sent = None
+    bt.clock = FakeClock()
     bt.startup_running = False
     bt.control_queue_task = MagicMock()
     bt.context = MagicMock()  # unique context so != event.context
@@ -1530,7 +1532,8 @@ class TestUnknownCoolTargetSeed:
 
         A cooler coming back from an outage publishes no previous setpoint, so
         the gate declines, and a known target must stay put rather than fall
-        back to the device value.
+        back to the device value. The control cycle the return asks for is
+        what writes the known target back to the device.
         """
         mock_bt.cool_target_temperature = 25.0
         old_state = State(ENTITY_ID, STATE_UNAVAILABLE)
@@ -1542,7 +1545,7 @@ class TestUnknownCoolTargetSeed:
 
         assert mock_bt.cool_target_temperature == 25.0
         assert "cool target is unknown" not in caplog.text
-        mock_bt.control_queue_task.put_nowait.assert_not_called()
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_known_cool_target_still_adopts_a_reported_move(self, mock_bt):
@@ -1791,3 +1794,127 @@ class TestDualRoleEntityReports:
 
         assert mock_bt.cool_target_temperature == 23.0
         mock_bt.control_queue_task.put_nowait.assert_called_once()
+
+
+class TestCoolerModeAgainstTheDecision:
+    """A cooler that leaves the decided mode, or comes back, asks for a cycle.
+
+    The room is off, so neither the seed nor the adoption gate asks for one,
+    and the cooling channel decided OFF.
+    """
+
+    @pytest.fixture
+    def off_bt(self, mock_bt):
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        mock_bt._cooler_last_sent = {"hvac_mode_decided": HVACMode.OFF}
+        return mock_bt
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("away", [STATE_UNAVAILABLE, STATE_UNKNOWN])
+    async def test_a_cooler_back_from_an_outage_asks_for_a_cycle(self, off_bt, away):
+        """No cycle reached the cooler while it was away."""
+        event = _make_event(
+            off_bt, old_state=State(ENTITY_ID, away), new_state=_make_state("cool")
+        )
+
+        await trigger_cooler_change(off_bt, event)
+
+        off_bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_cooler_switched_into_another_mode_asks_for_a_cycle(self, off_bt):
+        """A remote press that starts the unit is put back on the decision."""
+        event = _make_event(
+            off_bt, old_state=_make_state("off"), new_state=_make_state("cool")
+        )
+
+        await trigger_cooler_change(off_bt, event)
+
+        off_bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_cooler_switched_off_against_a_cool_decision_asks_for_nothing(
+        self, off_bt
+    ):
+        """A unit switched off by hand waits for the room's next cycle."""
+        off_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        off_bt._cooler_last_sent = {"hvac_mode_decided": HVACMode.COOL}
+        event = _make_event(
+            off_bt, old_state=_make_state("cool"), new_state=_make_state("off")
+        )
+
+        await trigger_cooler_change(off_bt, event)
+
+        off_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_cooler_arriving_at_the_decision_asks_for_nothing(self, off_bt):
+        """The unit following the decision is no reason for another cycle."""
+        event = _make_event(
+            off_bt, old_state=_make_state("cool"), new_state=_make_state("off")
+        )
+
+        await trigger_cooler_change(off_bt, event)
+
+        off_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_report_without_a_mode_change_asks_for_nothing(self, off_bt):
+        """A unit that keeps refusing the decision is not cycled per report.
+
+        Its reported temperature moves on every poll; the resend throttle and
+        the reconciler pace the commands that bring it back.
+        """
+        event = _make_event(
+            off_bt,
+            old_state=_make_state("cool", {"current_temperature": 26.0}),
+            new_state=_make_state("cool", {"current_temperature": 25.5}),
+        )
+
+        await trigger_cooler_change(off_bt, event)
+
+        off_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_mode_change_before_any_decision_asks_for_nothing(self, off_bt):
+        """Without a decision there is nothing for the mode to leave."""
+        off_bt._cooler_last_sent = None
+        event = _make_event(
+            off_bt, old_state=_make_state("off"), new_state=_make_state("cool")
+        )
+
+        await trigger_cooler_change(off_bt, event)
+
+        off_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("old", "new"),
+        [("off", "cool"), ("cool", STATE_UNAVAILABLE), (STATE_UNAVAILABLE, "cool")],
+    )
+    async def test_a_mode_change_is_stamped_for_the_resend_throttle(
+        self, off_bt, old, new
+    ):
+        """The throttle learns that the cooler moved since its last command."""
+        off_bt.clock = FakeClock(monotonic_value=42.0)
+        event = _make_event(
+            off_bt, old_state=State(ENTITY_ID, old), new_state=State(ENTITY_ID, new)
+        )
+
+        await trigger_cooler_change(off_bt, event)
+
+        assert off_bt._cooler_last_sent["hvac_mode_reported"] == 42.0
+
+    @pytest.mark.asyncio
+    async def test_a_report_in_the_same_mode_is_not_stamped(self, off_bt):
+        """A poll that only moves the room reading is no move of the cooler."""
+        off_bt.clock = FakeClock(monotonic_value=42.0)
+        event = _make_event(
+            off_bt,
+            old_state=_make_state("cool", {"current_temperature": 26.0}),
+            new_state=_make_state("cool", {"current_temperature": 25.5}),
+        )
+
+        await trigger_cooler_change(off_bt, event)
+
+        assert "hvac_mode_reported" not in off_bt._cooler_last_sent

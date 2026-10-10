@@ -52,7 +52,7 @@ Some work does not wait for a state change:
 | --- | --- |
 | Every minute | The smoothed room temperature and the temperature slope are updated. The thermostat entity writes a new state for them only when one of them changes at the precision it shows them. The thermostat also checks which sensors are unavailable, so a sensor that went away moves it into [degraded mode](/faq/degraded-mode) without waiting for another event. |
 | Every 5 minutes | A control cycle runs, if a TRV uses the External Sensor Offset Only, MPC Predictive, MPC v2, TPI Controller or PID Controller calibration mode. |
-| Every 5 minutes | Each TRV's reported state is compared with what Better Thermostat last sent it, and a write that got lost is sent again. |
+| Every 5 minutes | Each TRV's reported state is compared with what Better Thermostat last sent it, and the cooler's mode with the mode Better Thermostat chose for it. A write that got lost is sent again. |
 | Every 5 minutes | If valve maintenance is enabled for a TRV, the thermostat checks whether a maintenance run is due. |
 | Every 30 minutes | The room temperature is sent again to TRVs that accept an external temperature, so that a TRV that waits for regular updates gets one even while the room temperature does not change. |
 | Every hour | The weather entity's forecast and current temperature are read, and the summer-mode decision is checked again. |

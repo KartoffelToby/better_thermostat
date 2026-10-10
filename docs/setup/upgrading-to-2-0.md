@@ -101,7 +101,9 @@ itself.
 The option "Minimum seconds between repeated cooler commands" is gone.
 Better Thermostat now holds back an unchanged temperature or mode command
 if it sent the same value less than 240 seconds earlier, to protect the
-compressor. A changed value goes out with the next control cycle; if the
+compressor. A mode the cooler left on its own since that command, through
+its remote or an outage, is sent again at once, but only once in those 240
+seconds. A changed value goes out with the next control cycle; if the
 previous command failed, it waits at least 30 seconds after that failure. A
 failed command is retried with its own growing pause, from 30 seconds up to
 30 minutes. You don't need to do anything; a

@@ -83,6 +83,7 @@ from custom_components.better_thermostat.utils.helpers import (
     configured_calibration_mode,
     configured_calibration_output,
     convert_to_float,
+    cooler_mode_diverges,
     cooler_send_cache,
     cooling_owns_dual_role_device,
     dual_role_entity_id,
@@ -145,6 +146,8 @@ OFFSET_MATCH_TOLERANCE_K = 0.05
 # service call (no reconciler in between), so an identical command is
 # suppressed while the device's state feedback lags. A changed desired value
 # passes this throttle untouched; only the failure backoff below can hold it.
+# A mode command also passes it once per interval when the cooler has
+# reported a mode change since the send (see _write_cooler_mode).
 #
 # An air conditioner protects its compressor by ignoring commands for
 # several minutes after a mode change, so re-asserting inside that window
@@ -628,12 +631,17 @@ def _valve_at_target(
 def desired_diverges(
     self: BetterThermostat, snapshot: WorldSnapshot, desired: DesiredState
 ) -> bool:
-    """Whether any TRV's reported state diverges from the clamped intent.
+    """Whether any device's reported state diverges from the intent.
 
-    Compares the commanded setpoint with the device-reported target and
-    the intended mode with the device-reported mode; a lost write shows
-    up here and the next control cycle re-sends it.
+    Compares each TRV's commanded setpoint with the device-reported target
+    and the intended mode with the device-reported mode, and the cooler's
+    reported mode with the mode the cooling channel decided on; a lost write
+    shows up here and the next control cycle re-sends it.
     """
+    if self.cooler_entity_id is not None and cooler_mode_diverges(
+        self, self.hass.states.get(self.cooler_entity_id)
+    ):
+        return True
     for entity_id, intent in desired.trvs.items():
         trv = self.real_trvs.get(entity_id)
         if trv is None:
@@ -1523,6 +1531,108 @@ def _record_cooler_failure(
         last_sent["hvac_mode_failed"] = run
 
 
+async def _write_cooler_mode(
+    self: BetterThermostat,
+    last_sent: CoolerSendCache,
+    current_hvac_mode: str,
+    desired_mode: HVACMode,
+    now_monotonic: float,
+) -> None:
+    """Send the cooler the mode the cycle decided on, when it needs one.
+
+    Identical resends are throttled the same way as setpoint commands, and a
+    rejected command is retried on the failure backoff.
+
+    The throttle covers the time a device takes to answer a command, during
+    which it still reports the mode it had. A cooler that has reported a
+    mode change of its own since the send is past that time: whatever it
+    holds now, its remote, another integration or an outage put it there,
+    and the command is sent again at once. That early resend is granted
+    once per throttle window, so a device that keeps changing its mode
+    against the command, or an integration that reports the command before
+    the device takes it, still receives no more than two commands per
+    interval.
+    """
+    last_mode, last_mode_ts = last_sent.get("hvac_mode", (None, None))
+    mode_changed_since_last_send = last_mode != desired_mode
+    should_send_mode = current_hvac_mode != desired_mode
+    reported_at = last_sent.get("hvac_mode_reported")
+    moved_since_last_send = (
+        last_mode_ts is not None
+        and reported_at is not None
+        and reported_at >= last_mode_ts
+        and not last_sent.get("hvac_mode_resent_early", False)
+    )
+
+    if (
+        should_send_mode
+        and not mode_changed_since_last_send
+        and not moved_since_last_send
+        and last_mode_ts is not None
+        and (now_monotonic - last_mode_ts) < COOLER_RESEND_INTERVAL_S
+    ):
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s suppressing identical set_hvac_mode "
+            "within %ss resend interval",
+            self.device_name,
+            self.cooler_entity_id,
+            COOLER_RESEND_INTERVAL_S,
+        )
+        should_send_mode = False
+
+    # Same pacing as the setpoint channel: a rejected mode command has no
+    # send timestamp, so its retry follows the failure backoff.
+    if should_send_mode and _cooler_retry_deferred(
+        last_sent, "hvac_mode", desired_mode, now_monotonic
+    ):
+        _LOGGER.debug(
+            "better_thermostat %s: cooler %s deferring set_hvac_mode at "
+            "failure-backoff step %s",
+            self.device_name,
+            self.cooler_entity_id,
+            last_sent["hvac_mode_failed"][0],
+        )
+        should_send_mode = False
+
+    if should_send_mode:
+        _LOGGER.debug(
+            "better_thermostat %s: TO COOLER set_hvac_mode: %s from: %s to: %s",
+            self.device_name,
+            self.cooler_entity_id,
+            current_hvac_mode,
+            desired_mode,
+        )
+        # Any exception from this one service call is isolated, so a failing
+        # mode channel does not abort the cooler cycle and the setpoint
+        # channel still gets its turn.
+        try:
+            with command_cancellation_as_disconnect():
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
+                    blocking=True,
+                    context=self.context,
+                )
+        except Exception as err:  # noqa: BLE001 - a device failure arrives as any exception type
+            _record_cooler_failure(last_sent, "hvac_mode", desired_mode, now_monotonic)
+            _LOGGER.warning(
+                "better_thermostat %s: set_hvac_mode for cooler %s failed (%s); "
+                "will retry on a later cycle",
+                self.device_name,
+                self.cooler_entity_id,
+                err,
+            )
+        else:
+            last_sent["hvac_mode_resent_early"] = (
+                not mode_changed_since_last_send
+                and last_mode_ts is not None
+                and (now_monotonic - last_mode_ts) < COOLER_RESEND_INTERVAL_S
+            )
+            last_sent["hvac_mode"] = (desired_mode, now_monotonic)
+            last_sent.pop("hvac_mode_failed", None)
+
+
 async def control_cooler(
     self: BetterThermostat, snapshot: WorldSnapshot | None = None
 ) -> None:
@@ -1535,7 +1645,8 @@ async def control_cooler(
     target — or below the cooling target minus the width
     COOLER_MODE_HYSTERESIS_K borrows from underneath it whenever the tolerance
     is narrower than that minimum band — or when BT HVAC mode is OFF, or
-    while a window or door contact is open.
+    while a window or door contact is open. A cooler of its own receives the
+    mode before the setpoint, and a cooler held OFF receives no setpoint.
 
     The control queue passes the cycle's snapshot in; a standalone
     invocation observes the world itself. Without a configured cooler there
@@ -1724,6 +1835,22 @@ async def control_cooler(
         _shared_trv.target_temperature_received = True
         _shared_trv.system_mode_received = True
 
+    # A cooler of its own receives its mode before the setpoint: a unit
+    # switched on receives COOL first and its cooling setpoint after, and a
+    # unit held OFF receives no setpoint at all (see the temperature channel
+    # below). Some integrations switch an air conditioner that is off into
+    # cooling on any setpoint write, and some drop a setpoint written while
+    # the unit is off, so a setpoint sent ahead of the mode would either start
+    # the unit Better Thermostat is stopping or be lost on the unit it starts.
+    # A device that also carries the heating role is never off for the
+    # cooling channel, which takes it over from a heating mode; its setpoint
+    # goes out first, so the mode report that hands it to the cooling channel
+    # carries the cooling setpoint and not the heating one.
+    if _shared_entity_id is None:
+        await _write_cooler_mode(
+            self, last_sent, current_hvac_mode, desired_mode, now_monotonic
+        )
+
     # Decide whether a temperature command is needed. When the current
     # temperature is unknown, only send if the desired value changed since
     # the last successful command; otherwise send when it differs from the
@@ -1867,16 +1994,19 @@ async def control_cooler(
         )
         temperature_to_send = None
 
-    # An open contact suppresses the temperature channel alongside the mode,
-    # the way a suppressed TRV receives a mode command and no setpoint. The
-    # unit is held OFF and converges on nothing, so a setpoint written now
-    # would only overwrite whatever the user turned its own dial to. Nothing
-    # is attempted, so the failure backoff below records nothing either, and
-    # the channel resumes on the cycle the contact shuts.
-    if temperature_to_send is not None and self.contact_open:
+    # A cooler held OFF receives no setpoint, whatever holds it there: Better
+    # Thermostat's own OFF, a room inside the band, a missing reading or an
+    # open contact. A suppressed TRV likewise receives a mode command and no
+    # setpoint. The unit converges on nothing while it is off, and a setpoint
+    # written now would either switch it on, where the integration starts
+    # cooling on any setpoint write, overwrite whatever the user turned its
+    # own dial to, or, where the device ignores setpoints while off, be
+    # resent on every resend interval for as long as the unit stays off.
+    # Nothing is attempted, so the failure backoff below records nothing
+    # either, and the channel resumes on the cycle that switches the unit on.
+    if temperature_to_send is not None and desired_mode == HVACMode.OFF:
         _LOGGER.debug(
-            "better_thermostat %s: cooler %s suppressed by an open contact, "
-            "skipping set_temperature",
+            "better_thermostat %s: cooler %s is held off, skipping set_temperature",
             self.device_name,
             self.cooler_entity_id,
         )
@@ -1956,8 +2086,8 @@ async def control_cooler(
         # entry back and records its run of failures instead, which paces the
         # retry without pretending the command arrived. Any exception from
         # this one service call is isolated (cloud integrations propagate raw
-        # errors such as ConnectionError) so the hvac_mode command below still
-        # runs. A command the device's client library cancelled counts as such
+        # errors such as ConnectionError) so it does not abort the control
+        # cycle. A command the device's client library cancelled counts as such
         # a failure; a cancellation of this task itself propagates.
         # The settled reading answers the recorded write, so it is dropped
         # together with it: an answer arriving in flight then settles against
@@ -2003,72 +2133,10 @@ async def control_cooler(
                 last_sent["target_temp_low"] = (_low_to_set_c, now_monotonic)
                 last_sent.pop("target_temp_low_settled", None)
 
-    # Decide whether an hvac_mode command is needed, throttling identical
-    # resends the same way as temperature commands.
-    last_mode, last_mode_ts = last_sent.get("hvac_mode", (None, None))
-    mode_changed_since_last_send = last_mode != desired_mode
-    should_send_mode = current_hvac_mode != desired_mode
-
-    if (
-        should_send_mode
-        and not mode_changed_since_last_send
-        and last_mode_ts is not None
-        and (now_monotonic - last_mode_ts) < COOLER_RESEND_INTERVAL_S
-    ):
-        _LOGGER.debug(
-            "better_thermostat %s: cooler %s suppressing identical set_hvac_mode "
-            "within %ss resend interval",
-            self.device_name,
-            self.cooler_entity_id,
-            COOLER_RESEND_INTERVAL_S,
+    if _shared_entity_id is not None:
+        await _write_cooler_mode(
+            self, last_sent, current_hvac_mode, desired_mode, now_monotonic
         )
-        should_send_mode = False
-
-    # Same pacing as the temperature channel: a rejected mode command has no
-    # send timestamp, so its retry follows the failure backoff.
-    if should_send_mode and _cooler_retry_deferred(
-        last_sent, "hvac_mode", desired_mode, now_monotonic
-    ):
-        _LOGGER.debug(
-            "better_thermostat %s: cooler %s deferring set_hvac_mode at "
-            "failure-backoff step %s",
-            self.device_name,
-            self.cooler_entity_id,
-            last_sent["hvac_mode_failed"][0],
-        )
-        should_send_mode = False
-
-    if should_send_mode:
-        _LOGGER.debug(
-            "better_thermostat %s: TO COOLER set_hvac_mode: %s from: %s to: %s",
-            self.device_name,
-            self.cooler_entity_id,
-            current_hvac_mode,
-            desired_mode,
-        )
-        # Isolated like the temperature call above: one failing channel must
-        # not abort the cooler cycle.
-        try:
-            with command_cancellation_as_disconnect():
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
-                    blocking=True,
-                    context=self.context,
-                )
-        except Exception as err:  # noqa: BLE001 - a device failure arrives as any exception type
-            _record_cooler_failure(last_sent, "hvac_mode", desired_mode, now_monotonic)
-            _LOGGER.warning(
-                "better_thermostat %s: set_hvac_mode for cooler %s failed (%s); "
-                "will retry on a later cycle",
-                self.device_name,
-                self.cooler_entity_id,
-                err,
-            )
-        else:
-            last_sent["hvac_mode"] = (desired_mode, now_monotonic)
-            last_sent.pop("hvac_mode_failed", None)
 
 
 async def control_trv(
