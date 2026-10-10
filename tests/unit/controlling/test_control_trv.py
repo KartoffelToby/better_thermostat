@@ -4861,7 +4861,7 @@ class TestRoomOffOnATrvWithoutOffMode:
             heat_target_temperature=21.0,
             bt_hvac_mode=HVACMode.OFF,
         )
-        trv.last_write_monotonic = mock_self.clock.monotonic() - 1.0
+        trv.last_write_monotonic["setpoint"] = mock_self.clock.monotonic() - 1.0
 
         with (
             patch(
@@ -4889,7 +4889,7 @@ class TestRoomOffOnATrvWithoutOffMode:
             real_trvs={"climate.trv1": trv},
             heat_target_temperature=22.0,
         )
-        trv.last_write_monotonic = mock_self.clock.monotonic() - 1.0
+        trv.last_write_monotonic["setpoint"] = mock_self.clock.monotonic() - 1.0
 
         with (
             patch(
