@@ -19,7 +19,12 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 
 from ..model_fixes.types import ValveChannelQuirk, ValveQuirk
-from ..utils.retry import async_retry, command_cancellation_as_disconnect
+from ..utils.retry import (
+    DeviceCallTimeoutError,
+    async_retry,
+    command_cancellation_as_disconnect,
+    device_call_deadline,
+)
 from .types import TrvAdapter
 
 if TYPE_CHECKING:
@@ -346,12 +351,20 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> bo
     -------
     bool
         True when the mode went out, False when every attempt raised
+
+    Raises
+    ------
+    DeviceCallTimeoutError
+        When the write did not return within ``DEVICE_CALL_TIMEOUT_S``. Unlike
+        a refusal, the device may still apply the mode once it answers.
     """
     write = _adapter(self, entity_id).set_hvac_mode
     try:
         await _write_on_channel(
             self, entity_id, "hvac_mode", f"hvac mode {hvac_mode}", write, hvac_mode
         )
+    except DeviceCallTimeoutError:
+        raise
     except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
         return False
     return True
@@ -399,6 +412,11 @@ async def _write_on_channel[H: AdapterHost, T, R](
     return. The outage is named at WARNING when it begins, once an hour
     while it lasts, and at INFO when it ends.
 
+    Each attempt is bounded by ``DEVICE_CALL_TIMEOUT_S``. A write that does
+    not return by then is cancelled and fails like one that raised, without
+    the rest of the retry chain: the device did not answer, and the room has
+    already waited the full deadline for it.
+
     Parameters
     ----------
     self : BetterThermostat
@@ -429,8 +447,9 @@ async def _write_on_channel[H: AdapterHost, T, R](
     outage = outages.get(channel)
 
     async def write_to_device(host: H, target: str, payload: T) -> R:
-        with command_cancellation_as_disconnect():
-            return await write(host, target, payload)
+        async with device_call_deadline():
+            with command_cancellation_as_disconnect():
+                return await write(host, target, payload)
 
     attempt = (
         write_to_device

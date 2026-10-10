@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Generator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
+from contextlib import asynccontextmanager, contextmanager
 import functools
 import logging
 import random
@@ -75,6 +75,43 @@ def command_cancellation_as_disconnect() -> Generator[None]:
         ) from err
 
 
+# How long one call to a device may take before it counts as failed. Home
+# Assistant puts no bound on a service call, and an integration whose call
+# waits on a device that never answers (a sleeping Z-Wave node, a cloud API
+# without a request timeout) would otherwise keep the caller waiting forever.
+DEVICE_CALL_TIMEOUT_S = 30.0
+
+
+class DeviceCallTimeoutError(TimeoutError):
+    """A device call that did not return within ``DEVICE_CALL_TIMEOUT_S``."""
+
+
+@asynccontextmanager
+async def device_call_deadline() -> AsyncGenerator[None]:
+    """Bound the device call in the block to ``DEVICE_CALL_TIMEOUT_S``.
+
+    A call still running at the deadline is cancelled and raises
+    :class:`DeviceCallTimeoutError`, which the caller handles like any other
+    device failure. A ``TimeoutError`` the call raises on its own before the
+    deadline is passed on unchanged.
+
+    Raises
+    ------
+    DeviceCallTimeoutError
+        When the call in the block did not return in time
+    """
+    deadline = asyncio.timeout(DEVICE_CALL_TIMEOUT_S)
+    try:
+        async with deadline:
+            yield
+    except TimeoutError as err:
+        if not deadline.expired():
+            raise
+        raise DeviceCallTimeoutError(
+            f"the device did not answer within {DEVICE_CALL_TIMEOUT_S:g} s"
+        ) from err
+
+
 def async_retry(
     retries: int = 1,
     base_delay: float = 1.0,
@@ -90,7 +127,10 @@ def async_retry(
     Exceptions in :data:`UNRECOVERABLE_EXCEPTIONS`, other than those in
     :data:`RETRYABLE_DESPITE_TYPE`, are re-raised on the first
     attempt even when ``exceptions`` covers them, so a broken call fails fast
-    rather than after the whole backoff budget. An attempt that is retried
+    rather than after the whole backoff budget. A :class:`DeviceCallTimeoutError`
+    is re-raised on the first attempt as well: the call has already waited
+    out its deadline, and another attempt at a device that does not answer
+    only repeats the wait. An attempt that is retried
     is logged at ``log_level``, debug unless the caller asks otherwise, and
     the failure that ends the attempts as one warning. The traceback goes
     with them only while debug logging is on, and the caller the error is
@@ -143,6 +183,8 @@ def async_retry(
                 try:
                     return await func(*args, **kwargs)
                 except exceptions as e:
+                    if isinstance(e, DeviceCallTimeoutError):
+                        raise
                     if isinstance(e, UNRECOVERABLE_EXCEPTIONS) and not isinstance(
                         e, RETRYABLE_DESPITE_TYPE
                     ):

@@ -108,7 +108,9 @@ from custom_components.better_thermostat.utils.hvac_action import (
     should_cool_with_tolerance,
 )
 from custom_components.better_thermostat.utils.retry import (
+    DeviceCallTimeoutError,
     command_cancellation_as_disconnect,
+    device_call_deadline,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
@@ -691,6 +693,31 @@ def desired_diverges(
     return False
 
 
+def _report_overrunning_cycle(self: BetterThermostat) -> None:
+    """Log a control cycle that has run for longer than ``WATCHDOG_MAX_AGE_S``.
+
+    The cycle holds the inbound handler and the reconciler off for as long as
+    it runs, so one that never ends stops the room's control without either
+    of them noticing. Valve maintenance holds them off as well, on purpose,
+    and is not a cycle.
+    """
+    started = self.control_cycle_started_monotonic
+    if (
+        started is None
+        or self.in_maintenance
+        or not control_loop_stalled(started, self.clock.monotonic())
+    ):
+        return
+    self.control_cycle_started_monotonic = None
+    _LOGGER.error(
+        "better_thermostat %s: control watchdog: a control cycle has been "
+        "running for more than %.0f minutes; the room's devices get no "
+        "updates until it ends",
+        self.device_name,
+        WATCHDOG_MAX_AGE_S / 60.0,
+    )
+
+
 async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) -> None:
     """Periodic reconciliation: re-converge devices onto the intent.
 
@@ -702,9 +729,14 @@ async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) ->
     has not completed a cycle for ``WATCHDOG_MAX_AGE_S`` is the silent hang
     it exists for and is logged as an error. A room whose devices hold the
     intent has nothing for a cycle to do, however long ago the last one
-    ran, so a quiet loop is not reported.
+    ran, so a quiet loop is not reported. A cycle that is still running
+    ``WATCHDOG_MAX_AGE_S`` after it began is the other form of that hang,
+    and is logged as an error once.
     """
-    if self.startup_running or self.ignore_states:
+    if self.startup_running:
+        return
+    if self.ignore_states:
+        _report_overrunning_cycle(self)
         return
     if self.kernel_state.maintenance.is_blocking(self.clock.monotonic()):
         return
@@ -1334,6 +1366,7 @@ async def control_queue(self: BetterThermostat) -> None:
                 try:
                     if controls_to_process is not None:
                         self.ignore_states = True
+                        self.control_cycle_started_monotonic = self.clock.monotonic()
 
                         # Calculate heating power once per cycle
                         try:
@@ -1498,6 +1531,7 @@ async def control_queue(self: BetterThermostat) -> None:
                     # queue counts an item as unfinished until it is acknowledged,
                     # and cancellation reaches this loop between the get() and the
                     # end of the work it hands out.
+                    self.control_cycle_started_monotonic = None
                     self.control_queue_task.task_done()
     except asyncio.CancelledError:
         _LOGGER.debug(
@@ -1684,14 +1718,15 @@ async def _write_cooler_mode(
         # mode channel does not abort the cooler cycle and the setpoint
         # channel still gets its turn.
         try:
-            with command_cancellation_as_disconnect():
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
-                    blocking=True,
-                    context=self.context,
-                )
+            async with device_call_deadline():
+                with command_cancellation_as_disconnect():
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_hvac_mode",
+                        {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
+                        blocking=True,
+                        context=self.context,
+                    )
         except Exception as err:  # noqa: BLE001 - a device failure arrives as any exception type
             _record_cooler_failure(last_sent, "hvac_mode", desired_mode, now_monotonic)
             _LOGGER.warning(
@@ -2175,14 +2210,15 @@ async def control_cooler(
         _previous_settled = last_sent.pop("temperature_settled", None)
         last_sent["temperature"] = (temperature_to_send, now_monotonic)
         try:
-            with command_cancellation_as_disconnect():
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_temperature",
-                    _payload,
-                    blocking=True,
-                    context=self.context,
-                )
+            async with device_call_deadline():
+                with command_cancellation_as_disconnect():
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_temperature",
+                        _payload,
+                        blocking=True,
+                        context=self.context,
+                    )
         except Exception as err:  # noqa: BLE001 - a device failure arrives as any exception type
             if _previous_send is None:
                 last_sent.pop("temperature", None)
@@ -2541,29 +2577,43 @@ async def control_trv(
                 self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
                 self.real_trvs[entity_id].withdrawn_hvac_mode = None
                 self.real_trvs[entity_id].withdrawn_hvac_mode_until = None
-                _tvr_has_quirk = await override_set_hvac_mode(
-                    self, entity_id, _new_hvac_mode
-                )
                 _mode_refused = False
-                if _tvr_has_quirk is False:
-                    _mode_refused = (
-                        await set_hvac_mode(self, entity_id, _new_hvac_mode) is False
+                _mode_unanswered = False
+                try:
+                    _tvr_has_quirk = await override_set_hvac_mode(
+                        self, entity_id, _new_hvac_mode
                     )
+                    if _tvr_has_quirk is False:
+                        _mode_refused = (
+                            await set_hvac_mode(self, entity_id, _new_hvac_mode)
+                            is False
+                        )
+                except DeviceCallTimeoutError:
+                    _mode_unanswered = True
                 # A refused mode is written again by the next cycle, which
                 # still finds the device in its old mode; there is nothing to
                 # wait for until then. Until it goes through, the device holds
                 # the mode it reports, and that is the mode last commanded as
                 # far as the mode cache and the inbound handler are concerned:
                 # the refused one would read the device's next plain report
-                # as a press back to its old mode.
-                if _mode_refused:
+                # as a press back to its old mode. A write that did not answer
+                # is handled the same way, but the device may have queued it
+                # and apply it later, a sleeping node once it wakes, so it is
+                # remembered as withdrawn: landing late, it is not a press.
+                if _mode_refused or _mode_unanswered:
                     self.real_trvs[entity_id].last_hvac_mode = (
                         _commanded_before
                         if _reported_hvac_mode in (STATE_UNAVAILABLE, STATE_UNKNOWN)
                         else _reported_hvac_mode
                     )
+                if _mode_unanswered:
+                    self.real_trvs[entity_id].withdrawn_hvac_mode = _new_hvac_mode
+                    self.real_trvs[entity_id].withdrawn_hvac_mode_until = (
+                        self.clock.monotonic() + WRITE_CONFIRM_TIMEOUT_S
+                    )
                 if (
                     not _mode_refused
+                    and not _mode_unanswered
                     and self.real_trvs[entity_id].system_mode_received is True
                 ):
                     self.real_trvs[entity_id].system_mode_received = False
