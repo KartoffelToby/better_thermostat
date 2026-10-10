@@ -21,9 +21,11 @@ from homeassistant.components.climate.const import ATTR_HVAC_ACTION
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity import EntityPlatformState
 import pytest
 from pytest_homeassistant_custom_component.common import mock_restore_cache
 
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils.const import CalibrationMode
 
 from .conftest import (
@@ -45,8 +47,10 @@ from .device_profiles import (
     DUAL_ROLE,
     GENERIC_HEAT_TRV,
     HEAT_COOL_TRV,
+    HEAT_ONLY,
     INTEGER_GRID_TRV,
     ROLE_SCENARIOS,
+    SEPARATE_COOLER,
 )
 
 
@@ -102,6 +106,32 @@ async def test_window_open_turns_the_trv_off(hass, fake_trv):
     assert hass.states.get(fake_trv.entity_id).state == HVACMode.OFF
     bt_state = hass.states.get(BT_ENTITY)
     assert bt_state.attributes.get("window_open") is True
+
+
+async def test_window_sensor_removed_while_open_lets_the_room_heat(hass, fake_trv):
+    """A window sensor that disappears while open counts as closed.
+
+    Disabling, deleting or renaming the sensor in the entity registry
+    removes its state. Like an unavailable sensor, a removed one must not
+    hold the heating off until the entry is reloaded.
+    """
+    set_room_sensor(hass, 18.0)
+    hass.states.async_set(WINDOW_ID, "off")
+    entry = make_entry(fake_trv.profile, with_window=True)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await bt.async_set_hvac_mode(HVACMode.HEAT)
+    await hass.async_block_till_done()
+    hass.states.async_set(WINDOW_ID, "on")
+    assert await wait_for(hass, lambda: "off" in fake_trv.set_hvac_mode_calls)
+
+    hass.states.async_remove(WINDOW_ID)
+
+    assert await wait_for(hass, lambda: not bt.window_open)
+    assert await wait_for(
+        hass, lambda: fake_trv.set_hvac_mode_calls[-1] == fake_trv.profile.hvac_mode
+    )
+    assert hass.states.get(BT_ENTITY).attributes.get("window_open") is False
 
 
 @pytest.mark.parametrize(
@@ -241,6 +271,150 @@ async def test_climate_entity_id_follows_device_name_after_rename(hass, device_r
         == "sensor.bt_livingroom_temperature_ema"
     )
     assert hass.states.get("climate.bt_livingroom") is not None
+
+
+RENAMED_ENTITY = "climate.living_room_heating"
+
+
+def _targets(scenario, heat: float) -> dict[str, float]:
+    """The set_temperature data for a heating target, with a cooler or without."""
+    if scenario.cooler_entity_id is None:
+        return {ATTR_TEMPERATURE: heat}
+    return {"target_temp_low": heat, "target_temp_high": 27.0}
+
+
+async def _rename_the_thermostat(hass, entry):
+    """Give the thermostat a new entity_id, as the entity settings dialog does."""
+    er.async_get(hass).async_update_entity(BT_ENTITY, new_entity_id=RENAMED_ENTITY)
+    await hass.async_block_till_done()
+    return await wait_for_startup(hass, entry)
+
+
+@pytest.mark.parametrize(
+    "device_role", [HEAT_ONLY, SEPARATE_COOLER], indirect=True, ids=profile_id
+)
+async def test_a_thermostat_renamed_by_the_user_keeps_driving_the_trv(
+    hass, device_role, caplog
+):
+    """A new entity_id from the user leaves a thermostat that still writes.
+
+    Home Assistant answers an entity_id change in the registry by removing
+    the entity and adding the same object again under the new id. The
+    removal stops everything that writes to the TRV, so the entity has to
+    come back as one that runs: the target set under the new id reaches the
+    device. With a cooler the mode list changes at startup, which is where
+    a second start of the same object breaks, so both wirings run.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(device_role.scenario)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    bt = await _rename_the_thermostat(hass, entry)
+
+    assert bt.entity_id == RENAMED_ENTITY
+    assert hass.states.get(BT_ENTITY) is None
+    assert hass.states.get(RENAMED_ENTITY).state == bt.map_on_hvac_mode
+    assert [r.message for r in caplog.records if r.levelname == "ERROR"] == []
+
+    trv = device_role.thermostat
+    trv.set_temperature_calls.clear()
+    # The reloaded startup has just written to the head; without the budget
+    # the target would wait out the minimum interval between two writes.
+    with patch(WRITE_BUDGET, 0.0):
+        await hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {"entity_id": RENAMED_ENTITY, **_targets(device_role.scenario, 23.5)},
+            blocking=True,
+        )
+        assert await wait_for(hass, lambda: trv.set_temperature_calls)
+    # target_temp_based sends the target corrected by how far the device's
+    # own reading sits from the room sensor.
+    corrected = 23.5 - 18.0 + trv.profile.current_temperature
+    assert_write_is(trv.set_temperature_calls[-1], corrected, trv.profile)
+
+
+async def test_a_removed_thermostat_added_twice_schedules_one_reload(hass, fake_trv):
+    """Each re-add of the removed object after an entity_id change would reload.
+
+    A second entity_id change before the reload runs adds the same removed
+    object once more; the reload already scheduled serves both.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    bt.is_removed = True
+    scheduled: list[str] = []
+
+    with patch.object(hass.config_entries, "async_schedule_reload", scheduled.append):
+        await bt.async_added_to_hass()
+        await bt.async_added_to_hass()
+        await hass.async_block_till_done()
+
+    assert scheduled == [entry.entry_id]
+
+
+@pytest.mark.parametrize(
+    "device_role", [HEAT_ONLY, SEPARATE_COOLER], indirect=True, ids=profile_id
+)
+async def test_a_thermostat_renamed_by_the_user_keeps_its_targets(hass, device_role):
+    """The targets set before a new entity_id are the ones shown after it.
+
+    Home Assistant files the state it saves at the removal under the old
+    entity_id. A thermostat restoring under the new one finds a saved state
+    only if the reload removes the old object after Home Assistant has
+    published it under the new id; otherwise it falls back to the TRV's own
+    setpoint.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(device_role.scenario)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    targets = _targets(device_role.scenario, 22.5)
+    await hass.services.async_call(
+        "climate", "set_temperature", {"entity_id": BT_ENTITY, **targets}, blocking=True
+    )
+
+    await _rename_the_thermostat(hass, entry)
+
+    attributes = hass.states.get(RENAMED_ENTITY).attributes
+    assert {key: attributes[key] for key in targets} == targets
+
+
+@pytest.mark.parametrize(
+    "device_role", [HEAT_ONLY, SEPARATE_COOLER], indirect=True, ids=profile_id
+)
+async def test_a_thermostat_renamed_by_the_user_publishes_only_the_new_entity(
+    hass, device_role
+):
+    """Once the new entity has written its state, the old object stays silent.
+
+    Home Assistant finishes adding the old object after its
+    ``async_added_to_hass`` returns: it marks the object as added and writes
+    its state. The reload has to remove the old object after that, or the
+    old object writes its stale state over the new entity's and stays
+    marked as added although nothing drives it.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(device_role.scenario)
+    await setup_entry(hass, entry)
+    old_bt = await wait_for_startup(hass, entry)
+    writers: list[BetterThermostat] = []
+    write_state = BetterThermostat.async_write_ha_state
+
+    def recording_write(entity: BetterThermostat) -> None:
+        writers.append(entity)
+        write_state(entity)
+
+    with patch.object(BetterThermostat, "async_write_ha_state", recording_write):
+        new_bt = await _rename_the_thermostat(hass, entry)
+
+    assert new_bt is not old_bt
+    first_new_write = writers.index(new_bt)
+    assert old_bt not in writers[first_new_write:]
+    assert old_bt._platform_state is EntityPlatformState.REMOVED
 
 
 @contextmanager

@@ -51,6 +51,11 @@ def _try_import_daqp() -> ModuleType | None:
 _daqp = _try_import_daqp()
 DAQP_AVAILABLE = _daqp is not None
 
+# Solver notes already written to the log. Which solver plans is a property
+# of the installation, the same for every optimiser in the process, so each
+# note is written once per process rather than once per controller.
+_logged_solver_notes: set[str] = set()
+
 
 # Interior-point budget and tolerances on the scaled problem. The method
 # converges in 10 to 40 iterations on every plan the tests draw; the budget
@@ -264,7 +269,8 @@ class QpOptimiser:
         self._daqp_failure_reported = False
         self._flat_fallback_reported = False
         self._non_finite_reported = False
-        if not DAQP_AVAILABLE:
+        if not DAQP_AVAILABLE and "numpy" not in _logged_solver_notes:
+            _logged_solver_notes.add("numpy")
             _LOGGER.info(
                 "MPC v2 plans with its NumPy solver; the daqp package is not "
                 "installed on this system"
@@ -274,22 +280,40 @@ class QpOptimiser:
         """Clear the accumulated integral tracking error."""
         self.e_integral_K_min = 0.0
 
+    def upper_bound(self, u_max: float | None = None) -> float:
+        """Return the highest valve fraction this cycle may command.
+
+        ``u_max`` is a further limit for the cycle, such as the maximum
+        opening the user set for the valve; the configured ``u_max`` still
+        applies. The bound never drops below ``u_min``.
+        """
+        upper = self.params.u_max if u_max is None else min(self.params.u_max, u_max)
+        return max(self.params.u_min, upper)
+
     def update_integral(
-        self, T_room: float, T_sp: float, u_applied: float, dt_s: float
+        self,
+        T_room: float,
+        T_sp: float,
+        u_applied: float,
+        dt_s: float,
+        u_max: float | None = None,
     ) -> None:
         """Accumulate the tracking error with anti-windup and clipping.
 
         Skips accumulation when the applied input is saturated and the error
         sign would only grow the integral further, or when the error lies
-        outside ``integral_error_band``. The interval counts at most one
-        re-plan step: time without a plan is not tracking error. The running
-        total is clipped to ``±integral_clip_K_min``.
+        outside ``integral_error_band``. The valve counts as saturated at the
+        upper rail when it sits at :meth:`upper_bound` for ``u_max``, so a
+        valve held at the user's maximum opening winds the integral up no
+        more than a fully open one. The interval counts at most one re-plan
+        step: time without a plan is not tracking error. The running total
+        is clipped to ``±integral_clip_K_min``.
         """
         err = T_room - T_sp
         if abs(err) > self.params.integral_error_band:
             return
         band = self.params.saturation_band
-        at_upper = u_applied >= self.params.u_max - band
+        at_upper = u_applied >= self.upper_bound(u_max) - band
         at_lower = u_applied <= self.params.u_min + band
         if (at_upper and err < 0) or (at_lower and err > 0):
             return
@@ -305,6 +329,7 @@ class QpOptimiser:
         T_outdoor: float,
         u_last: float,
         D_hat_K_per_min: float = 0.0,
+        u_max: float | None = None,
     ) -> float:
         """Solve the horizon QP and return the first valve command ``u_0``.
 
@@ -312,7 +337,16 @@ class QpOptimiser:
         assembles the Hessian and gradient. DAQP solves the small dense QP when
         available; otherwise a NumPy interior-point solver finds the same
         optimum under the same box bounds and rate limits.
+
+        The plan stays below :meth:`upper_bound` for ``u_max``. A last command
+        above that bound, left from before the bound was lowered, anchors the
+        rate limit at the bound: the limit is a hard one, and the first step
+        down to it is not rate limited.
         """
+        u_min = self.params.u_min
+        u_max = self.upper_bound(u_max)
+        if math.isfinite(u_last):
+            u_last = max(u_min, min(u_max, u_last))
         n = self.plant.state_dim
         N = self.N
 
@@ -395,8 +429,6 @@ class QpOptimiser:
         )
 
         delta_u_max = self.params.delta_u_max
-        u_min = self.params.u_min
-        u_max = self.params.u_max
         A_box = np.eye(N)
         A_con_dense = np.vstack([A_box, D_diff])
         lb = np.concatenate([np.full(N, u_min), -delta_u_max + b_du])

@@ -92,6 +92,10 @@ class DeviceProfile:
     number in Celsius, as Zigbee2MQTT discovers it. The selector that switches
     the device between that number and its own sensor comes with it and
     starts on ``external_sensor_selection``.
+
+    ``off_target_temperature`` is the setpoint the device publishes while it
+    is off, in place of the one it holds: a Tado unit shows its 5 °C minimum
+    there. ``None`` publishes the held setpoint in every mode.
     """
 
     name: str
@@ -121,6 +125,7 @@ class DeviceProfile:
     valve_maintenance: bool = False
     external_temperature_input: bool = False
     external_sensor_selection: str = "external"
+    off_target_temperature: float | None = None
 
 
 def published_unit(profile: DeviceProfile) -> UnitOfTemperature:
