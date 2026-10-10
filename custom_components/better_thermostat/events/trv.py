@@ -201,6 +201,18 @@ def reports_written_setpoint(
     and on the device that also serves as the cooler, of the cooling
     channel's writes as the device holds them.
 
+    Parameters
+    ----------
+    self : BetterThermostat
+        The thermostat whose writes the setpoint is compared with.
+    entity_id : str
+        The TRV the state belongs to; it decides whether the cooling
+        channel's writes count as well.
+    trv : Trv
+        The TRV's record, which holds its writes and its step.
+    state : State | None
+        The state the TRV reported.
+
     Returns
     -------
     bool | None
