@@ -1487,11 +1487,11 @@ def test_a_prior_change_before_the_first_cycle_seeds_from_the_measurement() -> N
     A controller built but not yet stepped holds only the construction default
     in its observer, which is no estimate of the room to carry over.
     """
-    before = MpcV2Params(plant=make_plant_prior(preset="small_room"))
+    before = MpcV2Params(plant=make_plant_prior(preset=MpcV2PlantPreset.SMALL_ROOM))
     state = MpcV2State(
         controller=MpcV2Controller(before), plant_signature=_plant_signature_of(before)
     )
-    after = MpcV2Params(plant=make_plant_prior(preset="large_room"))
+    after = MpcV2Params(plant=make_plant_prior(preset=MpcV2PlantPreset.LARGE_ROOM))
 
     _, state = compute_mpc_v2(
         _baseline_input(room_temperature=16.0, trv_temperature=16.0),
