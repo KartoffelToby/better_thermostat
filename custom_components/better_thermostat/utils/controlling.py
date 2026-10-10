@@ -582,6 +582,10 @@ def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
     """
     if not trv.capabilities().supports_offset_write:
         return False
+    if trv.calibration is not CalibrationOutput.LOCAL_BASED:
+        # Only the offset calibration commands an offset; any other TRV's
+        # offset is the device's own and no control cycle writes to it.
+        return False
     if trv.local_temperature_calibration_entity is None:
         # Service-call ecosystems have no readable calibration entity;
         # divergence is only verifiable through one.

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Final
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
+from ..utils.const import CalibrationOutput
 from ..utils.helpers import (
     celsius_to_system_temperature,
     find_local_calibration_entity,
@@ -87,13 +88,16 @@ async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
 async def discover_calibration_entity(self: AdapterHost, entity_id: str) -> None:
     """Adopt the TRV's local calibration entity and wait for it to report.
 
-    A TRV that already carries a calibration entity, and one that is not
-    calibrated through such an entity at all, is left alone. Otherwise the
-    lookup runs once and its result is stored on the TRV record: an entity
-    that was found is waited for until it reports a state, and a TRV for
-    which the lookup found none is named in the log, because local
-    calibration is what it is configured for and it has nothing to write
-    to.
+    A TRV that already carries a calibration entity, and one configured for
+    no calibration at all, is left alone. Otherwise the lookup runs once and
+    its result is stored on the TRV record, whatever the calibration type,
+    because the entity is what the TRV's offset capability describes. Only a
+    TRV calibrated through its offset goes further: an entity that was found
+    is waited for until it reports a state, and a TRV for which the lookup
+    found none is named in the log, because local calibration is what it is
+    configured for and it has nothing to write to. Every other TRV never
+    writes to the entity, so neither its absence nor a late first report
+    holds up its startup.
 
     Every adapter whose calibration rides on a discovered entity shares
     this step, so a TRV without one is reported the same way whichever
@@ -107,7 +111,7 @@ async def discover_calibration_entity(self: AdapterHost, entity_id: str) -> None
         Entity ID of the TRV to run the lookup for.
     """
     trv = self.real_trvs[entity_id]
-    if trv.local_temperature_calibration_entity is not None or trv.calibration == 1:
+    if trv.local_temperature_calibration_entity is not None or trv.calibration is None:
         return
 
     trv.local_temperature_calibration_entity = await find_local_calibration_entity(
@@ -118,6 +122,8 @@ async def discover_calibration_entity(self: AdapterHost, entity_id: str) -> None
         self.device_name,
         trv.local_temperature_calibration_entity,
     )
+    if trv.calibration is not CalibrationOutput.LOCAL_BASED:
+        return
     if trv.local_temperature_calibration_entity is None:
         _LOGGER.warning(
             "better_thermostat %s: no local calibration entity found for '%s', skipping calibration init",

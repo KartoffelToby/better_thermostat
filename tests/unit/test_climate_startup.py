@@ -56,6 +56,7 @@ from custom_components.better_thermostat.utils.const import (
     DEFAULT_TARGET_TEMP,
     MAX_HEAT_LOSS,
     MAX_HEATING_POWER,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.entry_schema import TrvSettings
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
@@ -70,10 +71,10 @@ DOOR_ID = "binary_sensor.door"
 HUMIDITY_ID = "sensor.humidity"
 OUTDOOR_ID = "sensor.outdoor_temp"
 
-# The calibration code startup derives for a TRV whose offset lives on its own
-# calibration entity. Any code but 1 makes startup read the device's offset and
-# the bounds it accepts.
-LOCAL_CALIBRATION = 3
+# The calibration type of a TRV whose offset lives on its own calibration
+# entity. Only this type makes startup read the device's offset and the bounds
+# it accepts.
+LOCAL_CALIBRATION = CalibrationOutput.LOCAL_BASED
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +113,7 @@ def bt():
     mock.real_trvs = {
         TRV_ID: Trv(
             entity_id=TRV_ID,
-            calibration=1,
+            calibration=None,
             integration="generic_thermostat",
             adapter=None,
             model_quirks=None,
@@ -239,7 +240,7 @@ def plateau_bt(bt, hass):
     bt.real_trvs = {
         TRV_ID: Trv(
             entity_id=TRV_ID,
-            calibration=1,
+            calibration=None,
             integration="generic_thermostat",
             adapter=None,
             model_quirks=quirks,
@@ -1610,7 +1611,7 @@ class TestInitializeTrvCurrentTemperature:
     """
 
     def _trv_only_bt(self, bt, attrs, unit="°C"):
-        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=None)}
         bt.hass.config.units.temperature_unit = unit
         bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
         return bt
@@ -1656,7 +1657,7 @@ class TestInitializeTrvEchoSetpoints:
     """Startup takes the device's own setpoint as the one it may echo."""
 
     def _trv_only_bt(self, bt, attrs):
-        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=None)}
         bt.hass.config.units.temperature_unit = "°C"
         bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
         return bt
@@ -1702,7 +1703,7 @@ class TestInitializeTrvRangeFallback:
     """
 
     def _trv_only_bt(self, bt, unit, state):
-        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=None)}
         bt.hass.config.units.temperature_unit = unit
         bt.hass.states.get.return_value = state
         return bt
@@ -1923,6 +1924,95 @@ class TestInitializeTrvCalibrationFallback:
 
         assert bt.real_trvs[TRV_ID].max_temp == 30.0
         assert bt.real_trvs[TRV_ID].current_temperature == 20.0
+
+
+_OFFSET_READS = (
+    "get_calibration_offset",
+    "get_min_calibration_offset",
+    "get_max_calibration_offset",
+    "get_calibration_offset_step",
+)
+
+
+class TestInitializeTrvReadsOffsetsOnlyForOffsetTrvs:
+    """Startup reads the device's offset only where BT calibrates through it.
+
+    A TRV calibrated through its setpoint or its valve, or configured for
+    no calibration, gets no offset written, so its offset and the bounds
+    around it are not read; it starts from the neutral defaults.
+    """
+
+    async def _run(self, bt, calibration):
+        """Initialize one TRV of ``calibration`` and return the offset reads.
+
+        The TRV carries a calibration entity, so what decides the reads is
+        the calibration type alone.
+        """
+        bt.real_trvs = {
+            TRV_ID: Trv(
+                entity_id=TRV_ID,
+                calibration=calibration,
+                local_temperature_calibration_entity="number.trv_offset",
+            )
+        }
+        bt.hass.states.get.return_value = _make_trv_state()
+        bt._set_trv_calibration_defaults.side_effect = lambda trv: (
+            BetterThermostat._set_trv_calibration_defaults(bt, trv)
+        )
+        reads = {
+            name: AsyncMock(return_value=answer)
+            for name, answer in zip(_OFFSET_READS, (1.5, -5.0, 5.0, 0.1), strict=True)
+        }
+        with (
+            patch("custom_components.better_thermostat.climate.init", autospec=True),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak",
+                autospec=True,
+            ),
+            patch.multiple("custom_components.better_thermostat.climate", **reads),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+        return reads
+
+    @pytest.mark.parametrize(
+        "calibration",
+        [
+            CalibrationOutput.TARGET_TEMP_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
+            None,
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_trv_without_offset_calibration_reads_no_offset(
+        self, bt, calibration
+    ):
+        """No offset read reaches the adapter; the defaults stand."""
+        reads = await self._run(bt, calibration)
+
+        for read in reads.values():
+            read.assert_not_awaited()
+        trv = bt.real_trvs[TRV_ID]
+        assert (
+            trv.last_calibration,
+            trv.min_local_calibration,
+            trv.max_local_calibration,
+            trv.local_calibration_step,
+        ) == (0, -7, 7, 0.5)
+
+    @pytest.mark.asyncio
+    async def test_an_offset_trv_reads_its_offset_and_bounds(self, bt):
+        """The offset TRV takes what its device reports."""
+        reads = await self._run(bt, LOCAL_CALIBRATION)
+
+        for read in reads.values():
+            read.assert_awaited_once_with(bt, TRV_ID)
+        trv = bt.real_trvs[TRV_ID]
+        assert (
+            trv.last_calibration,
+            trv.min_local_calibration,
+            trv.max_local_calibration,
+            trv.local_calibration_step,
+        ) == (1.5, -5.0, 5.0, 0.1)
 
 
 # ---------------------------------------------------------------------------
@@ -3234,7 +3324,7 @@ def _two_heads():
     second head has to exist for a two-state case to say anything.
     """
     return {
-        entity_id: Trv(entity_id=entity_id, calibration=1)
+        entity_id: Trv(entity_id=entity_id, calibration=None)
         for entity_id in (TRV_ID, TRV_ID_2)
     }
 
@@ -3546,9 +3636,9 @@ class TestStartupWithoutAnUnavailableTrv:
     async def test_startup_initialises_only_the_trvs_it_did_not_leave_behind(self, bt):
         """The TRV left behind is not read or set up by startup."""
         bt.real_trvs = {
-            TRV_ID: Trv(entity_id=TRV_ID, calibration=1),
+            TRV_ID: Trv(entity_id=TRV_ID, calibration=None),
             TRV_ID_2: Trv(
-                entity_id=TRV_ID_2, calibration=1, awaiting_initialization=True
+                entity_id=TRV_ID_2, calibration=None, awaiting_initialization=True
             ),
         }
         bt.hass.states.get.side_effect = lambda entity_id: _make_trv_state(
@@ -3569,9 +3659,9 @@ class TestStartupWithoutAnUnavailableTrv:
     async def test_a_named_trv_is_initialised_on_its_own(self, bt):
         """A TRV named explicitly is initialised whatever it is marked as."""
         bt.real_trvs = {
-            TRV_ID: Trv(entity_id=TRV_ID, calibration=1),
+            TRV_ID: Trv(entity_id=TRV_ID, calibration=None),
             TRV_ID_2: Trv(
-                entity_id=TRV_ID_2, calibration=1, awaiting_initialization=True
+                entity_id=TRV_ID_2, calibration=None, awaiting_initialization=True
             ),
         }
         bt.all_entities = [TRV_ID, TRV_ID_2]

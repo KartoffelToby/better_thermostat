@@ -565,7 +565,10 @@ async def trigger_trv_change(
             trv.consume_accept_next_internal_temperature()
             or _last_internal_change is None
             or (dt_util.now() - _last_internal_change).total_seconds() > _time_diff
-            or (trv.calibration_received is False and trv.calibration != 1)
+            or (
+                trv.calibration_received is False
+                and trv.calibration is CalibrationOutput.LOCAL_BASED
+            )
         )
     ):
         _old_temperature = trv.current_temperature
@@ -589,7 +592,7 @@ async def trigger_trv_change(
                 entity_id,
             )
             _main_change = False
-            if trv.calibration == 0:
+            if trv.calibration is CalibrationOutput.LOCAL_BASED:
                 # The awaits above (model detection, quirk loading) can
                 # outlive the entry: the offset read resolves the adapter
                 # through a raw real_trvs index, so skip it once the TRV
