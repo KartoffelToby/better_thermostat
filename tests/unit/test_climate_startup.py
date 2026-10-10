@@ -1943,8 +1943,18 @@ class TestInitializeTrvReadsOffsetsOnlyForOffsetTrvs:
     """
 
     async def _run(self, bt, calibration):
-        """Initialize one TRV of ``calibration`` and return the offset reads."""
-        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=calibration)}
+        """Initialize one TRV of ``calibration`` and return the offset reads.
+
+        The TRV carries a calibration entity, so what decides the reads is
+        the calibration type alone.
+        """
+        bt.real_trvs = {
+            TRV_ID: Trv(
+                entity_id=TRV_ID,
+                calibration=calibration,
+                local_temperature_calibration_entity="number.trv_offset",
+            )
+        }
         bt.hass.states.get.return_value = _make_trv_state()
         bt._set_trv_calibration_defaults.side_effect = lambda trv: (
             BetterThermostat._set_trv_calibration_defaults(bt, trv)
