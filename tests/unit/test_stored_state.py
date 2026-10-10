@@ -20,7 +20,10 @@ from homeassistant.helpers.json import prepare_save_json
 import pytest
 
 from custom_components.better_thermostat.utils import state_manager
-from custom_components.better_thermostat.utils.calibration.mpc import MpcState
+from custom_components.better_thermostat.utils.calibration.mpc import (
+    MpcState,
+    TrvProfile,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
     ControllerSnapshot,
 )
@@ -89,7 +92,7 @@ def _populated_mpc() -> MpcState:
         last_room_temperature=20.8,
         last_room_temperature_ts=1700000008.0,
         perf_curve={"heat": {"10": 0.02, "50": 0.11}, "idle": {"0": -0.01}},
-        trv_profile="linear",
+        trv_profile=TrvProfile.LINEAR,
         profile_confidence=0.66,
         profile_samples=17,
         u_integral=123.5,

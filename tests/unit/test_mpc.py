@@ -13,6 +13,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
     MpcState,
+    TrvProfile,
     _forget_stamps_ahead_of_the_clock,
     _post_process_percent,
     _update_perf_curve,
@@ -501,7 +502,7 @@ class TestMPCController:
             percent_hysteresis_pts=0.0,
             min_update_interval_s=0.0,
         )
-        state = MpcState(trv_profile="linear", min_effective_percent=16.0)
+        state = MpcState(trv_profile=TrvProfile.LINEAR, min_effective_percent=16.0)
         for cycle in range(3):
             inp = MpcInput(
                 key="deadzone",
@@ -519,7 +520,7 @@ class TestMPCController:
         assert state.trv_profile == "linear"
         assert state.min_effective_percent == 14.0
 
-    @pytest.mark.parametrize("profile", ["linear", "threshold"])
+    @pytest.mark.parametrize("profile", [TrvProfile.LINEAR, TrvProfile.THRESHOLD])
     def test_a_wide_opening_does_not_lower_the_learned_minimum(self, profile):
         """A TRV warming at a wide opening keeps a small learned minimum.
 
@@ -551,7 +552,7 @@ class TestMPCController:
 
         assert state.min_effective_percent == 16.0
 
-    @pytest.mark.parametrize("profile", ["linear", "threshold"])
+    @pytest.mark.parametrize("profile", [TrvProfile.LINEAR, TrvProfile.THRESHOLD])
     def test_a_closed_valve_does_not_lower_the_learned_minimum(self, profile):
         """A TRV that warms behind a closed valve keeps the learned minimum.
 
@@ -603,7 +604,7 @@ class TestMPCController:
             min_update_interval_s=0.0,
             min_percent_hold_time_s=hold_time_seconds,
         )
-        state = MpcState(trv_profile="linear", min_effective_percent=16.0)
+        state = MpcState(trv_profile=TrvProfile.LINEAR, min_effective_percent=16.0)
         for cycle, raw_percent in enumerate((0.0, 20.0)):
             inp = MpcInput(
                 key="deadzone",
