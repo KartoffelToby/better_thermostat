@@ -31,6 +31,13 @@ quality steps down a ladder, one rung at a time:
    and the TRVs keep their last commanded state. Frost protection stays
    enforced on every write.
 
+TRVs that regulate on a room temperature Better Thermostat writes into
+them, such as the Sonoff TRVZB, stop receiving it while the room sensor
+gives no reading. Better Thermostat does not keep sending the sensor's last
+value, so the TRV falls back to its own sensor after its own timeout (two
+hours on a TRVZB). The first reading after the outage is written to the TRV
+at once.
+
 A rung steps down after the loss has persisted for about two minutes, and
 climbs back up after the sensors have been stable again for about five
 minutes, so short sensor flaps do not flip the behavior back and forth.
@@ -53,4 +60,5 @@ TRV the health of its calibration controller: `healthy`, `non_finite`
   provides them.
 
 The repair issue disappears on its own once all configured sensors are
-available again.
+available again. Taking a sensor that is gone for good out of the Better
+Thermostat's settings clears it as well.
