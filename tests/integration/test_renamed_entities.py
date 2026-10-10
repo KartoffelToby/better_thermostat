@@ -8,11 +8,14 @@ A thermostat the entry stops controlling leaves nothing behind for the next
 device to be given its id.
 """
 
+import asyncio
 from dataclasses import replace
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
+from homeassistant.helpers.storage import Store
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.better_thermostat.utils.calibration.pid import (
@@ -335,3 +338,158 @@ async def test_a_thermostat_given_a_removed_ones_id_starts_without_its_learning(
     assert _configured_trvs(entry) == [first, removed, last]
     assert _stored_kp(bt, removed) != LEARNED_KP
     assert _stored_kp(bt, first) == LEARNED_KP
+
+
+async def _yield_to_the_loop(rounds: int = 20) -> None:
+    """Let every task that can run without the closed gates take its steps."""
+    for _ in range(rounds):
+        await asyncio.sleep(0)
+
+
+async def test_a_rename_during_the_final_save_keeps_the_learned_state(
+    hass, monkeypatch
+):
+    """The removed thermostat's last save lands before the stored state moves."""
+    entry, bt = await _started_pid_trv(hass)
+    _learn_kp(bt, PID_TRV.entity_id)
+    assert bt.state_mgr is not None
+    store = bt.state_mgr._store
+    final_save = store.async_save
+    final_save_started = asyncio.Event()
+    final_save_released = asyncio.Event()
+
+    async def held_final_save(data):
+        final_save_started.set()
+        await final_save_released.wait()
+        await final_save(data)
+
+    monkeypatch.setattr(store, "async_save", held_final_save)
+    unload = hass.async_create_task(hass.config_entries.async_unload(entry.entry_id))
+    await asyncio.wait_for(final_save_started.wait(), timeout=5)
+
+    er.async_get(hass).async_update_entity(PID_TRV.entity_id, new_entity_id=RENAMED_TRV)
+    await _yield_to_the_loop()
+    final_save_released.set()
+    assert await unload
+    await hass.async_block_till_done()
+
+    if entry.state is not ConfigEntryState.LOADED:
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    bt = await wait_for_startup(hass, entry)
+    assert _configured_trvs(entry) == [RENAMED_TRV]
+    assert _stored_kp(bt, RENAMED_TRV) == LEARNED_KP
+
+
+@pytest.mark.parametrize("held_step", ["async_load", "async_save"])
+async def test_a_setup_that_starts_during_a_stored_move_loads_the_moved_state(
+    hass, monkeypatch, held_step
+):
+    """A setup reads the stored state only once a rename has moved it."""
+    entry, bt = await _started_pid_trv(hass)
+    _learn_kp(bt, PID_TRV.entity_id)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    store_step = getattr(Store, held_step)
+    step_started = asyncio.Event()
+    step_released = asyncio.Event()
+    held = False
+
+    async def step_holding_the_first(store, *args):
+        nonlocal held
+        if not held and entry.entry_id in store.key:
+            held = True
+            step_started.set()
+            await step_released.wait()
+        return await store_step(store, *args)
+
+    monkeypatch.setattr(Store, held_step, step_holding_the_first)
+
+    er.async_get(hass).async_update_entity(PID_TRV.entity_id, new_entity_id=RENAMED_TRV)
+    await asyncio.wait_for(step_started.wait(), timeout=5)
+    setup = hass.async_create_task(hass.config_entries.async_setup(entry.entry_id))
+    await _yield_to_the_loop()
+    step_released.set()
+    assert await setup
+    await hass.async_block_till_done()
+
+    bt = await wait_for_startup(hass, entry)
+    assert _configured_trvs(entry) == [RENAMED_TRV]
+    assert _stored_kp(bt, RENAMED_TRV) == LEARNED_KP
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    stored = StateManager(hass, entry.entry_id)
+    await stored.load()
+    stored.close()
+    assert {key.split(":")[1] for key in stored.state.pid} == {RENAMED_TRV}
+
+
+async def test_a_rename_while_a_setup_reads_the_stored_state_is_applied_to_it(
+    hass, monkeypatch
+):
+    """A thermostat set up under the old id keeps the state moved to the new id."""
+    entry, bt = await _started_pid_trv(hass)
+    _learn_kp(bt, PID_TRV.entity_id)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    store_load = Store.async_load
+    load_started = asyncio.Event()
+    load_released = asyncio.Event()
+    held = False
+
+    async def load_holding_the_first(store):
+        nonlocal held
+        if not held and entry.entry_id in store.key:
+            held = True
+            load_started.set()
+            await load_released.wait()
+        return await store_load(store)
+
+    monkeypatch.setattr(Store, "async_load", load_holding_the_first)
+    setup = hass.async_create_task(hass.config_entries.async_setup(entry.entry_id))
+    await asyncio.wait_for(load_started.wait(), timeout=5)
+
+    er.async_get(hass).async_update_entity(PID_TRV.entity_id, new_entity_id=RENAMED_TRV)
+    await _yield_to_the_loop()
+    load_released.set()
+    assert await setup
+    await hass.async_block_till_done()
+    # The entry took the new settings while it was being set up, so it runs
+    # under the old id until it reloads.
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    bt = await wait_for_startup(hass, entry)
+    assert list(bt.real_trvs) == [RENAMED_TRV]
+    assert _stored_kp(bt, RENAMED_TRV) == LEARNED_KP
+
+
+async def test_an_entry_is_rewritten_while_another_waits_for_its_final_save(
+    hass, monkeypatch
+):
+    """Waiting to move one entry's stored state holds up no other entry."""
+    entry, bt = await _started_pid_trv(hass)
+    other = make_entry(PID_TRV, name="Kitchen")
+    other.add_to_hass(hass)
+    assert bt.state_mgr is not None
+    store = bt.state_mgr._store
+    final_save = store.async_save
+    final_save_started = asyncio.Event()
+    final_save_released = asyncio.Event()
+
+    async def held_final_save(data):
+        final_save_started.set()
+        await final_save_released.wait()
+        await final_save(data)
+
+    monkeypatch.setattr(store, "async_save", held_final_save)
+    unload = hass.async_create_task(hass.config_entries.async_unload(entry.entry_id))
+    await asyncio.wait_for(final_save_started.wait(), timeout=5)
+
+    er.async_get(hass).async_update_entity(PID_TRV.entity_id, new_entity_id=RENAMED_TRV)
+    await _yield_to_the_loop()
+
+    assert _configured_trvs(other) == [RENAMED_TRV]
+    final_save_released.set()
+    assert await unload
+    await hass.async_block_till_done()

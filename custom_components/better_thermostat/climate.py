@@ -233,6 +233,7 @@ from .utils.hvac_action import (
 )
 from .utils.migrate_v0_stores import migrate_v0_stores
 from .utils.preset_manager import PresetManager
+from .utils.renamed_entities import apply_recorded_moves, stored_state_lock
 from .utils.restore import (
     clamp_heat_loss,
     clamp_heating_power,
@@ -1480,24 +1481,37 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             "better_thermostat %s: Waiting for entity to be ready...", self.device_name
         )
 
-        # Unified state persistence
-        try:
-            self.state_mgr = StateManager(self.hass, self._config_entry_id)
-            await self.state_mgr.load()
-            await migrate_v0_stores(
-                self.hass,
-                self.state_mgr,
-                entity_prefix=f"{self._unique_id}:",
-                config_entry_id=self._config_entry_id,
-            )
-            self.state_mgr.forget_thermostats_except(self.entity_ids)
-            self._hydrate_thermal_from_state()
-        except (FileNotFoundError, PermissionError, RuntimeError) as e:
-            _LOGGER.debug(
-                "better_thermostat %s: state storage init/load failed: %s",
-                self.device_name,
-                e,
-            )
+        # Unified state persistence. The stored state is read under the
+        # entry's lock, and the manager becomes the entity's only once the
+        # renames recorded meanwhile are applied: a rename either finds the
+        # state in memory here or leaves the move for this load.
+        state_mgr = StateManager(self.hass, self._config_entry_id)
+        async with stored_state_lock(self.hass, self._config_entry_id):
+            try:
+                await state_mgr.load()
+                await migrate_v0_stores(
+                    self.hass,
+                    state_mgr,
+                    entity_prefix=f"{self._unique_id}:",
+                    config_entry_id=self._config_entry_id,
+                )
+            except (FileNotFoundError, PermissionError, RuntimeError) as e:
+                _LOGGER.debug(
+                    "better_thermostat %s: state storage init/load failed: %s",
+                    self.device_name,
+                    e,
+                )
+            if self.is_removed:
+                # No final save follows; the recorded moves are left for the
+                # next load.
+                state_mgr.close()
+            else:
+                moved_to = apply_recorded_moves(
+                    self.hass, self._config_entry_id, state_mgr
+                )
+                state_mgr.forget_thermostats_except([*self.entity_ids, *moved_to])
+                self.state_mgr = state_mgr
+        self._hydrate_thermal_from_state()
 
         @callback
         def _async_startup(*_: object) -> None:
@@ -5410,10 +5424,23 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # unload, and a write landing later would recreate them. The wait
         # has no timeout of its own: Home Assistant cancels the background
         # task when it starts to stop, which ends the wait.
+        await self.wait_for_final_save()
+        await super().async_will_remove_from_hass()
+
+    @property
+    def state_in_memory(self) -> StateManager | None:
+        """Return the state manager that still saves this entity's state.
+
+        ``None`` before the stored state is loaded and once the entity is
+        removed, when its final save is under way or done.
+        """
+        return None if self.is_removed else self.state_mgr
+
+    async def wait_for_final_save(self) -> None:
+        """Wait for the save the removal started, if one is under way."""
         final_flush = self._final_flush_task
         if final_flush is not None and not final_flush.done():
             await asyncio.wait({final_flush})
-        await super().async_will_remove_from_hass()
 
 
 if TYPE_CHECKING:

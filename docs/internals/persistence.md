@@ -63,10 +63,14 @@ than to the id:
 - When the user gives a configured thermostat a new entity id, every key
   that names the old id moves to the new one, in each section (PID, MPC,
   MPC v2 and its re-identification results, TPI), before the entry
-  reloads under the new id. A loaded entry moves the state it holds in
-  memory, which its unload then saves; an entry that is not loaded moves
-  the stored state directly. The thermostat's own entities move their
-  registry rows to unique ids built from the new id as well.
+  reloads under the new id. A running thermostat moves the state it holds
+  in memory, which its unload then saves. Otherwise the move is recorded
+  and applied by whichever loads the stored state next under the entry's
+  lock: the rename itself, after the final save of a thermostat being
+  removed, or a thermostat being set up. The setup holds the lock from
+  reading the store until it holds the state in memory, so neither reads a
+  store the other is about to replace. The thermostat's own entities move
+  their registry rows to unique ids built from the new id as well.
 - At load, after the legacy-store import, every key whose segment is
   neither a configured thermostat nor `group` is dropped. State learned
   for a removed thermostat would otherwise come back for whichever device
