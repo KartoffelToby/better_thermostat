@@ -14,6 +14,20 @@ or click on the button below:
 
 ## Configuration
 
+## Renaming an entity Better Thermostat uses
+
+When you give one of the entities a Better Thermostat uses a new entity
+id in Home Assistant, whether a thermostat, the cooling device or one of
+the sensors, Better Thermostat updates its configuration to the new id and
+reloads. A renamed thermostat keeps its advanced options, its own
+entities (the PID numbers, the auto-tune and child lock switches, the
+valve cap) with their entity ids and history, and what the calibration has
+learned for it. Nothing has to be changed in the options.
+
+A thermostat you remove from a Better Thermostat leaves no learned state
+behind. Adding a device under the same entity id later starts it from the
+defaults.
+
 ## First step
 
 ![first step](../assets/setup_1.png)
@@ -129,11 +143,11 @@ Better Thermostat offers several algorithms to control your heating:
 
 **Overheating protection?** Enabled by default. Some TRVs don't close the valve completely when the temperature is reached, or the radiator holds a lot of residual heat. While the thermostat is idle, this option adds a correction that holds the TRV further closed. It only acts in the AI Time Based and Aggressive modes; the other modes ignore it.
 
-**Use the minimum temperature instead of 'off'** With this option, BT sends the TRV its own minimum target temperature instead of switching it off. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that lists no 'off' mode gets the minimum temperature without this option, because BT reads the modes the TRV reports. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch BT on and off.
+**Use the minimum temperature instead of 'off'** With this option, BT sends the TRV its own minimum target temperature instead of switching it off. A TRV turned to its minimum temperature counts as switched off: once every TRV of the room is off, the room switches off, and turning a knob up switches it back on. Only a turn at the TRV switches the room. The minimum BT sends on its own, while the outdoor temperature or the weather forecast says there is no need to heat or while a window is open, does not switch the room off, and a turn at a TRV with the child lock switches nothing and is turned back. A turn while a window or door is open switches the room and sets its target as it would with the window closed, but BT turns the TRV straight back to its minimum; the room heats to the new target once every window and door is closed. A TRV that lists no 'off' mode gets the minimum temperature without this option, because BT reads the modes the TRV reports. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch BT on and off.
 
 **If 'auto' means 'heat' for your TRV and you want to swap it** Some climates in HA use the mode auto for default heating, and a boost when mode is heat. This isn't what we want, so if this is the case for you, check this option.
 
-**If your thermostat has no own maintenance mode, you can use this one** If enabled, BT periodically opens and closes the valve so it does not get stuck, for TRVs that have no maintenance routine of their own. The climate entity shows the next run in its `next_valve_maintenance` attribute.
+**If your thermostat has no own maintenance mode, you can use this one** If enabled, BT periodically opens and closes the valve so it does not get stuck, for TRVs that have no maintenance routine of their own. The climate entity shows the next run in its `next_valve_maintenance` attribute. A run cut short because the thermostat is reloaded, disabled or deleted still puts each TRV back on its previous setpoint and mode and closes a valve it had opened.
 
 **Ignore all inputs on the TRV like a child lock** If this option is enabled, all changes on the real TRV, even over HA, will be ignored or reverted, only input from the BT entity is accepted. BT also creates a *Child Lock* switch per TRV. It toggles this option and, where the TRV has a child lock entity of its own, that one too.
 
