@@ -1,10 +1,17 @@
 """Tests for TaskManager class in utils/controlling.py."""
 
 import asyncio
+import inspect
 
 import pytest
 
 from custom_components.better_thermostat.utils.controlling import TaskManager
+
+
+def _started[T](task: asyncio.Task[T] | None) -> asyncio.Task[T]:
+    """Return the task the manager started, which an open manager always does."""
+    assert task is not None
+    return task
 
 
 class TestTaskManager:
@@ -19,7 +26,7 @@ class TestTaskManager:
             await asyncio.sleep(0.01)
             return "done"
 
-        task = manager.create_task(dummy_coro())
+        task = _started(manager.create_task(dummy_coro()))
 
         assert task in manager.tasks
         assert len(manager.tasks) == 1
@@ -37,7 +44,7 @@ class TestTaskManager:
             await asyncio.sleep(0.01)
             return "done"
 
-        task = manager.create_task(dummy_coro())
+        task = _started(manager.create_task(dummy_coro()))
         assert len(manager.tasks) == 1
 
         await task
@@ -54,7 +61,7 @@ class TestTaskManager:
             await asyncio.sleep(0.01)
             raise ValueError("Test error")
 
-        task = manager.create_task(failing_coro())
+        task = _started(manager.create_task(failing_coro()))
         assert len(manager.tasks) == 1
 
         with pytest.raises(ValueError, match="Test error"):
@@ -73,9 +80,9 @@ class TestTaskManager:
             await asyncio.sleep(delay)
             return value
 
-        task1 = manager.create_task(coro(0.01, "first"))
-        task2 = manager.create_task(coro(0.02, "second"))
-        task3 = manager.create_task(coro(0.03, "third"))
+        task1 = _started(manager.create_task(coro(0.01, "first")))
+        task2 = _started(manager.create_task(coro(0.02, "second")))
+        task3 = _started(manager.create_task(coro(0.03, "third")))
 
         assert len(manager.tasks) == 3
 
@@ -96,7 +103,7 @@ class TestTaskManager:
             await asyncio.sleep(10)
             return "done"
 
-        task = manager.create_task(long_coro())
+        task = _started(manager.create_task(long_coro()))
         assert len(manager.tasks) == 1
 
         task.cancel()
@@ -107,3 +114,40 @@ class TestTaskManager:
         # Task should be removed
         await asyncio.sleep(0.01)
         assert len(manager.tasks) == 0
+
+
+class TestTaskManagerShutdown:
+    """The manager's tasks end with the entity that started them."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_all_cancels_every_pending_task(self):
+        """Every task still running is cancelled and handed back to await."""
+        manager = TaskManager()
+        blocker = asyncio.Event()
+        tasks = [_started(manager.create_task(blocker.wait())) for _ in range(3)]
+
+        cancelled = manager.cancel_all()
+        await asyncio.gather(*cancelled, return_exceptions=True)
+
+        assert set(cancelled) == set(tasks)
+        assert all(task.cancelled() for task in tasks)
+        assert not manager.tasks
+
+    @pytest.mark.asyncio
+    async def test_a_task_asked_for_after_cancel_all_never_runs(self):
+        """Work requested after the shutdown is dropped, not started."""
+        manager = TaskManager()
+        manager.cancel_all()
+        ran = False
+
+        async def work():
+            nonlocal ran
+            ran = True
+
+        coro = work()
+        assert manager.create_task(coro) is None
+        await asyncio.sleep(0)
+
+        assert ran is False
+        assert inspect.getcoroutinestate(coro) == inspect.CORO_CLOSED
+        assert not manager.tasks

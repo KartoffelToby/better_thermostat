@@ -17,41 +17,41 @@ from tests.benchmark.plant import (
 
 
 def test_rc3_plant_initialises_wall_to_room_when_unset():
-    """When PlantState.T_wall_C is None, the plant copies T_room_C onto the wall."""
+    """When PlantState.T_wall is None, the plant copies T_room onto the wall."""
     plant = TwoStatePlant(
-        PROFILE_STANDARD_RC3, PlantState(T_room_C=20.0, T_rad_C=20.0, T_wall_C=None)
+        PROFILE_STANDARD_RC3, PlantState(T_room=20.0, T_rad=20.0, T_wall=None)
     )
-    assert plant.state.T_wall_C == 20.0
+    assert plant.state.T_wall == 20.0
 
 
 def test_rc3_plant_warms_with_full_valve():
     """A full-valve RC3 plant heats both radiator and room over 60 min."""
-    plant = TwoStatePlant(PROFILE_STANDARD_RC3, PlantState(T_room_C=18.0, T_rad_C=18.0))
+    plant = TwoStatePlant(PROFILE_STANDARD_RC3, PlantState(T_room=18.0, T_rad=18.0))
     for _ in range(120):  # 60 min at 30s steps
         plant.step(30.0, 1.0, 5.0)
-    assert plant.state.T_room_C > 18.5
-    assert plant.state.T_rad_C > plant.state.T_room_C
+    assert plant.state.T_room > 18.5
+    assert plant.state.T_rad > plant.state.T_room
 
 
 def test_rc3_wall_lags_room_during_heating():
     """During heating, the wall warms much more slowly than the room.
 
     Sanity for the RC3 splitting: the wall is between room and outdoor,
-    and starts at room temp here. Because the wall→outdoor gradient is
+    and starts at room temperature here. Because the wall→outdoor gradient is
     initially much bigger than the room→wall gradient, the wall actually
     drifts toward outdoor while the room warms. The key sanity check is
     that the room is always warmer than the wall (otherwise the room→wall
     heat flow has the wrong sign for our physical model).
     """
-    plant = TwoStatePlant(PROFILE_STANDARD_RC3, PlantState(T_room_C=18.0, T_rad_C=18.0))
+    plant = TwoStatePlant(PROFILE_STANDARD_RC3, PlantState(T_room=18.0, T_rad=18.0))
     for _ in range(40):  # 20 min at 30s
         plant.step(30.0, 1.0, 5.0)
-    assert plant.state.T_room_C is not None
-    assert plant.state.T_wall_C is not None
+    assert plant.state.T_room is not None
+    assert plant.state.T_wall is not None
     # Room is heating fast, wall lags far behind.
-    assert plant.state.T_room_C > plant.state.T_wall_C
+    assert plant.state.T_room > plant.state.T_wall
     # Room has warmed measurably.
-    assert plant.state.T_room_C > 19.0
+    assert plant.state.T_room > 19.0
 
 
 def test_rc3_room_cools_slower_than_rc2_with_same_lumped_tau():
@@ -67,22 +67,20 @@ def test_rc3_room_cools_slower_than_rc2_with_same_lumped_tau():
         tau_rad_min=15.0,
         gain_heater=2.0,
         coupling_rad_room=1.0,
-        T_water_C=65.0,
+        T_water=65.0,
     )
     rc3 = PlantParams(
         tau_room_min=60.0,
         tau_rad_min=15.0,
         gain_heater=2.0,
         coupling_rad_room=1.0,
-        T_water_C=65.0,
+        T_water=65.0,
         tau_wall_min=900.0,
         r_room_wall=1.0,
     )
 
-    plant_rc2 = TwoStatePlant(rc2, PlantState(T_room_C=22.0, T_rad_C=35.0))
-    plant_rc3 = TwoStatePlant(
-        rc3, PlantState(T_room_C=22.0, T_rad_C=35.0, T_wall_C=22.0)
-    )
+    plant_rc2 = TwoStatePlant(rc2, PlantState(T_room=22.0, T_rad=35.0))
+    plant_rc3 = TwoStatePlant(rc3, PlantState(T_room=22.0, T_rad=35.0, T_wall=22.0))
 
     # Pre-warm wall in RC3 so it really acts like a battery — heat for 4 h
     # against a steady setpoint by injecting some heater command.
@@ -97,7 +95,7 @@ def test_rc3_room_cools_slower_than_rc2_with_same_lumped_tau():
         plant_rc3.step(30.0, 0.0, 5.0)
 
     # RC3 should retain more heat thanks to the wall capacitance.
-    assert plant_rc3.state.T_room_C > plant_rc2.state.T_room_C
+    assert plant_rc3.state.T_room > plant_rc2.state.T_room
 
 
 def test_rc2_path_unchanged_when_tau_wall_zero():
@@ -108,25 +106,25 @@ def test_rc2_path_unchanged_when_tau_wall_zero():
     """
     reference = TwoStatePlant(
         PROFILE_STANDARD,  # RC2 default (tau_wall_min == 0)
-        PlantState(T_room_C=20.0, T_rad_C=20.0),
+        PlantState(T_room=20.0, T_rad=20.0),
     )
     tau_zero = TwoStatePlant(
         replace(PROFILE_STANDARD, tau_wall_min=0.0, r_room_wall=3.7),
-        PlantState(T_room_C=20.0, T_rad_C=20.0),
+        PlantState(T_room=20.0, T_rad=20.0),
     )
     for _ in range(60):
         reference.step(30.0, 0.5, 5.0)
         tau_zero.step(30.0, 0.5, 5.0)
-        assert tau_zero.state.T_room_C == reference.state.T_room_C
-        assert tau_zero.state.T_rad_C == reference.state.T_rad_C
+        assert tau_zero.state.T_room == reference.state.T_room
+        assert tau_zero.state.T_rad == reference.state.T_rad
     # Sanity check that RC2 still warms.
-    assert 20.0 < reference.state.T_room_C < 35.0
+    assert 20.0 < reference.state.T_room < 35.0
 
 
 # ---------- EQUAL_PERCENTAGE actuator ----------
 
 
-def test_equal_percentage_low_pct_gives_small_flow():
+def test_equal_percentage_low_percent_gives_small_flow():
     """At 10% command, equal-percentage flow is much less than linear."""
     actuator = Actuator(
         ActuatorParams(
@@ -138,7 +136,7 @@ def test_equal_percentage_low_pct_gives_small_flow():
     assert flow < 0.05
 
 
-def test_equal_percentage_high_pct_approaches_full_flow():
+def test_equal_percentage_high_percent_approaches_full_flow():
     """At 90% command, equal-percentage gives roughly 0.7 flow."""
     actuator = Actuator(
         ActuatorParams(

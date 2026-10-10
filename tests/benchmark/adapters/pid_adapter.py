@@ -4,16 +4,15 @@ PID's signature differs from the others (positional args, no Input dataclass).
 This adapter normalises it to the common protocol shape.
 
 Deliberate simplifications relative to the production call site: the raw
-sensor reading is passed as ``inp_current_temp_ema_C`` (production feeds
-its maintained EMA ``cur_temp_filtered``), and the temperature slope is a
-two-point finite difference (production passes its own ``temp_slope``).
+sensor reading is passed as ``inp_room_temperature_filtered`` (production feeds
+its maintained EMA ``room_temperature_filtered``), and the temperature slope is a
+two-point finite difference (production passes its own ``temperature_slope``).
 Both stand-ins converge on the production values for the noise-free,
 fixed-step scenarios the benchmark runs.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from itertools import count
 from typing import Any
 
@@ -24,8 +23,8 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     compute_pid,
 )
 from custom_components.better_thermostat.utils.state_manager import (
-    _make_json_safe,
     deserialize_pid,
+    write_pid_state,
 )
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
@@ -47,7 +46,7 @@ class PidAdapter:
         self._key = key if key is not None else f"bench:trv:pid{next(_KEY_COUNTER)}"
         self._sim_time_s: float = 0.0
         self._original_monotonic = pid_mod.monotonic
-        self._prev_temp: float | None = None
+        self._previous_temperature: float | None = None
         self._prev_t: float | None = None
 
     def _virtualise_time(self) -> None:
@@ -67,19 +66,19 @@ class PidAdapter:
         """
         self._state = deserialize_pid(prior) if prior else PIDState()
         self._sim_time_s = 0.0
-        self._prev_temp = None
+        self._previous_temperature = None
         self._prev_t = None
 
     def _estimate_slope(self, ctx: BenchmarkContext) -> float | None:
-        if self._prev_temp is None or self._prev_t is None:
-            self._prev_temp = ctx.current_temp_C
+        if self._previous_temperature is None or self._prev_t is None:
+            self._previous_temperature = ctx.room_temperature
             self._prev_t = ctx.t
             return None
         dt_min = (ctx.t - self._prev_t) / 60.0
         slope: float | None = None
         if dt_min > 0.0:
-            slope = (ctx.current_temp_C - self._prev_temp) / dt_min
-        self._prev_temp = ctx.current_temp_C
+            slope = (ctx.room_temperature - self._previous_temperature) / dt_min
+        self._previous_temperature = ctx.room_temperature
         self._prev_t = ctx.t
         return slope
 
@@ -91,12 +90,12 @@ class PidAdapter:
         try:
             percent, debug, self._state = compute_pid(
                 params=self._params,
-                inp_target_temp_C=ctx.target_temp_C,
-                inp_current_temp_C=ctx.current_temp_C,
-                inp_trv_temp_C=ctx.trv_temp_C,
-                inp_temp_slope_K_per_min=slope,
+                inp_target_temperature=ctx.target_temperature,
+                inp_room_temperature=ctx.room_temperature,
+                inp_trv_temperature=ctx.trv_temperature,
+                inp_temperature_slope_K_per_min=slope,
                 key=self._key,
-                inp_current_temp_ema_C=ctx.current_temp_C,
+                inp_room_temperature_filtered=ctx.room_temperature,
                 state=self._state,
             )
         finally:
@@ -108,4 +107,4 @@ class PidAdapter:
 
     def export_state(self) -> dict[str, Any]:
         """Return a serializable snapshot of the wrapped PID state."""
-        return _make_json_safe(asdict(self._state))
+        return dict(write_pid_state(self._state))

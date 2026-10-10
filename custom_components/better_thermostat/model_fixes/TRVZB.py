@@ -7,19 +7,44 @@ percentages and mirroring external temperature into the TRV when supported.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 import logging
 
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
+from homeassistant.core import State
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util.unit_conversion import TemperatureConverter
+
+from custom_components.better_thermostat.model_fixes.types import (
+    ExternalTemperatureQuirk,
+    MaintenanceIntervalQuirk,
+    ModelFixHost,
+    ModelFixTrv,
+    ModelQuirks,
+    ValveChannelQuirk,
+    ValveQuirk,
+)
+from custom_components.better_thermostat.utils.helpers import is_sibling_entry
 
 _LOGGER = logging.getLogger(__name__)
 
 VALVE_MAINTENANCE_INTERVAL_HOURS = 84
 
+# The Sonoff TRV Gen2 reports model_id "TRV-ZBT", which neither Sonoff match
+# below takes in. It shares the external temperature input and the sensor
+# selector with the TRVZB, but not the valve numbers.
+_TRV_ZBT_MODEL = "trv-zbt"
+
 # Some users report that the TRVZB motor can occasionally lose its calibration and
 # fail to fully close the valve when commanded to very small openings.
 #
-# Workaround: when requesting a further close (target_pct < last_pct), briefly
+# Workaround: when requesting a further close (target_percent < last_percent), briefly
 # command the valve to open a bit more and then to the requested target. A
 # close that arrives while that delayed write is still due is written straight
 # away instead of bumping again, so the requested position always reaches the
@@ -28,7 +53,7 @@ _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT = 10
 _TRVZB_CLOSE_BUMP_DELAY_S = 5.0
 
 
-def _cancel_pending_valve_bump(trv_state) -> bool:
+def _cancel_pending_valve_bump(trv_state: ModelFixTrv) -> bool:
     """Cancel a scheduled valve write and report whether one was still due.
 
     A task that has already run is not a pending write; it is only the
@@ -36,7 +61,7 @@ def _cancel_pending_valve_bump(trv_state) -> bool:
 
     Parameters
     ----------
-    trv_state :
+    trv_state : ModelFixTrv
         Domain object of the TRV whose pending write is to be dropped.
 
     Returns
@@ -57,23 +82,29 @@ def _cancel_pending_valve_bump(trv_state) -> bool:
     return True
 
 
-def fix_local_calibration(self, entity_id, offset):
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Return unchanged local calibration for TRVZB by default."""
-    return offset
+    return calibration_offset
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """Return unchanged setpoint temperature for TRVZB by default."""
     return temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
     """No special HVAC mode handling for TRVZB; the generic adapter performs the write.
 
     Parameters
     ----------
-    self :
-            self instance of better_thermostat
+    self : ModelFixHost
+            Better Thermostat host providing device state and HA access
     entity_id : str
             entity_id of the TRV
     hvac_mode : str
@@ -88,13 +119,15 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
     return False
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """No special setpoint handling for TRVZB; the generic adapter performs the write.
 
     Parameters
     ----------
-    self :
-            self instance of better_thermostat
+    self : ModelFixHost
+            Better Thermostat host providing device state and HA access
     entity_id : str
             entity_id of the TRV
     temperature : float
@@ -110,108 +143,160 @@ async def override_set_temperature(self, entity_id, temperature):
     return False
 
 
-async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
-    """Try to set Sonoff TRVZB valve percent via a number entity on the same device.
+# Translation keys Sonoff TRVZB valve entities carry. They are stable,
+# language-independent identifiers set by the integration.
+_TK_OPENING = frozenset(
+    {
+        "valve_opening_degree",
+        "valve_position",
+        "pi_heating_demand",
+        "heating_demand",
+        "valve",
+    }
+)
+_TK_CLOSING = frozenset({"valve_closing_degree"})
 
-    Scans the device of the given climate entity for a `number.*` entity that
-    represents valve opening/position and writes the provided percentage.
-    Prefers explicit Sonoff entities:
-      - number.*.valve_opening_degree = percent
-      - number.*.valve_closing_degree = 100 - percent
-    Returns True if at least one write succeeds, False otherwise.
+
+def _valve_number_candidates(
+    self: ModelFixHost, entity_id: str
+) -> tuple[list[str], list[str], list[str]] | None:
+    """Collect the enabled valve number entities on the TRV's device.
+
+    Returns the opening, closing and generic candidates, in registry order,
+    or ``None`` when the TRV is no Sonoff model or has no registry entry.
     """
-    try:
-        model = str(self.real_trvs[entity_id].model or "")
-        # Only attempt for Sonoff TRVZB
-        if not (
-            "sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"
-        ):
-            _LOGGER.debug(
-                "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent skipped (model=%s)",
-                self.device_name,
-                model,
-            )
-            return False
-        entity_registry = er.async_get(self.hass)
-        reg_entity = entity_registry.async_get(entity_id)
-        if reg_entity is None:
-            _LOGGER.debug(
-                "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent: no registry entity for %s",
-                self.device_name,
-                entity_id,
-            )
-            return False
-        device_id = reg_entity.device_id
-        opening_candidates = []
-        closing_candidates = []
-        generic_candidates = []
+    model = self.real_trvs[entity_id].model or ""
+    # The TRV-ZBT's valve numbers configure its own controller and position
+    # nothing, so it is ruled out before the Sonoff match below takes it in.
+    if _TRV_ZBT_MODEL in model.lower():
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB valve lookup skipped for the TRV-ZBT (model=%s)",
+            self.device_name,
+            model,
+        )
+        return None
+    # Only attempt for Sonoff TRVZB
+    if not ("sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"):
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB valve lookup skipped (model=%s)",
+            self.device_name,
+            model,
+        )
+        return None
+    entity_registry = er.async_get(self.hass)
+    reg_entity = entity_registry.async_get(entity_id)
+    if reg_entity is None:
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB valve lookup: no registry entity for %s",
+            self.device_name,
+            entity_id,
+        )
+        return None
+    device_id = reg_entity.device_id
+    opening_candidates: list[str] = []
+    closing_candidates: list[str] = []
+    generic_candidates: list[str] = []
 
-        # Known translation_key values for Sonoff TRVZB valve entities.
-        # These are stable, language-independent identifiers set by the integration.
-        _TK_OPENING = {
-            "valve_opening_degree",
-            "valve_position",
-            "pi_heating_demand",
-            "heating_demand",
-            "valve",
-        }
-        _TK_CLOSING = {"valve_closing_degree"}
-
-        for ent in entity_registry.entities.values():
-            if ent.device_id != device_id or ent.domain != "number":
-                continue
-            # Prefer translation_key (stable, language-independent)
-            tk = getattr(ent, "translation_key", None)
-            if tk:
-                if tk in _TK_CLOSING:
-                    closing_candidates.append(ent.entity_id)
-                    continue
-                if tk in _TK_OPENING:
-                    opening_candidates.append(ent.entity_id)
-                    continue
-            # Fallback: string matching on entity_id / unique_id / original_name
-            en = (ent.entity_id or "").lower()
-            uid = (ent.unique_id or "").lower()
-            name = (getattr(ent, "original_name", None) or "").lower()
-            if (
-                "valve_opening_degree" in en
-                or "valve_opening_degree" in uid
-                or "valve opening degree" in name
-            ):
-                opening_candidates.append(ent.entity_id)
-                continue
-            if (
-                "valve_closing_degree" in en
-                or "valve_closing_degree" in uid
-                or "valve closing degree" in name
-            ):
+    for ent in entity_registry.entities.values():
+        if not is_sibling_entry(ent, device_id) or ent.domain != "number":
+            continue
+        # Prefer translation_key (stable, language-independent)
+        tk = ent.translation_key
+        if tk:
+            if tk in _TK_CLOSING:
                 closing_candidates.append(ent.entity_id)
                 continue
-            # Generic fallbacks
-            if (
-                "valve" in en
-                or "position" in en
-                or "opening" in en
-                or "degree" in en
-                or "valve" in uid
-                or "position" in uid
-                or "opening" in uid
-                or "degree" in uid
-                or "valve" in name
-                or "position" in name
-                or "opening" in name
-                or "degree" in name
-            ):
-                generic_candidates.append(ent.entity_id)
+            if tk in _TK_OPENING:
+                opening_candidates.append(ent.entity_id)
+                continue
+        # Fallback: string matching on entity_id / unique_id / original_name
+        en = (ent.entity_id or "").lower()
+        uid = (ent.unique_id or "").lower()
+        name = (ent.original_name or "").lower()
+        if (
+            "valve_opening_degree" in en
+            or "valve_opening_degree" in uid
+            or "valve opening degree" in name
+        ):
+            opening_candidates.append(ent.entity_id)
+            continue
+        if (
+            "valve_closing_degree" in en
+            or "valve_closing_degree" in uid
+            or "valve closing degree" in name
+        ):
+            closing_candidates.append(ent.entity_id)
+            continue
+        # Generic fallbacks
+        if (
+            "valve" in en
+            or "position" in en
+            or "opening" in en
+            or "degree" in en
+            or "valve" in uid
+            or "position" in uid
+            or "opening" in uid
+            or "degree" in uid
+            or "valve" in name
+            or "position" in name
+            or "opening" in name
+            or "degree" in name
+        ):
+            generic_candidates.append(ent.entity_id)
+    return opening_candidates, closing_candidates, generic_candidates
 
-        pct = max(0, min(100, int(percent)))
+
+def has_valve_channel(self: ModelFixHost, entity_id: str) -> bool:
+    """Whether the TRV's device carries an enabled number to write the valve to.
+
+    Without one, ``override_set_valve`` declines every position, and that
+    lasts until the user enables or adds such an entity, so the valve is
+    not pursued through this quirk meanwhile.
+    """
+    candidates = _valve_number_candidates(self, entity_id)
+    return candidates is not None and any(candidates)
+
+
+async def maybe_set_sonoff_valve_percent(
+    self: ModelFixHost, entity_id: str, percent: int
+) -> bool:
+    """Try to set Sonoff TRVZB valve percent via a number entity on the same device.
+
+    Scans the device of the given climate entity for a ``number.*`` entity
+    that represents valve opening/position and writes the provided
+    percentage. Prefers explicit Sonoff entities:
+      - ``number.*.valve_opening_degree`` = percent
+      - ``number.*.valve_closing_degree`` = 100 - percent
+
+    Parameters
+    ----------
+    self : ModelFixHost
+            Better Thermostat host providing device state and HA access
+    entity_id : str
+            entity_id of the TRV
+    percent : int
+            the valve position to request, in percent
+
+    Returns
+    -------
+    bool
+            True when the requested position went out, False when no
+            number entity matched or the device refused one of the writes
+    """
+    try:
+        candidates = _valve_number_candidates(self, entity_id)
+        if candidates is None:
+            return False
+        opening_candidates, closing_candidates, generic_candidates = candidates
+
+        clamped_percent = max(0, min(100, percent))
         _LOGGER.debug(
             "better_thermostat %s: TRVZB valve write candidates (open=%s, close=%s, generic=%s) target=%s%% for %s",
             self.device_name,
             opening_candidates,
             closing_candidates,
             generic_candidates,
-            pct,
+            clamped_percent,
             entity_id,
         )
         wrote = False
@@ -222,23 +307,23 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
             await self.hass.services.async_call(
                 "number",
                 "set_value",
-                {"entity_id": target_open, "value": pct},
+                {"entity_id": target_open, "value": clamped_percent},
                 blocking=True,
                 context=self.context,
             )
             _LOGGER.debug(
                 "better_thermostat %s: set TRVZB valve_opening_degree=%s on %s (for %s)",
                 self.device_name,
-                pct,
+                clamped_percent,
                 target_open,
                 entity_id,
             )
             wrote = True
 
-        # If we have explicit closing, set complement 100 - pct
+        # If we have explicit closing, set complement 100 - clamped_percent
         if closing_candidates:
             target_close = closing_candidates[0]
-            comp = 100 - pct
+            comp = 100 - clamped_percent
             await self.hass.services.async_call(
                 "number",
                 "set_value",
@@ -265,14 +350,14 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
             await self.hass.services.async_call(
                 "number",
                 "set_value",
-                {"entity_id": target, "value": pct},
+                {"entity_id": target, "value": clamped_percent},
                 blocking=True,
                 context=self.context,
             )
             _LOGGER.debug(
                 "better_thermostat %s: set TRVZB generic valve percent %s%% on %s (for %s)",
                 self.device_name,
-                pct,
+                clamped_percent,
                 target,
                 entity_id,
             )
@@ -282,95 +367,129 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
             _LOGGER.debug(
                 "better_thermostat %s: TRVZB valve percent write had no matching number entity (target=%s%%, %s)",
                 self.device_name,
-                pct,
+                clamped_percent,
                 entity_id,
             )
         return wrote
-    except (TypeError, ValueError, KeyError, AttributeError) as ex:
-        _LOGGER.debug(
-            "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent exception: %s",
+    except (
+        HomeAssistantError,
+        OSError,
+        TypeError,
+        ValueError,
+        KeyError,
+        AttributeError,
+    ) as ex:
+        # The device did not take the position: it is asleep, out of reach,
+        # its integration is reloading, or the number entity declares a
+        # narrower range than the clamp above. Reporting the refused write as
+        # a declined one keeps the caller from recording a position the valve
+        # never reached, and lets it fall back to its own valve channel.
+        _LOGGER.warning(
+            "better_thermostat %s: TRVZB valve write for %s failed: %s",
             self.device_name,
+            entity_id,
             ex,
         )
         return False
 
 
-async def override_set_valve(self, entity_id, percent: int):
+async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -> bool:
     """Override valve setting for TRVZB via number.* entity.
 
     Returns True if handled (write attempted), False to let adapter fallback run.
     """
     try:
-        target_pct = max(0, min(100, int(percent)))
+        target_percent = max(0, min(100, percent))
 
         trv_state = self.real_trvs.get(entity_id)
         if trv_state is None:
             return False
 
-        # During valve maintenance we don't want to add additional delayed steps.
-        if getattr(self, "in_maintenance", False):
-            ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
-            return bool(ok)
+        # During valve maintenance we don't want to add additional delayed steps,
+        # and a delayed step still pending from before would overwrite the
+        # position maintenance drives the valve to.
+        if self.in_maintenance:
+            _cancel_pending_valve_bump(trv_state)
+            trv_state.extra["_trvzb_valve_bump_seq"] = (
+                trv_state.extra.get("_trvzb_valve_bump_seq", 0) + 1
+            )
+            ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_percent)
+            return ok
 
         # Cancel any previous pending delayed "bump then set".
         bump_pending = _cancel_pending_valve_bump(trv_state)
 
-        last_pct_raw = trv_state.last_valve_percent
-        try:
-            last_pct = None if last_pct_raw is None else int(last_pct_raw)
-        except TypeError, ValueError:
-            last_pct = None
+        # The delegate records the position only once it is a finite int.
+        last_percent_raw = trv_state.last_valve_percent
+        last_percent = None if last_percent_raw is None else int(last_percent_raw)
 
         # If we don't know the last commanded percent, just set directly.
-        if last_pct is None:
-            ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
-            return bool(ok)
+        if last_percent is None:
+            ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_percent)
+            return ok
 
         # Only apply workaround when closing further, and only when the motor
         # was not already driven open by a bump whose write is still due.
-        if target_pct < last_pct and not bump_pending:
-            bump_pct = min(100, int(last_pct) + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT)
+        if target_percent < last_percent and not bump_pending:
+            bump_percent = min(100, last_percent + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT)
 
             # If we can't "bump open", fall back to direct set.
-            ok_bump = await maybe_set_sonoff_valve_percent(self, entity_id, bump_pct)
+            ok_bump = await maybe_set_sonoff_valve_percent(
+                self, entity_id, bump_percent
+            )
             if not ok_bump:
-                ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
-                return bool(ok)
+                ok = await maybe_set_sonoff_valve_percent(
+                    self, entity_id, target_percent
+                )
+                return ok
 
-            seq = int(trv_state.extra.get("_trvzb_valve_bump_seq", 0)) + 1
+            seq = trv_state.extra.get("_trvzb_valve_bump_seq", 0) + 1
             trv_state.extra["_trvzb_valve_bump_seq"] = seq
 
-            async def _delayed_set():
+            async def _delayed_set() -> None:
                 try:
                     await asyncio.sleep(float(_TRVZB_CLOSE_BUMP_DELAY_S))
+                    if self.is_removed:
+                        return
                     cur_state = self.real_trvs.get(entity_id)
                     if cur_state is None or (
-                        int(cur_state.extra.get("_trvzb_valve_bump_seq", 0)) != seq
+                        cur_state.extra.get("_trvzb_valve_bump_seq", 0) != seq
                     ):
                         return
-                    await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
+                    await maybe_set_sonoff_valve_percent(
+                        self, entity_id, target_percent
+                    )
                 except asyncio.CancelledError:
                     return
                 except (RuntimeError, ValueError, KeyError) as ex:
                     _LOGGER.debug(
                         "better_thermostat %s: TRVZB delayed valve set exception: %s",
-                        getattr(self, "device_name", "unknown"),
+                        self.device_name,
                         ex,
                     )
 
-            trv_state.extra["_trvzb_valve_bump_task"] = (
-                self.hass.async_create_background_task(
-                    _delayed_set(), name=f"bt_trvzb_valve_bump_{entity_id}"
-                )
+            # The thermostat owns the deferred write, so unloading or removing
+            # it cancels the write along with the rest of its work.
+            bump_task = self.task_manager.create_task(
+                _delayed_set(), name=f"bt_trvzb_valve_bump_{entity_id}"
             )
+            if bump_task is None:
+                # The thermostat is being removed and starts no deferred
+                # work. The bump has opened the valve already, so the target
+                # goes out now rather than leaving it open.
+                ok = await maybe_set_sonoff_valve_percent(
+                    self, entity_id, target_percent
+                )
+                return ok
+            trv_state.extra["_trvzb_valve_bump_task"] = bump_task
             return True
 
         # Opening, unchanged, or a close following a bump that has not run yet:
         # write the requested position. Bumping again would drive the valve
         # further open on every closing step while the target the cancelled
         # write was carrying never reaches the device.
-        ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
-        return bool(ok)
+        ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_percent)
+        return ok
     except TypeError, ValueError, KeyError, AttributeError:
         return False
 
@@ -383,10 +502,17 @@ _TK_EXTERNAL_TEMP = frozenset({"external_temperature_input", "external_temperatu
 # the TRVZB regulates on.
 _TK_SENSOR_SELECT = frozenset({"temperature_sensor_select", "temperature_sensor"})
 
-# The option that hands regulation to the value BT writes. Devices offer more
-# than one option naming an external sensor, so the ones already on such an
-# option are left as their owner set them.
-_EXTERNAL_SENSOR_OPTION = "external"
+# The option that hands regulation to the value BT writes, under each name
+# Zigbee2MQTT has given it: ``external`` up to 2.14.1, ``remote_temperature``
+# from 2.14.2 on.
+_EXTERNAL_SENSOR_OPTIONS = ("external", "remote_temperature")
+
+# Selections that already regulate on a remote value. Devices offer more than
+# one option naming an external sensor, so a device on any of them is left as
+# its owner set it. ``remote_source_offline`` is the device reporting that it
+# fell back to its own sensor while the remote one is gone; it switches back
+# by itself once the remote value returns.
+_ON_A_REMOTE_SENSOR = ("external", "remote_")
 
 
 def _find_device_entity(
@@ -409,7 +535,7 @@ def _find_device_entity(
     device_id : str | None
         The device the sibling has to belong to. ``None`` is no device and
         matches nothing: every entity that belongs to no device would
-        otherwise be a candidate.
+        otherwise be a candidate. A disabled entry is no sibling either.
     domain : str
         The entity domain to search, ``number`` or ``select`` here.
     translation_keys : frozenset[str]
@@ -421,37 +547,36 @@ def _find_device_entity(
     Returns
     -------
     str | None
-        The entity id of the translation key match, the first id fragment
-        match when no entry carries one of the keys, or ``None`` when the
-        device has no such entity.
+        The entity id of the sibling whose translation key names it, the
+        first id fragment match when no sibling carries one of the keys, or
+        ``None`` when the device has no such entity.
     """
-    if device_id is None:
-        return None
     siblings = [
         ent
         for ent in entity_registry.entities.values()
-        if ent.device_id == device_id and ent.domain == domain
+        if is_sibling_entry(ent, device_id) and ent.domain == domain
     ]
     for ent in siblings:
-        if getattr(ent, "translation_key", None) in translation_keys:
+        if ent.translation_key in translation_keys:
             return ent.entity_id
-    # Only now, and only for entries that name themselves nothing: the
-    # registry hands its entities out in insertion order, so a fragment match
-    # tried per entry would beat the canonical key of an entry behind it.
+    # The registry hands its entities out in insertion order, so a fragment
+    # match tried per entry beats the canonical key of an entry behind it.
+    # The fallback therefore runs as a second pass, and only over the entries
+    # that name themselves nothing.
     for ent in siblings:
-        if getattr(ent, "translation_key", None) is not None:
+        if ent.translation_key is not None:
             continue
         haystacks = (
             (ent.entity_id or "").lower(),
             (ent.unique_id or "").lower(),
-            (getattr(ent, "original_name", None) or "").lower().replace(" ", "_"),
+            (ent.original_name or "").lower().replace(" ", "_"),
         )
         if any(id_fragment in haystack for haystack in haystacks):
             return ent.entity_id
     return None
 
 
-async def maybe_select_external_sensor(self, entity_id: str) -> bool:
+async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bool:
     """Point the TRV's sensor selector at the value BT writes.
 
     Writing the external temperature input achieves nothing while the device
@@ -464,7 +589,7 @@ async def maybe_select_external_sensor(self, entity_id: str) -> bool:
 
     Parameters
     ----------
-    self :
+    self : ModelFixHost
         The Better Thermostat instance, supplying ``hass`` and the context
         the service call is made under.
     entity_id : str
@@ -499,22 +624,30 @@ async def maybe_select_external_sensor(self, entity_id: str) -> bool:
         # A selector that is not reporting names no option, and the device
         # behind it is in no state to take one either.
         return False
-    if str(state.state).startswith(_EXTERNAL_SENSOR_OPTION):
+    if state.state.startswith(_ON_A_REMOTE_SENSOR):
         return True
     options = state.attributes.get("options")
-    if not isinstance(options, (list, tuple)) or _EXTERNAL_SENSOR_OPTION not in options:
+    option = next(
+        (
+            name
+            for name in _EXTERNAL_SENSOR_OPTIONS
+            if isinstance(options, (list, tuple)) and name in options
+        ),
+        None,
+    )
+    if option is None:
         _LOGGER.debug(
-            "better_thermostat %s: TRVZB selector %s offers no '%s' option (%s)",
+            "better_thermostat %s: TRVZB selector %s offers none of %s (%s)",
             self.device_name,
             target,
-            _EXTERNAL_SENSOR_OPTION,
+            _EXTERNAL_SENSOR_OPTIONS,
             options,
         )
         return False
     await self.hass.services.async_call(
         "select",
         "select_option",
-        {"entity_id": target, "option": _EXTERNAL_SENSOR_OPTION},
+        {"entity_id": target, "option": option},
         blocking=True,
         context=self.context,
     )
@@ -523,23 +656,76 @@ async def maybe_select_external_sensor(self, entity_id: str) -> bool:
         self.device_name,
         target,
         state.state,
-        _EXTERNAL_SENSOR_OPTION,
+        option,
         entity_id,
     )
     return True
 
 
-async def maybe_set_external_temperature(self, entity_id, temperature: float) -> bool:
+# Range of the external temperature input, in degrees Celsius, for an input
+# that publishes no bounds of its own.
+_EXTERNAL_TEMPERATURE_MIN_C = 0.0
+_EXTERNAL_TEMPERATURE_MAX_C = 99.9
+
+
+def _external_input_value(state: State | None, celsius: float) -> float:
+    """Return the value the external temperature input takes for ``celsius``.
+
+    Zigbee2MQTT publishes the input as a ``temperature`` number in Celsius,
+    which Home Assistant converts into the system unit, and checks a written
+    value against the ``min`` and ``max`` it publishes in that unit. The
+    reading is rounded once to the device's tenth of a degree Celsius, then
+    converted into the unit the input publishes and held inside its bounds.
+
+    Parameters
+    ----------
+    state : State or None
+        State of the external temperature input, or None when it has none.
+    celsius : float
+        The room temperature in degrees Celsius.
+
+    Returns
+    -------
+    float
+        The value to write, in the input's published unit.
+    """
+    attributes: Mapping[str, object] = state.attributes if state is not None else {}
+    declared_unit = attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+    unit = (
+        declared_unit
+        if isinstance(declared_unit, str)
+        and declared_unit in TemperatureConverter.VALID_UNITS
+        else UnitOfTemperature.CELSIUS
+    )
+
+    def published(degrees: float) -> float:
+        return TemperatureConverter.convert(degrees, UnitOfTemperature.CELSIUS, unit)
+
+    def bound(name: str, fallback_celsius: float) -> float:
+        try:
+            return float(str(attributes[name]))
+        except KeyError, TypeError, ValueError:
+            return published(fallback_celsius)
+
+    low = bound("min", _EXTERNAL_TEMPERATURE_MIN_C)
+    high = bound("max", _EXTERNAL_TEMPERATURE_MAX_C)
+    return max(low, min(high, published(round(celsius, 1))))
+
+
+async def maybe_set_external_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """Set Sonoff TRVZB external temperature input via a number entity on the same device.
 
     Looks for number.* entity matching external_temperature_input and writes the
-    given temperature (clamped to 0..99.9, rounded to one decimal). The sensor
+    given temperature, rounded to a tenth of a degree Celsius and converted into
+    the unit the input publishes, held inside the range it publishes. The sensor
     selector is pointed at that input alongside the write, because a device
     regulating on its own sensor never reads it.
 
     Parameters
     ----------
-    self :
+    self : ModelFixHost
         The Better Thermostat instance, supplying ``hass``, the TRV registry
         and the context the service calls are made under.
     entity_id : str
@@ -551,12 +737,15 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
     -------
     bool
         True when the input was written, False when the device is not a
-        TRVZB, names no such input, or the value is not a number.
+        TRVZB or TRV-ZBT, names no such input, or the value is not a number.
     """
     try:
-        model = str(self.real_trvs[entity_id].model or "")
+        model = self.real_trvs[entity_id].model or ""
         if not (
-            "sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"
+            "sonoff" in model.lower()
+            or "trvzb" in model.lower()
+            or model == "TRVZB"
+            or _TRV_ZBT_MODEL in model.lower()
         ):
             _LOGGER.debug(
                 "better_thermostat %s: TRVZB maybe_set_external_temperature skipped (model=%s)",
@@ -588,9 +777,8 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
             )
             return False
 
-        # Clamp and round
         try:
-            val = float(temperature)
+            celsius = float(temperature)
         except TypeError, ValueError:
             _LOGGER.debug(
                 "better_thermostat %s: TRVZB maybe_set_external_temperature got non-float: %s",
@@ -598,19 +786,19 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
                 temperature,
             )
             return False
-        val = max(0.0, min(99.9, round(val, 1)))
+        value = _external_input_value(self.hass.states.get(target), celsius)
 
         await self.hass.services.async_call(
             "number",
             "set_value",
-            {"entity_id": target, "value": val},
+            {"entity_id": target, "value": value},
             blocking=True,
             context=self.context,
         )
         _LOGGER.debug(
-            "better_thermostat %s: set TRVZB external_temperature_input=%.1f on %s (for %s)",
+            "better_thermostat %s: set TRVZB external_temperature_input=%.2f on %s (for %s)",
             self.device_name,
-            val,
+            value,
             target,
             entity_id,
         )
@@ -618,10 +806,45 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
         # that is regulating on it.
         await maybe_select_external_sensor(self, entity_id)
         return True
-    except (TypeError, ValueError, KeyError, AttributeError) as ex:
-        _LOGGER.debug(
-            "better_thermostat %s: TRVZB maybe_set_external_temperature exception: %s",
+    except (
+        HomeAssistantError,
+        OSError,
+        TypeError,
+        ValueError,
+        KeyError,
+        AttributeError,
+    ) as ex:
+        # The device did not take the value: it is asleep, out of reach, its
+        # integration is reloading, or it declares a narrower range than the
+        # clamp above. Reporting the refused write as a declined one leaves
+        # the caller free to serve the remaining TRVs and to control on the
+        # new reading; the next write retries.
+        _LOGGER.warning(
+            "better_thermostat %s: TRVZB external temperature write for %s failed: %s",
             self.device_name,
+            entity_id,
             ex,
         )
         return False
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+    VALVE_MAINTENANCE_INTERVAL_HOURS = VALVE_MAINTENANCE_INTERVAL_HOURS
+    maybe_set_external_temperature = staticmethod(maybe_set_external_temperature)
+    override_set_valve = staticmethod(override_set_valve)
+    has_valve_channel = staticmethod(has_valve_channel)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()
+_EXTERNAL_TEMPERATURE_QUIRK: ExternalTemperatureQuirk = _Surface()
+_MAINTENANCE_INTERVAL_QUIRK: MaintenanceIntervalQuirk = _Surface()
+_VALVE_QUIRK: ValveQuirk = _Surface()
+_VALVE_CHANNEL_QUIRK: ValveChannelQuirk = _Surface()

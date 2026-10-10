@@ -68,8 +68,8 @@ def test_seasonal_mean_extremes():
     cold = _seasonal_mean(p.seasonal_min_day, p)
     warm = _seasonal_mean(p.seasonal_min_day + 183, p)
     # Cold end is annual_mean − annual_amp, warm end is annual_mean + annual_amp.
-    assert abs(cold - (p.annual_mean_C - p.annual_amp_C)) < 0.5
-    assert abs(warm - (p.annual_mean_C + p.annual_amp_C)) < 0.5
+    assert abs(cold - (p.annual_mean - p.annual_amp_K)) < 0.5
+    assert abs(warm - (p.annual_mean + p.annual_amp_K)) < 0.5
 
 
 def test_make_schedules_returns_pure_functions_of_time():
@@ -117,12 +117,12 @@ def test_climate_preset_overrides_carry():
 def test_default_climate_params_constructible():
     """Default climate params constructible."""
     p = ClimateParams()
-    assert p.annual_mean_C > 0
+    assert p.annual_mean > 0
     assert p.synoptic_alpha < 1.0
 
 
 def test_diurnal_cycle_peaks_mid_afternoon():
     """With synoptics muted, 15:00 must be warmer than the small hours."""
-    calm = ClimateParams(name="calm", synoptic_sigma_C=0.0)
+    calm = ClimateParams(name="calm", synoptic_sigma_K=0.0)
     outdoor, _solar = make_schedules(calm, start_day_of_year=14, duration_h=24, seed=1)
     assert outdoor(15 * 3600.0) > outdoor(3 * 3600.0)

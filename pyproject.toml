@@ -1,21 +1,22 @@
 [project]
 name = "better-thermostat"
-version = "1.9.2"  # keep in sync with manifest.json
+version = "2.0.0-Beta"  # keep in sync with manifest.json
 description = "Better Thermostat — Home Assistant custom integration for smart TRV control"
-requires-python = ">=3.14.2"  # floor inherited from Home Assistant 2026.7.x
-dependencies = ["homeassistant>=2026.7.2"]
+requires-python = ">=3.14.2"  # floor inherited from Home Assistant 2026.9.x
+dependencies = ["homeassistant>=2026.9.0"]
 
 [dependency-groups]
 dev = [
-    "daqp>=0.8.7",  # QP solver used by MPC v2; tests/unit/mpc_v2 skips without it
+    "daqp>=0.10.3",  # speeds up the MPC v2 QP; a NumPy solver runs without it
     "pytest>=9",
     "pytest-asyncio>=1.4.0",
-    "pytest-homeassistant-custom-component>=0.13.346",
-    "pre-commit>=4.6.0",
-    "codespell>=2.4.3",
-    "pyrefly>=1.1.1",
-    "ruff>=0.15.22",
+    "pytest-cov>=7.0.0",  # the per-module coverage floors in CI depend on it
+    "pytest-homeassistant-custom-component>=0.13.367",
+    "pre-commit>=4.6.2",
+    "pyrefly>=1.3.2",
+    "ruff>=0.16.10",
     "yamllint>=1.38.0",
+    "hypothesis>=6.168.4",
 ]
 
 [tool.uv]
@@ -47,9 +48,12 @@ select = [
     "D",      # pydocstyle (docstrings)
     "D417",   # Require documented args to match the signature (numpy convention disables this by default)
     "C4",     # flake8-comprehensions
+    "BLE001", # flake8-blind-except: broad `except Exception` that neither re-raises nor logs the exception
     "PL",     # pylint
     "RUF100", # unused noqa directives
     "I",      # isort
+    "N",      # pep8-naming
+    "ANN",    # flake8-annotations: every parameter and return type, `-> None` included
 ]
 ignore = [
     "E501",   # Line too long - handled by formatter where possible
@@ -61,16 +65,78 @@ ignore = [
     "PLR0915", # Too many statements
     "PLR0912", # Too many branches
     "PLR0913", # Too many arguments
+    "PLR0917", # Too many positional arguments
     "PLR0911", # Too many return statements
-    "PLC0415", # Import outside top level
 ]
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
 
 [tool.ruff.lint.per-file-ignores]
-# Test code does not need docstrings on every function/class/method.
-"tests/**" = ["D"]
+# Test code does not need docstrings on every function/class/method, and it
+# imports inside function bodies. Its parameters are pytest fixtures whose type
+# lives on the fixture, and pyrefly holds the annotations the tests do carry.
+"tests/**" = ["D", "PLC0415", "ANN"]
+
+# Device model names as module names. `load_model_quirks` sanitises the model
+# string the device registry reports and imports the module of that name, so a
+# file name under `model_fixes` is a lookup key rather than a name anybody
+# chose. `_QUIRK_MODULE_ALIASES` in `model_quirks.py` redirects a model to
+# another model's module; snake_case module names would turn that one-line
+# redirect into an entry per supported device. The same glob is declared under
+# `[tool.better_thermostat.pep8-naming] module-name-paths`, which is what CI
+# holds the module names to.
+"custom_components/better_thermostat/model_fixes/**" = ["N999"]
+
+[tool.ruff.lint.pep8-naming]
+# Control-theory notation. The state-space matrices `A` and `B`, the Kalman
+# covariance `P` and gain `K`, the process and measurement noise `Q` and `R`,
+# the horizon length `N` and subscripted quantities such as `T_room` or
+# `dT_rad` are symbols lifted from the derivations that sit in the docstrings
+# beside them, and `_K` is the SI symbol for kelvin, whose case carries meaning
+# (`k` is kilo). Lowercasing them separates the code from the equations it
+# implements, which is the case PEP 8 itself makes for dropping the convention.
+#
+# The patterns name the shapes of that notation: a lone capital (`A`, `P0`), a
+# capital with a subscript (`T_room`, `D_hat_K_per_min`), a capital symbol as a
+# suffix or infix (`kalman_P`, `error_K`, `Y_T_u`) and a derivative (`dT_rad`).
+# `C` is left out on purpose: absolute temperatures carry no suffix, and the
+# symbol for a degree Celsius is not `C`.
+#
+# Ruff applies the patterns everywhere. `scripts/pep8_naming_exceptions.py`
+# holds them to `[tool.better_thermostat.pep8-naming] notation-paths`: outside
+# those paths a name these patterns let through still fails CI.
+#
+# This is about case alone. `scripts/check_naming.py` judges the vocabulary in
+# these paths as well, so the notation may not use a spelling `glossary.toml`
+# rejects, such as `delta_T`.
+extend-ignore-names = [
+  "[A-Z]",
+  "[A-Z][0-9]",
+  "[A-Z]_*[!C]",
+  "*_[A-BD-Z]",
+  "*_[A-BD-Z]_*",
+  "d[A-Z]",
+  "d[A-Z]_*[!C]",
+]
+
+# The exceptions to PEP 8 naming, by place. `scripts/pep8_naming_exceptions.py`
+# (CI) fails on every naming finding these do not cover; no `noqa`, no
+# `per-file-ignores` entry and no budget hides a name from it. A name either
+# follows PEP 8 or is declared here with its reason.
+[tool.better_thermostat.pep8-naming]
+# The paths that write the control-theory notation `extend-ignore-names`
+# describes: the calibration code and the tests that mirror it. A value leaves
+# the notation where it leaves these paths.
+notation-paths = [
+  "custom_components/better_thermostat/utils/calibration/**",
+  "tests/benchmark/**",
+  "tests/unit/mpc_v2/**",
+  "tests/unit/test_mpc_comprehensive.py",
+]
+# The modules named after device model strings (N999); the reason stands at the
+# matching `per-file-ignores` entry, which ruff itself needs.
+module-name-paths = ["custom_components/better_thermostat/model_fixes/**"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["custom_components.better_thermostat", "tests"]
@@ -83,10 +149,30 @@ skip-magic-trailing-comma = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Seconds a single test may run. The slowest takes about ten; a hung one
+# fails with its traceback instead of running into the CI job's limit.
+timeout = 120
 filterwarnings = [
     # Upstream Home Assistant warning triggered during test imports.
     "ignore:Inheritance class HomeAssistantApplication from web\\.Application is discouraged:DeprecationWarning",
+    # A coroutine nobody awaits is work that silently never ran: a fixture
+    # that swapped a production object for a mock, or a call that lost its
+    # await.
+    "error:coroutine .* was never awaited:RuntimeWarning",
+    # Python reports that warning while it collects the coroutine, where
+    # nothing can raise it, and pytest passes it on in this wrapper.
+    "error::pytest.PytestUnraisableExceptionWarning",
 ]
+
+[tool.coverage.run]
+# Branch coverage names the guards that only ever run one way: a condition
+# whose true and false side are not both reached shows up as a partial
+# branch, and that missing side is the test the suite does not have.
+branch = true
+source = ["custom_components/better_thermostat"]
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "@overload", "raise NotImplementedError"]
 
 [tool.pyright]
 # Don't use include - it changes the root! Instead, exclude everything except custom_components
@@ -110,53 +196,20 @@ pythonVersion = "3.14"
 
 [tool.pyrefly]
 python-version = "3.14"
-project-includes = ["custom_components/better_thermostat"]
+project-includes = ["custom_components/better_thermostat", "scripts", "tests"]
 min-severity = "error"
+errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true, unnecessary-type-conversion = "error" }
+
+# Every file under project-includes is checked at the strictness declared above,
+# and no file outside tests/ is exempt from any of it: a new file is strict from
+# the start. tests/gates/test_type_strictness_exemptions.py keeps it that way.
+
+# Tests are held to the same rules with one exception: a parameter may go
+# unannotated, because pytest hands fixtures in by name and the type lives on
+# the fixture. All of tests/ is in project-includes.
+# tests/gates/test_type_strictness_exemptions.py keeps this block to that one
+# rule.
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/number.py"
-errors = { bad-override-mutable-attribute = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/utils/calibration/*.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/types.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/TS0601.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/TS0601_thermostat.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/ME167.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/COZB0001.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/BHT-002-GCLZB.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/SEA801-Zigbee_SEA802-Zigbee.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/trv.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/utils/telemetry.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/utils/retry.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+matches = "tests/**"
+errors = { implicit-any-parameter = false }

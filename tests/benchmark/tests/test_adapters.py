@@ -9,6 +9,8 @@ These verify that each adapter:
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from tests.benchmark.adapters.base import BenchmarkContext, BenchmarkOutput
@@ -19,6 +21,7 @@ from tests.benchmark.adapters.baselines import (
 )
 from tests.benchmark.adapters.heating_power_adapter import HeatingPowerAdapter
 from tests.benchmark.adapters.mpc_adapter import MpcAdapter
+from tests.benchmark.adapters.mpc_v2_adapter import MpcV2Adapter
 from tests.benchmark.adapters.passive_modes import (
     AggressiveCalibrationAdapter,
     DefaultCalibrationAdapter,
@@ -29,6 +32,7 @@ from tests.benchmark.adapters.tpi_adapter import TpiAdapter
 
 _ADAPTERS = [
     pytest.param(MpcAdapter, id="mpc"),
+    pytest.param(MpcV2Adapter, id="mpc_v2"),
     pytest.param(TpiAdapter, id="tpi"),
     pytest.param(PidAdapter, id="pid"),
     pytest.param(HeatingPowerAdapter, id="heating_power"),
@@ -45,11 +49,11 @@ def _ctx(target: float = 21.0, current: float = 20.0) -> BenchmarkContext:
     return BenchmarkContext(
         t=0.0,
         dt=30.0,
-        target_temp_C=target,
-        current_temp_C=current,
-        raw_room_temp_C=current,
-        trv_temp_C=current,
-        outdoor_temp_C=5.0,
+        target_temperature=target,
+        room_temperature=current,
+        raw_room_temperature=current,
+        trv_temperature=current,
+        outdoor_temperature=5.0,
     )
 
 
@@ -108,13 +112,13 @@ def test_benchmark_output_requires_exactly_one_family_field():
     with pytest.raises(ValueError):
         BenchmarkOutput(valve_percent=50.0, setpoint_offset_K=1.0)
     # The documented duty controllers' pairing stays allowed.
-    out = BenchmarkOutput(duty_cycle_pct=40.0, valve_percent=40.0)
-    assert out.duty_cycle_pct == 40.0
+    out = BenchmarkOutput(duty_cycle_percent=40.0, valve_percent=40.0)
+    assert out.duty_cycle_percent == 40.0
 
 
 def test_state_backed_adapters_use_unique_default_keys():
     """Two default-keyed instances must not share controller state entries."""
-    for cls in (PidAdapter, TpiAdapter, MpcAdapter):
+    for cls in (PidAdapter, TpiAdapter, MpcAdapter, MpcV2Adapter):
         a, b = cls(), cls()
         assert a._key != b._key
     assert PidAdapter(key="shared")._key == "shared"
@@ -126,32 +130,32 @@ def test_oracle_feedback_uses_plant_truth():
     ctx = BenchmarkContext(
         t=0.0,
         dt=30.0,
-        target_temp_C=21.0,
-        current_temp_C=18.0,  # lagged/noisy sensor reading
-        raw_room_temp_C=21.0,  # plant truth already at setpoint
-        trv_temp_C=None,
-        outdoor_temp_C=5.0,
+        target_temperature=21.0,
+        room_temperature=18.0,  # lagged/noisy sensor reading
+        raw_room_temperature=21.0,  # plant truth already at setpoint
+        trv_temperature=None,
+        outdoor_temperature=5.0,
     )
     out = adapter.step(ctx)
     assert out.diagnostics["error_K"] == pytest.approx(0.0)
 
 
 def test_benchmark_output_rejects_mismatched_duty_valve_mirror():
-    """duty_cycle_pct paired with a non-matching valve_percent is rejected."""
-    BenchmarkOutput(valve_percent=30.0, duty_cycle_pct=30.0)  # mirror OK
+    """duty_cycle_percent paired with a non-matching valve_percent is rejected."""
+    BenchmarkOutput(valve_percent=30.0, duty_cycle_percent=30.0)  # mirror OK
     with pytest.raises(ValueError):
-        BenchmarkOutput(valve_percent=50.0, duty_cycle_pct=30.0)
+        BenchmarkOutput(valve_percent=50.0, duty_cycle_percent=30.0)
 
 
 def _ctx_at(t: float, target: float = 21.0, current: float = 20.0) -> BenchmarkContext:
     return BenchmarkContext(
         t=t,
         dt=30.0,
-        target_temp_C=target,
-        current_temp_C=current,
-        raw_room_temp_C=current,
-        trv_temp_C=current,
-        outdoor_temp_C=5.0,
+        target_temperature=target,
+        room_temperature=current,
+        raw_room_temperature=current,
+        trv_temperature=current,
+        outdoor_temperature=5.0,
     )
 
 
@@ -206,3 +210,42 @@ def test_tpi_adapter_rehydrates_from_prior():
     last_percent = adapter._state.last_percent
     adapter.reset(prior=snapshot)
     assert adapter._state.last_percent == last_percent
+
+
+def test_mpc_v2_adapter_rehydrates_from_prior():
+    """reset(prior=export_state()) restores the MPC v2 controller."""
+    adapter = MpcV2Adapter()
+    for i in range(5):
+        adapter.step(_ctx_at(i * 30.0))
+    snapshot = adapter.export_state()
+    last_percent = adapter._state.last_percent
+    adapter.reset(prior=snapshot)
+    assert adapter._state.controller is not None
+    assert adapter._state.last_percent == last_percent
+
+
+def test_mpc_v2_adapter_reports_the_previous_plant_valve_as_applied():
+    """The valve the plant received last step reaches the controller as applied."""
+    adapter = MpcV2Adapter()
+    adapter.step(_ctx_at(0.0))
+    controller = adapter._state.controller
+    assert controller is not None
+    applied: list[float] = []
+    original = controller.set_applied_u
+
+    def _record(u: float) -> None:
+        applied.append(u)
+        original(u)
+
+    controller.set_applied_u = _record
+    ctx = _ctx_at(30.0)
+    adapter.step(replace(ctx, last_valve_percent=73.0))
+    assert applied == [pytest.approx(0.73)]
+
+
+def test_mpc_v2_adapter_closes_the_valve_while_the_window_is_open():
+    """An early exit maps to a closed valve, not to the previous command."""
+    adapter = MpcV2Adapter()
+    ctx = _ctx_at(0.0, target=22.0, current=18.0)
+    out = adapter.step(replace(ctx, window_open=True, last_valve_percent=60.0))
+    assert out.valve_percent == 0.0

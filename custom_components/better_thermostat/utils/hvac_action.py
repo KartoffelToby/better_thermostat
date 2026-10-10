@@ -32,48 +32,48 @@ class HvacActionResult:
 class TrvSnapshot:
     """Pre-resolved, immutable view of a single TRV's relevant state."""
 
-    trv_id: str
+    entity_id: str
     ignore_trv_states: bool = False
     hvac_action: str | None = None
     valve_position: float | None = None
     last_valve_percent: float | None = None
 
 
-def to_pct(val: float | str | None) -> float | None:
+def to_percent(value: float | str | None) -> float | None:
     """Normalise a valve value to percent (0-100).
 
     Values in [0, 1) are treated as fractions and multiplied by 100.
     Values >= 1 are returned as-is (already percent).
     Returns *None* for non-numeric / unparseable input.
     """
-    if val is None:
+    if value is None:
         return None
     try:
-        v = float(val)
+        v = float(value)
     except TypeError, ValueError:
         return None
     return v * 100.0 if 0.0 <= v < 1.0 else v
 
 
 def should_heat_with_tolerance(
-    cur_temp: float,
-    target_temp: float,
+    room_temperature: float,
+    heat_target_temperature: float,
     tolerance: float,
     previous_action: HVACAction | None,
 ) -> bool:
     """Determine whether heating should be active based on hysteresis.
 
     Band: ``[target - tolerance, target)``
-    * Start heating when ``cur_temp < target - tolerance``.
-    * Continue heating (if already heating) until ``cur_temp >= target``.
+    * Start heating when ``room_temperature < target - tolerance``.
+    * Continue heating (if already heating) until ``room_temperature >= target``.
     * Stop at ``target`` – never heat *above* target.
     """
     tolerance = max(0.0, tolerance)
-    heat_off_threshold = target_temp
-    heat_on_threshold = target_temp - tolerance
+    heat_off_threshold = heat_target_temperature
+    heat_on_threshold = heat_target_temperature - tolerance
     if previous_action == HVACAction.HEATING:
-        return cur_temp < heat_off_threshold
-    return cur_temp < heat_on_threshold
+        return room_temperature < heat_off_threshold
+    return room_temperature < heat_on_threshold
 
 
 # Minimum width of the cooling decision band. A tolerance narrower than this
@@ -87,25 +87,27 @@ COOLER_MODE_HYSTERESIS_K = 0.2
 
 
 def should_cool_with_tolerance(
-    cur_temp: float,
-    cool_target: float,
+    room_temperature: float,
+    cool_target_temperature: float,
     tolerance: float,
     previously_cooling: bool,
     min_band: float = 0.0,
 ) -> bool:
     """Determine whether cooling should be active based on hysteresis.
 
-    Band: ``[cool_target, cool_target + tolerance]``
-    * Start cooling when ``cur_temp >= cool_target + tolerance``.
-    * Continue cooling (if already cooling) until ``cur_temp < cool_target``.
+    Band: ``[cool_target_temperature, cool_target_temperature + tolerance]``
+    * Start cooling when ``room_temperature >= cool_target_temperature + tolerance``.
+    * Continue cooling (if already cooling) until ``room_temperature < cool_target_temperature``.
     * A band narrower than ``min_band`` takes the missing width from below
-      ``cool_target``, so a room temperature resting on an edge cannot flip
+      ``cool_target_temperature``, so a room temperature resting on an edge cannot flip
       the decision on every cycle. The switch-on edge never moves for it.
     """
     tolerance = max(0.0, tolerance)
     if previously_cooling:
-        return cur_temp >= cool_target - max(0.0, min_band - tolerance)
-    return cur_temp >= cool_target + tolerance
+        return room_temperature >= cool_target_temperature - max(
+            0.0, min_band - tolerance
+        )
+    return room_temperature >= cool_target_temperature + tolerance
 
 
 _VALVE_THRESH = 0.0
@@ -113,9 +115,9 @@ _VALVE_THRESH = 0.0
 
 def compute_hvac_action(
     hysteresis: ToleranceHysteresis,
-    cur_temp: float | None,
-    target_temp: float | None,
-    cool_target: float | None,
+    room_temperature: float | None,
+    heat_target_temperature: float | None,
+    cool_target_temperature: float | None,
     hvac_mode: HVACMode | None,
     bt_hvac_mode: HVACMode | None,
     window_open: bool | None,
@@ -139,18 +141,18 @@ def compute_hvac_action(
     """
     prev_action = hysteresis.last_action
 
-    if target_temp is None or cur_temp is None:
-        return HvacActionResult(
-            action=HVACAction.IDLE,
-            tolerance_decision=HVACAction.IDLE,
-            new_last_action=HVACAction.IDLE,
-            new_hold_active=False,
-        )
-
     if HVACMode.OFF in (hvac_mode, bt_hvac_mode):
         return HvacActionResult(
             action=HVACAction.OFF,
             tolerance_decision=HVACAction.OFF,
+            new_last_action=HVACAction.IDLE,
+            new_hold_active=False,
+        )
+
+    if heat_target_temperature is None or room_temperature is None:
+        return HvacActionResult(
+            action=HVACAction.IDLE,
+            tolerance_decision=HVACAction.IDLE,
             new_last_action=HVACAction.IDLE,
             new_hold_active=False,
         )
@@ -169,7 +171,9 @@ def compute_hvac_action(
     tolerance_hold = False
 
     if heating_allowed:
-        if should_heat_with_tolerance(cur_temp, target_temp, tolerance, prev_action):
+        if should_heat_with_tolerance(
+            room_temperature, heat_target_temperature, tolerance, prev_action
+        ):
             action = HVACAction.HEATING
         else:
             tolerance_hold = True
@@ -184,15 +188,15 @@ def compute_hvac_action(
     # one cycle, which is correct: it reports what is running.
     if (
         hvac_mode == HVACMode.HEAT_COOL
-        and cool_target is not None
+        and cool_target_temperature is not None
         and should_cool_with_tolerance(
-            cur_temp,
-            cool_target,
+            room_temperature,
+            cool_target_temperature,
             tolerance,
             cool_previously_active,
             min_band=COOLER_MODE_HYSTERESIS_K,
         )
-        and cur_temp > target_temp
+        and room_temperature > heat_target_temperature
     ):
         action = HVACAction.COOLING
         tolerance_hold = False
@@ -201,7 +205,7 @@ def compute_hvac_action(
     # Suppressed at or above target so a still-closing valve cannot lift the
     # displayed action above IDLE once the hysteresis decided to stop.
     if action == HVACAction.IDLE:
-        if ignore_states or window_open or cur_temp >= target_temp:
+        if ignore_states or window_open or room_temperature >= heat_target_temperature:
             return HvacActionResult(
                 action=HVACAction.IDLE,
                 tolerance_decision=tolerance_decision,
@@ -214,37 +218,40 @@ def compute_hvac_action(
                 continue
 
             if snap.hvac_action is not None:
-                action_str = str(snap.hvac_action).lower()
+                action_str = snap.hvac_action.lower()
                 if action_str == "heating":
                     _LOGGER.debug(
                         "better_thermostat %s: overriding hvac_action to HEATING "
                         "(TRV %s reports heating)",
                         device_name,
-                        snap.trv_id,
+                        snap.entity_id,
                     )
                     action = HVACAction.HEATING
                     break
 
-            vp_pct = to_pct(snap.valve_position)
-            if vp_pct is not None and vp_pct > _VALVE_THRESH:
+            valve_position_percent = to_percent(snap.valve_position)
+            if (
+                valve_position_percent is not None
+                and valve_position_percent > _VALVE_THRESH
+            ):
                 _LOGGER.debug(
                     "better_thermostat %s: overriding hvac_action to HEATING "
                     "(valve_position %.1f%%, TRV %s)",
                     device_name,
-                    vp_pct,
-                    snap.trv_id,
+                    valve_position_percent,
+                    snap.entity_id,
                 )
                 action = HVACAction.HEATING
                 break
 
-            last_pct = to_pct(snap.last_valve_percent)
-            if last_pct is not None and last_pct > _VALVE_THRESH:
+            last_percent = to_percent(snap.last_valve_percent)
+            if last_percent is not None and last_percent > _VALVE_THRESH:
                 _LOGGER.debug(
                     "better_thermostat %s: overriding hvac_action to HEATING "
                     "(last_valve_percent %.1f%%, TRV %s)",
                     device_name,
-                    last_pct,
-                    snap.trv_id,
+                    last_percent,
+                    snap.entity_id,
                 )
                 action = HVACAction.HEATING
                 break
@@ -257,7 +264,7 @@ def compute_hvac_action(
         if tolerance_decision == HVACAction.HEATING
         else HVACAction.IDLE
     )
-    new_hold_active = bool(tolerance_hold and action != HVACAction.COOLING)
+    new_hold_active = tolerance_hold and action != HVACAction.COOLING
 
     return HvacActionResult(
         action=action,

@@ -19,16 +19,24 @@ instance.
 """
 
 from ast import literal_eval
-from datetime import datetime
+import asyncio
+from collections.abc import Mapping
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from homeassistant.components.automation import config as automation_config
 from homeassistant.components.blueprint.models import Blueprint, BlueprintInputs
 from homeassistant.components.blueprint.schemas import BLUEPRINT_SCHEMA
 import homeassistant.helpers.config_validation as cv
+from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 from homeassistant.util.yaml import loader as yaml_loader
 import jinja2
 import pytest
+from pytest_homeassistant_custom_component.common import (
+    async_fire_time_changed,
+    async_mock_service,
+)
 import voluptuous as vol
 import yaml
 
@@ -55,14 +63,18 @@ _BlueprintLoader.add_constructor(
 )
 
 
-def _load(path: Path) -> dict:
+def _load(path: Path) -> dict[str, object]:
     """Parse a blueprint YAML file, keeping ``!input`` tags as ``_Input``."""
-    return yaml.load(path.read_text(encoding="utf-8"), Loader=_BlueprintLoader)
+    document = yaml.load(path.read_text(encoding="utf-8"), Loader=_BlueprintLoader)
+    assert isinstance(document, dict)
+    return document
 
 
 def _placeholder_for(spec) -> object:
     """Return a valid stand-in value for a required input (one without a default)."""
-    selector = (spec.get("selector") or {}) if isinstance(spec, dict) else {}
+    selector: Mapping[str, object] = (
+        (spec.get("selector") or {}) if isinstance(spec, dict) else {}
+    )
     if "target" in selector:
         return {"entity_id": "climate.bt_test"}
     if "device" in selector:
@@ -78,10 +90,14 @@ def _placeholder_for(spec) -> object:
     return "bt_test"
 
 
-def _resolve_inputs(blueprint: dict) -> dict:
+def _resolve_inputs(blueprint: Mapping[str, object]) -> dict[str, object]:
     """Map every input to its declared default (or a placeholder if required)."""
-    resolved = {}
-    for name, spec in blueprint["blueprint"]["input"].items():
+    metadata = blueprint["blueprint"]
+    assert isinstance(metadata, dict)
+    declared = metadata["input"]
+    assert isinstance(declared, dict)
+    resolved: dict[str, object] = {}
+    for name, spec in declared.items():
         if isinstance(spec, dict) and "default" in spec:
             resolved[name] = spec["default"]
         else:
@@ -89,7 +105,7 @@ def _resolve_inputs(blueprint: dict) -> dict:
     return resolved
 
 
-def _substitute(value, inputs):
+def _substitute(value: object, inputs: Mapping[str, object]) -> object:
     """Recursively replace every ``_Input`` with its resolved value."""
     if isinstance(value, _Input):
         return inputs[value.name]
@@ -135,17 +151,17 @@ def _collect_problems(config) -> list[str]:
 
     def walk(node, path):
         if isinstance(node, dict):
-            for key, val in node.items():
+            for key, value in node.items():
                 here = f"{path}.{key}"
-                if key in ("service", "action") and isinstance(val, str):
-                    reason = _service_problem(val)
+                if key in ("service", "action") and isinstance(value, str):
+                    reason = _service_problem(value)
                     if reason:
                         problems.append(f"{here}: {reason}")
                 if key == "entity_id":
-                    reason = _entity_problem(val)
+                    reason = _entity_problem(value)
                     if reason:
                         problems.append(f"{here}: {reason}")
-                walk(val, here)
+                walk(value, here)
         elif isinstance(node, list):
             for i, item in enumerate(node):
                 walk(item, f"{path}[{i}]")
@@ -277,7 +293,9 @@ async def test_weekly_schedule_rejects_an_empty_string_input(hass):
 # ── Runtime behaviour of the presence / pause variables ──────────────────────
 
 
-def _render(template_text: str, context: dict, states: dict):
+def _render(
+    template_text: str, context: Mapping[str, object], states: Mapping[str, str]
+) -> object:
     """Render a blueprint variable the way Home Assistant would.
 
     Home Assistant strips a rendered `variables:` entry and then runs
@@ -287,10 +305,14 @@ def _render(template_text: str, context: dict, states: dict):
     which is truthy -- so the value a template produces has to be a Python
     literal, not just look like one.
     """
-    env = jinja2.Environment()
-    env.globals["states"] = lambda entity: states.get(entity, "unknown")
-    env.globals["is_state"] = lambda entity, value: states.get(entity) == value
-    rendered = env.from_string(template_text).render(**context).strip()
+    template = jinja2.Environment().from_string(
+        template_text,
+        globals={
+            "states": lambda entity: states.get(entity, "unknown"),
+            "is_state": lambda entity, value: states.get(entity) == value,
+        },
+    )
+    rendered = template.render(**context).strip()
     try:
         return literal_eval(rendered)
     except ValueError, TypeError, SyntaxError, MemoryError:
@@ -532,11 +554,12 @@ def test_pause_off_does_not_resume_while_another_switch_holds_the_pause(
 # saves at all.
 
 
-def _bt_device_triggers(blueprint: dict) -> list[dict]:
+def _bt_device_triggers(blueprint: Mapping[str, object]) -> list[dict[str, object]]:
     """Return the Better Thermostat device triggers a blueprint declares."""
-    triggers = blueprint.get("trigger") or blueprint.get("triggers") or []
+    triggers: object = blueprint.get("trigger") or blueprint.get("triggers") or []
     if isinstance(triggers, dict):
         triggers = [triggers]
+    assert isinstance(triggers, list)
     return [
         trigger
         for trigger in triggers
@@ -570,6 +593,7 @@ def test_bundled_device_triggers_pass_the_trigger_schema(path):
 
     for trigger in _bt_device_triggers(blueprint):
         resolved = _substitute(trigger, inputs)
+        assert isinstance(resolved, dict)
         try:
             TRIGGER_SCHEMA(resolved)
         except vol.Invalid as err:
@@ -577,3 +601,225 @@ def test_bundled_device_triggers_pass_the_trigger_schema(path):
                 f"{path.name}: trigger {resolved.get('type')} is rejected "
                 f"by the platform schema: {err}"
             ) from err
+
+
+# ── Blueprints running as automations ────────────────────────────────────────
+#
+# The checks above read the YAML. The ones below substitute the inputs the way
+# Home Assistant does, set the result up as a real automation and drive it with
+# state changes and a moving clock, so the script engine decides which service
+# calls happen.
+
+PRESENCE_AWAY = BLUEPRINTS_DIR / "presence_away_preset.yaml"
+BATTERY_LOW = BLUEPRINTS_DIR / "battery_low_notify.yaml"
+_AUTOMATION_ID = "automation.bt_blueprint_under_test"
+
+
+async def _set_up_blueprint(hass, path, inputs, *, triggers=None):
+    """Substitute *inputs* into the blueprint at *path* and start it.
+
+    *triggers* replaces the blueprint's triggers, for blueprints whose trigger
+    needs a Better Thermostat device that the test does not create.
+    """
+    data = await hass.async_add_executor_job(yaml_loader.load_yaml, str(path))
+    blueprint = Blueprint(
+        data, path=path.name, expected_domain="automation", schema=BLUEPRINT_SCHEMA
+    )
+    blueprint_inputs = BlueprintInputs(
+        blueprint, {"use_blueprint": {"path": path.name, "input": inputs}}
+    )
+    blueprint_inputs.validate()
+    config = dict(blueprint_inputs.async_substitute())
+    config["id"] = "bt_blueprint_under_test"
+    config["alias"] = "BT blueprint under test"
+    if triggers is not None:
+        config.pop("trigger", None)
+        config["triggers"] = triggers
+    assert await async_setup_component(hass, "automation", {"automation": [config]})
+    await hass.async_block_till_done()
+    assert hass.states.get(_AUTOMATION_ID) is not None
+
+
+async def _settle(hass):
+    """Let a triggered run proceed as far as it can without the clock moving.
+
+    `async_block_till_done` would wait for a run parked in a `delay` step
+    forever, so the loop is only cycled until the pending callbacks are done.
+    """
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+
+async def _advance(hass, freezer, delta):
+    """Move the clock forward and let the timers that fall due run."""
+    freezer.tick(delta)
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await _settle(hass)
+
+
+def _presets(calls) -> list[str]:
+    """Return the preset modes the mocked climate service was called with."""
+    return [call.data["preset_mode"] for call in calls]
+
+
+@pytest.fixture(name="preset_calls")
+async def preset_calls_fixture(hass):
+    """Capture every `climate.set_preset_mode` call."""
+    return async_mock_service(hass, "climate", "set_preset_mode")
+
+
+async def _set_up_presence_away(hass, away_delay=10):
+    hass.states.async_set("person.a", "home")
+    await _set_up_blueprint(
+        hass,
+        PRESENCE_AWAY,
+        {
+            "thermostat_target": {"entity_id": "climate.bt_test"},
+            "presence_entities": ["person.a"],
+            "away_delay": away_delay,
+        },
+    )
+
+
+async def test_presence_away_applies_away_after_the_delay(hass, freezer, preset_calls):
+    """Nobody returns: Away is applied once the delay has passed, not before."""
+    await _set_up_presence_away(hass)
+
+    hass.states.async_set("person.a", "not_home")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=9))
+    assert _presets(preset_calls) == []
+
+    await _advance(hass, freezer, timedelta(minutes=2))
+    assert _presets(preset_calls) == ["away"]
+
+
+async def test_presence_away_without_delay_applies_away_at_once(hass, preset_calls):
+    """A zero delay skips the wait but still applies Away."""
+    await _set_up_presence_away(hass, away_delay=0)
+
+    hass.states.async_set("person.a", "not_home")
+    await _settle(hass)
+
+    assert _presets(preset_calls) == ["away"]
+
+
+async def test_presence_away_is_not_applied_when_someone_returns_during_the_delay(
+    hass, freezer, preset_calls
+):
+    """A return inside the delay cancels the pending Away.
+
+    The arrival has to be handled while the Away run is still waiting, and
+    once the delay expires no Away may follow: the house is occupied.
+    """
+    await _set_up_presence_away(hass)
+
+    hass.states.async_set("person.a", "not_home")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=5))
+
+    hass.states.async_set("person.a", "home")
+    await _settle(hass)
+    assert _presets(preset_calls) == ["none"]
+
+    await _advance(hass, freezer, timedelta(minutes=10))
+    assert _presets(preset_calls) == ["none"]
+
+
+async def test_presence_away_delay_is_not_restarted_by_attribute_updates(
+    hass, freezer, preset_calls
+):
+    """A location update without a state change does not postpone Away."""
+    await _set_up_presence_away(hass)
+
+    hass.states.async_set("person.a", "not_home", {"latitude": 1.0})
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=5))
+    hass.states.async_set("person.a", "not_home", {"latitude": 2.0})
+    await _settle(hass)
+
+    await _advance(hass, freezer, timedelta(minutes=6))
+    assert _presets(preset_calls) == ["away"]
+
+
+def _last_triggered(hass):
+    return hass.states.get(_AUTOMATION_ID).attributes["last_triggered"]
+
+
+async def test_battery_low_notification_is_throttled_to_once_a_day(hass, freezer):
+    """A second low-battery report within 24 hours does not run the actions.
+
+    The throttle is the condition block, so whether a report got through is
+    read from `last_triggered`, which Home Assistant only moves once the
+    conditions have passed.
+    """
+    async_mock_service(hass, "notify", "notify")
+    await _set_up_blueprint(
+        hass,
+        BATTERY_LOW,
+        {"thermostat_device": "bt_test_device_id"},
+        triggers=[{"platform": "event", "event_type": "bt_test_battery_low"}],
+    )
+
+    hass.bus.async_fire("bt_test_battery_low")
+    await hass.async_block_till_done()
+    first_run = _last_triggered(hass)
+    assert first_run is not None
+
+    await _advance(hass, freezer, timedelta(hours=23))
+    hass.bus.async_fire("bt_test_battery_low")
+    await hass.async_block_till_done()
+    assert _last_triggered(hass) == first_run
+
+    await _advance(hass, freezer, timedelta(hours=2))
+    hass.bus.async_fire("bt_test_battery_low")
+    await hass.async_block_till_done()
+    assert _last_triggered(hass) > first_run
+
+
+def _sequence_calling_preset(node, preset):
+    """Find the step list that calls `climate.set_preset_mode` with *preset*."""
+    if isinstance(node, list):
+        for step in node:
+            if (
+                isinstance(step, dict)
+                and step.get("service", step.get("action")) == "climate.set_preset_mode"
+                and (step.get("data") or {}).get("preset_mode") == preset
+            ):
+                return node
+        for step in node:
+            if (found := _sequence_calling_preset(step, preset)) is not None:
+                return found
+    elif isinstance(node, dict):
+        for value in node.values():
+            if (found := _sequence_calling_preset(value, preset)) is not None:
+                return found
+    return None
+
+
+def test_presence_away_recheck_guards_the_away_call():
+    """The post-delay re-check has to stop the Away call itself.
+
+    A condition only ends the step list it sits in. Inside the `then` of the
+    delay's `if`, a failing re-check ends that nested list and the Away call
+    after the `if` still runs. The runtime tests cannot show this on their
+    own: `mode: restart` already cancels the run on an arrival, so this pins
+    the second line of defence.
+    """
+    sequence = _sequence_calling_preset(_load(PRESENCE_AWAY)["action"], "away")
+    assert sequence is not None, "no step list applies the away preset"
+
+    away_call = next(
+        i
+        for i, step in enumerate(sequence)
+        if isinstance(step, dict)
+        and (step.get("data") or {}).get("preset_mode") == "away"
+    )
+    rechecks = [
+        i
+        for i, step in enumerate(sequence[:away_call])
+        if isinstance(step, dict)
+        and step.get("condition") == "template"
+        and "not anyone_home_recheck" in str(step.get("value_template"))
+    ]
+    assert rechecks, "the away call is not guarded by the re-check in its own list"

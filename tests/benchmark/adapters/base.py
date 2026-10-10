@@ -20,11 +20,11 @@ class BenchmarkContext:
 
     t: float  # seconds since scenario start
     dt: float  # time since last step (seconds)
-    target_temp_C: float
-    current_temp_C: float  # measurement coming out of the sensor model
-    raw_room_temp_C: float  # plant-internal truth (for adapters that cheat-peek)
-    trv_temp_C: float | None  # radiator surface, if supported
-    outdoor_temp_C: float
+    target_temperature: float
+    room_temperature: float  # measurement coming out of the sensor model
+    raw_room_temperature: float  # plant-internal truth (for adapters that cheat-peek)
+    trv_temperature: float | None  # radiator surface, if supported
+    outdoor_temperature: float
     window_open: bool = False
     solar_intensity: float = 0.0  # 0.0 - 1.0
     last_valve_percent: float = 0.0
@@ -34,7 +34,7 @@ class BenchmarkContext:
 class BenchmarkOutput:
     """What the controller produced at one step.
 
-    Exactly one of ``valve_percent`` / ``setpoint_offset_K`` / ``duty_cycle_pct``
+    Exactly one of ``valve_percent`` / ``setpoint_offset_K`` / ``duty_cycle_percent``
     should be set, matching the controller's :attr:`family`. The one exception:
     duty-family controllers additionally mirror their duty cycle into
     ``valve_percent``, because the plant is actuated through ``valve_percent``
@@ -43,7 +43,7 @@ class BenchmarkOutput:
 
     valve_percent: float | None = None
     setpoint_offset_K: float | None = None
-    duty_cycle_pct: float | None = None
+    duty_cycle_percent: float | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -57,7 +57,7 @@ class BenchmarkOutput:
         """
         populated = {
             name
-            for name in ("valve_percent", "setpoint_offset_K", "duty_cycle_pct")
+            for name in ("valve_percent", "setpoint_offset_K", "duty_cycle_percent")
             if getattr(self, name) is not None
         }
         if not populated:
@@ -65,14 +65,14 @@ class BenchmarkOutput:
                 "BenchmarkOutput requires one of valve_percent, "
                 "setpoint_offset_K, duty_cycle_pct"
             )
-        if len(populated) > 1 and populated != {"valve_percent", "duty_cycle_pct"}:
+        if len(populated) > 1 and populated != {"valve_percent", "duty_cycle_percent"}:
             raise ValueError(
                 "BenchmarkOutput allows only one output family "
                 f"(or duty_cycle_pct mirrored into valve_percent), got: {sorted(populated)}"
             )
-        valve, duty = self.valve_percent, self.duty_cycle_pct
+        valve, duty = self.valve_percent, self.duty_cycle_percent
         if (
-            populated == {"valve_percent", "duty_cycle_pct"}
+            populated == {"valve_percent", "duty_cycle_percent"}
             and valve is not None
             and duty is not None
             and not math.isclose(valve, duty, abs_tol=1e-9)

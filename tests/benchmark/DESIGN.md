@@ -151,7 +151,7 @@ which is exactly a resilience signal.
 ## §5 — Metrics: what is measured and why
 
 All metrics are computed from a `TimeSeries` (`metrics.py`) of
-`(t, T_room, T_setpoint, valve_pct)`. Per dimension:
+`(t, T_room, T_setpoint, valve_percent)`. Per dimension:
 
 ### Comfort
 
@@ -170,7 +170,7 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
 
 ### Actuator longevity
 
-* **total_valve_travel_pct** = Σ|Δu| over the run. This — not cycle count
+* **total_valve_travel_percent** = Σ|Δu| over the run. This — not cycle count
   — is the headline wear/battery proxy. A precise controller (the oracle
   included) makes *many small* moves; counting "cycles" would punish it
   for being smooth. Summed absolute travel is the honest measure: every
@@ -181,7 +181,7 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
 
 ### Energy
 
-* **integral_valve_pct_min** = ∫ valve% dt. A proxy for delivered heat.
+* **integral_valve_percent_minutes** = ∫ valve% dt. A proxy for delivered heat.
   Scored *symmetrically* around the oracle's optimum (§6): under-heating
   (missed setpoint) costs the same as over-heating (waste). This is a
   deliberate neutrality — the benchmark does not assume the user prefers
@@ -193,7 +193,7 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
 * **time_above/below_setpoint_K_h** — asymmetric comfort accounting in
   K·h (the BOPTEST `tdis_tot` split), for analyses where overshoot and
   undershoot have different cost.
-* **valve_sweet_spot_residency_pct** — fraction of time the valve sits at
+* **valve_sweet_spot_residency_percent** — fraction of time the valve sits at
   40–60 %. Heat-pump COP suffers at the extremes; mid-range modulation is
   efficient. Surfaced for heat-pump scenarios (§7-G), not folded into the
   score.
@@ -267,13 +267,18 @@ against a moving load.
 
 | Scenario | Probes |
 |---|---|
-| `S09_window_open_short` (5 min) | Brief open — should not crank the valve open into the cold. |
-| `S10_window_open_long` (20 min) | Sustained open — energy waste + recovery overshoot. |
+| `S09_window_open_short` (5 min) | Brief open — recovery from a short, sharp drop. |
+| `S10_window_open_long` (20 min) | Sustained open — deep drop + recovery overshoot. |
 | `S21_stochastic_windows` (3 random, Annex-79 style) | Realistic irregular venting. |
 
 *Why:* open windows are the classic TRV failure mode (the valve opens
-fully against the cold air); a key thing BT's window handling must get
-right.
+fully against the cold air). Better Thermostat turns every TRV off while
+a window is open, whatever the calibration mode, so the runner closes
+the valve for every controller, the oracle included, for as long as the
+window is open. The controller still runs and is told the window is
+open. What these scenarios score is how each controller brings the room
+back once the window closes, and what its state carries through the
+window into that recovery.
 
 ### D — Solar gain & forecast (anticipation)
 
@@ -431,9 +436,9 @@ Read the matrix top-down with three anchors (full tables in
 
 * **Oracle = 1.0** — the ceiling. It normalises against itself, so it
   scores 1.0 on every scenario by construction.
-* **BangBang ≈ 0.57** — the noise floor. A naive on/off controller;
+* **BangBang ≈ 0.58** — the noise floor. A naive on/off controller;
   anything near it has a real problem.
-* **Production controllers ≈ 0.71–0.79** — the realistic band.
+* **Production controllers ≈ 0.71–0.80** — the realistic band.
 
 Then read *across* the dimension columns, not just `overall`:
 

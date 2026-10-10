@@ -5,12 +5,13 @@ strings to HVACMode and falling back to the cooler-mapped mode or OFF when the
 result is not in the entity's available list.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from tests.factories import ThermostatStandIn
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _FULL_LIST = [HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF]
@@ -19,7 +20,7 @@ _FULL_LIST = [HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF]
 @pytest.fixture
 def bt():
     """Minimal BetterThermostat mock for the hvac_mode property."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.bt_hvac_mode = HVACMode.HEAT
     mock._hvac_list = list(_FULL_LIST)
@@ -28,7 +29,7 @@ def bt():
 
 
 def _hvac_mode(bt):
-    return BetterThermostat.hvac_mode.fget(bt)
+    return BetterThermostat.hvac_mode.__get__(bt)
 
 
 def test_none_maps_to_off(bt):

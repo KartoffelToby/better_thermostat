@@ -34,14 +34,14 @@ class InitialConditions:
 
     Attributes
     ----------
-    T_room_C : float
+    T_room : float
         Room air temperature in °C.
-    T_rad_C : float
+    T_rad : float
         Radiator surface temperature in °C.
     """
 
-    T_room_C: float
-    T_rad_C: float
+    T_room: float
+    T_rad: float
 
 
 @dataclass(frozen=True)
@@ -54,23 +54,23 @@ class ScenarioConfig:
         Registry key and report label.
     description : str
         Human-readable one-line summary.
-    duration_min : int
+    duration_minutes : int
         Nominal scenario duration in minutes (scaled for slow plants).
     initial : InitialConditions
         Plant state at scenario start.
     plant : PlantParams
         Thermal plant the scenario runs against.
     setpoint_schedule : Callable[[float], float]
-        ``t_s -> T_setpoint_C``.
+        ``t_s -> T_setpoint``.
     outdoor_schedule : Callable[[float], float]
-        ``t_s -> T_outdoor_C``.
+        ``t_s -> T_outdoor``.
     transient_start_s : float
         Time from which transient metrics are evaluated.
     """
 
     name: str
     description: str
-    duration_min: int
+    duration_minutes: int
     initial: InitialConditions
     plant: PlantParams
     setpoint_schedule: Callable[[float], float]  # t_s → T_setpoint
@@ -109,8 +109,8 @@ class ScenarioConfig:
 S01_SETPOINT_STEP_SMALL = ScenarioConfig(
     name="S01_setpoint_step_small",
     description="Setpoint step 20.0 → 21.0 °C after 30 min stabilization",
-    duration_min=180,
-    initial=InitialConditions(T_room_C=20.0, T_rad_C=20.0),
+    duration_minutes=180,
+    initial=InitialConditions(T_room=20.0, T_rad=20.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.step(30 * 60.0, 20.0, 21.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -121,8 +121,8 @@ S01_SETPOINT_STEP_SMALL = ScenarioConfig(
 S02_SETPOINT_STEP_LARGE = ScenarioConfig(
     name="S02_setpoint_step_large",
     description="Setpoint step 19.0 → 23.0 °C after 30 min stabilization",
-    duration_min=300,
-    initial=InitialConditions(T_room_C=19.0, T_rad_C=19.0),
+    duration_minutes=300,
+    initial=InitialConditions(T_room=19.0, T_rad=19.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.step(30 * 60.0, 19.0, 23.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -133,8 +133,8 @@ S02_SETPOINT_STEP_LARGE = ScenarioConfig(
 S03_FROST_TO_COMFORT = ScenarioConfig(
     name="S03_frost_to_comfort",
     description="Cold home: 12 → 21 °C with cold outdoor (-2 °C)",
-    duration_min=720,  # 12 h: large jump on cold start
-    initial=InitialConditions(T_room_C=12.0, T_rad_C=12.0),
+    duration_minutes=720,  # 12 h: large jump on cold start
+    initial=InitialConditions(T_room=12.0, T_rad=12.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.step(30 * 60.0, 12.0, 21.0),
     outdoor_schedule=schedules.constant(-2.0),
@@ -147,8 +147,8 @@ S03_FROST_TO_COMFORT = ScenarioConfig(
 S04_SETPOINT_DROP = ScenarioConfig(
     name="S04_setpoint_drop",
     description="Downward setpoint step 22 → 19 °C — heat-off recovery",
-    duration_min=300,
-    initial=InitialConditions(T_room_C=22.0, T_rad_C=35.0),
+    duration_minutes=300,
+    initial=InitialConditions(T_room=22.0, T_rad=35.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.step(30 * 60.0, 22.0, 19.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -159,8 +159,8 @@ S04_SETPOINT_DROP = ScenarioConfig(
 S06_SETPOINT_DURING_HEATING = ScenarioConfig(
     name="S06_setpoint_during_heating",
     description="Multi-step setpoint: 20 → 22 → 21 °C while controller is active",
-    duration_min=360,
-    initial=InitialConditions(T_room_C=20.0, T_rad_C=20.0),
+    duration_minutes=360,
+    initial=InitialConditions(T_room=20.0, T_rad=20.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.piecewise_step(
         [(60 * 60.0, 22.0), (180 * 60.0, 21.0)], initial=20.0
@@ -173,8 +173,8 @@ S06_SETPOINT_DURING_HEATING = ScenarioConfig(
 S07_OUTDOOR_STEP_COLD = ScenarioConfig(
     name="S07_outdoor_step_cold",
     description="Outdoor temperature step 5 → -10 °C while holding setpoint 21",
-    duration_min=300,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=37.0),
+    duration_minutes=300,
+    initial=InitialConditions(T_room=21.0, T_rad=37.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.step(60 * 60.0, 5.0, -10.0),
@@ -185,8 +185,8 @@ S07_OUTDOOR_STEP_COLD = ScenarioConfig(
 S08_OUTDOOR_RAMP_WARM = ScenarioConfig(
     name="S08_outdoor_ramp_warm",
     description="Outdoor warms slowly from 5 to 12 °C over 6 h, setpoint constant 21",
-    duration_min=420,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=37.0),
+    duration_minutes=420,
+    initial=InitialConditions(T_room=21.0, T_rad=37.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.ramp(60 * 60.0, 60 * 60.0 + 6 * 3600.0, 5.0, 12.0),
@@ -197,8 +197,8 @@ S08_OUTDOOR_RAMP_WARM = ScenarioConfig(
 S09_WINDOW_OPEN_SHORT = ScenarioConfig(
     name="S09_window_open_short",
     description="5-minute window-open event at t=60 min, setpoint 21",
-    duration_min=240,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=37.0),
+    duration_minutes=240,
+    initial=InitialConditions(T_room=21.0, T_rad=37.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -210,8 +210,8 @@ S09_WINDOW_OPEN_SHORT = ScenarioConfig(
 S10_WINDOW_OPEN_LONG = ScenarioConfig(
     name="S10_window_open_long",
     description="20-minute window-open event at t=60 min, setpoint 21",
-    duration_min=360,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=37.0),
+    duration_minutes=360,
+    initial=InitialConditions(T_room=21.0, T_rad=37.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -223,8 +223,8 @@ S10_WINDOW_OPEN_LONG = ScenarioConfig(
 S11_SOLAR_GAIN_MORNING = ScenarioConfig(
     name="S11_solar_gain_morning",
     description="Solar trapezoid (rise 60 min, plateau 60 min, fall 60 min) at full intensity",
-    duration_min=300,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=37.0),
+    duration_minutes=300,
+    initial=InitialConditions(T_room=21.0, T_rad=37.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(8.0),
@@ -238,8 +238,8 @@ S11_SOLAR_GAIN_MORNING = ScenarioConfig(
 S12_SENSOR_DROPOUT = ScenarioConfig(
     name="S12_sensor_dropout",
     description="10-minute sensor dropout at t=60-70 min, setpoint 21",
-    duration_min=240,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=37.0),
+    duration_minutes=240,
+    initial=InitialConditions(T_room=21.0, T_rad=37.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -253,8 +253,8 @@ S12_SENSOR_DROPOUT = ScenarioConfig(
 S13_COLD_START = ScenarioConfig(
     name="S13_cold_start",
     description="Cold start: T_room=15, no prior controller state, setpoint 20",
-    duration_min=360,
-    initial=InitialConditions(T_room_C=15.0, T_rad_C=15.0),
+    duration_minutes=360,
+    initial=InitialConditions(T_room=15.0, T_rad=15.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(20.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -267,8 +267,8 @@ S13_COLD_START = ScenarioConfig(
 S05_SLOW_RADIATOR = ScenarioConfig(
     name="S05_slow_radiator",
     description="Setpoint step 20 → 21 °C on an underfloor heating plant",
-    duration_min=480,
-    initial=InitialConditions(T_room_C=20.0, T_rad_C=20.0),
+    duration_minutes=480,
+    initial=InitialConditions(T_room=20.0, T_rad=20.0),
     plant=PROFILE_UNDERFLOOR,
     setpoint_schedule=schedules.step(30 * 60.0, 20.0, 21.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -279,8 +279,8 @@ S05_SLOW_RADIATOR = ScenarioConfig(
 S14_NIGHTLY_SETBACK = ScenarioConfig(
     name="S14_nightly_setback",
     description="Setback 18 °C → wake-up 21 °C after 30 min → setback 18 °C at 10 h",
-    duration_min=12 * 60,
-    initial=InitialConditions(T_room_C=18.0, T_rad_C=18.0),
+    duration_minutes=12 * 60,
+    initial=InitialConditions(T_room=18.0, T_rad=18.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.piecewise_step(
         [(30 * 60.0, 21.0), (10 * 3600.0, 18.0)], initial=18.0
@@ -293,8 +293,8 @@ S14_NIGHTLY_SETBACK = ScenarioConfig(
 S15_DAILY_CYCLE = ScenarioConfig(
     name="S15_daily_cycle",
     description="24 h day: morning warmup, daytime away, evening, night setback",
-    duration_min=24 * 60,
-    initial=InitialConditions(T_room_C=19.0, T_rad_C=22.0),
+    duration_minutes=24 * 60,
+    initial=InitialConditions(T_room=19.0, T_rad=22.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.piecewise_step(
         [
@@ -314,8 +314,8 @@ S15_DAILY_CYCLE = ScenarioConfig(
 S17_SENSOR_BIAS = ScenarioConfig(
     name="S17_sensor_bias",
     description="Steady-state with constant sensor bias +0.5 K (room ends 0.5 K below SP)",
-    duration_min=8 * 60,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=33.0),
+    duration_minutes=8 * 60,
+    initial=InitialConditions(T_room=21.0, T_rad=33.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -327,8 +327,8 @@ S17_SENSOR_BIAS = ScenarioConfig(
 S18_SENSOR_DRIFT = ScenarioConfig(
     name="S18_sensor_drift",
     description="Slow sensor drift +0.05 K/h over 12 h (alters perceived ss_err)",
-    duration_min=12 * 60,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=33.0),
+    duration_minutes=12 * 60,
+    initial=InitialConditions(T_room=21.0, T_rad=33.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -340,15 +340,15 @@ S18_SENSOR_DRIFT = ScenarioConfig(
 S19_VALVE_STICTION = ScenarioConfig(
     name="S19_valve_stiction",
     description="Steady-state under 5 % valve stiction (stick-slip hysteresis)",
-    duration_min=6 * 60,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=33.0),
+    duration_minutes=6 * 60,
+    initial=InitialConditions(T_room=21.0, T_rad=33.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(5.0),
     actuator_params=ActuatorParams(
         profile=ActuatorProfile.EQUAL_PERCENTAGE,
         equal_percentage_exponent=3.0,
-        hysteresis_pct=5.0,
+        hysteresis_percent=5.0,
     ),
     transient_start_s=30 * 60.0,
 )
@@ -357,15 +357,15 @@ S19_VALVE_STICTION = ScenarioConfig(
 S20_VALVE_DEADBAND = ScenarioConfig(
     name="S20_valve_deadband",
     description="Small setpoint step (20 → 21) on a valve with 3 % deadband",
-    duration_min=180,
-    initial=InitialConditions(T_room_C=20.0, T_rad_C=20.0),
+    duration_minutes=180,
+    initial=InitialConditions(T_room=20.0, T_rad=20.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.step(30 * 60.0, 20.0, 21.0),
     outdoor_schedule=schedules.constant(5.0),
     actuator_params=ActuatorParams(
         profile=ActuatorProfile.EQUAL_PERCENTAGE,
         equal_percentage_exponent=3.0,
-        deadband_pct=3.0,
+        deadband_percent=3.0,
     ),
     transient_start_s=30 * 60.0,
 )
@@ -374,8 +374,8 @@ S20_VALVE_DEADBAND = ScenarioConfig(
 S23_BOILER_LIMITED = ScenarioConfig(
     name="S23_boiler_limited",
     description="Cold start (15 → 21 °C) on a 42 °C heat-pump supply at +8 °C outdoor",
-    duration_min=720,  # 12 h — heat pump warmup is slower
-    initial=InitialConditions(T_room_C=15.0, T_rad_C=15.0),
+    duration_minutes=720,  # 12 h — heat pump warmup is slower
+    initial=InitialConditions(T_room=15.0, T_rad=15.0),
     plant=PROFILE_BOILER_LIMITED,
     setpoint_schedule=schedules.step(30 * 60.0, 15.0, 21.0),
     outdoor_schedule=schedules.constant(8.0),
@@ -387,8 +387,8 @@ S23_BOILER_LIMITED = ScenarioConfig(
 S21_STOCHASTIC_WINDOWS = ScenarioConfig(
     name="S21_stochastic_windows",
     description="12 h with 3 randomised window-open events (Annex-79-style)",
-    duration_min=12 * 60,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=33.0),
+    duration_minutes=12 * 60,
+    initial=InitialConditions(T_room=21.0, T_rad=33.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(0.0),
@@ -407,8 +407,8 @@ S21_STOCHASTIC_WINDOWS = ScenarioConfig(
 S24_CONTROLLER_RESTART = ScenarioConfig(
     name="S24_controller_restart",
     description="Steady-state, then controller reset() at t=2h (HA restart sim)",
-    duration_min=4 * 60,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=35.0),
+    duration_minutes=4 * 60,
+    initial=InitialConditions(T_room=21.0, T_rad=35.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(0.0),
@@ -420,8 +420,8 @@ S24_CONTROLLER_RESTART = ScenarioConfig(
 S25_DEMAND_RESPONSE = ScenarioConfig(
     name="S25_demand_response",
     description="Grid demand-response: pre-heat +2 K, then setback -1 K, back to normal",
-    duration_min=8 * 60,
-    initial=InitialConditions(T_room_C=20.0, T_rad_C=30.0),
+    duration_minutes=8 * 60,
+    initial=InitialConditions(T_room=20.0, T_rad=30.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.piecewise_step(
         [
@@ -439,8 +439,8 @@ S25_DEMAND_RESPONSE = ScenarioConfig(
 S16_VACATION = ScenarioConfig(
     name="S16_vacation",
     description="6 d vacation: 20 °C → 8 °C frost-protect (5 d) → 20 °C return",
-    duration_min=6 * 24 * 60,  # 144 h
-    initial=InitialConditions(T_room_C=20.0, T_rad_C=25.0),
+    duration_minutes=6 * 24 * 60,  # 144 h
+    initial=InitialConditions(T_room=20.0, T_rad=25.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.piecewise_step(
         [
@@ -460,7 +460,7 @@ def _build_synthetic_weather_scenario(
     seed: int,
     start_day_of_year: int = 14,
     duration_h: int = 168,
-    setpoint_C: float = 21.0,
+    setpoint: float = 21.0,
 ) -> ScenarioConfig:
     """Build a constant-setpoint, weather-driven scenario.
 
@@ -480,7 +480,7 @@ def _build_synthetic_weather_scenario(
         Day of year at which the weather slice starts.
     duration_h : int
         Scenario length in hours.
-    setpoint_C : float
+    setpoint : float
         Constant setpoint in °C.
 
     Returns
@@ -495,12 +495,12 @@ def _build_synthetic_weather_scenario(
         name=name,
         description=(
             f"{duration_h // 24} d {climate.name} winter slice "
-            f"(seed={seed}), setpoint {setpoint_C} °C"
+            f"(seed={seed}), setpoint {setpoint} °C"
         ),
-        duration_min=duration_h * 60,
-        initial=InitialConditions(T_room_C=setpoint_C, T_rad_C=setpoint_C + 8.0),
+        duration_minutes=duration_h * 60,
+        initial=InitialConditions(T_room=setpoint, T_rad=setpoint + 8.0),
         plant=PROFILE_STANDARD,
-        setpoint_schedule=schedules.constant(setpoint_C),
+        setpoint_schedule=schedules.constant(setpoint),
         outdoor_schedule=outdoor,
         solar_intensity_schedule=solar,
         transient_start_s=0.0,
@@ -530,8 +530,8 @@ S28_INDIRECT_TRV_TADO = ScenarioConfig(
         "internal P-loop); the wrapping itself is selected by the "
         "controller registry, not by this config"
     ),
-    duration_min=4 * 60,
-    initial=InitialConditions(T_room_C=19.0, T_rad_C=19.0),
+    duration_minutes=4 * 60,
+    initial=InitialConditions(T_room=19.0, T_rad=19.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.step(30 * 60.0, 19.0, 21.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -542,8 +542,8 @@ S28_INDIRECT_TRV_TADO = ScenarioConfig(
 S30_FROST_DRIFT_RECOVERY = ScenarioConfig(
     name="S30_frost_drift_recovery",
     description="7 d frost-protection at 12 °C, then 8 h recovery to 21 °C — only recovery is scored",
-    duration_min=7 * 24 * 60 + 8 * 60,
-    initial=InitialConditions(T_room_C=12.0, T_rad_C=15.0),
+    duration_minutes=7 * 24 * 60 + 8 * 60,
+    initial=InitialConditions(T_room=12.0, T_rad=15.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.piecewise_step([(7 * 24 * 3600.0, 21.0)], initial=12.0),
     outdoor_schedule=schedules.constant(-5.0),
@@ -555,8 +555,8 @@ S30_FROST_DRIFT_RECOVERY = ScenarioConfig(
 S32_FORECAST_MISMATCH_SOLAR = ScenarioConfig(
     name="S32_forecast_mismatch_solar",
     description="Controller sees solar=1.0 (wrong forecast) while plant gets solar=0.0",
-    duration_min=8 * 60,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=33.0),
+    duration_minutes=8 * 60,
+    initial=InitialConditions(T_room=21.0, T_rad=33.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(-5.0),
@@ -569,8 +569,8 @@ S32_FORECAST_MISMATCH_SOLAR = ScenarioConfig(
 S29_HEATPUMP_STEADY_STATE = ScenarioConfig(
     name="S29_heatpump_steady_state",
     description="24 h on PROFILE_BOILER_LIMITED with diurnal outdoor; evaluate valve sweet-spot residency",
-    duration_min=24 * 60,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=33.0),
+    duration_minutes=24 * 60,
+    initial=InitialConditions(T_room=21.0, T_rad=33.0),
     plant=PROFILE_BOILER_LIMITED,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.sinus_diurnal(
@@ -583,8 +583,8 @@ S29_HEATPUMP_STEADY_STATE = ScenarioConfig(
 S33_UFH_ASYMMETRIC = ScenarioConfig(
     name="S33_ufh_asymmetric",
     description="Underfloor SP step 20 → 21; asymmetric overshoot/undershoot accounting",
-    duration_min=16 * 60,
-    initial=InitialConditions(T_room_C=20.0, T_rad_C=28.0),
+    duration_minutes=16 * 60,
+    initial=InitialConditions(T_room=20.0, T_rad=28.0),
     plant=PROFILE_UNDERFLOOR,
     setpoint_schedule=schedules.step(30 * 60.0, 20.0, 21.0),
     outdoor_schedule=schedules.constant(10.0),
@@ -595,8 +595,8 @@ S33_UFH_ASYMMETRIC = ScenarioConfig(
 S31_BOILER_CYCLE_STRESS = ScenarioConfig(
     name="S31_boiler_cycle_stress",
     description="Multi-step SP wobble on a 20 % deadband valve — boiler cycle stress",
-    duration_min=6 * 60,
-    initial=InitialConditions(T_room_C=20.5, T_rad_C=30.0),
+    duration_minutes=6 * 60,
+    initial=InitialConditions(T_room=20.5, T_rad=30.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.piecewise_step(
         [(60 * 60.0, 21.0), (120 * 60.0, 20.8), (180 * 60.0, 21.2), (240 * 60.0, 21.0)],
@@ -606,8 +606,8 @@ S31_BOILER_CYCLE_STRESS = ScenarioConfig(
     actuator_params=ActuatorParams(
         profile=ActuatorProfile.EQUAL_PERCENTAGE,
         equal_percentage_exponent=3.0,
-        deadband_pct=20.0,
-        hysteresis_pct=3.0,
+        deadband_percent=20.0,
+        hysteresis_percent=3.0,
     ),
     transient_start_s=0.0,
 )
@@ -616,8 +616,8 @@ S31_BOILER_CYCLE_STRESS = ScenarioConfig(
 S35_SAMPLE_JITTER = ScenarioConfig(
     name="S35_sample_jitter",
     description="SP step 20 → 21 with sensor sample interval jittering ±45 s around 120 s",
-    duration_min=4 * 60,
-    initial=InitialConditions(T_room_C=20.0, T_rad_C=20.0),
+    duration_minutes=4 * 60,
+    initial=InitialConditions(T_room=20.0, T_rad=20.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.step(30 * 60.0, 20.0, 21.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -629,8 +629,8 @@ S35_SAMPLE_JITTER = ScenarioConfig(
 S36_USER_OVERRIDE = ScenarioConfig(
     name="S36_user_override",
     description="SP whipped via API every 8 minutes — controller must not drop updates",
-    duration_min=2 * 60,
-    initial=InitialConditions(T_room_C=20.0, T_rad_C=30.0),
+    duration_minutes=2 * 60,
+    initial=InitialConditions(T_room=20.0, T_rad=30.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.piecewise_step(
         [
@@ -652,14 +652,14 @@ S36_USER_OVERRIDE = ScenarioConfig(
 S27_PIPE_FILL_AFTER_IDLE = ScenarioConfig(
     name="S27_pipe_fill_after_idle",
     description="Long idle then SP step 20 → 22 with 120 s pipe-transport delay",
-    duration_min=4 * 60,
-    initial=InitialConditions(T_room_C=20.0, T_rad_C=20.0),
+    duration_minutes=4 * 60,
+    initial=InitialConditions(T_room=20.0, T_rad=20.0),
     plant=PlantParams(
         tau_room_min=480.0,
         tau_rad_min=15.0,
         gain_heater=2.0,
         coupling_rad_room=1.0,
-        T_water_C=65.0,
+        T_water=65.0,
         valve_command_delay_s=120.0,
     ),
     setpoint_schedule=schedules.step(120 * 60.0, 20.0, 22.0),
@@ -672,8 +672,8 @@ S27_PIPE_FILL_AFTER_IDLE = ScenarioConfig(
 S26_COOLING_MODE = ScenarioConfig(
     name="S26_cooling_mode",
     description="Hot day (outdoor 28 °C) on a reverse-acting chilled-water plant",
-    duration_min=8 * 60,
-    initial=InitialConditions(T_room_C=22.0, T_rad_C=22.0),
+    duration_minutes=8 * 60,
+    initial=InitialConditions(T_room=22.0, T_rad=22.0),
     plant=PROFILE_COOLING,
     setpoint_schedule=schedules.constant(22.0),
     outdoor_schedule=schedules.constant(28.0),
@@ -684,8 +684,8 @@ S26_COOLING_MODE = ScenarioConfig(
 S22_DIURNAL_OUTDOOR = ScenarioConfig(
     name="S22_diurnal_outdoor",
     description="Constant 21 °C setpoint under a 24 h diurnal outdoor cycle (-5..+3 °C)",
-    duration_min=24 * 60,
-    initial=InitialConditions(T_room_C=21.0, T_rad_C=31.0),
+    duration_minutes=24 * 60,
+    initial=InitialConditions(T_room=21.0, T_rad=31.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.sinus_diurnal(

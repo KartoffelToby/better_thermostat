@@ -5,17 +5,18 @@ from __future__ import annotations
 import copy
 from dataclasses import replace
 import json
+import logging
+import math
 
 import numpy as np
 import pytest
-
-pytest.importorskip("daqp")
 
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     PLANT_PRESETS,
     SNAPSHOT_VERSION,
     ControllerSnapshot,
     MpcV2Controller,
+    MpcV2Diagnostics,
     MpcV2Input,
     MpcV2Params,
     MpcV2State,
@@ -24,23 +25,42 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     import_mpc_v2_state,
     make_plant_prior,
 )
+from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
+    MIN_STEP_DT_S,
+)
+from custom_components.better_thermostat.utils.calibration.mpc_v2.state import (
+    _plant_signature_of,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     PlantModelRC2,
     PlantParams,
 )
 
 
-def _baseline_input(**overrides: object) -> MpcV2Input:
+def _baseline_input(
+    *,
+    key: str = "room",
+    target_temperature: float | None = 22.0,
+    room_temperature: float | None = 20.0,
+    trv_temperature: float | None = None,
+    outdoor_temperature: float | None = 5.0,
+    heating_allowed: bool = True,
+    window_open: bool = False,
+    max_opening_percent: float | None = None,
+    applied_valve_percent: float | None = None,
+) -> MpcV2Input:
     """Build a baseline MpcV2Input with optional field overrides."""
-    base = MpcV2Input(
-        key="room",
-        target_temp_C=22.0,
-        current_temp_C=20.0,
-        outdoor_temp_C=5.0,
-        heating_allowed=True,
-        window_open=False,
+    return MpcV2Input(
+        key=key,
+        target_temperature=target_temperature,
+        room_temperature=room_temperature,
+        trv_temperature=trv_temperature,
+        outdoor_temperature=outdoor_temperature,
+        heating_allowed=heating_allowed,
+        window_open=window_open,
+        max_opening_percent=max_opening_percent,
+        applied_valve_percent=applied_valve_percent,
     )
-    return replace(base, **overrides) if overrides else base
 
 
 def test_window_open_returns_none() -> None:
@@ -56,30 +76,102 @@ def test_heating_disallowed_returns_none() -> None:
     assert out is None
 
 
-def test_missing_current_temp_returns_none() -> None:
+def test_missing_current_temperature_returns_none() -> None:
     """A missing current room temperature returns no command."""
-    out, _ = compute_mpc_v2(_baseline_input(current_temp_C=None), MpcV2Params(), None)
+    out, _ = compute_mpc_v2(_baseline_input(room_temperature=None), MpcV2Params(), None)
     assert out is None
 
 
 def test_first_call_creates_controller_and_returns_percent() -> None:
-    """First call builds a controller and returns a bounded valve percent."""
+    """First call builds a controller and a cold room gets a partial opening."""
     out, state = compute_mpc_v2(_baseline_input(), MpcV2Params(), None)
     assert out is not None
     assert isinstance(out.valve_percent, int)
-    assert 0 <= out.valve_percent <= 100
+    assert 0 < out.valve_percent < 100
     assert state.controller is not None
     assert state.last_percent == float(out.valve_percent)
 
 
-def test_max_opening_pct_is_honoured() -> None:
-    """The valve percent never exceeds the configured max_opening_pct."""
+def test_max_opening_percent_is_honoured() -> None:
+    """The valve percent never exceeds the configured max_opening_percent."""
     params = MpcV2Params()
     out, _ = compute_mpc_v2(
-        _baseline_input(current_temp_C=15.0, max_opening_pct=40.0), params, None
+        _baseline_input(room_temperature=15.0, max_opening_percent=40.0), params, None
     )
     assert out is not None
     assert out.valve_percent <= 40
+
+
+def _step_returning(fraction: float):
+    """Wrap ``MpcV2Controller.step`` so it reports a fixed valve fraction.
+
+    The optimiser cannot be steered onto an exact half percent from the
+    outside, so the percent conversion is exercised by pinning the fraction
+    the controller hands back while its diagnostics stay real.
+    """
+    real_step = MpcV2Controller.step
+
+    def fixed_step(
+        self: MpcV2Controller,
+        t_s: float,
+        T_room: float,
+        T_target: float,
+        T_outdoor: float,
+        T_rad: float | None = None,
+        u_max: float | None = None,
+    ) -> tuple[float, MpcV2Diagnostics]:
+        _u, diagnostics = real_step(
+            self,
+            t_s=t_s,
+            T_room=T_room,
+            T_target=T_target,
+            T_outdoor=T_outdoor,
+            T_rad=T_rad,
+            u_max=u_max,
+        )
+        return fraction, diagnostics
+
+    return fixed_step
+
+
+@pytest.mark.parametrize(
+    ("fraction", "expected"),
+    [
+        pytest.param(0.005, 1, id="0.5-percent"),
+        pytest.param(0.025, 3, id="2.5-percent"),
+        pytest.param(0.045, 5, id="4.5-percent"),
+        pytest.param(0.125, 13, id="12.5-percent"),
+        # The four half percents below 1.0 whose double sits under the half:
+        # 0.285 * 100.0 is 28.499999999999996, so a bare `+ 0.5` sends them
+        # down and the contract above would hold for most halves but not all.
+        pytest.param(0.145, 15, id="14.5-percent-below-its-half"),
+        pytest.param(0.285, 29, id="28.5-percent-below-its-half"),
+        pytest.param(0.565, 57, id="56.5-percent-below-its-half"),
+        pytest.param(0.575, 58, id="57.5-percent-below-its-half"),
+        pytest.param(0.1234, 12, id="rounds-down"),
+        pytest.param(0.1256, 13, id="rounds-up"),
+        pytest.param(0.0, 0, id="closed"),
+        pytest.param(1.0, 100, id="wide-open"),
+    ],
+)
+def test_valve_percent_rounds_half_up(
+    monkeypatch, fraction: float, expected: int
+) -> None:
+    """A fraction landing exactly between two percents opens the wider one."""
+    monkeypatch.setattr(MpcV2Controller, "step", _step_returning(fraction))
+    out, _ = compute_mpc_v2(_baseline_input(), MpcV2Params(), None)
+    assert out is not None
+    assert out.valve_percent == expected
+
+
+def test_fractional_max_opening_percent_is_never_exceeded(monkeypatch) -> None:
+    """A cap of 55.9 % admits 55 %, never a rounded-up 56 %."""
+    monkeypatch.setattr(MpcV2Controller, "step", _step_returning(1.0))
+    out, _ = compute_mpc_v2(
+        _baseline_input(max_opening_percent=55.9), MpcV2Params(), None
+    )
+    assert out is not None
+    assert out.valve_percent == 55
 
 
 def test_diagnostics_exposed() -> None:
@@ -93,13 +185,82 @@ def test_diagnostics_exposed() -> None:
     assert diag.T_rad_hat == diag.T_rad_hat
 
 
+def test_confirmed_valve_input_replaces_optimistic_previous_command(
+    monkeypatch,
+) -> None:
+    """The next cycle models the adapter-confirmed input, not its proposal."""
+    state = MpcV2State()
+    _out, state = compute_mpc_v2(_baseline_input(), MpcV2Params(), state, now=100.0)
+    controller = state.controller
+    assert controller is not None
+    controller.set_command_u(0.9)
+
+    seen_previous_input: list[float] = []
+    original_step = controller.step
+
+    def _capture_step(*args, **kwargs):
+        seen_previous_input.append(controller._last_u)
+        return original_step(*args, **kwargs)
+
+    monkeypatch.setattr(controller, "step", _capture_step)
+    out, state = compute_mpc_v2(
+        _baseline_input(applied_valve_percent=20.0), MpcV2Params(), state, now=400.0
+    )
+    assert out is not None
+    assert seen_previous_input == [0.2]
+
+
+_REPLAN_ERROR_K = -0.4
+
+
+def _integral_after_one_replan(gap_s: float) -> tuple[float, float]:
+    """Return the error integral after a replan ``gap_s`` after the first one.
+
+    The room sits ``_REPLAN_ERROR_K`` off the target, inside the integration
+    band, with the valve mid-rail, so the anti-windup guard never skips the
+    step. Also returns the replan interval.
+    """
+    params = MpcV2Params()
+    params.governor.enabled = False
+    controller = MpcV2Controller(params)
+    assert abs(_REPLAN_ERROR_K) < controller.params.qp.integral_error_band
+    room_temperature = 22.0 + _REPLAN_ERROR_K
+    controller.step(100.0, room_temperature, 22.0, 5.0)
+    controller.set_applied_u(0.5)
+    controller.step(100.0 + gap_s, room_temperature, 22.0, 5.0)
+    return controller.optimiser.e_integral_K_min, controller.params.qp.step_s
+
+
+def test_integral_covers_an_on_schedule_replan_interval() -> None:
+    """A replan on schedule integrates the error over the interval it held."""
+    params = MpcV2Params()
+    params.governor.enabled = False
+    step_s = MpcV2Controller(params).params.qp.step_s
+
+    integral, _ = _integral_after_one_replan(step_s)
+
+    assert integral == pytest.approx(_REPLAN_ERROR_K * step_s / 60.0)
+
+
+def test_a_delayed_replan_integrates_at_most_one_replan_interval() -> None:
+    """A gap between replans adds no more error than one interval would.
+
+    While no plan ran, the controller neither commanded nor observed the
+    loop it integrates, so the time it was away is not tracking error.
+    """
+    integral, step_s = _integral_after_one_replan(900.0)
+
+    assert step_s < 900.0
+    assert integral == pytest.approx(_REPLAN_ERROR_K * step_s / 60.0)
+
+
 def test_snapshot_round_trip_preserves_last_u() -> None:
     """export_snapshot → restore_snapshot reproduces the controller's last command."""
     state = None
     for i in range(5):
         T = 19.5 + 0.05 * i
         out, state = compute_mpc_v2(
-            _baseline_input(current_temp_C=T), MpcV2Params(), state
+            _baseline_input(room_temperature=T), MpcV2Params(), state
         )
         assert out is not None
     assert state is not None and state.controller is not None
@@ -111,6 +272,36 @@ def test_snapshot_round_trip_preserves_last_u() -> None:
     assert fresh._last_u == state.controller._last_u
     assert fresh._initialised is True
     np.testing.assert_allclose(fresh.kalman.x_hat, state.controller.kalman.x_hat)
+
+
+def test_a_fixed_step_keeps_the_configured_horizon_grid() -> None:
+    """With adaptive stepping off the QP keeps the step size it was given."""
+    params = MpcV2Params()
+    params.qp.adaptive_step_s = False
+    params.qp.step_s = 90.0
+
+    controller = MpcV2Controller(params)
+
+    assert controller.params.qp.step_s == 90.0
+    assert controller.plant_coarse.dt_s == 90.0
+
+
+def test_a_command_before_the_first_step_records_no_history() -> None:
+    """Nothing has been planned yet, so there is no entry to overwrite.
+
+    `set_command_u` and `set_applied_u` amend the command the last cycle
+    planned. Called on a controller that has never stepped, they must clamp the
+    value and leave the empty history alone rather than index into it.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+
+    controller.set_command_u(1.5)
+    assert controller._last_u == 1.0
+
+    controller.set_applied_u(-0.4)
+
+    assert controller._last_u == 0.0
+    assert list(controller._u_history) == []
 
 
 def test_make_plant_prior_defaults_when_no_input() -> None:
@@ -226,56 +417,162 @@ def test_cumulative_plant_prior_drift_rebuilds_once() -> None:
 def test_sub_second_repeat_step_holds_covariance() -> None:
     """A same-pass repeat step returns last_u without re-folding the measurement."""
     controller = MpcV2Controller(MpcV2Params())
-    u1, _ = controller.step(t_s=1000.0, T_room_C=20.0, T_target_C=22.0, T_outdoor_C=5.0)
+    u1, _ = controller.step(t_s=1000.0, T_room=20.0, T_target=22.0, T_outdoor=5.0)
     p_after_first = controller.kalman.P.copy()
 
     # Second TRV in the same control pass: milliseconds later, same reading.
-    u2, _ = controller.step(
-        t_s=1000.005, T_room_C=20.0, T_target_C=22.0, T_outdoor_C=5.0
-    )
+    u2, _ = controller.step(t_s=1000.005, T_room=20.0, T_target=22.0, T_outdoor=5.0)
     assert u2 == u1
     np.testing.assert_array_equal(controller.kalman.P, p_after_first)
 
     # A regular next cycle still advances the filter.
-    controller.step(t_s=1000.0 + 30.0, T_room_C=20.1, T_target_C=22.0, T_outdoor_C=5.0)
+    controller.step(t_s=1000.0 + 30.0, T_room=20.1, T_target=22.0, T_outdoor=5.0)
     assert not np.array_equal(controller.kalman.P, p_after_first)
 
 
+@pytest.mark.parametrize("offset_s", [-0.5, -0.001, 0.0, 0.5])
+def test_a_repeat_within_the_minimum_step_holds_the_command(offset_s: float) -> None:
+    """A call less than a second before or after the last one holds the command.
+
+    It neither folds the reading into the filter again nor moves the stamp
+    the next cycle measures its interval from.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+    u1, _ = controller.step(t_s=1000.0, T_room=20.0, T_target=22.0, T_outdoor=5.0)
+    p_after_first = controller.kalman.P.copy()
+
+    u2, _ = controller.step(
+        t_s=1000.0 + offset_s, T_room=17.0, T_target=22.0, T_outdoor=5.0
+    )
+
+    assert u2 == u1
+    np.testing.assert_array_equal(controller.kalman.P, p_after_first)
+    assert controller._last_t_s == 1000.0
+
+
+def test_a_step_back_of_the_minimum_step_runs_a_cycle() -> None:
+    """A call a full minimum step before the last one folds its reading in."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1000.0, T_room=20.0, T_target=22.0, T_outdoor=5.0)
+    p_after_first = controller.kalman.P.copy()
+
+    controller.step(
+        t_s=1000.0 - MIN_STEP_DT_S, T_room=17.0, T_target=22.0, T_outdoor=5.0
+    )
+
+    assert not np.array_equal(controller.kalman.P, p_after_first)
+    assert controller._last_t_s == 1000.0 - MIN_STEP_DT_S
+
+
+_STEP_BACK_START_S = 1_700_000_000.0
+_STEP_BACK_CYCLE_S = 300.0
+
+
+def _settled_at_target() -> tuple[MpcV2State, float]:
+    """Run two hours of five-minute cycles with the room on its setpoint.
+
+    Returns the state and the time of the cycle that would follow.
+    """
+    state: MpcV2State | None = None
+    now = _STEP_BACK_START_S
+    for _ in range(24):
+        out, state = compute_mpc_v2(
+            _baseline_input(target_temperature=21.0, room_temperature=21.0),
+            MpcV2Params(),
+            state,
+            now=now,
+        )
+        assert out is not None
+        now += _STEP_BACK_CYCLE_S
+    assert state is not None
+    return state, now
+
+
+def _cold_room_percents(state: MpcV2State, now: float, cycles: int) -> list[int]:
+    """Return the valve percents of ``cycles`` cycles in a room 4 K cold."""
+    percents = []
+    for _ in range(cycles):
+        out, state = compute_mpc_v2(
+            _baseline_input(
+                target_temperature=21.0,
+                room_temperature=17.0,
+                applied_valve_percent=state.last_percent,
+            ),
+            MpcV2Params(),
+            state,
+            now=now,
+        )
+        assert out is not None
+        percents.append(out.valve_percent)
+        now += _STEP_BACK_CYCLE_S
+    return percents
+
+
+def test_a_forward_cycle_opens_the_valve_for_a_cold_room() -> None:
+    """On a clock that runs forward, a room 4 K cold opens the valve at once."""
+    state, now = _settled_at_target()
+    assert state.last_percent is not None
+    held = int(state.last_percent)
+
+    percents = _cold_room_percents(state, now, cycles=1)
+
+    assert percents[0] > held
+
+
+def test_a_wall_clock_step_back_does_not_hold_the_valve() -> None:
+    """After the wall clock steps back, the controller keeps controlling.
+
+    A time sync or a host that boots without a real-time clock can set the
+    clock hours back. Every stamp the controller took before the step then
+    lies ahead of the clock; the next cycles must still compute a command
+    rather than repeat the last one until the clock passes the old stamps.
+    """
+    state, now = _settled_at_target()
+    assert state.last_percent is not None
+    held = int(state.last_percent)
+    assert state.controller is not None
+
+    percents = _cold_room_percents(state, now - 4 * 3600.0, cycles=2)
+
+    assert max(percents) > held
+    assert float(state.controller.kalman.x_hat[0]) < 18.0
+    assert state.controller._last_t_s == now - 4 * 3600.0 + _STEP_BACK_CYCLE_S
+
+
 def test_outdoor_fallback_logs_once(caplog) -> None:
-    """Missing outdoor_temp_C triggers exactly one WARN per controller."""
+    """Missing outdoor_temperature triggers exactly one WARN per controller."""
     state: MpcV2State | None = None
 
     with caplog.at_level("WARNING"):
         out, state = compute_mpc_v2(
-            _baseline_input(key="outdoor-fallback-key", outdoor_temp_C=None),
+            _baseline_input(key="outdoor-fallback-key", outdoor_temperature=None),
             MpcV2Params(),
             state,
         )
         out, state = compute_mpc_v2(
-            _baseline_input(key="outdoor-fallback-key", outdoor_temp_C=None),
+            _baseline_input(key="outdoor-fallback-key", outdoor_temperature=None),
             MpcV2Params(),
             state,
         )
 
     fallback_warnings = [
-        r for r in caplog.records if "outdoor_temp_C" in r.getMessage()
+        r for r in caplog.records if "outdoor_temperature" in r.getMessage()
     ]
     assert len(fallback_warnings) == 1
 
 
-def test_daqp_guard_raises_when_unavailable(monkeypatch) -> None:
-    """Patching DAQP_AVAILABLE to False must surface at controller init."""
+def test_daqp_absence_uses_portable_solver(monkeypatch) -> None:
+    """Patching DAQP unavailable must still construct a usable controller."""
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
         qp_optimiser,
     )
 
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
-    monkeypatch.setattr(qp_optimiser, "_DAQP_IMPORT_ERROR", "synthetic test failure")
-    try:
-        with pytest.raises(ImportError, match="daqp"):
-            MpcV2Controller(MpcV2Params())
-    finally:
-        monkeypatch.undo()
+    monkeypatch.setattr(qp_optimiser, "_daqp", None)
+    controller = MpcV2Controller(MpcV2Params())
+    u, _diag = controller.step(t_s=1000.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+    # A room 3 K below target opens the valve, within the valve's range.
+    assert 0.0 < u <= 1.0
 
 
 def test_snapshot_carries_version_tag() -> None:
@@ -303,11 +600,13 @@ def test_state_round_trip() -> None:
     state: MpcV2State | None = None
     for i in range(3):
         _, state = compute_mpc_v2(
-            _baseline_input(key="roundtrip-key", current_temp_C=19.0 + 0.05 * i),
+            _baseline_input(key="roundtrip-key", room_temperature=19.0 + 0.05 * i),
             MpcV2Params(),
             state,
         )
 
+    assert state is not None
+    assert state.controller is not None
     exported = export_mpc_v2_state(state)
     assert exported is not None
     assert exported["snapshot"]["v"] == SNAPSHOT_VERSION
@@ -323,28 +622,54 @@ def test_export_state_without_controller_returns_none() -> None:
     assert export_mpc_v2_state(MpcV2State()) is None
 
 
+def test_unreadable_snapshot_is_reported_at_warning(monkeypatch, caplog) -> None:
+    """A snapshot that cannot be rehydrated is louder than an absent one.
+
+    Both cases boot a fresh controller, so without a WARNING carrying the
+    exception a corrupt store looks exactly like a first start.
+    """
+
+    def raise_on_restore(self, snap: ControllerSnapshot) -> None:
+        raise RuntimeError("snapshot payload is inconsistent")
+
+    monkeypatch.setattr(MpcV2Controller, "restore_snapshot", raise_on_restore)
+    payload = {"snapshot": {"v": SNAPSHOT_VERSION, "x_hat": [20.0, 21.0]}}
+
+    with caplog.at_level(logging.DEBUG):
+        state = import_mpc_v2_state(payload, MpcV2Params())
+
+    assert state.controller is None
+    reports = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(reports) == 1
+    assert reports[0].exc_info is not None
+    assert "snapshot payload is inconsistent" in caplog.text
+
+
 def test_non_finite_input_holds_last_command(caplog) -> None:
     """NaN/Inf in any sensor input must not poison the cached state."""
     state: MpcV2State | None = None
 
     # Warm-up call to establish a controller + last_u.
     _, state = compute_mpc_v2(
-        _baseline_input(key="nan-input-key", current_temp_C=20.0), MpcV2Params(), state
+        _baseline_input(key="nan-input-key", room_temperature=20.0),
+        MpcV2Params(),
+        state,
     )
     assert state.controller is not None
     last_u_before = state.controller._last_u
 
     with caplog.at_level("WARNING"):
-        bad = _baseline_input(key="nan-input-key", current_temp_C=float("nan"))
+        bad = _baseline_input(key="nan-input-key", room_temperature=float("nan"))
         out, state = compute_mpc_v2(bad, MpcV2Params(), state)
         out, state = compute_mpc_v2(
-            _baseline_input(key="nan-input-key", outdoor_temp_C=float("inf")),
+            _baseline_input(key="nan-input-key", outdoor_temperature=float("inf")),
             MpcV2Params(),
             state,
         )
 
     assert out is None  # caller treats this as "hold last value"
     # Controller's cached state is unchanged — no NaN propagated.
+    assert state.controller is not None
     assert state.controller._last_u == last_u_before
     assert any("non-finite input" in r.getMessage() for r in caplog.records)
 
@@ -352,14 +677,14 @@ def test_non_finite_input_holds_last_command(caplog) -> None:
 def test_cooling_case_settles_at_zero_valve() -> None:
     """When target < current and outdoor is cool, the valve must close."""
     state: MpcV2State | None = None
-    last_pct = None
+    last_percent = None
     for _ in range(60):
         out, state = compute_mpc_v2(
             _baseline_input(
                 key="cooling-key",
-                target_temp_C=18.0,
-                current_temp_C=22.0,
-                outdoor_temp_C=8.0,
+                target_temperature=18.0,
+                room_temperature=22.0,
+                outdoor_temperature=8.0,
             ),
             MpcV2Params(),
             state,
@@ -367,31 +692,38 @@ def test_cooling_case_settles_at_zero_valve() -> None:
         assert out is not None
         # No negative percent ever — the QP is bounded to u_min=0.
         assert out.valve_percent >= 0
-        last_pct = out.valve_percent
+        last_percent = out.valve_percent
 
     # After 60 cycles the Δu ramp has had plenty of time to walk down to 0.
-    assert last_pct == 0, f"expected fully closed valve, got {last_pct}%"
+    assert last_percent == 0, f"expected fully closed valve, got {last_percent}%"
 
 
 def test_zero_error_holds_steady() -> None:
-    """target == current should not provoke valve oscillation."""
+    """A room held at its target settles on one partial opening.
+
+    Once the controller has settled, the command stays within one
+    percentage point (the rounding step) and on neither rail: the valve
+    neither swings nor parks fully open or closed.
+    """
     state: MpcV2State | None = None
-    last_pct = None
-    for _ in range(20):
+    commands: list[int] = []
+    for cycle in range(60):
         out, state = compute_mpc_v2(
             _baseline_input(
                 key="zero-err-key",
-                target_temp_C=20.0,
-                current_temp_C=20.0,
-                outdoor_temp_C=10.0,
+                target_temperature=20.0,
+                room_temperature=20.0,
+                outdoor_temperature=10.0,
             ),
             MpcV2Params(),
             state,
+            now=1000.0 + 300.0 * cycle,
         )
         assert out is not None
-        last_pct = out.valve_percent
-    # Settled to a steady, non-negative, non-saturated value.
-    assert 0 <= last_pct <= 100
+        commands.append(out.valve_percent)
+    settled = commands[30:]
+    assert max(settled) - min(settled) <= 1, settled
+    assert 0 < min(settled) and max(settled) < 100, settled
 
 
 def test_controller_drives_simulated_plant_toward_setpoint() -> None:
@@ -408,17 +740,39 @@ def test_controller_drives_simulated_plant_toward_setpoint() -> None:
     last_T_room = float(x[0])
     for _ in range(400):
         u, _ = controller.step(
-            t_s=t,
-            T_room_C=float(x[0]),
-            T_target_C=21.0,
-            T_outdoor_C=5.0,
-            T_rad_C=float(x[1]),
+            t_s=t, T_room=float(x[0]), T_target=21.0, T_outdoor=5.0, T_rad=float(x[1])
         )
-        x = truth.discrete_step(x, u=u, T_outdoor_C=5.0)
+        x = truth.discrete_step(x, u=u, T_outdoor=5.0)
         t += 30.0
         last_T_room = float(x[0])
     # Within 1 K of setpoint after ~3.3 h of simulated time.
     assert abs(last_T_room - 21.0) < 1.0
+
+
+def test_governor_uses_the_disturbance_estimate_of_the_current_cycle(
+    monkeypatch,
+) -> None:
+    """Governor and QP judge a setpoint on the same disturbance estimate."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=0.0, T_room=20.0, T_target=21.0, T_outdoor=5.0)
+
+    seen: list[float] = []
+    governor_update = controller.governor.update
+
+    def _record(*, D_hat_K_per_min: float, **kwargs: float) -> float:
+        seen.append(D_hat_K_per_min)
+        return governor_update(D_hat_K_per_min=D_hat_K_per_min, **kwargs)
+
+    def _observe(innovation_K: float, dt_s: float) -> float:
+        controller.dob.D_hat_K_per_min = 0.05
+        return 0.05
+
+    controller.dob.D_hat_K_per_min = -99.0
+    monkeypatch.setattr(controller.governor, "update", _record)
+    monkeypatch.setattr(controller.dob, "update", _observe)
+    controller.step(t_s=300.0, T_room=20.0, T_target=21.0, T_outdoor=5.0)
+
+    assert seen == [0.05]
 
 
 def test_malformed_snapshot_values_are_rejected(caplog) -> None:
@@ -460,12 +814,94 @@ def test_non_finite_snapshot_values_are_rejected(
     assert any("non-finite" in r.getMessage() for r in caplog.records)
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"v": None},
+        {"v": [SNAPSHOT_VERSION]},
+        {"v": SNAPSHOT_VERSION, "x_hat": "12"},
+        {"v": SNAPSHOT_VERSION, "x_hat": {"20.0": 1, "21.0": 2}},
+        {"v": SNAPSHOT_VERSION, "x_hat": None},
+        {"v": SNAPSHOT_VERSION, "kalman_P": "12"},
+        {"v": SNAPSHOT_VERSION, "kalman_P": {"1": [1.0]}},
+        {"v": SNAPSHOT_VERSION, "kalman_P": ["12", "34"]},
+        {"v": SNAPSHOT_VERSION, "kalman_P": [[1.0, 0.0], None]},
+        {"v": SNAPSHOT_VERSION, "u_history": "05"},
+        {"v": SNAPSHOT_VERSION, "u_history": {"0.5": 0.5}},
+        {"v": SNAPSHOT_VERSION, "x_hat": [21.0, [22.0]]},
+    ],
+)
+def test_misshapen_snapshot_values_are_rejected(raw: dict[str, object], caplog) -> None:
+    """A version that is no number, or an array field that is no list, drops it.
+
+    Strings and objects are iterable, so without the list check a stored
+    ``"12"`` would read as the vector ``[1.0, 2.0]``.
+    """
+    with caplog.at_level("WARNING"):
+        snap = ControllerSnapshot.from_mapping(raw)
+    assert snap is None
+    assert any("non-numeric" in r.getMessage() for r in caplog.records)
+
+
+def test_snapshot_arrays_accept_tuples_and_numeric_scalars() -> None:
+    """Tuples read like lists, and a numeric string version parses."""
+    snap = ControllerSnapshot.from_mapping(
+        {
+            "v": str(SNAPSHOT_VERSION),
+            "x_hat": (21.0, "22.5"),
+            "kalman_P": ([1.0, 0.0], (0.0, 1.0)),
+            "u_history": (0.25,),
+            "planning_disturbance": "0.5",
+        }
+    )
+    assert snap is not None
+    assert snap.v == SNAPSHOT_VERSION
+    assert snap.x_hat == [21.0, 22.5]
+    assert snap.kalman_P == [[1.0, 0.0], [0.0, 1.0]]
+    assert snap.u_history == [0.25]
+    assert snap.planning_disturbance == 0.5
+
+
+def test_export_payload_imports_back_unchanged() -> None:
+    """The exported payload is the mapping ``import_mpc_v2_state`` reads."""
+    _, state = compute_mpc_v2(_baseline_input(key="payload-key"), MpcV2Params(), None)
+    exported = export_mpc_v2_state(state)
+    assert exported is not None
+    assert set(exported) == {
+        "last_percent",
+        "last_compute_ts",
+        "created_ts",
+        "outdoor_fallback_logged",
+        "snapshot",
+    }
+    stored = json.loads(json.dumps(exported))
+
+    rehydrated = import_mpc_v2_state(stored, MpcV2Params())
+
+    assert rehydrated.controller is not None
+    assert export_mpc_v2_state(rehydrated) == stored
+
+
+def test_governor_state_keeps_its_stored_key() -> None:
+    """The governor state is stored as ``rg_v_C`` and read back from there."""
+    controller = MpcV2Controller(MpcV2Params())
+    snap = replace(controller.export_snapshot(), rg_v=20.5)
+
+    stored = json.loads(json.dumps(snap.to_mapping()))
+
+    assert stored["rg_v_C"] == 20.5
+    assert "rg_v" not in stored
+    restored = ControllerSnapshot.from_mapping(stored)
+    assert restored is not None
+    assert restored.rg_v == 20.5
+
+
 def test_null_governor_state_is_accepted() -> None:
     """A stored null ``rg_v_C`` is a legal value, not a non-finite one."""
     raw = {"v": SNAPSHOT_VERSION, "x_hat": [21.0, 22.0], "rg_v_C": None}
     snap = ControllerSnapshot.from_mapping(json.loads(json.dumps(raw)))
     assert snap is not None
-    assert snap.rg_v_C is None
+    assert snap.rg_v is None
     assert snap.x_hat == [21.0, 22.0]
 
     controller = MpcV2Controller(MpcV2Params())
@@ -496,11 +932,39 @@ def test_wrong_shaped_covariance_is_ignored_on_restore() -> None:
     assert controller._last_u == 0.4  # scalar fields still restore
 
 
+def test_indefinite_covariance_is_refused_on_restore(caplog) -> None:
+    """A stored covariance with a negative eigenvalue must not reach the filter.
+
+    Folded into the Kalman gain it turns the innovation variance negative, and
+    the estimate runs away by orders of magnitude within a few cycles.
+    """
+    seed = [20.0, 21.0]
+    reference = MpcV2Controller(MpcV2Params())
+    reference.kalman.initialise(np.array(seed))
+
+    controller = MpcV2Controller(MpcV2Params())
+    snap = ControllerSnapshot.from_mapping(
+        {"v": SNAPSHOT_VERSION, "x_hat": seed, "kalman_P": [[-1.0, 0.0], [0.0, 1.0]]}
+    )
+    assert snap is not None
+    with caplog.at_level("WARNING"):
+        controller.restore_snapshot(snap)
+
+    np.testing.assert_array_equal(controller.kalman.P, reference.kalman.P)
+    assert any("covariance" in r.getMessage() for r in caplog.records)
+
+    for step in range(5):
+        controller.step(
+            t_s=1000.0 + 300.0 * step, T_room=20.0, T_target=21.0, T_outdoor=5.0
+        )
+        assert abs(float(controller.kalman.x_hat[0]) - 20.0) < 5.0
+
+
 # Snapshot shapes that carry no usable state vector of the controller's
 # dimension: absent, too short, or the right length but non-finite. ``None``
 # stands for a stored payload whose ``snapshot`` key is null or not a mapping
 # at all, which ``import_mpc_v2_state`` refuses before it builds a controller.
-_SNAPSHOTS_WITHOUT_ESTIMATE = [
+_SNAPSHOTS_WITHOUT_ESTIMATE: list[dict[str, object] | None] = [
     {},
     {"u_prev": 0.5},
     {"v": SNAPSHOT_VERSION},
@@ -528,7 +992,7 @@ def _snapshot_carrying(raw: dict[str, object]) -> ControllerSnapshot:
         last_u=0.0,
         e_integral_K_min=0.0,
         u_history=[],
-        rg_v_C=None,
+        rg_v=None,
         last_t_s=0.0,
         next_mpc_t_s=-1.0,
     )
@@ -558,7 +1022,7 @@ def test_restore_without_estimate_matches_a_freshly_built_controller(
     than left on the neutral 20.0 °C guess the filter is built with.
     """
     params = MpcV2Params()
-    inp = _baseline_input(current_temp_C=24.0, trv_temp_C=26.5)
+    inp = _baseline_input(room_temperature=24.0, trv_temperature=26.5)
 
     restored = import_mpc_v2_state({"snapshot": raw}, params)
     out_restored, _ = compute_mpc_v2(inp, params, restored, now=1_700_000_000.0)
@@ -572,3 +1036,469 @@ def test_restore_without_estimate_matches_a_freshly_built_controller(
         out_fresh.diagnostics.T_room_hat
     )
     assert out_restored.valve_percent == out_fresh.valve_percent
+
+
+@pytest.mark.parametrize(
+    ("attr", "stored", "fallback"),
+    [
+        pytest.param("last_percent", "forty-two", None, id="unparsable-text"),
+        pytest.param("last_compute_ts", 10**400, 0.0, id="wider-than-a-float"),
+        pytest.param("created_ts", {"nested": 1}, 0.0, id="wrong-type"),
+        # `float()` takes all three of these, so nothing raises on the way in
+        # and the field would carry a value no later calculation survives.
+        pytest.param("last_compute_ts", "NaN", 0.0, id="not-a-number"),
+        pytest.param("created_ts", "Infinity", 0.0, id="infinite"),
+        pytest.param("last_percent", "1e999", None, id="overflows-to-infinite"),
+    ],
+)
+def test_unusable_stored_scalar_is_reported_at_warning(
+    caplog, attr: str, stored: object, fallback: float | None
+) -> None:
+    """A stored scalar that cannot be parsed is named instead of dropped.
+
+    The field falls back to the value a first start leaves there, so the two
+    are told apart by the report rather than by the resulting state.
+    """
+    with caplog.at_level(logging.DEBUG):
+        state = import_mpc_v2_state({attr: stored}, key="uid:climate.hall:t21.0")
+
+    assert getattr(state, attr) == fallback
+    reports = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(reports) == 1
+    assert reports[0].exc_info is not None
+    assert attr in reports[0].getMessage()
+    assert "uid:climate.hall:t21.0" in reports[0].getMessage()
+
+
+def test_usable_stored_scalars_restore_without_a_report(caplog) -> None:
+    """The values the store actually writes rehydrate silently."""
+    payload = {
+        "last_percent": 42.0,
+        "last_compute_ts": 1_700_000_000.0,
+        "created_ts": 1_699_000_000.0,
+    }
+
+    with caplog.at_level(logging.DEBUG):
+        state = import_mpc_v2_state(payload, key="uid:climate.hall:t21.0")
+
+    assert state.last_percent == 42.0
+    assert state.last_compute_ts == 1_700_000_000.0
+    assert state.created_ts == 1_699_000_000.0
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+@pytest.mark.parametrize(
+    "cycle_s", [120.0, 300.0], ids=["cycle-under-replan-step", "cycle-over-replan-step"]
+)
+def test_restored_snapshot_reproduces_the_uninterrupted_command_sequence(
+    cycle_s: float,
+) -> None:
+    """A restart mid-run must not change a single later valve command.
+
+    The snapshot is the controller's whole memory, so a controller resumed
+    from one has to issue exactly the commands the uninterrupted controller
+    would have issued for the remaining inputs. Both cadences are driven
+    because they reach different parts of that memory: cycles longer than the
+    MPC re-plan interval re-plan on every one, while shorter cycles hand back
+    the held command in between and so depend on the stored re-plan deadline
+    as well.
+
+    The outdoor temperature sits just under the setpoint, which puts the
+    steady-state valve fraction below the governor's safety margin. That is
+    the regime in which the governed reference stays pinned to the room
+    temperature of the very first cycle, so a restart that re-seeds it from a
+    later reading diverges. The plant carries a valve command delay, which
+    brings the replayed command history into the comparison too.
+    """
+    params = MpcV2Params()
+    params.plant = replace(params.plant, valve_command_delay_s=900.0)
+    T_target, T_outdoor = 19.0, 18.0
+    steps, resume_at = 40, 17
+
+    # Only an infeasible setpoint leaves the governed reference observable;
+    # a transparent governor carries no state for the snapshot to lose.
+    plant = PlantModelRC2(params.plant, dt_s=params.qp.step_s)
+    assert (
+        plant.steady_input(T_target, T_outdoor)
+        < params.governor.u_min + params.governor.safety_margin
+    )
+
+    def room_temperature(cycle: int) -> float:
+        """A room cooling off slowly, with a small ripple on top."""
+        return 19.2 - 0.02 * cycle + 0.15 * math.sin(cycle / 4.0)
+
+    def drive(controller: MpcV2Controller, cycles: range) -> list[float]:
+        return [
+            controller.step(
+                t_s=1000.0 + cycle_s * cycle,
+                T_room=room_temperature(cycle),
+                T_target=T_target,
+                T_outdoor=T_outdoor,
+            )[0]
+            for cycle in cycles
+        ]
+
+    uninterrupted = drive(MpcV2Controller(params), range(steps))
+    # A command resting on a rail would match no matter what the restore
+    # dropped. Rounding folds away commands that are all but zero and differ
+    # only in their last bits, so the count below is of real valve positions.
+    assert len({round(command, 6) for command in uninterrupted}) >= steps // 4
+    assert max(uninterrupted) - min(uninterrupted) > 0.1 * (
+        params.qp.u_max - params.qp.u_min
+    )
+
+    interrupted = MpcV2Controller(params)
+    before_restart = drive(interrupted, range(resume_at))
+    stored = json.loads(json.dumps(interrupted.export_snapshot().to_mapping()))
+    snapshot = ControllerSnapshot.from_mapping(stored)
+    assert snapshot is not None
+
+    resumed = MpcV2Controller(params)
+    resumed.restore_snapshot(snapshot)
+    after_restart = drive(resumed, range(resume_at, steps))
+
+    assert before_restart + after_restart == uninterrupted
+
+
+def _radiator_estimate_after_gap(gap_s: float) -> float:
+    """Return the radiator estimate after one ``gap_s`` gap at half open."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_000.0, T_room=21.0, T_target=21.0, T_outdoor=5.0)
+    controller.set_applied_u(0.5)
+    _, diag = controller.step(
+        t_s=1_000.0 + gap_s, T_room=21.0, T_target=21.0, T_outdoor=5.0
+    )
+    return diag.T_rad_hat
+
+
+def test_a_half_year_gap_costs_one_bounded_prediction(monkeypatch) -> None:
+    """The first step after 180 days predicts once, over a bounded span.
+
+    The observer's plant is asked for one transition and one propagation, and
+    the propagation covers no more sub-steps than its settling time holds:
+    beyond that the state is on its fixed point, so a year-long gap lands on
+    the same estimate.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_000.0, T_room=21.0, T_target=21.0, T_outdoor=5.0)
+    controller.set_applied_u(0.5)
+    plant = controller.plant_fine
+    calls = {"linearised_system": 0, "propagate": 0, "euler": 0}
+    for name, key in (
+        ("linearised_system", "linearised_system"),
+        ("propagate", "propagate"),
+        ("_euler_step", "euler"),
+    ):
+        original = getattr(plant, name)
+
+        def counted(*args, _original=original, _key=key, **kwargs):
+            calls[_key] += 1
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(plant, name, counted)
+
+    _, diag = controller.step(
+        t_s=1_000.0 + 180 * 86_400.0, T_room=21.0, T_target=21.0, T_outdoor=5.0
+    )
+
+    settled_steps = math.ceil(plant.settling_time_s / plant.dt_s)
+    assert settled_steps < 180 * 86_400.0 / plant.dt_s / 20
+    assert calls["linearised_system"] == 1
+    assert calls["propagate"] == 1
+    assert calls["euler"] <= settled_steps
+    assert diag.T_rad_hat == _radiator_estimate_after_gap(365 * 86_400.0)
+    assert 21.0 < diag.T_rad_hat < plant.params.T_water
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"), [(0.5, 0.05), (-0.5, -0.05), (0.01, 0.01)]
+)
+def test_restored_disturbance_readings_stay_inside_their_bound(
+    stored: float, expected: float
+) -> None:
+    """A stored estimate beyond ``max_abs_K_per_min`` restores at the bound.
+
+    Both the fast estimate and the planning reading are bounded that way
+    while the controller runs, so a snapshot cannot hand them more.
+    """
+    params = MpcV2Params()
+    assert params.dob.max_abs_K_per_min == 0.05
+    snap = ControllerSnapshot.from_mapping(
+        {
+            "v": SNAPSHOT_VERSION,
+            "x_hat": [21.0, 30.0],
+            "D_hat_K_per_min": stored,
+            "planning_disturbance": stored,
+        }
+    )
+    assert snap is not None
+    controller = MpcV2Controller(params)
+
+    controller.restore_snapshot(snap)
+
+    assert controller.dob.D_hat_K_per_min == pytest.approx(expected)
+    assert controller.dob.planning_filtered == pytest.approx(expected)
+
+
+def test_a_snapshot_without_a_planning_reading_plans_from_zero() -> None:
+    """A snapshot from before the planning reading existed starts it at zero.
+
+    The fast estimate it does carry reflects the free heat of the minutes
+    before the restart, which the plan after it has no reason to assume.
+    """
+    snap = ControllerSnapshot.from_mapping(
+        {"v": SNAPSHOT_VERSION, "x_hat": [21.0, 30.0], "D_hat_K_per_min": 0.02}
+    )
+    assert snap is not None
+    assert snap.planning_disturbance is None
+    controller = MpcV2Controller(MpcV2Params())
+
+    controller.restore_snapshot(snap)
+
+    assert controller.dob.D_hat_K_per_min == pytest.approx(0.02)
+    assert controller.dob.planning_filtered == 0.0
+    assert controller.dob.planning_rate == 0.0
+
+
+def _hold_room_with_feedback(
+    params: MpcV2Params,
+    truth: PlantModelRC2,
+    state: MpcV2State | None,
+    *,
+    start: tuple[float, np.ndarray, float],
+    cycles: int,
+    disturbance: float = 0.0,
+    max_opening_percent: float | None = None,
+    target: float = 21.0,
+    outdoor: float = 0.0,
+) -> tuple[MpcV2State, tuple[float, np.ndarray, float], list[int], list[float]]:
+    """Run ``cycles`` control cycles against ``truth`` with the valve fed back.
+
+    One cycle lasts one ``truth`` step. ``start`` is ``(now, state, applied
+    fraction)``; the same triple comes back for the next stretch, together
+    with the commanded percents and the room temperature after each cycle.
+    """
+    now, x, applied = start
+    commands: list[int] = []
+    rooms: list[float] = []
+    for _ in range(cycles):
+        out, state = compute_mpc_v2(
+            _baseline_input(
+                key="feedback",
+                target_temperature=target,
+                room_temperature=round(float(x[0]), 2),
+                trv_temperature=float(x[1]),
+                outdoor_temperature=outdoor,
+                applied_valve_percent=applied * 100.0,
+                max_opening_percent=max_opening_percent,
+            ),
+            params,
+            state,
+            now=now,
+        )
+        assert out is not None
+        applied = out.valve_percent / 100.0
+        commands.append(out.valve_percent)
+        x = truth.discrete_step(
+            x, u=applied, T_outdoor=outdoor, D_K_per_min=disturbance
+        )
+        rooms.append(float(x[0]))
+        now += truth.dt_s
+    assert state is not None
+    return state, (now, x, applied), commands, rooms
+
+
+def test_a_drifting_prior_hands_the_room_over_without_a_valve_jump() -> None:
+    """A learned prior that moves past the rebuild tolerance keeps the valve calm.
+
+    Under AUTO the prior follows the learned heat loss, so ``tau_room`` moves by
+    more than the tolerance in normal operation. The rebuilt controller takes
+    over the estimates, the disturbance reading and the error integral, so the
+    opening it commands continues from where the old controller held the room
+    instead of re-learning the offset from a cold start.
+    """
+    truth = PlantModelRC2(PlantParams(tau_room_min=500.0), dt_s=300.0)
+    before = MpcV2Params(plant=make_plant_prior(heat_loss_rate=15.0 / 480.0))
+    state, cursor, commands, _ = _hold_room_with_feedback(
+        before,
+        truth,
+        None,
+        start=(2.0e6, np.array([20.0, 40.0]), 0.3),
+        cycles=144,
+        disturbance=0.006,
+        target=20.0,
+        outdoor=5.0,
+    )
+    held = commands[-1]
+    old_controller = state.controller
+    assert old_controller is not None
+    integral = old_controller.optimiser.e_integral_K_min
+    disturbance_reading = old_controller.dob.D_hat_K_per_min
+
+    after = MpcV2Params(plant=make_plant_prior(heat_loss_rate=15.0 / 540.0))
+    state, _, commands, _ = _hold_room_with_feedback(
+        after,
+        truth,
+        state,
+        start=cursor,
+        cycles=1,
+        disturbance=0.006,
+        target=20.0,
+        outdoor=5.0,
+    )
+
+    assert state.controller is not old_controller
+    assert state.controller is not None
+    assert state.controller.plant_fine.params.tau_room_min == pytest.approx(540.0)
+    assert state.controller.dob.D_hat_K_per_min != 0.0
+    assert abs(state.controller.dob.D_hat_K_per_min - disturbance_reading) < 1e-3
+    # One cycle adds at most one re-plan interval of an in-band error.
+    qp = state.controller.params.qp
+    assert abs(state.controller.optimiser.e_integral_K_min - integral) <= (
+        qp.integral_error_band * qp.step_s / 60.0
+    )
+    assert abs(commands[0] - held) <= 3, (held, commands)
+
+
+def test_a_drifting_prior_keeps_the_room_where_it_was() -> None:
+    """Over the hours after a prior drift the valve and the room stay settled."""
+    truth = PlantModelRC2(PlantParams(tau_room_min=500.0), dt_s=300.0)
+    before = MpcV2Params(plant=make_plant_prior(heat_loss_rate=15.0 / 480.0))
+    state, cursor, commands, _ = _hold_room_with_feedback(
+        before,
+        truth,
+        None,
+        start=(2.0e6, np.array([20.0, 40.0]), 0.3),
+        cycles=144,
+        disturbance=0.006,
+        target=20.0,
+        outdoor=5.0,
+    )
+    held = commands[-1]
+
+    after = MpcV2Params(plant=make_plant_prior(heat_loss_rate=15.0 / 540.0))
+    _, _, commands, rooms = _hold_room_with_feedback(
+        after,
+        truth,
+        state,
+        start=cursor,
+        cycles=72,
+        disturbance=0.006,
+        target=20.0,
+        outdoor=5.0,
+    )
+
+    assert max(abs(c - held) for c in commands) <= 3, (held, commands)
+    assert max(rooms) < 20.08, max(rooms)
+
+
+def test_a_capped_valve_leaves_no_wound_up_integral_behind() -> None:
+    """A user cap that keeps the room just short of the target winds nothing up.
+
+    The valve sits at its 44 % cap and the room settles a few tenths below the
+    setpoint, inside the integration band. Once sun covers the shortfall the
+    controller has no stored demand to work off, so the room barely rises
+    past the target.
+    """
+    truth = PlantModelRC2(PlantParams(), dt_s=60.0)
+    params = MpcV2Params()
+    state, cursor, _, rooms = _hold_room_with_feedback(
+        params,
+        truth,
+        None,
+        start=(5.0e5, np.array([20.0, 35.0]), 0.3),
+        cycles=600,
+        max_opening_percent=44.0,
+    )
+    assert state.controller is not None
+    assert 20.5 < rooms[-1] < 21.0, rooms[-1]
+    assert state.controller.optimiser.e_integral_K_min > -1.0
+
+    _, _, _, rooms = _hold_room_with_feedback(
+        params,
+        truth,
+        state,
+        start=cursor,
+        cycles=360,
+        disturbance=0.005,
+        max_opening_percent=44.0,
+    )
+
+    assert max(rooms) < 21.1, max(rooms)
+
+
+def test_between_replans_a_stale_report_does_not_become_the_command() -> None:
+    """Until the next plan the controller keeps commanding what it planned.
+
+    The applied input still feeds the observer, but a position report that lags
+    the write would otherwise turn the old position into the new command.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+    planned, _ = controller.step(t_s=1_000.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+    assert planned > 0.1
+    controller.set_command_u(planned)
+    controller.set_applied_u(0.0)
+
+    held, _ = controller.step(t_s=1_060.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+
+    assert held == planned
+    assert controller._last_u == 0.0
+
+
+def test_a_restored_controller_keeps_commanding_its_plan() -> None:
+    """The planned command survives a restart between two plans."""
+    controller = MpcV2Controller(MpcV2Params())
+    planned, _ = controller.step(t_s=1_000.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+    controller.set_command_u(planned)
+    controller.set_applied_u(0.0)
+    stored = json.loads(json.dumps(controller.export_snapshot().to_mapping()))
+    snapshot = ControllerSnapshot.from_mapping(stored)
+    assert snapshot is not None
+
+    resumed = MpcV2Controller(MpcV2Params())
+    resumed.restore_snapshot(snapshot)
+    held, _ = resumed.step(t_s=1_060.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+
+    assert held == planned
+
+
+def test_a_snapshot_without_a_planned_command_holds_the_last_input() -> None:
+    """A snapshot stored before the planned command was kept commands its input."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_000.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+    controller.set_applied_u(0.25)
+    stored = controller.export_snapshot().to_mapping()
+    del stored["last_command_u"]
+    snapshot = ControllerSnapshot.from_mapping(stored)
+    assert snapshot is not None
+    assert snapshot.last_command_u is None
+
+    resumed = MpcV2Controller(MpcV2Params())
+    resumed.restore_snapshot(snapshot)
+    held, _ = resumed.step(t_s=1_060.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+
+    assert held == 0.25
+
+
+def test_a_prior_change_before_the_first_cycle_seeds_from_the_measurement() -> None:
+    """The rebuilt controller starts its estimate from the room reading.
+
+    A controller built but not yet stepped holds only the construction default
+    in its observer, which is no estimate of the room to carry over.
+    """
+    before = MpcV2Params(plant=make_plant_prior(preset="small_room"))
+    state = MpcV2State(
+        controller=MpcV2Controller(before), plant_signature=_plant_signature_of(before)
+    )
+    after = MpcV2Params(plant=make_plant_prior(preset="large_room"))
+
+    _, state = compute_mpc_v2(
+        _baseline_input(room_temperature=16.0, trv_temperature=16.0),
+        after,
+        state,
+        now=1_000.0,
+    )
+
+    assert state.controller is not None
+    assert state.controller.plant_fine.params.tau_room_min == after.plant.tau_room_min
+    assert float(state.controller.kalman.x_hat[0]) == pytest.approx(16.0, abs=0.05)

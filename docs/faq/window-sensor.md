@@ -1,44 +1,68 @@
 ---
-title: Window sensor states
-description: What the "invalid window sensor state" repair issue means and how to fix it.
+title: Window sensor
+description: How Better Thermostat reads the window sensor and how the open/close delays behave.
 slug: faq/window-sensor
 ---
 
-Better Thermostat expects the configured window sensor to behave like a
-binary sensor:
+When the configured window sensor reports **open**, Better Thermostat
+turns the heating off; when it reports **closed**, heating resumes. TRVs
+that cannot be switched off receive their minimum temperature instead.
 
-- `on`, `true` or `open` — window is open, heating pauses
-- `off`, `false` or `closed` — window is closed, heating resumes
-- `unknown` or `unavailable` — Better Thermostat assumes the window is
-  open as a precaution
+## Changing the target while the window is open
 
-If the sensor reports anything else, Better Thermostat raises an
-**invalid window sensor state** repair issue and ignores the state
-change.
+A target you set in Home Assistant while the window is open is kept. A
+knob turn is kept too when Better Thermostat holds that TRV at its minimum
+temperature for the window; a TRV it switches off takes no target from its
+knob, as the list below explains. Heating stays paused, and once the
+window closes the room heats to the kept target, unless the turn switched
+the room off.
 
-## Common causes
+- A TRV that Better Thermostat holds at its minimum temperature for the
+  window, because it has no off mode or because **Use the minimum
+  temperature instead of 'off'** is on, is turned straight back to that
+  minimum after the turn. With that option on, turning the knob to the
+  minimum switches the room off and turning it up switches the room on,
+  as it does with the window closed.
+- A TRV that Better Thermostat switches off for the window takes no target
+  from its knob: Better Thermostat ignores what a TRV reports while it is
+  off, so set the target in Home Assistant instead.
 
-- The configured entity is not a binary sensor — for example a numeric
-  sensor, an input helper with custom values, or a template that returns
-  something other than `on`/`off`.
-- A group helper that aggregates non-binary entities.
+## Sensor states
 
-## How to fix it
+Better Thermostat expects a binary sensor:
 
-1. Check the sensor's actual state under **Developer tools → States**.
-2. Use a `binary_sensor` (device class `window`/`door`/`opening`), or a
-   group of binary sensors:
+- `on`, `true`, `open` — window open.
+- `off`, `false`, `closed` — window closed.
+- `unknown` and `unavailable` count as **closed** so heating continues:
+  windows are usually closed and a lost sensor (e.g. a dead battery) must
+  not stop heating. The frost floor still applies and the unavailability
+  is still reported. A sensor removed from Home Assistant (disabled,
+  deleted or renamed in the entity registry) counts as closed in the
+  same way.
 
-   ```yaml
-   group:
-     livingroom_windows:
-       name: Livingroom Windows
-       icon: mdi:window-open-variant
-       all: false
-       entities:
-         - binary_sensor.openclose_1
-         - binary_sensor.openclose_2
-   ```
+Any other state raises a repair issue. Normalize the entity to one of
+the values above, for example with a
+[group helper](https://www.home-assistant.io/integrations/group/) or a
+[template binary sensor](https://www.home-assistant.io/integrations/template/).
 
-3. If you template your own sensor, make sure it only ever renders
-   `on` or `off`.
+## The open and close delays
+
+Two options debounce the sensor:
+
+- **"Delay before the thermostat should turn off when the window is opened"**
+- **"Delay before the thermostat should turn on when the window is closed"**
+
+A state change only takes effect after it has persisted for the whole
+delay. A window that closes again within the open delay (or reopens
+within the close delay) changes nothing: short flaps, such as a door
+slamming or a quick airing check, are filtered out.
+
+- With a delay of `0` the change takes effect immediately with the event.
+- While the delay is running, the displayed window state keeps showing
+  the previous, committed state.
+- Saving the options reloads Better Thermostat. A wait that was in
+  progress is dropped, and the window state the sensor reports at that
+  moment applies right away.
+- A window opened or closed while Better Thermostat is still starting up
+  is picked up when startup finishes, and the delays apply to it as to
+  any other change. The same holds for a door sensor.

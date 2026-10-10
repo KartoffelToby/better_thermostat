@@ -37,7 +37,7 @@ def _equivalent_single_plant(params: MultiTrvPlantParams) -> PlantParams:
         tau_rad_min=params.tau_rad_min,
         gain_heater=sum(params.gain_heaters),
         coupling_rad_room=sum(params.coupling_rad_room),
-        T_water_C=params.T_water_C,
+        T_water=params.T_water,
     )
 
 
@@ -74,16 +74,16 @@ def _stabilise_multi_trv(
     pre_outdoor = scenario.outdoor_schedule(0.0)
     equiv = _equivalent_single_plant(plant.params)
     oracle = IdealOracleAdapter(plant_params=equiv)
-    steps = int(round(stabilisation_min * 60.0 / step_s))
+    steps = round(stabilisation_min * 60.0 / step_s)
     for _ in range(steps):
         ctx = BenchmarkContext(
             t=0.0,
             dt=step_s,
-            target_temp_C=pre_setpoint,
-            current_temp_C=plant.state.T_room_C,
-            raw_room_temp_C=plant.state.T_room_C,
-            trv_temp_C=sum(plant.state.T_rads_C) / plant.params.n_trvs,
-            outdoor_temp_C=pre_outdoor,
+            target_temperature=pre_setpoint,
+            room_temperature=plant.state.T_room,
+            raw_room_temperature=plant.state.T_room,
+            trv_temperature=sum(plant.state.T_rads) / plant.params.n_trvs,
+            outdoor_temperature=pre_outdoor,
         )
         out = oracle.step(ctx)
         u_total = (out.valve_percent or 0.0) / 100.0
@@ -93,12 +93,12 @@ def _stabilise_multi_trv(
         plant.step(step_s, u_per_trv, pre_outdoor)
 
 
-def _distribute(u_total_pct: float, plant: MultiTrvPlant) -> list[float]:
+def _distribute(u_total_percent: float, plant: MultiTrvPlant) -> list[float]:
     """Call BT's distribute_valve_percent and return per-radiator u in [0,1]."""
     trv_temps: dict[str, float | None] = {
         f"trv_{i}": t for i, t in enumerate(plant.reported_trv_temps())
     }
-    distribution = distribute_valve_percent(u_total_pct, trv_temps)
+    distribution = distribute_valve_percent(u_total_percent, trv_temps)
     return [distribution[f"trv_{i}"] / 100.0 for i in range(plant.params.n_trvs)]
 
 
@@ -109,19 +109,19 @@ class _MultiTrvFacade:
         self._plant = plant
 
     @property
-    def T_room_C(self) -> float:
-        return self._plant.state.T_room_C
+    def T_room(self) -> float:
+        return self._plant.state.T_room
 
     @property
-    def T_rad_C(self) -> float:
+    def T_rad(self) -> float:
         # Single-radiator view = mean over the parallel radiators.
-        return sum(self._plant.state.T_rads_C) / self._plant.params.n_trvs
+        return sum(self._plant.state.T_rads) / self._plant.params.n_trvs
 
     def apply(
-        self, dt_s: float, valve_pct: float, T_outdoor_C: float, Q_K_per_min: float
+        self, dt_s: float, valve_percent: float, T_outdoor: float, Q_K_per_min: float
     ) -> None:
-        u_per_trv = _distribute(valve_pct, self._plant)
-        self._plant.step(dt_s, u_per_trv, T_outdoor_C, Q_K_per_min=Q_K_per_min)
+        u_per_trv = _distribute(valve_percent, self._plant)
+        self._plant.step(dt_s, u_per_trv, T_outdoor, Q_K_per_min=Q_K_per_min)
 
 
 def run_multi_trv_scenario(
@@ -146,7 +146,7 @@ def run_multi_trv_scenario(
     equiv = _equivalent_single_plant(plant_params)
     time_scale = _plant_time_scale(equiv)
     duration_s = max(
-        scenario.duration_min * 60.0, scenario.duration_min * 60.0 * time_scale
+        scenario.duration_minutes * 60.0, scenario.duration_minutes * 60.0 * time_scale
     )
     facade = _MultiTrvFacade(plant)
     # The multi-TRV driver never fires the restart protocol

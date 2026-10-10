@@ -27,15 +27,15 @@ from tests.benchmark.scenarios import S01_SETPOINT_STEP_SMALL
 
 
 def _initial(n: int = 3, T0: float = 20.0) -> MultiTrvPlantState:
-    return MultiTrvPlantState(T_room_C=T0, T_rads_C=[T0] * n)
+    return MultiTrvPlantState(T_room=T0, T_rads=[T0] * n)
 
 
 def test_plant_init_validates_state_length():
     """Plant init validates state length."""
-    with pytest.raises(ValueError, match="T_rads_C"):
+    with pytest.raises(ValueError, match="T_rads"):
         MultiTrvPlant(
             params=PROFILE_MULTI_SYMMETRIC,
-            initial=MultiTrvPlantState(T_room_C=20.0, T_rads_C=[20.0, 20.0]),
+            initial=MultiTrvPlantState(T_room=20.0, T_rads=[20.0, 20.0]),
         )
 
 
@@ -64,24 +64,24 @@ def test_step_rejects_wrong_u_length():
     """Step rejects wrong u length."""
     plant = MultiTrvPlant(PROFILE_MULTI_SYMMETRIC, _initial())
     with pytest.raises(ValueError, match="u_per_trv"):
-        plant.step(dt_s=30.0, u_per_trv=[0.5, 0.5], T_outdoor_C=5.0)
+        plant.step(dt_s=30.0, u_per_trv=[0.5, 0.5], T_outdoor=5.0)
 
 
 def test_step_zero_dt_is_noop():
     """Step zero dt is noop."""
     plant = MultiTrvPlant(PROFILE_MULTI_SYMMETRIC, _initial())
-    before = list(plant.state.T_rads_C)
-    plant.step(dt_s=0.0, u_per_trv=[1.0, 1.0, 1.0], T_outdoor_C=5.0)
-    assert plant.state.T_rads_C == before
+    before = list(plant.state.T_rads)
+    plant.step(dt_s=0.0, u_per_trv=[1.0, 1.0, 1.0], T_outdoor=5.0)
+    assert plant.state.T_rads == before
 
 
 def test_full_valve_warms_room_and_radiators():
     """Full valve warms room and radiators."""
     plant = MultiTrvPlant(PROFILE_MULTI_SYMMETRIC, _initial(T0=20.0))
     for _ in range(120):  # 1 hour at 30 s ticks
-        plant.step(dt_s=30.0, u_per_trv=[1.0, 1.0, 1.0], T_outdoor_C=5.0)
-    assert plant.state.T_room_C > 20.0
-    for T_rad in plant.state.T_rads_C:
+        plant.step(dt_s=30.0, u_per_trv=[1.0, 1.0, 1.0], T_outdoor=5.0)
+    assert plant.state.T_room > 20.0
+    for T_rad in plant.state.T_rads:
         assert T_rad > 20.0
 
 
@@ -89,8 +89,8 @@ def test_closed_valves_drift_toward_outdoor():
     """Closed valves drift toward outdoor."""
     plant = MultiTrvPlant(PROFILE_MULTI_SYMMETRIC, _initial(T0=22.0))
     for _ in range(1200):  # 10 h
-        plant.step(dt_s=30.0, u_per_trv=[0.0, 0.0, 0.0], T_outdoor_C=0.0)
-    assert plant.state.T_room_C < 22.0
+        plant.step(dt_s=30.0, u_per_trv=[0.0, 0.0, 0.0], T_outdoor=0.0)
+    assert plant.state.T_room < 22.0
 
 
 def test_heterogeneous_profile_zeroes_deadband_trv():
@@ -101,16 +101,16 @@ def test_heterogeneous_profile_zeroes_deadband_trv():
     # Run long enough that the asymmetry shows up in the radiator
     # temperatures.
     for _ in range(60):
-        plant.step(dt_s=30.0, u_per_trv=[0.10, 0.10, 0.10], T_outdoor_C=10.0)
-    assert plant.state.T_rads_C[0] > plant.state.T_rads_C[1]
-    assert plant.state.T_rads_C[2] > plant.state.T_rads_C[1]
+        plant.step(dt_s=30.0, u_per_trv=[0.10, 0.10, 0.10], T_outdoor=10.0)
+    assert plant.state.T_rads[0] > plant.state.T_rads[1]
+    assert plant.state.T_rads[2] > plant.state.T_rads[1]
 
 
 def test_reported_temps_apply_sensor_offset():
     """Reported temps apply sensor offset."""
     plant = MultiTrvPlant(PROFILE_MULTI_ASYMMETRIC, _initial(T0=20.0))
     reported = plant.reported_trv_temps()
-    actual = plant.state.T_rads_C
+    actual = plant.state.T_rads
     # Asymmetric profile: offsets [-1.5, 0.0, 0.5]
     assert math.isclose(reported[0], actual[0] - 1.5)
     assert math.isclose(reported[1], actual[1])
@@ -121,9 +121,9 @@ def test_valve_clamping_below_zero_and_above_one():
     """Valve clamping below zero and above one."""
     plant = MultiTrvPlant(PROFILE_MULTI_SYMMETRIC, _initial())
     # Out-of-range u values are clamped to [0, 1] internally.
-    plant.step(dt_s=30.0, u_per_trv=[-0.5, 2.0, 0.5], T_outdoor_C=5.0)
+    plant.step(dt_s=30.0, u_per_trv=[-0.5, 2.0, 0.5], T_outdoor=5.0)
     # No exception, state is sane.
-    assert all(math.isfinite(T) for T in plant.state.T_rads_C)
+    assert all(math.isfinite(T) for T in plant.state.T_rads)
 
 
 def test_equivalent_single_plant_sums_gains_and_coupling():
@@ -207,7 +207,7 @@ def test_deadband_length_mismatch_raises():
     params = replace(PROFILE_MULTI_SYMMETRIC, deadband_pcts_per_trv=[10.0])
     with pytest.raises(ValueError):
         MultiTrvPlant(
-            params, MultiTrvPlantState(T_room_C=20.0, T_rads_C=[20.0, 20.0, 20.0])
+            params, MultiTrvPlantState(T_room=20.0, T_rads=[20.0, 20.0, 20.0])
         )
 
 
@@ -218,7 +218,7 @@ def test_run_multi_trv_scenario_rejects_non_positive_step_s():
             PidAdapter(),
             S01_SETPOINT_STEP_SMALL,
             PROFILE_MULTI_SYMMETRIC,
-            MultiTrvPlantState(T_room_C=20.0, T_rads_C=[20.0, 20.0, 20.0]),
+            MultiTrvPlantState(T_room=20.0, T_rads=[20.0, 20.0, 20.0]),
             step_s=0.0,
         )
 
@@ -231,12 +231,14 @@ def test_run_multi_trv_scenario_honors_scenario_stabilisation_override(monkeypat
         seen["min"] = stabilisation_min
 
     monkeypatch.setattr(multi_trv_runner, "_stabilise_multi_trv", _spy)
-    scenario = replace(S01_SETPOINT_STEP_SMALL, stabilisation_min=7.0, duration_min=1)
+    scenario = replace(
+        S01_SETPOINT_STEP_SMALL, stabilisation_min=7.0, duration_minutes=1
+    )
     run_multi_trv_scenario(
         PidAdapter(),
         scenario,
         PROFILE_MULTI_SYMMETRIC,
-        MultiTrvPlantState(T_room_C=20.0, T_rads_C=[20.0, 20.0, 20.0]),
+        MultiTrvPlantState(T_room=20.0, T_rads=[20.0, 20.0, 20.0]),
         stabilisation_min=60.0,
     )
     assert seen["min"] == 7.0
