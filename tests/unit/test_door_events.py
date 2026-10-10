@@ -225,12 +225,28 @@ class TestTriggerDoorChange:
         delete.assert_called_once_with(bt.hass, DOMAIN, "entry_1_invalid_door_state")
 
     @pytest.mark.asyncio
-    async def test_missing_sensor_state_returns_early(self):
-        """Without a sensor state in hass, the event is ignored."""
+    async def test_missing_sensor_state_reads_as_closed(self):
+        """A sensor with no state in hass counts as closed, whatever the event says."""
         bt = _make_bt()
         bt.hass.states.get.return_value = None
         await trigger_door_change(bt, _event("on"))
+        assert bt.kernel_state.door.phase == WindowPhase.CLOSED
         assert bt.door_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_removed_sensor_closes_an_open_door(self):
+        """A sensor removed while open lets the door close.
+
+        Home Assistant announces the removal with an event that carries no
+        new state, and the sensor leaves no state behind.
+        """
+        bt = _make_bt(door_open=True, close_delay=10)
+        bt.hass.states.get.return_value = None
+        event = Mock()
+        event.data = dict[str, object](new_state=None)
+        await trigger_door_change(bt, event)
+        assert bt.kernel_state.door.phase == WindowPhase.CLOSING
+        assert bt.door_queue_task.get_nowait() is True
 
     @pytest.mark.asyncio
     async def test_unset_door_id_is_never_looked_up(self):

@@ -7,12 +7,20 @@ percentages and mirroring external temperature into the TRV when supported.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 import logging
 from typing import NamedTuple
 
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
+from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.model_fixes.types import (
     ExternalTemperatureQuirk,
@@ -411,8 +419,14 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
         if trv_state is None:
             return False
 
-        # During valve maintenance we don't want to add additional delayed steps.
+        # During valve maintenance we don't want to add additional delayed steps,
+        # and a delayed step still pending from before would overwrite the
+        # position maintenance drives the valve to.
         if self.in_maintenance:
+            _cancel_pending_valve_bump(trv_state)
+            trv_state.extra["_trvzb_valve_bump_seq"] = (
+                trv_state.extra.get("_trvzb_valve_bump_seq", 0) + 1
+            )
             ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_percent)
             return ok
 
@@ -449,6 +463,8 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
             async def _delayed_set() -> None:
                 try:
                     await asyncio.sleep(float(_TRVZB_CLOSE_BUMP_DELAY_S))
+                    if self.is_removed:
+                        return
                     cur_state = self.real_trvs.get(entity_id)
                     if cur_state is None or (
                         cur_state.extra.get("_trvzb_valve_bump_seq", 0) != seq
@@ -466,11 +482,20 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
                         ex,
                     )
 
-            trv_state.extra["_trvzb_valve_bump_task"] = (
-                self.hass.async_create_background_task(
-                    _delayed_set(), name=f"bt_trvzb_valve_bump_{entity_id}"
-                )
+            # The thermostat owns the deferred write, so unloading or removing
+            # it cancels the write along with the rest of its work.
+            bump_task = self.task_manager.create_task(
+                _delayed_set(), name=f"bt_trvzb_valve_bump_{entity_id}"
             )
+            if bump_task is None:
+                # The thermostat is being removed and starts no deferred
+                # work. The bump has opened the valve already, so the target
+                # goes out now rather than leaving it open.
+                ok = await maybe_set_sonoff_valve_percent(
+                    self, entity_id, target_percent
+                )
+                return ok
+            trv_state.extra["_trvzb_valve_bump_task"] = bump_task
             return True
 
         # Opening, unchanged, or a close following a bump that has not run yet:
@@ -651,13 +676,64 @@ async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bo
     return True
 
 
+# Range of the external temperature input, in degrees Celsius, for an input
+# that publishes no bounds of its own.
+_EXTERNAL_TEMPERATURE_MIN_C = 0.0
+_EXTERNAL_TEMPERATURE_MAX_C = 99.9
+
+
+def _external_input_value(state: State | None, celsius: float) -> float:
+    """Return the value the external temperature input takes for ``celsius``.
+
+    Zigbee2MQTT publishes the input as a ``temperature`` number in Celsius,
+    which Home Assistant converts into the system unit, and checks a written
+    value against the ``min`` and ``max`` it publishes in that unit. The
+    reading is rounded once to the device's tenth of a degree Celsius, then
+    converted into the unit the input publishes and held inside its bounds.
+
+    Parameters
+    ----------
+    state : State or None
+        State of the external temperature input, or None when it has none.
+    celsius : float
+        The room temperature in degrees Celsius.
+
+    Returns
+    -------
+    float
+        The value to write, in the input's published unit.
+    """
+    attributes: Mapping[str, object] = state.attributes if state is not None else {}
+    declared_unit = attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+    unit = (
+        declared_unit
+        if isinstance(declared_unit, str)
+        and declared_unit in TemperatureConverter.VALID_UNITS
+        else UnitOfTemperature.CELSIUS
+    )
+
+    def published(degrees: float) -> float:
+        return TemperatureConverter.convert(degrees, UnitOfTemperature.CELSIUS, unit)
+
+    def bound(name: str, fallback_celsius: float) -> float:
+        try:
+            return float(str(attributes[name]))
+        except KeyError, TypeError, ValueError:
+            return published(fallback_celsius)
+
+    low = bound("min", _EXTERNAL_TEMPERATURE_MIN_C)
+    high = bound("max", _EXTERNAL_TEMPERATURE_MAX_C)
+    return max(low, min(high, published(round(celsius, 1))))
+
+
 async def maybe_set_external_temperature(
     self: ModelFixHost, entity_id: str, temperature: float
 ) -> bool:
     """Set Sonoff TRVZB external temperature input via a number entity on the same device.
 
     Looks for number.* entity matching external_temperature_input and writes the
-    given temperature (clamped to 0..99.9, rounded to one decimal). The sensor
+    given temperature, rounded to a tenth of a degree Celsius and converted into
+    the unit the input publishes, held inside the range it publishes. The sensor
     selector is pointed at that input alongside the write, because a device
     regulating on its own sensor never reads it.
 
@@ -715,9 +791,8 @@ async def maybe_set_external_temperature(
             )
             return False
 
-        # Clamp and round
         try:
-            value = float(temperature)
+            celsius = float(temperature)
         except TypeError, ValueError:
             _LOGGER.debug(
                 "better_thermostat %s: TRVZB maybe_set_external_temperature got non-float: %s",
@@ -725,7 +800,7 @@ async def maybe_set_external_temperature(
                 temperature,
             )
             return False
-        value = max(0.0, min(99.9, round(value, 1)))
+        value = _external_input_value(self.hass.states.get(target), celsius)
 
         await self.hass.services.async_call(
             "number",
@@ -735,7 +810,7 @@ async def maybe_set_external_temperature(
             context=self.context,
         )
         _LOGGER.debug(
-            "better_thermostat %s: set TRVZB external_temperature_input=%.1f on %s (for %s)",
+            "better_thermostat %s: set TRVZB external_temperature_input=%.2f on %s (for %s)",
             self.device_name,
             value,
             target,

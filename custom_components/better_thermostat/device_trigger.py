@@ -35,7 +35,12 @@ from homeassistant.components.homeassistant.triggers import (
     numeric_state as numeric_state_trigger,
     state as state_trigger,
 )
-from homeassistant.components.homeassistant.triggers.state import CONF_FROM, CONF_TO
+from homeassistant.components.homeassistant.triggers.state import (
+    CONF_FROM,
+    CONF_NOT_FROM,
+    CONF_NOT_TO,
+    CONF_TO,
+)
 from homeassistant.const import (
     CONF_ABOVE,
     CONF_ATTRIBUTE,
@@ -110,9 +115,13 @@ TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
 # to compare"; a plain attribute lookup renders the empty string and makes it
 # log a conversion error on every state change for as long as the sensor is
 # away.
+CLASSIC_VALUE_ATTRIBUTES = {
+    "current_temperature_changed": "current_temperature",
+    "current_humidity_changed": "current_humidity",
+}
 CLASSIC_VALUE_TEMPLATES = {
-    "current_temperature_changed": "{{ state.attributes.get('current_temperature') }}",
-    "current_humidity_changed": "{{ state.attributes.get('current_humidity') }}",
+    trigger_type: f"{{{{ state.attributes.get('{attribute}') }}}}"
+    for trigger_type, attribute in CLASSIC_VALUE_ATTRIBUTES.items()
 }
 
 # Default threshold values
@@ -359,10 +368,14 @@ async def async_attach_trigger(
     #   Fires when the minimum TRV battery level drops below the threshold.
     #   Threshold is configurable (CONF_BELOW); default is DEFAULT_BATTERY_THRESHOLD.
     #   Template extracts the minimum 'battery' value from the batteries JSON dict.
+    #   Each level is the battery entity's state, a string, so the levels are
+    #   converted to numbers before the minimum is taken; a level that is no
+    #   finite number, such as "unavailable" or "nan", is left out.
     if trigger_type == TriggerType.BATTERY_LOW:
         battery_template = (
             "{%- set bat = state.attributes.get('batteries', '{}') | from_json -%}"
-            "{%- set levels = bat.values() | map(attribute='battery') | reject('none') | list -%}"
+            "{%- set levels = bat.values() | map(attribute='battery')"
+            " | select('is_number') | map('float') | list -%}"
             "{{ (levels | min) if levels else 101 }}"
         )
         numeric_config = _build_numeric(battery_template)
@@ -399,10 +412,14 @@ async def async_attach_trigger(
     # Purpose-specific trigger: target_temp_reached
     #   Fires when current_temperature >= target_temperature. The template
     #   renders 1 then and 0 otherwise, also while either value is missing.
+    #   A thermostat with a cooler publishes a range instead of a single
+    #   target, and its heating target is the lower end of that range.
     if trigger_type == TriggerType.TARGET_TEMP_REACHED:
         reached_template = (
             "{%- set current = state.attributes.get('current_temperature') -%}"
-            "{%- set target = state.attributes.get('temperature') -%}"
+            "{%- set single = state.attributes.get('temperature') -%}"
+            "{%- set target = single if single is number"
+            " else state.attributes.get('target_temp_low') -%}"
             "{{ 1 if current is number and target is number"
             " and current >= target else 0 }}"
         )
@@ -449,6 +466,25 @@ async def async_attach_trigger(
         )
 
     # Classic triggers: current_temperature_changed / current_humidity_changed
+    #   Without a threshold the trigger fires on every change of the value. A
+    #   value that goes missing or comes back is no change, so a sensor
+    #   dropping out fires nothing.
+    if CONF_ABOVE not in config and CONF_BELOW not in config:
+        state_config = {
+            state_trigger.CONF_PLATFORM: "state",
+            state_trigger.CONF_ENTITY_ID: entity_id,
+            CONF_ATTRIBUTE: CLASSIC_VALUE_ATTRIBUTES[trigger_type],
+            CONF_NOT_FROM: [None],
+            CONF_NOT_TO: [None],
+        }
+        if CONF_FOR in config:
+            state_config[CONF_FOR] = config[CONF_FOR]
+        state_config = await state_trigger.async_validate_trigger_config(
+            hass, state_config
+        )
+        return await state_trigger.async_attach_trigger(
+            hass, state_config, action, trigger_info, platform_type="device"
+        )
     numeric_config = _build_numeric(CLASSIC_VALUE_TEMPLATES[trigger_type])
     numeric_config = await numeric_state_trigger.async_validate_trigger_config(
         hass, numeric_config
