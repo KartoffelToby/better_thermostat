@@ -40,6 +40,10 @@ A new target temperature that the cooler reports while it stays in cooling mode 
 
 While the cooling target is still unknown, at the first start or after the cooler was unavailable, Better Thermostat takes it from the cooler when the cooler reports `cool` or `heat_cool`. In any other mode, `off` included, it takes the cooling temperature of the active preset instead.
 
+This holds for a change made right after Better Thermostat wrote to the TRV and for one made while a control cycle runs. Better Thermostat tells its own writes from yours by their values, not by when they arrive. A cycle that finds a TRV turned or switched since the cycle began does not write over the change, and reads it once the cycle is over. It still writes over it when a window or door is open, when it parks a TRV without an off mode for a room that is off (unless the option "Use the minimum temperature instead of 'off'" is on for that TRV: then turning it switches the room on), and when the TRV was switched to a mode Better Thermostat does not use, such as auto. A turn is taken even when the TRV is switched off or drops off the network right after it.
+
+Two limits remain. A TRV that moves to a setpoint of its own a few seconds after Better Thermostat wrote to it, for example back to a value from its own schedule, looks exactly like a turn at the knob and is taken as your new target. And a TRV whose calibration offset Better Thermostat writes gets its mode sent again about three seconds later, because some models leave their mode after an offset write. A TRV switched off by hand within those three seconds is switched on again; switch it off once more and the change holds.
+
 ## Control cycles
 
 Every change that matters, whether from a sensor, from a TRV or from you on the thermostat entity, asks for a control cycle. A cycle reads the current state of all entities, decides what each TRV should do and writes only what differs from what the TRV already has. Requests that arrive while a cycle is waiting are folded into it, so a burst of changes leads to one decision.

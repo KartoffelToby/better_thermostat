@@ -55,6 +55,7 @@ from custom_components.better_thermostat.entity import announce_learned_state
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
+    reports_written_setpoint,
     trigger_trv_change,
 )
 from custom_components.better_thermostat.model_fixes.model_quirks import (
@@ -68,6 +69,7 @@ from custom_components.better_thermostat.utils.calibration.pid import resolve_un
 from custom_components.better_thermostat.utils.const import (
     CONF_CHILD_LOCK,
     CONF_HOMEMATICIP,
+    CONF_NO_OFF_SYSTEM_MODE,
     CalibrationMode,
     CalibrationOutput,
 )
@@ -90,6 +92,7 @@ from custom_components.better_thermostat.utils.helpers import (
     get_current_set_temperatures,
     last_sent_cooler_temperature,
     matches_any_setpoint,
+    mode_remap,
     normalize_step,
     on_cooler_grid,
     read_bound_celsius,
@@ -1130,6 +1133,12 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
     every cycle with a report that carries nothing new would otherwise keep
     one cycle following the next.
 
+    A setpoint turned while the device was on is read on its own first when
+    the state read here hides it: a device switched off after the turn
+    refuses any setpoint, and a device that came back after it is judged
+    against the state it came back from. Outside a cycle the handler has
+    read the turn before either report arrives.
+
     Parameters
     ----------
     self : BetterThermostat
@@ -1145,6 +1154,8 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
         trv.hvac_mode_before_held_report = None
         temperature_moved = trv.temperature_moved_while_held
         trv.temperature_moved_while_held = False
+        held_turn = trv.held_turn
+        trv.held_turn = None
         state = self.hass.states.get(entity_id)
         if trv_report_is_unreadable(self, entity_id, state):
             continue
@@ -1157,6 +1168,25 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
         )
         acted_on_before = _held_report_control_inputs(self, trv)
         try:
+            if held_turn is not None and _turn_hidden_by_later_report(
+                self, previous, state
+            ):
+                turned_from, turned_to = held_turn
+                await trigger_trv_change(
+                    self,
+                    Event(
+                        EVENT_STATE_CHANGED,
+                        EventStateChangedData(
+                            entity_id=entity_id,
+                            old_state=turned_from,
+                            new_state=turned_to,
+                        ),
+                        context=Context(),
+                    ),
+                    mode_settled=True,
+                    request_cycle=False,
+                    prior_hvac_mode=turned_from.state,
+                )
             await trigger_trv_change(
                 self,
                 held_report,
@@ -1184,6 +1214,26 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
             or _locked_device_moved(self, entity_id, trv, state)
         ):
             request_control_cycle(self)
+
+
+def _turn_hidden_by_later_report(
+    self: BetterThermostat, previous: State | None, state: State | None
+) -> bool:
+    """Return whether the state read at cycle end hides a turn held before it.
+
+    A device switched off after the turn reports a mode that refuses any
+    setpoint, and a device that came back inside the cycle is judged against
+    the state it came back from, which carries no setpoint. Either way the
+    state read at the end of the cycle no longer shows the turn as one.
+    """
+    if state is not None and state.state == HVACMode.OFF:
+        return True
+    return (
+        read_setpoint_celsius(
+            self, previous, TRV_SETPOINT_KEYS, "read_reports_held_during_cycle()"
+        )
+        is None
+    )
 
 
 def _locked_device_moved(
@@ -2455,7 +2505,24 @@ async def control_trv(
                         self.clock.monotonic() + WRITE_CONFIRM_TIMEOUT_S
                     )
                 _mode_trv.last_hvac_mode = _new_hvac_mode
+            # An open window or door switches the device off whatever was
+            # switched on it meanwhile.
             if (
+                _new_hvac_mode is not None
+                and _new_hvac_mode != _reported_hvac_mode
+                and trv_desired.suppression is None
+                and _mode_switched_during_cycle(
+                    self, entity_id, _mode_trv, _reported_hvac_mode
+                )
+            ):
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV %s was switched to %s during the "
+                    "cycle, leaving it for the end of the cycle to read",
+                    self.device_name,
+                    entity_id,
+                    _reported_hvac_mode,
+                )
+            elif (
                 _new_hvac_mode is not None
                 and _new_hvac_mode != _reported_hvac_mode
                 and (
@@ -2641,24 +2708,43 @@ async def control_trv(
                 # step and inside its range, so that value is the one
                 # compared with the device's report and recorded as sent.
                 _temperature = setpoint_on_device_grid(self, entity_id, _temperature)
+            # Safety-relevant writes, the frost floor and parking a device
+            # for a room or a window that is off, bypass the write budget. A
+            # device without an off mode is switched off by this very write.
+            _safety_relevant_setpoint = _safety_overrode_setpoint or HVACMode.OFF in (
+                _new_hvac_mode,
+                trv_desired.hvac_mode,
+            )
+            # They also hold whatever was turned on the device meanwhile, but
+            # for one case: a turn on a device configured to carry the room's
+            # mode on its setpoint switches an off room on, so with no window
+            # or door open it is a press like any other.
+            _write_over_turn = _safety_relevant_setpoint and (
+                _safety_overrode_setpoint
+                or trv_desired.suppression is not None
+                or not advanced_flag(_advanced, CONF_NO_OFF_SYSTEM_MODE)
+            )
             if _temperature is not None and (
                 _new_hvac_mode != HVACMode.OFF or _trv_has_no_off
             ):
                 # Tolerance-based comparison: the outbound value lies on the
                 # device step grid, the read-back values on the 0.01 grid, so
                 # exact set membership would re-send identical setpoints.
-                if not matches_any_setpoint(_temperature, _current_set_temperatures):
-                    trv = self.real_trvs[entity_id]
-                    # Safety-relevant writes (frost floor / OFF) bypass the
-                    # write budget; everything else waits for the next slot
-                    # and converges via the scheduled retry. A TRV without an
-                    # OFF mode is turned off by this very write.
-                    if _consume_budget(
-                        self,
+                if not _write_over_turn and _setpoint_turned_during_cycle(
+                    self, entity_id
+                ):
+                    _LOGGER.debug(
+                        "better_thermostat %s: TRV %s was turned during the cycle, "
+                        "leaving the turn for the end of the cycle to read",
+                        self.device_name,
                         entity_id,
-                        "setpoint",
-                        bypass=_safety_overrode_setpoint
-                        or HVACMode.OFF in (_new_hvac_mode, trv_desired.hvac_mode),
+                    )
+                elif not matches_any_setpoint(_temperature, _current_set_temperatures):
+                    trv = self.real_trvs[entity_id]
+                    # Everything but a safety-relevant write waits for the
+                    # next slot and converges via the scheduled retry.
+                    if _consume_budget(
+                        self, entity_id, "setpoint", bypass=_safety_relevant_setpoint
                     ):
                         old = trv.commanded_setpoint
                         _LOGGER.debug(
@@ -2727,6 +2813,64 @@ async def control_trv(
     finally:
         if _suppression_owned:
             self.real_trvs[entity_id].ignore_trv_states = False
+
+
+def _setpoint_turned_during_cycle(self: BetterThermostat, entity_id: str) -> bool:
+    """Return whether the TRV was turned to another setpoint during this cycle.
+
+    The cycle decides what to write before it reaches the device, and the
+    inbound handler stands down until the cycle ends, so a turn at the device
+    in between is known only as a held report. A device that reported during
+    the cycle and now holds a setpoint other than the one it held before, and
+    one Better Thermostat did not write, holds such a turn: writing the
+    decision over it would leave the end of the cycle nothing to read.
+
+    A device under a child lock is turned back whatever it holds. A device
+    that came back inside the cycle, or was switched on inside it, holds its
+    own setpoint, not a turn: the inbound handler takes neither as a press.
+    """
+    trv = self.real_trvs[entity_id]
+    if not trv.report_unread or advanced_flag(trv.advanced, CONF_CHILD_LOCK):
+        return False
+    if (
+        trv.state_before_held_report is not None
+        and trv.state_before_held_report.state == HVACMode.OFF
+    ):
+        return False
+    before = read_setpoint_celsius(
+        self, trv.state_before_held_report, TRV_SETPOINT_KEYS, "control_trv()"
+    )
+    live = self.hass.states.get(entity_id)
+    reported = read_setpoint_celsius(self, live, TRV_SETPOINT_KEYS, "control_trv()")
+    if before is None or reported is None or reported == before:
+        return False
+    return reports_written_setpoint(self, entity_id, trv, live) is False
+
+
+def _mode_switched_during_cycle(
+    self: BetterThermostat, entity_id: str, trv: Trv, reported_mode: str
+) -> bool:
+    """Return whether the TRV was switched to another mode during this cycle.
+
+    The counterpart of :func:`_setpoint_turned_during_cycle` for the mode: the
+    device reported during the cycle, and the mode it reports is neither the
+    one it reported before nor the one Better Thermostat last sent it. Only a
+    mode the inbound handler reads as heat or off counts: the end of the
+    cycle ignores any other, so a write skipped for it would not follow.
+    """
+    if not trv.report_unread or advanced_flag(trv.advanced, CONF_CHILD_LOCK):
+        return False
+    if mode_remap(self, entity_id, reported_mode, True) not in (
+        HVACMode.OFF,
+        HVACMode.HEAT,
+    ):
+        return False
+    before = trv.state_before_held_report
+    if before is None or before.state in UNAVAILABLE_STATES + UNKNOWN_STATES:
+        return False
+    if reported_mode in UNAVAILABLE_STATES + UNKNOWN_STATES:
+        return False
+    return reported_mode not in (before.state, trv.last_hvac_mode)
 
 
 async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
