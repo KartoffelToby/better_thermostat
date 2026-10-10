@@ -35,7 +35,10 @@ import pytest
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.better_thermostat.utils.calibration.mpc import TrvProfile
-from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Params
+from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+    MpcV2Params,
+    MpcV2State,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
     ControllerSnapshot,
     MpcV2Controller,
@@ -71,6 +74,7 @@ from custom_components.better_thermostat.utils.state_manager import (
     deserialize_mpc_v2_reid,
     deserialize_pid,
     deserialize_tpi,
+    thermostat_of_key,
 )
 from custom_components.better_thermostat.utils.stored_values import (
     MAX_STORED_INT,
@@ -277,15 +281,22 @@ class TestSerializeDeserializeRoundtrip:
     def test_filters_keep_their_stored_keys(self):
         """The room temperature EMA is stored as ``external_temp_ema``."""
         original = RuntimeState(
-            filters=FilterState(room_temperature_ema=20.4, temperature_slope=0.002)
+            filters=FilterState(
+                room_temperature_ema=20.4,
+                temperature_slope=0.002,
+                room_temperature_ema_recorded_at=1700000000.5,
+            )
         )
 
         raw = _serialize(original)
         restored = _deserialize(raw)
 
-        assert raw["filters"] == {"external_temp_ema": 20.4, "temp_slope": 0.002}
-        assert restored.filters.room_temperature_ema == 20.4
-        assert restored.filters.temperature_slope == 0.002
+        assert raw["filters"] == {
+            "external_temp_ema": 20.4,
+            "temp_slope": 0.002,
+            "room_temperature_ema_recorded_at": 1700000000.5,
+        }
+        assert restored.filters == original.filters
 
     def test_reid_results_keep_their_stored_keys(self):
         """The re-identification RMSEs are stored as ``rmse_prior_K``/``rmse_fit_K``."""
@@ -407,6 +418,15 @@ class TestDeserializeMpcFieldSpellings:
         """An entry carrying both spellings reads the store key."""
         raw = {"last_target_C": 22.0, "last_target_temperature": 18.0}
         assert deserialize_mpc(raw).last_target_temperature == 22.0
+
+    def test_an_entry_from_an_earlier_release_keeps_its_other_fields(self, caplog):
+        """``last_temp``, which earlier releases stored, is skipped without a report."""
+        raw = {"last_temp": 20.75, "last_time": 1700000002.0, "gain_est": 0.05}
+        with caplog.at_level(logging.DEBUG):
+            restored = deserialize_mpc(raw, key="bt:room")
+        assert restored.last_time == 1700000002.0
+        assert restored.gain_est == 0.05
+        assert "last_temp" not in caplog.text
 
 
 class TestDeserializeMpcTypeCoercion:
@@ -1764,6 +1784,32 @@ class TestScheduleDelaySave:
         assert isinstance(data, dict)
         assert mgr.dirty is True
 
+    async def test_a_closed_manager_does_not_recreate_a_removed_store(
+        self, hass, hass_storage
+    ):
+        """No write reaches the store once the entity's final save is made.
+
+        Removing an entry deletes its store after the entity's final flush.
+        A save scheduled later, by work that finished after the removal,
+        would write the file back for an entry that no longer exists.
+        """
+        key = "better_thermostat_gone_entry_state"
+        mgr = StateManager(hass, "gone_entry")
+        await mgr.load()
+        mgr.get_pid("k").pid_kp = 11.0
+        mgr.mark_dirty()
+        mgr.close()
+        await mgr.flush()
+        await StateManager.async_remove_store(hass, "gone_entry")
+        assert key not in hass_storage
+
+        mgr.mark_dirty()
+        mgr.schedule_delay_save()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=60))
+        await hass.async_block_till_done()
+
+        assert key not in hass_storage
+
 
 # ---------------------------------------------------------------------------
 # StateManager — state property
@@ -1940,6 +1986,155 @@ class TestResetPidStates:
 
         assert removed == 0
         assert mgr.dirty is False
+
+
+def _manager_with_every_section(entity_id: str) -> StateManager:
+    """Return a manager holding one entry for ``entity_id`` in every section."""
+    mgr = _make_manager()
+    key = f"uid:{entity_id}:t21.0"
+    mgr.set_mpc(key, MpcState(gain_est=0.7))
+    mgr.state.mpc_v2[key] = MpcV2StateData(last_percent=40.0)
+    mgr.state.mpc_v2_reid[key] = MpcV2ReidData(gain_heater=0.02)
+    mgr.set_pid(key, PIDState(pid_kp=77.0))
+    mgr.set_tpi(key, TpiState(last_percent=35.0))
+    mgr.set_mpc_v2_live(key, MpcV2State())
+    mgr.get_mpc_v2_reid_runtime(key)
+    return mgr
+
+
+def _sections(mgr: StateManager) -> list[dict[str, object]]:
+    return [
+        dict(mgr.state.mpc),
+        dict(mgr.state.mpc_v2),
+        dict(mgr.state.mpc_v2_reid),
+        dict(mgr.state.pid),
+        dict(mgr.state.tpi),
+        dict(mgr._mpc_v2_live),
+        dict(mgr._mpc_v2_reid_live),
+    ]
+
+
+class TestMoveThermostat:
+    """A thermostat that changed its entity id keeps what was learned for it."""
+
+    def test_every_section_moves_to_the_new_entity_id(self):
+        mgr = _manager_with_every_section("climate.old")
+        mgr._dirty = False
+
+        moved = mgr.move_thermostat("climate.old", "climate.new")
+
+        assert moved == 7
+        assert [set(section) for section in _sections(mgr)] == [
+            {"uid:climate.new:t21.0"}
+        ] * 7
+        assert mgr.state.pid["uid:climate.new:t21.0"].pid_kp == 77.0
+        assert mgr.dirty is True
+
+    def test_another_thermostat_and_the_room_keep_their_keys(self):
+        """An id that only starts like the old one is another thermostat."""
+        mgr = _make_manager()
+        for key in ("uid:climate.old_2:t21.0", "uid:group:t21.0", "uid:reid"):
+            mgr.set_pid(key, PIDState())
+        mgr._dirty = False
+
+        moved = mgr.move_thermostat("climate.old", "climate.new")
+
+        assert moved == 0
+        assert set(mgr.state.pid) == {
+            "uid:climate.old_2:t21.0",
+            "uid:group:t21.0",
+            "uid:reid",
+        }
+        assert mgr.dirty is False
+
+    def test_the_moved_state_replaces_one_under_the_new_id(self):
+        mgr = _make_manager()
+        mgr.set_pid("uid:climate.old:t21.0", PIDState(pid_kp=77.0))
+        mgr.set_pid("uid:climate.new:t21.0", PIDState(pid_kp=5.0))
+
+        mgr.move_thermostat("climate.old", "climate.new")
+
+        assert set(mgr.state.pid) == {"uid:climate.new:t21.0"}
+        assert mgr.state.pid["uid:climate.new:t21.0"].pid_kp == 77.0
+
+    def test_a_pid_loop_entry_moves_with_its_buckets(self):
+        """A TRV's PID loop entry carries no bucket and moves all the same."""
+        mgr = _make_manager()
+        mgr.set_pid("uid:climate.old", PIDState(pid_kp=77.0, pid_integral=4.0))
+        mgr.set_pid("uid:climate.old:t21.0", PIDState())
+        mgr._dirty = False
+
+        moved = mgr.move_thermostat("climate.old", "climate.new")
+
+        assert moved == 2
+        assert set(mgr.state.pid) == {"uid:climate.new", "uid:climate.new:t21.0"}
+        assert mgr.state.pid["uid:climate.new"].pid_kp == 77.0
+        assert mgr.state.pid["uid:climate.new"].pid_integral == 4.0
+        assert mgr.dirty is True
+
+
+class TestForgetThermostatsExcept:
+    """State learned for a thermostat the entry no longer controls is dropped."""
+
+    def test_every_section_drops_an_unconfigured_thermostat(self):
+        mgr = _manager_with_every_section("climate.removed")
+        mgr._dirty = False
+
+        dropped = mgr.forget_thermostats_except(["climate.kept"])
+
+        assert dropped == 7
+        assert _sections(mgr) == [{}] * 7
+        assert mgr.dirty is True
+
+    def test_configured_thermostats_the_room_and_shared_keys_stay(self):
+        mgr = _make_manager()
+        kept = {
+            "uid:climate.kept:t21.0",
+            "uid:climate.kept:tunknown",
+            "uid:group:t21.0",
+            "uid:reid",
+        }
+        for key in kept:
+            mgr.set_mpc(key, MpcState())
+        mgr._dirty = False
+
+        dropped = mgr.forget_thermostats_except(["climate.kept"])
+
+        assert dropped == 0
+        assert set(mgr.state.mpc) == kept
+        assert mgr.dirty is False
+
+    def test_the_pid_loop_entry_of_an_unconfigured_thermostat_is_dropped(self):
+        mgr = _make_manager()
+        mgr.set_pid("uid:climate.removed", PIDState(pid_kp=77.0))
+        mgr.set_pid("uid:climate.kept", PIDState(pid_kp=5.0))
+        mgr._dirty = False
+
+        dropped = mgr.forget_thermostats_except(["climate.kept"])
+
+        assert dropped == 1
+        assert set(mgr.state.pid) == {"uid:climate.kept"}
+        assert mgr.dirty is True
+
+
+@pytest.mark.parametrize(
+    ("key", "thermostat"),
+    [
+        ("uid:climate.trv:t21.0", "climate.trv"),
+        ("uid:climate.trv:t-0.5", "climate.trv"),
+        ("uid:climate.trv:tunknown", "climate.trv"),
+        ("uid:group:t21.0", "group"),
+        ("uid:climate.trv", "climate.trv"),
+        ("uid:with:colons:climate.trv", "climate.trv"),
+        ("uid:with:colons:climate.trv:t21.0", "climate.trv"),
+        ("uid:reid", None),
+        ("uid:group", None),
+        ("uid:t21.0", None),
+        ("climate.trv", None),
+    ],
+)
+def test_thermostat_of_key_reads_every_per_thermostat_key_shape(key, thermostat):
+    assert thermostat_of_key(key) == thermostat
 
 
 # ---------------------------------------------------------------------------

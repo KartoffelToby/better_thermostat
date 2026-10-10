@@ -254,7 +254,6 @@ class _MpcState:
     loss_est: float | None = None
     ka_est: float | None = None  # Insulation coefficient (loss per degree diff)
     solar_gain_est: float | None = None  # Learned solar gain factor
-    last_cycle_temperature: float | None = None
     last_time: float = 0.0
     last_trv_temperature: float | None = None
     last_trv_temperature_ts: float = 0.0
@@ -712,7 +711,6 @@ def _forget_stamps_ahead_of_the_clock(state: _MpcState, now: float) -> None:
         state.last_update_ts = 0.0
     if state.last_time > now:
         state.last_time = 0.0
-        state.last_cycle_temperature = None
     if state.last_trv_temperature_ts > now:
         state.last_trv_temperature_ts = 0.0
         state.last_trv_temperature = None
@@ -1763,12 +1761,6 @@ def _compute_predictive_percent(
     u_abs_percent = best_u * 100.0
     best_percent = u_abs_percent
 
-    # store last estimates
-    state.last_cycle_temperature = (
-        state.virtual_temperature
-        if use_virtual_temperature and state.virtual_temperature is not None
-        else inp.room_temperature
-    )
     state.last_time = now
 
     # build debug

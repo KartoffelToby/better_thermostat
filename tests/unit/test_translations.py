@@ -11,6 +11,8 @@ import re
 import pytest
 import yaml
 
+from custom_components.better_thermostat.utils.calibration.pid import PIDParams
+
 ROOT = Path(__file__).parents[2]
 COMPONENT = ROOT / "custom_components" / "better_thermostat"
 TRANSLATIONS = COMPONENT / "translations"
@@ -437,3 +439,60 @@ def test_user_errors_name_a_catalog_message():
         if names != _placeholders(_section(messages, key.value)["message"]):
             problems.append(f"{where}: placeholders {names} differ from en.json")
     assert not problems, "\n".join(problems)
+
+
+# Step texts whose English wording is also the correct translation.
+IDENTICAL_STEP_TEXTS = {
+    ("de", "config.step.user.data.name"),
+    ("de", "options.step.user.data.name"),
+}
+
+
+@pytest.mark.parametrize("lang", LANGUAGES)
+def test_flow_step_texts_are_localized(lang: str):
+    """The config and options dialogs show no English copy in another language."""
+    english = _load(TRANSLATIONS / "en.json")
+    translated = _load(TRANSLATIONS / f"{lang}.json")
+    untranslated = sorted(
+        key
+        for key, value in english.items()
+        if key.split(".")[0] in ("config", "options")
+        and ".step." in key
+        and translated.get(key) == value
+        and (lang, key) not in IDENTICAL_STEP_TEXTS
+    )
+    assert not untranslated, f"{lang}.json shows English step texts: {untranslated}"
+
+
+# Help texts that explain a dropdown with one ***label*** line per option.
+OPTION_HELP_TEXTS = {
+    "calibration": "calibration_output",
+    "calibration_mode": "calibration_mode",
+}
+
+
+@pytest.mark.parametrize("lang", ALL_LANGUAGES)
+@pytest.mark.parametrize("flow", ["config", "options"])
+@pytest.mark.parametrize("field", sorted(OPTION_HELP_TEXTS))
+def test_option_help_text_explains_every_option(lang: str, flow: str, field: str):
+    """Each dropdown option is explained under the label the dropdown shows."""
+    catalog = _load_json(TRANSLATIONS / f"{lang}.json")
+    help_text = _section(catalog, flow, "step", "advanced", "data_description")[field]
+    labels = _section(catalog, "selector", OPTION_HELP_TEXTS[field], "options")
+    assert isinstance(help_text, str)
+
+    assert sorted(re.findall(r"\*\*\*(.+?)\*\*\*", help_text)) == sorted(
+        str(label) for label in labels.values()
+    )
+
+
+def test_reset_pid_learnings_gain_selectors_reach_the_pid_limits():
+    """The action UI accepts every gain the PID controller can learn."""
+    services = yaml.safe_load((COMPONENT / "services.yaml").read_text(encoding="utf-8"))
+    fields = services["reset_pid_learnings"]["fields"]
+    limits = PIDParams()
+
+    for gain in ("kp", "ki", "kd"):
+        number = fields[f"defaults_{gain}"]["selector"]["number"]
+        assert number["min"] <= getattr(limits, f"{gain}_min")
+        assert number["max"] >= getattr(limits, f"{gain}_max"), gain
