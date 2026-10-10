@@ -188,6 +188,12 @@ class Trv:
     # The value is applied as it arrives, so reading the report again at the
     # end of the cycle finds nothing new; this is what still asks for a cycle.
     temperature_moved_while_held: bool = False
+    # The last held report that moved the setpoint of a device that was on,
+    # as the state it replaced and the state it carried. A report after it
+    # that switches the device off or brings it back from ``unavailable``
+    # hides the turn from the state the end of the cycle reads, so the turn
+    # is read first.
+    held_turn: tuple[State, State] | None = None
     last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually put on the
     # wire, after its own clamp to the device's declared offset range;

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from asyncio import Lock
+from asyncio import Lock, gather
 import copy
 from dataclasses import dataclass
 import logging
@@ -11,9 +11,10 @@ from typing import TYPE_CHECKING
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
-from homeassistant.helpers import issue_registry as ir, service
+from homeassistant.helpers import entity_registry as er, issue_registry as ir, service
+from homeassistant.helpers.entity_platform import async_get_platforms
 from homeassistant.helpers.typing import ConfigType, VolDictType, VolSchemaType
 from homeassistant.util.unit_conversion import TemperatureConverter
 import voluptuous as vol
@@ -45,9 +46,20 @@ from .utils.helpers import (
     setting_str,
     stored_trv_configs,
 )
+from .utils.renamed_entities import (
+    apply_recorded_moves,
+    forget_entry,
+    has_recorded_moves,
+    move_trv_unique_ids,
+    record_thermostat_move,
+    settings_with_entity_renamed,
+    stored_state_lock,
+)
 from .utils.stored_values import stored_float
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from .climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
@@ -96,6 +108,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         service.async_register_platform_entity_service(
             hass, DOMAIN, name, entity_domain=CLIMATE_DOMAIN, func=method, schema=schema
         )
+    _follow_entity_renames(hass)
     return True
 
 
@@ -288,9 +301,30 @@ async def async_setup_entry(
         _LOGGER.exception(
             "better_thermostat: error loading platforms for entry %s", entry.entry_id
         )
+        await _unload_forwarded_platforms(hass, entry)
         return False
     entry.async_on_unload(entry.add_update_listener(config_entry_update_listener))
     return True
+
+
+async def _unload_forwarded_platforms(
+    hass: HomeAssistant, entry: BetterThermostatConfigEntry
+) -> None:
+    """Unload the platforms a failed setup had already set the entry up on.
+
+    Home Assistant does not unload an entry whose setup failed. A climate
+    platform set up before a later platform failed would keep its entity
+    running and writing to the TRVs, and every retry of the setup would fail
+    on the platform it finds already set up.
+    """
+    forwarded = [
+        platform.domain
+        for platform in async_get_platforms(hass, DOMAIN)
+        if platform.config_entry is not None
+        and platform.config_entry.entry_id == entry.entry_id
+    ]
+    if forwarded:
+        await hass.config_entries.async_unload_platforms(entry, forwarded)
 
 
 def _reload_lock(hass: HomeAssistant, entry: BetterThermostatConfigEntry) -> Lock:
@@ -323,6 +357,133 @@ async def config_entry_update_listener(
     """Handle options update."""
     async with _reload_lock(hass, entry):
         await hass.config_entries.async_reload(entry.entry_id)
+
+
+@callback
+def _follow_entity_renames(hass: HomeAssistant) -> None:
+    """Carry every entry over to an entity that is given a new entity id.
+
+    The listener lives as long as the integration, not as long as an entry,
+    so an entry that is not loaded when its entity is renamed follows the
+    rename too. Every entry is rewritten before any stored state is moved,
+    so a second rename always reads settings the first one has rewritten.
+    """
+
+    async def _follow(event: Event[er.EventEntityRegistryUpdatedData]) -> None:
+        data = event.data
+        if data["action"] != "update" or "old_entity_id" not in data:
+            return
+        stored_moves = [
+            stored_move
+            for entry in hass.config_entries.async_entries(DOMAIN)
+            if (
+                stored_move := _follow_entity_rename(
+                    hass, entry, data["old_entity_id"], data["entity_id"]
+                )
+            )
+            is not None
+        ]
+        await gather(*stored_moves)
+
+    hass.bus.async_listen(er.EVENT_ENTITY_REGISTRY_UPDATED, _follow)
+
+
+def _climate_of(entry: BetterThermostatConfigEntry) -> BetterThermostat | None:
+    """Return ``entry``'s thermostat entity, also while it is being removed."""
+    runtime_data = getattr(entry, "runtime_data", None)
+    return None if runtime_data is None else runtime_data.climate
+
+
+async def _move_stored_state(
+    hass: HomeAssistant,
+    entry: BetterThermostatConfigEntry,
+    climate: BetterThermostat | None,
+) -> None:
+    """Apply the moves recorded for ``entry`` to its stored state.
+
+    A removed thermostat's final save is waited for first, so it cannot
+    write the old keys over the moved ones. A thermostat set up meanwhile
+    loads under the same lock and applies the recorded moves itself; then
+    nothing is left to do here.
+    """
+    # Runtime import, for the reason async_remove_entry gives.
+    from .utils.state_manager import StateManager  # noqa: PLC0415
+
+    if climate is not None:
+        await climate.wait_for_final_save()
+    async with stored_state_lock(hass, entry.entry_id):
+        if not has_recorded_moves(hass, entry.entry_id):
+            return
+        state_mgr = StateManager(hass, entry.entry_id)
+        await state_mgr.load()
+        apply_recorded_moves(hass, entry.entry_id, state_mgr)
+        await state_mgr.save_if_dirty()
+        state_mgr.close()
+
+
+def _follow_entity_rename(
+    hass: HomeAssistant,
+    entry: BetterThermostatConfigEntry,
+    old_entity_id: str,
+    new_entity_id: str,
+) -> Coroutine[None, None, None] | None:
+    """Rewrite ``entry`` to name ``new_entity_id`` wherever it named the old id.
+
+    A renamed thermostat keeps its advanced options, its own entities with
+    their values and history, and what was learned for it. A running
+    thermostat holds that state in memory and saves it when it is unloaded,
+    so the state moves there, before the rewritten settings are saved and
+    reload the entry under the new id. Otherwise the move is recorded, and
+    the returned coroutine applies it to the stored state unless a
+    thermostat being set up loads the state and applies it first. Nothing
+    here yields to the event loop, so renames that follow each other
+    quickly are applied in order.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance.
+    entry : BetterThermostatConfigEntry
+        A Better Thermostat config entry, which may or may not name the entity.
+    old_entity_id : str
+        The entity id the entity had.
+    new_entity_id : str
+        The entity id the entity has now.
+
+    Returns
+    -------
+    Coroutine[None, None, None] | None
+        The move of the stored state, for the caller to await, or ``None``
+        when nothing is stored for the entity or the running thermostat
+        holds it.
+    """
+    renamed = settings_with_entity_renamed(
+        entry_settings(entry), old_entity_id, new_entity_id
+    )
+    if renamed is None:
+        return None
+    trvs = trv_entity_ids(entry)
+    is_trv = old_entity_id in trvs
+    climate = _climate_of(entry)
+    state_mgr = None if climate is None else climate.state_in_memory
+    if is_trv:
+        move_trv_unique_ids(
+            er.async_get(hass), entry.entry_id, trvs, old_entity_id, new_entity_id
+        )
+        if state_mgr is not None:
+            state_mgr.move_thermostat(old_entity_id, new_entity_id)
+        else:
+            record_thermostat_move(hass, entry.entry_id, old_entity_id, new_entity_id)
+    _LOGGER.info(
+        "better_thermostat %s: %s is now %s; the settings follow the new entity id",
+        entry_name(entry),
+        old_entity_id,
+        new_entity_id,
+    )
+    hass.config_entries.async_update_entry(entry, data={}, options=renamed)
+    if is_trv and state_mgr is None:
+        return _move_stored_state(hass, entry, climate)
+    return None
 
 
 async def async_unload_entry(
@@ -368,13 +529,17 @@ async def async_remove_entry(
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
     hass.data.get(NORMALIZED_ID_NAMES, {}).pop(entry.entry_id, None)
 
-    try:
-        await StateManager.async_remove_store(hass, entry.entry_id)
-    except Exception:
-        _LOGGER.exception(
-            "better_thermostat: failed to remove state store for entry %s",
-            entry.entry_id,
-        )
+    # A stored move under way finishes first, and none is left to write the
+    # removed store back.
+    async with stored_state_lock(hass, entry.entry_id):
+        forget_entry(hass, entry.entry_id)
+        try:
+            await StateManager.async_remove_store(hass, entry.entry_id)
+        except Exception:
+            _LOGGER.exception(
+                "better_thermostat: failed to remove state store for entry %s",
+                entry.entry_id,
+            )
 
     async_delete_entry_issues(hass, entry.entry_id)
 

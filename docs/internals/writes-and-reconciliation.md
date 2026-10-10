@@ -27,6 +27,12 @@ flowchart LR
     D -.->|budget reopens| RQ[request_control_cycle]
 ```
 
+The setpoint is compared on the device's grid. Before the comparison it
+is rounded onto the TRV's step and clamped to its range, exactly as the
+adapter write would round and clamp it, so a target between two steps
+(70 °F is 21.11 °C) is written once and then matches the value the TRV
+holds instead of going out again every cycle.
+
 **Adapters** (`adapters/`) speak the integration's dialect: Zigbee2MQTT,
 deCONZ, Tado, Z-Wave JS, Shelly, generic climate services. Zigbee2MQTT,
 Z-Wave JS and the Shelly BLU TRV publish the valve as a number entity of
@@ -38,6 +44,30 @@ Sonoff TRVZB). The `Trv` object carries both, plus a `TrvCapabilities`
 descriptor derived in one place (whether the device supports offset
 writes, direct valve writes, and an OFF mode), so the rest of the code
 consults capabilities instead of probing quirk modules.
+
+Home Assistant puts no time limit on a service call, and some
+integrations keep the call open until the device answers (a sleeping
+Z-Wave node, a cloud API without a request timeout). The heads of a
+room and the cooler are written one after another under one lock, so
+every device write, adapter, quirk and cooler alike, is bounded at 30
+seconds (`DEVICE_CALL_TIMEOUT_S`). A write that runs out of time is
+cancelled and fails like one that raised: it is not repeated within the
+cycle, the channel is logged as out of reach, and each following cycle
+tries it once until a write goes through. The other heads of the room
+keep getting their writes. A head that stops answering still costs the
+room up to 30 seconds per channel it is written on (mode, setpoint,
+offset, valve) in every cycle.
+
+A mode write that ran out of time may still reach the device: a
+sleeping node keeps the command queued and applies it when it wakes.
+Such a mode is remembered as withdrawn for the confirmation window,
+like a command the room took back before the device confirmed it, so
+the device applying it late is not read as someone switching the mode
+at the device. The head's setpoint and offset are still written in the
+same cycle.
+
+At startup, each TRV's initial tweak has a 60-second budget; a TRV whose
+tweak runs out of time counts as failed and the startup moves on.
 
 ## The write budget
 
@@ -78,7 +108,10 @@ intent against what the devices report:
   entity, once the device confirmed the last write (in-flight writes
   remain the write path's business),
 - **valve** — the commanded percentage against the adapter-written
-  number entity, with a 5-point tolerance for device-side modulation.
+  number entity, with a 5-point tolerance for device-side modulation,
+- **cooler mode** — the mode a cooler of its own reports against the
+  COOL or OFF the cooling channel last decided. A cooler that also
+  carries the heating role is compared as a TRV instead.
 
 On divergence the reconciler queues one ordinary control cycle, the
 general healing mechanism that replaces per-case keepalives. The
@@ -87,4 +120,5 @@ or normal modulation would re-send the same value every five minutes
 and drain batteries, which is what the budget exists to prevent.
 
 The same tick hosts the watchdog check: if no control cycle completed
-for 15 minutes, it logs an error and forces one.
+for 15 minutes, it logs an error and forces one. A cycle that is still
+running 15 minutes after it began is logged as an error once.

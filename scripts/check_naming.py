@@ -4,8 +4,10 @@
 that term replaces. A name already used in five hundred places cannot be fixed
 by a rule, and silencing the whole file would exempt the names written tomorrow
 along with the ones written yesterday. So the backlog is a budget: a file may
-not exceed the number of rejected names it carries today, and a file that is
-not in the budget may not carry a single one.
+not carry a rejected name more often than it does today, and a name or a file
+that is not in the budget may not appear at all. The budget is kept per name,
+not per file, so trading one rejected name for another fails even though the
+file's total stays level.
 
 The budget is scaffolding, not an inventory. It only ever shrinks, and once the
 last entry reaches zero the file is deleted and the check becomes "no rejected
@@ -43,9 +45,9 @@ spelling the old name is over budget and has to follow.
 Three modes:
 
 ``check``
-    Count today's findings and exit non-zero when a file is over its budget,
-    when a file with no budget has a finding at all, or when a file came in
-    under its budget and the lower number has not been recorded yet.
+    Count today's findings and exit non-zero when a name is over its budget,
+    when a name or a file with no budget has a finding at all, or when a name
+    came in under its budget and the lower number has not been recorded yet.
 
 ``update``
     Rewrite the budget from today's counts. Run this after a rename, so the
@@ -416,54 +418,81 @@ def _findings(paths: list[Path] | None, glossary: Glossary) -> list[Finding]:
     ]
 
 
-def _load_budget() -> dict[str, int]:
+type Budget = dict[str, dict[str, int]]
+"""The rejected names each file may still carry, and how often each one."""
+
+
+def _load_budget() -> Budget:
     """Return the recorded budget, or an empty one before it is first written."""
     try:
-        return json.loads(BUDGET_FILE.read_text(encoding="utf-8"))
+        raw = json.loads(BUDGET_FILE.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {}
     except json.JSONDecodeError as err:
         sys.exit(f"{BUDGET_FILE.name} is not valid JSON: {err}")
+    if not isinstance(raw, dict) or not all(
+        isinstance(names, dict)
+        and all(
+            isinstance(count, int) and not isinstance(count, bool)
+            for count in names.values()
+        )
+        for names in raw.values()
+    ):
+        sys.exit(f"{BUDGET_FILE.name} must map each file to its names and counts")
+    return raw
+
+
+def _tally(findings: list[Finding]) -> Budget:
+    """Return how often each file carries each rejected name."""
+    tally: Budget = {}
+    for finding in findings:
+        names = tally.setdefault(finding.path, {})
+        names[finding.alias] = names.get(finding.alias, 0) + 1
+    return {path: dict(sorted(names.items())) for path, names in sorted(tally.items())}
 
 
 def check(paths: list[Path] | None) -> int:
     """Compare today's findings against the budget. Return an exit code.
 
-    A file under its budget fails like one over it, so a rename records the
-    lower number it reached. A full check judges every recorded file, so a
-    deleted file counts as zero and its budget has to be dropped. A partial
-    check judges only the files it scanned and says nothing about the rest.
+    The budget is held per name, so swapping one rejected name for another
+    fails although the file's total stays level. A name under its budget fails
+    like one over it, so a rename records the lower number it reached. A full
+    check judges every recorded file, so a deleted file counts as zero and its
+    budget has to be dropped. A partial check judges only the files it scanned
+    and says nothing about the rest.
     """
     glossary = _load_glossary()
-    findings: dict[str, list[Finding]] = {}
-    for finding in _findings(paths, glossary):
-        findings.setdefault(finding.path, []).append(finding)
-    counts = Counter({path: len(found) for path, found in findings.items()})
+    found = _findings(paths, glossary)
+    tally = _tally(found)
     budget = _load_budget()
 
     over = sorted(
-        (path, count, budget.get(path, 0))
-        for path, count in counts.items()
-        if count > budget.get(path, 0)
+        (path, name, count, budget.get(path, {}).get(name, 0))
+        for path, names in tally.items()
+        for name, count in names.items()
+        if count > budget.get(path, {}).get(name, 0)
     )
-    for path, count, allowed in over:
-        for finding in findings[path]:
+    over_names = {(path, name) for path, name, _, _ in over}
+    for finding in found:
+        if (finding.path, finding.alias) in over_names:
             print(finding)
+    for path, name, count, allowed in over:
         if allowed:
-            print(f"over budget: {path} {count} rejected names, budget {allowed}\n")
+            print(f"over budget: {path} `{name}` {count} times, budget {allowed}")
         else:
-            print(f"{path}: {count} rejected names, none allowed\n")
+            print(f"{path}: `{name}` {count} times, none allowed")
 
     if over:
-        print(f"{len(over)} file(s) carry more rejected names than allowed")
+        files = len({path for path, _, _, _ in over})
+        print(f"\n{files} file(s) carry more rejected names than allowed")
         return 1
 
-    if not counts and not budget:
+    if not tally and not budget:
         print("no rejected names")
         return 0
     print(
-        f"{sum(counts.values())} rejected names across {len(counts)} files, "
-        "all within budget"
+        f"{sum(sum(names.values()) for names in tally.values())} rejected names "
+        f"across {len(tally)} files, all within budget"
     )
     judged = (
         budget.keys()
@@ -472,8 +501,11 @@ def check(paths: list[Path] | None) -> int:
     )
     slack = sum(
         1
-        for path, count in budget.items()
-        if path in judged and count > counts.get(path, 0)
+        for path, names in budget.items()
+        if path in judged
+        and any(
+            count > tally.get(path, {}).get(name, 0) for name, count in names.items()
+        )
     )
     if slack:
         print(
@@ -484,23 +516,23 @@ def check(paths: list[Path] | None) -> int:
 
 
 def update(*, allow_raise: bool) -> int:
-    """Rewrite the budget from today's counts. Return an exit code.
+    """Rewrite the budget from today's findings. Return an exit code.
 
     Always scans the whole project: a budget written from a partial scan would
     drop the files it did not look at, which reads as progress and is not.
     """
     glossary = _load_glossary()
-    counts = Counter(f.path for f in _findings(None, glossary))
+    budget = _tally(_findings(None, glossary))
     previous = _load_budget()
-    budget = dict(sorted(counts.items()))
 
     raised = [
-        (path, previous.get(path, 0), count)
-        for path, count in budget.items()
-        if count > previous.get(path, 0)
+        (path, name, previous.get(path, {}).get(name, 0), count)
+        for path, names in budget.items()
+        for name, count in names.items()
+        if count > previous.get(path, {}).get(name, 0)
     ]
-    for path, before, after in raised:
-        print(f"raised: {path} {before} -> {after}")
+    for path, name, before, after in raised:
+        print(f"raised: {path} `{name}` {before} -> {after}")
     if raised and not allow_raise:
         print(
             f"\nrefusing to record {len(raised)} raised count(s). Fix the names, or "
@@ -508,14 +540,14 @@ def update(*, allow_raise: bool) -> int:
         )
         return 1
 
+    remaining = sum(sum(names.values()) for names in budget.values())
+    if not remaining:
+        BUDGET_FILE.unlink(missing_ok=True)
+        print(f"nothing left to hold — {BUDGET_FILE.name} removed")
+        return 0
     BUDGET_FILE.write_text(
         json.dumps(budget, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    remaining = sum(budget.values())
-    if not remaining:
-        BUDGET_FILE.unlink()
-        print(f"nothing left to hold — {BUDGET_FILE.name} removed")
-        return 0
     print(
         f"recorded {len(budget)} files, {remaining} names left, in {BUDGET_FILE.name}"
     )

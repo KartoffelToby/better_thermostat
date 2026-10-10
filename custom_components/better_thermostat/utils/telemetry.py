@@ -202,12 +202,19 @@ def collect_cycle_telemetry(bt: TelemetrySource) -> dict[str, object]:
     return out
 
 
+def published_temperature_slope(slope: float) -> float:
+    """Return the temperature slope at the precision the state publishes it."""
+    return round(slope, 4)
+
+
 def collect_balance_attrs(bt: TelemetrySource) -> dict[str, object]:
     """Temperature slope plus a compact per-TRV calibration balance summary."""
     out: dict[str, object] = {}
 
     if bt.temperature_slope is not None:
-        out[ATTR_STATE_TEMPERATURE_SLOPE] = round(bt.temperature_slope, 4)
+        out[ATTR_STATE_TEMPERATURE_SLOPE] = published_temperature_slope(
+            bt.temperature_slope
+        )
 
     bal_compact: dict[str, dict[str, float | None]] = {}
     for trv, info in bt.real_trvs.items():

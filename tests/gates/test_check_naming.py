@@ -1,4 +1,4 @@
-"""Tests for the per-file budget of rejected names.
+"""Tests for the per-file, per-name budget of rejected names.
 
 The budget is the thing that notices when a change reintroduces a spelling the
 glossary replaced, so the check has to be right about a file that stayed level,
@@ -156,16 +156,43 @@ def test_an_alias_listed_with_its_underscore_matches_as_written(checker):
 def test_check_passes_when_a_file_stays_within_its_budget(checker):
     """A file at its recorded count is not a regression."""
     _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
-    _budget(checker, **{"custom_components/loader.py": 2})
+    _budget(checker, **{"custom_components/loader.py": {"cfg": 2}})
     assert checker.check(None) == 0
 
 
 def test_check_fails_when_a_file_gains_a_rejected_name(checker, capsys):
     """One more than the budget fails, and the finding is named."""
     _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
-    _budget(checker, **{"custom_components/loader.py": 0})
+    _budget(checker, **{"custom_components/loader.py": {"cfg": 1}})
     assert checker.check(None) == 1
     assert "`cfg` is rejected, use `config`" in capsys.readouterr().out
+
+
+def test_check_fails_when_one_rejected_name_replaces_another(checker, capsys):
+    """The file's total stays level, but the name it now carries has no budget."""
+    _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
+    _budget(checker, **{"custom_components/loader.py": {"val": 2}})
+    assert checker.check(None) == 1
+    out = capsys.readouterr().out
+    assert "custom_components/loader.py: `cfg` 2 times, none allowed" in out
+
+
+def test_update_refuses_to_record_one_rejected_name_replacing_another(checker, capsys):
+    """A swap raises the new name from zero, so it needs ``--allow-raise``."""
+    _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
+    _budget(checker, **{"custom_components/loader.py": {"val": 2}})
+    assert checker.update(allow_raise=False) == 1
+    assert "raised: custom_components/loader.py `cfg` 0 -> 2" in (
+        capsys.readouterr().out
+    )
+
+
+def test_a_budget_that_records_bare_counts_is_refused(checker):
+    """A count per file cannot tell which name it allows."""
+    _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
+    _budget(checker, **{"custom_components/loader.py": 2})
+    with pytest.raises(SystemExit, match="names and counts"):
+        checker.check(None)
 
 
 def test_check_fails_on_the_first_name_in_an_unbudgeted_file(checker, capsys):
@@ -207,7 +234,7 @@ def test_a_new_test_file_may_name_a_spelling_production_still_carries(checker):
     """A test file nobody budgeted may name the attribute it asserts on."""
     _write(checker, "custom_components/entry.py", PRODUCTION_FIELD)
     _write(checker, "tests/unit/test_entry.py", COVERS_THE_FIELD)
-    _budget(checker, **{"custom_components/entry.py": 2})
+    _budget(checker, **{"custom_components/entry.py": {"cfg": 2}})
     assert checker.check(None) == 0
 
 
@@ -215,7 +242,7 @@ def test_a_test_file_is_charged_for_a_spelling_it_invents(checker, capsys):
     """A name no production site carries is the test's own naming decision."""
     _write(checker, "custom_components/entry.py", PRODUCTION_FIELD)
     _write(checker, "tests/unit/test_entry.py", "def test_read(val):\n    return val\n")
-    _budget(checker, **{"custom_components/entry.py": 2})
+    _budget(checker, **{"custom_components/entry.py": {"cfg": 2}})
     assert checker.check(None) == 1
     assert "`val` is rejected, use `value`" in capsys.readouterr().out
 
@@ -240,10 +267,10 @@ def test_update_records_no_entry_for_a_test_file_that_only_mirrors(checker):
     """Nothing is due in it, so it carries no budget to hold."""
     _write(checker, "custom_components/entry.py", PRODUCTION_FIELD)
     _write(checker, "tests/unit/test_entry.py", COVERS_THE_FIELD)
-    _budget(checker, **{"custom_components/entry.py": 2})
+    _budget(checker, **{"custom_components/entry.py": {"cfg": 2}})
     assert checker.update(allow_raise=False) == 0
     assert json.loads(checker.BUDGET_FILE.read_text()) == {
-        "custom_components/entry.py": 2
+        "custom_components/entry.py": {"cfg": 2}
     }
 
 
@@ -259,28 +286,28 @@ def test_an_exception_clears_the_alias_only_where_it_is_listed(checker):
 def test_update_refuses_to_record_a_count_that_grew(checker, capsys):
     """A rejected spelling has no legitimate way back into a file."""
     _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
-    _budget(checker, **{"custom_components/loader.py": 0})
+    _budget(checker, **{"custom_components/loader.py": {"cfg": 1}})
     assert checker.update(allow_raise=False) == 1
     assert "refusing to record" in capsys.readouterr().out
     assert json.loads(checker.BUDGET_FILE.read_text()) == {
-        "custom_components/loader.py": 0
+        "custom_components/loader.py": {"cfg": 1}
     }
 
 
 def test_update_records_a_count_that_fell(checker):
     """After a rename the lower number is the one that has to be held."""
     _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
-    _budget(checker, **{"custom_components/loader.py": 5})
+    _budget(checker, **{"custom_components/loader.py": {"cfg": 5}})
     assert checker.update(allow_raise=False) == 0
     assert json.loads(checker.BUDGET_FILE.read_text()) == {
-        "custom_components/loader.py": 2
+        "custom_components/loader.py": {"cfg": 2}
     }
 
 
 def test_update_removes_the_budget_once_nothing_is_left(checker, capsys):
     """The budget is scaffolding: at zero it deletes itself."""
     _write(checker, "custom_components/clean.py", '"""Doc."""\n')
-    _budget(checker, **{"custom_components/clean.py": 3})
+    _budget(checker, **{"custom_components/clean.py": {"cfg": 3}})
     assert checker.update(allow_raise=False) == 0
     assert not checker.BUDGET_FILE.exists()
     assert "nothing left to hold" in capsys.readouterr().out
@@ -359,7 +386,7 @@ def test_the_repository_stays_within_its_recorded_budget():
 def test_check_fails_on_a_budget_that_has_gone_slack(checker, capsys):
     """A rename records the lower number with it, so the slack cannot be spent."""
     _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
-    _budget(checker, **{"custom_components/loader.py": 5})
+    _budget(checker, **{"custom_components/loader.py": {"cfg": 5}})
     assert checker.check(None) == 1
     assert "1 file(s) below budget" in capsys.readouterr().out
 
@@ -369,7 +396,11 @@ def test_a_partial_check_judges_only_the_files_it_scanned(checker, capsys):
     scanned = _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
     _write(checker, "custom_components/other.py", ONE_IDENTIFIER)
     _budget(
-        checker, **{"custom_components/loader.py": 2, "custom_components/other.py": 5}
+        checker,
+        **{
+            "custom_components/loader.py": {"cfg": 2},
+            "custom_components/other.py": {"cfg": 5},
+        },
     )
 
     assert checker.check([scanned]) == 0
@@ -380,7 +411,11 @@ def test_a_full_check_fails_on_the_budget_of_a_deleted_file(checker, capsys):
     """A file that is gone holds no names, so its recorded count is slack."""
     _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
     _budget(
-        checker, **{"custom_components/loader.py": 2, "custom_components/gone.py": 3}
+        checker,
+        **{
+            "custom_components/loader.py": {"cfg": 2},
+            "custom_components/gone.py": {"cfg": 3},
+        },
     )
 
     assert checker.check(None) == 1
@@ -391,7 +426,11 @@ def test_a_partial_check_leaves_the_budget_of_a_deleted_file_alone(checker, caps
     """A partial check does not judge a recorded file it did not scan."""
     scanned = _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
     _budget(
-        checker, **{"custom_components/loader.py": 2, "custom_components/gone.py": 3}
+        checker,
+        **{
+            "custom_components/loader.py": {"cfg": 2},
+            "custom_components/gone.py": {"cfg": 3},
+        },
     )
 
     assert checker.check([scanned]) == 0

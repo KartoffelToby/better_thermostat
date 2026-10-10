@@ -143,7 +143,9 @@ scenes only when you need the extra state or have run out of preset slots.
   no-op.
 - **Changing the target manually while a preset is active cancels the preset.** Better Thermostat
   keeps the manual value, drops back to `none` and discards the stored restore point, so a later
-  `preset_mode: none` changes nothing. The removed restore action behaved differently here: it
+  `preset_mode: none` changes nothing. With a cooler this holds for either target: a heating or a
+  cooling target that differs from the preset's own cancels the preset, and both restore points
+  are discarded. The removed restore action behaved differently here: it
   overrode a manual change. Automations that relied on that need the manual value written back
   explicitly.
 - Writing a preset's number entity while that preset is active is not a manual change: the preset

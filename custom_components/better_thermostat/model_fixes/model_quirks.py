@@ -24,6 +24,7 @@ from custom_components.better_thermostat.model_fixes.types import (
     UnknownStateQuirk,
     ValveQuirk,
 )
+from custom_components.better_thermostat.utils.retry import device_call_deadline
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -320,11 +321,14 @@ async def override_set_hvac_mode(
 ) -> bool:
     """Invoke model-specific HVAC mode override, if implemented.
 
-    Returns the model-quirks module's response (True if handled).
+    Returns the model-quirks module's response (True if handled). An
+    override still running after ``DEVICE_CALL_TIMEOUT_S`` is cancelled and
+    raises ``DeviceCallTimeoutError``.
     """
-    return await _quirks(self, entity_id).override_set_hvac_mode(
-        self, entity_id, hvac_mode
-    )
+    async with device_call_deadline():
+        return await _quirks(self, entity_id).override_set_hvac_mode(
+            self, entity_id, hvac_mode
+        )
 
 
 async def override_set_temperature(
@@ -332,11 +336,14 @@ async def override_set_temperature(
 ) -> bool:
     """Invoke model-specific temperature override, if implemented.
 
-    Returns the model-quirks module's response (True if handled).
+    Returns the model-quirks module's response (True if handled). An
+    override still running after ``DEVICE_CALL_TIMEOUT_S`` is cancelled and
+    raises ``DeviceCallTimeoutError``.
     """
-    return await _quirks(self, entity_id).override_set_temperature(
-        self, entity_id, temperature
-    )
+    async with device_call_deadline():
+        return await _quirks(self, entity_id).override_set_temperature(
+            self, entity_id, temperature
+        )
 
 
 async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:

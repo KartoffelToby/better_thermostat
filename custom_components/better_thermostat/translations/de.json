@@ -57,7 +57,7 @@
           "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
-          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "no_off_system_mode": "Mindesttemperatur statt „Aus“ verwenden",
           "mpc_v2_plant_preset": "MPC v2 Raumgröße"
         },
         "data_description": {
@@ -66,10 +66,10 @@
           "child_lock": "Sperrt die Tasten des TRV, wenn es eine Kindersicherung hat; Änderungen am TRV selbst werden ignoriert.",
           "homematicip": "Sendet seltener Befehle, damit HomematicIP-Geräte in ihrem Duty Cycle bleiben.",
           "valve_maintenance": "Öffnet und schließt das Ventil gelegentlich, damit es nicht festsitzt. Für TRVs ohne eigene Wartungsfunktion.",
-          "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)",
-          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
-          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
-          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
+          "calibration": "Wie die Kalibrierung auf das TRV angewendet wird\n***Zieltemperaturbasiert***: Wendet die Kalibrierung auf die Zieltemperatur an.\n***Versatzbasiert***: Wendet die Kalibrierung auf den Temperaturversatz (Offset) des TRV an.\n***Direkte Ventilsteuerung***: Setzt die Ventilöffnung direkt. Nur verfügbar, wenn das TRV eine beschreibbare Ventilposition hat. Kalibrierungsmodi, die keine Ventilöffnung liefern, senden stattdessen eine Zieltemperatur.",
+          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***KI zeitbasiert (Standard)***: Lernt mit der Zeit die Heizleistung des Raums und leitet daraus die Kalibrierung ab.\n***Nur externer Sensorversatz***: Gleicht den internen Sensor des TRV mit dem externen Temperatursensor ab. Darüber läuft kein Regler.\n***MPC prädiktiv (Beta)***: Sagt die Raumtemperatur voraus und berechnet daraus eine Ventilöffnung. Lernt das thermische Verhalten des Raums.\n***(KI) MPC v2 (QP + Kalman, experimentell)***: Schätzt den Zustand des Raums mit einem Kalman-Filter und berechnet die Ventilöffnung mit einem modellprädiktiven Regler. Die Einstellung „MPC v2 Raumgröße“ wählt das Raummodell: aus dem Raum gelernt (Automatisch) oder fest für eine Raumgröße (klein, mittel, groß).\n***Aggressiv***: Erhöht die Kalibrierung, solange der Raum heizt, und überspringt die Toleranzverzögerung, damit das TRV früher zu heizen beginnt. Hilfreich, wenn der Raum langsam warm wird.\n***TPI-Regler***: Berechnet die Einschaltdauer der Heizzyklen aus der Temperaturdifferenz.\n***PID-Regler***: Berechnet eine Ventilöffnung aus der Temperaturabweichung mit einem Proportional-, Integral- und Differenzialanteil.\n***Keine Kalibrierung***: Sendet die Zieltemperatur unverändert an das TRV und korrigiert nichts.",
+          "no_off_system_mode": "Mit dieser Option sendet Better Thermostat dem TRV seine Mindesttemperatur statt „Aus“. Ein TRV, das seine Mindesttemperatur meldet, gilt als ausgeschaltet: Sind alle TRVs des Raums aus, schaltet sich der Raum aus; wird ein Drehknopf hochgedreht, schaltet er sich wieder ein. Das gilt auch für eine Drehung bei offenem Fenster oder offener Tür; die Heizung wartet dann, bis alle Fenster und Türen geschlossen sind. Ein TRV ohne „Aus“-Modus bekommt seine Mindesttemperatur auch ohne diese Option. Aktiviere sie für ein TRV, dessen „Aus“-Modus nicht funktioniert, oder für ein TRV ohne „Aus“-Modus, dessen Drehknopf Better Thermostat ein- und ausschalten soll.",
+          "mpc_v2_plant_preset": "Wird nur vom Kalibrierungsmodus MPC v2 verwendet.\n***Automatisch***: Leitet das Raummodell aus dem ab, was Better Thermostat über den Raum gelernt hat, etwa seine Wärmeverlustrate.\n***Kleiner, mittlerer oder großer Raum***: Startet mit einem festen Raummodell für diese Raumgröße."
         }
       },
       "confirm": {
@@ -154,7 +154,7 @@
           "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
-          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "no_off_system_mode": "Mindesttemperatur statt „Aus“ verwenden",
           "mpc_v2_plant_preset": "MPC v2 Raumgröße"
         },
         "data_description": {
@@ -163,10 +163,10 @@
           "child_lock": "Sperrt die Tasten des TRV, wenn es eine Kindersicherung hat; Änderungen am TRV selbst werden ignoriert.",
           "homematicip": "Sendet seltener Befehle, damit HomematicIP-Geräte in ihrem Duty Cycle bleiben.",
           "valve_maintenance": "Öffnet und schließt das Ventil gelegentlich, damit es nicht festsitzt. Für TRVs ohne eigene Wartungsfunktion.",
-          "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)",
-          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
-          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
-          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
+          "calibration": "Wie die Kalibrierung auf das TRV angewendet wird\n***Zieltemperaturbasiert***: Wendet die Kalibrierung auf die Zieltemperatur an.\n***Versatzbasiert***: Wendet die Kalibrierung auf den Temperaturversatz (Offset) des TRV an.\n***Direkte Ventilsteuerung***: Setzt die Ventilöffnung direkt. Nur verfügbar, wenn das TRV eine beschreibbare Ventilposition hat. Kalibrierungsmodi, die keine Ventilöffnung liefern, senden stattdessen eine Zieltemperatur.",
+          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***KI zeitbasiert (Standard)***: Lernt mit der Zeit die Heizleistung des Raums und leitet daraus die Kalibrierung ab.\n***Nur externer Sensorversatz***: Gleicht den internen Sensor des TRV mit dem externen Temperatursensor ab. Darüber läuft kein Regler.\n***MPC prädiktiv (Beta)***: Sagt die Raumtemperatur voraus und berechnet daraus eine Ventilöffnung. Lernt das thermische Verhalten des Raums.\n***(KI) MPC v2 (QP + Kalman, experimentell)***: Schätzt den Zustand des Raums mit einem Kalman-Filter und berechnet die Ventilöffnung mit einem modellprädiktiven Regler. Die Einstellung „MPC v2 Raumgröße“ wählt das Raummodell: aus dem Raum gelernt (Automatisch) oder fest für eine Raumgröße (klein, mittel, groß).\n***Aggressiv***: Erhöht die Kalibrierung, solange der Raum heizt, und überspringt die Toleranzverzögerung, damit das TRV früher zu heizen beginnt. Hilfreich, wenn der Raum langsam warm wird.\n***TPI-Regler***: Berechnet die Einschaltdauer der Heizzyklen aus der Temperaturdifferenz.\n***PID-Regler***: Berechnet eine Ventilöffnung aus der Temperaturabweichung mit einem Proportional-, Integral- und Differenzialanteil.\n***Keine Kalibrierung***: Sendet die Zieltemperatur unverändert an das TRV und korrigiert nichts.",
+          "no_off_system_mode": "Mit dieser Option sendet Better Thermostat dem TRV seine Mindesttemperatur statt „Aus“. Ein TRV, das seine Mindesttemperatur meldet, gilt als ausgeschaltet: Sind alle TRVs des Raums aus, schaltet sich der Raum aus; wird ein Drehknopf hochgedreht, schaltet er sich wieder ein. Das gilt auch für eine Drehung bei offenem Fenster oder offener Tür; die Heizung wartet dann, bis alle Fenster und Türen geschlossen sind. Ein TRV ohne „Aus“-Modus bekommt seine Mindesttemperatur auch ohne diese Option. Aktiviere sie für ein TRV, dessen „Aus“-Modus nicht funktioniert, oder für ein TRV ohne „Aus“-Modus, dessen Drehknopf Better Thermostat ein- und ausschalten soll.",
+          "mpc_v2_plant_preset": "Wird nur vom Kalibrierungsmodus MPC v2 verwendet.\n***Automatisch***: Leitet das Raummodell aus dem ab, was Better Thermostat über den Raum gelernt hat, etwa seine Wärmeverlustrate.\n***Kleiner, mittlerer oder großer Raum***: Startet mit einem festen Raummodell für diese Raumgröße."
         }
       }
     },
@@ -185,7 +185,7 @@
   "issues": {
     "missing_entity": {
       "title": "BT: {name} – zugehörige Entität fehlt",
-      "description": "Der Grund dafür ist, dass die Entität ({entity}) in Ihrem Home Assistant nicht verfügbar ist.\n\nSie können dies beheben, indem Sie prüfen, ob der Akku des Geräts voll ist, oder es erneut an HA anschließen. Diese Meldung verschwindet von selbst, sobald die Entität wieder verfügbar ist oder aus den Einstellungen dieses Better Thermostat entfernt wurde."
+      "description": "Der Grund dafür ist, dass die Entität ({entity}) in Ihrem Home Assistant nicht verfügbar ist.\n\nWurde die Entität umbenannt oder das Gerät ersetzt, hat sich ihre Entitäts-ID geändert und Better Thermostat sucht weiterhin nach {entity}. Öffnen Sie die Einstellungen dieses Better Thermostat (Einstellungen → Geräte & Dienste → Better Thermostat → Konfigurieren) und wählen Sie die neue Entität aus.\n\nSie können dies beheben, indem Sie prüfen, ob der Akku des Geräts voll ist, oder es erneut an HA anschließen. Diese Meldung verschwindet von selbst, sobald die Entität wieder verfügbar ist oder aus den Einstellungen dieses Better Thermostat entfernt wurde."
     },
     "degraded_mode": {
       "title": "BT: {name} - Sensorfehler: {sensors} läuft im eingeschränkten Modus",
@@ -227,15 +227,15 @@
         },
         "defaults_kp": {
           "name": "Standard-kp",
-          "description": "Proportionalverstärkung, die nach dem Zurücksetzen gesetzt wird (fällt auf BalanceParams.kp zurück, wenn nicht angegeben)."
+          "description": "Proportionalverstärkung, die nach dem Zurücksetzen gesetzt wird (fällt auf den eingebauten PID-Standardwert zurück, wenn nicht angegeben)."
         },
         "defaults_ki": {
           "name": "Standard-ki",
-          "description": "Integralverstärkung, die nach dem Zurücksetzen gesetzt wird (fällt auf BalanceParams.ki zurück, wenn nicht angegeben)."
+          "description": "Integralverstärkung, die nach dem Zurücksetzen gesetzt wird (fällt auf den eingebauten PID-Standardwert zurück, wenn nicht angegeben)."
         },
         "defaults_kd": {
           "name": "Standard-kd",
-          "description": "Differenzialverstärkung, die nach dem Zurücksetzen gesetzt wird (fällt auf BalanceParams.kd zurück, wenn nicht angegeben)."
+          "description": "Differenzialverstärkung, die nach dem Zurücksetzen gesetzt wird (fällt auf den eingebauten PID-Standardwert zurück, wenn nicht angegeben)."
         }
       }
     }

@@ -50,7 +50,6 @@ def _adopts(trv, *, was_off=False):
         trv,
         is_echo=False,
         child_lock=advanced_flag(trv.advanced, "child_lock"),
-        contact_open=False,
         was_off=was_off,
     )
 

@@ -19,7 +19,7 @@ Currently, integrations with local calibration support include:
 - Tado
 - Zigbee2MQTT
 - deCONZ
-- Z-Wave JS, when the TRV exposes a calibration entity
+- Z-Wave JS, when the TRV exposes a calibration entity. A configuration parameter is not used as one: its value counts in the parameter's own unit (the Eurotronic Spirit's temperature offset, parameter 8, counts tenths of a degree), so there is no need to enable it for Better Thermostat
 - Any other integration whose TRV exposes a calibration entity (a `number` or `select`) that Better Thermostat can find
 
 ## Direct valve control (recommended for MPC/PID)
@@ -41,7 +41,9 @@ Better Thermostat includes specific fixes and optimizations for the following de
 - COZB0001 (Eurotronic Comet Zigbee)
 - ME167 (Avatto)
 - SEA801-Zigbee / SEA802-Zigbee
+- SHTRV-01 (Shelly TRV, Gen1)
 - SPZB0001 (Eurotronic Spirit Zigbee)
+- TRV-ZBT (Sonoff TRV-ZBT)
 - TRVZB (Sonoff TRVZB)
 - TS0601
 - TS0601_thermostat
@@ -88,6 +90,10 @@ The outdoor temperature check reads the weather entity's forecast. When the weat
 ### Temperature differences stay in kelvin
 
 On a system set to Fahrenheit, temperatures are shown in °F, but rates and differences are not converted: *Temperature Slope*, *Heating Power*, *Heat Loss*, *MPC Gain*, *MPC Loss* and *MPC v2 Disturbance* are in kelvin per minute and *PID Error* is in kelvin. One kelvin is a difference of 1.8 °F. See [Entities](/setup/entities/).
+
+### A Celsius TRV on a Fahrenheit system reports whole degrees
+
+Many TRVs work in Celsius. On a system set to Fahrenheit, Home Assistant shows their setpoint in °F, rounded to a whole degree unless the integration states a finer precision. Zigbee2MQTT does not state one. A setpoint of 71.5 °F would come back from such a TRV as 71 °F or 72 °F, never as written, so Better Thermostat sends it whole degrees only: a target of 70.5 °F reaches the TRV as 70 °F or 71 °F. The TRV's own half-degree Celsius step is 0.9 °F, so little precision is lost. Your target stays 70.5 °F, and a turn of one step at the TRV still shows up as a new target. A turn small enough that Home Assistant shows the same whole degree does not show up, so Better Thermostat cannot see that turn either. The same applies to a cooler that Home Assistant shows in whole degrees.
 
 ### Learning modes need time, and some are still in testing
 

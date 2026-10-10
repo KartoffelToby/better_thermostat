@@ -33,9 +33,9 @@ coming back, a reload of the entry, and a restart of Home Assistant, in the
 order a real boot sets the platforms up. At least one head stays reachable; a
 room with none has nothing to converge.
 
-A head that is off speaks for nobody: a knob turned while the room is off or
-its window is open is not the user's word, and neither is one head switched
-off while another reachable head still heats. A head switched on is, and turns
+A head that is off speaks for nobody: a knob turned at a head that is off
+because the room is off or its window is open is not the user's word, and
+neither is one head switched off while another reachable head still heats. A head switched on is, and turns
 the room on, but not the setpoint a knob turned while it was off left on it.
 
 Each room is searched with sequences from fixed seeds, so a red case
@@ -1227,12 +1227,13 @@ async def test_a_report_after_the_switch_on_does_not_bring_the_turn_either(hass)
             await step(room, event)
 
 
-async def test_a_head_turned_while_the_window_is_open_does_not_move_the_room(hass):
-    """A knob turned while the window is open is not the user's word.
+async def test_a_head_turned_while_the_window_is_open_sets_the_room_target(hass):
+    """A knob turned while the window is open is the user's word.
 
-    The head has no off mode, so the open window leaves it heating at its
-    minimum rather than off, and its being off cannot be what keeps the turn
-    out. The room's target is the same at once and after the reconciler.
+    The head has no off mode, so the open window leaves it on at its minimum
+    rather than off. The turn sets the room's target, the head goes back to
+    its minimum while the window stays open, and it carries the turned
+    target once the window shuts.
     """
     async with running_room(hass, SINGLE_HEAD, no_off_system_mode=True) as room:
         bt, head = room.bt, room.heads[0]
@@ -1244,15 +1245,35 @@ async def test_a_head_turned_while_the_window_is_open_does_not_move_the_room(has
         assert head.hvac_mode != HVACMode.OFF, (
             f"the head without an off mode was switched off: {head.hvac_mode}"
         )
+        parked_at = head.profile.min_temp
+        assert await wait_for(
+            room.hass, lambda: head.target_temperature == parked_at, CONVERGE_S
+        ), f"the open window left the head at {head.target_temperature}"
+        await _quiet(room)
         turned_to = target + 3.0
         _turn(head, turned_to)
         await _quiet(room)
-        assert bt.heat_target_temperature == pytest.approx(target), (
-            f"the room adopted {bt.heat_target_temperature} from a knob turned with the "
-            f"window open, its target was {target}"
+        assert bt.heat_target_temperature == pytest.approx(turned_to), (
+            f"the room carries {bt.heat_target_temperature} after a knob turned to "
+            f"{turned_to} with the window open"
+        )
+        assert await wait_for(
+            room.hass, lambda: head.target_temperature == parked_at, CONVERGE_S
+        ), (
+            f"the head was left at {head.target_temperature} with the window open, "
+            f"it was parked at {parked_at}"
         )
         await _reconcile(room)
-        assert bt.heat_target_temperature == pytest.approx(target), (
+        assert bt.heat_target_temperature == pytest.approx(turned_to), (
             f"after the reconciler the room carries {bt.heat_target_temperature}, "
-            f"its target was {target}"
+            f"the knob was turned to {turned_to}"
+        )
+        await Window(False).happen(room)
+        assert await wait_for(
+            room.hass,
+            lambda: room.carries(0, head.target_temperature, turned_to),
+            CONVERGE_S,
+        ), (
+            f"the shut window left the head at {head.target_temperature}, "
+            f"the knob was turned to {turned_to}"
         )

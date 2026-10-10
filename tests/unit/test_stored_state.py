@@ -74,7 +74,6 @@ def _populated_mpc() -> MpcState:
         loss_est=0.007,
         ka_est=0.0025,
         solar_gain_est=0.4,
-        last_cycle_temperature=20.75,
         last_time=1700000002.0,
         last_trv_temperature=24.5,
         last_trv_temperature_ts=1700000003.0,
@@ -123,6 +122,7 @@ def _populated_snapshot() -> dict[str, object]:
         next_mpc_t_s=86700.0,
         last_mpc_t_s=86100.0,
         planning_disturbance=0.003,
+        last_command_u=0.45,
     ).to_mapping()
 
 
@@ -183,7 +183,11 @@ def _populated_state() -> RuntimeState:
             "bt:defaults": TpiState(),
         },
         thermal=ThermalStats(heating_power=0.0123, heat_loss_rate=0.0045),
-        filters=FilterState(room_temperature_ema=20.7, temperature_slope=0.0021),
+        filters=FilterState(
+            room_temperature_ema=20.7,
+            temperature_slope=0.0021,
+            room_temperature_ema_recorded_at=1700000016.0,
+        ),
     )
 
 

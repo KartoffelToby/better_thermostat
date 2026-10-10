@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+import math
+from pathlib import Path
+import sys
+from types import FrameType
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
+import pytest
 
 from custom_components.better_thermostat.utils import state_manager as _state_manager
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     params as _params,
     reid as _reid,
+)
+from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+    plant as _plant,
 )
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     GAIN_HEATER_BOUNDS,
@@ -15,6 +26,9 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plan
     PlantModelRC2,
     PlantParams,
 )
+
+if TYPE_CHECKING:
+    from sys import TraceFunction
 
 
 class TestPlantPriorBands:
@@ -97,3 +111,90 @@ def test_linearisation_stable_eigenvalues() -> None:
     eigs = np.linalg.eigvals(A)
     # All eigenvalues inside the unit circle ⇒ stable open-loop plant.
     assert max(abs(eigs)) < 1.0
+
+
+def _composed_by_substeps(
+    plant: PlantModelRC2, T_outdoor: float, T_rad_op: float, n_steps: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return ``(A, B, d)`` of ``n_steps`` nominal steps, composed one by one."""
+    A_step, B_step, d_step = plant.linearised_system(T_outdoor, T_rad_op)
+    A = np.eye(2)
+    B = np.zeros((2, 1))
+    d = np.zeros(2)
+    for _ in range(n_steps):
+        B = A_step @ B + B_step
+        d = A_step @ d + d_step
+        A = A_step @ A
+    return A, B, d
+
+
+@pytest.mark.parametrize("n_steps", [1, 2, 7, 120, 1000])
+def test_a_long_linearised_interval_equals_its_composed_substeps(n_steps: int) -> None:
+    """Covering ``n`` nominal steps at once is the product of ``n`` single steps."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+
+    A, B, d = plant.linearised_system(
+        T_outdoor=5.0, T_rad_op=35.0, dt_s=n_steps * plant.dt_s
+    )
+
+    A_ref, B_ref, d_ref = _composed_by_substeps(plant, 5.0, 35.0, n_steps)
+    np.testing.assert_allclose(A, A_ref, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(B, B_ref, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(d, d_ref, rtol=1e-9, atol=1e-12)
+
+
+@pytest.mark.parametrize("n_steps", [1, 2, 7, 120, 1000])
+def test_a_long_propagation_equals_its_euler_substeps(n_steps: int) -> None:
+    """Propagating over ``n`` nominal steps lands where ``n`` Euler steps do."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    x0 = np.array([19.0, 24.0])
+
+    x = plant.propagate(x0, u=0.6, outdoor_temperature=5.0, dt_s=n_steps * plant.dt_s)
+
+    reference = x0
+    for _ in range(n_steps):
+        reference = plant.discrete_step(reference, u=0.6, T_outdoor=5.0)
+    np.testing.assert_allclose(x, reference, rtol=1e-9)
+
+
+def _plant_lines_run(work: Callable[[], Any]) -> int:
+    """Return how many lines of the plant module ``work`` executes."""
+    plant_source = Path(_plant.__file__).resolve()
+    count = 0
+
+    def tracer(frame: FrameType, event: str, _arg: object) -> TraceFunction | None:
+        nonlocal count
+        if Path(frame.f_code.co_filename).resolve() != plant_source:
+            return None
+        if event == "line":
+            count += 1
+        return tracer
+
+    previous = sys.gettrace()
+    sys.settrace(tracer)
+    try:
+        work()
+    finally:
+        sys.settrace(previous)
+    return count
+
+
+def test_a_month_long_gap_runs_no_more_plant_code_than_one_step() -> None:
+    """The observer's cost for a sensor gap does not grow with the gap.
+
+    The prediction runs on the event loop once per controller after every
+    gap; a month without readings on a slow room spans tens of thousands of
+    nominal steps, which must not mean as many passes through Python code.
+    """
+    plant = PlantModelRC2(PlantParams(tau_room_min=2000.0), dt_s=30.0)
+    x0 = np.array([19.0, 24.0])
+    month_s = 30 * 86_400.0
+    assert math.ceil(min(month_s, plant.settling_time_s) / plant.dt_s) > 50_000
+
+    def predict(dt_s: float) -> None:
+        plant.linearised_system(T_outdoor=5.0, T_rad_op=24.0, dt_s=dt_s)
+        plant.propagate(x0, u=0.5, outdoor_temperature=5.0, dt_s=dt_s)
+
+    assert _plant_lines_run(lambda: predict(month_s)) == _plant_lines_run(
+        lambda: predict(plant.dt_s)
+    )

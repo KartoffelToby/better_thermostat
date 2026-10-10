@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from homeassistant.components.climate import (
     DOMAIN as CLIMATE_DOMAIN,
+    SERVICE_SET_HVAC_MODE,
     SERVICE_SET_TEMPERATURE,
     HVACMode,
 )
@@ -36,12 +37,17 @@ def _no_write_budget():
         yield
 
 
-async def _locked_room(hass, profile=GENERIC_HEAT_TRV):
-    """Set up a room whose only device is child-locked, and settle it."""
+async def _locked_room(hass, profile=GENERIC_HEAT_TRV, *, without_off_mode=False):
+    """Set up a room whose only device is child-locked, and settle it.
+
+    ``without_off_mode`` configures the device as one whose setpoint carries
+    the room's mode, at its minimum for off.
+    """
     (device,) = await build_devices(hass, profile)
     set_room_sensor(hass, 19.0)
     entry = make_entry(profile)
     entry.data["thermostat"][0]["advanced"]["child_lock"] = True
+    entry.data["thermostat"][0]["advanced"]["no_off_system_mode"] = without_off_mode
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
     await hass.services.async_call(
@@ -111,3 +117,47 @@ async def test_a_locked_mode_press_is_turned_back_at_once(hass, offered, pressed
         hass, lambda: device.hvac_mode == HVACMode.HEAT, timeout_seconds=2.0
     )
     assert bt.bt_hvac_mode == HVACMode.HEAT
+
+
+HEAD_WITHOUT_OFF = replace(GENERIC_HEAT_TRV, hvac_modes=(HVACMode.HEAT,))
+
+
+async def test_a_locked_head_turned_to_its_minimum_does_not_switch_the_room_off(hass):
+    """A locked head without an off mode turned to its minimum is turned back."""
+    bt, device = await _locked_room(hass, HEAD_WITHOUT_OFF, without_off_mode=True)
+    commanded = device.target_temperature
+
+    _press(device, temperature=HEAD_WITHOUT_OFF.min_temp)
+
+    assert await wait_for(
+        hass, lambda: device.target_temperature == commanded, timeout_seconds=2.0
+    )
+    assert bt.bt_hvac_mode == HVACMode.HEAT
+
+
+async def test_a_locked_head_turned_up_does_not_switch_the_room_on(hass):
+    """A locked head without an off mode turned up in an off room is turned back."""
+    bt, device = await _locked_room(hass, HEAD_WITHOUT_OFF, without_off_mode=True)
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_HVAC_MODE,
+        {"entity_id": BT_ENTITY, "hvac_mode": HVACMode.OFF},
+        blocking=True,
+    )
+    assert await wait_for(
+        hass,
+        lambda: (
+            not bt.ignore_states
+            and device.target_temperature == HEAD_WITHOUT_OFF.min_temp
+            and all(trv.target_temperature_received for trv in bt.real_trvs.values())
+        ),
+    )
+
+    _press(device, temperature=22.0)
+
+    assert await wait_for(
+        hass,
+        lambda: device.target_temperature == HEAD_WITHOUT_OFF.min_temp,
+        timeout_seconds=2.0,
+    )
+    assert bt.bt_hvac_mode == HVACMode.OFF

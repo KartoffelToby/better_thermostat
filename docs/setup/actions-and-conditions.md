@@ -31,6 +31,8 @@ Runs the valve maintenance cycle now instead of at its next scheduled time: each
 
 The action fails with a message when no valve of the thermostat has maintenance enabled, or when a maintenance run is already in progress.
 
+The action returns once the run has finished. If the thermostat is reloaded, disabled or deleted meanwhile, the run stops, puts each TRV back as it was before, and the action returns without an error.
+
 This action takes no fields.
 
 ```yaml
@@ -47,7 +49,7 @@ Clears everything the PID controller has learned for this thermostat, for every 
 | --- | --- | --- |
 | `apply_pid_defaults` | no | When `true`, writes starting gains for the current target and the targets 0.5 °C above and below it, on every TRV. Default `false`. |
 | `defaults_kp` | no | Proportional gain to write, 0 to 1000. Without it the built-in 60 is used. |
-| `defaults_ki` | no | Integral gain to write, 0 to 1. Without it the built-in 0.01 is used. |
+| `defaults_ki` | no | Integral gain to write, 0 to 2. Without it the built-in 0.01 is used. |
 | `defaults_kd` | no | Derivative gain to write, 0 to 10000. Without it the built-in 2000 is used. |
 
 The three gain fields only take effect together with `apply_pid_defaults`. With `apply_pid_defaults` the thermostat needs a target temperature; without one the action fails and nothing is reset. The PID numbers on the device show the new gains as soon as the action has run.
@@ -68,9 +70,9 @@ In the automation editor, **Add condition → Device**, a Better Thermostat devi
 | Condition type | True while | Values |
 | --- | --- | --- |
 | `is_hvac_mode` | The thermostat is in the chosen HVAC mode. | `off`, `heat`, `heat_cool` |
-| `is_hvac_action` | The thermostat's current action is the chosen one. | `off`, `heating`, `idle` |
+| `is_hvac_action` | The thermostat's current action is the chosen one. | `off`, `heating`, `cooling`, `idle` |
 
-The mode is what the thermostat is set to; the action is what it is doing right now. A thermostat set to `heat` reports `idle` while the room is warm enough.
+The mode is what the thermostat is set to; the action is what it is doing right now. A thermostat set to `heat` reports `idle` while the room is warm enough. A thermostat reports `cooling` only when a cooler is configured.
 
 ```yaml
 condition: device

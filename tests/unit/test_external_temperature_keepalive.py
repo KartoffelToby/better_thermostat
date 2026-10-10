@@ -11,6 +11,8 @@ value while the room is settled.
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
+from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
@@ -23,7 +25,21 @@ from tests.factories import ThermostatStandIn
 
 TRV_ID = "climate.trv"
 TRV_ID_2 = "climate.trv2"
+SENSOR_ID = "sensor.room"
 ROOM_TEMPERATURE = 21.4
+
+
+def _publish_room_sensor(bt, state: str | None) -> None:
+    """Give the stand-in a room sensor that publishes ``state``, or nothing."""
+    bt.sensor_entity_id = SENSOR_ID
+    published = (
+        None
+        if state is None
+        else State(SENSOR_ID, state, {"unit_of_measurement": UnitOfTemperature.CELSIUS})
+    )
+    bt.hass.states.get = MagicMock(
+        side_effect=lambda entity_id: published if entity_id == SENSOR_ID else None
+    )
 
 
 def _bt_with_two_trvs(quirks):
@@ -36,6 +52,7 @@ def _bt_with_two_trvs(quirks):
         TRV_ID_2: Trv(entity_id=TRV_ID_2, model_quirks=quirks),
     }
     bt._temperature_filter_lock = None
+    _publish_room_sensor(bt, str(ROOM_TEMPERATURE))
     return bt
 
 
@@ -99,6 +116,68 @@ async def test_the_tick_writes_nothing_without_a_room_temperature():
     quirks = MagicMock()
     quirks.maybe_set_external_temperature = AsyncMock()
     bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks)}
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    quirks.maybe_set_external_temperature.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "sensor_state",
+    [None, STATE_UNAVAILABLE, STATE_UNKNOWN, "150.0"],
+    ids=["removed", "unavailable", "unknown", "implausible"],
+)
+@pytest.mark.asyncio
+async def test_the_tick_writes_nothing_while_the_room_sensor_gives_no_reading(
+    sensor_state,
+):
+    """A room temperature nothing measures any more is not kept alive.
+
+    The room temperature BT holds is the sensor's last reading, and a
+    device that keeps receiving it regulates on a room that has moved on.
+    Left without writes, the device falls back to its own sensor.
+    """
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    _publish_room_sensor(bt, sensor_state)
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    quirks.maybe_set_external_temperature.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_sensor_lost_during_the_tick_stops_the_writes_after_it():
+    """A sensor that goes away while one TRV is written leaves the rest unwritten.
+
+    A write can take a while; the room temperature the tick holds is no
+    longer measured once the sensor has gone, so the TRVs after it fall
+    back to their own sensors instead.
+    """
+    quirks = MagicMock()
+    bt = _bt_with_two_trvs(quirks)
+
+    async def sensor_lost_during_the_write(_bt, _entity_id, _value):
+        _publish_room_sensor(bt, "unavailable")
+        return True
+
+    quirks.maybe_set_external_temperature = AsyncMock(
+        side_effect=sensor_lost_during_the_write
+    )
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert quirks.maybe_set_external_temperature.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_the_tick_writes_nothing_without_a_room_sensor():
+    """A room without a sensor has no measured temperature to mirror."""
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    bt.sensor_entity_id = None
 
     await BetterThermostat._external_temperature_keepalive(bt)
 

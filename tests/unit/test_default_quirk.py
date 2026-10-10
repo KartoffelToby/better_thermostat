@@ -124,6 +124,11 @@ async def _run_tweak(thermostat, registry=None, **found):
         patch.object(
             default_quirk, "find_device_entity", side_effect=_discovering(**found)
         ),
+        patch.object(
+            default_quirk,
+            "find_child_lock_entity",
+            side_effect=lambda _registry, _device_id: found.get("child_lock"),
+        ),
     ):
         await default_quirk.initial_tweak(thermostat, ENTITY_ID)
 
@@ -238,6 +243,37 @@ class TestCalibrationStartsFromZero:
 
         assert _calls(thermostat) == [
             ("number", "set_value", {"entity_id": CALIBRATION_ENTITY, "value": 0})
+        ]
+
+    @pytest.mark.parametrize(
+        ("device_class", "zero"),
+        [("temperature", 32.0), ("temperature_delta", 0.0), (None, 0.0)],
+    )
+    @pytest.mark.asyncio
+    async def test_a_number_published_in_fahrenheit_is_reset_to_its_zero(
+        self, device_class, zero
+    ):
+        """A zero offset is a zero on the device, whatever the number publishes.
+
+        Home Assistant publishes a Celsius ``temperature`` number on a
+        Fahrenheit system as an absolute temperature, so the device's 0 K
+        reads 32 °F there, and a 0 written to it would be -17.8 K. A number
+        that counts a difference is reset to 0 in any unit.
+        """
+        thermostat = _thermostat()
+        attributes = {"unit_of_measurement": "°F", "min": 25.7, "max": 38.3}
+        if device_class is not None:
+            attributes["device_class"] = device_class
+        thermostat.hass.states.get = lambda requested: (
+            State(requested, str(zero), attributes)
+            if requested == CALIBRATION_ENTITY
+            else None
+        )
+
+        await _run_tweak(thermostat, calibration=CALIBRATION_ENTITY)
+
+        assert _calls(thermostat) == [
+            ("number", "set_value", {"entity_id": CALIBRATION_ENTITY, "value": zero})
         ]
 
     @pytest.mark.asyncio

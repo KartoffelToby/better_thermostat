@@ -28,6 +28,14 @@ from .utils.helpers import is_bt_climate_entity
 
 CONDITION_TYPES = {"is_hvac_mode", "is_hvac_action"}
 
+# The actions the thermostat reports: cooling only with a cooler configured.
+_HVAC_ACTIONS = [
+    HVACAction.OFF,
+    HVACAction.HEATING,
+    HVACAction.COOLING,
+    HVACAction.IDLE,
+]
+
 # Both extend the device-condition base schema, which carries the `condition`,
 # `device_id` and `domain` keys every condition this platform offers is built
 # with; a bare schema rejects its own output.
@@ -45,9 +53,7 @@ HVAC_ACTION_CONDITION = DEVICE_CONDITION_BASE_SCHEMA.extend(
     {
         vol.Required(CONF_ENTITY_ID): cv.entity_id_or_uuid,
         vol.Required(CONF_TYPE): "is_hvac_action",
-        vol.Required(ATTR_HVAC_ACTION): vol.In(
-            [HVACAction.OFF, HVACAction.HEATING, HVACAction.IDLE]
-        ),
+        vol.Required(ATTR_HVAC_ACTION): vol.In(_HVAC_ACTIONS),
     }
 )
 
@@ -142,11 +148,7 @@ async def async_get_condition_capabilities(
     if condition_type == "is_hvac_action":
         return {
             "extra_fields": vol.Schema(
-                {
-                    vol.Required(ATTR_HVAC_ACTION): vol.In(
-                        [HVACAction.OFF, HVACAction.HEATING, HVACAction.IDLE]
-                    )
-                }
+                {vol.Required(ATTR_HVAC_ACTION): vol.In(_HVAC_ACTIONS)}
             )
         }
 

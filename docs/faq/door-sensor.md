@@ -11,7 +11,9 @@ binary sensor:
 - `off`, `false` or `closed` — door is closed, heating resumes
 - `unknown` or `unavailable` — counts as **closed** so heating continues:
   doors are usually closed and a lost sensor (e.g. a dead battery) must
-  not stop heating. The unavailability is still reported.
+  not stop heating. The unavailability is still reported. A sensor
+  removed from Home Assistant (disabled, deleted or renamed in the entity
+  registry) counts as closed in the same way.
 
 If the sensor reports anything else, Better Thermostat raises an
 **invalid door sensor state** repair issue and ignores the state change.

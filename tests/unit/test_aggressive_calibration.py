@@ -72,6 +72,8 @@ def _make_bt(
     bt.clock = FakeClock(monotonic_value=1_000.0)
     bt.state_mgr = MagicMock()
     bt.state_mgr.get_pid.side_effect = lambda _key: PIDState()
+    pid_entries: dict[str, PIDState] = {}
+    bt.state_mgr.state.pid = pid_entries
 
     quirks = MagicMock()
     quirks.fix_local_calibration.side_effect = lambda _self, _eid, calibration_offset: (
@@ -272,6 +274,23 @@ class TestSetpointCalibration:
         # gap = 22.0 - 20.0 = 2.0 < 2.5 → setpoint += 2.5 → 24.5
         result = calculate_calibration_setpoint(bt, ENTITY_ID)
         assert result == pytest.approx(24.5)
+
+    @pytest.mark.parametrize(
+        ("heat_target_temperature", "expected"), [(22.4, 24.9), (22.5, 22.5)]
+    )
+    def test_setpoint_aggressive_boost_jumps_at_the_threshold(
+        self, heat_target_temperature, expected
+    ):
+        """The boost adds a full 2.5 just below the threshold and nothing at it."""
+        bt = _make_bt(
+            CalibrationMode.AGGRESSIVE_CALIBRATION,
+            HVACAction.HEATING,
+            heat_target_temperature=heat_target_temperature,
+            room_temperature=20.0,
+            trv_temperature=20.0,
+        )
+        result = calculate_calibration_setpoint(bt, ENTITY_ID)
+        assert result == pytest.approx(expected)
 
     def test_setpoint_mpc_skips_post_adjustments(self):
         """MPC setpoint: post-adjustments skipped."""

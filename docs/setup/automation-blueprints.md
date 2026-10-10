@@ -137,6 +137,15 @@ the delay expires, presence is re-checked once more, and the Away preset is
 only applied if still nobody is home. Attribute-only updates of the presence
 entities (e.g. a new GPS position) do not restart the delay.
 
+> **Prerequisite:** The Away preset, and the preset restored on arrival if it
+> is not `none`, must be enabled in Better Thermostat's configuration for each
+> targeted thermostat (see [Presets](/setup/presets/#choosing-which-presets-appear)).
+> A new configuration enables Eco only, so enable Away first; otherwise Home
+> Assistant rejects the preset and the automation stops with
+> `Preset mode away is not valid`. With several thermostats targeted, those
+> that offer the preset may have switched already, and the actions after it
+> do not run.
+
 | Input | Description | Default |
 |---|---|---|
 | Thermostats | Better Thermostat devices / climate entities to control | – |
@@ -175,6 +184,18 @@ Slot 1 is the earliest in the day; slots must be ordered chronologically.
 
 All 8 BT presets are available per slot per day type: `none`, `eco`, `away`,
 `boost`, `comfort`, `home`, `sleep`, `activity`.
+
+> **Prerequisite:** Every preset you choose for a slot must be enabled in
+> Better Thermostat's configuration for each targeted thermostat (see
+> [Presets](/setup/presets/#choosing-which-presets-appear)); `none` is always
+> available. The vacation preset needs to be enabled only if you use
+> presence-based away mode. A new configuration enables Eco only, while the
+> default slots use `comfort`, `sleep` and `eco` and the vacation preset is
+> `away`. Enable those presets, or pick enabled ones for every slot;
+> otherwise Home Assistant rejects the preset at the first slot change. A
+> thermostat that does not offer the preset keeps the one it has, and with
+> several thermostats targeted, those that do offer it may have switched
+> already.
 
 #### Additional features
 
@@ -219,18 +240,23 @@ Better Thermostat climate entity:
 | `humidity_high` | `current_humidity` attribute rises above the threshold |
 | `battery_low` | The lowest battery level of the TRVs drops below the threshold |
 | `device_error` | `errors` attribute goes from no error to at least one |
-| `target_temp_reached` | Current temperature becomes equal to or higher than the target temperature, because the room warmed up or the target was lowered |
+| `target_temp_reached` | Current temperature becomes equal to or higher than the target temperature, because the room warmed up or the target was lowered; with a cooler, the lower end of the target range counts as the target |
 
 Three more triggers are available for your own automations:
 
 | Trigger type | Fires when |
 |---|---|
 | `hvac_mode_changed` | The HVAC mode changes from another mode to the one set in `to` |
-| `current_temperature_changed` | The current temperature crosses the `above` or `below` value |
-| `current_humidity_changed` | The current humidity crosses the `above` or `below` value |
+| `current_temperature_changed` | The current temperature changes, or crosses the `above` or `below` value when one is set |
+| `current_humidity_changed` | The current humidity changes, or crosses the `above` or `below` value when one is set |
 
-`current_temperature_changed` and `current_humidity_changed` fire when the
-value crosses a threshold, not on every change: `current_temperature_changed` with `above: 22` fires when the room goes
+Without `above` or `below`, `current_temperature_changed` and
+`current_humidity_changed` fire on every change of the value. A value that goes
+missing or comes back counts as no change, so a sensor that drops out fires
+nothing, and neither does the thermostat coming back from `unavailable`.
+
+With a threshold they fire when the value crosses it, not on every change:
+`current_temperature_changed` with `above: 22` fires when the room goes
 from 22 °C or less to more than 22 °C, and fires again only after the
 temperature has dropped back to 22 °C or below and risen once more. The same
 holds for `humidity_high`, `battery_low`, `device_error` and
@@ -270,9 +296,9 @@ On top of these, each type takes its own fields:
 | | `for` | no | Duration | none |
 | `hvac_mode_changed` | `to` | yes | One HVAC mode of the thermostat: `heat` or `off`, with a cooling device `heat_cool` or `off` | none |
 | | `for` | no | Duration | none |
-| `current_temperature_changed` | `above`, `below` | at least one | Temperature in Home Assistant's unit | none |
+| `current_temperature_changed` | `above`, `below` | no | Temperature in Home Assistant's unit | none |
 | | `for` | no | Duration | none |
-| `current_humidity_changed` | `above`, `below` | at least one | Humidity in % | none |
+| `current_humidity_changed` | `above`, `below` | no | Humidity in % | none |
 | | `for` | no | Duration | none |
 
 `for` makes the trigger fire only once the new state has held that long. It is a
@@ -283,9 +309,7 @@ as `from` on `hvac_mode_changed`.
 
 A trigger that lacks its required field does not fire. `hvac_mode_changed`
 without `to` logs the error "names no mode to watch for" and leaves the
-automation's other triggers working. `current_temperature_changed` and
-`current_humidity_changed` without `above` or `below` make Home Assistant log an
-error when it sets up the automation.
+automation's other triggers working.
 
 A complete automation with a classic trigger:
 
