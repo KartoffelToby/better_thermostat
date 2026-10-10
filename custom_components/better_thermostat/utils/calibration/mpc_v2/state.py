@@ -6,13 +6,22 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import logging
 import math
-from typing import TypedDict
+from typing import NamedTuple, TypedDict
 
 from ...stored_values import is_json_object, stored_float
 from .controller import ControllerSnapshot, MpcV2Controller
 from .params import MpcV2Params
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class PlantSignature(NamedTuple):
+    """The plant prior a controller was built with, rounded for comparison."""
+
+    tau_room_min: float
+    tau_rad_min: float
+    gain_heater: float
+    coupling_rad_room: float
 
 
 @dataclass
@@ -27,19 +36,19 @@ class MpcV2State:
     # When the caller passes new MpcV2Params whose prior differs from this
     # signature (e.g. user switched preset), the controller is rebuilt so
     # the new prior actually takes effect.
-    plant_signature: tuple[float, ...] | None = None
+    plant_signature: PlantSignature | None = None
     # Latched once the controller falls back to a hardcoded outdoor temperature;
     # used to throttle the WARN to one line per controller instance.
     outdoor_fallback_logged: bool = False
 
 
-def _plant_signature_of(params: MpcV2Params) -> tuple[float, ...]:
+def _plant_signature_of(params: MpcV2Params) -> PlantSignature:
     p = params.plant
-    return (
-        round(p.tau_room_min, 3),
-        round(p.tau_rad_min, 3),
-        round(p.gain_heater, 4),
-        round(p.coupling_rad_room, 4),
+    return PlantSignature(
+        tau_room_min=round(p.tau_room_min, 3),
+        tau_rad_min=round(p.tau_rad_min, 3),
+        gain_heater=round(p.gain_heater, 4),
+        coupling_rad_room=round(p.coupling_rad_room, 4),
     )
 
 
@@ -54,7 +63,7 @@ def _plant_signature_of(params: MpcV2Params) -> tuple[float, ...]:
 _SIGNATURE_REL_TOL = 0.1
 
 
-def plant_signature_differs(old: tuple[float, ...], new: tuple[float, ...]) -> bool:
+def plant_signature_differs(old: PlantSignature, new: PlantSignature) -> bool:
     """Return ``True`` when the plant prior moved enough to warrant a rebuild.
 
     Compares component-wise against :data:`_SIGNATURE_REL_TOL` relative to the
@@ -62,8 +71,6 @@ def plant_signature_differs(old: tuple[float, ...], new: tuple[float, ...]) -> b
     the params the controller was built with, slow cumulative drift eventually
     crosses the tolerance and rebuilds exactly once.
     """
-    if len(old) != len(new):
-        return True
     return any(
         abs(n - o) > _SIGNATURE_REL_TOL * max(abs(o), 1e-9) for o, n in zip(old, new)
     )

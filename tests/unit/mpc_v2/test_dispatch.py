@@ -8,7 +8,7 @@ that the controller-level tests can't exercise — the dispatcher reads
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACMode
@@ -27,7 +27,8 @@ from custom_components.better_thermostat.utils.const import (
     MpcV2PlantPreset,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
-from custom_components.better_thermostat.utils.telemetry import CalibrationBalance
+from custom_components.better_thermostat.utils.telemetry import MpcV2Balance
+from tests.factories import make_calibration_balance
 
 
 class _FakeStateManager:
@@ -74,18 +75,19 @@ class _FakeStateManager:
         return runtime
 
 
-def _published_balance(trv: Trv) -> CalibrationBalance:
-    """Return the calibration balance the dispatcher published on the TRV."""
+def _published_balance(trv: Trv) -> MpcV2Balance:
+    """Return the MPC v2 balance the dispatcher published on the TRV."""
     balance = trv.calibration_balance
     assert balance is not None
+    assert balance["controller"] == CalibrationMode.MPC_V2_CALIBRATION
     return balance
 
 
-def _debug_number(balance: CalibrationBalance, key: str) -> float:
-    """Read one numeric entry of the balance's debug mapping."""
-    value = balance["debug"][key]
-    assert isinstance(value, int | float)
-    return value
+def _debug_number(
+    balance: MpcV2Balance, key: Literal["group_valve_pct", "distributed_valve_pct"]
+) -> float:
+    """Read one valve share of the balance's debug payload."""
+    return balance["debug"][key]
 
 
 def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
@@ -261,11 +263,9 @@ def test_dispatch_without_a_state_store_publishes_no_valve() -> None:
             "climate.x", current_temperature=19.0, supports_valve=True
         )
     }
-    real_trvs["climate.x"].calibration_balance = {
-        "valve_percent": 80,
-        "apply_valve": True,
-        "debug": {},
-    }
+    real_trvs["climate.x"].calibration_balance = make_calibration_balance(
+        CalibrationMode.MPC_V2_CALIBRATION, valve_percent=80, apply_valve=True
+    )
     bt = _make_bt(real_trvs=real_trvs)
     bt.state_mgr = None
 

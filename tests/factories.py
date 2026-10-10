@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 import functools
 import inspect
 from pathlib import Path
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
@@ -39,6 +40,7 @@ from custom_components.better_thermostat.core.snapshot import (
 )
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.controlling import TaskManager
 from custom_components.better_thermostat.utils.preset_manager import PresetManager
 from custom_components.better_thermostat.utils.telemetry import CalibrationBalance
@@ -132,27 +134,39 @@ def make_trv(entity_id: str = DEFAULT_TRV_ID) -> Trv:
 
 
 def make_calibration_balance(
-    *, valve_percent: float = 0.0, debug: Mapping[str, object] | None = None
+    controller: CalibrationMode,
+    debug: Mapping[str, object] | None = None,
+    *,
+    valve_percent: float = 0.0,
+    apply_valve: bool = False,
 ) -> CalibrationBalance:
-    """Return a calibration balance as every calibration producer writes it.
+    """Return a calibration balance as the calibration ``controller`` writes it.
 
     Parameters
     ----------
+    controller : CalibrationMode
+        The calibration that wrote the balance.
+    debug : Mapping[str, object] | None
+        The debug payload of that calibration; empty when not given.
     valve_percent : float
         Device valve percentage the balance commands.
-    debug : Mapping[str, object] | None
-        The controller's debug payload; empty when not given.
+    apply_valve : bool
+        Whether the TRV takes a direct valve write.
 
     Returns
     -------
     CalibrationBalance
-        A balance carrying all three keys, with no direct valve write.
+        The balance, tagged with ``controller``.
     """
-    return {
-        "valve_percent": valve_percent,
-        "apply_valve": False,
-        "debug": {} if debug is None else debug,
-    }
+    return cast(
+        "CalibrationBalance",
+        {
+            "valve_percent": valve_percent,
+            "apply_valve": apply_valve,
+            "controller": controller,
+            "debug": {} if debug is None else dict(debug),
+        },
+    )
 
 
 def _thermostat_state_names() -> frozenset[str]:

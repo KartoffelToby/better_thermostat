@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from functools import partial
 import logging
 import math
 from time import monotonic
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Literal, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -31,6 +31,7 @@ from .utils.helpers import async_normalize_bt_entity_ids, configured_calibration
 
 if TYPE_CHECKING:
     from .climate import BetterThermostat
+    from .utils.telemetry import CalibrationBalance
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -747,19 +748,26 @@ class _BtSensorBase(SensorEntity):
         raise NotImplementedError
 
 
+type MpcSensorKey = Literal["mpc_virtual_temp", "mpc_gain", "mpc_loss", "mpc_ka"]
+type MpcV2SensorKey = Literal[
+    "T_room_hat", "coupling_rad_room", "D_hat_K_per_min", "tau_room_min"
+]
+type PidSensorKey = Literal["u", "e_K"]
+
+
 class _BtMpcSensorBase(_BtSensorBase):
     """Base class for calibration debug sensors (MPC and PID).
 
-    Reads a single key from the ``calibration_balance['debug']`` payload,
-    iterating all TRVs of the climate entity; the first TRV whose payload
-    contains the key wins.
+    Reads a single key from the ``calibration_balance['debug']`` payload of
+    the controller the sensor belongs to, iterating all TRVs of the climate
+    entity; the first TRV whose payload contains the key wins.
 
     The values are gains and estimates of an algorithm, read when it is
     tuned, so a new entry registers these sensors disabled.
     """
 
     _attr_entity_registry_enabled_default = False
-    _debug_key: str
+    _debug_key: MpcSensorKey
 
     @property
     @override
@@ -777,20 +785,28 @@ class _BtMpcSensorBase(_BtSensorBase):
             return False
         return True
 
+    def _balances(self) -> Iterator[CalibrationBalance]:
+        """Yield the calibration balance of every TRV that carries one."""
+        if not self._bt_climate.real_trvs:
+            return
+        for trv in self._bt_climate.real_trvs.values():
+            if trv.calibration_balance is not None:
+                yield trv.calibration_balance
+
+    def _debug_value(self) -> float | str | None:
+        """Return the reading of the first MPC payload that contains the key."""
+        for balance in self._balances():
+            if (
+                balance["controller"] == CalibrationMode.MPC_CALIBRATION
+                and self._debug_key in balance["debug"]
+            ):
+                return balance["debug"][self._debug_key]
+        return None
+
     @override
     def _update_state(self) -> None:
         """Update state from calibration_balance debug data."""
-        value = None
-        if self._bt_climate.real_trvs:
-            for trv in self._bt_climate.real_trvs.values():
-                cal_bal = trv.calibration_balance
-                if cal_bal and "debug" in cal_bal:
-                    debug = cal_bal["debug"]
-                    if self._debug_key in debug:
-                        value = debug[self._debug_key]
-                        break
-
-        self._attr_native_value = _debug_number(value)
+        self._attr_native_value = _debug_number(self._debug_value())
 
 
 class _BtSimpleAttributeSensor(_BtSensorBase):
@@ -981,26 +997,33 @@ class _BtMpcV2SensorBase(_BtMpcSensorBase):
     hold.
     """
 
-    _v2_debug_key: str
+    _v2_debug_key: MpcV2SensorKey
     _shared_unique_id_suffix: str
 
     @override
-    def _update_state(self) -> None:
-        """Update state from the MPC v2 debug payload."""
-        value = None
-        if self._bt_climate.real_trvs:
-            for trv in self._bt_climate.real_trvs.values():
-                cal_bal = trv.calibration_balance
-                debug = cal_bal.get("debug") if cal_bal else None
-                if (
-                    isinstance(debug, dict)
-                    and str(debug.get("controller_version")).lower() == "v2"
-                    and self._v2_debug_key in debug
-                ):
-                    value = debug[self._v2_debug_key]
-                    break
+    def _debug_value(self) -> float | str | None:
+        """Return the reading of the first MPC v2 payload."""
+        for balance in self._balances():
+            if balance["controller"] == CalibrationMode.MPC_V2_CALIBRATION:
+                return balance["debug"][self._v2_debug_key]
+        return None
 
-        self._attr_native_value = _debug_number(value)
+
+class _BtPidSensorBase(_BtMpcSensorBase):
+    """Base class for PID diagnostic sensors."""
+
+    _pid_debug_key: PidSensorKey
+
+    @override
+    def _debug_value(self) -> float | str | None:
+        """Return the reading of the first PID payload that contains the key."""
+        for balance in self._balances():
+            if (
+                balance["controller"] == CalibrationMode.PID_CALIBRATION
+                and self._pid_debug_key in balance["debug"]
+            ):
+                return balance["debug"][self._pid_debug_key]
+        return None
 
 
 class BetterThermostatMpcV2VirtualTempSensor(_BtMpcV2SensorBase):
@@ -1044,21 +1067,21 @@ class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):
     _shared_unique_id_suffix = "mpc_ka"
 
 
-class BetterThermostatPidOutputSensor(_BtMpcSensorBase):
+class BetterThermostatPidOutputSensor(_BtPidSensorBase):
     """Representation of a Better Thermostat PID Output (valve command) Sensor."""
 
     _attr_translation_key = "pid_output"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "%"
-    _debug_key = "u"
+    _pid_debug_key = "u"
     _unique_id_suffix = "pid_output"
 
 
-class BetterThermostatPidErrorSensor(_BtMpcSensorBase):
+class BetterThermostatPidErrorSensor(_BtPidSensorBase):
     """Representation of a Better Thermostat PID Error (setpoint deviation) Sensor."""
 
     _attr_translation_key = "pid_error"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K"
-    _debug_key = "e_K"
+    _pid_debug_key = "e_K"
     _unique_id_suffix = "pid_error"

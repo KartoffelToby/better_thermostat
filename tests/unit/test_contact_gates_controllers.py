@@ -15,6 +15,7 @@ the valve is what reaches the device either way.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
 
@@ -24,6 +25,7 @@ import pytest
 from custom_components.better_thermostat.calibration import (
     _compute_mpc_balance,
     _compute_mpc_v2_balance,
+    _compute_pid_balance,
     _compute_tpi_balance,
 )
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -34,6 +36,10 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Params,
     MpcV2State,
 )
+from custom_components.better_thermostat.utils.calibration.mpc_v2.io import (
+    MpcV2Diagnostics,
+)
+from custom_components.better_thermostat.utils.calibration.pid import PIDState
 from custom_components.better_thermostat.utils.calibration.tpi import TpiState
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -51,8 +57,9 @@ class _InMemoryStateManager:
         self._mpc: dict[str, MpcState] = {}
         self._mpc_v2: dict[str, MpcV2State] = {}
         self._tpi: dict[str, TpiState] = {}
+        self._pid: dict[str, PIDState] = {}
         self._mpc_v2_reid: dict[str, MpcV2ReidRuntime] = {}
-        self.state = SimpleNamespace(mpc=self._mpc, mpc_v2_reid={})
+        self.state = SimpleNamespace(mpc=self._mpc, mpc_v2_reid={}, pid=self._pid)
 
     def get_mpc(self, key: str) -> MpcState:
         """Return the MPC v1 state for key, creating it on first use."""
@@ -85,6 +92,10 @@ class _InMemoryStateManager:
     def set_tpi(self, key: str, state: TpiState) -> None:
         """Store the TPI state for key."""
         self._tpi[key] = state
+
+    def set_pid(self, key: str, state: PIDState) -> None:
+        """Store the PID state for key."""
+        self._pid[key] = state
 
 
 def _valve_trv(entity_id: str, mode: CalibrationMode) -> Trv:
@@ -197,3 +208,44 @@ def test_closed_contacts_let_the_controller_command_heat(
     assert commanded, (
         f"{mode} commanded no heat for a cold room with both contacts shut"
     )
+
+
+@pytest.mark.parametrize(
+    ("mode", "dispatch"),
+    [
+        *CONTROLLERS,
+        pytest.param(CalibrationMode.PID_CALIBRATION, _compute_pid_balance, id="pid"),
+    ],
+)
+def test_the_balance_names_the_controller_that_wrote_it(
+    mode: CalibrationMode, dispatch: Any
+) -> None:
+    """Readers of the debug payload select it by the balance's controller."""
+    trvs = {"climate.solo": _valve_trv("climate.solo", mode)}
+    bt = _bt(trvs, window_open=False, door_open=False)
+
+    dispatch(bt, "climate.solo")
+    balance = trvs["climate.solo"].calibration_balance
+
+    assert balance is not None
+    assert balance["controller"] is mode
+
+
+def test_the_mpc_v2_balance_carries_every_diagnostic() -> None:
+    """Each MPC v2 diagnostic reaches the debug payload under its field name."""
+    trvs = {
+        "climate.solo": _valve_trv("climate.solo", CalibrationMode.MPC_V2_CALIBRATION)
+    }
+    bt = _bt(trvs, window_open=False, door_open=False)
+
+    output, _ = _compute_mpc_v2_balance(bt, "climate.solo")
+    balance = trvs["climate.solo"].calibration_balance
+
+    assert output is not None
+    assert balance is not None
+    diagnostics = output.diagnostics
+    assert isinstance(diagnostics, MpcV2Diagnostics)
+    debug: Mapping[str, object] = balance["debug"]
+    assert {
+        name: debug[name] for name in MpcV2Diagnostics.__dataclass_fields__
+    } == vars(diagnostics)
