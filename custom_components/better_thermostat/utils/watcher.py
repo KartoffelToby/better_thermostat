@@ -15,7 +15,7 @@ from dataclasses import replace
 from datetime import timedelta
 import logging
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, State
@@ -199,6 +199,17 @@ def reachable_trv_temperature(self: BetterThermostat, entity_id: str) -> float |
     if not is_reasonable_temperature(reported):
         return None
     return float(value)
+
+
+class BatteryReading(TypedDict):
+    """The battery entity of a device and the level it last reported.
+
+    ``battery`` is the battery entity's state as published, and ``None``
+    until it has reported a level.
+    """
+
+    battery_id: str
+    battery: str | None
 
 
 def get_battery_status(self: BetterThermostat, entity: str) -> None:

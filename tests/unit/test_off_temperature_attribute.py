@@ -7,8 +7,6 @@ Related issue: User requested outdoor temperature threshold to be visible in
 Developer Tools States for use in custom climate cards.
 """
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from custom_components.better_thermostat.utils.const import ATTR_STATE_OFF_TEMPERATURE
@@ -23,8 +21,6 @@ def mock_bt_with_off_temperature():
     bt.off_temperature = 20.0
     bt.window_open = False
     bt.call_for_heat = True
-    bt.last_change = MagicMock()
-    bt.last_change.isoformat = MagicMock(return_value="2026-01-11T20:00:00")
     bt._current_humidity = 50.0
     bt.last_main_hvac_mode = "heat"
     bt.tolerance = 0.5
@@ -46,8 +42,6 @@ def mock_bt_without_off_temperature():
     bt.off_temperature = None
     bt.window_open = False
     bt.call_for_heat = True
-    bt.last_change = MagicMock()
-    bt.last_change.isoformat = MagicMock(return_value="2026-01-11T20:00:00")
     bt._current_humidity = 50.0
     bt.last_main_hvac_mode = "heat"
     bt.tolerance = 0.5

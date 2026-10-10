@@ -64,7 +64,6 @@ class TestExtraStateAttributesSmoke:
         for required in (
             "window_open",
             "call_for_heat",
-            "last_change",
             "room_temperature_filtered",
             "external_temp_ema",
             "degraded_mode",

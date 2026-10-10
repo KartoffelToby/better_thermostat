@@ -76,7 +76,7 @@ def _startup_bt(advanced: TrvAdvanced | None = None, **overrides):
     }
     mock.entity_ids = [TRV_ID]
     mock.all_trvs = None
-    mock.all_entities = list[str]()
+    mock.all_entities = dict[str, None]()
     mock._async_unsub_state_changed = None
     mock._trigger_time = AsyncMock()
     mock._trigger_check_weather = AsyncMock()

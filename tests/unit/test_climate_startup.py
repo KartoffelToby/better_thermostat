@@ -48,6 +48,7 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
+    ATTR_STATE_MAIN_MODE,
     ATTR_STATE_PRESET_COOL_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
@@ -59,6 +60,8 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.entry_schema import TrvSettings
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
+from custom_components.better_thermostat.utils.state_manager import ThermalStats
+from custom_components.better_thermostat.utils.watcher import BatteryReading
 from tests.factories import ThermostatStandIn, make_trv
 
 SENSOR_ID = "sensor.room_temp"
@@ -125,7 +128,7 @@ def bt():
     mock.humidity_sensor_entity_id = None
     mock.window_sensor_entity_id = None
     mock.door_sensor_entity_id = None
-    mock.all_entities = list[str]()
+    mock.all_entities = dict[str, None]()
     mock.unavailable_sensors = list[str]()
     mock.degraded_mode = False
     mock.bt_min_temp = 5.0
@@ -2002,7 +2005,7 @@ class TestRestoreState:
         bt._saved_state = old
         bt.preset_mgr.temperatures = dict[str, float]()
         bt.state_mgr = MagicMock()
-        bt.state_mgr.clamped_thermal.return_value = stored
+        bt.state_mgr.clamped_thermal.return_value = ThermalStats(*stored)
         bt.heating_power, bt.heat_loss_rate = stored
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
@@ -2599,6 +2602,34 @@ class TestRestoreState:
 
         assert bt.bt_hvac_mode is None
 
+    @pytest.mark.asyncio
+    async def test_restored_main_mode_is_parsed_to_enum(self, bt):
+        """A restored main mode becomes an HVACMode enum."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_MAIN_MODE: "heat_cool"}
+        bt._saved_state = old
+        bt.preset_mgr.temperatures = dict[str, float]()
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.last_main_hvac_mode is HVACMode.HEAT_COOL
+
+    @pytest.mark.asyncio
+    async def test_unrecognised_main_mode_is_not_restored(self, bt, caplog):
+        """A restored main mode that is no HVAC mode is dropped and logged."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_MAIN_MODE: "warm"}
+        bt._saved_state = old
+        bt.preset_mgr.temperatures = dict[str, float]()
+
+        with caplog.at_level(logging.WARNING):
+            await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.last_main_hvac_mode is None
+        assert "unrecognised main mode warm" in caplog.text
+
 
 # ---------------------------------------------------------------------------
 # 8. Initial TRV sync (_finalize_startup / _startup_control_trvs)
@@ -2666,7 +2697,7 @@ class TestStartupControlSync:
         sync before the flip would silently write nothing.
         """
         bt.is_removed = False
-        bt.all_entities = list[str]()
+        bt.all_entities = dict[str, None]()
         bt.all_trvs = None
         gate_states = []
 
@@ -3219,7 +3250,19 @@ class TestFinalizeStartupBatteryScan:
         scanned = await self._scan(bt)
 
         assert scanned == []
-        assert bt.all_entities == []
+        assert bt.all_entities == {}
+
+    @pytest.mark.asyncio
+    async def test_a_device_registered_twice_is_scanned_once(self, bt):
+        """One sensor configured for two roles is asked for its battery once."""
+        bt.cooler_entity_id = None
+        bt.outdoor_sensor_entity_id = OUTDOOR_ID
+        bt.all_entities = dict.fromkeys([OUTDOOR_ID])
+        bt.devices_states = dict[str, BatteryReading]()
+
+        scanned = await self._scan(bt)
+
+        assert scanned == [OUTDOOR_ID]
 
 
 # ---------------------------------------------------------------------------
@@ -3574,7 +3617,7 @@ class TestStartupWithoutAnUnavailableTrv:
                 entity_id=TRV_ID_2, calibration=1, awaiting_initialization=True
             ),
         }
-        bt.all_entities = [TRV_ID, TRV_ID_2]
+        bt.all_entities = dict.fromkeys([TRV_ID, TRV_ID_2])
         bt.hass.states.get.side_effect = lambda entity_id: _make_trv_state(
             entity_id=entity_id
         )
@@ -3587,7 +3630,7 @@ class TestStartupWithoutAnUnavailableTrv:
 
         assert [call.args[1] for call in init.await_args_list] == [TRV_ID_2]
         assert bt.real_trvs[TRV_ID_2].hvac_mode == "heat"
-        assert bt.all_entities == [TRV_ID, TRV_ID_2]
+        assert list(bt.all_entities) == [TRV_ID, TRV_ID_2]
 
 
 def _room_with_a_trv_left_behind(bt, *, available: bool):

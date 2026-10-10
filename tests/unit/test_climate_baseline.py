@@ -377,7 +377,7 @@ class TestComputeHvacAction:
         assert mock_bt._hysteresis.last_action == HVACAction.IDLE
 
     def test_tolerance_hold_active_set(self, mock_bt):
-        """_tolerance_hold_active is True when tolerance says no-heat but not cooling."""
+        """The hysteresis holds when tolerance says no-heat but not cooling."""
         mock_bt.room_temperature = (
             21.8  # in band: target-tol(21.5) < cur < target(22.0)
         )
