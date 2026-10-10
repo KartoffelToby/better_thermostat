@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
@@ -79,6 +80,23 @@ async def test_happy_path_resets_flags_and_reschedules(bt):
     assert bt.ignore_states is False
     assert bt.next_valve_maintenance == _NEXT
     bt.control_queue_task.put_nowait.assert_called_once_with(bt)
+
+
+@pytest.mark.asyncio
+async def test_a_setpoint_moved_by_maintenance_is_not_left_as_a_turn(bt):
+    """The setpoints maintenance moves are its own, not a turn for a cycle to read."""
+    trv = bt.real_trvs["climate.trv"]
+    trv.held_turn = (
+        State("climate.trv", HVACMode.HEAT, {"temperature": 5.0}),
+        State("climate.trv", HVACMode.HEAT, {"temperature": 30.0}),
+    )
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", AsyncMock()),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+    assert trv.held_turn is None
 
 
 @pytest.mark.asyncio
@@ -275,6 +293,7 @@ async def test_service_reports_a_failed_run(bt, caplog):
         )
     }
     bt._run_valve_maintenance = AsyncMock(side_effect=RuntimeError("adapter gone"))
+    bt._spawn_owned = asyncio.create_task
 
     with pytest.raises(HomeAssistantError) as failed:
         await BetterThermostat.run_valve_maintenance_service(bt)

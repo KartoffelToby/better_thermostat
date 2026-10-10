@@ -55,9 +55,11 @@ def _plant_signature_of(params: MpcV2Params) -> PlantSignature:
 # Relative per-component drift below this fraction is absorbed without a
 # controller rebuild. The AUTO prior re-derives ``tau_room_min`` from the
 # learned ``heat_loss_rate``, which moves a little after every completed
-# idle-cooling cycle; rebuilding on each tick would discard the observer
-# state (Kalman, DOB, integral) several times a day. Preset switches move
-# the signature far beyond this tolerance and still trigger a rebuild.
+# idle-cooling cycle; a rebuild on each tick would rebuild the optimiser and
+# re-grid the plan several times a day for a change too small to matter.
+# Preset switches move the signature far beyond this tolerance. A rebuild
+# carries the observer state (Kalman, DOB, integral, governor, command
+# history) over to the new controller.
 _SIGNATURE_REL_TOL = 0.1
 
 

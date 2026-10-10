@@ -99,6 +99,7 @@
   "custom_components/better_thermostat/utils/hvac_action.py": 99.1,
   "custom_components/better_thermostat/utils/migrate_v0_stores.py": 96.8,
   "custom_components/better_thermostat/utils/preset_manager.py": 98.4,
+  "custom_components/better_thermostat/utils/renamed_entities.py": 100.0,
   "custom_components/better_thermostat/utils/restore.py": 95.6,
   "custom_components/better_thermostat/utils/retry.py": 100.0,
   "custom_components/better_thermostat/utils/scheduler.py": 100.0,
