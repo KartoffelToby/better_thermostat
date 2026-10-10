@@ -4908,8 +4908,28 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
         # force immediate run
         self.next_valve_maintenance = self.clock.now()
+        # The run belongs to the thermostat, not to the service call, so
+        # unloading or removing the thermostat stops it, and it puts the TRVs
+        # back on the way out. The call waits for it either way; a run the
+        # removal stopped ends the call without an error.
+        run = self._spawn_owned(
+            self._run_valve_maintenance(trvs_to_service),
+            name=f"bt_valve_maintenance_{self.device_name}",
+        )
+        if run is None:
+            return
         try:
-            await self._run_valve_maintenance(trvs_to_service)
+            await run
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if not run.cancelled() or (
+                current is not None and current.cancelling() > 0
+            ):
+                raise
+            _LOGGER.info(
+                "better_thermostat %s: valve maintenance stopped with the thermostat",
+                self.device_name,
+            )
         except Exception as err:
             _LOGGER.exception(
                 "better_thermostat %s: valve maintenance failed", self.device_name
@@ -5292,24 +5312,26 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # task manager and wait for minutes; closing it also stops the workers
         # below from starting new ones while they wind down.
         owned_tasks.extend(self.task_manager.cancel_all())
-        if self._control_task:
-            self._control_task.cancel()
-            try:
-                await self._control_task
-            except asyncio.CancelledError:
-                pass
-        if self._window_task:
-            self._window_task.cancel()
-            try:
-                await self._window_task
-            except asyncio.CancelledError:
-                pass
-        if self._door_task:
-            self._door_task.cancel()
-            try:
-                await self._door_task
-            except asyncio.CancelledError:
-                pass
+        # The control, window and door queues are all cancelled before any is
+        # awaited. A queue that already ended with an error is logged and does
+        # not stop the removal, which still has the other queues to stop and
+        # the final save to wait for.
+        workers = [
+            task
+            for task in (self._control_task, self._window_task, self._door_task)
+            if task is not None
+        ]
+        for worker in workers:
+            worker.cancel()
+        results = await asyncio.gather(*workers, return_exceptions=True)
+        for worker, result in zip(workers, results):
+            if isinstance(result, Exception):
+                _LOGGER.error(
+                    "better_thermostat %s: %s had ended with an error",
+                    self.device_name,
+                    worker.get_name(),
+                    exc_info=result,
+                )
         if owned_tasks:
             await asyncio.gather(*owned_tasks, return_exceptions=True)
         # The final save started by the on_remove callback finishes before

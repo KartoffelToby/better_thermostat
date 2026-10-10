@@ -133,7 +133,7 @@ Better Thermostat offers several algorithms to control your heating:
 
 **If 'auto' means 'heat' for your TRV and you want to swap it** Some climates in HA use the mode auto for default heating, and a boost when mode is heat. This isn't what we want, so if this is the case for you, check this option.
 
-**If your thermostat has no own maintenance mode, you can use this one** If enabled, BT periodically opens and closes the valve so it does not get stuck, for TRVs that have no maintenance routine of their own. The climate entity shows the next run in its `next_valve_maintenance` attribute.
+**If your thermostat has no own maintenance mode, you can use this one** If enabled, BT periodically opens and closes the valve so it does not get stuck, for TRVs that have no maintenance routine of their own. The climate entity shows the next run in its `next_valve_maintenance` attribute. A run cut short because the thermostat is reloaded, disabled or deleted still puts each TRV back on its previous setpoint and mode and closes a valve it had opened.
 
 **Ignore all inputs on the TRV like a child lock** If this option is enabled, all changes on the real TRV, even over HA, will be ignored or reverted, only input from the BT entity is accepted. BT also creates a *Child Lock* switch per TRV. It toggles this option and, where the TRV has a child lock entity of its own, that one too.
 

@@ -31,6 +31,8 @@ Runs the valve maintenance cycle now instead of at its next scheduled time: each
 
 The action fails with a message when no valve of the thermostat has maintenance enabled, or when a maintenance run is already in progress.
 
+The action returns once the run has finished. If the thermostat is reloaded, disabled or deleted meanwhile, the run stops, puts each TRV back as it was before, and the action returns without an error.
+
 This action takes no fields.
 
 ```yaml
