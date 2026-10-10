@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 import logging
 import math
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple
 
 from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
@@ -68,6 +68,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_report_is_unreadable,
     trv_state_unknown_as_available,
 )
+from custom_components.better_thermostat.trv import WithdrawnHvacMode
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
 from custom_components.better_thermostat.utils.const import (
@@ -84,6 +85,7 @@ from custom_components.better_thermostat.utils.helpers import (
     CoolerCommand,
     CoolerFailureRun,
     CoolerSendCache,
+    SentCommand,
     as_published_setpoint,
     attr_to_celsius,
     clamp_valve_percent,
@@ -120,13 +122,12 @@ from custom_components.better_thermostat.utils.retry import (
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
 from custom_components.better_thermostat.utils.watcher import (
-    UNAVAILABLE_STATES,
-    UNKNOWN_STATES,
+    UNAVAILABLE_OR_UNKNOWN_STATES,
 )
 
 if TYPE_CHECKING:
     from custom_components.better_thermostat.climate import BetterThermostat
-    from custom_components.better_thermostat.trv import Trv
+    from custom_components.better_thermostat.trv import Trv, WriteChannel
     from custom_components.better_thermostat.utils.telemetry import ValveCommand
 
 _LOGGER = logging.getLogger(__name__)
@@ -198,6 +199,8 @@ COOLER_FAILURE_BACKOFF_MAX_RUN = 1 + math.ceil(
         COOLER_FAILURE_BACKOFF_FACTOR,
     )
 )
+# What the send cache answers for a channel that has sent nothing yet.
+_NOTHING_SENT: Final = SentCommand(None, None)
 # Valve deviations below this are the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
 # Pause before re-queueing a cycle in which a TRV reported failure, so a
@@ -227,10 +230,6 @@ TRV_STATE_SETTLE_S = 3.0
 WRITE_CONFIRM_TIMEOUT_S = 360
 
 
-# A TRV write channel with its own write budget.
-type WriteChannel = Literal["setpoint", "offset", "valve"]
-
-
 def _write_interval_seconds(
     self: BetterThermostat, trv: Trv, channel: WriteChannel
 ) -> float:
@@ -244,7 +243,7 @@ def _write_interval_seconds(
     if not advanced_flag(trv.advanced, CONF_HOMEMATICIP):
         return MIN_WRITE_INTERVAL_S
     user_change = self.last_user_change_monotonic
-    last_write = trv.last_write_monotonic
+    last_write = trv.last_write_monotonic.get("setpoint")
     if (
         channel == "setpoint"
         and user_change is not None
@@ -259,28 +258,6 @@ def _budget_open(
 ) -> bool:
     """Whether a channel's write-budget slot is free again."""
     return now_monotonic - last_write >= interval_seconds
-
-
-def _budget_stamp(trv: Trv, channel: WriteChannel) -> float | None:
-    """Monotonic time of the last write on ``channel`` to this TRV."""
-    match channel:
-        case "setpoint":
-            return trv.last_write_monotonic
-        case "offset":
-            return trv.last_offset_write_monotonic
-        case "valve":
-            return trv.last_valve_write_monotonic
-
-
-def _set_budget_stamp(trv: Trv, channel: WriteChannel, now_monotonic: float) -> None:
-    """Record a write on ``channel`` to this TRV at ``now_monotonic``."""
-    match channel:
-        case "setpoint":
-            trv.last_write_monotonic = now_monotonic
-        case "offset":
-            trv.last_offset_write_monotonic = now_monotonic
-        case "valve":
-            trv.last_valve_write_monotonic = now_monotonic
 
 
 def _consume_budget(
@@ -298,7 +275,7 @@ def _consume_budget(
     """
     trv = self.real_trvs[entity_id]
     now = self.clock.monotonic()
-    last = _budget_stamp(trv, channel)
+    last = trv.last_write_monotonic.get(channel)
     if (
         not bypass
         and last is not None
@@ -313,7 +290,7 @@ def _consume_budget(
             now - last,
         )
         return False
-    _set_budget_stamp(trv, channel, now)
+    trv.last_write_monotonic[channel] = now
     return True
 
 
@@ -322,7 +299,7 @@ def _budget_remaining(
 ) -> float:
     """Seconds until a channel's write-budget slot reopens."""
     trv = self.real_trvs[entity_id]
-    last = _budget_stamp(trv, channel)
+    last = trv.last_write_monotonic.get(channel)
     if last is None:
         # Never written on this channel, so the slot is already open.
         # Subtracting a monotonic clock from zero would yield a large
@@ -434,6 +411,19 @@ def _stamp_heartbeat(self: BetterThermostat) -> None:
     )
 
 
+# The calibration modes whose balance can drive the valve directly. Such a
+# balance is reported under the mode's own name as its source.
+_VALVE_BALANCE_MODES: Final[frozenset[CalibrationMode]] = frozenset(
+    {
+        CalibrationMode.MPC_CALIBRATION,
+        CalibrationMode.MPC_V2_CALIBRATION,
+        CalibrationMode.TPI_CALIBRATION,
+        CalibrationMode.PID_CALIBRATION,
+        CalibrationMode.HEATING_POWER_CALIBRATION,
+    }
+)
+
+
 def _get_valve_control(
     self: BetterThermostat,
     snapshot: WorldSnapshot,
@@ -467,22 +457,12 @@ def _get_valve_control(
     # Try calibration balance from various calibration modes
     cal_bal = self.real_trvs[entity_id].calibration_balance
     if (
-        isinstance(cal_bal, dict)
+        cal_bal is not None
         and cal_bal.get("apply_valve")
         and cal_bal.get("valve_percent") is not None
+        and calibration_mode in _VALVE_BALANCE_MODES
     ):
-        source_map: dict[CalibrationMode, str] = {
-            CalibrationMode.MPC_CALIBRATION: "mpc_calibration",
-            CalibrationMode.MPC_V2_CALIBRATION: "mpc_v2_calibration",
-            CalibrationMode.TPI_CALIBRATION: "tpi_calibration",
-            CalibrationMode.PID_CALIBRATION: "pid_calibration",
-            CalibrationMode.HEATING_POWER_CALIBRATION: "heating_power_calibration",
-        }
-        source = (
-            source_map.get(calibration_mode) if calibration_mode is not None else None
-        )
-        if source:
-            return cal_bal, source
+        return cal_bal, calibration_mode.value
 
     return None, None
 
@@ -855,6 +835,14 @@ class TaskManager:
         return tasks
 
 
+class _UserIntent(NamedTuple):
+    """The room targets a user sets."""
+
+    heat_target_temperature: float | None
+    cool_target_temperature: float | None
+    hvac_mode: HVACMode | None
+
+
 @dataclass
 class _FailedCycleRun:
     """Consecutive control cycles that failed while the user's targets stood.
@@ -874,7 +862,7 @@ class _FailedCycleRun:
     periodic ticks already space it.
     """
 
-    intent: tuple[object, ...]
+    intent: _UserIntent
     failing: frozenset[str]
     reported: frozenset[tuple[str, str]]
     count: int
@@ -884,12 +872,12 @@ class _FailedCycleRun:
     retry: asyncio.Task[None] | None = None
 
 
-def _user_intent(self: BetterThermostat) -> tuple[object, ...]:
+def _user_intent(self: BetterThermostat) -> _UserIntent:
     """Return the room targets a user sets, as the failure pacing compares them."""
-    return (
-        self.heat_target_temperature,
-        self.cool_target_temperature,
-        self.bt_hvac_mode,
+    return _UserIntent(
+        heat_target_temperature=self.heat_target_temperature,
+        cool_target_temperature=self.cool_target_temperature,
+        hvac_mode=self.bt_hvac_mode,
     )
 
 
@@ -1105,7 +1093,7 @@ def refresh_cached_trv_modes(self: BetterThermostat) -> None:
     """
     for entity_id, trv in self.real_trvs.items():
         state = self.hass.states.get(entity_id)
-        if state is None or state.state in UNAVAILABLE_STATES + UNKNOWN_STATES:
+        if state is None or state.state in UNAVAILABLE_OR_UNKNOWN_STATES:
             continue
         if advanced_flag(trv.advanced, CONF_CHILD_LOCK):
             continue
@@ -1296,7 +1284,9 @@ def _locked_device_moved(
         return False
     if state.state != STATE_UNKNOWN:
         if cooling_owns_dual_role_device(self, entity_id):
-            commanded_mode = cooler_send_cache(self).get("hvac_mode", (None, None))[0]
+            commanded_mode = (
+                cooler_send_cache(self).get("hvac_mode", _NOTHING_SENT).value
+            )
         elif trv.system_mode_received:
             commanded_mode = trv.last_hvac_mode
         else:
@@ -1611,16 +1601,15 @@ def _cooler_retry_deferred(
     run = _cooler_failure_run(last_sent, channel)
     if run is None:
         return False
-    failures, failed_at, failed_wanted = run
-    if failed_wanted != wanted:
+    if run.command != wanted:
         wait = COOLER_FAILURE_BACKOFF_BASE_S
     else:
         wait = min(
             COOLER_FAILURE_BACKOFF_BASE_S
-            * COOLER_FAILURE_BACKOFF_FACTOR ** (failures - 1),
+            * COOLER_FAILURE_BACKOFF_FACTOR ** (run.count - 1),
             COOLER_FAILURE_BACKOFF_MAX_S,
         )
-    return (now_monotonic - failed_at) < wait
+    return (now_monotonic - run.failed_at) < wait
 
 
 def _record_cooler_failure(
@@ -1637,11 +1626,11 @@ def _record_cooler_failure(
     still tell apart.
     """
     previous = _cooler_failure_run(last_sent, channel)
-    failures = 0 if previous is None or previous[2] != wanted else previous[0]
-    run: CoolerFailureRun = (
-        min(failures + 1, COOLER_FAILURE_BACKOFF_MAX_RUN),
-        now_monotonic,
-        wanted,
+    failures = 0 if previous is None or previous.command != wanted else previous.count
+    run = CoolerFailureRun(
+        count=min(failures + 1, COOLER_FAILURE_BACKOFF_MAX_RUN),
+        failed_at=now_monotonic,
+        command=wanted,
     )
     if channel == "temperature":
         last_sent["temperature_failed"] = run
@@ -1671,7 +1660,9 @@ async def _write_cooler_mode(
     the device takes it, still receives no more than two commands per
     interval.
     """
-    last_mode, last_mode_ts = last_sent.get("hvac_mode", (None, None))
+    _sent_mode = last_sent.get("hvac_mode", _NOTHING_SENT)
+    last_mode = _sent_mode.value
+    last_mode_ts = _sent_mode.sent_at
     mode_changed_since_last_send = last_mode != desired_mode
     should_send_mode = current_hvac_mode != desired_mode
     reported_at = last_sent.get("hvac_mode_reported")
@@ -1708,7 +1699,7 @@ async def _write_cooler_mode(
             "failure-backoff step %s",
             self.device_name,
             self.cooler_entity_id,
-            last_sent["hvac_mode_failed"][0],
+            last_sent["hvac_mode_failed"].count,
         )
         should_send_mode = False
 
@@ -1748,7 +1739,7 @@ async def _write_cooler_mode(
                 and last_mode_ts is not None
                 and (now_monotonic - last_mode_ts) < COOLER_RESEND_INTERVAL_S
             )
-            last_sent["hvac_mode"] = (desired_mode, now_monotonic)
+            last_sent["hvac_mode"] = SentCommand(desired_mode, now_monotonic)
             last_sent.pop("hvac_mode_failed", None)
 
 
@@ -1938,11 +1929,11 @@ async def control_cooler(
         # channel has since replaced. The values stay, because they are what
         # tells a resend from a fresh command.
         _sent_temperature = last_sent.get("temperature")
-        if _sent_temperature is not None and _sent_temperature[1] is not None:
-            last_sent["temperature"] = (_sent_temperature[0], None)
+        if _sent_temperature is not None and _sent_temperature.sent_at is not None:
+            last_sent["temperature"] = _sent_temperature._replace(sent_at=None)
         _sent_mode = last_sent.get("hvac_mode")
-        if _sent_mode is not None and _sent_mode[1] is not None:
-            last_sent["hvac_mode"] = (_sent_mode[0], None)
+        if _sent_mode is not None and _sent_mode.sent_at is not None:
+            last_sent["hvac_mode"] = _sent_mode._replace(sent_at=None)
         return
 
     if _shared_entity_id is not None:
@@ -1974,9 +1965,9 @@ async def control_cooler(
     # temperature is unknown, only send if the desired value changed since
     # the last successful command; otherwise send when it differs from the
     # reported value beyond the device tolerance.
-    last_sent_setpoint, last_sent_setpoint_ts = last_sent.get(
-        "temperature", (None, None)
-    )
+    _sent_temperature = last_sent.get("temperature", _NOTHING_SENT)
+    last_sent_setpoint = _sent_temperature.value
+    last_sent_setpoint_ts = _sent_temperature.sent_at
     temperature_changed_since_last_send = last_sent_setpoint != desired_temperature
     # A quantizing device settles near the sent value on its own grid. The
     # first post-send reading close to the sent value is remembered as the
@@ -2022,7 +2013,7 @@ async def control_cooler(
         )
         # A lower bound BT never wrote at this value is a new payload, not a
         # resend; one it already wrote and the device ignored is a retry.
-        last_low = last_sent.get("target_temp_low", (None, None))[0]
+        last_low = last_sent.get("target_temp_low", _NOTHING_SENT).value
         _low_bound_changed = last_low != _low_to_set
         current_low = attr_to_celsius(
             self, cooler_state, "target_temp_low", None, "control_cooler()"
@@ -2154,7 +2145,7 @@ async def control_cooler(
                 "failure-backoff step %s",
                 self.device_name,
                 self.cooler_entity_id,
-                last_sent["temperature_failed"][0],
+                last_sent["temperature_failed"].count,
             )
             temperature_to_send = None
 
@@ -2214,7 +2205,7 @@ async def control_cooler(
         # a later press near this write is not taken for its answer.
         _previous_send = last_sent.get("temperature")
         _previous_settled = last_sent.pop("temperature_settled", None)
-        last_sent["temperature"] = (temperature_to_send, now_monotonic)
+        last_sent["temperature"] = SentCommand(temperature_to_send, now_monotonic)
         try:
             async with device_call_deadline():
                 with command_cancellation_as_disconnect():
@@ -2250,7 +2241,7 @@ async def control_cooler(
             # well; the device answers it anew. A single-setpoint payload
             # carries no lower bound, so it says nothing about that reading.
             if _write_range:
-                last_sent["target_temp_low"] = (_low_to_set_c, now_monotonic)
+                last_sent["target_temp_low"] = SentCommand(_low_to_set_c, now_monotonic)
                 last_sent.pop("target_temp_low_settled", None)
 
     if _shared_entity_id is not None:
@@ -2542,9 +2533,13 @@ async def control_trv(
                 # An unconfirmed command stays on the wire, and a slow device
                 # may still apply it, so it is remembered as withdrawn.
                 if _mode_trv.system_mode_received is False:
-                    _mode_trv.withdrawn_hvac_mode = _mode_trv.last_hvac_mode
-                    _mode_trv.withdrawn_hvac_mode_until = (
-                        self.clock.monotonic() + WRITE_CONFIRM_TIMEOUT_S
+                    _mode_trv.withdrawn_hvac_mode = (
+                        WithdrawnHvacMode(
+                            mode=_mode_trv.last_hvac_mode,
+                            until=self.clock.monotonic() + WRITE_CONFIRM_TIMEOUT_S,
+                        )
+                        if _mode_trv.last_hvac_mode is not None
+                        else None
                     )
                 _mode_trv.last_hvac_mode = _new_hvac_mode
             # An open window or door switches the device off whatever was
@@ -2582,7 +2577,6 @@ async def control_trv(
                 _commanded_before = self.real_trvs[entity_id].last_hvac_mode
                 self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
                 self.real_trvs[entity_id].withdrawn_hvac_mode = None
-                self.real_trvs[entity_id].withdrawn_hvac_mode_until = None
                 _mode_refused = False
                 _mode_unanswered = False
                 try:
@@ -2613,9 +2607,9 @@ async def control_trv(
                         else _reported_hvac_mode
                     )
                 if _mode_unanswered:
-                    self.real_trvs[entity_id].withdrawn_hvac_mode = _new_hvac_mode
-                    self.real_trvs[entity_id].withdrawn_hvac_mode_until = (
-                        self.clock.monotonic() + WRITE_CONFIRM_TIMEOUT_S
+                    self.real_trvs[entity_id].withdrawn_hvac_mode = WithdrawnHvacMode(
+                        mode=_new_hvac_mode,
+                        until=self.clock.monotonic() + WRITE_CONFIRM_TIMEOUT_S,
                     )
                 if (
                     not _mode_refused
@@ -2927,9 +2921,9 @@ def _mode_switched_during_cycle(
     ):
         return False
     before = trv.state_before_held_report
-    if before is None or before.state in UNAVAILABLE_STATES + UNKNOWN_STATES:
+    if before is None or before.state in UNAVAILABLE_OR_UNKNOWN_STATES:
         return False
-    if reported_mode in UNAVAILABLE_STATES + UNKNOWN_STATES:
+    if reported_mode in UNAVAILABLE_OR_UNKNOWN_STATES:
         return False
     return reported_mode not in (before.state, trv.last_hvac_mode)
 

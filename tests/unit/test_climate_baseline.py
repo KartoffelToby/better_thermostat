@@ -307,7 +307,9 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", hvac_action="heating")
+            "climate.trv1": Trv(
+                entity_id="climate.trv1", hvac_action=HVACAction.HEATING
+            )
         }
         assert self._call(mock_bt) == HVACAction.HEATING
 
@@ -337,7 +339,9 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.HEATING
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", hvac_action="heating")
+            "climate.trv1": Trv(
+                entity_id="climate.trv1", hvac_action=HVACAction.HEATING
+            )
         }
         assert self._call(mock_bt) == HVACAction.IDLE
 
@@ -348,7 +352,9 @@ class TestComputeHvacAction:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.ignore_states = True
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", hvac_action="heating")
+            "climate.trv1": Trv(
+                entity_id="climate.trv1", hvac_action=HVACAction.HEATING
+            )
         }
         assert self._call(mock_bt) == HVACAction.IDLE
 
@@ -359,7 +365,9 @@ class TestComputeHvacAction:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
             "climate.trv1": Trv(
-                entity_id="climate.trv1", hvac_action="heating", ignore_trv_states=True
+                entity_id="climate.trv1",
+                hvac_action=HVACAction.HEATING,
+                ignore_trv_states=True,
             )
         }
         assert self._call(mock_bt) == HVACAction.IDLE
@@ -370,7 +378,9 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", hvac_action="heating")
+            "climate.trv1": Trv(
+                entity_id="climate.trv1", hvac_action=HVACAction.HEATING
+            )
         }
         self._call(mock_bt)
         # Tolerance last action should be IDLE (tolerance decision), not HEATING

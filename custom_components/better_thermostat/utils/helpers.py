@@ -434,8 +434,12 @@ def async_normalize_bt_entity_ids(
 
 def normalize_calibration_mode(
     mode: CalibrationMode | str | float | None,
-) -> CalibrationMode | str | None:
-    """Normalize a calibration_mode field from TRV advanced data."""
+) -> CalibrationMode | None:
+    """Normalize a calibration_mode field from TRV advanced data.
+
+    A mode name is matched regardless of case and surrounding whitespace.
+    A name this version does not know, and any other value, is no mode.
+    """
 
     # Backwards compatibility: older configs stored numeric calibration modes
     # (e.g. 0 for DEFAULT). Only map known values.
@@ -451,11 +455,10 @@ def normalize_calibration_mode(
     if isinstance(mode, CalibrationMode):
         return mode
     if isinstance(mode, str):
-        value = mode.strip().lower()
         try:
-            return CalibrationMode(value)
+            return CalibrationMode(mode.strip().lower())
         except ValueError:
-            return value
+            return None
     return None
 
 
@@ -474,14 +477,14 @@ def configured_calibration_mode(
     set up.
     """
     mode = (advanced or {}).get(CONF_CALIBRATION_MODE)
+    if isinstance(mode, str):
+        return normalize_calibration_mode(mode)
     normalized = (
-        normalize_calibration_mode(mode)
-        if isinstance(mode, (str, int, float))
-        else None
+        normalize_calibration_mode(mode) if isinstance(mode, (int, float)) else None
     )
     if normalized is None:
         return DEFAULT_CALIBRATION_MODE
-    return normalized if isinstance(normalized, CalibrationMode) else None
+    return normalized
 
 
 def configured_calibration_output(
@@ -500,19 +503,6 @@ def configured_calibration_output(
         return CalibrationOutput(output)
     except ValueError:
         return None
-
-
-def is_calibration_mode(
-    mode: CalibrationMode | str | None, expected: CalibrationMode
-) -> bool:
-    """Return True if ``mode`` is the expected CalibrationMode."""
-
-    normalized = normalize_calibration_mode(mode)
-    if isinstance(normalized, CalibrationMode):
-        return normalized == expected
-    if isinstance(normalized, str):
-        return normalized == expected.value
-    return False
 
 
 def entity_uses_calibration_mode(
@@ -535,7 +525,7 @@ def entity_uses_mpc_calibration(bt: _CalibrationModeHost, entity_id: str) -> boo
     return entity_uses_calibration_mode(bt, entity_id, CalibrationMode.MPC_CALIBRATION)
 
 
-def get_hvac_bt_mode(self: BetterThermostat, mode: str) -> str:
+def get_hvac_bt_mode(self: BetterThermostat, mode: HVACMode) -> HVACMode:
     """Return the mode Better Thermostat publishes for a room mode.
 
     Either spelling of "on" is published in the spelling the instance's own
@@ -1736,21 +1726,52 @@ COOLER_QUANTIZATION_TOLERANCE_K = 0.5
 # write.
 CoolerCommand = HVACMode | tuple[float, float | None] | None
 
-# A channel's run of consecutive send failures of one command, at least one
-# long, as ``(count, monotonic_timestamp, attempted_command)``.
-CoolerFailureRun = tuple[int, float, CoolerCommand]
+
+class CoolerFailureRun(NamedTuple):
+    """A channel's run of consecutive send failures of one command.
+
+    Attributes
+    ----------
+    count : int
+        Failures in the run, at least one
+    failed_at : float
+        Monotonic time of the latest failure
+    command : CoolerCommand
+        The command every failure of the run attempted
+    """
+
+    count: int
+    failed_at: float
+    command: CoolerCommand
+
+
+class SentCommand[T](NamedTuple):
+    """The last command a cooler channel sent successfully.
+
+    Attributes
+    ----------
+    value : T
+        The value written
+    sent_at : float | None
+        Monotonic time of the write, or None once the resend throttle no
+        longer paces the value
+    """
+
+    value: T
+    sent_at: float | None
+
 
 # The cooler send cache :func:`cooler_send_cache` returns. Spelled
 # functionally because the keys are lookup strings, not attribute names.
 CoolerSendCache = TypedDict(  # noqa: UP013
     "CoolerSendCache",
     {
-        "temperature": tuple[float, float | None],
+        "temperature": SentCommand[float],
         "temperature_settled": float,
         "temperature_failed": CoolerFailureRun,
-        "target_temp_low": tuple[float, float],
+        "target_temp_low": SentCommand[float],
         "target_temp_low_settled": float,
-        "hvac_mode": tuple[HVACMode, float | None],
+        "hvac_mode": SentCommand[HVACMode],
         "hvac_mode_decided": HVACMode,
         "hvac_mode_failed": CoolerFailureRun,
         "hvac_mode_reported": float,
@@ -1763,14 +1784,13 @@ CoolerSendCache = TypedDict(  # noqa: UP013
 def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     """Return the cooler send-cache, creating it on first use.
 
-    Holds the last successfully sent command per channel as
-    ``(value, monotonic_timestamp)`` for the resend throttle, with no
-    timestamp once the throttle no longer paces that value, the settled
-    reading of each written channel, the mode the last cycle decided on for
-    the hysteresis band, each channel's run of consecutive send failures
-    as ``(count, monotonic_timestamp, attempted_value)``, the monotonic time
-    the cooler last reported a mode change of its own, and whether the last
-    mode command went out ahead of the resend throttle. Created lazily
+    Holds the last successfully sent command per channel as a
+    :class:`SentCommand` for the resend throttle, with no send time once the
+    throttle no longer paces that value, the settled reading of each written
+    channel, the mode the last cycle decided on for the hysteresis band, each
+    channel's :class:`CoolerFailureRun`, the monotonic time the cooler last
+    reported a mode change of its own, and whether the last mode command went
+    out ahead of the resend throttle. Created lazily
     because only cooler-equipped instances need it.
 
     Parameters
@@ -1807,8 +1827,8 @@ def last_sent_cooler_temperature(self: BetterThermostat) -> float | None:
             the setpoint of the last successful write, or None when no write
             has succeeded yet
     """
-    value = cooler_send_cache(self).get("temperature", (None, None))[0]
-    return value if isinstance(value, (int, float)) else None
+    sent = cooler_send_cache(self).get("temperature")
+    return sent.value if sent is not None else None
 
 
 def settle_cooler_reading(self: BetterThermostat, reading: float) -> float | None:

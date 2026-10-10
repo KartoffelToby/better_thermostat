@@ -14,6 +14,7 @@ from homeassistant.core import State
 
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
+    SentCommand,
     cooler_mode_diverges,
     cooler_send_cache,
     device_setpoint_step,
@@ -315,7 +316,7 @@ async def trigger_cooler_change(
             # The press was not sent, so it carries no send time for the
             # resend throttle.
             _cooler_sent = cooler_send_cache(self)
-            _cooler_sent["temperature"] = (_new_cooling_setpoint.raw, None)
+            _cooler_sent["temperature"] = SentCommand(_new_cooling_setpoint.raw, None)
             _cooler_sent["temperature_settled"] = _new_cooling_setpoint.raw
             # The clamp leaves the heating target alone, so this only settles
             # the degenerate case where no cooling value above the heating

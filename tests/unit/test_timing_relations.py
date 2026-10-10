@@ -251,7 +251,7 @@ async def _worst_case_write_ladder_seconds():
         pytest.raises(HomeAssistantError),
     ):
         await _write_on_channel(
-            host, "climate.trv", "setpoint", "setpoint", write, 21.0
+            host, "climate.trv", "temperature", "setpoint", write, 21.0
         )
 
     assert write.await_count == len(sleeps) + 1

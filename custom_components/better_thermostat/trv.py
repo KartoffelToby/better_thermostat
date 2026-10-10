@@ -13,9 +13,9 @@ import asyncio
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.core import State
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
@@ -32,7 +32,11 @@ from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
 from custom_components.better_thermostat.utils.helpers import device_offers_mode
 
 if TYPE_CHECKING:
-    from custom_components.better_thermostat.adapters.delegate import WriteOutage
+    from custom_components.better_thermostat.adapters.delegate import (
+        ValveMethod,
+        WriteOutage,
+        WritePath,
+    )
     from custom_components.better_thermostat.adapters.types import TrvAdapter
     from custom_components.better_thermostat.utils.calibration.strategies import (
         BalanceCalibrator,
@@ -40,10 +44,30 @@ if TYPE_CHECKING:
     from custom_components.better_thermostat.utils.telemetry import CalibrationBalance
 
 
+# A TRV write channel with its own write budget.
+type WriteChannel = Literal["setpoint", "offset", "valve"]
+
 # How many unconfirmed writes one TRV keeps as values a report may echo. The
 # confirmed setpoint is held separately and is not counted against this bound,
 # which only trims the writes made since it.
 ECHO_SETPOINTS_LIMIT = 8
+
+
+@dataclass(frozen=True)
+class WithdrawnHvacMode:
+    """A mode command still on the wire that the room took back.
+
+    Attributes
+    ----------
+    mode : str
+        The mode the command carried, in the device's spelling
+    until : float
+        Monotonic deadline up to which a report of that mode is the command
+        landing late rather than a press at the device
+    """
+
+    mode: str
+    until: float
 
 
 @dataclass
@@ -102,7 +126,7 @@ class Trv:
     current_temperature: float | None = None
     hvac_modes: list[str] | None = None
     hvac_mode: str | None = None
-    hvac_action: str | None = None
+    hvac_action: HVACAction | None = None
     local_temperature_calibration_entity: str | None = None
     min_local_calibration: float = -7
     max_local_calibration: float = 7
@@ -167,10 +191,9 @@ class Trv:
     # again, so no newer command went out to replace it, and a slow device
     # may still apply it. Its report is Better Thermostat's own command
     # landing late, not a press at the device, until the monotonic deadline
-    # beside it: a device gets as long to apply it as the mode watchdog gives
+    # it carries: a device gets as long to apply it as the mode watchdog gives
     # any command, and a report after that is the user's again.
-    withdrawn_hvac_mode: str | None = None
-    withdrawn_hvac_mode_until: float | None = None
+    withdrawn_hvac_mode: WithdrawnHvacMode | None = None
     # Whether the device reported something while a control cycle held the
     # inbound handler off. The end of the cycle reads the device's state then,
     # before a later cycle can write over a press nobody has read.
@@ -207,12 +230,11 @@ class Trv:
     # release ``calibration_received``.
     calibration_write_generation: int = 0
     last_valve_percent: float | None = None
-    last_valve_method: str | None = None
-    # Per-channel write-budget stamps (setpoint, offset, valve) so one
-    # channel's write cannot starve another channel's slot.
-    last_write_monotonic: float | None = None
-    last_offset_write_monotonic: float | None = None
-    last_valve_write_monotonic: float | None = None
+    last_valve_method: ValveMethod | None = None
+    # Monotonic time of the last write per write-budget channel, so one
+    # channel's write cannot starve another channel's slot. A channel never
+    # written to has no entry.
+    last_write_monotonic: dict[WriteChannel, float] = field(default_factory=dict)
     # Monotonic time the follow-up control cycle for a budget-deferred
     # write is due at, and the task sleeping until then; None when no
     # retry is scheduled.
@@ -234,7 +256,9 @@ class Trv:
     # keyed by channel, each with the delegate's record of the outage. The
     # next write on such a channel gets one attempt instead of the retry
     # chain, which runs under the room's control lock, until the outage ends.
-    unreachable_write_channels: dict[str, WriteOutage] = field(default_factory=dict)
+    unreachable_write_channels: dict[WritePath, WriteOutage] = field(
+        default_factory=dict
+    )
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: CalibrationBalance | None = None

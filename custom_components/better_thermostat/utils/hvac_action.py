@@ -34,9 +34,22 @@ class TrvSnapshot:
 
     entity_id: str
     ignore_trv_states: bool = False
-    hvac_action: str | None = None
+    hvac_action: HVACAction | None = None
     valve_position: float | None = None
     last_valve_percent: float | None = None
+
+
+def parse_hvac_action(value: object) -> HVACAction | None:
+    """Return the HVAC action a device reports, or None for one it does not name.
+
+    The value is matched regardless of case and surrounding whitespace. A
+    device can carry values in its action attribute that are no HVAC action
+    at all, and those name none.
+    """
+    try:
+        return HVACAction(str(value).strip().lower())
+    except ValueError:
+        return None
 
 
 def to_percent(value: float | str | None) -> float | None:
@@ -217,17 +230,15 @@ def compute_hvac_action(
             if snap.ignore_trv_states:
                 continue
 
-            if snap.hvac_action is not None:
-                action_str = snap.hvac_action.lower()
-                if action_str == "heating":
-                    _LOGGER.debug(
-                        "better_thermostat %s: overriding hvac_action to HEATING "
-                        "(TRV %s reports heating)",
-                        device_name,
-                        snap.entity_id,
-                    )
-                    action = HVACAction.HEATING
-                    break
+            if snap.hvac_action == HVACAction.HEATING:
+                _LOGGER.debug(
+                    "better_thermostat %s: overriding hvac_action to HEATING "
+                    "(TRV %s reports heating)",
+                    device_name,
+                    snap.entity_id,
+                )
+                action = HVACAction.HEATING
+                break
 
             valve_position_percent = to_percent(snap.valve_position)
             if (

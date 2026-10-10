@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
@@ -34,7 +34,7 @@ from custom_components.better_thermostat.events.trv import (
     reports_written_setpoint,
     trigger_trv_change,
 )
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import Trv, WithdrawnHvacMode
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -44,6 +44,7 @@ from custom_components.better_thermostat.utils.controlling import TaskManager
 from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
 from custom_components.better_thermostat.utils.helpers import (
     CoolerSendCache,
+    SentCommand,
     mode_remap,
 )
 from tests.factories import ThermostatStandIn
@@ -133,7 +134,7 @@ def mock_bt():
             ignore_trv_states=False,
             model="SomeModel",
             model_quirks=None,
-            hvac_action="heating",
+            hvac_action=HVACAction.HEATING,
             valve_position=50,
             advanced={
                 "calibration": CalibrationOutput.LOCAL_BASED,
@@ -200,7 +201,7 @@ def _add_homematicip_peer(bt):
         ignore_trv_states=False,
         model="SomeModel",
         model_quirks=None,
-        hvac_action="heating",
+        hvac_action=HVACAction.HEATING,
         valve_position=50,
         advanced={
             "calibration": CalibrationOutput.LOCAL_BASED,
@@ -1160,7 +1161,7 @@ class TestHvacActionAndValvePosition:
             }
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].hvac_action = "heating"
+        mock_bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.HEATING
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -1170,7 +1171,7 @@ class TestHvacActionAndValvePosition:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.real_trvs[ENTITY_ID].hvac_action == "idle"
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_action == HVACAction.IDLE
 
     @pytest.mark.asyncio
     async def test_hvac_action_fallback_to_action(self, mock_bt):
@@ -1183,7 +1184,7 @@ class TestHvacActionAndValvePosition:
             }
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].hvac_action = "idle"
+        mock_bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.IDLE
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -1193,7 +1194,7 @@ class TestHvacActionAndValvePosition:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.real_trvs[ENTITY_ID].hvac_action == "heating"
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_action == HVACAction.HEATING
 
     @pytest.mark.asyncio
     async def test_hvac_action_change_triggers_main_change(self, mock_bt):
@@ -1206,7 +1207,7 @@ class TestHvacActionAndValvePosition:
             }
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].hvac_action = "heating"
+        mock_bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.HEATING
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -3138,7 +3139,7 @@ class TestControlQueueTrigger:
             }
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].hvac_action = "heating"
+        mock_bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.HEATING
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -3704,7 +3705,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
             ignore_trv_states=False,
             model="SomeModel",
             model_quirks=None,
-            hvac_action="heating",
+            hvac_action=HVACAction.HEATING,
             valve_position=50,
             advanced={
                 "calibration": CalibrationOutput.LOCAL_BASED,
@@ -3983,7 +3984,7 @@ class TestDualRoleEntityReports:
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.heat_target_temperature = 20.0
         mock_bt.cool_target_temperature = 24.0
-        mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        mock_bt._cooler_last_sent = {"temperature": SentCommand(24.0, 0.0)}
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
             HVACMode.OFF,
             HVACMode.HEAT,
@@ -4177,7 +4178,9 @@ class TestDualRoleEntityReports:
         """
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
         shared_bt.cool_target_temperature = cool_target_temperature
-        shared_bt._cooler_last_sent = {"temperature": (cool_target_temperature, 0.0)}
+        shared_bt._cooler_last_sent = {
+            "temperature": SentCommand(cool_target_temperature, 0.0)
+        }
 
         await self._report(
             shared_bt,
@@ -4203,7 +4206,7 @@ class TestDualRoleEntityReports:
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
         shared_bt.cool_target_temperature = cool_target_temperature
         shared_bt._cooler_last_sent = (
-            CoolerSendCache(temperature=(cool_target_temperature, 0.0))
+            CoolerSendCache(temperature=SentCommand(cool_target_temperature, 0.0))
             if send_cache_primed
             else CoolerSendCache()
         )
@@ -4239,7 +4242,9 @@ class TestDualRoleEntityReports:
         24 °C the cache would round to on the room's own 0.5 °C grid.
         """
         shared_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
-        shared_bt._cooler_last_sent = {"temperature": ((75.0 - 32.0) * 5.0 / 9.0, 0.0)}
+        shared_bt._cooler_last_sent = {
+            "temperature": SentCommand((75.0 - 32.0) * 5.0 / 9.0, 0.0)
+        }
 
         await self._report(
             shared_bt,
@@ -4266,7 +4271,7 @@ class TestDualRoleEntityReports:
         mock_bt.cooler_entity_id = "climate.split_unit"
         mock_bt.heat_target_temperature = 19.0
         mock_bt.cool_target_temperature = 24.0
-        mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        mock_bt._cooler_last_sent = {"temperature": SentCommand(24.0, 0.0)}
         mock_bt.bt_max_temp = 30.0
         mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
         mock_bt.real_trvs[ENTITY_ID].max_temp = 30.0
@@ -5067,8 +5072,7 @@ class TestWithdrawnModeCommand:
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.hvac_mode = HVACMode.HEAT
         trv.last_hvac_mode = HVACMode.OFF
-        trv.withdrawn_hvac_mode = HVACMode.HEAT
-        trv.withdrawn_hvac_mode_until = 60.0
+        trv.withdrawn_hvac_mode = WithdrawnHvacMode(mode=HVACMode.HEAT, until=60.0)
 
         off = _make_state("off")
         mock_bt.hass.states.get.return_value = off
@@ -5078,7 +5082,9 @@ class TestWithdrawnModeCommand:
             await trigger_trv_change(
                 mock_bt, _make_event(mock_bt, new_state=off, old_state=_make_state())
             )
-            assert trv.withdrawn_hvac_mode == HVACMode.HEAT
+            assert trv.withdrawn_hvac_mode == WithdrawnHvacMode(
+                mode=HVACMode.HEAT, until=60.0
+            )
 
             mock_bt.clock.advance(10)
             heat = _make_state("heat")

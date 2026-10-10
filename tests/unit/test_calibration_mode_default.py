@@ -33,7 +33,6 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.entry_schema import StoredChoice
 from custom_components.better_thermostat.utils.helpers import (
     configured_calibration_mode,
-    is_calibration_mode,
     normalize_calibration_mode,
 )
 from tests.factories import ThermostatStandIn, make_state
@@ -133,18 +132,11 @@ def test_unresolvable_stored_mode_falls_back_to_the_shared_default(
 def test_a_named_but_unknown_mode_does_not_become_the_default(monkeypatch):
     """A string naming a mode this version does not know stays unresolved.
 
-    ``normalize_calibration_mode`` hands an unrecognized string back
-    unchanged instead of returning ``None``, and that is the answer the
-    rest of the code reads: ``is_calibration_mode`` reports ``False`` for
-    it against every mode. A config that names something is not a config
-    that names nothing, so it does not take the shared default.
+    ``normalize_calibration_mode`` reads it as no mode, but a config that
+    names something is not a config that names nothing, so it does not
+    take the shared default.
     """
-    assert normalize_calibration_mode("a mode from another version") == (
-        "a mode from another version"
-    )
-    assert not is_calibration_mode(
-        "a mode from another version", DEFAULT_CALIBRATION_MODE
-    )
+    assert normalize_calibration_mode("a mode from another version") is None
     assert (
         configured_calibration_mode({"calibration_mode": "a mode from another version"})
         is None

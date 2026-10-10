@@ -646,7 +646,7 @@ class TestWriteBudget:
         result, set_temperature = await self._run(bt, target=22.0)
         assert result is True
         set_temperature.assert_called_once()
-        assert bt.real_trvs["climate.trv"].last_write_monotonic == 100.0
+        assert bt.real_trvs["climate.trv"].last_write_monotonic["setpoint"] == 100.0
 
     @pytest.mark.asyncio
     async def test_write_within_budget_window_is_deferred(self):
@@ -723,7 +723,7 @@ class TestOffsetWriteBudget:
         assert result is True
         set_off.assert_called_once()
         trv = bt.real_trvs["climate.trv"]
-        assert trv.last_offset_write_monotonic == 100.0
+        assert trv.last_write_monotonic["offset"] == 100.0
 
     @pytest.mark.asyncio
     async def test_offset_write_within_budget_window_is_skipped(self):
@@ -751,7 +751,7 @@ class TestOffsetWriteBudget:
         """An offset write does not consume the setpoint channel's slot."""
         bt = self._offset_bt()
         await self._run(bt, calibration_offset=2.0)
-        assert bt.real_trvs["climate.trv"].last_write_monotonic is None
+        assert "setpoint" not in bt.real_trvs["climate.trv"].last_write_monotonic
 
 
 class TestValveWriteBudget:
@@ -781,7 +781,7 @@ class TestValveWriteBudget:
         result, set_valve = await self._run(bt, percent=50)
         assert result is True
         set_valve.assert_called_once()
-        assert bt.real_trvs["climate.trv"].last_valve_write_monotonic == 100.0
+        assert bt.real_trvs["climate.trv"].last_write_monotonic["valve"] == 100.0
 
     @pytest.mark.asyncio
     async def test_valve_write_within_budget_window_is_skipped(self):

@@ -25,6 +25,7 @@ from custom_components.better_thermostat.utils.controlling import (
     control_cooler,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    SentCommand,
     cooler_send_cache,
     cooling_owns_dual_role_device,
     last_sent_cooler_temperature,
@@ -563,7 +564,7 @@ class TestControlCoolerSendCache:
         mock_self, mock_hass, _ = _make_cooler_setup(
             cooler_temperature_attr=None, cool_target_temperature=24.0
         )
-        mock_self._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        mock_self._cooler_last_sent = {"temperature": SentCommand(24.0, 0.0)}
 
         await control_cooler(mock_self)
 
@@ -579,7 +580,7 @@ class TestControlCoolerSendCache:
         mock_self, mock_hass, _ = _make_cooler_setup(
             cooler_temperature_attr=None, cool_target_temperature=24.0
         )
-        mock_self._cooler_last_sent = {"temperature": (23.0, 0.0)}
+        mock_self._cooler_last_sent = {"temperature": SentCommand(23.0, 0.0)}
 
         await control_cooler(mock_self)
 
@@ -968,7 +969,7 @@ class TestControlCoolerSendCache:
 
         assert len(_service_calls(mock_hass, "set_temperature")) == attempts
         assert (
-            mock_self._cooler_last_sent["temperature_failed"][0]
+            mock_self._cooler_last_sent["temperature_failed"].count
             == COOLER_FAILURE_BACKOFF_MAX_RUN
         )
 
@@ -1357,7 +1358,7 @@ class TestControlCoolerContactSuppression:
         # A cooling period ran before the airing, one full resend interval
         # back, so the send cache holds the setpoint that reached the unit and
         # the throttle cannot be what holds this cycle's write.
-        mock_self._cooler_last_sent = {"temperature": (22.0, 0.0)}
+        mock_self._cooler_last_sent = {"temperature": SentCommand(22.0, 0.0)}
         mock_self.clock.advance(COOLER_RESEND_INTERVAL_S + 1.0)
 
         await control_cooler(mock_self)
@@ -1366,7 +1367,7 @@ class TestControlCoolerContactSuppression:
         # A cycle that attempted nothing recorded nothing, so the cache still
         # describes the last setpoint the unit actually received and the
         # resend throttle keeps pacing the channel the suppression resumes.
-        assert mock_self._cooler_last_sent["temperature"] == (22.0, 0.0)
+        assert mock_self._cooler_last_sent["temperature"] == SentCommand(22.0, 0.0)
 
     @pytest.mark.asyncio
     async def test_closed_contact_resumes_the_setpoint_write(self):
@@ -1822,7 +1823,7 @@ class TestControlCoolerModeHysteresis:
         await control_cooler(mock_self)
 
         assert mock_self._cooler_last_sent["hvac_mode_decided"] == HVACMode.COOL
-        assert mock_self._cooler_last_sent.get("hvac_mode", (None, None))[0] is None
+        assert "hvac_mode" not in mock_self._cooler_last_sent
         assert last_sent_cooler_temperature(mock_self) is None
 
     @pytest.mark.asyncio
@@ -2595,7 +2596,7 @@ class TestControlCoolerTargetRange:
             cool_target_temperature=24.0,
             heat_target_temperature=21.0,
         )
-        mock_self._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        mock_self._cooler_last_sent = {"temperature": SentCommand(24.0, 0.0)}
         mock_self.clock.monotonic_value = 1.0
 
         await control_cooler(mock_self)
@@ -2857,14 +2858,16 @@ class TestControlCoolerOnADualRoleEntity:
             cooler_state=HVACMode.HEAT, cooler_temperature_attr=30.0
         )
         mock_self._cooler_last_sent = {
-            "temperature": (24.0, mock_self.clock.monotonic()),
-            "hvac_mode": (HVACMode.COOL, mock_self.clock.monotonic()),
+            "temperature": SentCommand(24.0, mock_self.clock.monotonic()),
+            "hvac_mode": SentCommand(HVACMode.COOL, mock_self.clock.monotonic()),
         }
 
         await control_cooler(mock_self, self._heating_snapshot())
 
-        assert mock_self._cooler_last_sent["temperature"] == (24.0, None)
-        assert mock_self._cooler_last_sent["hvac_mode"] == (HVACMode.COOL, None)
+        assert mock_self._cooler_last_sent["temperature"] == SentCommand(24.0, None)
+        assert mock_self._cooler_last_sent["hvac_mode"] == SentCommand(
+            HVACMode.COOL, None
+        )
 
     @pytest.mark.asyncio
     async def test_shared_entity_writes_as_a_cooler_when_the_cooling_channel_owns(self):

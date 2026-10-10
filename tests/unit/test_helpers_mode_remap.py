@@ -931,7 +931,7 @@ class TestModeRemapSwappedDeviceInACoolerRoom:
 
         adopted = mode_remap(mock_bt, "climate.test", HVACMode.AUTO, inbound=True)
         assert adopted == HVACMode.HEAT
-        assert get_hvac_bt_mode(mock_bt, adopted) == HVACMode.HEAT_COOL
+        assert get_hvac_bt_mode(mock_bt, HVACMode(adopted)) == HVACMode.HEAT_COOL
 
     @pytest.mark.parametrize(
         "hvac_modes",

@@ -229,6 +229,7 @@ from .utils.hvac_action import (
     ToleranceHysteresis,
     TrvSnapshot,
     compute_hvac_action,
+    parse_hvac_action,
     should_heat_with_tolerance,
 )
 from .utils.migrate_v0_stores import migrate_v0_stores
@@ -4178,17 +4179,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # Fallback if None
         if self.bt_hvac_mode is None:
             return HVACMode.OFF
-        mapped = get_hvac_bt_mode(self, self.bt_hvac_mode)
-        if isinstance(mapped, HVACMode):
-            result = mapped
-        else:
-            try:
-                result = HVACMode(mapped)
-            except ValueError:
-                try:
-                    result = HVACMode[mapped.upper()]
-                except KeyError, AttributeError:
-                    return HVACMode.OFF
+        result = get_hvac_bt_mode(self, self.bt_hvac_mode)
 
         # Ensure result is in available modes list
         if result not in self._hvac_list:
@@ -4246,23 +4237,22 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 continue
 
             # Resolve hvac_action: cached first, hass state fallback
-            action_val = info.hvac_action
-            action_str = action_val.lower() if action_val is not None else ""
-            if not action_str:
+            action = info.hvac_action
+            if action is None:
                 action_raw = None
                 if trv_state is not None:
                     action_raw = trv_state.attributes.get("hvac_action")
                     if action_raw is None:
                         action_raw = trv_state.attributes.get("action")
-                action_str = str(action_raw).lower() if action_raw is not None else ""
-                if action_str:
-                    info.hvac_action = action_str
+                if action_raw is not None:
+                    action = parse_hvac_action(action_raw)
+                    info.hvac_action = action
 
             snapshots.append(
                 TrvSnapshot(
                     entity_id=entity_id,
                     ignore_trv_states=info.ignore_trv_states,
-                    hvac_action=action_str or None,
+                    hvac_action=action,
                     valve_position=info.valve_position,
                     last_valve_percent=info.last_valve_percent,
                 )

@@ -40,6 +40,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
+    SentCommand,
     adopt_reported_hvac_modes,
     attr_to_celsius,
     configured_calibration_mode,
@@ -62,6 +63,7 @@ from custom_components.better_thermostat.utils.helpers import (
     setpoint_at_minimum,
     setpoint_echo_window,
 )
+from custom_components.better_thermostat.utils.hvac_action import parse_hvac_action
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 if TYPE_CHECKING:
@@ -641,7 +643,7 @@ async def trigger_trv_change(
     if hvac_action_attr is None:
         hvac_action_attr = _org_trv_state.attributes.get("action")
     if hvac_action_attr is not None:
-        value = str(hvac_action_attr).strip().lower()
+        value = parse_hvac_action(hvac_action_attr)
         prev = trv.hvac_action
         trv.hvac_action = value
         if prev != value:
@@ -680,17 +682,14 @@ async def trigger_trv_change(
             # Better Thermostat's own command landing late, not a press, for
             # as long as a device is given to apply a command.
             _withdrawn_command_landed = False
-            if trv.withdrawn_hvac_mode is not None:
-                _withdrawn_still_pending = (
-                    trv.withdrawn_hvac_mode_until is not None
-                    and self.clock.monotonic() < trv.withdrawn_hvac_mode_until
-                )
+            _withdrawn = trv.withdrawn_hvac_mode
+            if _withdrawn is not None:
+                _withdrawn_still_pending = self.clock.monotonic() < _withdrawn.until
                 _withdrawn_command_landed = _withdrawn_still_pending and (
-                    trv.withdrawn_hvac_mode == _org_trv_state.state
+                    _withdrawn.mode == _org_trv_state.state
                 )
                 if _withdrawn_command_landed or not _withdrawn_still_pending:
                     trv.withdrawn_hvac_mode = None
-                    trv.withdrawn_hvac_mode_until = None
             if (
                 not child_lock
                 and not _withdrawn_command_landed
@@ -846,7 +845,7 @@ async def trigger_trv_change(
                 # time for the resend throttle, and the device has not settled
                 # on any write since.
                 _cooler_sent = cooler_send_cache(self)
-                _cooler_sent["temperature"] = (_raw_heating_setpoint, None)
+                _cooler_sent["temperature"] = SentCommand(_raw_heating_setpoint, None)
                 _cooler_sent.pop("temperature_settled", None)
                 # Residual tie-break only, the counterpart of the one below.
                 self._enforce_heat_below_cool()
