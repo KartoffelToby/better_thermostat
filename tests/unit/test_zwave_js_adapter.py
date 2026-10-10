@@ -14,11 +14,13 @@ import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
+from homeassistant.helpers import entity_registry as er
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils import helpers
 from custom_components.better_thermostat.utils.const import CalibrationOutput
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 quirk = importlib.import_module(
     "custom_components.better_thermostat.model_fixes.ZWA021"
@@ -430,3 +432,78 @@ class TestAnUnknownStateFromADrivenSpirit:
         assert (
             quirks.trv_state_unknown_as_available(mock_self, "climate.other") is False
         )
+
+
+class TestConfigurationParametersAreNoCalibrationEntity:
+    """A configuration parameter carries its own unit and is never an offset.
+
+    Z-Wave JS exposes the Eurotronic Spirit's temperature offset as
+    parameter 8 of the Configuration command class: a number counting tenths
+    of a degree, from -128 to 50, with -128 reserved for "external sensor".
+    Taken as an offset in Kelvin, a correction of 2 K reaches the device as
+    0.2 K.
+    """
+
+    TRV = "climate.spirit_thermostat"
+    PARAMETER = "number.spirit_temperature_offset"
+
+    def _registry(self, parameter_unique_id, disabled_by=None):
+        return make_entity_registry(
+            make_registry_entry(
+                self.TRV, unique_id="3967.5-64-0-mode", platform="zwave_js"
+            ),
+            make_registry_entry(
+                self.PARAMETER,
+                unique_id=parameter_unique_id,
+                platform="zwave_js",
+                original_name="Temperature Offset",
+                disabled_by=disabled_by,
+            ),
+        )
+
+    def _host(self):
+        host = _make_self()
+        host.real_trvs = {self.TRV: Trv(entity_id=self.TRV, advanced={})}
+        return host
+
+    @pytest.mark.asyncio
+    async def test_the_spirit_offset_parameter_is_not_adopted(self):
+        """The TRV is reported without an offset channel."""
+        host = self._host()
+        with (
+            patch.object(
+                helpers.er, "async_get", return_value=self._registry("3967.5-112-0-8")
+            ),
+            patch.object(adapter, "get_device_model", AsyncMock(return_value="Spirit")),
+        ):
+            found = await helpers.find_local_calibration_entity(host, self.TRV)
+            info = await adapter.get_info(host, self.TRV)
+
+        assert found is None
+        assert info["support_offset"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_disabled_parameter_is_not_suggested_for_enabling(self, caplog):
+        """Nobody is told to enable an entity that would not be used."""
+        host = self._host()
+        registry = self._registry(
+            "3967.5-112-0-8", disabled_by=er.RegistryEntryDisabler.INTEGRATION
+        )
+        with patch.object(helpers.er, "async_get", return_value=registry):
+            found = await helpers.find_local_calibration_entity(
+                host, self.TRV, trv=host.real_trvs[self.TRV]
+            )
+
+        assert found is None
+        assert "is disabled" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_an_offset_outside_the_configuration_class_is_adopted(self):
+        """Only the Configuration command class (112) is set aside."""
+        host = self._host()
+        with patch.object(
+            helpers.er, "async_get", return_value=self._registry("3967.5-49-0-offset")
+        ):
+            found = await helpers.find_local_calibration_entity(host, self.TRV)
+
+        assert found == self.PARAMETER

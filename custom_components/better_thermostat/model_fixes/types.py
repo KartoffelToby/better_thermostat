@@ -21,8 +21,8 @@ provide is an error rather than a promise nobody checks.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Final, Protocol, TypedDict, runtime_checkable
+from collections.abc import Coroutine, Mapping
+from typing import TYPE_CHECKING, Any, Final, Protocol, TypedDict, runtime_checkable
 
 if TYPE_CHECKING:
     from homeassistant.core import Context, HomeAssistant
@@ -70,6 +70,20 @@ class ModelFixTrv(Protocol):
     @property
     def last_valve_percent(self) -> float | None:
         """Valve opening last commanded, or None before the first write."""
+        ...
+
+
+class QuirkTaskOwner(Protocol):
+    """Where a quirk starts work that runs past the call that scheduled it."""
+
+    def create_task(
+        self, coro: Coroutine[Any, Any, None], name: str | None = None
+    ) -> asyncio.Task[None] | None:
+        """Start ``coro`` as a task the thermostat cancels on removal.
+
+        Returns ``None``, and starts nothing, once the thermostat is being
+        removed.
+        """
         ...
 
 
@@ -121,6 +135,16 @@ class ModelFixHost(Protocol):
     @property
     def real_trvs(self) -> Mapping[str, ModelFixTrv]:
         """Per-TRV records, keyed by climate entity id."""
+        ...
+
+    @property
+    def task_manager(self) -> QuirkTaskOwner:
+        """Owner of the background work the thermostat cancels on removal."""
+        ...
+
+    @property
+    def is_removed(self) -> bool:
+        """Whether the thermostat has been removed from Home Assistant."""
         ...
 
 

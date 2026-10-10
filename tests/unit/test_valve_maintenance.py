@@ -1015,6 +1015,192 @@ class TestRunValveMaintenance:
         )
 
 
+class TestARunCancelledPartWay:
+    """A run cancelled part-way puts its TRVs back before it ends.
+
+    Unloading or removing the thermostat cancels a run wherever it is. The
+    TRVs it drove would otherwise stay on their maximum setpoint, woken out
+    of ``off``, or with the valve fully open, and no thermostat is left to
+    put them back.
+    """
+
+    @staticmethod
+    def _devices():
+        """Recording write callbacks and the event that marks the open hold."""
+        writes: list[tuple[str, str, object]] = []
+        opened = asyncio.Event()
+
+        async def set_valve(entity_id: str, percent: int) -> bool:
+            writes.append(("valve", entity_id, percent))
+            if percent == 100:
+                opened.set()
+            return True
+
+        async def set_temperature(entity_id: str, temperature: float) -> None:
+            writes.append(("temperature", entity_id, temperature))
+
+        async def set_mode(entity_id: str, mode: str) -> None:
+            writes.append(("mode", entity_id, mode))
+
+        return writes, opened, set_valve, set_temperature, set_mode
+
+    @staticmethod
+    def _infos() -> list[MaintenanceTrvInfo]:
+        """A TRV woken out of ``off`` for the cycle and a valve-driven one."""
+        return [
+            _info(
+                entity_id="trv_off",
+                cur_mode=HVACMode.OFF,
+                setpoint=5.0,
+                wake_mode=HVACMode.HEAT,
+            ),
+            _info(entity_id="trv_valve", setpoint=20.0, use_direct_valve=True),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_run_cancelled_while_held_open_restores_every_trv(self):
+        """The open valve closes, the setpoints and the woken mode go back."""
+        writes, opened, set_valve, set_temperature, set_mode = self._devices()
+        infos = self._infos()
+        run = asyncio.create_task(
+            run_valve_maintenance(
+                infos,
+                set_valve_fn=set_valve,
+                set_temperature_fn=set_temperature,
+                set_hvac_mode_fn=set_mode,
+                get_state=_reports_a_moved_mode(infos),
+                device_name="Test",
+                cycle_sleep=3600,
+            )
+        )
+        await opened.wait()
+        writes.clear()
+
+        run.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run
+
+        assert ("valve", "trv_valve", 0) in writes
+        assert ("temperature", "trv_off", 5.0) in writes
+        assert ("temperature", "trv_valve", 20.0) in writes
+        assert ("mode", "trv_off", HVACMode.OFF) in writes
+
+    @pytest.mark.asyncio
+    async def test_a_run_cancelled_while_held_closed_writes_no_second_close(self):
+        """A valve the cycle has already closed is not written again."""
+        writes, _opened, set_valve, set_temperature, set_mode = self._devices()
+        closed = asyncio.Event()
+
+        async def set_valve_marking_the_close(entity_id: str, percent: int) -> bool:
+            await set_valve(entity_id, percent)
+            if percent == 0:
+                closed.set()
+            return True
+
+        infos = self._infos()
+        run = asyncio.create_task(
+            run_valve_maintenance(
+                infos,
+                set_valve_fn=set_valve_marking_the_close,
+                set_temperature_fn=set_temperature,
+                set_hvac_mode_fn=set_mode,
+                get_state=_reports_a_moved_mode(infos),
+                device_name="Test",
+                cycle_sleep=3600,
+            )
+        )
+        await closed.wait()
+        # Let the close step return, so the run is in the closed hold.
+        await asyncio.sleep(0.01)
+        writes.clear()
+
+        run.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run
+
+        assert [w for w in writes if w[0] == "valve"] == []
+        assert ("temperature", "trv_valve", 20.0) in writes
+
+    @pytest.mark.asyncio
+    async def test_a_run_cancelled_during_its_own_restore_still_restores(self):
+        """A cancel landing on the final restore still puts the mode back."""
+        writes, _opened, set_valve, set_temperature, set_mode = self._devices()
+        restoring = asyncio.Event()
+        held_once = False
+
+        async def set_temperature_holding_the_first_restore(
+            entity_id: str, temperature: float
+        ) -> None:
+            nonlocal held_once
+            await set_temperature(entity_id, temperature)
+            if entity_id == "trv_off" and temperature == 12.0 and not held_once:
+                held_once = True
+                restoring.set()
+                await asyncio.Event().wait()
+
+        infos = [
+            _info(
+                entity_id="trv_off",
+                cur_mode=HVACMode.OFF,
+                setpoint=12.0,
+                wake_mode=HVACMode.HEAT,
+            ),
+            _info(entity_id="trv_valve", setpoint=20.0, use_direct_valve=True),
+        ]
+        run = asyncio.create_task(
+            run_valve_maintenance(
+                infos,
+                set_valve_fn=set_valve,
+                set_temperature_fn=set_temperature_holding_the_first_restore,
+                set_hvac_mode_fn=set_mode,
+                get_state=_reports_a_moved_mode(infos),
+                device_name="Test",
+                cycle_sleep=0,
+            )
+        )
+        await restoring.wait()
+        writes.clear()
+
+        run.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run
+
+        assert ("temperature", "trv_off", 12.0) in writes
+        assert ("mode", "trv_off", HVACMode.OFF) in writes
+
+    @pytest.mark.asyncio
+    async def test_a_restore_that_never_returns_is_given_up(self, monkeypatch):
+        """The removal waiting for the run is held for a bounded time only."""
+        monkeypatch.setattr(
+            "custom_components.better_thermostat.utils.valve_maintenance."
+            "RESTORE_AFTER_STOP_TIMEOUT_S",
+            0.05,
+        )
+        _writes, opened, set_valve, _set_temperature, set_mode = self._devices()
+
+        async def set_temperature_that_hangs(_entity_id: str, _value: float) -> None:
+            await asyncio.Event().wait()
+
+        infos = self._infos()
+        run = asyncio.create_task(
+            run_valve_maintenance(
+                infos,
+                set_valve_fn=set_valve,
+                set_temperature_fn=set_temperature_that_hangs,
+                set_hvac_mode_fn=set_mode,
+                get_state=_reports_a_moved_mode(infos),
+                device_name="Test",
+                cycle_sleep=3600,
+            )
+        )
+        await opened.wait()
+
+        run.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            async with asyncio.timeout(5):
+                await run
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # pick_wake_mode / wake_step
 # ═══════════════════════════════════════════════════════════════════════════

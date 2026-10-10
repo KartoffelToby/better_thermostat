@@ -20,9 +20,11 @@ sensor, raise a [degraded mode](/faq/degraded-mode) issue instead.
 
 1. Open **Settings → Devices & services** and find the entity named in
    the issue. Check the device's battery and reconnect it if necessary.
-2. If the entity id changed, either rename it back or update the Better
-   Thermostat configuration to the new entity id (open the Better
-   Thermostat entry and reconfigure it).
+2. If the entity was renamed or the device replaced, its entity id
+   changed and Better Thermostat still looks for the old one. Either
+   rename the entity back, or open the Better Thermostat under
+   **Settings → Devices & services → Better Thermostat → Configure** and
+   select the new entity in place of the old one.
 3. If the TRV is gone for good, remove it from the Better Thermostat
    configuration.
 

@@ -11,6 +11,8 @@ The names below are the ones shown in the frontend. Where a device controls more
 
 The thermostat entity carries the name of the device. You set the target temperature, the HVAC mode and the preset on it, and it shows the room temperature from your temperature sensor and, if you configured one, the humidity.
 
+You can change the thermostat's entity ID in the entity settings. Better Thermostat then reloads the device and carries on under the new ID with the same targets, preset and learned state.
+
 ## Numbers
 
 All numbers are in the *Configuration* section of the device page.
@@ -30,7 +32,7 @@ The Min number replaces the plain preset number, so a device with a cooler has *
 
 ### PID gains
 
-**PID Kp (Proportional)**, **PID Ki (Integral)** and **PID Kd (Derivative)** exist for each TRV that uses the PID Controller calibration mode. They show the gains the controller currently uses and let you set them. Switching the TRV to another calibration mode removes them. See [Auto-tuning and manual tuning](/calibration_algorithms/#auto-tuning-and-manual-tuning).
+**PID Kp (Proportional)**, **PID Ki (Integral)** and **PID Kd (Derivative)** exist for each TRV that uses the PID Controller calibration mode. They show the gains the controller currently uses and let you set them. A value you set applies to the TRV at every target temperature. Switching the TRV to another calibration mode removes them. See [Auto-tuning and manual tuning](/calibration_algorithms/#auto-tuning-and-manual-tuning).
 
 ### Valve Max Opening
 
@@ -38,9 +40,9 @@ The Min number replaces the plain preset number, so a device with a cooler has *
 
 ## Switches
 
-**Child Lock** exists for every TRV. It turns the *Ignore all inputs on the TRV like a child lock* option on and off and, where the TRV has a child lock entity of its own, that one too.
+**Child Lock** exists for every TRV. It turns the *Ignore all inputs on the TRV like a child lock* option on and off and, where the TRV has a child lock entity of its own, that one too. Better Thermostat looks for a switch or lock on the TRV's device named for the child lock first; only when there is none does it use one whose name merely contains "lock". The switch and the startup sync of the option pick the same entity.
 
-**PID Auto Tune** exists for each TRV that uses the PID Controller calibration mode. Turned on, the controller adjusts its gains itself; turned off, the gains stay where you set them.
+**PID Auto Tune** exists for each TRV that uses the PID Controller calibration mode. Turned on, the controller adjusts its gains itself; turned off, the gains the TRV uses at that moment stay as they are until you set them. The switch applies to the TRV at every target temperature, including one it has never run at.
 
 ## Sensors
 
@@ -48,7 +50,7 @@ These sensors exist for every device.
 
 | Sensor | Unit | What it shows |
 | --- | --- | --- |
-| Temperature EMA | system temperature unit | The room temperature after smoothing: an exponential moving average of your temperature sensor with a time constant of five minutes, updated with every accepted reading and once a minute. |
+| Temperature EMA | system temperature unit | The room temperature after smoothing: an exponential moving average of your temperature sensor with a time constant of five minutes, updated with every accepted reading and once a minute; a new value shows when it moves by at least 0.01 °C. |
 | Temperature EMA 1h | system temperature unit | The same room temperature smoothed again with a time constant of one hour. The sensor computes it itself and starts over from the current temperature after a restart. |
 | Temperature Slope | K/min | How fast the smoothed room temperature changes, in kelvin per minute. Positive while the room warms up, negative while it cools down. |
 | Heating Power | K/min | How fast the room warms up while it heats, as learned from past heating cycles. |

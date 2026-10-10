@@ -76,7 +76,8 @@ remove the solar intensity sensor.
 - **Two more attributes are renamed the same way.** `external_temp_ema` is now
   `room_temperature_filtered`, and `temp_slope_K_min` is now
   `temperature_slope_kelvin_per_min`. 2.x publishes the old names as well;
-  3.0 drops them.
+  3.0 drops them. The recorder keeps neither name of either attribute: their
+  history is on the Temperature EMA and Temperature Slope sensors.
 - **The PID and MPC v2 diagnostic attributes spell out their units.**
   `pid_e_K` is now `pid_error_kelvin`, `pid_meas_smooth_C`
   `pid_measurement_filtered`, `pid_d_meas_K_per_min`
@@ -97,7 +98,9 @@ remove the solar intensity sensor.
 The option "Minimum seconds between repeated cooler commands" is gone.
 Better Thermostat now holds back an unchanged temperature or mode command
 if it sent the same value less than 240 seconds earlier, to protect the
-compressor. A changed value goes out with the next control cycle; if the
+compressor. A mode the cooler left on its own since that command, through
+its remote or an outage, is sent again at once, but only once in those 240
+seconds. A changed value goes out with the next control cycle; if the
 previous command failed, it waits at least 30 seconds after that failure. A
 failed command is retried with its own growing pause, from 30 seconds up to
 30 minutes. You don't need to do anything; a
@@ -161,6 +164,16 @@ lower the threshold.
 
 ### Smaller changes
 
+- **Calibration offsets in °F:** a calibration offset number that Home
+  Assistant shows in °F, such as the eQ-3 Bluetooth and Plugwise offsets, is
+  now read and written as the offset it is, and the Sonoff TRVZB's external
+  temperature input gets the room temperature in the unit it shows. 1.9.3
+  converted neither.
+- **Z-Wave JS configuration parameters** are no longer used as a calibration
+  entity. The Eurotronic Spirit's temperature offset, parameter 8, counts
+  tenths of a degree, so 1.9.3 applied a tenth of every offset it wrote. A
+  Spirit set to Offset Based calibration gets no offset now; choose Target
+  Temperature Based or Direct Valve Based for it.
 - **`min_temp` and `max_temp`** on the climate entity now cover the heating
   and the cooling range together.
 
