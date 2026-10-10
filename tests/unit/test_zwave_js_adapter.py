@@ -481,7 +481,7 @@ class TestConfigurationParametersAreNoCalibrationEntity:
             info = await adapter.get_info(host, self.TRV)
 
         assert found is None
-        assert info["support_offset"] is False
+        assert info.offset_write is False
 
     @pytest.mark.asyncio
     async def test_a_disabled_parameter_is_not_suggested_for_enabling(self, caplog):
