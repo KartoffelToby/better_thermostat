@@ -6,14 +6,18 @@ filters would stay empty forever and the restore would silently keep
 falling back to legacy entity attributes.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.utils.state_manager import (
     FilterState,
     ThermalStats,
 )
 from tests.factories import ThermostatStandIn
+
+_NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
 
 def test_record_runtime_pushes_thermal_and_filters():
@@ -24,6 +28,8 @@ def test_record_runtime_pushes_thermal_and_filters():
     bt.heat_loss_rate = 0.01
     bt.room_temperature_ema = 20.5
     bt.temperature_slope = 0.0012
+    bt.clock = FakeClock(now_value=_NOW, monotonic_value=1000.0)
+    bt._room_temperature_ema_monotonic = 960.0
 
     BetterThermostat._record_runtime_to_state(bt)
 
@@ -31,8 +37,28 @@ def test_record_runtime_pushes_thermal_and_filters():
         ThermalStats(heating_power=0.02, heat_loss_rate=0.01)
     )
     bt.state_mgr.record_filters.assert_called_once_with(
-        FilterState(room_temperature_ema=20.5, temperature_slope=0.0012)
+        FilterState(
+            room_temperature_ema=20.5,
+            temperature_slope=0.0012,
+            room_temperature_ema_recorded_at=_NOW.timestamp() - 40.0,
+        )
     )
+
+
+def test_a_filter_never_updated_is_saved_without_a_time():
+    """An EMA with no update behind it carries no wall-clock time."""
+    bt = ThermostatStandIn()
+    bt.state_mgr = MagicMock()
+    bt.heating_power = 0.02
+    bt.heat_loss_rate = 0.01
+    bt.room_temperature_ema = None
+    bt.temperature_slope = None
+    bt.clock = FakeClock(now_value=_NOW, monotonic_value=1000.0)
+    bt._room_temperature_ema_monotonic = None
+
+    BetterThermostat._record_runtime_to_state(bt)
+
+    bt.state_mgr.record_filters.assert_called_once_with(FilterState())
 
 
 def test_record_runtime_without_store_is_a_noop():

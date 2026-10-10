@@ -249,6 +249,7 @@ _CONSTRUCTOR_DEFAULTED = (
     "_critical_grace_until",
     "_outdoor_check_lock",
     "_temperature_filter_lock",
+    "control_cycle_started_monotonic",
 )
 _CONSTRUCTOR_LITERALS = _constructor_literals()
 STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {

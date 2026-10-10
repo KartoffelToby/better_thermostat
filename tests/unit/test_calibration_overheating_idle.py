@@ -8,6 +8,7 @@ nothing; above it the setpoint drops and the local offset rises.
 from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
+from homeassistant.const import UnitOfTemperature
 import pytest
 
 from custom_components.better_thermostat.calibration import (
@@ -52,7 +53,9 @@ def build_bt(
     bt.temperature_slope = None
     bt.heating_power = 0.04
     bt.heat_loss_rate = 0.02
-    bt.hass = None
+    bt.hass = MagicMock()
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    bt.hass.states.get.return_value = None
     bt.kernel_state = make_state()
     bt.clock = FakeClock()
     bt.state_mgr = StateManager(MagicMock(), "overheating_idle")

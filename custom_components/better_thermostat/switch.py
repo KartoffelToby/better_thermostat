@@ -22,6 +22,7 @@ from .entity import (
     FollowsThermostat,
     RestoresLastAvailableState,
     TrvNamedEntity,
+    announce_learned_state,
     current_trv_name,
     last_available_state,
     remove_unclaimed_registry_entries,
@@ -33,13 +34,17 @@ from .utils.advanced_flags import advanced_flag
 from .utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
     build_pid_key,
+    build_pid_loop_key,
+    freeze_pid_gains,
+    pid_auto_tune,
+    pid_loop_state,
     resolve_unique_id,
 )
 from .utils.const import CONF_CHILD_LOCK, DOMAIN, CalibrationMode
 from .utils.helpers import (
     async_normalize_bt_entity_ids,
     configured_calibration_mode,
-    find_device_entity,
+    find_child_lock_entity,
 )
 
 if TYPE_CHECKING:
@@ -148,15 +153,19 @@ class BetterThermostatPIDAutoTuneSwitch(
     @override
     def is_on(self) -> bool | None:
         """Return true if switch is on."""
-        # Try to get the value from the current active PID state
         state_mgr = self._bt_climate.state_mgr
-        if state_mgr is not None:
-            key = build_pid_key(self._bt_climate, self._trv_entity_id)
-            pid_state = state_mgr.state.pid.get(key)
-            if pid_state is not None and pid_state.auto_tune is not None:
-                return pid_state.auto_tune
-
-        return DEFAULT_PID_AUTO_TUNE
+        if state_mgr is None:
+            return DEFAULT_PID_AUTO_TUNE
+        states = state_mgr.state.pid
+        bucket_key = build_pid_key(self._bt_climate, self._trv_entity_id)
+        return pid_auto_tune(
+            pid_loop_state(
+                states,
+                build_pid_loop_key(self._bt_climate, self._trv_entity_id),
+                bucket_key,
+            ),
+            states.get(bucket_key),
+        )
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -178,27 +187,22 @@ class BetterThermostatPIDAutoTuneSwitch(
             )
             return
 
-        # Update persistent PID states (if any exist for this TRV)
-        uid = resolve_unique_id(self._bt_climate)
-        prefix = f"{uid}:{self._trv_entity_id}:"
-
-        changed = False
-        for key, pid_state in state_mgr.state.pid.items():
-            if key.startswith(prefix):
-                pid_state.auto_tune = state
-                changed = True
-        if changed:
-            state_mgr.mark_dirty()
+        # The flag sits on the TRV's loop entry, so it holds at every target.
+        # Turning auto-tuning off keeps the gains in use at the current
+        # target for all targets.
+        loop_key = build_pid_loop_key(self._bt_climate, self._trv_entity_id)
+        bucket_key = build_pid_key(self._bt_climate, self._trv_entity_id)
+        loop = pid_loop_state(state_mgr.state.pid, loop_key, bucket_key)
+        if state:
+            loop.auto_tune = True
         else:
-            # No bucket for this TRV yet (fresh start or after a PID
-            # reset): seed the active bucket so the toggle is not lost.
-            key = build_pid_key(self._bt_climate, self._trv_entity_id)
-            pid_state = state_mgr.get_pid(key)
-            pid_state.auto_tune = state
-            state_mgr.set_pid(key, pid_state)
+            freeze_pid_gains(loop, state_mgr.state.pid.get(bucket_key))
+        state_mgr.set_pid(loop_key, loop)
 
         self._bt_climate.schedule_save_state()
         self.async_write_ha_state()
+        # The gain numbers show the gains this may have frozen.
+        announce_learned_state(self.hass, resolve_unique_id(self._bt_climate))
 
 
 def _switch_state_wins(
@@ -375,14 +379,7 @@ class BetterThermostatChildLockSwitch(
 
         device_id = reg_entity.device_id
 
-        # Look for switch (Z2M) or lock. Prefer child-lock-specific names and
-        # only fall back to a bare "lock" match, so a device exposing several
-        # lock entities does not select the wrong one.
-        cl_entity = find_device_entity(
-            entity_registry, device_id, ["switch", "lock"], ["child_lock", "child lock"]
-        ) or find_device_entity(
-            entity_registry, device_id, ["switch", "lock"], ["lock"]
-        )
+        cl_entity = find_child_lock_entity(entity_registry, device_id)
 
         if cl_entity:
             target_state = STATE_ON if state else STATE_OFF
@@ -402,8 +399,8 @@ class BetterThermostatChildLockSwitch(
                             "switch", service, {"entity_id": cl_entity}
                         )
                 else:
-                    # find_device_entity answers only from the two domains
-                    # it was asked for, so the entity is a lock here.
+                    # find_child_lock_entity answers only from the two domains
+                    # it searches, so the entity is a lock here.
                     target_lock = "locked" if state else "unlocked"
                     cur = self._bt_climate.hass.states.get(cl_entity)
                     if cur and (force or cur.state != target_lock):

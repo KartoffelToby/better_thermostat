@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 import logging
@@ -187,10 +187,14 @@ class FilterState:
         Exponential moving average of the external temperature.
     temperature_slope : float | None
         Estimated room-temperature slope.
+    room_temperature_ema_recorded_at : float | None
+        Wall-clock time the EMA was last updated at, in seconds since the
+        epoch. A restart reads the downtime off it.
     """
 
     room_temperature_ema: float | None = None
     temperature_slope: float | None = None
+    room_temperature_ema_recorded_at: float | None = None
 
 
 @dataclass
@@ -248,7 +252,6 @@ _STORED_MPC_KEYS: Final[Mapping[str, str]] = {
     "last_target_temperature": "last_target_C",
     "last_sensor_temperature": "last_sensor_temp_C",
     "last_room_temperature": "last_room_temp_C",
-    "last_cycle_temperature": "last_temp",
     "last_trv_temperature": "last_trv_temp",
     "last_trv_temperature_ts": "last_trv_temp_ts",
     "last_learn_temperature": "last_learn_temp",
@@ -286,7 +289,6 @@ def write_mpc_state(state: MpcState) -> StoredMpcState:
         "loss_est": state.loss_est,
         "ka_est": state.ka_est,
         "solar_gain_est": state.solar_gain_est,
-        "last_temp": state.last_cycle_temperature,
         "last_time": state.last_time,
         "last_trv_temp": state.last_trv_temperature,
         "last_trv_temp_ts": state.last_trv_temperature_ts,
@@ -400,6 +402,7 @@ def write_filters(filters: FilterState) -> StoredFilterState:
     return {
         "external_temp_ema": filters.room_temperature_ema,
         "temp_slope": filters.temperature_slope,
+        "room_temperature_ema_recorded_at": filters.room_temperature_ema_recorded_at,
     }
 
 
@@ -774,9 +777,6 @@ def deserialize_mpc(
             loss_est=read.optional("loss_est", number, held.loss_est),
             ka_est=read.optional("ka_est", number, held.ka_est),
             solar_gain_est=read.optional("solar_gain_est", number, held.solar_gain_est),
-            last_cycle_temperature=read.optional(
-                "last_cycle_temperature", number, held.last_cycle_temperature
-            ),
             last_time=read.required("last_time", number, held.last_time),
             last_trv_temperature=read.optional(
                 "last_trv_temperature", number, held.last_trv_temperature
@@ -1244,6 +1244,9 @@ def _deserialize(
         temperature_slope=_stored_optional_number(
             filters_raw, "filters", _STORED_TEMPERATURE_SLOPE
         ),
+        room_temperature_ema_recorded_at=_stored_optional_number(
+            filters_raw, "filters", "room_temperature_ema_recorded_at"
+        ),
     )
 
     # A legacy "presets" section is ignored: preset temperatures are UI
@@ -1322,6 +1325,70 @@ def _quarantine_key(entry_id: str, copy: int = 0) -> str:
     return key if copy == 0 else f"{key}.{copy}"
 
 
+# Keys of the per-thermostat sections
+
+
+# The middle segment of a learned-state key that belongs to the room as a
+# whole rather than to one thermostat.
+GROUP_KEY_SEGMENT = "group"
+
+
+def _is_bucket_tag(part: str) -> bool:
+    """Return whether ``part`` is a target bucket tag such as ``t21.0``."""
+    if part == "tunknown":
+        return True
+    if not part.startswith("t"):
+        return False
+    try:
+        float(part[1:])
+    except ValueError:
+        return False
+    return True
+
+
+def _split_thermostat_key(key: str) -> tuple[str, str, str] | None:
+    """Split a per-thermostat key into its head, thermostat segment and tail.
+
+    Learned state is keyed ``<unique_id>:<segment>:t<bucket>``, where the
+    segment is a thermostat's entity id or :data:`GROUP_KEY_SEGMENT`, and a
+    TRV's PID loop entry is keyed ``<unique_id>:<entity_id>``. The tail is
+    ``:t<bucket>`` for the first shape and empty for the second. A key of any
+    other shape, such as the shared ``<unique_id>:reid``, returns ``None``.
+    Entity ids hold no colon but a dot between domain and object id, so the
+    segment is read from the right.
+    """
+    head, separator, last = key.rpartition(":")
+    if not separator:
+        return None
+    if _is_bucket_tag(last):
+        unique_id, separator, segment = head.rpartition(":")
+        if not separator:
+            return None
+        return unique_id, segment, f":{last}"
+    if "." in last:
+        return head, last, ""
+    return None
+
+
+def thermostat_of_key(key: str) -> str | None:
+    """Return the thermostat segment of a learned-state key, or ``None``.
+
+    See :func:`_split_thermostat_key` for the key shapes that name a
+    thermostat.
+    """
+    parts = _split_thermostat_key(key)
+    return None if parts is None else parts[1]
+
+
+def _key_for_thermostat(key: str, entity_id: str) -> str:
+    """Return ``key`` with its thermostat segment replaced by ``entity_id``."""
+    parts = _split_thermostat_key(key)
+    if parts is None:
+        return key
+    unique_id, _, tail = parts
+    return f"{unique_id}:{entity_id}{tail}"
+
+
 # Migration
 
 
@@ -1391,6 +1458,8 @@ class StateManager:
         # The last runtime save skipped while the copy is pending, as
         # ``(pre_save, delay_seconds)``; the timer schedules it once the copy exists.
         self._held_save: tuple[Callable[[], None] | None, float] | None = None
+        # Set by close(); a closed manager schedules no delayed save.
+        self._closed = False
 
     @staticmethod
     async def async_remove_store(hass: HomeAssistant, entry_id: str) -> None:
@@ -1577,6 +1646,74 @@ class StateManager:
         self._state.tpi[key] = tpi
         self._dirty = True
 
+    def move_thermostat(self, old_entity_id: str, new_entity_id: str) -> int:
+        """Key what was learned for ``old_entity_id`` under ``new_entity_id``.
+
+        Every section moves, the live MPC v2 controllers included, so a
+        thermostat whose entity id changed keeps its learned state. An entry
+        already stored under the new id is replaced: the state that moves is
+        the thermostat's own history.
+
+        Returns the number of moved entries; marks the store dirty when
+        anything moved.
+        """
+
+        def move[T](section: dict[str, T]) -> int:
+            keys = [key for key in section if thermostat_of_key(key) == old_entity_id]
+            for key in keys:
+                section[_key_for_thermostat(key, new_entity_id)] = section.pop(key)
+            return len(keys)
+
+        moved = (
+            move(self._state.mpc)
+            + move(self._state.mpc_v2)
+            + move(self._state.mpc_v2_reid)
+            + move(self._state.pid)
+            + move(self._state.tpi)
+            + move(self._mpc_v2_live)
+            + move(self._mpc_v2_reid_live)
+        )
+        if moved:
+            self._dirty = True
+        return moved
+
+    def forget_thermostats_except(self, entity_ids: Collection[str]) -> int:
+        """Drop the learned state of every thermostat not in ``entity_ids``.
+
+        State learned for a thermostat the entry no longer controls would
+        otherwise come back for whichever device is given that entity id
+        next. Keys of the room as a whole and keys that name no thermostat
+        stay.
+
+        Returns the number of dropped entries; marks the store dirty when
+        anything was dropped.
+        """
+        keep = {*entity_ids, GROUP_KEY_SEGMENT}
+
+        def forget[T](section: dict[str, T]) -> int:
+            keys = [
+                key
+                for key in section
+                if (segment := thermostat_of_key(key)) is not None
+                and segment not in keep
+            ]
+            for key in keys:
+                del section[key]
+            return len(keys)
+
+        dropped = (
+            forget(self._state.mpc)
+            + forget(self._state.mpc_v2)
+            + forget(self._state.mpc_v2_reid)
+            + forget(self._state.pid)
+            + forget(self._state.tpi)
+            + forget(self._mpc_v2_live)
+            + forget(self._mpc_v2_reid_live)
+        )
+        if dropped:
+            self._dirty = True
+        return dropped
+
     @property
     def thermal(self) -> ThermalStats:
         """Return thermal stats."""
@@ -1638,6 +1775,9 @@ class StateManager:
         self._state.filters = FilterState(
             room_temperature_ema=finite_or_none(filters.room_temperature_ema),
             temperature_slope=finite_or_none(filters.temperature_slope),
+            room_temperature_ema_recorded_at=finite_or_none(
+                filters.room_temperature_ema_recorded_at
+            ),
         )
         self._dirty = True
 
@@ -1655,6 +1795,11 @@ class StateManager:
         write time, so the earliest deadline already covers later
         changes — and a steady trigger stream cannot starve the save.
 
+        A closed manager schedules nothing: ``flush()`` makes its final
+        write, and a delayed one landing after it would recreate a store
+        that removing the entry deletes, or overwrite the one a reloaded
+        entity has written meanwhile.
+
         Parameters
         ----------
         pre_save : callable or None
@@ -1663,7 +1808,7 @@ class StateManager:
         delay_seconds : float
             Coalescing window in seconds before the disk write fires.
         """
-        if self._delay_save_pending:
+        if self._delay_save_pending or self._closed:
             return
         if self._payload_awaiting_copy is not None:
             # The delayed write cannot take the copy first. Once the retry is
@@ -1719,13 +1864,15 @@ class StateManager:
         return self._payload_awaiting_copy is not None
 
     def close(self) -> None:
-        """Stop trying the copy on a timer; call when the entity is removed.
+        """Stop scheduling saves of its own; call when the entity is removed.
 
-        ``flush()`` and ``save()`` still try the copy, but no timer is left
-        behind, and a copy already under way schedules no save afterwards, so
-        it cannot write into a store that removal deletes or another entity
-        owns by then.
+        ``flush()`` and ``save()`` still try the copy and write, but no timer
+        is left behind, a copy already under way schedules no save
+        afterwards, and ``schedule_delay_save()`` schedules nothing, so no
+        write lands in a store that removal deletes or another entity owns by
+        then.
         """
+        self._closed = True
         self._copy_retry_timed = False
         self._held_save = None
         self._cancel_copy_retry_timer()

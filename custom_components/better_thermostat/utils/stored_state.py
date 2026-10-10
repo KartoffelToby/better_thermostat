@@ -27,7 +27,6 @@ StoredMpcState = TypedDict(  # noqa: UP013
         "loss_est": float | None,
         "ka_est": float | None,
         "solar_gain_est": float | None,
-        "last_temp": float | None,
         "last_time": float,
         "last_trv_temp": float | None,
         "last_trv_temp_ts": float,
@@ -120,7 +119,12 @@ StoredThermalStats = TypedDict(  # noqa: UP013
 )
 
 StoredFilterState = TypedDict(  # noqa: UP013
-    "StoredFilterState", {"external_temp_ema": float | None, "temp_slope": float | None}
+    "StoredFilterState",
+    {
+        "external_temp_ema": float | None,
+        "temp_slope": float | None,
+        "room_temperature_ema_recorded_at": float | None,
+    },
 )
 
 StoredRuntimeState = TypedDict(  # noqa: UP013

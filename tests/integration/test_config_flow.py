@@ -28,9 +28,11 @@ import voluptuous as vol
 from custom_components.better_thermostat import RELOAD_LOCKS
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
+    CONF_CALIBRATION_MODE,
     CONF_CHILD_LOCK,
     CONF_COOLER,
     CONF_MODEL,
+    CONF_MPC_V2_PLANT_PRESET,
     CONF_OUTDOOR_SENSOR,
     CONF_PRESETS,
     CONF_TARGET_TEMP_MAX,
@@ -39,8 +41,11 @@ from custom_components.better_thermostat.utils.const import (
     CONF_THERMOSTAT,
     CONF_TOLERANCE,
     CONF_WINDOW_SENSORS,
+    DEFAULT_CALIBRATION_MODE,
     TARGET_TEMP_BOUND_AUTO,
+    CalibrationMode,
     CalibrationOutput,
+    MpcV2PlantPreset,
 )
 from custom_components.better_thermostat.utils.preset_manager import (
     DEFAULT_ENABLED_PRESETS,
@@ -379,6 +384,78 @@ async def test_options_flow_keeps_the_settings_of_a_thermostat_left_alone(hass):
     assert form_default(advanced_form, CONF_CHILD_LOCK) is True
     assert _stored_advanced(entry)[CONF_CHILD_LOCK] is True
     assert entry.options["name"] == "Renamed Room"
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        (
+            {CONF_CALIBRATION: CalibrationOutput.LOCAL_BASED},
+            {CONF_CALIBRATION: CalibrationOutput.TARGET_TEMP_BASED},
+        ),
+        ({CONF_CALIBRATION_MODE: 0}, {CONF_CALIBRATION_MODE: DEFAULT_CALIBRATION_MODE}),
+        (
+            {CONF_CALIBRATION_MODE: None},
+            {CONF_CALIBRATION_MODE: DEFAULT_CALIBRATION_MODE},
+        ),
+        (
+            {CONF_CALIBRATION_MODE: "retired_mode"},
+            {CONF_CALIBRATION_MODE: DEFAULT_CALIBRATION_MODE},
+        ),
+        (
+            {CONF_MPC_V2_PLANT_PRESET: "huge_room"},
+            {CONF_MPC_V2_PLANT_PRESET: MpcV2PlantPreset.AUTO},
+        ),
+    ],
+    ids=[
+        "output_the_device_no_longer_offers",
+        "mode_zero",
+        "mode_null",
+        "mode_unknown",
+        "preset_unknown",
+    ],
+)
+async def test_the_advanced_step_accepts_what_it_prefills(hass, stored, expected):
+    """Saving the settings unchanged works whatever the entry stored.
+
+    The form offers what the device and the integration support today. A
+    stored value outside that, such as an offset output whose entity has
+    gone, is not pre-filled, so a user who only came to change something
+    else is not refused for a field they did not touch.
+    """
+    set_room_sensor(hass, 19.0)
+    (trv,) = await build_devices(hass, GENERIC_HEAT_TRV)
+    advanced = {
+        CONF_CALIBRATION: CalibrationOutput.TARGET_TEMP_BASED,
+        CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT,
+        **stored,
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=18,
+        minor_version=2,
+        data={},
+        options={
+            "name": "Room",
+            CONF_THERMOSTAT: [
+                {
+                    "trv": trv.entity_id,
+                    "integration": trv.profile.integration,
+                    "model": "Generic",
+                    "advanced": advanced,
+                }
+            ],
+            CONF_TEMPERATURE_SENSOR: SENSOR_ID,
+        },
+        title="Room",
+    )
+    entry.add_to_hass(hass)
+
+    await click_through_the_options(hass, entry, tolerance=0.5)
+
+    assert entry.options[CONF_TOLERANCE] == 0.5
+    for key, value in expected.items():
+        assert _stored_advanced(entry)[key] == value
 
 
 @pytest.mark.parametrize(
