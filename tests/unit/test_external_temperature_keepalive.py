@@ -148,6 +148,30 @@ async def test_the_tick_writes_nothing_while_the_room_sensor_gives_no_reading(
 
 
 @pytest.mark.asyncio
+async def test_a_sensor_lost_during_the_tick_stops_the_writes_after_it():
+    """A sensor that goes away while one TRV is written leaves the rest unwritten.
+
+    A write can take a while; the room temperature the tick holds is no
+    longer measured once the sensor has gone, so the TRVs after it fall
+    back to their own sensors instead.
+    """
+    quirks = MagicMock()
+    bt = _bt_with_two_trvs(quirks)
+
+    async def sensor_lost_during_the_write(_bt, _entity_id, _value):
+        _publish_room_sensor(bt, "unavailable")
+        return True
+
+    quirks.maybe_set_external_temperature = AsyncMock(
+        side_effect=sensor_lost_during_the_write
+    )
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert quirks.maybe_set_external_temperature.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_the_tick_writes_nothing_without_a_room_sensor():
     """A room without a sensor has no measured temperature to mirror."""
     quirks = MagicMock()
