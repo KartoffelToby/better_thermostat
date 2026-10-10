@@ -84,6 +84,10 @@ MPC v2 is an experimental predictive controller. It estimates the room's state w
 
 The **MPC v2 room size** option sets the room model it starts from. *Auto* derives it from the heat-loss rate Better Thermostat has learned for the room; the small, medium and large room presets use a fixed model instead.
 
+Under *Auto* the room model follows the learned heat-loss rate. When it moves, or when you switch the room size, MPC v2 carries its estimates of the room over to the new model and continues from there instead of starting over.
+
+MPC v2 plans a new valve opening at most every 1.5 to 5 minutes, depending on how fast the room model is, and keeps sending that opening until the next plan. A valve position the TRV reports in between feeds the room model and the next plan, but does not replace the planned opening. The TRV's *Valve Max Opening* is the upper limit of every plan, so a valve held at that limit while the room stays just below the target does not build up demand that would overheat the room once the limit no longer binds.
+
 Its estimates show up in the *MPC v2 Virtual Temperature*, *MPC v2 Coupling*, *MPC v2 Disturbance* and *MPC v2 Room Time Constant* sensors. They start disabled on new installations; see [Entities](/setup/entities/#mpc-v2).
 
 ---
@@ -96,7 +100,7 @@ PID (Proportional-Integral-Derivative) is the classic industrial control method.
 
 - P (Proportional): how far you are from the target temperature
 - I (Integral): how long you have been away from it
-- D (Derivative): how fast the temperature is moving
+- D (Derivative): how fast the temperature is moving, read from the room temperature smoothed over time, so two control cycles a few seconds apart do not jolt the valve
 
 It tunes those three itself over time.
 
@@ -113,11 +117,12 @@ Auto-tuning is on by default.
 - **At the start:** The controller starts with default values (Kp=60, Ki=0.01, Kd=2000) and begins learning your room's behavior. You may notice slight temperature oscillations as it adjusts.
 
 - **While tuning:** The algorithm adjusts the gains at most every 5 minutes, and only when one of these conditions holds (the "target band" is 0.1 °C either side of the target):
-  - **Arriving at the target:** The room was outside the target band on the previous cycle and is inside it now, from either side. It decreases Kp (less aggressive), increases Kd (more damping) and decreases Ki
+  - **Overshoot:** The room was more than 0.2 °C on one side of the target and is now more than 0.2 °C on the other side, for example it heated from below to 0.3 °C above the target. It decreases Kp (less aggressive), increases Kd (more damping) and decreases Ki. A room that comes up to the target and stays below it, or ends up less than 0.2 °C above it, is not an overshoot. Changing the target starts the comparison over, so the room being on the other side of the new target does not count
   - **Sluggish response:** The room is more than 0.1 °C below the target, its temperature changes by less than 0.005 °C per minute (0.3 °C per hour) and the valve output is below 95 %. It increases Ki and Kp
   - **Steady state:** The room is inside the target band and the valve output is below 20 %. It decreases Ki
+  - **Holding the target:** The room is inside the target band and Kd is above its default of 2000. Kd falls by 1 % toward 2000, and no further. Damping added by overshoots therefore wears off again while the room holds the target
 
-- **Settled:** Kp and Kd stop changing once neither of the first two conditions occurs any more: the room no longer arrives at the target band and no longer heats up too slowly. While the room holds the target with a small valve output, Ki keeps shrinking every 5 minutes until it reaches its lower limit of 0.001. How many heating cycles that takes depends on the room; the code sets no fixed period.
+- **Settled:** Kp stops changing once the room no longer overshoots and no longer heats up too slowly, and Kd returns to 2000 while the room holds the target. While the room holds the target with a small valve output, Ki keeps shrinking every 5 minutes until it reaches its lower limit of 0.001. How many heating cycles that takes depends on the room; the code sets no fixed period.
 
 **What to expect:**
 
@@ -127,10 +132,14 @@ Auto-tuning is on by default.
   - Ki: 0.001-2.0
   - Kd: 100-10,000
 - Auto-tuning is conservative - it makes small changes and learns gradually
+- Gains are learned separately for each target temperature, in steps of 0.5 °C. A target the controller has not run at yet starts from the defaults, or from the values you set by hand
+- The integral term belongs to the TRV, not to a target, so changing the target does not restart it: a higher target opens the valve further at once, a lower one closes it further
 
 **Manual tuning:**
 
-Each TRV's *PID Kp (Proportional)*, *PID Ki (Integral)* and *PID Kd (Derivative)* numbers accept Kp from 0 to 1000, Ki from 0 to 100 and Kd from 0 to 10,000, and Better Thermostat keeps a value set there, including 0 (Kd 0 makes a PI controller). With auto-tuning on, a value you set is the starting point it adjusts from; turn off the *PID Auto Tune* switch to keep fixed values.
+Each TRV's *PID Kp (Proportional)*, *PID Ki (Integral)* and *PID Kd (Derivative)* numbers accept Kp from 0 to 1000, Ki from 0 to 100 and Kd from 0 to 10,000, and Better Thermostat keeps a value set there, including 0 (Kd 0 makes a PI controller). With auto-tuning on, a value you set is the starting point it adjusts from. Auto-tuning keeps to the ranges listed above, so it can move a value set outside them into the range in a single step: Ki 0 becomes 0.001 at its first adjustment, and Kp 800 becomes 500 the first time the room heats up too slowly. Kd 0 stays 0, and a Kd above 2000 falls back toward 2000 while the room holds the target. Turn off the *PID Auto Tune* switch to keep fixed values.
+
+The *PID Auto Tune* switch and the values you set apply to the TRV at every target temperature. Turning auto-tuning off keeps the gains the numbers show at that moment, which are the ones in use at the current target, and the controller then uses them at every target; a value you set afterwards replaces them at every target too. With auto-tuning on, a target that has learned its own value uses it, and a target not tuned yet starts from the value you set, or from the values kept when auto-tuning was last turned off.
 
 If you want to tune PID parameters manually or understand what the auto-tuning is doing:
 
@@ -163,7 +172,7 @@ To follow the controller over time, the device has diagnostic sensors: *PID Outp
 
 **Getting the best out of PID:**
 
-- Give auto-tuning time: it only changes the gains after an overshoot, a slow rise or a drift, so it needs a number of ordinary heating cycles
+- Give auto-tuning time: it only changes the gains after an overshoot, a slow rise or a drift, or while the room holds the target, so it needs a number of ordinary heating cycles
 - Keep target temperatures consistent; auto-tuning reads a moving target as a disturbance
 - Avoid changing the target often during the learning phase
 - Place the external sensor away from heat sources and draughts
@@ -239,6 +248,8 @@ Direct valve control is available for TRVs that expose valve position as a contr
 
 Better Thermostat detects whether your TRV supports direct valve control and then offers the **Direct Valve Based** calibration type. It only writes the valve when you select that type.
 
+The valve entity has to accept writes. Where the device exposes both a writable valve number and a valve sensor that only reports the opening, Better Thermostat writes the number. A valve closing degree, such as the one on the Sonoff TRVZB, is never taken as the valve entity, because it holds the opposite of the opening. If the TRVZB's valve opening degree entity is disabled, the TRV has no direct valve control and Better Thermostat logs a warning naming that entity; enable it and reload Better Thermostat.
+
 ### How the algorithms use it
 
 With the Direct Valve Based calibration type:
@@ -254,6 +265,8 @@ With the Direct Valve Based calibration type:
 - **AI Time Based**: Derives a valve opening from the heating power it has learned.
 
 - **External Sensor Offset Only, Aggressive, No Calibration**: These produce no valve opening. Better Thermostat sends them to the TRV as a target temperature instead.
+
+The valve opening is sized from your room sensor, not from the TRV's own temperature. A TRV that stops reporting its own temperature still has its valve opened and closed; only the target temperature that accompanies the valve command is held back until the TRV reports a temperature again.
 
 ### Without direct valve control
 
