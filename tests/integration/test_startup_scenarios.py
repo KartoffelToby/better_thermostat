@@ -865,6 +865,30 @@ async def test_a_window_moved_during_startup_is_followed_once_startup_ends(
     )
 
 
+async def test_an_unrecognized_window_state_during_startup_raises_its_issue(
+    hass, fake_trv
+):
+    """A window state nobody recognizes is reported once startup ends.
+
+    The window is closed when startup reads it. An unrecognized state reads
+    as closed as well, so it agrees with the region, yet the handler raises a
+    repair issue for it. Handed over only on disagreement, it would leave the
+    sensor's state unreported until the window moves again.
+    """
+    set_room_sensor(hass, 19.0)
+    hass.states.async_set(WINDOW_ID, "off")
+    entry = make_entry(fake_trv.profile, with_window=True)
+    with publish_while_trvs_initialise(hass, WINDOW_ID, "tilted"):
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+
+    issue_id = entry_issue_id(entry.entry_id, "invalid_window_state")
+    assert await wait_for(
+        hass, lambda: ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+    )
+    assert bt.window_open is False
+
+
 async def test_a_door_closed_during_startup_resumes_heating(hass, fake_trv):
     """A door closed while startup runs does not hold the room idle.
 

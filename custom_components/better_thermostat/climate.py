@@ -108,7 +108,7 @@ from .entity import (
     announce_learned_state,
     publish_when_availability_changed,
 )
-from .events.contact import OPEN_WORDS
+from .events.contact import CLOSED_WORDS, INACTIVE_WORDS, OPEN_WORDS
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
@@ -3438,7 +3438,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         listeners exist only from the end of startup on. A window opened or
         closed in between publishes no further change, so a state that
         disagrees with its region is handed over the way the listener hands
-        one over, debounce delays included.
+        one over, debounce delays included. A state the handler does not
+        recognize is handed over as well, though it reads as closed: the
+        handler raises the repair issue for it.
         """
         for entity_id, region, trigger in (
             (
@@ -3453,7 +3455,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             contact_state = self.hass.states.get(entity_id)
             if contact_state is None:
                 continue
-            if _contact_reads_open(contact_state) == region.effective_open:
+            recognized = contact_state.state in (
+                *OPEN_WORDS,
+                *CLOSED_WORDS,
+                *INACTIVE_WORDS,
+            )
+            if recognized and (
+                _contact_reads_open(contact_state) == region.effective_open
+            ):
                 continue
             await trigger(
                 self,
