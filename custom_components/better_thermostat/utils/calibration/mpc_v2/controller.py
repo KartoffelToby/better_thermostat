@@ -91,6 +91,9 @@ class ControllerSnapshot:
     # ``None`` for a snapshot written before the planning reading existed;
     # the restore then starts it from zero.
     planning_disturbance: float | None = None
+    # The command the last plan settled on. ``None`` for a snapshot written
+    # before it was stored; the restore then takes ``last_u`` for it.
+    last_command_u: float | None = None
 
     def to_mapping(self) -> dict[str, object]:
         """Return the mapping the HA Store persists."""
@@ -108,9 +111,10 @@ class ControllerSnapshot:
         non-numeric or non-finite values is dropped entirely — ``float`` accepts
         ``NaN`` and infinity, and either one spreads through the observer into
         every later command, so the controller boots fresh instead of running on
-        poisoned state. Two fields are nullable: a stored ``null`` in ``rg_v_C``
-        means "no governor state", and a missing or ``null``
-        ``planning_disturbance`` means "start it from zero". ``x_hat``,
+        poisoned state. Three fields are nullable: a stored ``null`` in ``rg_v_C``
+        means "no governor state", a missing or ``null``
+        ``planning_disturbance`` means "start it from zero", and a missing or
+        ``null`` ``last_command_u`` means "the last input is the command". ``x_hat``,
         ``u_history``, ``kalman_P`` and each row of ``kalman_P`` have to be
         lists; a value of any other shape drops the snapshot as non-numeric.
         """
@@ -139,6 +143,7 @@ class ControllerSnapshot:
                 next_mpc_t_s=stored_float(raw.get("next_mpc_t_s", -1.0)),
                 last_mpc_t_s=stored_float(raw.get("last_mpc_t_s", -1.0)),
                 planning_disturbance=_optional_float(raw.get("planning_disturbance")),
+                last_command_u=_optional_float(raw.get("last_command_u")),
             )
         except TypeError, ValueError, OverflowError:
             _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
@@ -159,6 +164,7 @@ class ControllerSnapshot:
                 if snapshot.planning_disturbance is None
                 else [snapshot.planning_disturbance]
             ),
+            *([] if snapshot.last_command_u is None else [snapshot.last_command_u]),
         ]
         if not all(math.isfinite(x) for x in numbers):
             _LOGGER.warning("MPC v2 snapshot contains non-finite data; ignoring")
@@ -212,11 +218,22 @@ class MpcV2Controller:
         self.governor = ScalarReferenceGovernor(self.plant_coarse, mpc_params.governor)
 
         self._u_history: deque[float] = deque(maxlen=64)
+        # ``_last_u`` is the best known plant input of the previous cycle: the
+        # applied valve fraction once the caller confirms one, the command
+        # until then. The observer, the integral and the rate limit read it.
+        # ``_command_u`` is what the last plan settled on; between re-plans the
+        # controller keeps commanding it, whatever the device reported since.
         self._last_u: float = 0.0
+        self._command_u: float = 0.0
         self._last_t_s: float = 0.0
         self._next_mpc_t_s: float = -1.0
         self._last_mpc_t_s: float = -1.0
         self._initialised: bool = False
+
+    @property
+    def initialised(self) -> bool:
+        """Return whether the observer holds an estimate of the room."""
+        return self._initialised
 
     def step(
         self,
@@ -225,6 +242,7 @@ class MpcV2Controller:
         T_target: float,
         T_outdoor: float,
         T_rad: float | None = None,
+        u_max: float | None = None,
     ) -> tuple[float, MpcV2Diagnostics]:
         """Run one control cycle. Returns (valve_fraction, diagnostics).
 
@@ -243,6 +261,16 @@ class MpcV2Controller:
             Measured radiator temperature. Used only to seed the initial
             Kalman estimate on the very first cycle (falling back to
             ``T_room`` when ``None``); ignored on every subsequent cycle.
+        u_max : float | None, optional
+            Highest valve fraction the caller will pass on this cycle, such as
+            the user's maximum opening. The plan stays below it and the
+            integral's anti-windup treats it as the upper rail.
+
+        Between re-plans the cycle returns the command of the last plan. The
+        applied input the caller confirms through :meth:`set_applied_u` feeds
+        the observer and the next plan, but does not become the command: a
+        device that reports its position late would otherwise turn its old
+        position into a new command.
         """
         if not self._initialised:
             T_rad_init = T_rad if T_rad is not None else T_room
@@ -257,7 +285,7 @@ class MpcV2Controller:
             # this sees only a repeat less than 1 s before or after the last
             # cycle. It reuses the previous state and must NOT advance
             # _last_t_s, otherwise a stale timestamp would reach dob.update.
-            return self._last_u, self._diagnostics()
+            return self._command_u, self._diagnostics()
         self._last_t_s = t_s
 
         # The observer follows real elapsed time.  The QP below intentionally
@@ -281,7 +309,7 @@ class MpcV2Controller:
         )
 
         if t_s < self._next_mpc_t_s:
-            return self._last_u, self._diagnostics()
+            return self._command_u, self._diagnostics()
 
         plant_delay_s = self.params.plant.valve_command_delay_s
         x_pred = self.smith.predict(
@@ -297,6 +325,7 @@ class MpcV2Controller:
                 T_sp=sp_for_opt,
                 u_applied=self._last_u,
                 dt_s=max(0.0, t_s - self._last_mpc_t_s),
+                u_max=u_max,
             )
 
         u = self.optimiser.solve(
@@ -305,8 +334,10 @@ class MpcV2Controller:
             T_outdoor=T_outdoor,
             u_last=self._last_u,
             D_hat_K_per_min=self.dob.planning_rate,
+            u_max=u_max,
         )
         self._last_u = u
+        self._command_u = u
         self._u_history.append(u)
         self._last_mpc_t_s = t_s
         self._next_mpc_t_s = t_s + self.params.qp.step_s
@@ -349,6 +380,7 @@ class MpcV2Controller:
             next_mpc_t_s=self._next_mpc_t_s,
             last_mpc_t_s=self._last_mpc_t_s,
             planning_disturbance=self.dob.planning_filtered,
+            last_command_u=self._command_u,
         )
 
     def restore_snapshot(self, snap: ControllerSnapshot) -> None:
@@ -375,6 +407,9 @@ class MpcV2Controller:
         self.dob.restore(snap.D_hat_K_per_min, snap.planning_disturbance)
         self.optimiser.e_integral_K_min = snap.e_integral_K_min
         self._last_u = snap.last_u
+        self._command_u = (
+            snap.last_u if snap.last_command_u is None else snap.last_command_u
+        )
         for u in snap.u_history:
             self._u_history.append(u)
         self.governor.restore(snap.rg_v)
@@ -393,7 +428,8 @@ class MpcV2Controller:
         When the caller clamps the command (e.g. ``max_opening_percent``), the
         Kalman observer, Smith predictor and rate limiter must see the applied
         value on the next cycle rather than the optimiser's uncapped request,
-        otherwise their state drifts from the real plant input.
+        otherwise their state drifts from the real plant input. The command
+        returned between re-plans stays the planned one.
 
         Parameters
         ----------
@@ -406,8 +442,13 @@ class MpcV2Controller:
             self._u_history[-1] = u
 
     def set_command_u(self, u: float) -> None:
-        """Record this cycle's bounded command pending device confirmation."""
-        self._last_u = max(0.0, min(1.0, u))
+        """Record this cycle's bounded command pending device confirmation.
+
+        The command is also the plant input until :meth:`set_applied_u`
+        confirms one.
+        """
+        self._command_u = max(0.0, min(1.0, u))
+        self._last_u = self._command_u
         if self._u_history:
             self._u_history[-1] = self._last_u
 
