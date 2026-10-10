@@ -228,8 +228,10 @@ async def test_fixed_gains_hold_at_a_target_never_set_before(hass):
         ),
     )
 
-    assert trv.calibration_balance is not None
-    assert trv.calibration_balance["debug"]["kp"] == 150.0
+    balance = trv.calibration_balance
+    assert balance is not None
+    assert balance["controller"] == CalibrationMode.PID_CALIBRATION
+    assert balance["debug"]["kp"] == 150.0
     assert hass.states.get(switch).state == STATE_OFF
     assert float(hass.states.get(kp_number).state) == 150.0
 
@@ -285,8 +287,10 @@ async def test_turning_auto_tune_off_keeps_the_gains_it_learned(hass):
         ),
     )
 
-    assert trv.calibration_balance is not None
-    assert trv.calibration_balance["debug"]["kp"] == 72.0
+    balance = trv.calibration_balance
+    assert balance is not None
+    assert balance["controller"] == CalibrationMode.PID_CALIBRATION
+    assert balance["debug"]["kp"] == 72.0
     assert float(hass.states.get(kp_number).state) == 72.0
 
 

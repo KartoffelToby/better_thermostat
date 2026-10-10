@@ -59,7 +59,7 @@ class _InMemoryStateManager:
         self._tpi: dict[str, TpiState] = {}
         self._pid: dict[str, PIDState] = {}
         self._mpc_v2_reid: dict[str, MpcV2ReidRuntime] = {}
-        self.state = SimpleNamespace(mpc=self._mpc, mpc_v2_reid={})
+        self.state = SimpleNamespace(mpc=self._mpc, mpc_v2_reid={}, pid=self._pid)
 
     def get_mpc(self, key: str) -> MpcState:
         """Return the MPC v1 state for key, creating it on first use."""
@@ -92,10 +92,6 @@ class _InMemoryStateManager:
     def set_tpi(self, key: str, state: TpiState) -> None:
         """Store the TPI state for key."""
         self._tpi[key] = state
-
-    def get_pid(self, key: str) -> PIDState:
-        """Return the PID state for key, creating it on first use."""
-        return self._pid.setdefault(key, PIDState())
 
     def set_pid(self, key: str, state: PIDState) -> None:
         """Store the PID state for key."""
