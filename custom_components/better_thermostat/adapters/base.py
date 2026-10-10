@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from enum import StrEnum
 import logging
 
-from homeassistant.components.number.const import SERVICE_SET_VALUE
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.components.number.const import SERVICE_SET_VALUE, NumberDeviceClass
+from homeassistant.const import (
+    ATTR_DEVICE_CLASS,
+    ATTR_UNIT_OF_MEASUREMENT,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
 from homeassistant.core import State
 
 from .types import AdapterHost
@@ -46,6 +53,116 @@ class AdapterCapabilities:
     # therefore requires one) instead of an ecosystem service call.
     offset_needs_entity: bool = True
     valve_needs_entity: bool = True
+
+
+class OffsetScale(StrEnum):
+    """How the value a calibration number publishes relates to Kelvin.
+
+    Home Assistant converts a number of device class ``temperature`` into
+    the system unit as an absolute temperature, so on a Fahrenheit system an
+    offset of 0 K the device holds in Celsius is published as 32 °F, and a
+    value written is converted back the same way. A number of any other
+    device class is published in its native unit; when that unit is
+    Fahrenheit the value is a difference, and one Kelvin is 1.8 of it.
+    Everything else is taken to be in Kelvin, which is what a degree
+    Celsius of difference is.
+    """
+
+    KELVIN = "kelvin"
+    FAHRENHEIT_TEMPERATURE = "fahrenheit_temperature"
+    FAHRENHEIT_DIFFERENCE = "fahrenheit_difference"
+
+
+def offset_scale(state: State | None) -> OffsetScale:
+    """Read how a calibration entity publishes its offset.
+
+    Parameters
+    ----------
+    state : State or None
+        State of the calibration entity. Home Assistant publishes the unit
+        and the device class of an unavailable entity as well, so only an
+        entity that has no state at all is read as Kelvin by default.
+
+    Returns
+    -------
+    OffsetScale
+        The relation between the published value and an offset in Kelvin.
+    """
+    if state is None or state.domain != "number":
+        return OffsetScale.KELVIN
+    if state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) != UnitOfTemperature.FAHRENHEIT:
+        return OffsetScale.KELVIN
+    if state.attributes.get(ATTR_DEVICE_CLASS) == NumberDeviceClass.TEMPERATURE:
+        return OffsetScale.FAHRENHEIT_TEMPERATURE
+    return OffsetScale.FAHRENHEIT_DIFFERENCE
+
+
+def published_to_offset(scale: OffsetScale, value: float) -> float:
+    """Return the offset in Kelvin a published calibration value stands for.
+
+    Parameters
+    ----------
+    scale : OffsetScale
+        How the calibration entity publishes its offset.
+    value : float
+        Value, ``min`` or ``max`` as the entity publishes it.
+
+    Returns
+    -------
+    float
+        The same offset in Kelvin, at full precision.
+    """
+    if scale is OffsetScale.FAHRENHEIT_TEMPERATURE:
+        return (value - 32.0) * 5.0 / 9.0
+    if scale is OffsetScale.FAHRENHEIT_DIFFERENCE:
+        return value * 5.0 / 9.0
+    return value
+
+
+def offset_to_published(scale: OffsetScale, calibration_offset: float) -> float:
+    """Return the value a calibration entity takes for an offset in Kelvin.
+
+    Parameters
+    ----------
+    scale : OffsetScale
+        How the calibration entity publishes its offset.
+    calibration_offset : float
+        Offset in Kelvin.
+
+    Returns
+    -------
+    float
+        The value to write, in the unit the entity publishes.
+    """
+    if scale is OffsetScale.FAHRENHEIT_TEMPERATURE:
+        return calibration_offset * 9.0 / 5.0 + 32.0
+    if scale is OffsetScale.FAHRENHEIT_DIFFERENCE:
+        return calibration_offset * 9.0 / 5.0
+    return calibration_offset
+
+
+def published_step_to_offset(scale: OffsetScale, step: float) -> float:
+    """Return the offset step in Kelvin a published ``step`` stands for.
+
+    Home Assistant publishes the native step of a ``temperature`` number
+    without converting it, so that step is already the device's own; only a
+    difference published in Fahrenheit is rescaled.
+
+    Parameters
+    ----------
+    scale : OffsetScale
+        How the calibration entity publishes its offset.
+    step : float
+        The ``step`` the entity publishes.
+
+    Returns
+    -------
+    float
+        The step in Kelvin.
+    """
+    if scale is OffsetScale.FAHRENHEIT_DIFFERENCE:
+        return step * 5.0 / 9.0
+    return step
 
 
 def _zero_offset_option(state: State | None) -> str:
@@ -107,7 +224,10 @@ async def _write_zero_calibration(
     await self.hass.services.async_call(
         "number",
         SERVICE_SET_VALUE,
-        {"entity_id": calibration_entity, "value": 0},
+        {
+            "entity_id": calibration_entity,
+            "value": offset_to_published(offset_scale(state), 0.0),
+        },
         blocking=True,
         context=self.context,
     )

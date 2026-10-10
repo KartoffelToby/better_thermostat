@@ -20,6 +20,7 @@ from custom_components.better_thermostat.model_fixes.types import (
     UnknownStateQuirk,
 )
 
+from ..adapters.base import offset_scale, offset_to_published
 from ..utils.advanced_flags import as_bool
 from ..utils.const import CONF_CHILD_LOCK
 from ..utils.helpers import find_child_lock_entity, find_device_entity
@@ -100,10 +101,13 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                     self.device_name,
                     cal_entity,
                 )
+                zero = offset_to_published(
+                    offset_scale(self.hass.states.get(cal_entity)), 0.0
+                )
                 await self.hass.services.async_call(
                     "number",
                     "set_value",
-                    {"entity_id": cal_entity, "value": 0},
+                    {"entity_id": cal_entity, "value": zero},
                     blocking=True,
                     context=self.context,
                 )

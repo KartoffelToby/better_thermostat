@@ -2767,6 +2767,21 @@ _CALIBRATION_TRANSLATION_KEYS: set[str] = {
 # sensor.*_local_temperature must never be picked as calibration target.
 _CALIBRATION_ENTITY_DOMAINS: set[str] = {"number", "select"}
 
+# Unique id of a number Z-Wave JS creates for a configuration parameter:
+# ``<home id>.<node id>-112-<endpoint>-<parameter>``, where 112 is the
+# Configuration command class. Such a number publishes the parameter's raw
+# value in whatever unit the parameter defines (the Eurotronic Spirit's
+# temperature offset counts tenths of a degree and reserves -128 for
+# "external sensor"), so it is never read or written as an offset in Kelvin.
+_ZWAVE_CONFIGURATION_PARAMETER: Final = re.compile(r"^\d+\.\d+-112-\d+-")
+
+
+def _is_zwave_configuration_parameter(entry: er.RegistryEntry) -> bool:
+    """Whether ``entry`` is a Z-Wave JS configuration parameter number."""
+    return entry.platform == "zwave_js" and bool(
+        _ZWAVE_CONFIGURATION_PARAMETER.match(entry.unique_id)
+    )
+
 
 async def find_local_calibration_entity(
     self: AdapterProbeHost, entity_id: str, *, trv: Trv | None = None
@@ -2777,7 +2792,8 @@ async def find_local_calibration_entity(
     for a stable, language-independent lookup.  Falls back to the legacy
     unique_id / entity_id string matching for older integrations.
     Only writable candidates (``number`` or ``select`` entities) are
-    considered.
+    considered, and a Z-Wave JS configuration parameter is none, because
+    its raw value carries the parameter's own unit.
 
     Parameters
     ----------
@@ -2806,12 +2822,15 @@ async def find_local_calibration_entity(
     entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
     calibration_entity = None
     disabled_match: str | None = None
+    candidates = [
+        entity
+        for entity in entity_entries
+        if _shares_device(entity, reg_entity.device_id)
+        and entity.domain in _CALIBRATION_ENTITY_DOMAINS
+        and not _is_zwave_configuration_parameter(entity)
+    ]
     # First pass: match by translation_key (preferred, stable approach)
-    for entity in entity_entries:
-        if not _shares_device(entity, reg_entity.device_id):
-            continue
-        if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
-            continue
+    for entity in candidates:
         tk = entity.translation_key
         if tk and tk in _CALIBRATION_TRANSLATION_KEYS:
             if entity.disabled_by is not None:
@@ -2832,11 +2851,7 @@ async def find_local_calibration_entity(
     # match, and without the restriction the winner depended on registry
     # iteration order, which is not guaranteed.
     if calibration_entity is None:
-        for entity in entity_entries:
-            if not _shares_device(entity, reg_entity.device_id):
-                continue
-            if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
-                continue
+        for entity in candidates:
             descriptor = f"{entity.unique_id} {entity.entity_id} {entity.original_name or ''}".lower()
             if (
                 "temperature_calibration" in descriptor

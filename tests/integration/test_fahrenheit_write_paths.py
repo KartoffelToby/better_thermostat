@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, HVACMode
+from homeassistant.components.number import NumberDeviceClass
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_TEMPERATURE,
@@ -69,6 +70,7 @@ from .device_profiles import (
     OFF_GRID_FAHRENHEIT_TRV,
     TRV_ID,
     DeviceProfile,
+    external_temperature_input_id,
     published_temperature,
     published_unit,
 )
@@ -808,3 +810,135 @@ async def test_a_preset_number_steps_in_the_system_unit(hass):
 
     assert hass.states.get("number.bt_test_eco").attributes["step"] == 0.9
     assert hass.states.get(BT_ENTITY).attributes["target_temp_step"] == 0.9
+
+
+# -- calibration number -------------------------------------------------------
+
+
+TEMPERATURE_OFFSET_TRV = replace(
+    OFF_GRID_FAHRENHEIT_TRV,
+    name="temperature_offset_trv",
+    offset_device_class=NumberDeviceClass.TEMPERATURE,
+    offset_unit=UnitOfTemperature.CELSIUS,
+)
+"""A head whose offset number is a Celsius ``temperature``, like eQ-3 or Plugwise.
+
+Home Assistant converts it as an absolute temperature: an offset of 0 K is
+published as 32 °F and the device's -12 to 12 K as 10.4 to 53.6 °F.
+"""
+
+FAHRENHEIT_DIFFERENCE_OFFSET_TRV = replace(
+    OFF_GRID_FAHRENHEIT_TRV,
+    name="fahrenheit_difference_offset_trv",
+    offset_device_class=NumberDeviceClass.TEMPERATURE_DELTA,
+    offset_unit=UnitOfTemperature.FAHRENHEIT,
+)
+"""A head whose offset number counts a difference in degrees Fahrenheit.
+
+Home Assistant publishes it as it is, so one Kelvin of offset is 1.8 of it.
+"""
+
+
+@pytest.mark.parametrize(
+    ("fake_trv", "native_per_kelvin"),
+    [
+        pytest.param(TEMPERATURE_OFFSET_TRV, 1.0, id="temperature_in_celsius"),
+        pytest.param(
+            FAHRENHEIT_DIFFERENCE_OFFSET_TRV, 1.8, id="difference_in_fahrenheit"
+        ),
+    ],
+    indirect=["fake_trv"],
+)
+async def test_a_calibration_number_in_the_system_unit_takes_the_offset_in_kelvin(
+    hass, fake_trv, native_per_kelvin
+):
+    """An offset reaches the device as the difference it is, in the device's unit.
+
+    The device reads 20 °C and the room 22.5 °C, so the head is corrected by
+    2.5 K, to within the device's step. A ``temperature`` number in Celsius
+    receives it as it is, although Home Assistant publishes the number in
+    °F; a number counting Fahrenheit differences receives 1.8 times it. The
+    device's range is read the same way, and the zero offset the startup
+    writes is a zero on the device as well.
+    """
+    profile = fake_trv.profile
+    set_room_sensor(hass, _fahrenheit(22.5), UnitOfTemperature.FAHRENHEIT)
+    bt = await _start(hass, profile)
+    trv = bt.real_trvs[TRV_ID]
+
+    offset_number = fake_trv.offset_number
+    assert offset_number is not None
+    assert await wait_for(hass, lambda: trv.last_calibration not in (None, 0.0)), (
+        offset_number.set_value_calls
+    )
+
+    assert trv.last_calibration == pytest.approx(2.5, abs=trv.local_calibration_step)
+    assert offset_number.set_value_calls[-1] == pytest.approx(
+        trv.last_calibration * native_per_kelvin
+    )
+    assert offset_number.set_value_calls[:-1] == [0.0] * (
+        len(offset_number.set_value_calls) - 1
+    )
+    assert trv.local_calibration_step == pytest.approx(0.5 / native_per_kelvin)
+    # Home Assistant publishes the bounds of a converted number floored and
+    # ceiled to a tenth of a degree Fahrenheit.
+    assert trv.min_local_calibration == pytest.approx(
+        -12.0 / native_per_kelvin, abs=0.06
+    )
+    assert trv.max_local_calibration == pytest.approx(
+        12.0 / native_per_kelvin, abs=0.06
+    )
+
+
+# -- external temperature input -----------------------------------------------
+
+
+TRVZB_ON_A_FAHRENHEIT_SYSTEM = DeviceProfile(
+    name="trvzb_on_a_fahrenheit_system",
+    integration="mqtt",
+    calibration="target_temp_based",
+    has_device_registry_entry=True,
+    model="TRVZB",
+    current_temperature=20.0,
+    target_temperature=20.0,
+    precision=0.1,
+    system_unit=UnitOfTemperature.FAHRENHEIT,
+    external_temperature_input=True,
+)
+"""A Sonoff TRVZB in Celsius whose external temperature input is published in °F."""
+
+
+@pytest.mark.parametrize(
+    ("fake_trv", "room_celsius", "native_input"),
+    [
+        pytest.param(TRVZB_ON_A_FAHRENHEIT_SYSTEM, 21.3, 21.3, id="in_range"),
+        pytest.param(TRVZB_ON_A_FAHRENHEIT_SYSTEM, -5.0, 0.0, id="below_the_input"),
+    ],
+    indirect=["fake_trv"],
+)
+async def test_the_room_temperature_reaches_the_external_input_in_its_unit(
+    hass, fake_trv, room_celsius, native_input
+):
+    """The room temperature goes into the external input as the same temperature.
+
+    The input publishes its value and its range, 0 to 99.9 °C, in Fahrenheit,
+    and Home Assistant refuses a value outside 32 to 211.9 °F. The room
+    temperature is written in that unit, so the device receives the room's
+    Celsius reading; a room colder than the input goes down to accept
+    receives the input's lower end.
+    """
+    profile = fake_trv.profile
+    _publish_room_at_device_reading(hass, profile)
+    await _start(hass, profile)
+    external_input = fake_trv.external_temperature_input
+    assert external_input is not None
+    written_so_far = len(external_input.set_value_calls)
+
+    set_room_sensor(hass, _fahrenheit(room_celsius), UnitOfTemperature.FAHRENHEIT)
+    assert await wait_for(
+        hass, lambda: len(external_input.set_value_calls) > written_so_far
+    ), external_input.set_value_calls
+
+    assert external_input.set_value_calls[-1] == pytest.approx(native_input)
+    published = float(hass.states.get(external_temperature_input_id(profile)).state)
+    assert published == pytest.approx(_fahrenheit(native_input), abs=0.05)

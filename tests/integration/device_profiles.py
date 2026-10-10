@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
+from homeassistant.components.number import NumberDeviceClass
 from homeassistant.const import UnitOfTemperature
 from homeassistant.util.unit_conversion import TemperatureConverter
 
@@ -87,6 +88,13 @@ class DeviceProfile:
     ``valve_maintenance`` is the per-device option of the same name in the
     config entry.
 
+    ``offset_device_class`` and ``offset_unit`` describe the calibration
+    number the way its integration declares it. ``None`` for both is a number
+    that declares neither, which Home Assistant publishes as it is. A number of
+    device class ``temperature`` in Celsius or Fahrenheit is converted into
+    the system unit as an absolute temperature, the way the eQ-3 Bluetooth and
+    Plugwise offsets are.
+
     ``external_temperature_input`` puts the number a Sonoff TRVZB regulates on
     when told to use an external sensor onto the device: a ``temperature``
     number in Celsius, as Zigbee2MQTT discovers it. The selector that switches
@@ -123,6 +131,8 @@ class DeviceProfile:
     valve_channel: ValveChannel = ValveChannel.NONE
     system_unit: UnitOfTemperature | None = None
     valve_maintenance: bool = False
+    offset_device_class: NumberDeviceClass | None = None
+    offset_unit: UnitOfTemperature | None = None
     external_temperature_input: bool = False
     external_sensor_selection: str = "external"
     off_target_temperature: float | None = None

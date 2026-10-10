@@ -331,9 +331,13 @@ class SimulatedOffsetNumber(_SimulatedNumber):
     _attr_native_step = 0.5
 
     def __init__(self, profile: DeviceProfile):
-        """Start the device out uncalibrated."""
+        """Start the device out uncalibrated, declared as the profile says."""
         super().__init__(profile, "local_temperature_calibration")
         self._attr_native_value = 0.0
+        if profile.offset_device_class is not None:
+            self._attr_device_class = profile.offset_device_class
+        if profile.offset_unit is not None:
+            self._attr_native_unit_of_measurement = profile.offset_unit
 
 
 class SimulatedExternalTemperatureInput(_SimulatedNumber):
