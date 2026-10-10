@@ -48,8 +48,10 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
+    ATTR_STATE_PRESET_COOL_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
+    ATTR_STATE_PRESET_TEMPERATURE,
     CONF_HOMEMATICIP,
     DEFAULT_TARGET_TEMP,
     MAX_HEAT_LOSS,
@@ -192,6 +194,9 @@ def bt():
     mock._unavailable_trvs = lambda: BetterThermostat._unavailable_trvs(mock)
     mock._first_plausible_trv_temperature = lambda: (
         BetterThermostat._first_plausible_trv_temperature(mock)
+    )
+    mock._restore_targets_before_preset = lambda old_state, old_preset: (
+        BetterThermostat._restore_targets_before_preset(mock, old_state, old_preset)
     )
     return mock
 
@@ -1940,8 +1945,15 @@ class TestRestoreState:
             pytest.param("external_temp_ema", "temp_slope_K_min", id="written_by_1_9"),
         ],
     )
-    async def test_restores_ema_and_slope(self, bt, ema_name, slope_name):
-        """The filtered room reading and slope come back under either name."""
+    async def test_a_restored_filter_does_not_replace_the_seeded_one(
+        self, bt, ema_name, slope_name
+    ):
+        """The filtered reading and slope a state carries are not taken over.
+
+        A state attribute carries no time, so the filter it holds may be
+        hours old. Startup seeds the filter from the live reading before the
+        state is restored, and the seed stands under either attribute name.
+        """
         old = MagicMock()
         old.state = "heat"
         old.attributes = {
@@ -1951,13 +1963,16 @@ class TestRestoreState:
         }
         bt._saved_state = old
         bt.preset_mgr.temperatures = dict[str, float]()
+        bt.room_temperature_ema = 18.25
+        bt.room_temperature_filtered = 18.25
+        bt.temperature_slope = None
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
 
-        assert bt.room_temperature_ema == 20.5
-        assert bt.room_temperature_filtered == 20.5
-        assert bt.temperature_slope == 0.0012
+        assert bt.room_temperature_ema == 18.25
+        assert bt.room_temperature_filtered == 18.25
+        assert bt.temperature_slope is None
 
     @pytest.mark.parametrize(
         ("stored", "expected"),
@@ -2066,6 +2081,7 @@ class TestRestoreState:
         old.state = "heat"
         old.attributes = {
             ATTR_TEMPERATURE: 22.0,
+            "preset_mode": "comfort",
             "bt_preset_cool_temperature": 24.5,
             "bt_preset_cool_temperatures": json.dumps({"comfort": 25.5}),
             "bt_preset_heat_temperatures": json.dumps({"comfort": 21.5}),
@@ -2117,6 +2133,40 @@ class TestRestoreState:
 
         assert bt._preset_cool_temperatures["comfort"] == 25.5
         assert bt.cool_target_temperature == 25.5
+
+    @pytest.mark.asyncio
+    async def test_a_preset_no_longer_offered_hands_back_both_targets(self, bt):
+        """A saved preset that is gone leaves the room on the targets before it.
+
+        Away replaced a 21 °C heating and a 25 °C cooling target. With away
+        no longer offered the thermostat comes back without a preset, on
+        those two targets, and keeps none of them to hand back later.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 24.0, "eco": 27.0}
+        bt._preset_cool_temperature = None
+        bt.preset_mgr.enabled_presets = ["comfort", "eco"]
+        bt.preset_mgr.temperatures = {"comfort": 22.0, "eco": 18.0}
+        old = State(
+            "climate.bt_test",
+            "heat_cool",
+            {
+                ATTR_TARGET_TEMP_LOW: 16.0,
+                ATTR_TARGET_TEMP_HIGH: 28.0,
+                "preset_mode": "away",
+                ATTR_STATE_PRESET_TEMPERATURE: 21.0,
+                ATTR_STATE_PRESET_COOL_TEMPERATURE: 25.0,
+            },
+        )
+        bt._saved_state = old
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.preset_mgr.mode == "none"
+        assert bt.heat_target_temperature == 21.0
+        assert bt.cool_target_temperature == 25.0
+        assert bt.preset_mgr.saved_temperature is None
+        assert bt._preset_cool_temperature is None
 
     @pytest.mark.asyncio
     async def test_a_restored_preset_off_the_step_applies_the_targets_it_applied_before(
@@ -3922,6 +3972,8 @@ class TestATrvThatArrivesAfterStartup:
         order = []
         bt._initialize_arrived_trvs = AsyncMock()
         bt._hand_over_room_sensor_state = AsyncMock()
+        bt._hand_over_humidity_state = AsyncMock()
+        bt._hand_over_contact_states = AsyncMock()
         bt._spawn_owned = MagicMock(
             side_effect=lambda coro, name: (order.append("read"), coro.close())
         )

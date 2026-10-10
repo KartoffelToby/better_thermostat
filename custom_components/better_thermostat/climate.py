@@ -108,6 +108,7 @@ from .entity import (
     announce_learned_state,
     publish_when_availability_changed,
 )
+from .events.contact import CLOSED_WORDS, INACTIVE_WORDS, OPEN_WORDS
 from .events.cooler import COOLING_MODES, trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
@@ -151,7 +152,6 @@ from .utils.const import (
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_ROOM_TEMPERATURE_FILTERED,
-    ATTR_STATE_TEMPERATURE_SLOPE,
     ATTR_STATE_WINDOW_OPEN,
     CONF_CHILD_LOCK,
     CONF_COOLER,
@@ -245,7 +245,6 @@ from .utils.restore import (
 from .utils.retry import command_cancellation_as_disconnect
 from .utils.scheduler import request_control_cycle
 from .utils.state_manager import StateManager
-from .utils.stored_values import stored_float
 from .utils.telemetry import (
     TELEMETRY_ATTRIBUTES,
     collect_balance_attrs,
@@ -420,7 +419,7 @@ def _seed_contact_region_at_startup(
         )
         return WindowState()
 
-    is_open = state.state in ("on", "true", "open")
+    is_open = _contact_reads_open(state)
     _LOGGER.debug(
         "better_thermostat %s: detected %s state at startup: %s",
         self.device_name,
@@ -428,6 +427,15 @@ def _seed_contact_region_at_startup(
         "Open" if is_open else "Closed",
     )
     return WindowState(phase=WindowPhase.OPEN if is_open else WindowPhase.CLOSED)
+
+
+def _contact_reads_open(state: State | None) -> bool:
+    """Return whether a contact sensor's state reads as open.
+
+    Anything but an open reading counts as closed, a sensor that is missing,
+    unavailable or unknown included, so a lost sensor does not stop heating.
+    """
+    return state is not None and state.state in OPEN_WORDS
 
 
 def _room_sensor_reads(self: BetterThermostat) -> bool:
@@ -2299,48 +2307,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         ]
         if old_state is not None:
             _LOGGER.debug("better_thermostat %s: restoring state...", self.device_name)
-            # Migration fallback: read the filter state from the last
-            # entity attributes only when the unified store has none.
-            _store_filters = self.state_mgr.filters if self.state_mgr else None
-            if (
-                _store_filters is None or _store_filters.room_temperature_ema is None
-            ) and (
-                stored_ema := _restored_attribute(
-                    old_state, ATTR_STATE_ROOM_TEMPERATURE_FILTERED
-                )
-            ) is not None:
-                try:
-                    _restored_ema = stored_float(stored_ema)
-                    self.room_temperature_ema = _restored_ema
-                    self.room_temperature_filtered = round(_restored_ema, 2)
-                    # Reset timestamp to now so the next delta is calculated from restart time
-                    self._room_temperature_ema_monotonic = self.clock.monotonic()
-                    _LOGGER.debug(
-                        "better_thermostat %s: restored room_temperature_ema from state: %.2f",
-                        self.device_name,
-                        _restored_ema,
-                    )
-                except ValueError, TypeError:
-                    pass
-
-            if (
-                _store_filters is None or _store_filters.temperature_slope is None
-            ) and (
-                stored_slope := _restored_attribute(
-                    old_state, ATTR_STATE_TEMPERATURE_SLOPE
-                )
-            ) is not None:
-                try:
-                    _restored_slope = stored_float(stored_slope)
-                    self.temperature_slope = _restored_slope
-                    _LOGGER.debug(
-                        "better_thermostat %s: restored temperature_slope from state: %.4f",
-                        self.device_name,
-                        _restored_slope,
-                    )
-                except ValueError, TypeError:
-                    pass
-
             _LOGGER.debug(
                 "better_thermostat %s: restoring target temperature...",
                 self.device_name,
@@ -2399,15 +2365,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 "better_thermostat %s: applying restored preset temperature...",
                 self.device_name,
             )
+            self._restore_targets_before_preset(old_state, _old_preset)
             # Restore the persisted per-preset cooling map before applying it below,
             # so a restored preset uses its saved cooling target instead of the default.
-            stored_cool_temperature = _restored_attribute(
-                old_state, ATTR_STATE_PRESET_COOL_TEMPERATURE
-            )
-            if stored_cool_temperature is not None:
-                self._preset_cool_temperature = convert_to_float(
-                    str(stored_cool_temperature), self.device_name, "startup()"
-                )
             stored_cool_temperatures = _restored_attribute(
                 old_state, ATTR_STATE_PRESET_COOL_TEMPERATURES
             )
@@ -2547,15 +2507,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 )
                 if _restored_loss is not None:
                     self.heat_loss_rate = _restored_loss
-            if (
-                old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)
-                is not None
-            ):
-                self.preset_mgr.saved_temperature = convert_to_float(
-                    str(old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE, None)),
-                    self.device_name,
-                    "startup()",
-                )
             _LOGGER.debug(
                 "better_thermostat %s: state restoration completed", self.device_name
             )
@@ -2581,6 +2532,64 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 DEFAULT_TARGET_TEMP if _restored_target is None else _restored_target
             )
             _LOGGER.debug("better_thermostat %s: defaults restored", self.device_name)
+
+    def _restore_targets_before_preset(
+        self, old_state: State, old_preset: object
+    ) -> None:
+        """Restore the targets that were in force before the saved preset.
+
+        A preset keeps the targets it replaced and hands them back when it
+        is left. A preset that comes back keeps holding them. A preset that
+        is no longer offered is left at startup, the way a switch back to
+        none leaves it, so the thermostat comes back on those targets rather
+        than on the preset's. Without a preset nothing holds them, and a
+        value carried along would be handed back the next time a preset is
+        left.
+
+        Called once the restored preset mode is set and the saved targets
+        are restored.
+        """
+        stored_heat_target = old_state.attributes.get(ATTR_STATE_PRESET_TEMPERATURE)
+        heat_target_before_preset = (
+            None
+            if stored_heat_target is None
+            else convert_to_float(
+                str(stored_heat_target), self.device_name, "startup()"
+            )
+        )
+        stored_cool_target = _restored_attribute(
+            old_state, ATTR_STATE_PRESET_COOL_TEMPERATURE
+        )
+        cool_target_before_preset = (
+            None
+            if stored_cool_target is None
+            else convert_to_float(
+                str(stored_cool_target), self.device_name, "startup()"
+            )
+        )
+        if self.preset_mgr.mode != PRESET_NONE:
+            self.preset_mgr.saved_temperature = heat_target_before_preset
+            self._preset_cool_temperature = cool_target_before_preset
+            return
+        if not isinstance(old_preset, str) or old_preset == PRESET_NONE:
+            return
+        _LOGGER.info(
+            "better_thermostat %s: the saved preset %s is no longer offered; "
+            "returning to the targets in force before it",
+            self.device_name,
+            old_preset,
+        )
+        if heat_target_before_preset is not None:
+            self.heat_target_temperature = self._applied_target(
+                heat_target_before_preset
+            )
+        if self.cooler_entity_id is None:
+            return
+        if cool_target_before_preset is not None:
+            self.cool_target_temperature = self._bound_cool_target_to_range(
+                cool_target_before_preset
+            )
+        self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
 
     def _validate_hvac_mode(self, states: list[State]) -> None:
         """Validate and fix HVAC mode after state restoration."""
@@ -3331,6 +3340,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     self._trigger_humidity_change,
                 )
             )
+            await self._hand_over_humidity_state()
         if self._async_unsub_state_changed is None:
             self._async_unsub_state_changed = async_track_state_change_event(
                 self.hass, self.entity_ids, self._trigger_trv_change
@@ -3354,6 +3364,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     self.hass, [self.door_sensor_entity_id], self._trigger_door_change
                 )
             )
+        await self._hand_over_contact_states()
         if self.cooler_entity_id is not None:
             _shared_entity_id = dual_role_entity_id(self)
             if _shared_entity_id is None:
@@ -3492,6 +3503,76 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 context=sensor_state.context,
             )
         )
+
+    async def _hand_over_humidity_state(self) -> None:
+        """Read the humidity sensor again once its listener exists.
+
+        Startup reads the humidity once, well before the listener is
+        registered, and a sensor that changed in between may not publish
+        again for a long time. The current reading is therefore taken the
+        way the listener takes one.
+        """
+        humidity_entity_id = self.humidity_sensor_entity_id
+        if humidity_entity_id is None:
+            return
+        humidity_state = self.hass.states.get(humidity_entity_id)
+        if humidity_state is None:
+            return
+        await self._trigger_humidity_change(
+            Event(
+                EVENT_STATE_CHANGED,
+                EventStateChangedData(
+                    entity_id=humidity_entity_id,
+                    old_state=None,
+                    new_state=humidity_state,
+                ),
+                context=humidity_state.context,
+            )
+        )
+
+    async def _hand_over_contact_states(self) -> None:
+        """Hand the window and door sensors' current states to their regions.
+
+        The regions are seeded from the sensors when startup begins, and the
+        listeners exist only from the end of startup on. A window opened or
+        closed in between publishes no further change, so a state that
+        disagrees with its region is handed over the way the listener hands
+        one over, debounce delays included. A state the handler does not
+        recognize is handed over as well, though it reads as closed: the
+        handler raises the repair issue for it.
+        """
+        for entity_id, region, trigger in (
+            (
+                self.window_sensor_entity_id,
+                self.kernel_state.window,
+                trigger_window_change,
+            ),
+            (self.door_sensor_entity_id, self.kernel_state.door, trigger_door_change),
+        ):
+            if entity_id is None:
+                continue
+            contact_state = self.hass.states.get(entity_id)
+            if contact_state is None:
+                continue
+            recognized = contact_state.state in (
+                *OPEN_WORDS,
+                *CLOSED_WORDS,
+                *INACTIVE_WORDS,
+            )
+            if recognized and (
+                _contact_reads_open(contact_state) == region.effective_open
+            ):
+                continue
+            await trigger(
+                self,
+                Event(
+                    EVENT_STATE_CHANGED,
+                    EventStateChangedData(
+                        entity_id=entity_id, old_state=None, new_state=contact_state
+                    ),
+                    context=contact_state.context,
+                ),
+            )
 
     async def _reconcile_tick(self, now: datetime | None = None) -> None:
         """Periodic reconciliation tick (see controlling.reconcile_tick)."""
@@ -3726,12 +3807,25 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.heating_power = heating_power
         if heat_loss_rate is not None:
             self.heat_loss_rate = heat_loss_rate
+        # The filter state is as old as the downtime that followed it. The
+        # EMA comes back stamped with the time it was last updated at, so
+        # the first live reading is blended in over the real interval and a
+        # long stop hands the filter to that reading. A slope only describes
+        # the room while the EMA it came from is still current. Without a
+        # stamp the age is unknown, and startup seeds both from the live
+        # reading instead.
         filters = self.state_mgr.filters
-        if filters.room_temperature_ema is not None:
-            self.room_temperature_ema = filters.room_temperature_ema
-            self.room_temperature_filtered = round(filters.room_temperature_ema, 2)
-            self._room_temperature_ema_monotonic = self.clock.monotonic()
-        if filters.temperature_slope is not None:
+        recorded_at = filters.room_temperature_ema_recorded_at
+        if filters.room_temperature_ema is None or recorded_at is None:
+            return
+        age_seconds = max(0.0, self.clock.utcnow().timestamp() - recorded_at)
+        self.room_temperature_ema = filters.room_temperature_ema
+        self.room_temperature_filtered = round(filters.room_temperature_ema, 2)
+        self._room_temperature_ema_monotonic = self.clock.monotonic() - age_seconds
+        if (
+            filters.temperature_slope is not None
+            and age_seconds <= self.room_temperature_ema_tau_seconds
+        ):
             self.temperature_slope = filters.temperature_slope
 
     def _record_runtime_to_state(self) -> None:
@@ -3739,7 +3833,15 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if self.state_mgr is None:
             return
         self.state_mgr.record_thermal(self.heating_power, self.heat_loss_rate)
-        self.state_mgr.record_filters(self.room_temperature_ema, self.temperature_slope)
+        ema_monotonic = self._room_temperature_ema_monotonic
+        self.state_mgr.record_filters(
+            self.room_temperature_ema,
+            self.temperature_slope,
+            None
+            if ema_monotonic is None
+            else self.clock.utcnow().timestamp()
+            - (self.clock.monotonic() - ema_monotonic),
+        )
 
     @callback
     def schedule_save_state(self, delay_seconds: float = 15.0) -> None:

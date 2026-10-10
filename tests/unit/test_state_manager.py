@@ -276,15 +276,22 @@ class TestSerializeDeserializeRoundtrip:
     def test_filters_keep_their_stored_keys(self):
         """The room temperature EMA is stored as ``external_temp_ema``."""
         original = RuntimeState(
-            filters=FilterState(room_temperature_ema=20.4, temperature_slope=0.002)
+            filters=FilterState(
+                room_temperature_ema=20.4,
+                temperature_slope=0.002,
+                room_temperature_ema_recorded_at=1700000000.5,
+            )
         )
 
         raw = _serialize(original)
         restored = _deserialize(raw)
 
-        assert raw["filters"] == {"external_temp_ema": 20.4, "temp_slope": 0.002}
-        assert restored.filters.room_temperature_ema == 20.4
-        assert restored.filters.temperature_slope == 0.002
+        assert raw["filters"] == {
+            "external_temp_ema": 20.4,
+            "temp_slope": 0.002,
+            "room_temperature_ema_recorded_at": 1700000000.5,
+        }
+        assert restored.filters == original.filters
 
     def test_reid_results_keep_their_stored_keys(self):
         """The re-identification RMSEs are stored as ``rmse_prior_K``/``rmse_fit_K``."""

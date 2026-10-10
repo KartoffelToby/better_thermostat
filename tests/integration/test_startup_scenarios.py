@@ -53,6 +53,7 @@ from .conftest import (
     CRITICAL_GRACE,
     DEGRADED_GRACE,
     DOMAIN,
+    HUMIDITY_ID,
     SENSOR_ID,
     WINDOW_ID,
     WRITE_BUDGET,
@@ -60,6 +61,7 @@ from .conftest import (
     assert_write_is,
     make_entry,
     profile_id,
+    set_room_humidity,
     set_room_sensor,
     setup_entry,
     wait_for,
@@ -840,6 +842,21 @@ def publish_room_sensor_while_trvs_initialise(hass, state: str):
     return patch.object(BetterThermostat, "_initialize_trvs", publishing_first)
 
 
+def publish_while_trvs_initialise(hass, entity_id: str, state: str):
+    """Publish ``state`` for ``entity_id`` while startup writes to the TRVs.
+
+    That is after startup has read the sensors and before it listens to
+    them, so the state change itself is never handed to the room.
+    """
+    initialise_trvs = BetterThermostat._initialize_trvs
+
+    async def publishing_first(bt, *args, **kwargs):
+        hass.states.async_set(entity_id, state)
+        return await initialise_trvs(bt, *args, **kwargs)
+
+    return patch.object(BetterThermostat, "_initialize_trvs", publishing_first)
+
+
 async def tick_until(hass, clock, seconds: float, predicate) -> bool:
     """Move time on in steps of ``seconds`` until ``predicate()`` holds.
 
@@ -969,3 +986,103 @@ async def test_a_weather_service_that_never_answers_does_not_hold_up_startup(
         await wait_for_startup(hass, entry)
 
     assert hass.states.get(BT_ENTITY).state == "heat"
+
+
+@pytest.mark.parametrize(
+    ("at_boot", "during_startup"),
+    [("off", "on"), ("on", "off")],
+    ids=["opened", "closed"],
+)
+async def test_a_window_moved_during_startup_is_followed_once_startup_ends(
+    hass, fake_trv, at_boot, during_startup
+):
+    """The room follows the window as it is when startup ends.
+
+    Startup reads the window when it begins and listens to it only when it
+    ends. A window opened or closed in between publishes no further change,
+    and a room left on the old reading heats against an open window or stays
+    idle behind a closed one until the window moves again.
+    """
+    set_room_sensor(hass, 19.0)
+    hass.states.async_set(WINDOW_ID, at_boot)
+    entry = make_entry(fake_trv.profile, with_window=True)
+    with publish_while_trvs_initialise(hass, WINDOW_ID, during_startup):
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+
+    window_open = during_startup == "on"
+    assert await wait_for(hass, lambda: bt.window_open is window_open)
+    assert await wait_for(
+        hass,
+        lambda: hass.states.get(BT_ENTITY).attributes["window_open"] is window_open,
+    )
+
+
+async def test_an_unrecognized_window_state_during_startup_raises_its_issue(
+    hass, fake_trv
+):
+    """A window state nobody recognizes is reported once startup ends.
+
+    The window is closed when startup reads it. An unrecognized state reads
+    as closed as well, so it agrees with the region, yet the handler raises a
+    repair issue for it. Handed over only on disagreement, it would leave the
+    sensor's state unreported until the window moves again.
+    """
+    set_room_sensor(hass, 19.0)
+    hass.states.async_set(WINDOW_ID, "off")
+    entry = make_entry(fake_trv.profile, with_window=True)
+    with publish_while_trvs_initialise(hass, WINDOW_ID, "tilted"):
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+
+    issue_id = entry_issue_id(entry.entry_id, "invalid_window_state")
+    assert await wait_for(
+        hass, lambda: ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+    )
+    assert bt.window_open is False
+
+
+async def test_a_door_closed_during_startup_resumes_heating(hass, fake_trv):
+    """A door closed while startup runs does not hold the room idle.
+
+    The door is open when startup reads it and closed before startup listens
+    to it, so the close reaches the room only by being read again.
+    """
+    door_sensor_entity_id = "binary_sensor.door"
+    set_room_sensor(hass, 19.0)
+    hass.states.async_set(door_sensor_entity_id, "on")
+    base = make_entry(fake_trv.profile)
+    data = dict(base.data) | {
+        "door_sensors": door_sensor_entity_id,
+        "door_off_delay": 0,
+        "door_off_delay_after": 0,
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=base.version, data=data, title=base.title
+    )
+    with publish_while_trvs_initialise(hass, door_sensor_entity_id, "off"):
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+
+    assert await wait_for(hass, lambda: bt.door_open is False)
+    assert not bt.contact_open
+
+
+async def test_a_humidity_reading_published_during_startup_is_taken(hass, fake_trv):
+    """The published humidity is the sensor's current reading once startup ends.
+
+    Startup reads the humidity when it begins and listens to the sensor only
+    when it ends; a sensor that reported in between may not report again for
+    a long time.
+    """
+    set_room_sensor(hass, 19.0)
+    set_room_humidity(hass, 42.5)
+    entry = make_entry(fake_trv.profile, with_humidity=True)
+    with publish_while_trvs_initialise(hass, HUMIDITY_ID, "55.0"):
+        await setup_entry(hass, entry)
+        await wait_for_startup(hass, entry)
+
+    assert await wait_for(
+        hass,
+        lambda: hass.states.get(BT_ENTITY).attributes.get("current_humidity") == 55.0,
+    )

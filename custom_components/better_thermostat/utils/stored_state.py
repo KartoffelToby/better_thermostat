@@ -119,7 +119,12 @@ StoredThermalStats = TypedDict(  # noqa: UP013
 )
 
 StoredFilterState = TypedDict(  # noqa: UP013
-    "StoredFilterState", {"external_temp_ema": float | None, "temp_slope": float | None}
+    "StoredFilterState",
+    {
+        "external_temp_ema": float | None,
+        "temp_slope": float | None,
+        "room_temperature_ema_recorded_at": float | None,
+    },
 )
 
 StoredRuntimeState = TypedDict(  # noqa: UP013

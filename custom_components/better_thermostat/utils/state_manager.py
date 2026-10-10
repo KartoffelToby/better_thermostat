@@ -187,10 +187,14 @@ class FilterState:
         Exponential moving average of the external temperature.
     temperature_slope : float | None
         Estimated room-temperature slope.
+    room_temperature_ema_recorded_at : float | None
+        Wall-clock time the EMA was last updated at, in seconds since the
+        epoch. A restart reads the downtime off it.
     """
 
     room_temperature_ema: float | None = None
     temperature_slope: float | None = None
+    room_temperature_ema_recorded_at: float | None = None
 
 
 @dataclass
@@ -390,6 +394,7 @@ def write_filters(filters: FilterState) -> StoredFilterState:
     return {
         "external_temp_ema": filters.room_temperature_ema,
         "temp_slope": filters.temperature_slope,
+        "room_temperature_ema_recorded_at": filters.room_temperature_ema_recorded_at,
     }
 
 
@@ -1228,6 +1233,9 @@ def _deserialize(
         temperature_slope=_stored_optional_number(
             filters_raw, "filters", _STORED_TEMPERATURE_SLOPE
         ),
+        room_temperature_ema_recorded_at=_stored_optional_number(
+            filters_raw, "filters", "room_temperature_ema_recorded_at"
+        ),
     )
 
     # A legacy "presets" section is ignored: preset temperatures are UI
@@ -1617,7 +1625,10 @@ class StateManager:
         return self._state.filters
 
     def record_filters(
-        self, room_temperature_ema: float | None, temperature_slope: float | None
+        self,
+        room_temperature_ema: float | None,
+        temperature_slope: float | None,
+        room_temperature_ema_recorded_at: float | None = None,
     ) -> None:
         """Record the entity-held filter state before a save.
 
@@ -1631,10 +1642,16 @@ class StateManager:
             Exponential moving average of the external temperature.
         temperature_slope : float | None
             Estimated room-temperature slope.
+        room_temperature_ema_recorded_at : float | None
+            Wall-clock time the EMA was last updated at, in seconds since
+            the epoch.
         """
         self._state.filters = FilterState(
             room_temperature_ema=finite_or_none(room_temperature_ema),
             temperature_slope=finite_or_none(temperature_slope),
+            room_temperature_ema_recorded_at=finite_or_none(
+                room_temperature_ema_recorded_at
+            ),
         )
         self._dirty = True
 

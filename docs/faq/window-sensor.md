@@ -63,3 +63,6 @@ slamming or a quick airing check, are filtered out.
 - Saving the options reloads Better Thermostat. A wait that was in
   progress is dropped, and the window state the sensor reports at that
   moment applies right away.
+- A window opened or closed while Better Thermostat is still starting up
+  is picked up when startup finishes, and the delays apply to it as to
+  any other change. The same holds for a door sensor.
