@@ -291,15 +291,18 @@ def find_device_entity(
     device_id: str,
     domains: Iterable[str],
     keywords: Iterable[str],
+    excluded: Iterable[str] = (),
 ) -> str | None:
     """Return the entity_id of the first matching entity on a device.
 
     A match is any enabled entity belonging to ``device_id`` whose domain is
     in ``domains`` and whose name, unique_id or object-id contains any of
-    ``keywords`` (case-insensitive). Returns ``None`` if nothing matches.
+    ``keywords`` and none of ``excluded`` (case-insensitive). Returns
+    ``None`` if nothing matches.
     """
     domains = tuple(domains)
     keywords = tuple(k.lower() for k in keywords)
+    excluded = tuple(k.lower() for k in excluded)
     for ent in entity_registry.entities.values():
         if not is_sibling_entry(ent, device_id) or ent.domain not in domains:
             continue
@@ -310,6 +313,8 @@ def find_device_entity(
         # entity, not just the intended child-lock one.
         object_id = (ent.entity_id or "").lower().split(".", 1)[-1]
 
+        if any(k in text for k in excluded for text in (name, uid, object_id)):
+            continue
         if (
             any(k in name for k in keywords)
             or any(k in uid for k in keywords)
@@ -317,6 +322,35 @@ def find_device_entity(
         ):
             return ent.entity_id
     return None
+
+
+_CHILD_LOCK_DOMAINS = ("switch", "lock")
+# Locks a TRV exposes beside its child lock; the bare "lock" fallback must
+# never take one of these for the child lock.
+_OTHER_LOCK_KINDS = ("window", "valve", "door")
+
+
+def find_child_lock_entity(
+    entity_registry: er.EntityRegistry, device_id: str
+) -> str | None:
+    """Return the entity_id of the device's child lock, if it exposes one.
+
+    Zigbee2MQTT offers the child lock as a switch, other integrations as a
+    lock. An entity named for the child lock wins over any other entity
+    whose name merely contains "lock", wherever the registry lists it, so a
+    device that also exposes a window or valve lock keeps that one
+    untouched. A bare "lock" match is taken only when nothing is named for
+    the child lock.
+    """
+    return find_device_entity(
+        entity_registry, device_id, _CHILD_LOCK_DOMAINS, ["child_lock", "child lock"]
+    ) or find_device_entity(
+        entity_registry,
+        device_id,
+        _CHILD_LOCK_DOMAINS,
+        ["lock"],
+        excluded=_OTHER_LOCK_KINDS,
+    )
 
 
 # Sentinel for "this platform has not been set up in this process yet".
@@ -1687,6 +1721,11 @@ def resolve_inbound_setpoint(
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
 
 
+# A cooler may snap a received setpoint onto its own step grid (e.g. 0.5 °C,
+# or a whole-°F grid). A post-send reading within this distance of the sent
+# value counts as that device-side quantization, not as an unapplied command.
+COOLER_QUANTIZATION_TOLERANCE_K = 0.5
+
 # The command one cooler channel attempted, as the failure backoff compares
 # it: the wanted mode on the mode channel, and the (high, low) bound pair on
 # the setpoint channel, where the lower bound is absent for a single-setpoint
@@ -1710,6 +1749,8 @@ CoolerSendCache = TypedDict(  # noqa: UP013
         "hvac_mode": tuple[HVACMode, float | None],
         "hvac_mode_decided": HVACMode,
         "hvac_mode_failed": CoolerFailureRun,
+        "hvac_mode_reported": float,
+        "hvac_mode_resent_early": bool,
     },
     total=False,
 )
@@ -1722,8 +1763,10 @@ def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     ``(value, monotonic_timestamp)`` for the resend throttle, with no
     timestamp once the throttle no longer paces that value, the settled
     reading of each written channel, the mode the last cycle decided on for
-    the hysteresis band, and each channel's run of consecutive send failures
-    as ``(count, monotonic_timestamp, attempted_value)``. Created lazily
+    the hysteresis band, each channel's run of consecutive send failures
+    as ``(count, monotonic_timestamp, attempted_value)``, the monotonic time
+    the cooler last reported a mode change of its own, and whether the last
+    mode command went out ahead of the resend throttle. Created lazily
     because only cooler-equipped instances need it.
 
     Parameters
@@ -1762,6 +1805,42 @@ def last_sent_cooler_temperature(self: BetterThermostat) -> float | None:
     """
     value = cooler_send_cache(self).get("temperature", (None, None))[0]
     return value if isinstance(value, (int, float)) else None
+
+
+def settle_cooler_reading(self: BetterThermostat, reading: float) -> float | None:
+    """Return the cooler's answer to BT's last setpoint write, latching it.
+
+    A cooler may hold a written setpoint on a coarser grid than the one it
+    publishes, or than the one BT falls back to when it publishes none: a
+    whole-degree unit sent 22.5 °C holds 22 °C. The first reading within
+    ``COOLER_QUANTIZATION_TOLERANCE_K`` of the last write is taken as that
+    answer and kept as the settled reading until the next write replaces it.
+    The control cycle counts the write as applied while the device stays on
+    that reading, and the inbound handler reads a report on it as the write
+    coming back rather than as a press on the device.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat, carrying the send cache
+    reading : float
+            the cooling setpoint the cooler reports, in °C
+
+    Returns
+    -------
+    float | None
+            the settled reading, or None while the cooler has not answered the
+            last write, or no write has succeeded yet
+    """
+    last_sent = cooler_send_cache(self)
+    settled = last_sent.get("temperature_settled")
+    if settled is not None:
+        return settled
+    sent = last_sent_cooler_temperature(self)
+    if sent is None or abs(reading - sent) > COOLER_QUANTIZATION_TOLERANCE_K:
+        return None
+    last_sent["temperature_settled"] = reading
+    return reading
 
 
 def dual_role_entity_id(self: BetterThermostat) -> str | None:
@@ -1856,6 +1935,39 @@ def cooling_owns_dual_role_report(
     if reported_mode == HVACMode.COOL:
         return True
     return cooler_send_cache(self).get("hvac_mode_decided") == HVACMode.COOL
+
+
+def cooler_mode_diverges(self: BetterThermostat, state: State | None) -> bool:
+    """Answer whether a cooler reports a mode other than the one BT decided.
+
+    The cooling decision :func:`control_cooler` latched is the mode the cooler
+    should hold. A cooler that holds another one, because it came back from
+    an outage in the mode it had before, or because something other than
+    Better Thermostat switched it, needs a control cycle to be put back.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat, supplying the cooling decision
+            latch
+    state :
+            the cooler's reported state
+
+    Returns
+    -------
+    bool
+            True when the cooler reports a mode and it differs from the
+            latched decision; False while no decision has been taken yet, for
+            a state that says nothing about the device, and for a cooler that
+            carries the heating role as well, whose mode the heating channel
+            reconciles
+    """
+    if self.cooler_entity_id is None or dual_role_entity_id(self) is not None:
+        return False
+    decided = cooler_send_cache(self).get("hvac_mode_decided")
+    if decided is None or state is None or state_says_nothing(state):
+        return False
+    return state.state != decided
 
 
 def state_says_nothing(state: State | None) -> bool:
@@ -2333,12 +2445,18 @@ class ValveEntityInfo(TypedDict):
 _VALVE_TRANSLATION_KEYS: dict[str, str] = {
     "valve_position": "valve_position",
     "valve_opening_degree": "valve_opening_degree",
-    "valve_closing_degree": "valve_closing_degree",
     "pi_heating_demand": "pi_heating_demand",
     "heating_demand": "pi_heating_demand",
     # Shelly BLU TRV uses this translation_key
     "valve": "valve_position",
 }
+
+# The closing degree is the share of the valve held shut: the complement of
+# the opening Better Thermostat writes and reads back. Taken as the valve
+# entity it would receive the opening percentage as it stands and report the
+# opposite of what was sent, so it is never one.
+_VALVE_CLOSING_TRANSLATION_KEY = "valve_closing_degree"
+_VALVE_CLOSING_DESCRIPTORS = ("valve_closing_degree", "valve closing degree")
 
 # Device models whose valve-related numbers configure the device's own
 # controller rather than position the valve. The Sonoff TRV-ZBT publishes
@@ -2407,7 +2525,6 @@ async def find_valve_entity(
         return None
     entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
     preferred_domains = {"number", "input_number"}
-    readonly_candidate: ValveEntityInfo | None = None
 
     def _device_matches(candidate: er.RegistryEntry) -> bool:
         # Strong match: same device
@@ -2436,8 +2553,6 @@ async def find_valve_entity(
         # Sonoff TRVZB (and some others) expose explicit valve degree entities
         if "valve_opening_degree" in descriptor:
             return "valve_opening_degree"
-        if "valve_closing_degree" in descriptor:
-            return "valve_closing_degree"
 
         # Existing patterns
         if "pi_heating_demand" in descriptor:
@@ -2457,19 +2572,28 @@ async def find_valve_entity(
             return "position"
         return None
 
+    def _is_closing_degree(entity: er.RegistryEntry) -> bool:
+        if entity.translation_key == _VALVE_CLOSING_TRANSLATION_KEY:
+            return True
+        descriptor = (
+            f"{entity.unique_id or ''} {entity.entity_id or ''} "
+            f"{entity.original_name or ''}"
+        ).lower()
+        return any(marker in descriptor for marker in _VALVE_CLOSING_DESCRIPTORS)
+
     def _score(reason: str, writable: bool, domain: str) -> tuple[int, int, int]:
-        # Higher is better.
+        # Higher is better. A writable entity is a valve channel and a
+        # read-only one only reports, so writability ranks above the name.
         reason_score = {
             "valve_opening_degree": 100,
-            "valve_closing_degree": 95,
             "valve_position": 90,
             "pi_heating_demand": 80,
             "valve_generic": 60,
             "position": 50,
         }.get(reason, 0)
-        writable_score = 10 if writable else 0
+        writable_score = 1 if writable else 0
         domain_score = 1 if domain in preferred_domains else 0
-        return (reason_score, writable_score, domain_score)
+        return (writable_score, reason_score, domain_score)
 
     best: ValveEntityInfo | None = None
     best_score: tuple[int, int, int] = (-1, -1, -1)
@@ -2477,7 +2601,7 @@ async def find_valve_entity(
 
     for entity in entity_entries:
         uid = entity.unique_id or ""
-        if not _device_matches(entity):
+        if not _device_matches(entity) or _is_closing_degree(entity):
             continue
 
         # Prefer translation_key (stable, language-independent) over string matching
@@ -2502,26 +2626,16 @@ async def find_valve_entity(
         if best is None or score > best_score:
             best = info
             best_score = score
-        if not writable and readonly_candidate is None:
-            readonly_candidate = info
 
-    if best is not None and best.get("writable"):
+    if best is not None:
         _LOGGER.debug(
-            "better thermostat: Found writable valve helper %s for %s (reason=%s)",
-            best.get("entity_id"),
+            "better thermostat: Found %s valve helper %s for %s (reason=%s)",
+            "writable" if best["writable"] else "read-only",
+            best["entity_id"],
             entity_id,
-            best.get("reason"),
+            best["reason"],
         )
         return best
-
-    if readonly_candidate is not None:
-        _LOGGER.debug(
-            "better thermostat: Found read-only valve helper %s for %s (reason=%s)",
-            readonly_candidate.get("entity_id"),
-            entity_id,
-            readonly_candidate.get("reason"),
-        )
-        return readonly_candidate
 
     if disabled_match is not None:
         _report_disabled_sibling(

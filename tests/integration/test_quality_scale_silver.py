@@ -13,7 +13,9 @@ from unittest.mock import patch
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
+from pytest_homeassistant_custom_component.common import flush_store
 
 from custom_components.better_thermostat.utils.const import (
     SERVICE_RUN_VALVE_MAINTENANCE,
@@ -54,6 +56,23 @@ async def _started(hass, profile, **entry_options):
     await setup_entry(hass, entry)
     await wait_for_startup(hass, entry)
     return device, entry
+
+
+async def _listeners_once_core_saves_are_written(hass) -> dict[str, int]:
+    """Return the bus listener counts after Home Assistant's own pending saves.
+
+    A delayed save of the config entries or a registry holds a final-write
+    listener until its timer writes the file, one to ten seconds later on the
+    wall clock. Writing those saves first keeps the count independent of how
+    long the test took; a store of Better Thermostat still counts.
+    """
+    for store in (
+        hass.config_entries._store,
+        dr.async_get(hass)._store,
+        er.async_get(hass)._store,
+    ):
+        await flush_store(store)
+    return hass.bus.async_listeners()
 
 
 def _unavailable(hass, entity_id: str) -> bool:
@@ -138,7 +157,7 @@ async def test_an_unloaded_entry_leaves_no_listener_behind(hass):
     _, entry = await _started(hass, GENERIC_HEAT_TRV)
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    after_first = hass.bus.async_listeners()
+    after_first = await _listeners_once_core_saves_are_written(hass)
 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -146,7 +165,7 @@ async def test_an_unloaded_entry_leaves_no_listener_behind(hass):
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert hass.bus.async_listeners() == after_first
+    assert await _listeners_once_core_saves_are_written(hass) == after_first
 
 
 @pytest.mark.quality_rule("entity-unavailable")

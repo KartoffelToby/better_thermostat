@@ -92,12 +92,22 @@ def compute_mpc_v2(
         and plant_signature_differs(state.plant_signature, new_signature)
     ):
         _LOGGER.info(
-            "MPC v2 plant prior changed for %s (%s → %s); rebuilding controller",
+            "MPC v2 plant prior changed for %s (%s → %s); rebuilding controller "
+            "with the observer state carried over",
             inp.key,
             state.plant_signature,
             new_signature,
         )
-        state.controller = None
+        # The estimates, the disturbance reading, the error integral, the
+        # governor and the command history describe the room, not the prior,
+        # so the new controller takes them over and continues where the old
+        # one stood instead of re-learning from a cold start. A controller
+        # whose observer never saw the room has nothing to hand over.
+        previous = state.controller
+        state.controller = MpcV2Controller(params)
+        if previous.initialised:
+            state.controller.restore_snapshot(previous.export_snapshot())
+        state.plant_signature = new_signature
 
     if state.controller is None:
         state.controller = MpcV2Controller(params)
@@ -124,12 +134,23 @@ def compute_mpc_v2(
     else:
         T_outdoor = inp.outdoor_temperature
 
+    # The cap is a percent by contract; clamp it into 0..100 here so an
+    # out-of-range value from a caller cannot widen or invert the limit.
+    # ``int`` floors the clamped cap, which is the largest whole percent a
+    # fractional cap still admits.
+    cap_percent = (
+        None
+        if inp.max_opening_percent is None
+        else int(max(0.0, min(100.0, inp.max_opening_percent)))
+    )
+
     u, diag = state.controller.step(
         t_s=now,
         T_room=inp.room_temperature,
         T_target=inp.target_temperature,
         T_outdoor=T_outdoor,
         T_rad=inp.trv_temperature,
+        u_max=None if cap_percent is None else cap_percent / 100.0,
     )
 
     # Round half up. The built-in ``round`` is half to even, so it sends every
@@ -142,14 +163,8 @@ def compute_mpc_v2(
     # micro-percent makes "half" mean half before the half-up step decides,
     # and leaves every fraction that is not one where it was.
     percent_int = int(round(max(0.0, min(1.0, u)) * 100.0, 6) + 0.5)
-    if inp.max_opening_percent is not None:
-        # The cap is a percent by contract; clamp it into 0..100 here so an
-        # out-of-range value from a caller cannot widen or invert the limit.
-        # ``int`` floors the clamped cap, which is the largest whole percent a
-        # fractional cap still admits.
-        percent_int = min(
-            percent_int, int(max(0.0, min(100.0, inp.max_opening_percent)))
-        )
+    if cap_percent is not None:
+        percent_int = min(percent_int, cap_percent)
 
     # This is the bounded command requested this cycle.  It is replaced by the
     # confirmed input above on the next cycle once the adapter has succeeded.
