@@ -209,6 +209,7 @@ class TestReconcileTick:
         bt = _make_bt()
         trv = bt.real_trvs["climate.trv"]
         trv.local_temperature_calibration_entity = "number.offset"
+        trv.calibration = CalibrationOutput.LOCAL_BASED
         trv.last_calibration = 2.0
         trv.calibration_received = True
         self._with_states(bt, {"number.offset": self._state("0.0")})
@@ -221,6 +222,7 @@ class TestReconcileTick:
         bt = _make_bt()
         trv = bt.real_trvs["climate.trv"]
         trv.local_temperature_calibration_entity = "number.offset"
+        trv.calibration = CalibrationOutput.LOCAL_BASED
         trv.last_calibration = 2.0
         trv.local_calibration_step = 0.5
         trv.calibration_received = True
@@ -239,6 +241,7 @@ class TestReconcileTick:
         bt = _make_bt()
         trv = bt.real_trvs["climate.trv"]
         trv.local_temperature_calibration_entity = "number.offset"
+        trv.calibration = CalibrationOutput.LOCAL_BASED
         trv.last_calibration = 6.3
         trv.local_calibration_step = 0.1
         trv.calibration_received = True
@@ -252,6 +255,7 @@ class TestReconcileTick:
         bt = _make_bt()
         trv = bt.real_trvs["climate.trv"]
         trv.local_temperature_calibration_entity = "number.offset"
+        trv.calibration = CalibrationOutput.LOCAL_BASED
         trv.last_calibration = 6.3
         trv.local_calibration_step = 0.1
         trv.calibration_received = True
@@ -277,6 +281,7 @@ class TestReconcileTick:
         bt = _make_bt()
         trv = bt.real_trvs["climate.trv"]
         trv.local_temperature_calibration_entity = "number.offset"
+        trv.calibration = CalibrationOutput.LOCAL_BASED
         trv.last_calibration = 2.0
         trv.local_calibration_step = 0.5
         trv.calibration_received = True
@@ -299,6 +304,7 @@ class TestReconcileTick:
         bt = _make_bt()
         trv = bt.real_trvs["climate.trv"]
         trv.local_temperature_calibration_entity = "number.offset"
+        trv.calibration = CalibrationOutput.LOCAL_BASED
         trv.last_calibration = 2.0
         trv.calibration_received = False
         self._with_states(bt, {"number.offset": self._state("0.0")})
@@ -978,12 +984,15 @@ class TestOffsetReconcileHandoff:
         ):
             yield
 
-    def _diverged_offset_bt(self):
+    def _diverged_offset_bt(
+        self, calibration: CalibrationOutput = CalibrationOutput.LOCAL_BASED
+    ):
         bt = _control_bt()
         trv = bt.real_trvs["climate.trv"]
+        trv.calibration = calibration
         trv.advanced = {
             "calibration_mode": CalibrationMode.DEFAULT,
-            "calibration": CalibrationOutput.LOCAL_BASED,
+            "calibration": calibration,
             "no_off_system_mode": False,
         }
         trv.local_temperature_calibration_entity = "number.offset"
@@ -1007,6 +1016,25 @@ class TestOffsetReconcileHandoff:
         bt = self._diverged_offset_bt()
         await reconcile_tick(bt)
         bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "calibration",
+        [CalibrationOutput.TARGET_TEMP_BASED, CalibrationOutput.DIRECT_VALVE_BASED],
+    )
+    @pytest.mark.asyncio
+    async def test_the_offset_of_a_trv_calibrated_otherwise_is_no_divergence(
+        self, calibration
+    ):
+        """The offset of a TRV calibrated otherwise is the device's own.
+
+        Such a TRV can still carry a calibration entity, and its offset can
+        sit anywhere; no control cycle writes to it, so a cycle queued for
+        it would change nothing and the tick would queue one on every pass.
+        """
+        bt = self._diverged_offset_bt(calibration)
+        assert bt.real_trvs["climate.trv"].capabilities().supports_offset_write
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_the_queued_cycle_rewrites_the_offset(self):
