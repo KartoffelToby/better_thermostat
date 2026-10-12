@@ -129,7 +129,7 @@ def thermostat(reported_states):
             target_temperature_received=True,
             system_mode_received=True,
             calibration_received=True,
-            calibration=1,
+            calibration=None,
             last_calibration=0.0,
             ignore_trv_states=False,
             model="SomeModel",

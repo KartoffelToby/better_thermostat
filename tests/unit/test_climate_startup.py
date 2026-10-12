@@ -56,6 +56,7 @@ from custom_components.better_thermostat.utils.const import (
     DEFAULT_TARGET_TEMP,
     MAX_HEAT_LOSS,
     MAX_HEATING_POWER,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.entry_schema import TrvSettings
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
@@ -73,7 +74,7 @@ OUTDOOR_ID = "sensor.outdoor_temp"
 # The calibration code startup derives for a TRV whose offset lives on its own
 # calibration entity. Any code but 1 makes startup read the device's offset and
 # the bounds it accepts.
-LOCAL_CALIBRATION = 3
+LOCAL_CALIBRATION = CalibrationOutput.LOCAL_BASED
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +113,7 @@ def bt():
     mock.real_trvs = {
         TRV_ID: Trv(
             entity_id=TRV_ID,
-            calibration=1,
+            calibration=None,
             integration="generic_thermostat",
             adapter=None,
             model_quirks=None,
@@ -239,7 +240,7 @@ def plateau_bt(bt, hass):
     bt.real_trvs = {
         TRV_ID: Trv(
             entity_id=TRV_ID,
-            calibration=1,
+            calibration=None,
             integration="generic_thermostat",
             adapter=None,
             model_quirks=quirks,
@@ -1610,7 +1611,7 @@ class TestInitializeTrvCurrentTemperature:
     """
 
     def _trv_only_bt(self, bt, attrs, unit="°C"):
-        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=None)}
         bt.hass.config.units.temperature_unit = unit
         bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
         return bt
@@ -1656,7 +1657,7 @@ class TestInitializeTrvEchoSetpoints:
     """Startup takes the device's own setpoint as the one it may echo."""
 
     def _trv_only_bt(self, bt, attrs):
-        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=None)}
         bt.hass.config.units.temperature_unit = "°C"
         bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
         return bt
@@ -1702,7 +1703,7 @@ class TestInitializeTrvRangeFallback:
     """
 
     def _trv_only_bt(self, bt, unit, state):
-        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=None)}
         bt.hass.config.units.temperature_unit = unit
         bt.hass.states.get.return_value = state
         return bt
@@ -3234,7 +3235,7 @@ def _two_heads():
     second head has to exist for a two-state case to say anything.
     """
     return {
-        entity_id: Trv(entity_id=entity_id, calibration=1)
+        entity_id: Trv(entity_id=entity_id, calibration=None)
         for entity_id in (TRV_ID, TRV_ID_2)
     }
 
@@ -3546,9 +3547,9 @@ class TestStartupWithoutAnUnavailableTrv:
     async def test_startup_initialises_only_the_trvs_it_did_not_leave_behind(self, bt):
         """The TRV left behind is not read or set up by startup."""
         bt.real_trvs = {
-            TRV_ID: Trv(entity_id=TRV_ID, calibration=1),
+            TRV_ID: Trv(entity_id=TRV_ID, calibration=None),
             TRV_ID_2: Trv(
-                entity_id=TRV_ID_2, calibration=1, awaiting_initialization=True
+                entity_id=TRV_ID_2, calibration=None, awaiting_initialization=True
             ),
         }
         bt.hass.states.get.side_effect = lambda entity_id: _make_trv_state(
@@ -3569,9 +3570,9 @@ class TestStartupWithoutAnUnavailableTrv:
     async def test_a_named_trv_is_initialised_on_its_own(self, bt):
         """A TRV named explicitly is initialised whatever it is marked as."""
         bt.real_trvs = {
-            TRV_ID: Trv(entity_id=TRV_ID, calibration=1),
+            TRV_ID: Trv(entity_id=TRV_ID, calibration=None),
             TRV_ID_2: Trv(
-                entity_id=TRV_ID_2, calibration=1, awaiting_initialization=True
+                entity_id=TRV_ID_2, calibration=None, awaiting_initialization=True
             ),
         }
         bt.all_entities = [TRV_ID, TRV_ID_2]

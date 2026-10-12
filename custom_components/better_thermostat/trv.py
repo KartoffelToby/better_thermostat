@@ -27,7 +27,10 @@ from custom_components.better_thermostat.model_fixes.types import (
     QuirkScratchpad,
 )
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
-from custom_components.better_thermostat.utils.const import CONF_NO_OFF_SYSTEM_MODE
+from custom_components.better_thermostat.utils.const import (
+    CONF_NO_OFF_SYSTEM_MODE,
+    CalibrationOutput,
+)
 from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
 from custom_components.better_thermostat.utils.helpers import device_offers_mode
 
@@ -85,7 +88,9 @@ class Trv:
     # -- Static configuration --------------------------------------------
     integration: str | None = None
     model: str | None = None
-    calibration: int | None = None
+    # What BT writes to calibrate the TRV; None when the configuration
+    # selects no calibration type.
+    calibration: CalibrationOutput | None = None
     adapter: TrvAdapter | None = None
     # The model-quirk module ``load_model_quirks`` imported for the model.
     model_quirks: ModelQuirks | None = None
