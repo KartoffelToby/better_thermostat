@@ -4,6 +4,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
     LadderParams,
+    PendingWindow,
     start_on_rung,
     step as control_mode_step,
     step_ladder,
@@ -22,6 +23,12 @@ def _up(state, now):
     return step_ladder(
         state, room_sensor_ok=True, trv_temperature_ok=True, now=now, params=P
     )
+
+
+def _pending_target(state: ControlModeState) -> ControlMode:
+    """Return the rung the running window commits to."""
+    assert state.pending is not None
+    return state.pending.target
 
 
 def test_initial_state_is_optimal():
@@ -96,15 +103,15 @@ def test_escalation_mid_debounce_commits_the_shallowest_observed_rung():
     observed throughout — HOLD must then earn its own full debounce.
     """
     state = _down(ControlModeState(), now=0.0)
-    assert state.pending_target == ControlMode.SENSOR_FALLBACK
+    assert _pending_target(state) == ControlMode.SENSOR_FALLBACK
     state = _down(state, now=119.0, trv_ok=False)
     assert state.mode == ControlMode.OPTIMAL
-    assert state.pending_target == ControlMode.SENSOR_FALLBACK
+    assert _pending_target(state) == ControlMode.SENSOR_FALLBACK
     # The window elapses with only SENSOR_FALLBACK continuously
     # supported; the deeper HOLD pressure starts its own window.
     state = _down(state, now=120.0, trv_ok=False)
     assert state.mode == ControlMode.SENSOR_FALLBACK
-    assert state.pending_target == ControlMode.HOLD
+    assert _pending_target(state) == ControlMode.HOLD
     state = _down(state, now=239.0, trv_ok=False)
     assert state.mode == ControlMode.SENSOR_FALLBACK
     state = _down(state, now=240.0, trv_ok=False)
@@ -122,15 +129,15 @@ def test_second_recovery_commits_the_deepest_observed_rung_first():
     """
     state = ControlModeState(mode=ControlMode.HOLD, degraded_since=0.0)
     state = _down(state, now=1000.0, trv_ok=True)
-    assert state.pending_target == ControlMode.SENSOR_FALLBACK
+    assert _pending_target(state) == ControlMode.SENSOR_FALLBACK
     state = _up(state, now=1250.0)
     assert state.mode == ControlMode.HOLD
-    assert state.pending_target == ControlMode.SENSOR_FALLBACK
+    assert _pending_target(state) == ControlMode.SENSOR_FALLBACK
     # The window elapses with only SENSOR_FALLBACK continuously
     # supported; the shallower OPTIMAL pressure starts its own window.
     state = _up(state, now=1300.0)
     assert state.mode == ControlMode.SENSOR_FALLBACK
-    assert state.pending_target == ControlMode.OPTIMAL
+    assert _pending_target(state) == ControlMode.OPTIMAL
     state = _up(state, now=1599.0)
     assert state.mode == ControlMode.SENSOR_FALLBACK
     state = _up(state, now=1600.0)
@@ -226,13 +233,14 @@ def test_start_on_rung_commits_without_a_window_and_drops_a_pending_one():
     """
     state = control_mode_step(ControlModeState(), ["sensor.room"], 10.0)
     state = _down(state, now=10.0)
-    assert state.down_pending_since == 10.0
+    assert state.pending == PendingWindow(
+        deeper=True, since=10.0, target=ControlMode.SENSOR_FALLBACK
+    )
 
     state = start_on_rung(state, ControlMode.SENSOR_FALLBACK)
 
     assert state.mode == ControlMode.SENSOR_FALLBACK
-    assert state.down_pending_since is None
-    assert state.pending_target is None
+    assert state.pending is None
     assert state.unavailable_sensors == ("sensor.room",)
     assert state.degraded_since == 10.0
     assert _down(state, now=11.0).mode == ControlMode.SENSOR_FALLBACK

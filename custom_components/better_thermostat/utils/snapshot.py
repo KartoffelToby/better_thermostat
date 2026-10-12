@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from ..calibration import _get_current_outdoor_temperature, _get_solar_context
-from ..core.snapshot import TrvReported, WorldSnapshot, parse_hvac_mode
+from ..core.snapshot import TrvReported, WorldSnapshot, parse_hvac_mode, parse_preset
 from ..model_fixes.model_quirks import trv_state_unknown_as_available
 from .helpers import convert_to_float
 
@@ -108,7 +108,7 @@ def build_snapshot(self: BetterThermostat) -> WorldSnapshot:
         temperature_slope=_as_float(self, self.temperature_slope),
         call_for_heat=self.call_for_heat,
         window_open=_raw_window_open(self),
-        preset_mode=self.preset_mode,
+        preset_mode=parse_preset(self.preset_mode),
         tolerance=_as_float(self, self.tolerance) or 0.0,
         outdoor_temperature=_get_current_outdoor_temperature(self),
         is_day=is_day,

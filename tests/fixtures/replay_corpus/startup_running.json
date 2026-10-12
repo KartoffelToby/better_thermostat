@@ -27,8 +27,8 @@
         "entity_id": "climate.trv1",
         "hvac_mode": null,
         "max_local_calibration": null,
-        "min_local_calibration": null,
         "max_temp": null,
+        "min_local_calibration": null,
         "min_temp": null,
         "setpoint": null,
         "valve_max_opening": null
@@ -39,8 +39,8 @@
         "entity_id": "climate.trv2",
         "hvac_mode": null,
         "max_local_calibration": null,
-        "min_local_calibration": null,
         "max_temp": null,
+        "min_local_calibration": null,
         "min_temp": null,
         "setpoint": null,
         "valve_max_opening": null
@@ -51,10 +51,9 @@
   "state": {
     "control_mode": {
       "degraded_since": null,
-      "down_pending_since": null,
       "mode": "optimal",
-      "unavailable_sensors": [],
-      "up_pending_since": null
+      "pending": null,
+      "unavailable_sensors": []
     },
     "door": {
       "pending_since": null,

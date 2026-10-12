@@ -9,10 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..snapshot import HvacMode, parse_hvac_mode
-
-# Preset value meaning "no preset"; matches HA's PRESET_NONE.
-PRESET_NONE = "none"
+from ..snapshot import HvacMode, Preset, parse_hvac_mode, parse_preset
 
 
 @dataclass(frozen=True)
@@ -23,12 +20,12 @@ class ModeState:
     ----------
     hvac_mode : HvacMode
         Current HVAC operating mode (OFF, HEAT, COOL, HEAT_COOL).
-    preset : str | None
-        Active preset name, or ``None`` when no preset is active.
+    preset : Preset | None
+        Active preset, or ``None`` when no preset is active.
     """
 
     hvac_mode: HvacMode = HvacMode.OFF
-    preset: str | None = None
+    preset: Preset | None = None
 
 
 def set_hvac_mode(state: ModeState, mode: str | None) -> ModeState:
@@ -53,21 +50,26 @@ def set_hvac_mode(state: ModeState, mode: str | None) -> ModeState:
 
 
 def set_preset(state: ModeState, preset: str | None) -> ModeState:
-    """Set the preset; PRESET_NONE and empty values clear it.
+    """Set the preset; ``Preset.NONE`` and empty values clear it.
 
     Parameters
     ----------
     state : ModeState
         Current mode state.
     preset : str | None
-        Preset name to apply; ``None``, ``PRESET_NONE`` or an empty string
-        clears the active preset.
+        Preset name to apply; ``None``, ``Preset.NONE`` or an empty string
+        clears the active preset, an unknown name leaves the state unchanged.
 
     Returns
     -------
     ModeState
         Updated state with the new (or cleared) preset.
     """
-    if preset is None or preset in (PRESET_NONE, ""):
+    if preset is None or preset == "":
         return ModeState(hvac_mode=state.hvac_mode, preset=None)
-    return ModeState(hvac_mode=state.hvac_mode, preset=preset)
+    parsed = parse_preset(preset)
+    if parsed is None:
+        return state
+    if parsed == Preset.NONE:
+        return ModeState(hvac_mode=state.hvac_mode, preset=None)
+    return ModeState(hvac_mode=state.hvac_mode, preset=parsed)
