@@ -19,6 +19,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Diagnostics,
     MpcV2Input,
     MpcV2Params,
+    MpcV2PlantPreset,
     MpcV2State,
     compute_mpc_v2,
     export_mpc_v2_state,
@@ -332,16 +333,16 @@ def test_make_plant_prior_clamps_extreme_heat_loss() -> None:
 def test_make_plant_prior_preset_overrides_learnings() -> None:
     """A named preset overrides the learned derivation and copies independently."""
     # Preset wins even when heat_loss_rate would otherwise derive a value.
-    prior = make_plant_prior(heat_loss_rate=0.03, preset="small_room")
-    assert prior.tau_room_min == PLANT_PRESETS["small_room"].tau_room_min
+    prior = make_plant_prior(heat_loss_rate=0.03, preset=MpcV2PlantPreset.SMALL_ROOM)
+    assert prior.tau_room_min == PLANT_PRESETS[MpcV2PlantPreset.SMALL_ROOM].tau_room_min
     # And presets are independent copies, not the shared singleton.
     prior.tau_room_min = 999.0
-    assert PLANT_PRESETS["small_room"].tau_room_min != 999.0
+    assert PLANT_PRESETS[MpcV2PlantPreset.SMALL_ROOM].tau_room_min != 999.0
 
 
-def test_make_plant_prior_unknown_preset_falls_back_to_derivation() -> None:
-    """An unknown preset name falls back to heat-loss derivation."""
-    prior = make_plant_prior(heat_loss_rate=0.03, preset="bogus_room")
+def test_make_plant_prior_auto_preset_falls_back_to_derivation() -> None:
+    """The AUTO preset has no static entry and derives from the heat-loss rate."""
+    prior = make_plant_prior(heat_loss_rate=0.03, preset=MpcV2PlantPreset.AUTO)
     assert abs(prior.tau_room_min - 500.0) < 1e-6
 
 
@@ -351,7 +352,7 @@ def test_plant_signature_change_rebuilds_controller(caplog) -> None:
     state: MpcV2State | None = None
     out, state = compute_mpc_v2(
         _baseline_input(key="preset-test-key"),
-        MpcV2Params(plant=make_plant_prior(preset="small_room")),
+        MpcV2Params(plant=make_plant_prior(preset=MpcV2PlantPreset.SMALL_ROOM)),
         state,
     )
     assert out is not None
@@ -360,7 +361,7 @@ def test_plant_signature_change_rebuilds_controller(caplog) -> None:
     with caplog.at_level("INFO"):
         out, state = compute_mpc_v2(
             _baseline_input(key="preset-test-key"),
-            MpcV2Params(plant=make_plant_prior(preset="large_room")),
+            MpcV2Params(plant=make_plant_prior(preset=MpcV2PlantPreset.LARGE_ROOM)),
             state,
         )
     assert state.controller is not original_ctrl
@@ -1486,11 +1487,11 @@ def test_a_prior_change_before_the_first_cycle_seeds_from_the_measurement() -> N
     A controller built but not yet stepped holds only the construction default
     in its observer, which is no estimate of the room to carry over.
     """
-    before = MpcV2Params(plant=make_plant_prior(preset="small_room"))
+    before = MpcV2Params(plant=make_plant_prior(preset=MpcV2PlantPreset.SMALL_ROOM))
     state = MpcV2State(
         controller=MpcV2Controller(before), plant_signature=_plant_signature_of(before)
     )
-    after = MpcV2Params(plant=make_plant_prior(preset="large_room"))
+    after = MpcV2Params(plant=make_plant_prior(preset=MpcV2PlantPreset.LARGE_ROOM))
 
     _, state = compute_mpc_v2(
         _baseline_input(room_temperature=16.0, trv_temperature=16.0),
