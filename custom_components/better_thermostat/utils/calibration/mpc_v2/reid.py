@@ -26,12 +26,19 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 import math
+from typing import Literal
 
 from ..mpc_v2_internals.plant import (
     GAIN_HEATER_BOUNDS,
     TAU_ROOM_BOUNDS_MIN,
     PlantParams,
 )
+
+# The activity a sample shows: valve well open, valve (almost) closed, or
+# neither, which no segment is cut from.
+type SampleClass = Literal["heating", "idle", "other"]
+type SegmentKind = Literal["heatup", "cooldown"]
+type ReidStatus = Literal["accepted", "rejected", "insufficient_data"]
 
 
 @dataclass
@@ -80,7 +87,7 @@ class ReidBuffer:
 class Segment:
     """A contiguous, informative transient cut from the sample buffer."""
 
-    kind: str  # "heatup" | "cooldown"
+    kind: SegmentKind
     samples: list[ReidSample]
 
     @property
@@ -118,7 +125,7 @@ class ReidConfig:
 class ReidOutcome:
     """Result of one batch fit attempt."""
 
-    status: str  # "accepted" | "rejected" | "insufficient_data"
+    status: ReidStatus
     tau_room_min: float | None = None
     gain_heater: float | None = None
     rmse_prior_K: float | None = None
@@ -127,7 +134,7 @@ class ReidOutcome:
     n_samples: int = 0
 
 
-def _classify(sample: ReidSample, config: ReidConfig) -> str:
+def _classify(sample: ReidSample, config: ReidConfig) -> SampleClass:
     if sample.u_frac >= config.u_heating_frac:
         return "heating"
     if sample.u_frac <= config.u_idle_frac:
@@ -147,7 +154,7 @@ def extract_segments(samples: list[ReidSample], config: ReidConfig) -> list[Segm
     """
     segments: list[Segment] = []
     run: list[ReidSample] = []
-    run_class = ""
+    run_class: SampleClass | None = None
 
     def _flush() -> None:
         nonlocal run
@@ -166,7 +173,7 @@ def extract_segments(samples: list[ReidSample], config: ReidConfig) -> list[Segm
     for sample in samples:
         if sample.window_open or sample.T_outdoor is None:
             _flush()
-            run_class = ""
+            run_class = None
             continue
         sample_class = _classify(sample, config)
         gap_broken = bool(run) and sample.t_s - run[-1].t_s > config.max_gap_s

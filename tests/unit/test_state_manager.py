@@ -34,6 +34,7 @@ from homeassistant.util.json import json_loads
 import pytest
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
+from custom_components.better_thermostat.utils.calibration.mpc import TrvProfile
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Params,
     MpcV2State,
@@ -222,7 +223,7 @@ class TestSerializeDeserializeRoundtrip:
             last_percent=42.5,
             dead_zone_hits=3,
             is_calibration_active=True,
-            trv_profile="linear",
+            trv_profile=TrvProfile.LINEAR,
             recent_errors=deque([0.1, -0.2, 0.05], maxlen=20),
             perf_curve={"20.0": {"gain": 1.5, "count": 10}},
         )
@@ -447,12 +448,22 @@ class TestDeserializeMpcTypeCoercion:
         assert mpc.is_calibration_active is True
         assert mpc.regime_boost_active is False
 
-    def test_str_field_from_number(self):
-        """Numeric values in str fields are coerced to str."""
+    def test_trv_profile_from_number(self):
+        """A stored profile that names no known profile restores as unknown."""
         raw = {"trv_profile": 123}
         mpc = deserialize_mpc(raw)
-        assert mpc.trv_profile == "123"
-        assert isinstance(mpc.trv_profile, str)
+        assert mpc.trv_profile is TrvProfile.UNKNOWN
+
+    def test_trv_profile_from_unknown_name(self):
+        """A profile name this version does not know restores as unknown."""
+        mpc = deserialize_mpc({"trv_profile": "logarithmic", "gain_est": 0.05})
+        assert mpc.trv_profile is TrvProfile.UNKNOWN
+        assert mpc.gain_est == 0.05
+
+    def test_trv_profile_from_known_name(self):
+        """A stored profile name restores as its member."""
+        mpc = deserialize_mpc({"trv_profile": "exponential"})
+        assert mpc.trv_profile is TrvProfile.EXPONENTIAL
 
     def test_float_field_from_int(self):
         """Integer values in float fields are coerced to float."""

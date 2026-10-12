@@ -33,12 +33,19 @@ from custom_components.better_thermostat.utils.calibration.strategies import (
 from custom_components.better_thermostat.utils.calibration.tpi import TpiOutput
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.telemetry import CalibrationBalance
-from tests.factories import ThermostatStandIn, make_snapshot, make_state
+from tests.factories import (
+    ThermostatStandIn,
+    make_calibration_balance,
+    make_snapshot,
+    make_state,
+)
 
 
 def _balance(valve_percent: float) -> CalibrationBalance:
     """A calibration result as the balance computation stores it on the TRV."""
-    return {"valve_percent": valve_percent, "apply_valve": False, "debug": {}}
+    return make_calibration_balance(
+        CalibrationMode.MPC_CALIBRATION, valve_percent=valve_percent
+    )
 
 
 class TestCapabilityNesting:

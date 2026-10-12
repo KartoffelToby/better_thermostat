@@ -52,7 +52,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
-from .calibration.mpc import MpcState
+from .calibration.mpc import MpcState, TrvProfile
 from .calibration.mpc_v2 import (
     MpcV2Params,
     MpcV2State,
@@ -579,9 +579,12 @@ def _stored_flag(value: object, stored: str) -> bool:
     return bool(value)
 
 
-def _stored_text(value: object, stored: str) -> str:
-    """Parse a name with ``str()``."""
-    return str(value)
+def _stored_trv_profile(value: object, stored: str) -> TrvProfile:
+    """Parse a learned TRV profile; a name this version does not know restores as unknown."""
+    try:
+        return TrvProfile(value)
+    except ValueError:
+        return TrvProfile.UNKNOWN
 
 
 # Parses one stored value into a field's type. The second argument is the
@@ -807,7 +810,9 @@ def deserialize_mpc(
                 "last_room_temperature_ts", number, held.last_room_temperature_ts
             ),
             perf_curve=read.required("perf_curve", _stored_perf_curve, held.perf_curve),
-            trv_profile=read.required("trv_profile", _stored_text, held.trv_profile),
+            trv_profile=read.required(
+                "trv_profile", _stored_trv_profile, held.trv_profile
+            ),
             profile_confidence=read.required(
                 "profile_confidence", number, held.profile_confidence
             ),
