@@ -476,14 +476,16 @@ class TestMpcSensorState:
         return {
             "trv_1": Trv(
                 entity_id="trv_1",
-                calibration_balance=make_calibration_balance(debug=debug_values),
+                calibration_balance=make_calibration_balance(
+                    CalibrationMode.MPC_CALIBRATION, debug_values
+                ),
             )
         }
 
     def test_virtual_temperature_reads_from_debug(self):
         """Virtual temperature reads from debug."""
         bt = _make_bt_climate(
-            real_trvs=self._make_trv_with_debug(**{"mpc_virtual_temp": 22.5})
+            real_trvs=self._make_trv_with_debug(**{"mpc_virtual_temp": "22.500"})
         )
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
@@ -519,14 +521,24 @@ class TestMpcSensorState:
 
     def test_debug_without_the_reading_returns_none(self):
         """A debug payload without the virtual temperature returns none."""
+        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(mpc_gain=0.05))
+        sensor = BetterThermostatVirtualTempSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value is None
+
+    def test_a_payload_of_another_controller_is_not_read(self):
+        """A PID payload under the same key leaves the sensor empty."""
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": Trv(
-                    entity_id="trv_1", calibration_balance=make_calibration_balance()
+                    entity_id="trv_1",
+                    calibration_balance=make_calibration_balance(
+                        CalibrationMode.PID_CALIBRATION, {"mpc_gain": 0.05}
+                    ),
                 )
             }
         )
-        sensor = BetterThermostatVirtualTempSensor(bt)
+        sensor = BetterThermostatMpcGainSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
 
@@ -561,7 +573,7 @@ class TestMpcSensorState:
                 "trv_2": Trv(
                     entity_id="trv_2",
                     calibration_balance=make_calibration_balance(
-                        debug={"mpc_virtual_temp": 23.0}
+                        CalibrationMode.MPC_CALIBRATION, {"mpc_virtual_temp": "23.000"}
                     ),
                 ),
             }
@@ -575,10 +587,27 @@ class TestMpcV2SensorState:
     """The MPC v2 sensors read the payload MPC v2 publishes, and only that one."""
 
     @staticmethod
-    def _trv(name, debug):
+    def _trv(name, controller, **debug):
         return Trv(
-            entity_id=name, calibration_balance=make_calibration_balance(debug=debug)
+            entity_id=name,
+            calibration_balance=make_calibration_balance(controller, debug),
         )
+
+    @classmethod
+    def _v2_trv(cls, name, **overrides):
+        debug = {
+            "T_room_hat": 21.0,
+            "T_rad_hat": 30.0,
+            "D_hat_K_per_min": 0.0,
+            "tau_room_min": 120.0,
+            "coupling_rad_room": 0.5,
+            "group_valve_pct": 40.0,
+            "distributed_valve_pct": 40.0,
+            "controller_version": "v2",
+            "reid_tau_room": None,
+            "reid_gain": None,
+        }
+        return cls._trv(name, CalibrationMode.MPC_V2_CALIBRATION, **(debug | overrides))
 
     @pytest.mark.parametrize(
         ("sensor_class", "debug_key", "value"),
@@ -593,11 +622,7 @@ class TestMpcV2SensorState:
         self, sensor_class, debug_key, value
     ):
         bt = _make_bt_climate(
-            real_trvs={
-                "trv_1": self._trv(
-                    "trv_1", {"controller_version": "V2", debug_key: value}
-                )
-            }
+            real_trvs={"trv_1": self._v2_trv("trv_1", **{debug_key: value})}
         )
         sensor = sensor_class(bt)
         sensor._update_state()
@@ -608,7 +633,7 @@ class TestMpcV2SensorState:
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": self._trv(
-                    "trv_1", {"controller_version": "v1", "T_room_hat": 21.0}
+                    "trv_1", CalibrationMode.MPC_CALIBRATION, T_room_hat=21.0
                 )
             }
         )
@@ -617,20 +642,16 @@ class TestMpcV2SensorState:
         assert sensor._attr_native_value is None
 
     def test_the_first_head_with_a_v2_value_is_shown(self):
-        """Heads without the value, or on another controller, are passed over."""
+        """Heads without a balance, or on another controller, are passed over."""
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": Trv(entity_id="trv_1"),
                 "trv_2": self._trv(
-                    "trv_2", {"controller_version": "v1", "tau_room_min": 1.0}
+                    "trv_2", CalibrationMode.MPC_CALIBRATION, tau_room_min=1.0
                 ),
-                "trv_3": self._trv("trv_3", {"controller_version": "v2"}),
-                "trv_4": self._trv(
-                    "trv_4", {"controller_version": "v2", "tau_room_min": 90.0}
-                ),
-                "trv_5": self._trv(
-                    "trv_5", {"controller_version": "v2", "tau_room_min": 30.0}
-                ),
+                "trv_3": self._trv("trv_3", CalibrationMode.PID_CALIBRATION, u=1.0),
+                "trv_4": self._v2_trv("trv_4", tau_room_min=90.0),
+                "trv_5": self._v2_trv("trv_5", tau_room_min=30.0),
             }
         )
         sensor = BetterThermostatMpcV2RoomTimeConstantSensor(bt)
@@ -652,7 +673,9 @@ class TestPidSensorState:
         return {
             "trv_1": Trv(
                 entity_id="trv_1",
-                calibration_balance=make_calibration_balance(debug=debug_values),
+                calibration_balance=make_calibration_balance(
+                    CalibrationMode.PID_CALIBRATION, {"mode": "pid", **debug_values}
+                ),
             )
         }
 

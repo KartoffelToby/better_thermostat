@@ -7,6 +7,9 @@ import json
 import logging
 from typing import Literal, Protocol, TypedDict
 
+from custom_components.better_thermostat.utils.calibration.mpc import MpcDebugInfo
+from custom_components.better_thermostat.utils.calibration.pid import PIDDebugInfo
+from custom_components.better_thermostat.utils.calibration.tpi import TpiDebugInfo
 from custom_components.better_thermostat.utils.const import (
     ATTR_HEATING_POWER_NORMALIZED,
     ATTR_MPC_V2_COUPLING,
@@ -22,6 +25,7 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_PID_MEASUREMENT_SLOPE,
     ATTR_STATE_HEAT_LOSS_STATS,
     ATTR_STATE_TEMPERATURE_SLOPE,
+    CalibrationMode,
 )
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingCycle,
@@ -43,16 +47,85 @@ class ValveCommand(TypedDict):
     apply_valve: bool
 
 
-class CalibrationBalance(ValveCommand):
-    """Shape of the ``calibration_balance`` mapping written by calibration.py.
+class HeatingPowerDebugInfo(TypedDict):
+    """Debug payload of the heating power valve intent."""
 
-    Every producer (MPC, MPC v2, TPI, PID, heating power) writes all three
-    keys. ``debug`` is ``PIDDebugInfo`` for PID mode and other shapes for
-    MPC/TPI/heating power; consumers must check ``debug['mode']`` or
-    ``debug['controller_version']`` before narrowing.
-    """
+    source: Literal["heating_power_calibration"]
 
-    debug: Mapping[str, object]
+
+# The group valve of a multi-TRV room and this TRV's share of it. The keys
+# are read as they are; the functional syntax keeps them as strings rather
+# than identifiers.
+GroupValveShare = TypedDict(  # noqa: UP013
+    "GroupValveShare", {"group_valve_pct": float, "distributed_valve_pct": float}
+)
+
+
+class MpcBalanceDebugInfo(MpcDebugInfo, GroupValveShare):
+    """MPC debug payload with the per-TRV share of the group valve."""
+
+
+# MPC v2 debug payload: the controller diagnostics, the per-TRV share of the
+# group valve and the adopted re-identification. The keys are read by the
+# MPC v2 sensors and attributes, so they stay as they are; the functional
+# syntax keeps them as strings rather than identifiers.
+MpcV2BalanceDebugInfo = TypedDict(  # noqa: UP013
+    "MpcV2BalanceDebugInfo",
+    {
+        "T_room_hat": float,
+        "T_rad_hat": float,
+        "D_hat_K_per_min": float,
+        "tau_room_min": float,
+        "coupling_rad_room": float,
+        "group_valve_pct": float,
+        "distributed_valve_pct": float,
+        "controller_version": Literal["v2"],
+        "reid_tau_room": float | None,
+        "reid_gain": float | None,
+    },
+)
+
+
+class HeatingPowerBalance(ValveCommand):
+    """Valve intent of the heating power calibration."""
+
+    controller: Literal[CalibrationMode.HEATING_POWER_CALIBRATION]
+    debug: HeatingPowerDebugInfo
+
+
+class MpcBalance(ValveCommand):
+    """Valve intent of the MPC calibration."""
+
+    controller: Literal[CalibrationMode.MPC_CALIBRATION]
+    debug: MpcBalanceDebugInfo
+
+
+class MpcV2Balance(ValveCommand):
+    """Valve intent of the MPC v2 calibration."""
+
+    controller: Literal[CalibrationMode.MPC_V2_CALIBRATION]
+    debug: MpcV2BalanceDebugInfo
+
+
+class TpiBalance(ValveCommand):
+    """Valve intent of the TPI calibration."""
+
+    controller: Literal[CalibrationMode.TPI_CALIBRATION]
+    debug: TpiDebugInfo
+
+
+class PidBalance(ValveCommand):
+    """Valve intent of the PID calibration."""
+
+    controller: Literal[CalibrationMode.PID_CALIBRATION]
+    debug: PIDDebugInfo
+
+
+# The ``calibration_balance`` a calibration writes for one TRV. ``controller``
+# names the producer and selects the shape of ``debug``.
+type CalibrationBalance = (
+    HeatingPowerBalance | MpcBalance | MpcV2Balance | TpiBalance | PidBalance
+)
 
 
 class TrvInfo(Protocol):
@@ -258,19 +331,14 @@ def _pick_representative_trv(real_trvs: Mapping[str, TrvInfo]) -> str | None:
     return next(iter(real_trvs), None)
 
 
-def _extract_pid_debug(info: TrvInfo | None) -> Mapping[str, object] | None:
+def _extract_pid_debug(info: TrvInfo | None) -> PIDDebugInfo | None:
     """Return PID debug payload when the TRV's calibration is in PID mode."""
     if info is None:
         return None
     bal = info.calibration_balance
-    if bal is None:
+    if bal is None or bal["controller"] != CalibrationMode.PID_CALIBRATION:
         return None
-    debug = bal.get("debug")
-    if not isinstance(debug, Mapping):
-        return None
-    if str(debug.get("mode")).lower() != "pid":
-        return None
-    return debug
+    return bal["debug"]
 
 
 def collect_pid_debug_attrs(bt: TelemetrySource) -> dict[str, object]:
@@ -296,8 +364,19 @@ def collect_pid_debug_attrs(bt: TelemetrySource) -> dict[str, object]:
     return out
 
 
+type MpcV2DebugKey = Literal[
+    "T_room_hat",
+    "T_rad_hat",
+    "D_hat_K_per_min",
+    "tau_room_min",
+    "coupling_rad_room",
+    "group_valve_pct",
+    "reid_tau_room",
+    "reid_gain",
+]
+
 # (debug key, output key, decimals)
-_MPC_V2_FIELDS: tuple[tuple[str, str, int], ...] = (
+_MPC_V2_FIELDS: tuple[tuple[MpcV2DebugKey, str, int], ...] = (
     ("T_room_hat", ATTR_MPC_V2_ROOM_TEMPERATURE, 3),
     ("T_rad_hat", ATTR_MPC_V2_RADIATOR_TEMPERATURE, 3),
     ("D_hat_K_per_min", ATTR_MPC_V2_DISTURBANCE, 4),
@@ -309,19 +388,14 @@ _MPC_V2_FIELDS: tuple[tuple[str, str, int], ...] = (
 )
 
 
-def _extract_mpc_v2_debug(info: TrvInfo | None) -> Mapping[str, object] | None:
+def _extract_mpc_v2_debug(info: TrvInfo | None) -> MpcV2BalanceDebugInfo | None:
     """Return the v2 debug payload when calibration is in MPC v2 mode."""
     if info is None:
         return None
     bal = info.calibration_balance
-    if bal is None:
+    if bal is None or bal["controller"] != CalibrationMode.MPC_V2_CALIBRATION:
         return None
-    debug = bal.get("debug")
-    if not isinstance(debug, Mapping):
-        return None
-    if str(debug.get("controller_version")).lower() != "v2":
-        return None
-    return debug
+    return bal["debug"]
 
 
 def collect_mpc_v2_debug_attrs(bt: TelemetrySource) -> dict[str, object]:
