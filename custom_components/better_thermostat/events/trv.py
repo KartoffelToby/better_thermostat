@@ -251,6 +251,14 @@ async def trigger_trv_change(self, event):
     except Exception:
         pass
 
+    if trv.exclusive_direct_valve:
+        # Physical thermostat controls are telemetry while BT owns the valve.
+        trv.hvac_mode = _org_trv_state.state
+        self.async_write_ha_state()
+        if _main_change:
+            await self.control_queue_task.put(self)
+        return
+
     if mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL):
         if trv.hvac_mode != _org_trv_state.state and not child_lock:
             _old = trv.hvac_mode

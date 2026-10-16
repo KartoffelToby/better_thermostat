@@ -60,7 +60,8 @@
       "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
       "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
       "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
-      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
+      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin.",
+      "exclusive_valve_algorithm": "Exclusive direct valve control requires MPC, MPC v2, PID, TPI or Heating Power. Select one of these algorithms."
     },
     "abort": {
       "single_instance_allowed": "Her gerçek termostat için yalnızca tek bir Termostat'a izin verilir.",
@@ -126,7 +127,8 @@
       "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
       "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
       "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
-      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
+      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin.",
+      "exclusive_valve_algorithm": "Exclusive direct valve control requires MPC, MPC v2, PID, TPI or Heating Power. Select one of these algorithms."
     }
   },
   "issues": {

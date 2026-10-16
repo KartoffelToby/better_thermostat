@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from time import monotonic
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
@@ -17,6 +18,9 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_offset,
     set_temperature,
     set_valve,
+)
+from custom_components.better_thermostat.calibration import (
+    calculate_calibration_setpoint,
 )
 from custom_components.better_thermostat.events.trv import convert_outbound_states
 from custom_components.better_thermostat.model_fixes.model_quirks import (
@@ -423,6 +427,12 @@ async def control_cooler(self):
     underneath it whenever the tolerance is narrower than that minimum band — or
     when BT HVAC mode is OFF, or while a window or door contact is open.
     """
+    shared_trv = self.real_trvs.get(self.cooler_entity_id)
+    if shared_trv is not None and shared_trv.exclusive_direct_valve:
+        # A shared climate entity cannot bypass exclusive valve ownership via
+        # the cooler's direct service calls. Keep dispatch on the valve channel.
+        self.last_cooler_mode_decided = HVACMode.OFF
+        return
     # Get current cooler state to avoid sending redundant commands
     cooler_state = self.hass.states.get(self.cooler_entity_id)
     if cooler_state is None or cooler_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
@@ -783,6 +793,63 @@ async def control_cooler(self):
             self.last_sent_cooler_hvac_mode_ts = now_ts
 
 
+async def _control_exclusive_valve(self, entity_id):
+    """Calculate one current-cycle valve request, using BT's logical heat gates."""
+    trv = self.real_trvs[entity_id]
+    # A calculation can return early (e.g. a missing temperature). Never reuse
+    # the previous cycle's demand, including the legacy balance fallback.
+    trv.calibration_balance = None
+    trv.balance = None
+    try:
+        # Keep the existing algorithms' off/contact/boost state transitions and
+        # learning, even when the logical gates below override their output.
+        calculate_calibration_setpoint(self, entity_id)
+    except Exception:
+        trv.calibration_balance = None
+        trv.balance = None
+        _LOGGER.debug(
+            "better_thermostat %s: valve calculation failed for %s",
+            self.device_name,
+            entity_id,
+            exc_info=True,
+        )
+    target = 0
+    if (
+        self.bt_hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL)
+        and not self.contact_open
+        and self.call_for_heat is not False
+    ):
+        try:
+            maximum = float(trv.valve_max_opening)
+            if not math.isfinite(maximum):
+                raise ValueError("Non-finite maximum opening")
+            maximum = max(0, min(100, maximum))
+            if _is_boost_heating_active(self):
+                target = int(maximum)
+            else:
+                settings, _ = _get_valve_control(
+                    self,
+                    entity_id,
+                    trv.advanced.get("calibration_mode", DEFAULT_CALIBRATION_MODE),
+                    CalibrationType.DIRECT_VALVE_BASED,
+                )
+                if settings is not None:
+                    percent = float(settings["valve_percent"])
+                    if math.isfinite(percent):
+                        target = int(min(maximum, max(0, round(percent))))
+        except Exception:
+            _LOGGER.debug(
+                "better_thermostat %s: no usable valve output for %s this cycle",
+                self.device_name,
+                entity_id,
+                exc_info=True,
+            )
+    await set_valve(self, entity_id, target)
+    # Missing actuators retry on ordinary triggers, not the queue's immediate
+    # failure retry, which would spin while the number is unavailable.
+    await asyncio.sleep(3)
+
+
 async def control_trv(self, heater_entity_id=None):
     """Control a single TRV by setting temperature, HVAC mode, calibration, and valve position.
 
@@ -811,9 +878,18 @@ async def control_trv(self, heater_entity_id=None):
         self.task_manager = TaskManager(hass=self.hass)
 
     async with self._temp_lock:
+        # Only the Shelly exclusive path changes dispatch during maintenance.
+        if (
+            self.real_trvs[heater_entity_id].exclusive_direct_valve
+            and getattr(self, "in_maintenance", False) is True
+        ):
+            return True
         self.real_trvs[heater_entity_id].ignore_trv_states = True
         try:
             advance_hvac_action(self)
+            if self.real_trvs[heater_entity_id].exclusive_direct_valve:
+                await _control_exclusive_valve(self, heater_entity_id)
+                return True
             _trv = self.hass.states.get(heater_entity_id)
             state_unknown_as_available = trv_state_unknown_as_available(
                 self, heater_entity_id

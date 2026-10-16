@@ -94,6 +94,8 @@ async def set_temperature(self, entity_id, temperature):
     Round to device step if known and clamp to min/max before delegating.
     Also updates last_temperature to the (potentially) rounded value for consistency.
     """
+    if self.real_trvs[entity_id].exclusive_direct_valve:
+        return False
     # Normalize input to float early
     try:
         t = float(temperature)
@@ -169,6 +171,8 @@ async def set_temperature(self, entity_id, temperature):
 @async_retry(retries=5)
 async def set_hvac_mode(self, entity_id, hvac_mode):
     """Set new target hvac mode."""
+    if self.real_trvs[entity_id].exclusive_direct_valve:
+        return False
     return await self.real_trvs[entity_id].adapter.set_hvac_mode(
         self, entity_id, hvac_mode
     )
@@ -205,6 +209,9 @@ async def set_offset(self, entity_id, offset) -> bool:
         device has no offset channel or every retry raised.
     """
 
+    if self.real_trvs[entity_id].exclusive_direct_valve:
+        return False
+
     @async_retry(retries=5)
     async def inner():
         return await self.real_trvs[entity_id].adapter.set_offset(
@@ -237,8 +244,9 @@ async def set_offset(self, entity_id, offset) -> bool:
 async def set_valve(self, entity_id, valve):
     """Set new target valve.
 
-    Prefers adapter/number entity if available; otherwise, falls back to model quirks
-    override_set_valve. Records last_valve_percent and last_valve_method accordingly.
+    Exclusive Shelly control confirms writes through its adapter, including
+    rediscovery. Other devices retain their model-quirk and helper dispatch.
+    Records last_valve_percent and last_valve_method after a handled write.
     Returns True on handled write, False otherwise.
     """
     try:
@@ -247,6 +255,16 @@ async def set_valve(self, entity_id, valve):
         target_pct = valve
     try:
         trv_state = self.real_trvs.get(entity_id)
+
+        if trv_state is not None and trv_state.exclusive_direct_valve:
+            if (
+                await trv_state.adapter.set_valve(self, entity_id, target_pct)
+                is not True
+            ):
+                return False
+            trv_state.last_valve_percent = int(target_pct)
+            trv_state.last_valve_method = "adapter"
+            return True
 
         # Check if the override_set_valve method is implemented in the model quirks of the trv
         # This takes precedence over the standard adapter set_valve

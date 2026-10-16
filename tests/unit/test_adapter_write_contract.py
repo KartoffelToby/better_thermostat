@@ -28,6 +28,7 @@ from custom_components.better_thermostat.adapters import (
     deconz,
     generic,
     mqtt,
+    shelly,
     tado,
     zwave_js,
 )
@@ -40,13 +41,28 @@ ADAPTERS = {
     "deconz": deconz,
     "generic": generic,
     "mqtt": mqtt,
+    "shelly": shelly,
     "tado": tado,
     "zwave_js": zwave_js,
 }
 ADAPTER_IDS = sorted(ADAPTERS)
 # The adapters that own a valve channel: they alone ever assign
 # ``valve_position_entity``, in their own ``init``.
-VALVE_ADAPTERS = ["mqtt", "zwave_js"]
+VALVE_ADAPTERS = ["mqtt", "shelly", "zwave_js"]
+
+
+@pytest.fixture(autouse=True)
+def discovered_shelly_valve():
+    """Isolate normalization from registry discovery, covered separately."""
+
+    async def find(thermostat, entity_id):
+        trv = thermostat.real_trvs[entity_id]
+        if trv.valve_position_entity and trv.valve_position_writable:
+            return {"entity_id": trv.valve_position_entity, "writable": True}
+        return None
+
+    with patch.object(shelly, "_find_valve", side_effect=find):
+        yield
 
 
 def _thermostat(
@@ -130,7 +146,7 @@ class TestTheValveWriteStaysInsideTheDeclaredBounds:
 
     @pytest.mark.parametrize("name", VALVE_ADAPTERS)
     @pytest.mark.parametrize("grid", VALVE_GRIDS, ids=repr)
-    @pytest.mark.parametrize("percent", [0, 1, 50, 99, 100])
+    @pytest.mark.parametrize("percent", [0, 1, 37, 50, 99, 100])
     @pytest.mark.asyncio
     async def test_a_scaled_request_lands_within_min_and_max(self, name, grid, percent):
         """Scaling and quantizing never leave the entity's own range."""

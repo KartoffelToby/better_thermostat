@@ -60,7 +60,8 @@
       "no_off_mode": "Your device is special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
       "target_temp_min_above_max": "The target minimum temperature must not exceed the target maximum temperature.",
       "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead.",
-      "no_data": "No data was received. Please try again."
+      "no_data": "No data was received. Please try again.",
+      "exclusive_valve_algorithm": "Exclusive direct valve control requires MPC, MPC v2, PID, TPI or Heating Power. Select one of these algorithms."
     },
     "abort": {
       "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
@@ -126,7 +127,8 @@
       "no_off_mode": "Your device is special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
       "target_temp_min_above_max": "The target minimum temperature must not exceed the target maximum temperature.",
       "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead.",
-      "no_data": "No data was received. Please try again."
+      "no_data": "No data was received. Please try again.",
+      "exclusive_valve_algorithm": "Exclusive direct valve control requires MPC, MPC v2, PID, TPI or Heating Power. Select one of these algorithms."
     }
   },
   "issues": {
