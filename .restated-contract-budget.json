@@ -34,7 +34,7 @@
   "tests/unit/test_door_events.py": 1,
   "tests/unit/test_dual_role_entity.py": 2,
   "tests/unit/test_flight_recorder.py": 1,
-  "tests/unit/test_fsm_maintenance.py": 4,
+  "tests/unit/test_fsm_maintenance.py": 3,
   "tests/unit/test_fsm_sweeps.py": 2,
   "tests/unit/test_heating_tolerance.py": 1,
   "tests/unit/test_helpers_group_off.py": 1,

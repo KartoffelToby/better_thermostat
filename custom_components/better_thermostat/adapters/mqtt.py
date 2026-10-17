@@ -92,10 +92,10 @@ async def init(self: AdapterHost, entity_id: str) -> None:
     # Read before the lookup below fills the entity in, so it describes the
     # record as startup built it: no calibration entity yet, and the
     # calibration type the configuration named. Only a configuration naming
-    # none leaves that type at 1, so the reset reaches every configured TRV,
+    # none leaves that type at None, so the reset reaches every configured TRV,
     # whichever way that TRV is calibrated.
     resets_preset = (
-        trv.local_temperature_calibration_entity is None and trv.calibration != 1
+        trv.local_temperature_calibration_entity is None and trv.calibration is not None
     )
 
     await discover_calibration_entity(self, entity_id)

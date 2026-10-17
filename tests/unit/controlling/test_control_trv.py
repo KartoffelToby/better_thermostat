@@ -291,7 +291,7 @@ class TestControlTrvUnavailablePath:
             mock_self.kernel_state,
             reachability={
                 "climate.trv1": ReachabilityState(
-                    online=False, offline_since=100.0, retry_count=0, retry_at=130.0
+                    offline_since=100.0, retry_count=0, retry_at=130.0
                 )
             },
         )
