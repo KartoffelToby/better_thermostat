@@ -60,7 +60,8 @@
       "no_off_mode": "Η συσκευή σας είναι πολύ ιδιαίτερη και δεν διαθέτει λειτουργία απενεργοποίησης :(\nΤο Better Thermostat θα χρησιμοποιήσει αντί αυτού τη ελάχιστη θερμοκρασία στόχο.",
       "target_temp_min_above_max": "Η ελάχιστη θερμοκρασία στόχος δεν πρέπει να υπερβαίνει τη μέγιστη θερμοκρασία στόχο.",
       "no_outside_temp": "Δεν έχετε αισθητήρα εξωτερικής θερμοκρασίας. Το Better Thermostat θα χρησιμοποιήσει αντί αυτού την οντότητα καιρού.",
-      "no_data": "Δεν ελήφθησαν δεδομένα. Παρακαλώ προσπαθήστε ξανά."
+      "no_data": "Δεν ελήφθησαν δεδομένα. Παρακαλώ προσπαθήστε ξανά.",
+      "exclusive_valve_algorithm": "Exclusive direct valve control requires MPC, MPC v2, PID, TPI or Heating Power. Select one of these algorithms."
     },
     "abort": {
       "single_instance_allowed": "Επιτρέπεται μόνο μία εμφάνιση θερμοστάτη για κάθε πραγματικό θερμοστάτη.",
@@ -126,7 +127,8 @@
       "no_off_mode": "Η συσκευή σας είναι πολύ ιδιαίτερη και δεν διαθέτει λειτουργία απενεργοποίησης :(\nΤο Better Thermostat θα χρησιμοποιήσει αντί αυτού τη ελάχιστη θερμοκρασία στόχο.",
       "target_temp_min_above_max": "Η ελάχιστη θερμοκρασία στόχος δεν πρέπει να υπερβαίνει τη μέγιστη θερμοκρασία στόχο.",
       "no_outside_temp": "Δεν έχετε αισθητήρα εξωτερικής θερμοκρασίας. Το Better Thermostat θα χρησιμοποιήσει αντί αυτού την οντότητα καιρού.",
-      "no_data": "Δεν ελήφθησαν δεδομένα. Παρακαλώ προσπαθήστε ξανά."
+      "no_data": "Δεν ελήφθησαν δεδομένα. Παρακαλώ προσπαθήστε ξανά.",
+      "exclusive_valve_algorithm": "Exclusive direct valve control requires MPC, MPC v2, PID, TPI or Heating Power. Select one of these algorithms."
     }
   },
   "issues": {

@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any
 
+from .utils.const import CalibrationType
+
 
 @dataclass
 class Trv:
@@ -27,6 +29,9 @@ class Trv:
     adapter: ModuleType | None = None
     model_quirks: ModuleType | None = None
     advanced: dict[str, Any] = field(default_factory=dict)
+    # Independent of discovery so a temporarily absent actuator cannot hand
+    # control back to the physical thermostat.
+    direct_valve_exclusive: bool = False
 
     # -- Reported device state -------------------------------------------
     valve_position: float | None = None
@@ -82,6 +87,15 @@ class Trv:
     # Model quirks may stash private bookkeeping here (e.g. TRVZB valve
     # bump sequencing) without widening the typed surface.
     extra: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def exclusive_direct_valve(self) -> bool:
+        """Whether the valve is the sole physical actuator in this configuration."""
+        return (
+            self.integration == "shelly"
+            and self.direct_valve_exclusive
+            and self.advanced.get("calibration") == CalibrationType.DIRECT_VALVE_BASED
+        )
 
     def consume_accept_next_internal_temp(self) -> bool:
         """Return and clear the one-shot accept-next-internal-temp flag.

@@ -60,7 +60,8 @@
       "no_off_mode": "Устройство не поддерживает режим «выкл.» :(\nBetter Thermostat будет использовать минимальную заданную температуру.",
       "target_temp_min_above_max": "Минимальная заданная температура не должна превышать максимальную.",
       "no_outside_temp": "Датчик наружной температуры не найден. Будет использоваться сущность погоды.",
-      "no_data": "Данные не получены. Пожалуйста, попробуйте ещё раз."
+      "no_data": "Данные не получены. Пожалуйста, попробуйте ещё раз.",
+      "exclusive_valve_algorithm": "Exclusive direct valve control requires MPC, MPC v2, PID, TPI or Heating Power. Select one of these algorithms."
     },
     "abort": {
       "single_instance_allowed": "Для каждого физического термостата можно создать только один Better Thermostat.",
@@ -126,7 +127,8 @@
       "no_off_mode": "Устройство не поддерживает режим «выкл.» :(\nBetter Thermostat будет использовать минимальную заданную температуру.",
       "target_temp_min_above_max": "Минимальная заданная температура не должна превышать максимальную.",
       "no_outside_temp": "Датчик наружной температуры не найден. Будет использоваться сущность погоды.",
-      "no_data": "Данные не получены. Пожалуйста, попробуйте ещё раз."
+      "no_data": "Данные не получены. Пожалуйста, попробуйте ещё раз.",
+      "exclusive_valve_algorithm": "Exclusive direct valve control requires MPC, MPC v2, PID, TPI or Heating Power. Select one of these algorithms."
     }
   },
   "issues": {

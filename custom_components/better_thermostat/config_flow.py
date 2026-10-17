@@ -283,6 +283,26 @@ async def _load_adapter_info(
     return adapter, info
 
 
+def _exclusive_valve_config(info, advanced) -> bool:
+    return bool(info.get("direct_valve_exclusive")) and (
+        advanced.get(CONF_CALIBRATION) == CalibrationType.DIRECT_VALVE_BASED
+    )
+
+
+def _validate_advanced(info, advanced) -> dict[str, str]:
+    if _exclusive_valve_config(info, advanced) and advanced.get(
+        CONF_CALIBRATION_MODE
+    ) not in {
+        CalibrationMode.MPC_CALIBRATION,
+        CalibrationMode.MPC_V2_CALIBRATION,
+        CalibrationMode.PID_CALIBRATION,
+        CalibrationMode.TPI_CALIBRATION,
+        CalibrationMode.HEATING_POWER_CALIBRATION,
+    }:
+        return {CONF_CALIBRATION_MODE: "exclusive_valve_algorithm"}
+    return {}
+
+
 def _default_calibration_from_info(info: dict[str, Any]) -> str:
     if info.get("support_offset", False):
         return "local_calibration_based"
@@ -889,6 +909,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.data: dict[str, Any] | None = None
         self.model = None
         self.heater_entity_id = None
+        self._exclusive_valve_trvs: set[str] = set()
         self.trv_bundle: list[dict[str, Any]] = []
         self.integration = None
         self.i = 0
@@ -967,6 +988,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             user_input,
         )
 
+        errors = {}
+        advanced_data = {}
         if user_input is not None:
             advanced_data = _normalize_advanced_submission(
                 user_input,
@@ -974,6 +997,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 homematic=ctx["homematic"],
                 has_auto=ctx["has_auto"],
             )
+            errors = _validate_advanced(ctx["info"], advanced_data)
+
+        if user_input is not None and not errors:
             _LOGGER.debug(
                 "ConfigFlow advanced step storing data for %s (index %s): %s",
                 trv_cfg.get("trv"),
@@ -982,6 +1008,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             self.trv_bundle[self.i]["advanced"] = advanced_data
             self.trv_bundle[self.i]["adapter"] = None
+
+            if _exclusive_valve_config(ctx["info"], advanced_data):
+                self._exclusive_valve_trvs.add(trv_cfg["trv"])
+            else:
+                self._exclusive_valve_trvs.discard(trv_cfg["trv"])
 
             self.i += 1
             self._active_trv_config = None
@@ -994,6 +1025,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _has_off_mode = True
             for trv in self.trv_bundle:
                 entity_id = trv.get("trv")
+                if entity_id in self._exclusive_valve_trvs:
+                    continue
                 state_obj = self.hass.states.get(entity_id) if entity_id else None
                 hvac_modes: list[str] = []
                 if state_obj and hasattr(state_obj, "attributes"):
@@ -1024,6 +1057,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="advanced",
             data_schema=vol.Schema(fields),
+            errors=errors,
             last_step=False,
             description_placeholders={
                 "trv": ctx.get("trv_id") or "-",
@@ -1133,6 +1167,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             user_input,
         )
 
+        errors = {}
+        advanced_data = {}
         if user_input is not None:
             advanced_data = _normalize_advanced_submission(
                 user_input,
@@ -1140,6 +1176,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 homematic=ctx["homematic"],
                 has_auto=ctx["has_auto"],
             )
+            errors = _validate_advanced(ctx["info"], advanced_data)
+
+        if user_input is not None and not errors:
             _LOGGER.debug(
                 "OptionsFlow advanced step storing data for %s (index %s): %s",
                 trv_cfg.get("trv"),
@@ -1199,6 +1238,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="advanced",
             data_schema=vol.Schema(fields),
+            errors=errors,
             last_step=self._last_step,
             description_placeholders={
                 "trv": ctx.get("trv_id") or "-",

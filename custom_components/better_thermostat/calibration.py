@@ -193,6 +193,8 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
     trv_data = self.real_trvs.get(entity_id)
     if trv_data is None:
         return False
+    if trv_data.exclusive_direct_valve:
+        return True
     valve_entity = trv_data.valve_position_entity
     writable_flag = trv_data.valve_position_writable
     if valve_entity and writable_flag is True:
