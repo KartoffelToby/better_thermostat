@@ -11,6 +11,10 @@ from unittest.mock import MagicMock
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.utils.state_manager import (
+    FilterState,
+    ThermalStats,
+)
 from tests.factories import ThermostatStandIn
 
 _NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -29,9 +33,15 @@ def test_record_runtime_pushes_thermal_and_filters():
 
     BetterThermostat._record_runtime_to_state(bt)
 
-    bt.state_mgr.record_thermal.assert_called_once_with(0.02, 0.01)
+    bt.state_mgr.record_thermal.assert_called_once_with(
+        ThermalStats(heating_power=0.02, heat_loss_rate=0.01)
+    )
     bt.state_mgr.record_filters.assert_called_once_with(
-        20.5, 0.0012, _NOW.timestamp() - 40.0
+        FilterState(
+            room_temperature_ema=20.5,
+            temperature_slope=0.0012,
+            room_temperature_ema_recorded_at=_NOW.timestamp() - 40.0,
+        )
     )
 
 
@@ -48,7 +58,7 @@ def test_a_filter_never_updated_is_saved_without_a_time():
 
     BetterThermostat._record_runtime_to_state(bt)
 
-    bt.state_mgr.record_filters.assert_called_once_with(None, None, None)
+    bt.state_mgr.record_filters.assert_called_once_with(FilterState())
 
 
 def test_record_runtime_without_store_is_a_noop():
