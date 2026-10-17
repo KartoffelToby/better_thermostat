@@ -535,11 +535,18 @@ async def set_calibration_offset(
         self.real_trvs[entity_id].last_calibration = calibration_offset
         last_hvac_mode = self.real_trvs[entity_id].last_hvac_mode
         if last_hvac_mode is not None and last_hvac_mode != "off":
+            # Some heads drop out of their mode when their offset is written,
+            # so the mode is sent again once the head had time to report.
+            # A head still in the mode is not told it again: a mode write
+            # makes some heads fall back to a setpoint of their own.
             await asyncio.sleep(3)
-            # The offset is on the wire whatever happens to the mode after
-            # it. The mode goes out through the mode channel, which retries,
-            # reports and paces a refusal like any other mode write.
-            await delegate_set_hvac_mode(self, entity_id, last_hvac_mode)
+            reported = self.hass.states.get(entity_id)
+            if reported is None or reported.state != last_hvac_mode:
+                # The offset is on the wire whatever happens to the mode
+                # after it. The mode goes out through the mode channel,
+                # which retries, reports and paces a refusal like any other
+                # mode write.
+                await delegate_set_hvac_mode(self, entity_id, last_hvac_mode)
 
         return True
     else:

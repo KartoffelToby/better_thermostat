@@ -104,6 +104,13 @@ class DeviceProfile:
     ``off_target_temperature`` is the setpoint the device publishes while it
     is off, in place of the one it holds: a Tado unit shows its 5 °C minimum
     there. ``None`` publishes the held setpoint in every mode.
+
+    ``offset_translation_key`` is the translation key the integration
+    registers the calibration number under, and the end of its unique id.
+
+    ``mode_write_setpoint`` is the setpoint the device falls back to whenever
+    it is told a mode, even the one it is in: a Tuya head returns to 15 °C.
+    ``None`` keeps the setpoint the device holds.
     """
 
     name: str
@@ -136,6 +143,8 @@ class DeviceProfile:
     external_temperature_input: bool = False
     external_sensor_selection: str = "external"
     off_target_temperature: float | None = None
+    offset_translation_key: str = "local_temperature_calibration"
+    mode_write_setpoint: float | None = None
 
 
 def published_unit(profile: DeviceProfile) -> UnitOfTemperature:
@@ -371,6 +380,26 @@ MQTT_OFFSET_TRV = DeviceProfile(
 The registry entry is a precondition, not a decoration: calibration entity
 discovery walks the entity registry from the device the head belongs to, so a
 device-less entity has no calibration channel at all.
+"""
+
+TUYA_OFFSET_TRV = DeviceProfile(
+    name="tuya_offset_trv",
+    integration="tuya",
+    calibration="local_calibration_based",
+    has_device_registry_entry=True,
+    hvac_modes=(HVACMode.OFF, HVACMode.HEAT_COOL),
+    hvac_mode=HVACMode.HEAT_COOL,
+    max_temp=35.0,
+    current_temperature=19.0,
+    offset_channel=OffsetChannel.NUMBER_ENTITY,
+    offset_translation_key="temp_correction",
+    mode_write_setpoint=15.0,
+)
+"""A head of Home Assistant's tuya integration, driven by the generic adapter.
+
+Its one active mode is heat_cool, its calibration is the number the tuya
+integration names ``temp_correction``, and every mode written to it, even the
+one it is in, puts its setpoint back to 15 °C.
 """
 
 TADO_OFFSET_TRV = DeviceProfile(
@@ -642,6 +671,7 @@ SINGLE_ROLE_PROFILES = (
     FAHRENHEIT_TRV,
     OFF_GRID_FAHRENHEIT_TRV,
     MQTT_OFFSET_TRV,
+    TUYA_OFFSET_TRV,
     TADO_OFFSET_TRV,
     VALVE_TRV,
     RANGE_ONLY_HEAT_TRV,
@@ -660,6 +690,7 @@ SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario | GroupScenario] = {
     "one entity wired as thermostat and as cooler": DUAL_ROLE,
     "a thermostat entity with no device registry entry": GENERIC_HEAT_TRV,
     "a room with several heads that can disagree": GROUP_OF_THREE,
+    "a head that resets its setpoint whenever it is told a mode": TUYA_OFFSET_TRV,
 }
 """The device shapes users have reported a bug against, by what they are.
 

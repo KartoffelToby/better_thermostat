@@ -396,6 +396,73 @@ class TestForcedZeroAddressesTheEntitysOwnDomain:
         }
 
 
+def _mock_self_reporting(hvac_mode, last_hvac_mode):
+    """Build a thermostat whose TRV reports ``hvac_mode`` after the offset write.
+
+    Parameters
+    ----------
+    hvac_mode : str
+        Mode the TRV entity reports once its offset was written.
+    last_hvac_mode : str
+        Mode Better Thermostat last sent the TRV.
+
+    Returns
+    -------
+    ThermostatStandIn
+        A stand-in for the Better Thermostat climate entity instance.
+    """
+    mock_self = _mock_self()
+    mock_self.hass.states.get = lambda requested: (
+        State(CALIBRATION_ENTITY, "0.0", {"min": -5.0, "max": 5.0, "step": 0.5})
+        if requested == CALIBRATION_ENTITY
+        else State(ENTITY_ID, hvac_mode, {})
+    )
+    mock_self.real_trvs[ENTITY_ID].last_hvac_mode = last_hvac_mode
+    return mock_self
+
+
+class TestModeAfterAnOffsetWrite:
+    """The mode follows an offset write only to a head that left it.
+
+    Some heads drop out of their mode when their offset is written, and get
+    the mode Better Thermostat last sent them back. A head still in that mode
+    is not told it again, because a mode write makes some heads fall back to
+    a setpoint of their own, which would then read as a press at the device.
+    """
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_a_head_still_in_its_mode_is_not_told_it_again(self, adapter):
+        """Only the offset goes out to a head that kept its mode."""
+        mock_self = _mock_self_reporting("heat_cool", last_hvac_mode="heat_cool")
+        mode_write = AsyncMock(return_value=True)
+
+        with (
+            patch.object(generic.asyncio, "sleep", AsyncMock()),
+            patch.object(generic, "delegate_set_hvac_mode", mode_write),
+        ):
+            result = await adapter.set_calibration_offset(mock_self, ENTITY_ID, -2.0)
+
+        assert result is True
+        mode_write.assert_not_awaited()
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_a_head_that_left_its_mode_gets_it_back(self, adapter):
+        """The last mode sent goes out again to a head that reports another."""
+        mock_self = _mock_self_reporting("auto", last_hvac_mode="heat")
+        mode_write = AsyncMock(return_value=True)
+
+        with (
+            patch.object(generic.asyncio, "sleep", AsyncMock()),
+            patch.object(generic, "delegate_set_hvac_mode", mode_write),
+        ):
+            result = await adapter.set_calibration_offset(mock_self, ENTITY_ID, -2.0)
+
+        assert result is True
+        mode_write.assert_awaited_once_with(mock_self, ENTITY_ID, "heat")
+
+
 class TestNoOffsetChannelReportsFalse:
     """A TRV without a calibration entity gets no write and no false claim."""
 
