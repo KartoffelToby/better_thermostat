@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, replace
+from dataclasses import replace
 import logging
 import math
-from typing import TYPE_CHECKING
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Final
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
@@ -90,6 +91,13 @@ from custom_components.better_thermostat.utils.helpers import (
     round_by_step,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidData
+from custom_components.better_thermostat.utils.telemetry import (
+    HeatingPowerBalance,
+    MpcBalance,
+    MpcV2Balance,
+    PidBalance,
+    TpiBalance,
+)
 from custom_components.better_thermostat.utils.watcher import reachable_trv_temperature
 
 if TYPE_CHECKING:
@@ -307,11 +315,12 @@ def _heating_power_adjustment(
 
     if self.hvac_action != HVACAction.HEATING:
         if _supports_direct_valve_control(self, entity_id):
-            trv.calibration_balance = {
-                "valve_percent": 0,
-                "apply_valve": True,
-                "debug": {"source": "heating_power_calibration"},
-            }
+            trv.calibration_balance = HeatingPowerBalance(
+                valve_percent=0,
+                apply_valve=True,
+                controller=CalibrationMode.HEATING_POWER_CALIBRATION,
+                debug={"source": "heating_power_calibration"},
+            )
             return hold_value, True
         trv.calibration_balance = None
         return current_value, False
@@ -326,11 +335,12 @@ def _heating_power_adjustment(
         trv.calibration_balance = None
         return current_value, False
     if _supports_direct_valve_control(self, entity_id):
-        trv.calibration_balance = {
-            "valve_percent": clamp_valve_percent(_valve_position * 100.0),
-            "apply_valve": True,
-            "debug": {"source": "heating_power_calibration"},
-        }
+        trv.calibration_balance = HeatingPowerBalance(
+            valve_percent=clamp_valve_percent(_valve_position * 100.0),
+            apply_valve=True,
+            controller=CalibrationMode.HEATING_POWER_CALIBRATION,
+            debug={"source": "heating_power_calibration"},
+        )
         return hold_value, True
 
     trv.calibration_balance = None
@@ -498,15 +508,16 @@ def _compute_mpc_balance(
         this_trv_percent = group_valve_percent
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
-    trv_state.calibration_balance = {
-        "valve_percent": clamp_valve_percent(this_trv_percent),
-        "apply_valve": supports_valve,
-        "debug": {
+    trv_state.calibration_balance = MpcBalance(
+        valve_percent=clamp_valve_percent(this_trv_percent),
+        apply_valve=supports_valve,
+        controller=CalibrationMode.MPC_CALIBRATION,
+        debug={
             **mpc_output.debug,
             "group_valve_pct": group_valve_percent,
             "distributed_valve_pct": this_trv_percent,
         },
-    }
+    )
 
     self.schedule_save_state()
 
@@ -825,7 +836,7 @@ def _compute_mpc_v2_balance(
         plant_prior = make_plant_prior(
             heating_power=self.heating_power,
             heat_loss_rate=self.heat_loss_rate,
-            preset=None if preset == MpcV2PlantPreset.AUTO else preset.value,
+            preset=preset,
         )
     v2_params = MpcV2Params(plant=plant_prior)
 
@@ -912,11 +923,17 @@ def _compute_mpc_v2_balance(
     this_trv_percent = min(this_trv_percent, _get_trv_max_opening(self, entity_id))
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
-    trv_state.calibration_balance = {
-        "valve_percent": round(max(0.0, min(100.0, this_trv_percent))),
-        "apply_valve": supports_valve,
-        "debug": {
-            **asdict(mpc_output.diagnostics),
+    diagnostics = mpc_output.diagnostics
+    trv_state.calibration_balance = MpcV2Balance(
+        valve_percent=round(max(0.0, min(100.0, this_trv_percent))),
+        apply_valve=supports_valve,
+        controller=CalibrationMode.MPC_V2_CALIBRATION,
+        debug={
+            "T_room_hat": diagnostics.T_room_hat,
+            "T_rad_hat": diagnostics.T_rad_hat,
+            "D_hat_K_per_min": diagnostics.D_hat_K_per_min,
+            "tau_room_min": diagnostics.tau_room_min,
+            "coupling_rad_room": diagnostics.coupling_rad_room,
             "group_valve_pct": group_valve_percent,
             "distributed_valve_pct": this_trv_percent,
             "controller_version": "v2",
@@ -925,7 +942,7 @@ def _compute_mpc_v2_balance(
             ),
             "reid_gain": (reid_result.gain_heater if reid_result is not None else None),
         },
-    }
+    )
 
     self.schedule_save_state()
 
@@ -1001,11 +1018,12 @@ def _compute_tpi_balance(
         return None, False
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
-    trv_state.calibration_balance = {
-        "valve_percent": tpi_output.duty_cycle_percent,
-        "apply_valve": supports_valve,
-        "debug": tpi_output.debug,
-    }
+    trv_state.calibration_balance = TpiBalance(
+        valve_percent=tpi_output.duty_cycle_percent,
+        apply_valve=supports_valve,
+        controller=CalibrationMode.TPI_CALIBRATION,
+        debug=tpi_output.debug,
+    )
 
     self.schedule_save_state()
 
@@ -1122,11 +1140,12 @@ def _compute_pid_balance(
         return None, False
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
-    trv_state.calibration_balance = {
-        "valve_percent": percent,
-        "apply_valve": supports_valve,
-        "debug": debug,
-    }
+    trv_state.calibration_balance = PidBalance(
+        valve_percent=percent,
+        apply_valve=supports_valve,
+        controller=CalibrationMode.PID_CALIBRATION,
+        debug=debug,
+    )
 
     _LOGGER.debug(
         "better_thermostat %s: PID calibration for %s: valve_percent=%.1f%%, apply_valve=%s, debug=%s",
@@ -1142,11 +1161,13 @@ def _compute_pid_balance(
     return percent, supports_valve
 
 
-BALANCE_STRATEGIES = build_strategy_registry(
-    _compute_mpc_balance,
-    _compute_mpc_v2_balance,
-    _compute_tpi_balance,
-    _compute_pid_balance,
+BALANCE_STRATEGIES: Final[Mapping[CalibrationMode, BalanceStrategy]] = MappingProxyType(
+    build_strategy_registry(
+        _compute_mpc_balance,
+        _compute_mpc_v2_balance,
+        _compute_tpi_balance,
+        _compute_pid_balance,
+    )
 )
 
 
@@ -1192,38 +1213,42 @@ def _heating_power_adjust(
 # band, post adjustments including the delay.
 _PASSIVE_TRAITS = ModeTraits()
 
-MODE_TRAITS: dict[CalibrationMode, ModeTraits] = {
-    # Pure offset from external sensor vs TRV temperature; no
-    # controller, no tolerance/overheating heuristics.
-    CalibrationMode.DEFAULT: ModeTraits(
-        needs_target=False, uses_tolerance_band=False, skip_post_adjustments=True
-    ),
-    CalibrationMode.MPC_CALIBRATION: ModeTraits(
-        balance=BALANCE_STRATEGIES[CalibrationMode.MPC_CALIBRATION],
-        skip_post_adjustments=True,
-    ),
-    CalibrationMode.MPC_V2_CALIBRATION: ModeTraits(
-        balance=BALANCE_STRATEGIES[CalibrationMode.MPC_V2_CALIBRATION],
-        skip_post_adjustments=True,
-    ),
-    CalibrationMode.TPI_CALIBRATION: ModeTraits(
-        balance=BALANCE_STRATEGIES[CalibrationMode.TPI_CALIBRATION],
-        skip_post_adjustments=True,
-    ),
-    CalibrationMode.PID_CALIBRATION: ModeTraits(
-        balance=BALANCE_STRATEGIES[CalibrationMode.PID_CALIBRATION],
-        skip_post_adjustments=True,
-    ),
-    # Aggressive starts heating faster: it boosts the channel value and
-    # skips the tolerance delay, but keeps overheating protection.
-    CalibrationMode.AGGRESSIVE_CALIBRATION: ModeTraits(
-        tolerance_delay=False, adjust=_aggressive_adjust
-    ),
-    # Heating power decides per TRV whether it holds the channel (direct
-    # valve control) or derives a value — including the skip flag.
-    CalibrationMode.HEATING_POWER_CALIBRATION: ModeTraits(adjust=_heating_power_adjust),
-    CalibrationMode.NO_CALIBRATION: _PASSIVE_TRAITS,
-}
+MODE_TRAITS: Final[Mapping[CalibrationMode, ModeTraits]] = MappingProxyType(
+    {
+        # Pure offset from external sensor vs TRV temperature; no
+        # controller, no tolerance/overheating heuristics.
+        CalibrationMode.DEFAULT: ModeTraits(
+            needs_target=False, uses_tolerance_band=False, skip_post_adjustments=True
+        ),
+        CalibrationMode.MPC_CALIBRATION: ModeTraits(
+            balance=BALANCE_STRATEGIES[CalibrationMode.MPC_CALIBRATION],
+            skip_post_adjustments=True,
+        ),
+        CalibrationMode.MPC_V2_CALIBRATION: ModeTraits(
+            balance=BALANCE_STRATEGIES[CalibrationMode.MPC_V2_CALIBRATION],
+            skip_post_adjustments=True,
+        ),
+        CalibrationMode.TPI_CALIBRATION: ModeTraits(
+            balance=BALANCE_STRATEGIES[CalibrationMode.TPI_CALIBRATION],
+            skip_post_adjustments=True,
+        ),
+        CalibrationMode.PID_CALIBRATION: ModeTraits(
+            balance=BALANCE_STRATEGIES[CalibrationMode.PID_CALIBRATION],
+            skip_post_adjustments=True,
+        ),
+        # Aggressive starts heating faster: it boosts the channel value and
+        # skips the tolerance delay, but keeps overheating protection.
+        CalibrationMode.AGGRESSIVE_CALIBRATION: ModeTraits(
+            tolerance_delay=False, adjust=_aggressive_adjust
+        ),
+        # Heating power decides per TRV whether it holds the channel (direct
+        # valve control) or derives a value — including the skip flag.
+        CalibrationMode.HEATING_POWER_CALIBRATION: ModeTraits(
+            adjust=_heating_power_adjust
+        ),
+        CalibrationMode.NO_CALIBRATION: _PASSIVE_TRAITS,
+    }
+)
 
 
 def _traits_for(mode: CalibrationMode | None) -> ModeTraits:

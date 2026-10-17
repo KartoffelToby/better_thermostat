@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
@@ -34,7 +34,7 @@ from custom_components.better_thermostat.events.trv import (
     reports_written_setpoint,
     trigger_trv_change,
 )
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import Trv, WithdrawnHvacMode
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -44,6 +44,7 @@ from custom_components.better_thermostat.utils.controlling import TaskManager
 from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
 from custom_components.better_thermostat.utils.helpers import (
     CoolerSendCache,
+    SentCommand,
     mode_remap,
 )
 from tests.factories import ThermostatStandIn
@@ -128,12 +129,12 @@ def mock_bt():
             target_temperature_received=True,
             system_mode_received=True,
             calibration_received=True,
-            calibration=1,
+            calibration=None,
             last_calibration=0.0,
             ignore_trv_states=False,
             model="SomeModel",
             model_quirks=None,
-            hvac_action="heating",
+            hvac_action=HVACAction.HEATING,
             valve_position=50,
             advanced={
                 "calibration": CalibrationOutput.LOCAL_BASED,
@@ -195,12 +196,12 @@ def _add_homematicip_peer(bt):
         target_temperature_received=True,
         system_mode_received=True,
         calibration_received=True,
-        calibration=1,
+        calibration=None,
         last_calibration=0.0,
         ignore_trv_states=False,
         model="SomeModel",
         model_quirks=None,
-        hvac_action="heating",
+        hvac_action=HVACAction.HEATING,
         valve_position=50,
         advanced={
             "calibration": CalibrationOutput.LOCAL_BASED,
@@ -636,7 +637,7 @@ class TestInternalTemperatureChange:
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
         mock_bt.real_trvs[ENTITY_ID].calibration_received = True
-        mock_bt.real_trvs[ENTITY_ID].calibration = 1
+        mock_bt.real_trvs[ENTITY_ID].calibration = None
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -664,7 +665,7 @@ class TestInternalTemperatureChange:
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
         mock_bt.real_trvs[ENTITY_ID].calibration_received = True
-        mock_bt.real_trvs[ENTITY_ID].calibration = 1
+        mock_bt.real_trvs[ENTITY_ID].calibration = None
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -692,7 +693,7 @@ class TestInternalTemperatureChange:
         )
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
         mock_bt.real_trvs[ENTITY_ID].calibration_received = True
-        mock_bt.real_trvs[ENTITY_ID].calibration = 1
+        mock_bt.real_trvs[ENTITY_ID].calibration = None
 
         trv_state = _make_state(attributes={"current_temperature": 20.0})
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
@@ -736,7 +737,7 @@ class TestInternalTemperatureChange:
     async def test_calibration_received_flag_set(self, mock_bt):
         """calibration_received should be set True on first temperature change."""
         mock_bt.real_trvs[ENTITY_ID].calibration_received = False
-        mock_bt.real_trvs[ENTITY_ID].calibration = 1
+        mock_bt.real_trvs[ENTITY_ID].calibration = None
         trv_state = _make_state(attributes={"current_temperature": 20.0})
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
@@ -755,7 +756,7 @@ class TestInternalTemperatureChange:
     async def test_calibration_received_resets_main_change(self, mock_bt):
         """When calibration is first received, _main_change should become False."""
         mock_bt.real_trvs[ENTITY_ID].calibration_received = False
-        mock_bt.real_trvs[ENTITY_ID].calibration = 1
+        mock_bt.real_trvs[ENTITY_ID].calibration = None
         trv_state = _make_state(attributes={"current_temperature": 20.0})
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
@@ -785,7 +786,7 @@ class TestInternalTemperatureChange:
         mock_bt.ignore_states = cycle_running
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.calibration_received = False
-        trv.calibration = 1
+        trv.calibration = None
         trv.current_temperature = 18.0
         trv_state = _make_state(attributes={"current_temperature": 20.0})
         mock_bt.hass.states.get.return_value = trv_state
@@ -805,11 +806,26 @@ class TestInternalTemperatureChange:
         else:
             mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
 
+    @pytest.mark.parametrize(
+        ("calibration", "reads_offset"),
+        [
+            (CalibrationOutput.LOCAL_BASED, True),
+            (CalibrationOutput.TARGET_TEMP_BASED, False),
+            (CalibrationOutput.DIRECT_VALVE_BASED, False),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_calibration_zero_fetches_offset(self, mock_bt):
-        """When calibration==0, get_calibration_offset() should be called."""
+    async def test_confirmed_calibration_reads_the_offset_back_only_on_offset_trvs(
+        self, mock_bt, calibration, reads_offset
+    ):
+        """A confirmed offset write refreshes the offset BT last saw on the TRV.
+
+        Only a TRV calibrated through its offset has one BT wrote; on any
+        other TRV the recorded offset is left as it is.
+        """
         mock_bt.real_trvs[ENTITY_ID].calibration_received = False
-        mock_bt.real_trvs[ENTITY_ID].calibration = 0
+        mock_bt.real_trvs[ENTITY_ID].calibration = calibration
+        mock_bt.real_trvs[ENTITY_ID].last_calibration = 0.0
         trv_state = _make_state(attributes={"current_temperature": 20.0})
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
@@ -829,8 +845,65 @@ class TestInternalTemperatureChange:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        mock_offset.assert_awaited_once_with(mock_bt, ENTITY_ID)
-        assert mock_bt.real_trvs[ENTITY_ID].last_calibration == 2.5
+        assert mock_bt.real_trvs[ENTITY_ID].calibration_received is True
+        if reads_offset:
+            mock_offset.assert_awaited_once_with(mock_bt, ENTITY_ID)
+            assert mock_bt.real_trvs[ENTITY_ID].last_calibration == 2.5
+        else:
+            mock_offset.assert_not_awaited()
+            assert mock_bt.real_trvs[ENTITY_ID].last_calibration == 0.0
+
+    @pytest.mark.parametrize(
+        ("calibration", "taken"),
+        [
+            (CalibrationOutput.LOCAL_BASED, True),
+            (CalibrationOutput.TARGET_TEMP_BASED, False),
+            (CalibrationOutput.DIRECT_VALVE_BASED, False),
+            (None, False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_only_an_unconfirmed_offset_lets_a_reading_past_the_debounce(
+        self, mock_bt, calibration, taken
+    ):
+        """An offset write awaiting confirmation takes the next reading at once.
+
+        The reading is how an offset TRV confirms the write, so it is not
+        held back by the debounce. A TRV that is not calibrated through its
+        offset has no such write to confirm, and its reading inside the
+        debounce window is turned away like any other.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.calibration_received = False
+        trv.calibration = calibration
+        trv.current_temperature = 18.0
+        # The last accepted reading is recent, well inside the 5 s debounce
+        # window.
+        trv.last_internal_sensor_change = dt_util.now()
+        trv_state = _make_state(attributes={"current_temperature": 20.0})
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.get_calibration_offset",
+                autospec=True,
+                return_value=0.0,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv."
+                "_read_internal_temperature_later"
+            ),
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert trv.current_temperature == (20.0 if taken else 18.0)
+        assert trv.calibration_received is taken
 
     @pytest.mark.asyncio
     async def test_entry_removed_during_await_completes(self, mock_bt):
@@ -842,7 +915,7 @@ class TestInternalTemperatureChange:
         """
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.calibration_received = False
-        trv.calibration = 0
+        trv.calibration = CalibrationOutput.LOCAL_BASED
         trv_state = _make_state(attributes={"current_temperature": 20.0})
         mock_bt.hass.states.get.return_value = trv_state
         trv.current_temperature = 18.0
@@ -883,7 +956,7 @@ class TestInternalTemperatureChange:
         """
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.calibration_received = False
-        trv.calibration = 0
+        trv.calibration = CalibrationOutput.LOCAL_BASED
         trv.model = None
         trv_state = _make_state(
             attributes={"current_temperature": 20.0, "model_id": "TRV-X"}
@@ -1160,7 +1233,7 @@ class TestHvacActionAndValvePosition:
             }
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].hvac_action = "heating"
+        mock_bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.HEATING
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -1170,7 +1243,7 @@ class TestHvacActionAndValvePosition:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.real_trvs[ENTITY_ID].hvac_action == "idle"
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_action == HVACAction.IDLE
 
     @pytest.mark.asyncio
     async def test_hvac_action_fallback_to_action(self, mock_bt):
@@ -1183,7 +1256,7 @@ class TestHvacActionAndValvePosition:
             }
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].hvac_action = "idle"
+        mock_bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.IDLE
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -1193,7 +1266,7 @@ class TestHvacActionAndValvePosition:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.real_trvs[ENTITY_ID].hvac_action == "heating"
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_action == HVACAction.HEATING
 
     @pytest.mark.asyncio
     async def test_hvac_action_change_triggers_main_change(self, mock_bt):
@@ -1206,7 +1279,7 @@ class TestHvacActionAndValvePosition:
             }
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].hvac_action = "heating"
+        mock_bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.HEATING
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -3138,7 +3211,7 @@ class TestControlQueueTrigger:
             }
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].hvac_action = "heating"
+        mock_bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.HEATING
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
@@ -3699,12 +3772,12 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
             target_temperature_received=True,
             system_mode_received=True,
             calibration_received=True,
-            calibration=1,
+            calibration=None,
             last_calibration=0.0,
             ignore_trv_states=False,
             model="SomeModel",
             model_quirks=None,
-            hvac_action="heating",
+            hvac_action=HVACAction.HEATING,
             valve_position=50,
             advanced={
                 "calibration": CalibrationOutput.LOCAL_BASED,
@@ -3983,7 +4056,7 @@ class TestDualRoleEntityReports:
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.heat_target_temperature = 20.0
         mock_bt.cool_target_temperature = 24.0
-        mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        mock_bt._cooler_last_sent = {"temperature": SentCommand(24.0, 0.0)}
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
             HVACMode.OFF,
             HVACMode.HEAT,
@@ -4177,7 +4250,9 @@ class TestDualRoleEntityReports:
         """
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
         shared_bt.cool_target_temperature = cool_target_temperature
-        shared_bt._cooler_last_sent = {"temperature": (cool_target_temperature, 0.0)}
+        shared_bt._cooler_last_sent = {
+            "temperature": SentCommand(cool_target_temperature, 0.0)
+        }
 
         await self._report(
             shared_bt,
@@ -4203,7 +4278,7 @@ class TestDualRoleEntityReports:
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
         shared_bt.cool_target_temperature = cool_target_temperature
         shared_bt._cooler_last_sent = (
-            CoolerSendCache(temperature=(cool_target_temperature, 0.0))
+            CoolerSendCache(temperature=SentCommand(cool_target_temperature, 0.0))
             if send_cache_primed
             else CoolerSendCache()
         )
@@ -4239,7 +4314,9 @@ class TestDualRoleEntityReports:
         24 °C the cache would round to on the room's own 0.5 °C grid.
         """
         shared_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
-        shared_bt._cooler_last_sent = {"temperature": ((75.0 - 32.0) * 5.0 / 9.0, 0.0)}
+        shared_bt._cooler_last_sent = {
+            "temperature": SentCommand((75.0 - 32.0) * 5.0 / 9.0, 0.0)
+        }
 
         await self._report(
             shared_bt,
@@ -4266,7 +4343,7 @@ class TestDualRoleEntityReports:
         mock_bt.cooler_entity_id = "climate.split_unit"
         mock_bt.heat_target_temperature = 19.0
         mock_bt.cool_target_temperature = 24.0
-        mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
+        mock_bt._cooler_last_sent = {"temperature": SentCommand(24.0, 0.0)}
         mock_bt.bt_max_temp = 30.0
         mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
         mock_bt.real_trvs[ENTITY_ID].max_temp = 30.0
@@ -4774,7 +4851,7 @@ class TestStoredFlagSpellings:
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
         mock_bt.real_trvs[ENTITY_ID].calibration_received = True
-        mock_bt.real_trvs[ENTITY_ID].calibration = 1
+        mock_bt.real_trvs[ENTITY_ID].calibration = None
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
         with patch(
@@ -5067,8 +5144,7 @@ class TestWithdrawnModeCommand:
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.hvac_mode = HVACMode.HEAT
         trv.last_hvac_mode = HVACMode.OFF
-        trv.withdrawn_hvac_mode = HVACMode.HEAT
-        trv.withdrawn_hvac_mode_until = 60.0
+        trv.withdrawn_hvac_mode = WithdrawnHvacMode(mode=HVACMode.HEAT, until=60.0)
 
         off = _make_state("off")
         mock_bt.hass.states.get.return_value = off
@@ -5078,7 +5154,9 @@ class TestWithdrawnModeCommand:
             await trigger_trv_change(
                 mock_bt, _make_event(mock_bt, new_state=off, old_state=_make_state())
             )
-            assert trv.withdrawn_hvac_mode == HVACMode.HEAT
+            assert trv.withdrawn_hvac_mode == WithdrawnHvacMode(
+                mode=HVACMode.HEAT, until=60.0
+            )
 
             mock_bt.clock.advance(10)
             heat = _make_state("heat")

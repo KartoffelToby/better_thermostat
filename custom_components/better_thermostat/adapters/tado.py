@@ -11,7 +11,7 @@ from typing import Final
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
-from .base import AdapterCapabilities
+from .base import AdapterCapabilities, DeviceChannels
 from .generic import (
     set_hvac_mode as generic_set_hvac_mode,
     set_temperature as generic_set_temperature,
@@ -34,9 +34,9 @@ OFFSET_MAX: Final = 10.0
 OFFSET_STEP: Final = 0.01
 
 
-async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
+async def get_info(self: AdapterProbeHost, entity_id: str) -> DeviceChannels:
     """Get info from TRV."""
-    return {"support_offset": True, "support_valve": False}
+    return DeviceChannels(offset_write=True, valve_write=False)
 
 
 async def init(self: AdapterHost, entity_id: str) -> None:

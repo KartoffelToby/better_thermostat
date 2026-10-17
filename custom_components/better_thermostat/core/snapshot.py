@@ -41,6 +41,36 @@ def parse_hvac_mode(value: str | None) -> HvacMode | None:
         return None
 
 
+class Preset(StrEnum):
+    """Preset vocabulary of the core.
+
+    Values match Home Assistant's ``PRESET_*`` strings so that members
+    compare equal to the shell's preset names without importing them.
+    """
+
+    NONE = "none"
+    ECO = "eco"
+    AWAY = "away"
+    BOOST = "boost"
+    COMFORT = "comfort"
+    HOME = "home"
+    SLEEP = "sleep"
+    ACTIVITY = "activity"
+
+
+def parse_preset(value: str | None) -> Preset | None:
+    """Map a raw preset name onto the core vocabulary.
+
+    Returns ``None`` for unknown or missing values.
+    """
+    if value is None:
+        return None
+    try:
+        return Preset(value)
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True)
 class TrvReported:
     """Reported state of a single TRV at snapshot time."""
@@ -74,7 +104,7 @@ class WorldSnapshot:
     # configured). Pure observation for the flight recorder — the
     # debounced window region in the kernel state rules the control law.
     window_open: bool | None = None
-    preset_mode: str | None = None
+    preset_mode: Preset | None = None
     tolerance: float = 0.0
     outdoor_temperature: float | None = None
     is_day: bool = True

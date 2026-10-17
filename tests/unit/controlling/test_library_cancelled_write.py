@@ -219,7 +219,7 @@ async def test_a_tweak_the_library_cancelled_fails_that_trv_not_the_startup():
     bt.heat_target_temperature = 21.0
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.context = MagicMock()
-    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, calibration=1)}
+    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, calibration=None)}
 
     with (
         patch("custom_components.better_thermostat.climate.init", autospec=True),

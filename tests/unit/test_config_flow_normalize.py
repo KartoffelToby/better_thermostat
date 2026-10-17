@@ -108,7 +108,7 @@ def test_door_sensor_removed_when_key_absent_from_input():
         CONF_THERMOSTAT: ["climate.trv"],
         CONF_TEMPERATURE_SENSOR: "sensor.temp",
     }
-    normalized = _normalize_user_submission(user_input, mode="options", base=base)
+    normalized = _normalize_user_submission(user_input, mode="update", base=base)
     assert normalized[CONF_DOOR_SENSORS] is None
 
 

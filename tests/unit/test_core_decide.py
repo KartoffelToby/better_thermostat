@@ -14,7 +14,11 @@ from custom_components.better_thermostat.core.fsm.lifecycle import (
 )
 from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
-from custom_components.better_thermostat.core.snapshot import HvacMode, TrvReported
+from custom_components.better_thermostat.core.snapshot import (
+    HvacMode,
+    Preset,
+    TrvReported,
+)
 from tests.factories import make_snapshot, make_state
 
 
@@ -252,7 +256,9 @@ class TestReachability:
         """Active boost heating overrides the reachability skip."""
         desired, _ = decide(
             self._snapshot(
-                preset_mode="boost", room_temperature=18.0, heat_target_temperature=22.0
+                preset_mode=Preset.BOOST,
+                room_temperature=18.0,
+                heat_target_temperature=22.0,
             ),
             make_state(window=WindowState(phase=WindowPhase.OPEN)),
         )
@@ -262,7 +268,9 @@ class TestReachability:
         """Boost at/above target does not force-command offline TRVs."""
         desired, _ = decide(
             self._snapshot(
-                preset_mode="boost", room_temperature=22.5, heat_target_temperature=22.0
+                preset_mode=Preset.BOOST,
+                room_temperature=22.5,
+                heat_target_temperature=22.0,
             ),
             make_state(window=WindowState(phase=WindowPhase.OPEN)),
         )

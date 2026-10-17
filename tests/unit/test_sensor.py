@@ -40,6 +40,10 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatPidOutputSensor,
     BetterThermostatTempSlopeSensor,
     BetterThermostatVirtualTempSensor,
+    PidNumberRef,
+    PresetNumberRef,
+    SwitchKind,
+    SwitchRef,
     _BtMpcSensorBase,
     _BtSensorBase,
     _BtSimpleAttributeSensor,
@@ -476,14 +480,16 @@ class TestMpcSensorState:
         return {
             "trv_1": Trv(
                 entity_id="trv_1",
-                calibration_balance=make_calibration_balance(debug=debug_values),
+                calibration_balance=make_calibration_balance(
+                    CalibrationMode.MPC_CALIBRATION, debug_values
+                ),
             )
         }
 
     def test_virtual_temperature_reads_from_debug(self):
         """Virtual temperature reads from debug."""
         bt = _make_bt_climate(
-            real_trvs=self._make_trv_with_debug(**{"mpc_virtual_temp": 22.5})
+            real_trvs=self._make_trv_with_debug(**{"mpc_virtual_temp": "22.500"})
         )
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
@@ -519,14 +525,24 @@ class TestMpcSensorState:
 
     def test_debug_without_the_reading_returns_none(self):
         """A debug payload without the virtual temperature returns none."""
+        bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(mpc_gain=0.05))
+        sensor = BetterThermostatVirtualTempSensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value is None
+
+    def test_a_payload_of_another_controller_is_not_read(self):
+        """A PID payload under the same key leaves the sensor empty."""
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": Trv(
-                    entity_id="trv_1", calibration_balance=make_calibration_balance()
+                    entity_id="trv_1",
+                    calibration_balance=make_calibration_balance(
+                        CalibrationMode.PID_CALIBRATION, {"mpc_gain": 0.05}
+                    ),
                 )
             }
         )
-        sensor = BetterThermostatVirtualTempSensor(bt)
+        sensor = BetterThermostatMpcGainSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
 
@@ -561,7 +577,7 @@ class TestMpcSensorState:
                 "trv_2": Trv(
                     entity_id="trv_2",
                     calibration_balance=make_calibration_balance(
-                        debug={"mpc_virtual_temp": 23.0}
+                        CalibrationMode.MPC_CALIBRATION, {"mpc_virtual_temp": "23.000"}
                     ),
                 ),
             }
@@ -575,10 +591,27 @@ class TestMpcV2SensorState:
     """The MPC v2 sensors read the payload MPC v2 publishes, and only that one."""
 
     @staticmethod
-    def _trv(name, debug):
+    def _trv(name, controller, **debug):
         return Trv(
-            entity_id=name, calibration_balance=make_calibration_balance(debug=debug)
+            entity_id=name,
+            calibration_balance=make_calibration_balance(controller, debug),
         )
+
+    @classmethod
+    def _v2_trv(cls, name, **overrides):
+        debug = {
+            "T_room_hat": 21.0,
+            "T_rad_hat": 30.0,
+            "D_hat_K_per_min": 0.0,
+            "tau_room_min": 120.0,
+            "coupling_rad_room": 0.5,
+            "group_valve_pct": 40.0,
+            "distributed_valve_pct": 40.0,
+            "controller_version": "v2",
+            "reid_tau_room": None,
+            "reid_gain": None,
+        }
+        return cls._trv(name, CalibrationMode.MPC_V2_CALIBRATION, **(debug | overrides))
 
     @pytest.mark.parametrize(
         ("sensor_class", "debug_key", "value"),
@@ -593,11 +626,7 @@ class TestMpcV2SensorState:
         self, sensor_class, debug_key, value
     ):
         bt = _make_bt_climate(
-            real_trvs={
-                "trv_1": self._trv(
-                    "trv_1", {"controller_version": "V2", debug_key: value}
-                )
-            }
+            real_trvs={"trv_1": self._v2_trv("trv_1", **{debug_key: value})}
         )
         sensor = sensor_class(bt)
         sensor._update_state()
@@ -608,7 +637,7 @@ class TestMpcV2SensorState:
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": self._trv(
-                    "trv_1", {"controller_version": "v1", "T_room_hat": 21.0}
+                    "trv_1", CalibrationMode.MPC_CALIBRATION, T_room_hat=21.0
                 )
             }
         )
@@ -617,20 +646,16 @@ class TestMpcV2SensorState:
         assert sensor._attr_native_value is None
 
     def test_the_first_head_with_a_v2_value_is_shown(self):
-        """Heads without the value, or on another controller, are passed over."""
+        """Heads without a balance, or on another controller, are passed over."""
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": Trv(entity_id="trv_1"),
                 "trv_2": self._trv(
-                    "trv_2", {"controller_version": "v1", "tau_room_min": 1.0}
+                    "trv_2", CalibrationMode.MPC_CALIBRATION, tau_room_min=1.0
                 ),
-                "trv_3": self._trv("trv_3", {"controller_version": "v2"}),
-                "trv_4": self._trv(
-                    "trv_4", {"controller_version": "v2", "tau_room_min": 90.0}
-                ),
-                "trv_5": self._trv(
-                    "trv_5", {"controller_version": "v2", "tau_room_min": 30.0}
-                ),
+                "trv_3": self._trv("trv_3", CalibrationMode.PID_CALIBRATION, u=1.0),
+                "trv_4": self._v2_trv("trv_4", tau_room_min=90.0),
+                "trv_5": self._v2_trv("trv_5", tau_room_min=30.0),
             }
         )
         sensor = BetterThermostatMpcV2RoomTimeConstantSensor(bt)
@@ -652,7 +677,9 @@ class TestPidSensorState:
         return {
             "trv_1": Trv(
                 entity_id="trv_1",
-                calibration_balance=make_calibration_balance(debug=debug_values),
+                calibration_balance=make_calibration_balance(
+                    CalibrationMode.PID_CALIBRATION, {"mode": "pid", **debug_values}
+                ),
             )
         }
 
@@ -1090,9 +1117,11 @@ class TestReleaseEntry:
             CalibrationMode.MPC_CALIBRATION: ["id1"]
         }
         _ENTITY_CLEANUP_CALLBACKS["entry_1"] = MagicMock()
-        _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid": dict[str, str | bool]()}
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid": dict[str, str]()}
-        _ACTIVE_SWITCH_ENTITIES["entry_1"] = {"uid": dict[str, str]()}
+        _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid": PresetNumberRef("away")}
+        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid": PidNumberRef("trv_1", "kp")}
+        _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
+            "uid": SwitchRef("trv_1", SwitchKind.CHILD_LOCK)
+        }
 
         _release_entry(entry.entry_id)
 
@@ -1425,8 +1454,8 @@ class TestCleanupPresetNumberEntities:
         reg.async_get_entity_id.return_value = "number.preset_away"
 
         _ACTIVE_PRESET_NUMBERS["entry_1"] = {
-            "uid_away": {"preset": "away"},
-            "uid_home": {"preset": "home"},
+            "uid_away": PresetNumberRef("away"),
+            "uid_home": PresetNumberRef("home"),
         }
         bt = _make_bt_climate()
         # Only "home" is current → "away" should be removed
@@ -1444,7 +1473,7 @@ class TestCleanupPresetNumberEntities:
     async def test_none_unique_id_skipped(self):
         """Entries with None as unique_id should be skipped."""
         reg = _make_entity_registry()
-        _ACTIVE_PRESET_NUMBERS["entry_1"] = {None: {"preset": "away"}}
+        _ACTIVE_PRESET_NUMBERS["entry_1"] = {None: PresetNumberRef("away")}
         bt = _make_bt_climate()
         await _cleanup_preset_number_entities(
             hass=MagicMock(),
@@ -1478,7 +1507,7 @@ class TestCleanupPresetNumberEntities:
         reg.async_get_entity_id.return_value = "number.preset_away"
         reg.async_remove.side_effect = RuntimeError("fail")
 
-        _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid_away": {"preset": "away"}}
+        _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid_away": PresetNumberRef("away")}
         bt = _make_bt_climate()
         await _cleanup_preset_number_entities(
             hass=MagicMock(),
@@ -1505,7 +1534,7 @@ class TestCleanupPidNumberEntities:
         reg = _make_entity_registry()
         reg.async_get_entity_id.return_value = "number.pid_kp"
 
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": {"trv": "trv_1", "param": "kp"}}
+        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": PidNumberRef("trv_1", "kp")}
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": Trv(
@@ -1523,7 +1552,7 @@ class TestCleanupPidNumberEntities:
     async def test_keeps_pid_entities_for_pid_trv(self):
         """Keeps pid entities for pid trv."""
         reg = _make_entity_registry()
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": {"trv": "trv_1", "param": "kp"}}
+        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": PidNumberRef("trv_1", "kp")}
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": Trv(
@@ -1554,14 +1583,14 @@ class TestCleanupPidNumberEntities:
         )
         tracked = _ACTIVE_PID_NUMBERS["entry_1"]
         # Should have 3 entries for trv_1 (kp, ki, kd)
-        trv_entries = [v for v in tracked.values() if v.get("trv") == "trv_1"]
+        trv_entries = [v for v in tracked.values() if v.trv == "trv_1"]
         assert len(trv_entries) == 3
 
     @pytest.mark.asyncio
     async def test_no_real_trvs_returns_empty_pid_trvs(self):
         """If no real_trvs, no PID TRVs should be found."""
         reg = _make_entity_registry()
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": {"trv": "trv_1", "param": "kp"}}
+        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": PidNumberRef("trv_1", "kp")}
         bt = _make_bt_climate(real_trvs={})
         reg.async_get_entity_id.return_value = "number.pid_kp"
         await _cleanup_pid_number_entities(
@@ -1585,7 +1614,7 @@ class TestCleanupPidNumberEntities:
         )
         # No PID TRVs found, nothing to merge
         tracked = _ACTIVE_PID_NUMBERS["entry_1"]
-        assert not any(v.get("trv") == "trv_1" for v in tracked.values())
+        assert not any(v.trv == "trv_1" for v in tracked.values())
 
 
 # ===========================================================================
@@ -1603,7 +1632,7 @@ class TestCleanupPidSwitchEntities:
         reg.async_get_entity_id.return_value = "switch.pid_auto_tune"
 
         _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
-            "uid_autotune": {"trv": "trv_1", "type": "pid_auto_tune"}
+            "uid_autotune": SwitchRef("trv_1", SwitchKind.PID_AUTO_TUNE)
         }
         bt = _make_bt_climate(
             real_trvs={
@@ -1625,7 +1654,7 @@ class TestCleanupPidSwitchEntities:
         reg.async_get_entity_id.return_value = "switch.child_lock"
 
         _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
-            "uid_lock": {"trv": "trv_removed", "type": "child_lock"}
+            "uid_lock": SwitchRef("trv_removed", SwitchKind.CHILD_LOCK)
         }
         bt = _make_bt_climate(
             real_trvs={
@@ -1645,7 +1674,7 @@ class TestCleanupPidSwitchEntities:
         """Keeps child lock for existing trv."""
         reg = _make_entity_registry()
         _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
-            "uid_lock": {"trv": "trv_1", "type": "child_lock"}
+            "uid_lock": SwitchRef("trv_1", SwitchKind.CHILD_LOCK)
         }
         bt = _make_bt_climate(
             real_trvs={
@@ -1677,8 +1706,8 @@ class TestCleanupPidSwitchEntities:
         )
         tracked = _ACTIVE_SWITCH_ENTITIES["entry_1"]
         # Should have pid_auto_tune + child_lock for trv_1
-        types = {v["type"] for v in tracked.values() if v.get("trv") == "trv_1"}
-        assert types == {"pid_auto_tune", "child_lock"}
+        kinds = {v.kind for v in tracked.values() if v.trv == "trv_1"}
+        assert kinds == {SwitchKind.PID_AUTO_TUNE, SwitchKind.CHILD_LOCK}
 
     @pytest.mark.asyncio
     async def test_child_lock_for_no_real_trvs(self):
@@ -1687,7 +1716,7 @@ class TestCleanupPidSwitchEntities:
         reg.async_get_entity_id.return_value = "switch.child_lock"
 
         _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
-            "uid_lock": {"trv": "trv_1", "type": "child_lock"}
+            "uid_lock": SwitchRef("trv_1", SwitchKind.CHILD_LOCK)
         }
         bt = _make_bt_climate(real_trvs=None)
         await _cleanup_pid_switch_entities(
@@ -1950,7 +1979,7 @@ class TestDynamicUpdateBelongsToTheEntry:
             await sensor_module._register_dynamic_entity_callback(
                 hass, entry, _make_bt_climate(), MagicMock()
             )
-        sensor_module._ENTITY_CLEANUP_CALLBACKS["entry_owned"](None)
+        sensor_module._ENTITY_CLEANUP_CALLBACKS["entry_owned"]()
 
         entry.async_create_background_task.assert_called_once()
         assert entry.async_create_background_task.call_args.args[0] is hass
