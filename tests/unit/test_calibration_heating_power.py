@@ -107,6 +107,7 @@ class TestWithDirectValveControl:
         assert bt.real_trvs[ENTITY_ID].calibration_balance == {
             "valve_percent": 0,
             "apply_valve": True,
+            "controller": CalibrationMode.HEATING_POWER_CALIBRATION,
             "debug": VALVE_INTENT_SOURCE,
         }
 
@@ -127,6 +128,7 @@ class TestWithDirectValveControl:
         assert bt.real_trvs[ENTITY_ID].calibration_balance == {
             "valve_percent": 42,
             "apply_valve": True,
+            "controller": CalibrationMode.HEATING_POWER_CALIBRATION,
             "debug": VALVE_INTENT_SOURCE,
         }
 
@@ -225,6 +227,7 @@ class TestUnderSensorFallback:
         assert bt.real_trvs[ENTITY_ID].calibration_balance == {
             "valve_percent": 40,
             "apply_valve": True,
+            "controller": CalibrationMode.HEATING_POWER_CALIBRATION,
             "debug": VALVE_INTENT_SOURCE,
         }
 

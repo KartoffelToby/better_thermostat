@@ -182,7 +182,7 @@ async def test_a_closing_degree_is_never_the_valve_entity(closing):
         await valve_entity.discover_valve_entity(host, TRV_ID)
 
     assert found is None
-    assert offered["support_valve"] is False
+    assert offered.valve_write is False
     assert host.real_trvs[TRV_ID].valve_position_entity is None
 
 

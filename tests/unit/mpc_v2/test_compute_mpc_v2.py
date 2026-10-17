@@ -19,6 +19,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Diagnostics,
     MpcV2Input,
     MpcV2Params,
+    MpcV2PlantPreset,
     MpcV2State,
     compute_mpc_v2,
     export_mpc_v2_state,
@@ -332,16 +333,16 @@ def test_make_plant_prior_clamps_extreme_heat_loss() -> None:
 def test_make_plant_prior_preset_overrides_learnings() -> None:
     """A named preset overrides the learned derivation and copies independently."""
     # Preset wins even when heat_loss_rate would otherwise derive a value.
-    prior = make_plant_prior(heat_loss_rate=0.03, preset="small_room")
-    assert prior.tau_room_min == PLANT_PRESETS["small_room"].tau_room_min
+    prior = make_plant_prior(heat_loss_rate=0.03, preset=MpcV2PlantPreset.SMALL_ROOM)
+    assert prior.tau_room_min == PLANT_PRESETS[MpcV2PlantPreset.SMALL_ROOM].tau_room_min
     # And presets are independent copies, not the shared singleton.
     prior.tau_room_min = 999.0
-    assert PLANT_PRESETS["small_room"].tau_room_min != 999.0
+    assert PLANT_PRESETS[MpcV2PlantPreset.SMALL_ROOM].tau_room_min != 999.0
 
 
-def test_make_plant_prior_unknown_preset_falls_back_to_derivation() -> None:
-    """An unknown preset name falls back to heat-loss derivation."""
-    prior = make_plant_prior(heat_loss_rate=0.03, preset="bogus_room")
+def test_make_plant_prior_auto_preset_falls_back_to_derivation() -> None:
+    """The AUTO preset has no static entry and derives from the heat-loss rate."""
+    prior = make_plant_prior(heat_loss_rate=0.03, preset=MpcV2PlantPreset.AUTO)
     assert abs(prior.tau_room_min - 500.0) < 1e-6
 
 
@@ -351,7 +352,7 @@ def test_plant_signature_change_rebuilds_controller(caplog) -> None:
     state: MpcV2State | None = None
     out, state = compute_mpc_v2(
         _baseline_input(key="preset-test-key"),
-        MpcV2Params(plant=make_plant_prior(preset="small_room")),
+        MpcV2Params(plant=make_plant_prior(preset=MpcV2PlantPreset.SMALL_ROOM)),
         state,
     )
     assert out is not None
@@ -360,7 +361,7 @@ def test_plant_signature_change_rebuilds_controller(caplog) -> None:
     with caplog.at_level("INFO"):
         out, state = compute_mpc_v2(
             _baseline_input(key="preset-test-key"),
-            MpcV2Params(plant=make_plant_prior(preset="large_room")),
+            MpcV2Params(plant=make_plant_prior(preset=MpcV2PlantPreset.LARGE_ROOM)),
             state,
         )
     assert state.controller is not original_ctrl
@@ -615,6 +616,131 @@ def test_state_round_trip() -> None:
     assert rehydrated.controller is not None
     assert rehydrated.controller._last_u == state.controller._last_u
     assert rehydrated.last_percent == state.last_percent
+
+
+_ESTIMATE = {"x_hat": [20.0, 21.0], "kalman_P": [[1.0, 0.0], [0.0, 1.0]]}
+
+
+@pytest.mark.parametrize("version", [0, 1, 2])
+def test_sentinel_stamps_of_an_older_snapshot_load_as_absent(version: int) -> None:
+    """``0.0`` / ``-1.0`` in a version 2 or older snapshot mean "no cycle yet"."""
+    raw = {
+        "v": version,
+        **_ESTIMATE,
+        "last_t_s": 0.0,
+        "next_mpc_t_s": -1.0,
+        "last_mpc_t_s": -1.0,
+    }
+    snap = ControllerSnapshot.from_mapping(raw)
+    assert snap is not None
+    assert snap.last_t_s is None
+    assert snap.next_mpc_t_s is None
+    assert snap.last_mpc_t_s is None
+
+
+def test_missing_stamps_of_an_older_snapshot_load_as_absent() -> None:
+    """A version 2 snapshot without the stamp keys loads them as ``None``."""
+    snap = ControllerSnapshot.from_mapping({"v": 2, **_ESTIMATE})
+    assert snap is not None
+    assert (snap.last_t_s, snap.next_mpc_t_s, snap.last_mpc_t_s) == (None, None, None)
+
+
+def test_real_stamps_of_an_older_snapshot_are_kept() -> None:
+    """Only the sentinels map to ``None``; a stored cycle stamp stays."""
+    raw = {
+        "v": 2,
+        **_ESTIMATE,
+        "last_t_s": 1_790_000_000.0,
+        "next_mpc_t_s": 1_790_000_300.0,
+        "last_mpc_t_s": 1_789_999_700.0,
+    }
+    snap = ControllerSnapshot.from_mapping(raw)
+    assert snap is not None
+    assert snap.last_t_s == 1_790_000_000.0
+    assert snap.next_mpc_t_s == 1_790_000_300.0
+    assert snap.last_mpc_t_s == 1_789_999_700.0
+
+
+def test_planned_at_zero_of_an_older_snapshot_is_kept() -> None:
+    """A stored ``0.0`` plan stamp counted as a plan, so it stays a stamp."""
+    raw = {"v": 2, **_ESTIMATE, "next_mpc_t_s": 0.0, "last_mpc_t_s": 0.0}
+    snap = ControllerSnapshot.from_mapping(raw)
+    assert snap is not None
+    assert snap.next_mpc_t_s == 0.0
+    assert snap.last_mpc_t_s == 0.0
+
+
+def test_older_sentinel_snapshot_steps_like_a_current_null_one() -> None:
+    """A version 2 cold snapshot runs its next cycle as a version 3 one does."""
+    stored = {"last_u": 0.3, "u_history": [0.3], "e_integral_K_min": 0.5}
+    older = ControllerSnapshot.from_mapping(
+        {
+            "v": 2,
+            **_ESTIMATE,
+            **stored,
+            "last_t_s": 0.0,
+            "next_mpc_t_s": -1.0,
+            "last_mpc_t_s": -1.0,
+        }
+    )
+    current = ControllerSnapshot.from_mapping(
+        {
+            "v": SNAPSHOT_VERSION,
+            **_ESTIMATE,
+            **stored,
+            "last_t_s": None,
+            "next_mpc_t_s": None,
+            "last_mpc_t_s": None,
+        }
+    )
+    assert older is not None
+    assert current is not None
+    results = []
+    for snap in (older, current):
+        controller = MpcV2Controller(MpcV2Params())
+        controller.restore_snapshot(snap)
+        u, _ = controller.step(
+            t_s=1_790_000_000.0, T_room=19.0, T_target=22.0, T_outdoor=5.0
+        )
+        results.append(
+            (u, controller.optimiser.e_integral_K_min, controller.dob.D_hat_K_per_min)
+        )
+    assert results[0] == results[1]
+
+
+def test_a_fresh_controller_writes_null_stamps() -> None:
+    """Absent stamps are stored as JSON nulls and load back as ``None``."""
+    stored = MpcV2Controller(MpcV2Params()).export_snapshot().to_mapping()
+    assert stored["v"] == SNAPSHOT_VERSION
+    on_disk = json.loads(json.dumps(stored))
+    assert on_disk["last_t_s"] is None
+    assert on_disk["next_mpc_t_s"] is None
+    assert on_disk["last_mpc_t_s"] is None
+    snap = ControllerSnapshot.from_mapping(on_disk)
+    assert snap is not None
+    assert (snap.last_t_s, snap.next_mpc_t_s, snap.last_mpc_t_s) == (None, None, None)
+
+
+def test_snapshot_stamps_round_trip_through_json() -> None:
+    """A stepped controller's snapshot survives the store unchanged."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_790_000_000.0, T_room=19.0, T_target=22.0, T_outdoor=5.0)
+    snap = controller.export_snapshot()
+    assert snap.last_t_s == 1_790_000_000.0
+    assert snap.last_mpc_t_s == 1_790_000_000.0
+    assert snap.next_mpc_t_s is not None
+
+    loaded = ControllerSnapshot.from_mapping(json.loads(json.dumps(snap.to_mapping())))
+    assert loaded == snap
+
+
+def test_negative_stamps_of_a_current_snapshot_are_kept() -> None:
+    """From version 3 on only a null marks a stamp absent."""
+    raw = {"v": 3, **_ESTIMATE, "last_t_s": 0.0, "last_mpc_t_s": -1.0}
+    snap = ControllerSnapshot.from_mapping(raw)
+    assert snap is not None
+    assert snap.last_t_s == 0.0
+    assert snap.last_mpc_t_s == -1.0
 
 
 def test_export_state_without_controller_returns_none() -> None:
@@ -993,8 +1119,8 @@ def _snapshot_carrying(raw: dict[str, object]) -> ControllerSnapshot:
         e_integral_K_min=0.0,
         u_history=[],
         rg_v=None,
-        last_t_s=0.0,
-        next_mpc_t_s=-1.0,
+        last_t_s=None,
+        next_mpc_t_s=None,
     )
 
 
@@ -1486,11 +1612,11 @@ def test_a_prior_change_before_the_first_cycle_seeds_from_the_measurement() -> N
     A controller built but not yet stepped holds only the construction default
     in its observer, which is no estimate of the room to carry over.
     """
-    before = MpcV2Params(plant=make_plant_prior(preset="small_room"))
+    before = MpcV2Params(plant=make_plant_prior(preset=MpcV2PlantPreset.SMALL_ROOM))
     state = MpcV2State(
         controller=MpcV2Controller(before), plant_signature=_plant_signature_of(before)
     )
-    after = MpcV2Params(plant=make_plant_prior(preset="large_room"))
+    after = MpcV2Params(plant=make_plant_prior(preset=MpcV2PlantPreset.LARGE_ROOM))
 
     _, state = compute_mpc_v2(
         _baseline_input(room_temperature=16.0, trv_temperature=16.0),

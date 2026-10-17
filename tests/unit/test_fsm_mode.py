@@ -1,11 +1,22 @@
 """Pure tests for the mode FSM (validated hvac mode x preset)."""
 
+from homeassistant.components.climate.const import (
+    PRESET_ACTIVITY,
+    PRESET_AWAY,
+    PRESET_BOOST,
+    PRESET_COMFORT,
+    PRESET_ECO,
+    PRESET_HOME,
+    PRESET_NONE,
+    PRESET_SLEEP,
+)
+
 from custom_components.better_thermostat.core.fsm.mode import (
     ModeState,
     set_hvac_mode,
     set_preset,
 )
-from custom_components.better_thermostat.core.snapshot import HvacMode
+from custom_components.better_thermostat.core.snapshot import HvacMode, Preset
 
 
 def test_initial_state():
@@ -37,9 +48,9 @@ def test_preset_axis_is_orthogonal():
     state = set_hvac_mode(ModeState(), "heat")
     state = set_preset(state, "eco")
     assert state.hvac_mode == HvacMode.HEAT
-    assert state.preset == "eco"
+    assert state.preset == Preset.ECO
     state = set_hvac_mode(state, "off")
-    assert state.preset == "eco"
+    assert state.preset == Preset.ECO
 
 
 def test_preset_none_clears():
@@ -48,3 +59,25 @@ def test_preset_none_clears():
     assert set_preset(state, "none").preset is None
     assert set_preset(state, "").preset is None
     assert set_preset(state, None).preset is None
+
+
+def test_unknown_preset_is_ignored():
+    """A preset outside the vocabulary leaves the region unchanged."""
+    state = set_preset(ModeState(), "eco")
+    assert set_preset(state, "holiday") == state
+
+
+def test_preset_values_match_home_assistant():
+    """Every core preset equals Home Assistant's preset string."""
+    assert {preset.value for preset in Preset} == {
+        PRESET_NONE,
+        PRESET_ECO,
+        PRESET_AWAY,
+        PRESET_BOOST,
+        PRESET_COMFORT,
+        PRESET_HOME,
+        PRESET_SLEEP,
+        PRESET_ACTIVITY,
+    }
+    assert Preset.BOOST == PRESET_BOOST
+    assert Preset.NONE == PRESET_NONE
