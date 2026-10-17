@@ -19,7 +19,8 @@ from dataclasses import dataclass, replace
 import logging
 import math
 from time import monotonic
-from typing import TYPE_CHECKING, Literal, Protocol, TypedDict
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Final, Literal, Protocol, TypedDict
 
 from ...core.calibrator import CalibratorHealth
 from ...core.watchdog import CONTROL_TICK_S
@@ -121,11 +122,9 @@ type PidGain = Literal["kp", "ki", "kd"]
 # The range a gain may hold, set by hand through its number or loaded from the
 # store. A gain outside it is a poisoned state and goes back to its default.
 # Auto-tuning keeps to the narrower ranges in ``PIDParams``.
-PID_GAIN_LIMITS: dict[PidGain, tuple[float, float]] = {
-    "kp": (0.0, 1000.0),
-    "ki": (0.0, 100.0),
-    "kd": (0.0, 10000.0),
-}
+PID_GAIN_LIMITS: Final[Mapping[PidGain, tuple[float, float]]] = MappingProxyType(
+    {"kp": (0.0, 1000.0), "ki": (0.0, 100.0), "kd": (0.0, 10000.0)}
+)
 
 
 def pid_gain(state: PIDState, gain: PidGain) -> float | None:

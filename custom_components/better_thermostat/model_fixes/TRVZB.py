@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 import logging
+from typing import NamedTuple
 
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
@@ -157,13 +158,24 @@ _TK_OPENING = frozenset(
 _TK_CLOSING = frozenset({"valve_closing_degree"})
 
 
+class _ValveNumberCandidates(NamedTuple):
+    """The enabled number entities a TRVZB's valve can be written to."""
+
+    opening: list[str]
+    """Numbers that take the opening degree, in registry order."""
+    closing: list[str]
+    """Numbers that take the closing degree, in registry order."""
+    generic: list[str]
+    """Other valve-like numbers, in registry order."""
+
+
 def _valve_number_candidates(
     self: ModelFixHost, entity_id: str
-) -> tuple[list[str], list[str], list[str]] | None:
+) -> _ValveNumberCandidates | None:
     """Collect the enabled valve number entities on the TRV's device.
 
-    Returns the opening, closing and generic candidates, in registry order,
-    or ``None`` when the TRV is no Sonoff model or has no registry entry.
+    Returns the opening, closing and generic candidates, or ``None`` when
+    the TRV is no Sonoff model or has no registry entry.
     """
     model = self.real_trvs[entity_id].model or ""
     # The TRV-ZBT's valve numbers configure its own controller and position
@@ -243,7 +255,9 @@ def _valve_number_candidates(
             or "degree" in name
         ):
             generic_candidates.append(ent.entity_id)
-    return opening_candidates, closing_candidates, generic_candidates
+    return _ValveNumberCandidates(
+        opening_candidates, closing_candidates, generic_candidates
+    )
 
 
 def has_valve_channel(self: ModelFixHost, entity_id: str) -> bool:

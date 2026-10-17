@@ -172,3 +172,30 @@ def test_the_off_temperature_is_read_into_celsius(stored, unit, celsius):
 def test_the_tolerance_is_read_into_a_celsius_delta(stored, unit, celsius):
     """No value, an unreadable one and a negative one mean no tolerance."""
     assert _configured_tolerance(stored, "Test BT", unit) == pytest.approx(celsius)
+
+
+@pytest.mark.asyncio
+async def test_an_entity_id_stored_empty_is_no_entity():
+    """Every optional entity id stored as an empty string reads as no entity."""
+    raw = RAW | {
+        "temperature_sensor": "",
+        "humidity_sensor": "",
+        "cooler": "",
+        "window_sensors": "",
+        "door_sensors": "",
+        "weather": "",
+        "outdoor_sensor": "",
+    }
+    entry = _entry(BetterThermostatData(settings=parse_settings(raw)))
+
+    with patch(_NORMALIZE):
+        await async_setup_entry(_hass(), entry, MagicMock())
+
+    config = entry.runtime_data.climate.config
+    assert config.sensor_entity_id is None
+    assert config.humidity_sensor_entity_id is None
+    assert config.cooler_entity_id is None
+    assert config.window_sensor_entity_id is None
+    assert config.door_sensor_entity_id is None
+    assert config.weather_entity_id is None
+    assert config.outdoor_sensor_entity_id is None

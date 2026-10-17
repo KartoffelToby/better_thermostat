@@ -270,6 +270,10 @@ class ExternalTemperatureQuirk(Protocol):
         ...
 
 
+# Hours between two valve maintenance runs for a TRV whose quirks set none.
+DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS: Final = 7 * 24
+
+
 @runtime_checkable
 class MaintenanceIntervalQuirk(Protocol):
     """A quirk that sets how often its valve is exercised."""
@@ -279,6 +283,7 @@ class MaintenanceIntervalQuirk(Protocol):
 
 
 __all__ = [
+    "DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS",
     "ExternalTemperatureQuirk",
     "InitialTweakQuirk",
     "LowestSetpointQuirk",

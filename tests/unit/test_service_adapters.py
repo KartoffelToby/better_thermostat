@@ -15,6 +15,7 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.adapters import deconz, tado
+from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.trv import Trv
 from tests.factories import ThermostatStandIn
 
@@ -65,20 +66,18 @@ class TestTheOffsetChannelIsProbedOnTheEntity:
         """A deCONZ head that publishes no offset cannot be calibrated."""
         host = _host(State(ENTITY_ID, "heat", {"temperature": 21.0}))
 
-        assert await deconz.get_info(host, ENTITY_ID) == {
-            "support_offset": False,
-            "support_valve": False,
-        }
+        assert await deconz.get_info(host, ENTITY_ID) == DeviceChannels(
+            offset_write=False, valve_write=False
+        )
 
     @pytest.mark.asyncio
     async def test_a_tado_trv_always_offers_the_offset_service(self):
         """Tado's offset rides on its own service, whatever the entity shows."""
         host = _host(None)
 
-        assert await tado.get_info(host, ENTITY_ID) == {
-            "support_offset": True,
-            "support_valve": False,
-        }
+        assert await tado.get_info(host, ENTITY_ID) == DeviceChannels(
+            offset_write=True, valve_write=False
+        )
 
 
 @pytest.mark.parametrize("adapter", SERVICE_ADAPTERS, ids=_adapter_id)

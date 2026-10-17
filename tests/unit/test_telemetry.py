@@ -3,6 +3,7 @@
 import json
 
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.telemetry import (
     TELEMETRY_ATTRIBUTES,
     collect_balance_attrs,
@@ -98,11 +99,15 @@ class TestCollectBalanceAttrs:
         bt.real_trvs = {
             "climate.a": Trv(
                 entity_id="climate.a",
-                calibration_balance=make_calibration_balance(valve_percent=70),
+                calibration_balance=make_calibration_balance(
+                    CalibrationMode.MPC_CALIBRATION, valve_percent=70
+                ),
             ),
             "climate.b": Trv(
                 entity_id="climate.b",
-                calibration_balance=make_calibration_balance(valve_percent=30),
+                calibration_balance=make_calibration_balance(
+                    CalibrationMode.MPC_CALIBRATION, valve_percent=30
+                ),
             ),
         }
         out = collect_balance_attrs(bt)
@@ -118,7 +123,9 @@ class TestCollectBalanceAttrs:
         bt.real_trvs = {
             "climate.a": Trv(
                 entity_id="climate.a",
-                calibration_balance=make_calibration_balance(valve_percent=50),
+                calibration_balance=make_calibration_balance(
+                    CalibrationMode.MPC_CALIBRATION, valve_percent=50
+                ),
             ),
             "climate.b": Trv(entity_id="climate.b"),
             "climate.c": Trv(entity_id="climate.c", calibration_balance=None),
@@ -153,12 +160,14 @@ class TestCollectPidDebugAttrs:
         assert out == {}
 
     def test_empty_when_mode_not_pid(self):
-        """Non-PID controller modes (e.g. mpc) suppress PID debug output."""
+        """Non-PID controllers (e.g. mpc) suppress PID debug output."""
         bt = _bt_with_pid(
             Trv(
                 entity_id="climate.a",
                 model="generic",
-                calibration_balance=make_calibration_balance(debug={"mode": "mpc"}),
+                calibration_balance=make_calibration_balance(
+                    CalibrationMode.MPC_CALIBRATION, {"mpc_gain": 0.05}
+                ),
             )
         )
         out = collect_pid_debug_attrs(bt)
@@ -171,6 +180,7 @@ class TestCollectPidDebugAttrs:
                 entity_id="climate.a",
                 model="generic",
                 calibration_balance=make_calibration_balance(
+                    CalibrationMode.PID_CALIBRATION,
                     debug={
                         "mode": "pid",
                         "e_K": 0.12345,
@@ -184,7 +194,7 @@ class TestCollectPidDebugAttrs:
                         "meas_smooth_C": 19.875,
                         "d_meas_per_s": 0.001,
                         "dt_s": 30.123,
-                    }
+                    },
                 ),
             )
         )
@@ -210,7 +220,7 @@ class TestCollectPidDebugAttrs:
                 entity_id="climate.a",
                 model="generic",
                 calibration_balance=make_calibration_balance(
-                    debug={"mode": "pid", "e_K": 0.1}
+                    CalibrationMode.PID_CALIBRATION, debug={"mode": "pid", "e_K": 0.1}
                 ),
             )
         )
@@ -224,7 +234,8 @@ class TestCollectPidDebugAttrs:
                 entity_id="climate.a",
                 model="generic",
                 calibration_balance=make_calibration_balance(
-                    debug={"mode": "pid", "e_K": "not a number", "p": 0.4}
+                    CalibrationMode.PID_CALIBRATION,
+                    debug={"mode": "pid", "e_K": "not a number", "p": 0.4},
                 ),
             )
         )
@@ -239,14 +250,14 @@ class TestCollectPidDebugAttrs:
                 entity_id="climate.a",
                 model="generic",
                 calibration_balance=make_calibration_balance(
-                    debug={"mode": "pid", "e_K": 1.0}
+                    CalibrationMode.PID_CALIBRATION, debug={"mode": "pid", "e_K": 1.0}
                 ),
             ),
             Trv(
                 entity_id="climate.b",
                 model="SONOFF TRVZB",
                 calibration_balance=make_calibration_balance(
-                    debug={"mode": "pid", "e_K": 2.0}
+                    CalibrationMode.PID_CALIBRATION, debug={"mode": "pid", "e_K": 2.0}
                 ),
             ),
         )
@@ -260,7 +271,7 @@ class TestCollectPidDebugAttrs:
                 entity_id="climate.a",
                 model=None,
                 calibration_balance=make_calibration_balance(
-                    debug={"mode": "pid", "e_K": 1.0}
+                    CalibrationMode.PID_CALIBRATION, debug={"mode": "pid", "e_K": 1.0}
                 ),
             )
         )
@@ -356,7 +367,7 @@ class TestNonFiniteValuesStayOutOfTheAttributes:
                 "climate.a": Trv(
                     entity_id="climate.a",
                     calibration_balance=make_calibration_balance(
-                        valve_percent=float("nan")
+                        CalibrationMode.MPC_CALIBRATION, valve_percent=float("nan")
                     ),
                 )
             }
@@ -369,7 +380,9 @@ class TestNonFiniteValuesStayOutOfTheAttributes:
             real_trvs={
                 "climate.a": Trv(
                     entity_id="climate.a",
-                    calibration_balance=make_calibration_balance(valve_percent=42),
+                    calibration_balance=make_calibration_balance(
+                        CalibrationMode.MPC_CALIBRATION, valve_percent=42
+                    ),
                 )
             }
         )
@@ -384,14 +397,16 @@ class TestNonFiniteValuesStayOutOfTheAttributes:
 # ---------------------------------------------------------------------------
 
 
-def _fully_populated_bt(debug: dict[str, object]) -> ThermostatStandIn:
+def _fully_populated_bt(
+    controller: CalibrationMode, debug: dict[str, object]
+) -> ThermostatStandIn:
     """Build a stand-in on which every collector emits every key it knows."""
     bt = _bt_with_pid(
         Trv(
             entity_id="climate.a",
             model="generic",
             calibration_balance=make_calibration_balance(
-                valve_percent=40.0, debug=debug
+                controller, debug, valve_percent=40.0
             ),
         )
     )
@@ -409,15 +424,17 @@ class TestTelemetryAttributes:
     def test_names_every_key_the_collectors_write(self):
         """A collector key missing from the set would reach the recorder."""
         pid = _fully_populated_bt(
+            CalibrationMode.PID_CALIBRATION,
             {
                 "mode": "pid",
                 **dict.fromkeys(("e_K", "p", "i", "d", "u", "kp", "ki", "kd"), 0.1),
                 "meas_smooth_C": 20.0,
                 "d_meas_per_s": 0.001,
                 "dt_s": 30.0,
-            }
+            },
         )
         mpc = _fully_populated_bt(
+            CalibrationMode.MPC_V2_CALIBRATION,
             {
                 "controller_version": "v2",
                 **dict.fromkeys(
@@ -433,7 +450,7 @@ class TestTelemetryAttributes:
                     ),
                     1.0,
                 ),
-            }
+            },
         )
         written = set()
         for bt in (pid, mpc):
@@ -451,6 +468,7 @@ class TestCollectMpcV2DebugAttrs:
     def test_publishes_each_diagnostic_under_its_name(self):
         """Each debug value lands under its own spelled-out key."""
         bt = _fully_populated_bt(
+            CalibrationMode.MPC_V2_CALIBRATION,
             {
                 "controller_version": "v2",
                 "T_room_hat": 20.5,
@@ -461,7 +479,7 @@ class TestCollectMpcV2DebugAttrs:
                 "group_valve_pct": 42.5,
                 "reid_tau_room": 200.5,
                 "reid_gain": 3.25,
-            }
+            },
         )
 
         assert collect_mpc_v2_debug_attrs(bt) == {

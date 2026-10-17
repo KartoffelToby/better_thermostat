@@ -30,6 +30,7 @@ from custom_components.better_thermostat.adapters.base import (
     wait_for_calibration_entity_or_timeout,
 )
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.const import CalibrationOutput
 from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.trv"
@@ -44,6 +45,11 @@ SELECT_OPTIONS = ["-6.0k", "-3.0k", "0.0k", "3.0k", "6.0k"]
 ENTITY_ADAPTERS = (generic, mqtt, shelly, zwave_js)
 # Adapters whose offset rides on the ecosystem's own service call.
 SERVICE_ADAPTERS = (deconz, tado)
+# Calibration types that never put an offset on the wire.
+NON_OFFSET_CALIBRATIONS = (
+    CalibrationOutput.TARGET_TEMP_BASED,
+    CalibrationOutput.DIRECT_VALVE_BASED,
+)
 
 
 def _mock_self(calibration_entity=CALIBRATION_ENTITY):
@@ -70,7 +76,7 @@ def _mock_self(calibration_entity=CALIBRATION_ENTITY):
         if requested == CALIBRATION_ENTITY
         else State(ENTITY_ID, "heat", {"offset": 0.0, "offset_celsius": 0.0})
     )
-    trv = Trv(entity_id=ENTITY_ID)
+    trv = Trv(entity_id=ENTITY_ID, calibration=CalibrationOutput.LOCAL_BASED)
     trv.local_temperature_calibration_entity = calibration_entity
     trv.min_local_calibration = -5.0
     trv.max_local_calibration = 5.0
@@ -158,7 +164,7 @@ def _mock_self_with_select(options=SELECT_OPTIONS, reported="0.0k"):
         if requested == SELECT_CALIBRATION_ENTITY
         else State(ENTITY_ID, "heat", {})
     )
-    trv = Trv(entity_id=ENTITY_ID)
+    trv = Trv(entity_id=ENTITY_ID, calibration=CalibrationOutput.LOCAL_BASED)
     trv.local_temperature_calibration_entity = SELECT_CALIBRATION_ENTITY
     mock_self.real_trvs = {ENTITY_ID: trv}
     return mock_self
@@ -829,3 +835,102 @@ class TestATrvWithoutACalibrationEntityIsNamedAtStartup:
 
         assert f"calibration_entity is None for '{ENTITY_ID}'" in caplog.text
         mock_self.hass.services.async_call.assert_not_awaited()
+
+
+class TestOnlyAnOffsetTrvWaitsForItsCalibrationEntity:
+    """Every calibrated TRV adopts its entity; only an offset TRV needs it.
+
+    The calibration entity is part of what the TRV is, and its offset
+    capability describes it whatever the calibration type. Only the offset
+    calibration writes to it, though, so a TRV calibrated through its
+    setpoint or its valve neither waits for the entity to report nor is
+    named in the log when it has none.
+    """
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.parametrize("calibration", NON_OFFSET_CALIBRATIONS)
+    @pytest.mark.asyncio
+    async def test_a_present_entity_is_adopted_without_a_wait(
+        self, adapter, calibration
+    ):
+        """The entity lands on the record and the offset capability holds."""
+        mock_self = _mock_self(calibration_entity=None)
+        trv = mock_self.real_trvs[ENTITY_ID]
+        trv.calibration = calibration
+        trv.adapter = adapter
+        waiting = AsyncMock()
+
+        with (
+            patch(_FIND_VALVE, AsyncMock(return_value=None)),
+            patch(_FIND_CALIBRATION, AsyncMock(return_value=CALIBRATION_ENTITY)),
+            patch(_WAIT_FOR_CALIBRATION, waiting),
+        ):
+            await adapter.init(mock_self, ENTITY_ID)
+
+        waiting.assert_not_awaited()
+        assert trv.local_temperature_calibration_entity == CALIBRATION_ENTITY
+        assert trv.capabilities().supports_offset_write is True
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.parametrize("calibration", NON_OFFSET_CALIBRATIONS)
+    @pytest.mark.asyncio
+    async def test_an_absent_entity_is_not_reported(self, adapter, calibration, caplog):
+        """No warning about a missing entity, and nothing is waited for."""
+        mock_self = _mock_self(calibration_entity=None)
+        mock_self.real_trvs[ENTITY_ID].calibration = calibration
+        waiting = AsyncMock()
+
+        with (
+            caplog.at_level(logging.WARNING),
+            patch(_FIND_VALVE, AsyncMock(return_value=None)),
+            patch(_FIND_CALIBRATION, AsyncMock(return_value=None)),
+            patch(_WAIT_FOR_CALIBRATION, waiting),
+        ):
+            await adapter.init(mock_self, ENTITY_ID)
+
+        waiting.assert_not_awaited()
+        assert (
+            mock_self.real_trvs[ENTITY_ID].local_temperature_calibration_entity is None
+        )
+        assert "no local calibration entity found" not in caplog.text
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_an_offset_trv_adopts_and_waits_for_its_entity(self, adapter):
+        """The offset TRV keeps its entity and waits for it to report."""
+        mock_self = _mock_self(calibration_entity=None)
+        waiting = AsyncMock()
+
+        with (
+            patch(_FIND_VALVE, AsyncMock(return_value=None)),
+            patch(_FIND_CALIBRATION, AsyncMock(return_value=CALIBRATION_ENTITY)),
+            patch(_WAIT_FOR_CALIBRATION, waiting),
+        ):
+            await adapter.init(mock_self, ENTITY_ID)
+
+        waiting.assert_awaited_once_with(mock_self, ENTITY_ID, CALIBRATION_ENTITY)
+        assert (
+            mock_self.real_trvs[ENTITY_ID].local_temperature_calibration_entity
+            == CALIBRATION_ENTITY
+        )
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_an_uncalibrated_trv_is_not_looked_up(self, adapter, caplog):
+        """A TRV configured for no calibration skips the lookup altogether."""
+        mock_self = _mock_self(calibration_entity=None)
+        mock_self.real_trvs[ENTITY_ID].calibration = None
+        finding = AsyncMock(return_value=CALIBRATION_ENTITY)
+        waiting = AsyncMock()
+
+        with (
+            caplog.at_level(logging.WARNING),
+            patch(_FIND_VALVE, AsyncMock(return_value=None)),
+            patch(_FIND_CALIBRATION, finding),
+            patch(_WAIT_FOR_CALIBRATION, waiting),
+        ):
+            await adapter.init(mock_self, ENTITY_ID)
+
+        finding.assert_not_awaited()
+        waiting.assert_not_awaited()
+        assert "no local calibration entity found" not in caplog.text

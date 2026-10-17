@@ -27,11 +27,21 @@ class MaintenancePhase(StrEnum):
 
 @dataclass(frozen=True)
 class MaintenanceState:
-    """State of the maintenance region."""
+    """State of the maintenance region.
+
+    ``running_since`` is set exactly while the phase is RUNNING;
+    construction rejects any other combination, so a RUNNING phase
+    always has an age to measure against the maximum runtime.
+    """
 
     phase: MaintenancePhase = MaintenancePhase.IDLE
     next_due: datetime | None = None
     running_since: float | None = None
+
+    def __post_init__(self) -> None:
+        """Enforce that ``running_since`` is set exactly while RUNNING."""
+        if (self.phase == MaintenancePhase.RUNNING) != (self.running_since is not None):
+            raise ValueError("running_since is set exactly while RUNNING")
 
     def is_blocking(
         self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
@@ -40,13 +50,8 @@ class MaintenanceState:
 
         A RUNNING phase older than ``max_run_seconds`` is treated as dead and
         stops blocking, bounding how long maintenance can pre-empt
-        control. A RUNNING phase without a start timestamp (never
-        produced by ``start_run``, but reachable through deserialized or
-        hand-built state) is inconsistent: its age is unknowable, so it
-        could never age out and would block forever — it does not block.
+        control.
         """
-        if self.phase != MaintenancePhase.RUNNING:
-            return False
         if self.running_since is None:
             return False
         return (now_monotonic - self.running_since) < max_run_seconds

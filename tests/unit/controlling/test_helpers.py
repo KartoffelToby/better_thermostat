@@ -27,6 +27,7 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperat
 from homeassistant.core import State
 import pytest
 
+from custom_components.better_thermostat.core.snapshot import Preset
 from custom_components.better_thermostat.model_fixes import ZWA021
 from custom_components.better_thermostat.trv import PendingSetpoint, Trv
 from custom_components.better_thermostat.utils.const import (
@@ -59,7 +60,7 @@ def _boost_snapshot():
         Snapshot with boost preset enabled and room temperature below target.
     """
     return make_snapshot(
-        preset_mode="boost", room_temperature=19.0, heat_target_temperature=22.0
+        preset_mode=Preset.BOOST, room_temperature=19.0, heat_target_temperature=22.0
     )
 
 

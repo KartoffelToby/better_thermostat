@@ -11,7 +11,7 @@ import logging
 from typing import Final
 
 from ..utils.helpers import find_local_calibration_entity, find_valve_entity
-from .base import AdapterCapabilities
+from .base import AdapterCapabilities, DeviceChannels
 from .generic import (
     discover_calibration_entity,
     get_calibration_offset as generic_get_calibration_offset,
@@ -67,7 +67,7 @@ def manual_preset(preset_modes: object) -> str | None:
     return None
 
 
-async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
+async def get_info(self: AdapterProbeHost, entity_id: str) -> DeviceChannels:
     """Get info from TRV."""
     support_offset = False
     support_valve = False
@@ -77,7 +77,7 @@ async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
     valve = await find_valve_entity(self, entity_id)
     if valve is not None and valve.get("entity_id"):
         support_valve = valve.get("writable", False)
-    return {"support_offset": support_offset, "support_valve": support_valve}
+    return DeviceChannels(offset_write=support_offset, valve_write=support_valve)
 
 
 async def init(self: AdapterHost, entity_id: str) -> None:
@@ -92,10 +92,10 @@ async def init(self: AdapterHost, entity_id: str) -> None:
     # Read before the lookup below fills the entity in, so it describes the
     # record as startup built it: no calibration entity yet, and the
     # calibration type the configuration named. Only a configuration naming
-    # none leaves that type at 1, so the reset reaches every configured TRV,
+    # none leaves that type at None, so the reset reaches every configured TRV,
     # whichever way that TRV is calibrated.
     resets_preset = (
-        trv.local_temperature_calibration_entity is None and trv.calibration != 1
+        trv.local_temperature_calibration_entity is None and trv.calibration is not None
     )
 
     await discover_calibration_entity(self, entity_id)
