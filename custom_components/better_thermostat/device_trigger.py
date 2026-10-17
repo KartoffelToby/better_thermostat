@@ -69,7 +69,7 @@ _LOGGER = logging.getLogger(__name__)
 class TriggerType(StrEnum):
     """The trigger types this platform offers, as stored in an automation."""
 
-    # Purpose-specific (new in HA 2025.12)
+    # Purpose-specific triggers
     HEATING_ACTIVE = "heating_active"
     HEATING_STOPPED = "heating_stopped"
     HUMIDITY_HIGH = "humidity_high"
