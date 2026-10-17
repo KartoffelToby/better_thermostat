@@ -18,7 +18,10 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
-from ..model_fixes.types import MaintenanceIntervalQuirk
+from ..model_fixes.types import (
+    DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS,
+    MaintenanceIntervalQuirk,
+)
 from ..trv import Trv
 from .advanced_flags import advanced_flag
 from .const import CONF_VALVE_MAINTENANCE, CalibrationOutput
@@ -42,7 +45,7 @@ class MaintenanceTrvInfo:
     use_direct_valve: bool
     max_temp: float
     min_temp: float
-    wake_mode: str | None = None
+    wake_mode: HVACMode | None = None
     """Device-native mode to switch into for the exercise, or ``None``.
 
     Only set for a TRV that is ``off`` and driven through temperature
@@ -53,7 +56,7 @@ class MaintenanceTrvInfo:
 
 
 # Modes a TRV can be woken into for the exercise, most preferred first.
-_WAKE_MODE_PREFERENCE: tuple[str, ...] = (
+_WAKE_MODE_PREFERENCE: tuple[HVACMode, ...] = (
     HVACMode.HEAT,
     HVACMode.AUTO,
     HVACMode.HEAT_COOL,
@@ -65,7 +68,7 @@ _WAKE_MODE_PREFERENCE: tuple[str, ...] = (
 
 def pick_wake_mode(
     cur_mode: str, use_direct_valve: bool, hvac_modes: object
-) -> str | None:
+) -> HVACMode | None:
     """Return the mode to exercise an ``off`` TRV in, or ``None``.
 
     Parameters
@@ -81,7 +84,7 @@ def pick_wake_mode(
 
     Returns
     -------
-    str | None
+    HVACMode | None
         The first supported mode from ``_WAKE_MODE_PREFERENCE``, or
         ``None`` when the TRV needs no wake or offers no usable mode.
     """
@@ -136,6 +139,21 @@ def collect_maintenance_trvs(real_trvs: TrvMap) -> list[str]:
     return result
 
 
+def _shortest_interval_hours(real_trvs: TrvMap, trv_ids: list[str]) -> int:
+    """Return the shortest maintenance interval among the TRVs, in hours.
+
+    A TRV whose quirks set no interval, and an id with no TRV record,
+    count with the default interval, which also bounds the result.
+    """
+    shortest = DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS
+    for entity_id in trv_ids:
+        trv = real_trvs.get(entity_id)
+        quirks: object = trv.model_quirks if trv is not None else None
+        if isinstance(quirks, MaintenanceIntervalQuirk):
+            shortest = min(shortest, quirks.VALVE_MAINTENANCE_INTERVAL_HOURS)
+    return shortest
+
+
 def compute_next_maintenance(
     real_trvs: TrvMap, trv_ids: list[str], *, now: datetime | None = None
 ) -> datetime:
@@ -147,16 +165,7 @@ def compute_next_maintenance(
     if now is None:
         now = dt_util.now()
 
-    min_interval_hours = 168  # default 7 days
-    for entity_id in trv_ids:
-        _trv = real_trvs.get(entity_id)
-        quirks: object = _trv.model_quirks if _trv is not None else None
-        interval = (
-            quirks.VALVE_MAINTENANCE_INTERVAL_HOURS
-            if isinstance(quirks, MaintenanceIntervalQuirk)
-            else 168
-        )
-        min_interval_hours = min(min_interval_hours, interval)
+    min_interval_hours = _shortest_interval_hours(real_trvs, trv_ids)
 
     variance = max(1, int(min_interval_hours * 0.07))
     return now + timedelta(hours=min_interval_hours + randint(0, variance))
@@ -173,16 +182,7 @@ def compute_initial_maintenance(
     if now is None:
         now = dt_util.now()
 
-    min_interval_hours = 168
-    for entity_id in trv_ids:
-        _trv = real_trvs.get(entity_id)
-        quirks: object = _trv.model_quirks if _trv is not None else None
-        interval = (
-            quirks.VALVE_MAINTENANCE_INTERVAL_HOURS
-            if isinstance(quirks, MaintenanceIntervalQuirk)
-            else 168
-        )
-        min_interval_hours = min(min_interval_hours, interval)
+    min_interval_hours = _shortest_interval_hours(real_trvs, trv_ids)
 
     max_delay_hours = min(24 * 5, min_interval_hours)
     delay_hours = randint(1, max(2, max_delay_hours))
