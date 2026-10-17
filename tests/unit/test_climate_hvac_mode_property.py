@@ -1,8 +1,8 @@
 """Branch coverage for the BetterThermostat.hvac_mode property.
 
-The property maps the internal bt_hvac_mode onto a mode HA accepts, coercing
-strings to HVACMode and falling back to the cooler-mapped mode or OFF when the
-result is not in the entity's available list.
+The property maps the internal bt_hvac_mode onto a mode HA accepts, falling
+back to the cooler-mapped mode or OFF when the result is not in the entity's
+available list.
 """
 
 from unittest.mock import patch
@@ -42,24 +42,6 @@ def test_enum_in_list_passthrough(bt):
     """An HVACMode already in the available list is returned unchanged."""
     with patch(f"{_CLIMATE}.get_hvac_bt_mode", return_value=HVACMode.HEAT):
         assert _hvac_mode(bt) == HVACMode.HEAT
-
-
-def test_lowercase_string_coerced(bt):
-    """A lowercase string is coerced via HVACMode(value)."""
-    with patch(f"{_CLIMATE}.get_hvac_bt_mode", return_value="heat"):
-        assert _hvac_mode(bt) == HVACMode.HEAT
-
-
-def test_name_string_coerced_via_upper(bt):
-    """An enum-name string falls back to HVACMode[name.upper()]."""
-    with patch(f"{_CLIMATE}.get_hvac_bt_mode", return_value="HEAT"):
-        assert _hvac_mode(bt) == HVACMode.HEAT
-
-
-def test_garbage_string_maps_to_off(bt):
-    """An unrecognized string degrades to OFF."""
-    with patch(f"{_CLIMATE}.get_hvac_bt_mode", return_value="nonsense"):
-        assert _hvac_mode(bt) == HVACMode.OFF
 
 
 def test_heat_not_in_list_maps_to_cooler_mode(bt):

@@ -15,6 +15,7 @@ from homeassistant.components.weather import (
     DOMAIN as WEATHER_DOMAIN,
     WeatherEntityFeature,
 )
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
 
@@ -29,7 +30,11 @@ from ..core.outdoor import (
     heat_threshold,
     start_damping,
 )
-from .helpers import async_fire_logbook_entry, convert_to_float_celsius
+from .helpers import (
+    async_fire_logbook_entry,
+    convert_to_float_celsius,
+    state_says_nothing,
+)
 
 if TYPE_CHECKING:
     from custom_components.better_thermostat.climate import BetterThermostat
@@ -140,9 +145,8 @@ async def check_weather(self: BetterThermostat) -> bool:
             # Check if sensor is currently unavailable (expected during startup)
             _outdoor_state = self.hass.states.get(self.outdoor_sensor_entity_id)
             _sensor_unavailable = _outdoor_state is None or _outdoor_state.state in (
-                "unavailable",
-                "unknown",
-                None,
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
             )
 
             if _sensor_unavailable:
@@ -513,7 +517,10 @@ async def _check_ambient_air_temperature(self: BetterThermostat) -> None:
 
     # Check if outdoor sensor is available
     outdoor_state = self.hass.states.get(outdoor_sensor_entity_id)
-    if outdoor_state is None or outdoor_state.state in ("unavailable", "unknown", None):
+    if outdoor_state is None or outdoor_state.state in (
+        STATE_UNAVAILABLE,
+        STATE_UNKNOWN,
+    ):
         _LOGGER.debug(
             "better_thermostat %s: outdoor sensor %s unavailable, skipping ambient check",
             self.device_name,
@@ -527,7 +534,7 @@ async def _check_ambient_air_temperature(self: BetterThermostat) -> None:
     unit = outdoor_state.attributes.get("unit_of_measurement")
 
     def reading_of(state: State) -> float | None:
-        if state.state in ("unknown", "unavailable"):
+        if state_says_nothing(state):
             return None
         return convert_to_float_celsius(
             state.state,

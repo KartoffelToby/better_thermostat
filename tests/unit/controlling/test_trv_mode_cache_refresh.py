@@ -10,7 +10,7 @@ import asyncio
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
@@ -33,6 +33,7 @@ from custom_components.better_thermostat.utils.controlling import (
     read_reports_held_during_cycle,
     refresh_cached_trv_modes,
 )
+from custom_components.better_thermostat.utils.helpers import SentCommand
 from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.test_trv"
@@ -134,7 +135,7 @@ def thermostat(reported_states):
             ignore_trv_states=False,
             model="SomeModel",
             model_quirks=None,
-            hvac_action="heating",
+            hvac_action=HVACAction.HEATING,
             valve_position=50,
             advanced={
                 "calibration": CalibrationOutput.LOCAL_BASED,
@@ -407,7 +408,7 @@ class TestReportsHeldDuringACycle:
         thermostat.real_trvs[ENTITY_ID].report_unread = True
 
         async def read(bt, event, **kwargs):
-            bt.real_trvs[ENTITY_ID].hvac_action = "idle"
+            bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.IDLE
             if adopt is not None:
                 setattr(bt, *adopt)
 
@@ -955,8 +956,8 @@ class TestALockedPressHeldDuringACycle:
         thermostat.cooler_entity_id = ENTITY_ID
         thermostat._cooler_last_sent = {
             "hvac_mode_decided": HVACMode.COOL,
-            "hvac_mode": (HVACMode.COOL, 1.0),
-            "temperature": (25.0, 1.0),
+            "hvac_mode": SentCommand(HVACMode.COOL, 1.0),
+            "temperature": SentCommand(25.0, 1.0),
         }
         state = _reported_state(held_mode, setpoint=25.0)
 
@@ -1005,8 +1006,8 @@ class TestHeldCoolingTurn:
         thermostat.cooler_entity_id = ENTITY_ID
         thermostat._cooler_last_sent = {
             "hvac_mode_decided": HVACMode.COOL,
-            "hvac_mode": (HVACMode.COOL, 1.0),
-            "temperature": (cooling_target, 1.0),
+            "hvac_mode": SentCommand(HVACMode.COOL, 1.0),
+            "temperature": SentCommand(cooling_target, 1.0),
         }
         thermostat.cool_target_temperature = cooling_target
         thermostat.cool_min_temperature = None
@@ -1085,7 +1086,7 @@ class TestHeldCoolingTurn:
         await trigger_trv_change(thermostat, self._turn(held, turned))
         assert thermostat.control_queue_task.qsize() == 1
         thermostat.control_queue_task.get_nowait()
-        thermostat._cooler_last_sent["temperature"] = (cooling_target, 2.0)
+        thermostat._cooler_last_sent["temperature"] = SentCommand(cooling_target, 2.0)
         reported_states[ENTITY_ID] = held
         await trigger_trv_change(thermostat, self._turn(turned, held))
         assert thermostat.control_queue_task.empty()
