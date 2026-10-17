@@ -644,9 +644,9 @@ def _configured_bt_config(settings: BtSettings, unit: UnitOfTemperature) -> BtCo
     return BtConfig(
         device_name=name,
         model=settings.get(CONF_MODEL),
-        sensor_entity_id=settings.get(CONF_TEMPERATURE_SENSOR),
-        humidity_sensor_entity_id=settings.get(CONF_HUMIDITY_SENSOR),
-        cooler_entity_id=settings.get(CONF_COOLER),
+        sensor_entity_id=settings.get(CONF_TEMPERATURE_SENSOR) or None,
+        humidity_sensor_entity_id=settings.get(CONF_HUMIDITY_SENSOR) or None,
+        cooler_entity_id=settings.get(CONF_COOLER) or None,
         window_sensor_entity_id=settings.get(CONF_WINDOW_SENSORS) or None,
         window_open_delay_seconds=_configured_delay(
             settings.get(CONF_WINDOW_OFF_DELAY), name, CONF_WINDOW_OFF_DELAY
