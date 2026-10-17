@@ -24,6 +24,11 @@ import pytest
 
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.entry_schema import (
+    TrvAdvanced,
+    _parse_advanced,
+)
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
 DEVICE_ID = "device-1"
@@ -43,14 +48,14 @@ _LOOKUP_BY_KEYWORD = {
 }
 
 
-def _thermostat(child_lock=None, states=None):
+def _thermostat(child_lock: bool | None = None, states=None):
     """Build a thermostat whose service calls are recorded, not executed.
 
     Parameters
     ----------
     child_lock : bool or None
-        The configured child lock, or None for a configuration that
-        carries no such setting.
+        The configured child lock as the parsed settings carry it, or None for
+        a configuration that carries no such setting.
     states : dict or None
         Current state string per entity ID; an entity left out of it
         reads as unknown to Home Assistant.
@@ -61,14 +66,15 @@ def _thermostat(child_lock=None, states=None):
         A stand-in for the Better Thermostat climate entity instance.
     """
     states = states or {}
-    thermostat = MagicMock()
+    thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
+    thermostat.context = None
     thermostat.hass = MagicMock()
     thermostat.hass.services.async_call = AsyncMock()
     thermostat.hass.states.get = lambda requested: (
         State(requested, states[requested]) if requested in states else None
     )
-    advanced = {} if child_lock is None else {"child_lock": child_lock}
+    advanced: TrvAdvanced = {} if child_lock is None else {"child_lock": child_lock}
     thermostat.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, advanced=advanced)}
     return thermostat
 
@@ -84,9 +90,9 @@ def _registry(device_id=DEVICE_ID, known=True):
     known : bool
         Whether the registry knows the entity at all.
     """
-    registry = MagicMock()
-    registry.async_get.return_value = MagicMock(device_id=device_id) if known else None
-    return registry
+    if not known:
+        return make_entity_registry()
+    return make_entity_registry(make_registry_entry(ENTITY_ID, device_id=device_id))
 
 
 def _discovering(**found):
@@ -118,6 +124,11 @@ async def _run_tweak(thermostat, registry=None, **found):
         patch.object(
             default_quirk, "find_device_entity", side_effect=_discovering(**found)
         ),
+        patch.object(
+            default_quirk,
+            "find_child_lock_entity",
+            side_effect=lambda _registry, _device_id: found.get("child_lock"),
+        ),
     ):
         await default_quirk.initial_tweak(thermostat, ENTITY_ID)
 
@@ -133,20 +144,14 @@ def _calls(thermostat):
 class TestTheDefaultQuirkChangesNothing:
     """The passthrough half: values come back as they went in."""
 
-    @pytest.mark.parametrize("offset", [0.0, -2.5, 7.0])
-    def test_a_local_calibration_is_handed_back_untouched(self, offset):
+    @pytest.mark.parametrize("calibration_offset", [0.0, -2.5, 7.0])
+    def test_a_local_calibration_is_handed_back_untouched(self, calibration_offset):
         """The offset reaches the device as it was calculated."""
         assert (
-            default_quirk.fix_local_calibration(_thermostat(), ENTITY_ID, offset)
-            == offset
-        )
-
-    @pytest.mark.parametrize("valve", [0, 42, 100])
-    def test_a_valve_calibration_is_handed_back_untouched(self, valve):
-        """The valve percentage reaches the device as it was calculated."""
-        assert (
-            default_quirk.fix_valve_calibration(_thermostat(), ENTITY_ID, valve)
-            == valve
+            default_quirk.fix_local_calibration(
+                _thermostat(), ENTITY_ID, calibration_offset
+            )
+            == calibration_offset
         )
 
     @pytest.mark.parametrize("temperature", [5.0, 21.5, 30.0])
@@ -175,13 +180,14 @@ class TestTheDefaultQuirkChangesNothing:
             is False
         )
 
-    @pytest.mark.asyncio
-    async def test_the_valve_write_is_not_overridden(self):
-        """Declining the override is what lets the adapter write."""
-        assert (
-            await default_quirk.override_set_valve(_thermostat(), ENTITY_ID, 50)
-            is False
-        )
+    def test_no_valve_override_is_offered(self):
+        """The valve override is absent, not a declining one.
+
+        Callers probe for it with ``getattr`` and read a hit as "this
+        model drives its valve directly". A declining implementation
+        here would answer that probe for every device on this module.
+        """
+        assert not hasattr(default_quirk, "override_set_valve")
 
 
 class TestAdoptionNeedsADevice:
@@ -237,6 +243,37 @@ class TestCalibrationStartsFromZero:
 
         assert _calls(thermostat) == [
             ("number", "set_value", {"entity_id": CALIBRATION_ENTITY, "value": 0})
+        ]
+
+    @pytest.mark.parametrize(
+        ("device_class", "zero"),
+        [("temperature", 32.0), ("temperature_delta", 0.0), (None, 0.0)],
+    )
+    @pytest.mark.asyncio
+    async def test_a_number_published_in_fahrenheit_is_reset_to_its_zero(
+        self, device_class, zero
+    ):
+        """A zero offset is a zero on the device, whatever the number publishes.
+
+        Home Assistant publishes a Celsius ``temperature`` number on a
+        Fahrenheit system as an absolute temperature, so the device's 0 K
+        reads 32 °F there, and a 0 written to it would be -17.8 K. A number
+        that counts a difference is reset to 0 in any unit.
+        """
+        thermostat = _thermostat()
+        attributes = {"unit_of_measurement": "°F", "min": 25.7, "max": 38.3}
+        if device_class is not None:
+            attributes["device_class"] = device_class
+        thermostat.hass.states.get = lambda requested: (
+            State(requested, str(zero), attributes)
+            if requested == CALIBRATION_ENTITY
+            else None
+        )
+
+        await _run_tweak(thermostat, calibration=CALIBRATION_ENTITY)
+
+        assert _calls(thermostat) == [
+            ("number", "set_value", {"entity_id": CALIBRATION_ENTITY, "value": zero})
         ]
 
     @pytest.mark.asyncio
@@ -340,6 +377,26 @@ class TestTheChildLockFollowsTheConfiguration:
         await _run_tweak(thermostat, child_lock=CHILD_LOCK_SWITCH)
 
         assert _calls(thermostat) == []
+
+    @pytest.mark.parametrize(
+        ("stored", "current", "service"),
+        [("false", STATE_ON, "turn_off"), ("true", STATE_OFF, "turn_on")],
+    )
+    @pytest.mark.asyncio
+    async def test_a_stored_spelling_reads_as_the_options_flow_saves_it(
+        self, stored, current, service
+    ):
+        """An older entry's ``"false"`` unlocks the device rather than locking it."""
+        advanced = _parse_advanced({"child_lock": stored}, "")
+        thermostat = _thermostat(
+            child_lock=advanced.get("child_lock"), states={CHILD_LOCK_SWITCH: current}
+        )
+
+        await _run_tweak(thermostat, child_lock=CHILD_LOCK_SWITCH)
+
+        assert _calls(thermostat) == [
+            ("switch", service, {"entity_id": CHILD_LOCK_SWITCH})
+        ]
 
     @pytest.mark.asyncio
     async def test_a_configuration_without_the_setting_looks_for_no_lock(self):
@@ -469,3 +526,49 @@ class TestAdoptionRunsEveryStep:
             ("switch", "turn_off", {"entity_id": WINDOW_SWITCH}),
             ("switch", "turn_off", {"entity_id": AWAY_SWITCH}),
         ]
+
+    @pytest.mark.asyncio
+    async def test_every_step_waits_for_the_device_to_answer(self):
+        """A refusal only reaches the caller when the call blocks.
+
+        `ServiceRegistry.async_call` defaults to fire-and-forget and runs a
+        failing handler in a background task. Without `blocking=True` the
+        `except` around each step here can never see a device refuse, so the
+        warnings below it would never be reached and adoption would report a
+        device brought into a known state it never took.
+        """
+        thermostat = _thermostat(
+            child_lock=True,
+            states={
+                CHILD_LOCK_SWITCH: STATE_OFF,
+                WINDOW_SWITCH: STATE_ON,
+                AWAY_SWITCH: STATE_ON,
+            },
+        )
+
+        await _run_tweak(
+            thermostat,
+            calibration=CALIBRATION_ENTITY,
+            child_lock=CHILD_LOCK_SWITCH,
+            window=WINDOW_SWITCH,
+            away=AWAY_SWITCH,
+        )
+
+        waited = [
+            (call.kwargs.get("blocking"), call.kwargs.get("context"))
+            for call in thermostat.hass.services.async_call.await_args_list
+        ]
+        assert waited == [(True, thermostat.context)] * 4
+
+    @pytest.mark.asyncio
+    async def test_a_lock_step_waits_for_the_device_to_answer(self):
+        """The lock branch is the one step the equipped-device run does not take."""
+        thermostat = _thermostat(
+            child_lock=True, states={CHILD_LOCK_LOCK: LockState.UNLOCKED}
+        )
+
+        await _run_tweak(thermostat, child_lock=CHILD_LOCK_LOCK)
+
+        call = thermostat.hass.services.async_call.await_args_list[0]
+        assert call.kwargs["blocking"] is True
+        assert call.kwargs["context"] is thermostat.context

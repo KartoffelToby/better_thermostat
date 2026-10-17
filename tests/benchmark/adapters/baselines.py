@@ -28,8 +28,8 @@ class BangBangParams:
     """Hysteresis band for the bang-bang controller."""
 
     band_K: float = 0.2  # +/- around setpoint
-    on_pct: float = 100.0
-    off_pct: float = 0.0
+    on_percent: float = 100.0
+    off_percent: float = 0.0
 
 
 class BangBangAdapter:
@@ -49,8 +49,8 @@ class BangBangAdapter:
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Toggle between on/off based on the hysteresis band."""
-        sp = ctx.target_temp_C
-        cur = ctx.current_temp_C
+        sp = ctx.target_temperature
+        cur = ctx.room_temperature
         p = self._params
         if cur < sp - p.band_K:
             self._state_on = True
@@ -58,7 +58,7 @@ class BangBangAdapter:
             self._state_on = False
         # Inside the band — keep previous state (the hysteresis).
         return BenchmarkOutput(
-            valve_percent=p.on_pct if self._state_on else p.off_pct,
+            valve_percent=p.on_percent if self._state_on else p.off_percent,
             diagnostics={"state_on": self._state_on},
         )
 
@@ -72,8 +72,8 @@ class LinearPParams:
     """Gain and saturation for the proportional controller."""
 
     kp: float = 50.0  # percent per K of error
-    clamp_min_pct: float = 0.0
-    clamp_max_pct: float = 100.0
+    clamp_min_percent: float = 0.0
+    clamp_max_percent: float = 100.0
 
 
 class LinearPAdapter:
@@ -92,9 +92,9 @@ class LinearPAdapter:
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Output ``kp * (setpoint - measured)`` clamped to the saturation band."""
         p = self._params
-        error_K = ctx.target_temp_C - ctx.current_temp_C
+        error_K = ctx.target_temperature - ctx.room_temperature
         raw = p.kp * error_K
-        clamped = max(p.clamp_min_pct, min(p.clamp_max_pct, raw))
+        clamped = max(p.clamp_min_percent, min(p.clamp_max_percent, raw))
         return BenchmarkOutput(
             valve_percent=clamped,
             diagnostics={"error_K": round(error_K, 3), "raw_pct": round(raw, 2)},
@@ -108,7 +108,7 @@ class LinearPAdapter:
 class IdealOracleAdapter:
     """Oracle controller with steady-state plant inversion and aggressive feedback.
 
-    Knows the plant's parameters (``gain_heater``, ``T_water_C`` etc.) and
+    Knows the plant's parameters (``gain_heater``, ``T_water`` etc.) and
     computes the steady-state valve percent that would hold the current
     setpoint asymptotically. Adds a strong proportional feedback term
     that compensates for transients and small modelling errors.
@@ -134,7 +134,7 @@ class IdealOracleAdapter:
         self,
         plant_params: Any | None = None,
         feedback_gain_per_K: float = 50.0,
-        feedback_clamp_pct: float = 50.0,
+        feedback_clamp_percent: float = 50.0,
     ) -> None:
         # Defer the plant import to runtime to keep adapters/ free of cycles.
         if plant_params is None:
@@ -143,7 +143,7 @@ class IdealOracleAdapter:
             plant_params = PROFILE_STANDARD
         self._plant = plant_params
         self._feedback_gain = feedback_gain_per_K
-        self._feedback_clamp = feedback_clamp_pct
+        self._feedback_clamp = feedback_clamp_percent
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
         """No state to reset."""
@@ -152,8 +152,8 @@ class IdealOracleAdapter:
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Return steady-state valve percent plus aggressive feedback correction."""
         p = self._plant
-        sp = ctx.target_temp_C
-        T_out = ctx.outdoor_temp_C
+        sp = ctx.target_temperature
+        T_out = ctx.outdoor_temperature
 
         # Steady-state inversion of the lumped-RC plant. Room balance:
         #   coupling * (T_rad_ss - sp) = loss_ss
@@ -170,27 +170,27 @@ class IdealOracleAdapter:
         else:
             loss_ss = sp - T_out
         T_rad_ss = sp + loss_ss / coupling
-        denom = p.gain_heater * (p.T_water_C - T_rad_ss)
+        denom = p.gain_heater * (p.T_water - T_rad_ss)
         if denom <= 0.0:
-            u_ff_pct = 100.0  # cannot reach setpoint with this water temp
+            u_ff_percent = 100.0  # cannot reach setpoint with this water temperature
         else:
-            u_ff_pct = max(0.0, min(100.0, 100.0 * (T_rad_ss - sp) / denom))
+            u_ff_percent = max(0.0, min(100.0, 100.0 * (T_rad_ss - sp) / denom))
 
         # Aggressive P-feedback so the oracle reacts to transients quickly.
         # Feed back on the plant truth: the oracle is the perfect-knowledge
         # upper bound, so sensor lag/noise must not depress its ceiling.
-        error_K = sp - ctx.raw_room_temp_C
-        u_fb_pct = max(
+        error_K = sp - ctx.raw_room_temperature
+        u_fb_percent = max(
             -self._feedback_clamp,
             min(self._feedback_clamp, error_K * self._feedback_gain),
         )
 
-        valve = max(0.0, min(100.0, u_ff_pct + u_fb_pct))
+        valve = max(0.0, min(100.0, u_ff_percent + u_fb_percent))
         return BenchmarkOutput(
             valve_percent=valve,
             diagnostics={
-                "u_ff_pct": round(u_ff_pct, 2),
-                "u_fb_pct": round(u_fb_pct, 2),
+                "u_ff_pct": round(u_ff_percent, 2),
+                "u_fb_pct": round(u_fb_percent, 2),
                 "error_K": round(error_K, 3),
             },
         )

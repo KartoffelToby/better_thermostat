@@ -36,13 +36,13 @@ class ScoreMatrixRow:
     scenario_count: int
 
 
-def format_metric(val: float, decimals: int = 2) -> str:
+def format_metric(value: float, decimals: int = 2) -> str:
     """Format a metric value for human-readable output."""
-    if math.isinf(val):
+    if math.isinf(value):
         return "  inf"
-    if math.isnan(val):
+    if math.isnan(value):
         return "  NaN"
-    return f"{val:.{decimals}f}"
+    return f"{value:.{decimals}f}"
 
 
 # -----------------------------------------------------------------------------

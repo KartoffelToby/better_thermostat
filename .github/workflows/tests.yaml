@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -21,12 +24,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up uv (Python ${{ matrix.python-version }} + install cache)
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
@@ -35,4 +38,11 @@ jobs:
         run: uv sync --locked
 
       - name: Run pytest
-        run: uv run --locked pytest tests
+        run: >-
+          uv run --locked pytest tests
+          --cov=custom_components/better_thermostat
+          --cov-report=json:coverage.json
+          --cov-report=term:skip-covered
+
+      - name: Check per-module coverage floors
+        run: uv run --locked python scripts/coverage_floors.py check

@@ -30,13 +30,14 @@ under `selector.<key>.options`.
 4. Run:
 
    ```bash
-   uv run pytest tests/test_translations.py
+   uv run pytest tests/unit/test_translations.py
    ```
 
 The validation checks JSON structure, complete key coverage, unknown keys,
-placeholder parity, non-empty values, entity translation coverage, and the
-Inlang catalog list. A developer can therefore add another language without
-changing the integration's Python logic.
+placeholder parity, non-empty values, entity translation coverage, localized
+config and options dialog texts, dropdown help texts that name every option,
+and the Inlang catalog list. A developer can therefore add another language
+without changing the integration's Python logic.
 
 ## Add or change a source string
 
@@ -44,7 +45,10 @@ changing the integration's Python logic.
    `../strings.json`.
 2. Update every language catalog. Until a translator supplies localized copy,
    use the English value rather than omitting the key, so Home Assistant never
-   exposes a raw translation key.
+   exposes a raw translation key. The config and options dialogs are the
+   exception: their step texts (labels and help texts) must be translated in
+   every catalog. A help text that explains a dropdown names each option in
+   `***bold italics***` exactly as that catalog labels it under `selector`.
 3. When adding an entity name, add its key below `entity.<platform>` and set the
    entity's `_attr_translation_key` to that stable key.
 4. Run the translation tests before opening a pull request.

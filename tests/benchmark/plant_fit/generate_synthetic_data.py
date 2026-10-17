@@ -54,7 +54,7 @@ GROUND_TRUTH_LIVING = PlantParams(
     tau_rad_min=15.0,
     gain_heater=2.0,
     coupling_rad_room=1.0,
-    T_water_C=65.0,
+    T_water=65.0,
 )
 
 GROUND_TRUTH_KITCHEN = PlantParams(
@@ -62,7 +62,7 @@ GROUND_TRUTH_KITCHEN = PlantParams(
     tau_rad_min=15.0,
     gain_heater=2.0,
     coupling_rad_room=1.0,
-    T_water_C=65.0,
+    T_water=65.0,
 )
 
 
@@ -73,22 +73,22 @@ GROUND_TRUTH_KITCHEN = PlantParams(
 class OutdoorParams:
     """Parameters of the synthetic outdoor-temperature signal."""
 
-    base_C: float = 3.0  # seasonal mean over the 60-day window
-    seasonal_amp_C: float = 4.0  # warmer at the start, colder mid-winter
-    diurnal_amp_C: float = 4.0  # day/night swing
-    noise_sigma_C: float = 0.4  # short-term variability
+    seasonal_mean: float = 3.0  # seasonal mean over the 60-day window
+    seasonal_amp_K: float = 4.0  # warmer at the start, colder mid-winter
+    diurnal_amp_K: float = 4.0  # day/night swing
+    noise_sigma_K: float = 0.4  # short-term variability
 
 
 def _outdoor_at(t_min: float, params: OutdoorParams, rng: random.Random) -> float:
     """Return outdoor temperature at minute ``t_min`` since simulation start."""
     days = t_min / (60.0 * 24.0)
     # Seasonal: cold dip ~30 days in (peak of January).
-    seasonal = -params.seasonal_amp_C * math.cos(2.0 * math.pi * (days - 30.0) / 60.0)
+    seasonal = -params.seasonal_amp_K * math.cos(2.0 * math.pi * (days - 30.0) / 60.0)
     # Diurnal: minimum at ~05:00 local, maximum at ~15:00.
     hour = (t_min / 60.0) % 24.0
-    diurnal = -params.diurnal_amp_C * math.cos(2.0 * math.pi * (hour - 15.0) / 24.0)
-    noise = rng.gauss(0.0, params.noise_sigma_C)
-    return params.base_C + seasonal + diurnal + noise
+    diurnal = -params.diurnal_amp_K * math.cos(2.0 * math.pi * (hour - 15.0) / 24.0)
+    noise = rng.gauss(0.0, params.noise_sigma_K)
+    return params.seasonal_mean + seasonal + diurnal + noise
 
 
 # --- Day / night setback schedule and bang-bang thermostat ------------------
@@ -127,8 +127,8 @@ class RoomSpec:
     name: str
     entity_id: str
     plant_params: PlantParams
-    T_day_C: float = 21.0
-    T_night_C: float = 17.0
+    T_day: float = 21.0
+    T_night: float = 17.0
     band_K: float = 0.5
     T_init: float = 20.0
 
@@ -141,16 +141,16 @@ def _simulate_room(
     sensor_noise_K: float = 0.05,
 ) -> list[float]:
     """Return per-tick simulated room temperatures (length == len(outdoor))."""
-    initial = PlantState(T_room_C=spec.T_init, T_rad_C=spec.T_init)
+    initial = PlantState(T_room=spec.T_init, T_rad=spec.T_init)
     plant = TwoStatePlant(spec.plant_params, initial=initial)
     out: list[float] = []
     u = 0.0
     for i, T_out in enumerate(outdoor):
         t_min = i * dt_s / 60.0
-        T_low, T_high = _setpoints_at(t_min, spec.T_day_C, spec.T_night_C, spec.band_K)
-        u = _bang_bang(plant.state.T_room_C, u, T_low, T_high)
-        plant.step(dt_s=dt_s, u=u, T_outdoor_C=T_out)
-        noisy = plant.state.T_room_C + rng.gauss(0.0, sensor_noise_K)
+        T_low, T_high = _setpoints_at(t_min, spec.T_day, spec.T_night, spec.band_K)
+        u = _bang_bang(plant.state.T_room, u, T_low, T_high)
+        plant.step(dt_s=dt_s, u=u, T_outdoor=T_out)
+        noisy = plant.state.T_room + rng.gauss(0.0, sensor_noise_K)
         out.append(noisy)
     return out
 
@@ -238,10 +238,10 @@ def generate_dataset(
         (epoch + timedelta(hours=h)).timestamp() for h in range(len(hourly_outdoor))
     ]
     series: dict[str, TimeSeries] = {
-        OUTDOOR_ENTITY_ID: TimeSeries(ts=list(timestamps), val=list(hourly_outdoor))
+        OUTDOOR_ENTITY_ID: TimeSeries(ts=list(timestamps), value=list(hourly_outdoor))
     }
     for eid, vals in rooms_hourly.items():
-        series[eid] = TimeSeries(ts=list(timestamps), val=list(vals))
+        series[eid] = TimeSeries(ts=list(timestamps), value=list(vals))
     return series
 
 
@@ -265,9 +265,9 @@ def main(
     # Convert hourly TimeSeries back to per-entity float arrays for CSV.
     samples_per_series = next(iter(series.values()))
     n_hours = len(samples_per_series.ts)
-    hourly_outdoor = series[OUTDOOR_ENTITY_ID].val
+    hourly_outdoor = series[OUTDOOR_ENTITY_ID].value
     rooms_hourly = {
-        eid: ts.val for eid, ts in series.items() if eid != OUTDOOR_ENTITY_ID
+        eid: ts.value for eid, ts in series.items() if eid != OUTDOOR_ENTITY_ID
     }
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)

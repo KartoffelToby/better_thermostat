@@ -11,7 +11,6 @@ This is benchmark-only code: never imported by production.
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from itertools import count
 import random
 from typing import Any
@@ -24,8 +23,8 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     compute_mpc,
 )
 from custom_components.better_thermostat.utils.state_manager import (
-    _make_json_safe,
     deserialize_mpc,
+    write_mpc_state,
 )
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
@@ -56,20 +55,23 @@ class MpcAdapter:
         self._key = key if key is not None else f"bench{next(_KEY_COUNTER)}:trv"
         self._sim_time_s: float = 0.0
         self._original_time = mpc_mod.time
-        # Deterministic stand-in for the module-global ``random`` that
-        # mpc.py uses for its hybrid-learning forced calibration.
+        # Deterministic generator whose state is swapped into the global
+        # ``random`` module that mpc.py draws its hybrid-learning forced
+        # calibration from.
         self._rng = random.Random(_MPC_RNG_SEED)
-        self._original_random = mpc_mod.random
+        self._original_random_state = random.getstate()
 
     def _virtualise(self) -> None:
-        """Swap the mpc module's time + random for deterministic stand-ins."""
+        """Swap the mpc module's time + random state for deterministic stand-ins."""
         mpc_mod.time = lambda: self._sim_time_s
-        mpc_mod.random = self._rng
+        self._original_random_state = random.getstate()
+        random.setstate(self._rng.getstate())
 
     def _restore(self) -> None:
-        """Restore the mpc module's real time + random symbols."""
+        """Restore the mpc module's real time + random state."""
         mpc_mod.time = self._original_time
-        mpc_mod.random = self._original_random
+        self._rng.setstate(random.getstate())
+        random.setstate(self._original_random_state)
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
         """Reset the adapter, optionally rehydrating persisted state.
@@ -88,7 +90,7 @@ class MpcAdapter:
         self._sim_time_s = 0.0
         self._rng.seed(_MPC_RNG_SEED)
 
-    def _bucket_key(self, target_temp_C: float) -> str:
+    def _bucket_key(self, target_temperature: float) -> str:
         """Return the production-shaped per-target-bucket state key.
 
         Mirrors ``build_mpc_key``: MPC state is partitioned by the target
@@ -96,22 +98,22 @@ class MpcAdapter:
         boundary allocates a fresh state that ``compute_mpc`` seeds from
         its nearest sibling via ``all_states``.
         """
-        bucket = f"t{round(float(target_temp_C) * 2.0) / 2.0:.1f}"
+        bucket = f"t{round(float(target_temperature) * 2.0) / 2.0:.1f}"
         return f"{self._key}:{bucket}"
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one MPC step for the given benchmark context."""
         self._sim_time_s = ctx.t
-        key = self._bucket_key(ctx.target_temp_C)
+        key = self._bucket_key(ctx.target_temperature)
         state = self._all_states.setdefault(key, _MpcState())
         self._virtualise()
         try:
             inp = MpcInput(
                 key=key,
-                target_temp_C=ctx.target_temp_C,
-                current_temp_C=ctx.current_temp_C,
-                trv_temp_C=ctx.trv_temp_C,
-                outdoor_temp_C=ctx.outdoor_temp_C,
+                target_temperature=ctx.target_temperature,
+                room_temperature=ctx.room_temperature,
+                trv_temperature=ctx.trv_temperature,
+                outdoor_temperature=ctx.outdoor_temperature,
                 window_open=ctx.window_open,
                 solar_intensity=ctx.solar_intensity,
                 heating_allowed=True,
@@ -139,6 +141,6 @@ class MpcAdapter:
     def export_state(self) -> dict[str, Any]:
         """Return a serializable snapshot of all per-bucket MPC states."""
         return {
-            bucket_key: _make_json_safe(asdict(state))
+            bucket_key: dict(write_mpc_state(state))
             for bucket_key, state in self._all_states.items()
         }

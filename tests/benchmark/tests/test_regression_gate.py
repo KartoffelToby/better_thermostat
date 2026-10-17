@@ -44,13 +44,14 @@ _SCENARIOS = [
 # variation but trips on a genuine regression.
 _SMART_OVERALL_FLOOR = 0.50
 
-_SMART_CONTROLLERS = ("mpc", "pid", "tpi")
+_SMART_CONTROLLERS = ("mpc", "mpc_v2", "pid", "tpi")
 
 
 def _make_adapter(name: str):
     """Build a fresh adapter by registry name (deferred imports keep it cheap)."""
     from tests.benchmark.adapters.baselines import IdealOracleAdapter
     from tests.benchmark.adapters.mpc_adapter import MpcAdapter
+    from tests.benchmark.adapters.mpc_v2_adapter import MpcV2Adapter
     from tests.benchmark.adapters.passive_modes import DefaultCalibrationAdapter
     from tests.benchmark.adapters.pid_adapter import PidAdapter
     from tests.benchmark.adapters.tpi_adapter import TpiAdapter
@@ -58,6 +59,7 @@ def _make_adapter(name: str):
     factories = {
         "ideal_oracle": IdealOracleAdapter,
         "mpc": MpcAdapter,
+        "mpc_v2": MpcV2Adapter,
         "pid": PidAdapter,
         "tpi": TpiAdapter,
         "default": DefaultCalibrationAdapter,
@@ -74,7 +76,7 @@ def mean_overall_scores() -> dict[str, dict[str, float]]:
     average.
     """
     profile = PROFILES["balanced"]
-    controllers = ["ideal_oracle", "mpc", "pid", "tpi", "default"]
+    controllers = ["ideal_oracle", "mpc", "mpc_v2", "pid", "tpi", "default"]
 
     # Oracle metrics per scenario are the normalisation baseline.
     oracle_metrics = {
@@ -126,7 +128,7 @@ def test_oracle_scores_near_one(
 
 @pytest.mark.parametrize("name", _SMART_CONTROLLERS)
 def test_smart_controllers_above_floor(
-    name: str, mean_overall_scores: dict[str, float]
+    name: str, mean_overall_scores: dict[str, dict[str, float]]
 ) -> None:
     """Each smart controller must stay above the regression floor."""
     score = statistics.mean(mean_overall_scores[name].values())

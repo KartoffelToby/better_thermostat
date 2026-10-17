@@ -27,11 +27,11 @@ def _m(rmse: float = 0.1, integral: float = 100.0, cycles: int = 10) -> MetricVa
         steady_state_error_K=0.05,
         rmse_tracking_K=rmse,
         valve_cycle_count=cycles,
-        integral_valve_pct_min=integral,
-        total_valve_travel_pct=500.0,
+        integral_valve_percent_minutes=integral,
+        total_valve_travel_percent=500.0,
         time_above_setpoint_K_h=0.1,
         time_below_setpoint_K_h=0.1,
-        valve_sweet_spot_residency_pct=50.0,
+        valve_sweet_spot_residency_percent=50.0,
     )
 
 

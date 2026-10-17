@@ -22,7 +22,7 @@ class MultiTrvPlantParams:
     tau_rad_min: float = 15.0
     gain_heaters: list[float] = field(default_factory=lambda: [2.0, 2.0, 2.0])
     coupling_rad_room: list[float] = field(default_factory=lambda: [1.0, 1.0, 1.0])
-    T_water_C: float = 65.0
+    T_water: float = 65.0
     # Position-induced offsets applied to the *reported* TRV-internal
     # temperatures. Lets BT's distribute_valve_percent see asymmetry even
     # when the radiator-state values are otherwise close.
@@ -63,8 +63,8 @@ class MultiTrvPlantParams:
 class MultiTrvPlantState:
     """Mutable simulator state for a multi-TRV plant."""
 
-    T_room_C: float
-    T_rads_C: list[float]
+    T_room: float
+    T_rads: list[float]
 
 
 class MultiTrvPlant:
@@ -73,9 +73,9 @@ class MultiTrvPlant:
     def __init__(
         self, params: MultiTrvPlantParams, initial: MultiTrvPlantState
     ) -> None:
-        if len(initial.T_rads_C) != params.n_trvs:
+        if len(initial.T_rads) != params.n_trvs:
             raise ValueError(
-                f"initial.T_rads_C has {len(initial.T_rads_C)} entries, "
+                f"initial.T_rads has {len(initial.T_rads)} entries, "
                 f"params.n_trvs is {params.n_trvs}"
             )
         if len(params.gain_heaters) != params.n_trvs:
@@ -92,14 +92,14 @@ class MultiTrvPlant:
             )
         self.params = params
         self.state = MultiTrvPlantState(
-            T_room_C=initial.T_room_C, T_rads_C=list(initial.T_rads_C)
+            T_room=initial.T_room, T_rads=list(initial.T_rads)
         )
 
     def step(
         self,
         dt_s: float,
         u_per_trv: list[float],
-        T_outdoor_C: float,
+        T_outdoor: float,
         Q_K_per_min: float = 0.0,
     ) -> MultiTrvPlantState:
         """Advance the plant by ``dt_s`` seconds. ``u_per_trv`` is one value in [0,1] per radiator."""
@@ -119,23 +119,23 @@ class MultiTrvPlant:
             u_i = max(0.0, min(1.0, u_per_trv[i]))
             if p.deadband_pcts_per_trv and (u_i * 100.0) < p.deadband_pcts_per_trv[i]:
                 u_i = 0.0
-            heat_in = p.gain_heaters[i] * u_i * (p.T_water_C - s.T_rads_C[i])
-            heat_out = s.T_rads_C[i] - s.T_room_C
+            heat_in = p.gain_heaters[i] * u_i * (p.T_water - s.T_rads[i])
+            heat_out = s.T_rads[i] - s.T_room
             dT_rad = (heat_in - heat_out) / p.tau_rad_min
             dT_rads.append(dT_rad)
-            Q_to_room += p.coupling_rad_room[i] * (s.T_rads_C[i] - s.T_room_C)
+            Q_to_room += p.coupling_rad_room[i] * (s.T_rads[i] - s.T_room)
 
-        dT_room = (Q_to_room - (s.T_room_C - T_outdoor_C)) / p.tau_room_min
+        dT_room = (Q_to_room - (s.T_room - T_outdoor)) / p.tau_room_min
 
         for i in range(p.n_trvs):
-            s.T_rads_C[i] += dT_rads[i] * dt_min
-        s.T_room_C += (dT_room + Q_K_per_min) * dt_min
+            s.T_rads[i] += dT_rads[i] * dt_min
+        s.T_room += (dT_room + Q_K_per_min) * dt_min
         return s
 
     def reported_trv_temps(self) -> list[float]:
         """Return the per-TRV temperatures as the controller's distribute logic sees them."""
         return [
-            self.state.T_rads_C[i] + self.params.trv_sensor_offsets_K[i]
+            self.state.T_rads[i] + self.params.trv_sensor_offsets_K[i]
             for i in range(self.params.n_trvs)
         ]
 
@@ -149,7 +149,7 @@ PROFILE_MULTI_SYMMETRIC = MultiTrvPlantParams(
     tau_rad_min=15.0,
     gain_heaters=[2.0, 2.0, 2.0],
     coupling_rad_room=[1.0, 1.0, 1.0],
-    T_water_C=65.0,
+    T_water=65.0,
     trv_sensor_offsets_K=[0.0, 0.0, 0.0],
 )
 
@@ -161,7 +161,7 @@ PROFILE_MULTI_ASYMMETRIC = MultiTrvPlantParams(
     # warmest area.
     gain_heaters=[1.5, 2.0, 2.5],
     coupling_rad_room=[0.8, 1.0, 1.2],
-    T_water_C=65.0,
+    T_water=65.0,
     # Cold corner reads -1.5 K below room, near-window reads +0.5 K.
     trv_sensor_offsets_K=[-1.5, 0.0, 0.5],
 )
@@ -176,7 +176,7 @@ PROFILE_MULTI_HETEROGENEOUS = MultiTrvPlantParams(
     tau_rad_min=15.0,
     gain_heaters=[2.0, 2.0, 2.0],
     coupling_rad_room=[1.0, 1.0, 1.0],
-    T_water_C=65.0,
+    T_water=65.0,
     trv_sensor_offsets_K=[0.0, 0.0, 0.0],
     deadband_pcts_per_trv=[2.0, 22.0, 2.0],
 )

@@ -28,6 +28,7 @@ from .adapters.indirect_trv import (
     IndirectTrvAdapter,
 )
 from .adapters.mpc_adapter import MpcAdapter
+from .adapters.mpc_v2_adapter import MpcV2Adapter
 from .adapters.passive_modes import (
     AggressiveCalibrationAdapter,
     DefaultCalibrationAdapter,
@@ -69,6 +70,7 @@ from .sensor import Sensor, SensorParams
 
 ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     "mpc": MpcAdapter,
+    "mpc_v2": MpcV2Adapter,
     "tpi": TpiAdapter,
     "pid": PidAdapter,
     "heating_power": HeatingPowerAdapter,
@@ -85,6 +87,7 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     # live in adapters/indirect_trv.py.
     "pid+indirect_tado": lambda: IndirectTrvAdapter(PidAdapter(), TADO_PARAMS),
     "mpc+indirect_tado": lambda: IndirectTrvAdapter(MpcAdapter(), TADO_PARAMS),
+    "mpc_v2+indirect_tado": lambda: IndirectTrvAdapter(MpcV2Adapter(), TADO_PARAMS),
     "tpi+indirect_tado": lambda: IndirectTrvAdapter(TpiAdapter(), TADO_PARAMS),
     "heating_power+indirect_tado": lambda: IndirectTrvAdapter(
         HeatingPowerAdapter(), TADO_PARAMS
@@ -92,6 +95,7 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     # Bosch BTH-RA — wider hysteresis + command latency.
     "pid+indirect_bosch": lambda: IndirectTrvAdapter(PidAdapter(), BOSCH_PARAMS),
     "mpc+indirect_bosch": lambda: IndirectTrvAdapter(MpcAdapter(), BOSCH_PARAMS),
+    "mpc_v2+indirect_bosch": lambda: IndirectTrvAdapter(MpcV2Adapter(), BOSCH_PARAMS),
     "tpi+indirect_bosch": lambda: IndirectTrvAdapter(TpiAdapter(), BOSCH_PARAMS),
     "heating_power+indirect_bosch": lambda: IndirectTrvAdapter(
         HeatingPowerAdapter(), BOSCH_PARAMS
@@ -99,6 +103,7 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     # Tuya TS0601 family — 1 K setpoint quantisation.
     "pid+indirect_tuya": lambda: IndirectTrvAdapter(PidAdapter(), TUYA_PARAMS),
     "mpc+indirect_tuya": lambda: IndirectTrvAdapter(MpcAdapter(), TUYA_PARAMS),
+    "mpc_v2+indirect_tuya": lambda: IndirectTrvAdapter(MpcV2Adapter(), TUYA_PARAMS),
     "tpi+indirect_tuya": lambda: IndirectTrvAdapter(TpiAdapter(), TUYA_PARAMS),
     "heating_power+indirect_tuya": lambda: IndirectTrvAdapter(
         HeatingPowerAdapter(), TUYA_PARAMS
@@ -109,6 +114,9 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     ),
     "mpc+indirect_sonoff": lambda: IndirectTrvAdapter(
         MpcAdapter(), SONOFF_TRVZB_PARAMS
+    ),
+    "mpc_v2+indirect_sonoff": lambda: IndirectTrvAdapter(
+        MpcV2Adapter(), SONOFF_TRVZB_PARAMS
     ),
     "tpi+indirect_sonoff": lambda: IndirectTrvAdapter(
         TpiAdapter(), SONOFF_TRVZB_PARAMS
@@ -173,16 +181,16 @@ def _stabilise_plant(
     pre_setpoint = scenario.setpoint_schedule(0.0)
     pre_outdoor = scenario.outdoor_schedule(0.0)
     oracle = IdealOracleAdapter(plant_params=scenario.plant)
-    steps = int(round(stabilisation_min * 60.0 / step_s))
+    steps = round(stabilisation_min * 60.0 / step_s)
     for _ in range(steps):
         ctx = BenchmarkContext(
             t=0.0,  # logical time; not exposed to test controller
             dt=step_s,
-            target_temp_C=pre_setpoint,
-            current_temp_C=plant.state.T_room_C,
-            raw_room_temp_C=plant.state.T_room_C,
-            trv_temp_C=plant.state.T_rad_C,
-            outdoor_temp_C=pre_outdoor,
+            target_temperature=pre_setpoint,
+            room_temperature=plant.state.T_room,
+            raw_room_temperature=plant.state.T_room,
+            trv_temperature=plant.state.T_rad,
+            outdoor_temperature=pre_outdoor,
         )
         out = oracle.step(ctx)
         u = (out.valve_percent or 0.0) / 100.0
@@ -195,22 +203,22 @@ class PlantFacade(Protocol):
     The benchmark drives both single-TRV (``TwoStatePlant``) and
     multi-TRV (``MultiTrvPlant``) simulators through the same loop. The
     facade adapts each plant's native shape (scalar valve vs. vector
-    valves) to the loop's uniform "apply one valve_pct, see one room and
+    valves) to the loop's uniform "apply one valve_percent, see one room and
     one radiator temperature" view.
     """
 
     @property
-    def T_room_C(self) -> float:
+    def T_room(self) -> float:
         """Current room air temperature, in °C."""
         ...
 
     @property
-    def T_rad_C(self) -> float:
+    def T_rad(self) -> float:
         """Single-radiator view of the plant (mean over radiators if multi-TRV), in °C."""
         ...
 
     def apply(
-        self, dt_s: float, valve_pct: float, T_outdoor_C: float, Q_K_per_min: float
+        self, dt_s: float, valve_percent: float, T_outdoor: float, Q_K_per_min: float
     ) -> None:
         """Step the plant forward by ``dt_s`` seconds under the given valve and outdoor inputs."""
         ...
@@ -224,18 +232,18 @@ class _SingleTrvFacade:
         self._actuator = actuator
 
     @property
-    def T_room_C(self) -> float:
-        return self._plant.state.T_room_C
+    def T_room(self) -> float:
+        return self._plant.state.T_room
 
     @property
-    def T_rad_C(self) -> float:
-        return self._plant.state.T_rad_C
+    def T_rad(self) -> float:
+        return self._plant.state.T_rad
 
     def apply(
-        self, dt_s: float, valve_pct: float, T_outdoor_C: float, Q_K_per_min: float
+        self, dt_s: float, valve_percent: float, T_outdoor: float, Q_K_per_min: float
     ) -> None:
-        u = self._actuator.apply(valve_pct)
-        self._plant.step(dt_s, u, T_outdoor_C, Q_K_per_min=Q_K_per_min)
+        u = self._actuator.apply(valve_percent)
+        self._plant.step(dt_s, u, T_outdoor, Q_K_per_min=Q_K_per_min)
 
 
 def _drive_adapter(
@@ -263,11 +271,11 @@ def _drive_adapter(
     t_s_list: list[float] = []
     T_room_list: list[float] = []
     T_setpoint_list: list[float] = []
-    valve_pct_list: list[float] = []
+    valve_percent_list: list[float] = []
 
     t = 0.0
-    last_valve_pct = 0.0
-    last_measured_temp = facade.T_room_C
+    last_valve_percent = 0.0
+    last_measured_temperature = facade.T_room
     restart_fired = False
 
     while t <= duration_s + 1e-6:
@@ -311,43 +319,49 @@ def _drive_adapter(
         )
         # On dropout the sensor returns None; the controller keeps using
         # its last good reading rather than being handed the plant truth.
-        sampled = sensor.read(t, facade.T_room_C)
+        sampled = sensor.read(t, facade.T_room)
         if sampled is not None:
-            last_measured_temp = sampled
-        T_measured = last_measured_temp
+            last_measured_temperature = sampled
+        T_measured = last_measured_temperature
 
         ctx = BenchmarkContext(
             t=t,
             dt=step_s,
-            target_temp_C=target,
-            current_temp_C=T_measured,
-            raw_room_temp_C=facade.T_room_C,
-            trv_temp_C=facade.T_rad_C,
-            outdoor_temp_C=T_outdoor,
+            target_temperature=target,
+            room_temperature=T_measured,
+            raw_room_temperature=facade.T_room,
+            trv_temperature=facade.T_rad,
+            outdoor_temperature=T_outdoor,
             window_open=window_open,
             solar_intensity=controller_solar,
-            last_valve_percent=last_valve_pct,
+            last_valve_percent=last_valve_percent,
         )
 
         out = adapter.step(ctx)
-        valve_pct = out.valve_percent if out.valve_percent is not None else 0.0
-        last_valve_pct = valve_pct
+        # Better Thermostat turns every TRV off while a window is open,
+        # whatever the calibration mode: the kernel's window region decides
+        # that above the controller. The controller still runs and sees the
+        # open window, but the plant gets a closed valve.
+        valve_percent = (
+            0.0 if window_open or out.valve_percent is None else out.valve_percent
+        )
+        last_valve_percent = valve_percent
 
         t_s_list.append(t)
-        T_room_list.append(facade.T_room_C)
+        T_room_list.append(facade.T_room)
         T_setpoint_list.append(target)
-        valve_pct_list.append(valve_pct)
+        valve_percent_list.append(valve_percent)
 
         Q_solar = solar_intensity * scenario.solar_max_K_per_min
         Q_window = -scenario.window_loss_K_per_min if window_open else 0.0
-        facade.apply(step_s, valve_pct, T_outdoor, Q_K_per_min=Q_solar + Q_window)
+        facade.apply(step_s, valve_percent, T_outdoor, Q_K_per_min=Q_solar + Q_window)
         t += step_s
 
     return TimeSeries(
         t_s=t_s_list,
-        T_room_C=T_room_list,
-        T_setpoint_C=T_setpoint_list,
-        valve_pct=valve_pct_list,
+        T_room=T_room_list,
+        T_setpoint=T_setpoint_list,
+        valve_percent=valve_percent_list,
     )
 
 
@@ -387,9 +401,7 @@ def run_scenario(
     actual_plant = plant_params if plant_params is not None else scenario.plant
     plant = TwoStatePlant(
         actual_plant,
-        PlantState(
-            T_room_C=scenario.initial.T_room_C, T_rad_C=scenario.initial.T_rad_C
-        ),
+        PlantState(T_room=scenario.initial.T_room, T_rad=scenario.initial.T_rad),
     )
     # Run stabilisation with a scenario whose plant matches the override so
     # the IdealOracle inside the warm-up loop is parametrised correctly.
@@ -410,7 +422,7 @@ def run_scenario(
     # more time to settle. Never shrink below the scenario default.
     time_scale = _plant_time_scale(actual_plant)
     duration_s = max(
-        scenario.duration_min * 60.0, scenario.duration_min * 60.0 * time_scale
+        scenario.duration_minutes * 60.0, scenario.duration_minutes * 60.0 * time_scale
     )
     series = _drive_adapter(
         adapter, facade, scenario, step_s, duration_s, handle_controller_restart=True
@@ -429,18 +441,20 @@ def _replace_plant(scenario: ScenarioConfig, plant: PlantParams) -> ScenarioConf
     return replace(scenario, plant=plant)
 
 
-#: Factory keys for adapters that accept ``plant_params=`` and should
+#: Factories for adapters that accept ``plant_params=`` and should
 #: receive the override. Other registered factories either ignore the
 #: override (e.g. the RLS-learning variants are meant to discover the
 #: plant from data) or take no constructor arguments.
-PLANT_AWARE_FACTORIES: set[str] = {"ideal_oracle"}
+PLANT_AWARE_FACTORIES: dict[str, Callable[[PlantParams], ControllerAdapter]] = {
+    "ideal_oracle": lambda plant: IdealOracleAdapter(plant_params=plant)
+}
 
 
 def _make_adapter(name: str, plant_override: PlantParams | None) -> ControllerAdapter:
     """Instantiate an adapter, threading plant params into model-aware adapters."""
-    if plant_override is not None and name in PLANT_AWARE_FACTORIES:
-        factory = ADAPTER_FACTORIES[name]
-        return factory(plant_params=plant_override)  # type: ignore[call-arg]
+    plant_aware_factory = PLANT_AWARE_FACTORIES.get(name)
+    if plant_override is not None and plant_aware_factory is not None:
+        return plant_aware_factory(plant_override)
     return ADAPTER_FACTORIES[name]()
 
 
@@ -738,8 +752,7 @@ def _run_multi_trv_block(
         plant: MultiTrvPlantParams, scen: ScenarioConfig
     ) -> MultiTrvPlantState:
         return MultiTrvPlantState(
-            T_room_C=scen.initial.T_room_C,
-            T_rads_C=[scen.initial.T_rad_C] * plant.n_trvs,
+            T_room=scen.initial.T_room, T_rads=[scen.initial.T_rad] * plant.n_trvs
         )
 
     for profile_name, plant_params in multi_profiles.items():

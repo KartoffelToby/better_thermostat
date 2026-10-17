@@ -1,0 +1,863 @@
+"""Tests for the PID controller."""
+
+from unittest.mock import patch
+
+import pytest
+
+from custom_components.better_thermostat.utils.calibration.pid import (
+    D_SMOOTHING_INTERVAL_S,
+    MAX_DT_S,
+    PIDDebugInfo,
+    PIDParams,
+    PIDState,
+    build_pid_key,
+    compute_pid,
+)
+from tests.factories import ThermostatStandIn
+
+
+class TestPIDController:
+    """Test cases for PID controller.
+
+    State is threaded explicitly: each test keeps its own per-key state
+    dict, mirroring how the StateManager owns controller state in
+    production.
+    """
+
+    def setup_method(self):
+        """Start each test with a fresh per-key state dict."""
+        self._states: dict[str, PIDState] = {}
+
+    def _compute(self, **kwargs) -> tuple[float, PIDDebugInfo, PIDState]:
+        """Call ``compute_pid`` threading state for ``kwargs['key']``."""
+        key = kwargs["key"]
+        state = self._states.setdefault(key, PIDState())
+        percent, debug, new_state = compute_pid(state=state, **kwargs)
+        self._states[key] = new_state
+        return percent, debug, new_state
+
+    def _state(self, key: str) -> PIDState:
+        """Return the threaded state ``key`` holds after a computation."""
+        state = self._states.get(key)
+        assert state is not None
+        return state
+
+    def test_no_temperatures(self):
+        """Test behavior when temperatures are missing."""
+        params = PIDParams()
+        percent, debug, _ = self._compute(
+            params=params,
+            inp_target_temperature=None,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=None,
+            inp_temperature_slope_K_per_min=None,
+            key="test_no_temp",
+        )
+        assert percent == 0.0
+        assert debug["mode"] == "pid"
+        assert debug["error"] == "no_temps"
+
+    def test_basic_pid_calculation(self):
+        """Test basic PID calculation without auto-tuning."""
+        # Disable hold-time to allow immediate output changes
+        params = PIDParams(
+            auto_tune=False, kp=10.0, ki=1.0, kd=5.0, min_hold_time_s=0.0
+        )
+        # First call to initialize
+        percent1, _, _ = self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key="test_basic",
+        )
+        # Error = 2.0, P = 10*2 = 20, I accumulates, D=0
+        assert percent1 > 0
+
+        # Second call with same error; integer rounding may mask tiny increments
+        percent2, _, _ = self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key="test_basic",
+        )
+        assert percent2 >= percent1
+
+        # After a few iterations the integral term should raise the output
+        percent_last = percent2
+        for _ in range(6):
+            percent_last, _, _ = self._compute(
+                params=params,
+                inp_target_temperature=22.0,
+                inp_room_temperature=20.0,
+                inp_trv_temperature=21.0,
+                inp_temperature_slope_K_per_min=0.0,
+                key="test_basic",
+            )
+        assert percent_last > percent1
+
+    def test_anti_windup(self):
+        """Test anti-windup clamping."""
+        params = PIDParams(auto_tune=False, kp=100.0, ki=10.0, i_min=-10.0, i_max=10.0)
+        # Large error to cause windup
+        percent, _, _ = self._compute(
+            params=params,
+            inp_target_temperature=30.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key="test_windup",
+        )
+        # Should be clamped to 100%
+        assert percent == 100.0
+        # Check that integral is clamped
+        state = self._state("test_windup")
+        assert state.pid_integral <= params.i_max
+
+    def test_integrator_relief_persisted_when_anti_windup_blocks(self):
+        """Relief near setpoint must persist even when anti-windup blocks growth.
+
+        A wound-up integrator (saturated output) with an error that just
+        flipped sign within the steady-state band applies the 20% relief to the
+        output; that reduced value must also be written back to pid_integral so
+        it is not silently forgotten on the next cycle.
+        """
+        params = PIDParams(
+            auto_tune=False,
+            kp=60.0,
+            ki=0.01,
+            kd=2000.0,
+            i_min=-100.0,
+            i_max=100.0,
+            steady_state_band_K=0.1,
+            min_hold_time_s=0.0,
+        )
+        # Wound-up integrator; the previous error was negative (sign flip below).
+        state = PIDState(
+            pid_integral=100.0,
+            last_error_sign=-1,
+            pid_kp=60.0,
+            pid_ki=0.01,
+            pid_kd=2000.0,
+        )
+        # e = 22.0 - 21.95 = 0.05: positive, within the 0.1 K band. The output
+        # stays saturated (anti-windup blocks growth) while the sign flip from
+        # negative triggers relief (i_term *= 0.8).
+        _, debug, new_state = compute_pid(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=21.95,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key="test_relief",
+            state=state,
+        )
+        assert debug["anti_windup_blocked"] is True
+        assert debug["i_relief"] is True
+        # Relief persisted (0.8 * 100.0); without the fix this stays 100.0.
+        assert new_state.pid_integral == 80.0
+
+    def test_auto_tune_overshoot(self):
+        """Test auto-tuning on overshoot."""
+        params = PIDParams(
+            auto_tune=True,
+            tune_min_interval_s=0.0,  # Allow immediate tuning
+            overshoot_threshold_K=0.5,
+            kp_step_mul=0.9,
+            kd_step_mul=1.1,
+        )
+        key = "test_overshoot"
+
+        # First call: positive error > band
+        self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+
+        # Second call: the room crossed the target and ended up beyond it
+        self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=22.6,  # error = -0.6, beyond the 0.5 K threshold
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+
+        state = self._state(key)
+        # kp should be reduced, kd increased
+        assert state.pid_kp is not None
+        assert state.pid_kp < params.kp
+        assert state.pid_kd is not None
+        assert state.pid_kd > params.kd
+
+    def test_auto_tune_starts_from_a_gain_set_to_zero(self):
+        """A gain of 0 is tuned from 0, not from the default it is not.
+
+        Kd 0 is a PI controller; an overshoot scales Kd, so it stays 0.
+        Ki 0 is raised to the lowest value auto-tuning keeps.
+        """
+        params = PIDParams(
+            auto_tune=True, tune_min_interval_s=0.0, overshoot_threshold_K=0.5
+        )
+        key = "test_zero_gains"
+        self._states[key] = PIDState(pid_kp=50.0, pid_ki=0.0, pid_kd=0.0)
+
+        for room_temperature in (20.0, 22.6):
+            self._compute(
+                params=params,
+                inp_target_temperature=22.0,
+                inp_room_temperature=room_temperature,
+                inp_trv_temperature=21.0,
+                inp_temperature_slope_K_per_min=0.0,
+                key=key,
+            )
+
+        state = self._state(key)
+        assert state.pid_kd == 0.0
+        assert state.pid_ki == pytest.approx(params.ki_min)
+
+    def test_auto_tune_sluggish(self):
+        """Test auto-tuning for sluggish response."""
+        params = PIDParams(
+            auto_tune=True,
+            tune_min_interval_s=0.0,
+            steady_state_band_K=0.05,
+            sluggish_slope_threshold_K_min=0.01,
+            ki_step_mul_up=1.2,
+        )
+        key = "test_sluggish"
+
+        # Large error < 1.0, small slope -> sluggish
+        self._compute(
+            params=params,
+            inp_target_temperature=20.8,  # error = 0.8 < 1.0
+            inp_room_temperature=20.0,  # error = 0.8 > band
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.005,  # < threshold
+            key=key,
+        )
+
+        state = self._state(key)
+        # ki should be increased
+        assert state.pid_ki is not None
+        assert state.pid_ki > params.ki
+
+    def test_auto_tune_steady_state(self):
+        """Test auto-tuning in steady state."""
+        params = PIDParams(
+            auto_tune=True,
+            tune_min_interval_s=0.0,
+            steady_state_band_K=0.2,
+            ki_step_mul_down=0.8,
+        )
+        key = "test_steady"
+
+        # Small error, low percent -> steady state
+        self._compute(
+            params=params,
+            inp_target_temperature=20.1,
+            inp_room_temperature=20.0,  # error = 0.1 < band
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+
+        state = self._state(key)
+        # ki should be decreased
+        assert state.pid_ki is not None
+        assert state.pid_ki < params.ki
+
+    def test_auto_tune_no_tune_due_to_interval(self):
+        """Test that auto-tuning is skipped if interval is too short after a previous tune."""
+        params = PIDParams(
+            auto_tune=True,
+            tune_min_interval_s=10.0,  # Long interval
+            overshoot_threshold_K=0.5,
+            steady_state_band_K=0.1,
+            sluggish_slope_threshold_K_min=0.005,
+        )
+        key = "test_interval"
+
+        # First call: sluggish -> tune
+        self._compute(
+            params=params,
+            inp_target_temperature=20.8,  # error = 0.8 < 1.0
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,  # < threshold
+            key=key,
+        )
+
+        state_after_first = self._state(key)
+        assert state_after_first is not None
+        kp_after_first = state_after_first.pid_kp
+        ki_after_first = state_after_first.pid_ki
+        kd_after_first = state_after_first.pid_kd
+        assert ki_after_first is not None
+        assert ki_after_first > params.ki  # Should have increased due to sluggish
+
+        # Immediate second call with sluggish again - should not tune due to interval
+        self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,  # same error
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+
+        state_after_second = self._state(key)
+        assert state_after_second is not None
+        # Gains should remain the same as after first tune
+        assert state_after_second.pid_kp == kp_after_first
+        assert state_after_second.pid_ki == ki_after_first
+        assert state_after_second.pid_kd == kd_after_first
+
+    def test_auto_tune_gain_clamping(self):
+        """Test that gains are clamped to min/max values."""
+        params = PIDParams(
+            auto_tune=True,
+            tune_min_interval_s=0.0,
+            overshoot_threshold_K=0.1,  # Low threshold to trigger easily
+            kp_min=5.0,
+            kp_max=20.0,
+            kd_min=50.0,
+            kd_max=200.0,
+            kp_step_mul=0.5,  # Aggressive reduction
+            kd_step_mul=2.0,  # Aggressive increase
+        )
+        key = "test_clamp"
+
+        # Initial gains within range
+        initial_kp = 15.0
+        initial_kd = 100.0
+        params.kp = initial_kp
+        params.kd = initial_kd
+
+        # Trigger overshoot multiple times to push gains to limits
+        for _ in range(5):
+            # Positive error
+            self._compute(
+                params=params,
+                inp_target_temperature=22.0,
+                inp_room_temperature=20.0,
+                inp_trv_temperature=21.0,
+                inp_temperature_slope_K_per_min=0.0,
+                key=key,
+            )
+            # Overshoot
+            self._compute(
+                params=params,
+                inp_target_temperature=22.0,
+                inp_room_temperature=22.2,  # error = -0.2 > threshold
+                inp_trv_temperature=21.0,
+                inp_temperature_slope_K_per_min=0.0,
+                key=key,
+            )
+
+        state = self._state(key)
+        # kp should be clamped to min, kd to max
+        assert state is not None
+        assert state.pid_kp is not None
+        assert state.pid_kp >= params.kp_min
+        assert state.pid_kd is not None
+        assert state.pid_kd <= params.kd_max
+
+    def test_auto_tune_combined_conditions(self):
+        """Test auto-tuning with overlapping conditions (overshoot and sluggish)."""
+        params = PIDParams(
+            auto_tune=True,
+            tune_min_interval_s=0.0,
+            overshoot_threshold_K=0.5,
+            steady_state_band_K=0.05,
+            sluggish_slope_threshold_K_min=0.01,
+            kp_step_mul=0.9,
+            ki_step_mul_up=1.2,
+            ki_step_mul_down=1.0,  # No change in steady_state
+            kp=100.0,
+        )
+        key = "test_combined"
+
+        # First: sluggish (error <1.0, small slope)
+        self._compute(
+            params=params,
+            inp_target_temperature=20.8,  # error = 0.8
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.005,  # sluggish
+            key=key,
+        )
+
+        state_after_sluggish = self._state(key)
+        assert state_after_sluggish is not None
+        ki_after_sluggish = state_after_sluggish.pid_ki
+        assert ki_after_sluggish is not None
+        assert ki_after_sluggish > params.ki  # Increased
+
+        # Second: overshoot (crossing the target to beyond the threshold)
+        self._compute(
+            params=params,
+            inp_target_temperature=20.8,  # error = 0.8 > band
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.02,  # > threshold, no sluggish
+            key=key,
+        )
+        self._compute(
+            params=params,
+            inp_target_temperature=20.8,
+            inp_room_temperature=21.4,  # error = -0.6, beyond the 0.5 K threshold
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+
+        state_after_combined = self._state(key)
+        assert state_after_combined is not None
+        assert state_after_combined.pid_ki is not None
+        assert state_after_combined.pid_kp is not None
+        assert (
+            state_after_combined.pid_ki == ki_after_sluggish
+        )  # No further change to ki
+        assert state_after_combined.pid_kp < params.kp  # Decreased due to overshoot
+
+    def test_auto_tune_damps_a_sustained_oscillation(self):
+        """Every swing across the target beyond the threshold damps the gains.
+
+        Kp never rises and Kd never falls while the room keeps swinging, and
+        both stay inside their tuning limits.
+        """
+        params = PIDParams(
+            auto_tune=True,
+            tune_min_interval_s=0.0,
+            overshoot_threshold_K=0.3,
+            steady_state_band_K=0.1,
+            kp_step_mul=0.95,
+            ki_step_mul_up=1.05,
+            ki_step_mul_down=0.95,
+        )
+        key = "test_oscillation"
+
+        kp_values = []
+        kd_values = []
+        for i in range(10):
+            error = 2.0 if i % 2 == 0 else -0.5
+            self._compute(
+                params=params,
+                inp_target_temperature=22.0,
+                inp_room_temperature=22.0 - error,
+                inp_trv_temperature=21.0,
+                # A swinging room moves fast: the sluggish rule stays out.
+                inp_temperature_slope_K_per_min=0.05,
+                key=key,
+            )
+            state = self._state(key)
+            assert state is not None
+            assert state.pid_kp is not None
+            assert state.pid_kd is not None
+            kp_values.append(state.pid_kp)
+            kd_values.append(state.pid_kd)
+
+        assert all(b <= a for a, b in zip(kp_values, kp_values[1:]))
+        assert all(b >= a for a, b in zip(kd_values, kd_values[1:]))
+        # Nine crossings after the first cycle set the side.
+        assert kp_values[-1] == pytest.approx(params.kp * 0.95**9)
+        assert params.kp_min <= kp_values[-1]
+        assert kd_values[-1] <= params.kd_max
+
+    def test_derivative_on_measurement(self):
+        """Test derivative on measurement with smoothing."""
+        params = PIDParams(
+            auto_tune=False, d_on_measurement=True, d_smoothing_alpha=0.5
+        )
+        # First call to initialize
+        self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key="test_deriv",
+        )
+        # Second call to have dt > 0
+        _, debug, _ = self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key="test_deriv",
+        )
+        # Check that smoothed measurement is calculated
+        assert debug["meas_smooth_C"] is not None
+        assert debug["meas_current_used"] is not None
+        assert debug["meas_external_raw"] is not None
+
+    def test_derivative_on_error_setpoint_kick(self):
+        """Derivative-on-error reacts to a setpoint change, unlike on-measurement.
+
+        With ``d_on_measurement=False`` the D channel must use the stored
+        previous error (``pid_last_error``). Holding the measurement fixed
+        while the target jumps therefore produces a non-zero derivative kick;
+        reconstructing the error from the *current* target instead would cancel
+        the setpoint term and collapse the mode to derivative-on-measurement.
+        """
+        params = PIDParams(
+            auto_tune=False, kd=5.0, min_hold_time_s=0.0, d_on_measurement=False
+        )
+        # First call initializes pid_last_error (= 2.0); no derivative yet.
+        self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key="test_deriv_err",
+        )
+        # Target jumps +1 K while the measurement stays at 20.0: error rises
+        # 2.0 -> 3.0, so d = kd * (3-2)/dt with dt clamped to 1.0.
+        _, debug, state = self._compute(
+            params=params,
+            inp_target_temperature=23.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key="test_deriv_err",
+        )
+        assert debug["d"] == 5.0
+        assert state.pid_last_error == 3.0
+
+    def test_pid_last_error_refreshed_in_d_on_measurement_mode(self):
+        """pid_last_error tracks the current error even under d_on_measurement.
+
+        Otherwise a later switch back to derivative-on-error would pair a stale
+        error with a fresh pid_last_time and compute a spurious derivative.
+        """
+        params = PIDParams(auto_tune=False, d_on_measurement=True)
+        _, _, state = self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key="test_last_err",
+        )
+        # e = 22.0 - 20.0; without the fix this stays None in D-on-measurement.
+        assert state.pid_last_error == 2.0
+
+    def test_hold_time_blocks_small_changes(self):
+        """Test that hold-time blocks small output changes within the hold period."""
+        # Use short hold time for testing, but long enough to block
+        params = PIDParams(
+            auto_tune=False,
+            kp=10.0,
+            ki=0.0,
+            kd=0.0,
+            min_hold_time_s=300.0,  # 5 minutes hold time
+            big_change_threshold_percent=33.0,
+        )
+        key = "test_hold_block"
+
+        # First call establishes baseline
+        percent1, _, _ = self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,  # Error = 2.0, P = 20%
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+        assert percent1 == 20.0  # P-term only: 10 * 2.0 = 20
+
+        # Second call with slightly different error (small change < 33%)
+        percent2, _, _ = self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.5,  # Error = 1.5, P = 15%
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+        # Change would be 20 -> 15 = -5%, which is < 33%, so blocked by hold-time
+        assert percent2 == 20.0  # Stays at previous value
+
+    def test_hold_time_allows_big_changes(self):
+        """Test that big changes bypass the hold-time restriction."""
+        params = PIDParams(
+            auto_tune=False,
+            kp=10.0,
+            ki=0.0,
+            kd=0.0,
+            min_hold_time_s=300.0,
+            big_change_threshold_percent=33.0,
+        )
+        key = "test_hold_big"
+
+        # First call establishes baseline
+        percent1, _, _ = self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,  # Error = 2.0, P = 20%
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+        assert percent1 == 20.0
+
+        # Second call with large error change (big change >= 33%)
+        percent2, _, _ = self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=15.0,  # Error = 7.0, P = 70%
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+        # Change is 20 -> 70 = +50%, which is >= 33%, so bypasses hold-time
+        assert percent2 == 70.0  # Big change allowed
+
+    def test_hold_time_allows_target_temperature_change(self):
+        """Test that target temperature changes bypass the hold-time restriction."""
+        params = PIDParams(
+            auto_tune=False,
+            kp=10.0,
+            ki=0.0,
+            kd=0.0,
+            min_hold_time_s=300.0,
+            big_change_threshold_percent=33.0,
+        )
+        key = "test_hold_target"
+
+        # First call establishes baseline
+        percent1, _, _ = self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,  # Error = 2.0, P = 20%
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+        assert percent1 == 20.0
+
+        # Second call with changed target temperature
+        percent2, _, _ = self._compute(
+            params=params,
+            inp_target_temperature=23.0,  # Target changed by 1.0°C (> 0.05)
+            inp_room_temperature=20.0,  # Error = 3.0, P = 30%
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+        # Change is 20 -> 30 = +10% (< 33%), but target changed so bypasses hold-time
+        assert percent2 == 30.0  # Target change allowed
+
+    def test_hold_time_zero_disables_blocking(self):
+        """Test that min_hold_time_s=0 disables hold-time blocking."""
+        params = PIDParams(
+            auto_tune=False,
+            kp=10.0,
+            ki=0.0,
+            kd=0.0,
+            min_hold_time_s=0.0,  # Disabled
+            big_change_threshold_percent=33.0,
+        )
+        key = "test_hold_disabled"
+
+        # First call
+        percent1, _, _ = self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+        assert percent1 == 20.0
+
+        # Second call with small change - should NOT be blocked
+        percent2, _, _ = self._compute(
+            params=params,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.5,  # Small change
+            inp_trv_temperature=21.0,
+            inp_temperature_slope_K_per_min=0.0,
+            key=key,
+        )
+        # With hold-time disabled, small changes go through immediately
+        assert percent2 == 15.0  # 10 * 1.5 = 15
+
+    def test_build_pid_key(self):
+        """Test key building."""
+
+        bt = ThermostatStandIn()
+        bt.heat_target_temperature = 22.5
+        bt._unique_id = "test_bt"
+        key = build_pid_key(bt, "climate.test")
+        assert key == "test_bt:climate.test:t22.5"
+
+        bt.heat_target_temperature = None
+        key = build_pid_key(bt, "climate.test")
+        assert key == "test_bt:climate.test:tunknown"
+
+
+class TestPidTimeHandling:
+    """Injected timestamps and the integration-step upper bound."""
+
+    def test_injected_now_yields_deterministic_dt_without_wall_clock(self):
+        """Passing ``now`` drives dt directly; the wall clock is never read."""
+        params = PIDParams(
+            auto_tune=False, kp=10.0, ki=1.0, kd=0.0, min_hold_time_s=0.0
+        )
+        state = PIDState()
+        with patch(
+            "custom_components.better_thermostat.utils.calibration.pid.monotonic",
+            side_effect=AssertionError("wall clock must not be read"),
+        ):
+            _, _, state = compute_pid(
+                params, 22.0, 20.0, 21.0, 0.0, "k", state=state, now=1000.0
+            )
+            _, debug, state = compute_pid(
+                params, 22.0, 20.0, 21.0, 0.0, "k", state=state, now=1010.0
+            )
+        assert debug["dt_s"] == 10.0
+        assert state.pid_last_time == 1010.0
+
+    def test_stale_last_time_bounds_the_integral_step(self):
+        """An hours-old ``pid_last_time`` integrates at most MAX_DT_S seconds."""
+        params = PIDParams(
+            auto_tune=False, kp=0.0, ki=0.001, kd=0.0, min_hold_time_s=0.0
+        )
+        state = PIDState()
+        state.pid_last_time = 100.0
+        stale_now = 100.0 + 6 * 3600.0
+
+        _, debug, state = compute_pid(
+            params, 22.0, 21.0, 21.0, 0.0, "k", state=state, now=stale_now
+        )
+
+        assert debug["dt_s"] == MAX_DT_S
+        # error = 1 K -> integral step = ki * e * MAX_DT_S, not ki * e * 6 h.
+        assert state.pid_integral == pytest.approx(0.001 * 1.0 * MAX_DT_S)
+
+
+class TestPidDerivativeSmoothing:
+    """The smoothing weight of the D channel's measurement."""
+
+    def test_smoothing_factor_weights_the_new_measurement(self):
+        """A valid smoothing factor sets the weight of the new reading."""
+        params = PIDParams(
+            auto_tune=False,
+            kp=0.0,
+            ki=0.0,
+            kd=100.0,
+            d_smoothing_alpha=0.25,
+            min_hold_time_s=0.0,
+        )
+        state = PIDState(pid_last_meas=20.0, pid_last_time=1000.0)
+
+        _, debug, state = compute_pid(
+            params,
+            22.0,
+            21.0,
+            21.0,
+            0.0,
+            "k",
+            state=state,
+            now=1000.0 + D_SMOOTHING_INTERVAL_S,
+        )
+
+        assert debug["meas_smooth_C"] == 20.25
+        assert debug["d"] == pytest.approx(-100.0 * 0.25 / 300.0, abs=0.01)
+        assert state.pid_last_meas == pytest.approx(20.25)
+
+    @pytest.mark.parametrize("kd", [2000.0, 10000.0])
+    @pytest.mark.parametrize("gap_seconds", [1.0, 2.0, 5.0])
+    def test_cycles_seconds_apart_do_not_kick_the_valve(self, gap_seconds, kd):
+        """A cycle seconds after a sensor step leaves the valve where it was.
+
+        The room settles at 20.0 °C, the sensor then reports 20.1 °C, and
+        three more cycles follow seconds apart with the reading unchanged,
+        as a TRV report right after a sensor report produces them.
+        """
+        params = PIDParams(auto_tune=False, kd=kd, min_hold_time_s=0.0)
+        state = PIDState()
+        now = 1000.0
+        for _ in range(40):
+            now += 300.0
+            compute_pid(params, 21.0, 20.0, 20.0, 0.0, "k", state=state, now=now)
+
+        now += 300.0
+        step_percent, step_debug, state = compute_pid(
+            params, 21.0, 20.1, 20.0, 0.0, "k", state=state, now=now
+        )
+        step_d_term = step_debug["d"]
+        assert step_d_term is not None
+        for _ in range(3):
+            now += gap_seconds
+            percent, debug, state = compute_pid(
+                params, 21.0, 20.1, 20.0, 0.0, "k", state=state, now=now
+            )
+
+            d_term = debug["d"]
+            assert d_term is not None
+            assert abs(d_term) <= abs(step_d_term)
+            assert abs(percent - step_percent) <= 2
+
+    @pytest.mark.parametrize("cycles_per_second", [1, 10])
+    def test_the_smoothed_value_depends_on_elapsed_time_not_on_cycle_count(
+        self, cycles_per_second
+    ):
+        """Five minutes of readings smooth alike in one cycle or in many.
+
+        Cycles closer together than a second advance the smoothing by the
+        fraction of a second that passed, not by a whole second each.
+        """
+        params = PIDParams(auto_tune=False, min_hold_time_s=0.0)
+        one_cycle = PIDState(pid_last_meas=20.0, pid_last_time=1000.0)
+        many_cycles = PIDState(pid_last_meas=20.0, pid_last_time=1000.0)
+
+        compute_pid(params, 22.0, 21.0, 21.0, 0.0, "k", state=one_cycle, now=1300.0)
+        for cycle in range(1, 300 * cycles_per_second + 1):
+            compute_pid(
+                params,
+                22.0,
+                21.0,
+                21.0,
+                0.0,
+                "k",
+                state=many_cycles,
+                now=1000.0 + cycle / cycles_per_second,
+            )
+
+        assert one_cycle.pid_last_meas == pytest.approx(20.5)
+        assert many_cycles.pid_last_meas == pytest.approx(20.5)
+
+
+class TestPidKeyBucket:
+    """The target bucket in the PID key."""
+
+    @staticmethod
+    def _thermostat(target: float | None) -> ThermostatStandIn:
+        bt = ThermostatStandIn()
+        bt.heat_target_temperature = target
+        bt._unique_id = "bt_1"
+        return bt
+
+    @pytest.mark.parametrize("target", [float("inf"), float("nan")])
+    def test_a_target_without_a_bucket_keys_as_unknown(self, target):
+        """A target that cannot be rounded to a bucket keys as ``tunknown``."""
+        key = build_pid_key(self._thermostat(target), "climate.trv")
+        assert key == "bt_1:climate.trv:tunknown"
+
+    def test_a_target_rounds_to_its_half_degree_bucket(self):
+        """A finite target lands in its nearest 0.5 degree bucket."""
+        key = build_pid_key(self._thermostat(21.3), "climate.trv")
+        assert key == "bt_1:climate.trv:t21.5"

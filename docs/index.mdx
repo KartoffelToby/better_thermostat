@@ -28,6 +28,10 @@ import { Card, CardGrid } from '/node_modules/@astrojs/starlight/components';
 
 </div>
 
+Better Thermostat is a Home Assistant integration that turns the radiator thermostats (TRVs) of a room into one thermostat that regulates by a separate room temperature sensor. A TRV measures the temperature right at the radiator, which is warmer than the room; Better Thermostat corrects for that through the TRV's target, its calibration offset or its valve, whichever the device supports.
+
+It pauses the heating while a window or door is open, switches it off when it is warm outside, and offers presets, an air conditioner alongside the radiators, and several control algorithms that learn how your room heats. It works with TRVs from any integration Home Assistant supports, such as Zigbee2MQTT, ZHA, deCONZ, Z-Wave, Shelly, tado° and HomematicIP.
+
 ## Next steps
 
 <CardGrid stagger>

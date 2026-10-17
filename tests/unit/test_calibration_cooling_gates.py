@@ -8,15 +8,18 @@ same arm for ``HVACAction.COOLING`` as for ``HVACAction.IDLE``.
 from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
+from homeassistant.const import UnitOfTemperature
 import pytest
 
 from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.state_manager import StateManager
+from tests.factories import ThermostatStandIn, make_state
 
 ENTITY_ID = "climate.trv"
 
@@ -24,59 +27,62 @@ ENTITY_ID = "climate.trv"
 def build_bt(
     calibration_mode,
     hvac_action,
-    cur_temp,
-    bt_target_temp=21.0,
-    trv_temp=21.0,
+    room_temperature,
+    heat_target_temperature=21.0,
+    trv_temperature=21.0,
     tolerance=0.0,
     step=0.5,
     protect_overheating=False,
 ):
     """Return a BetterThermostat mock carrying a single configured TRV."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.name = "better_thermostat"
     bt.device_name = "Test BT"
     bt.tolerance = tolerance
     bt.attr_hvac_action = hvac_action
     bt.hvac_action = hvac_action
-    bt.cur_temp = cur_temp
-    bt.cur_temp_filtered = None
-    bt.bt_target_temp = bt_target_temp
-    bt.bt_hvac_mode = HVACMode.HEAT_COOL
-    bt.outdoor_sensor = None
-    bt.weather_entity = None
+    bt.room_temperature = room_temperature
+    bt.room_temperature_filtered = None
+    bt.heat_target_temperature = heat_target_temperature
+    bt.bt_hvac_mode = HVACMode.HEAT
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
     bt.window_open = False
-    bt.temp_slope = None
+    bt.contact_open = False
+    bt.temperature_slope = None
     bt.heating_power = 0.04
     bt.heat_loss_rate = 0.02
-    bt.hass = None
+    bt.hass = MagicMock()
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    bt.hass.states.get.return_value = None
+    bt.kernel_state = make_state()
+    bt.clock = FakeClock()
     bt.state_mgr = StateManager(MagicMock(), "cooling_gates")
 
     quirks = MagicMock()
-    quirks.fix_local_calibration.side_effect = lambda _self, _entity, offset: float(
-        offset
+    quirks.fix_local_calibration.side_effect = (
+        lambda _self, _entity, calibration_offset: float(calibration_offset)
     )
     quirks.fix_target_temperature_calibration.side_effect = (
         lambda _self, _entity, temperature: float(temperature)
     )
 
     bt.real_trvs = {
-        ENTITY_ID: Trv.from_legacy_dict(
-            ENTITY_ID,
-            {
-                "advanced": {
-                    "calibration_mode": calibration_mode,
-                    "protect_overheating": protect_overheating,
-                },
-                "current_temperature": trv_temp,
-                "last_calibration": 0.0,
-                "local_calibration_step": step,
-                "local_calibration_min": -5.0,
-                "local_calibration_max": 5.0,
-                "target_temp_step": step,
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "model_quirks": quirks,
+        ENTITY_ID: Trv(
+            entity_id=ENTITY_ID,
+            advanced={
+                "calibration_mode": calibration_mode,
+                "protect_overheating": protect_overheating,
             },
+            current_temperature=trv_temperature,
+            last_calibration=0.0,
+            local_calibration_step=step,
+            min_local_calibration=-5.0,
+            max_local_calibration=5.0,
+            target_temp_step=step,
+            min_temp=5.0,
+            max_temp=30.0,
+            model_quirks=quirks,
         )
     }
     return bt
@@ -91,8 +97,8 @@ def test_cooling_rounds_setpoint_toward_closed():
     """
     kwargs = {
         "calibration_mode": CalibrationMode.DEFAULT,
-        "cur_temp": 21.05,
-        "trv_temp": 20.9,
+        "room_temperature": 21.05,
+        "trv_temperature": 20.9,
     }
     idle = calculate_calibration_setpoint(
         build_bt(hvac_action=HVACAction.IDLE, **kwargs), ENTITY_ID
@@ -107,6 +113,7 @@ def test_cooling_rounds_setpoint_toward_closed():
     assert idle == pytest.approx(20.5)
     assert cooling == pytest.approx(20.5)
     assert nearest == pytest.approx(21.0)
+    assert cooling is not None
     assert cooling < 20.9
 
 
@@ -119,8 +126,8 @@ def test_cooling_rounds_local_offset_toward_closed():
     """
     kwargs = {
         "calibration_mode": CalibrationMode.DEFAULT,
-        "cur_temp": 21.05,
-        "trv_temp": 20.9,
+        "room_temperature": 21.05,
+        "trv_temperature": 20.9,
     }
     idle = calculate_calibration_local(
         build_bt(hvac_action=HVACAction.IDLE, **kwargs), ENTITY_ID
@@ -135,6 +142,7 @@ def test_cooling_rounds_local_offset_toward_closed():
     assert idle == pytest.approx(0.5)
     assert cooling == pytest.approx(0.5)
     assert nearest == pytest.approx(0.0)
+    assert cooling is not None
     assert 20.9 + cooling >= 21.0
 
 
@@ -142,8 +150,8 @@ def test_cooling_applies_tolerance_delay_to_local_offset():
     """The tolerance delay lifts the offset while cooling, as it does when idle."""
     kwargs = {
         "calibration_mode": CalibrationMode.NO_CALIBRATION,
-        "cur_temp": 21.4,
-        "trv_temp": 22.0,
+        "room_temperature": 21.4,
+        "trv_temperature": 22.0,
         "tolerance": 0.5,
         "step": 0.1,
     }
@@ -172,8 +180,8 @@ def test_cooling_applies_tolerance_delay_to_setpoint():
     """
     kwargs = {
         "calibration_mode": CalibrationMode.NO_CALIBRATION,
-        "cur_temp": 20.5,
-        "trv_temp": 21.0,
+        "room_temperature": 20.5,
+        "trv_temperature": 21.0,
         "tolerance": 0.5,
         "step": 0.1,
     }
@@ -193,17 +201,16 @@ def test_cooling_applies_tolerance_delay_to_setpoint():
 
 
 def test_overheating_protection_applies_to_idle_only():
-    """The overheating term is signed against the heating target and stays idle-only.
+    """The overheating term counts from the heating target and stays idle-only.
 
-    Its magnitude is calibrated against the heating tolerance, and below
-    ``heating target + tolerance`` it turns negative and opens the valve —
-    which is the region a cooling room occupies once the cooling target sits
-    one step above the heating target.
+    It is sized against the heating tolerance and measured from
+    ``heating target + tolerance``; the cooling arm closes the valve through
+    its own gates and does not take the term.
     """
     kwargs = {
         "calibration_mode": CalibrationMode.NO_CALIBRATION,
-        "cur_temp": 23.0,
-        "trv_temp": 21.0,
+        "room_temperature": 23.0,
+        "trv_temperature": 21.0,
         "tolerance": 0.5,
         "protect_overheating": True,
     }
@@ -223,6 +230,9 @@ def test_overheating_protection_applies_to_idle_only():
     assert cooling_setpoint == pytest.approx(19.0)
     assert idle_setpoint == pytest.approx(7.0)
     assert cooling_offset == pytest.approx(2.0)
+    assert idle_offset is not None
+    assert cooling_offset is not None
+    assert cooling_setpoint is not None
     assert idle_offset > cooling_offset
     # Both arms hold the valve shut: the TRV reads 21.0 against a 21.0 target.
     assert cooling_setpoint < 21.0
@@ -232,16 +242,16 @@ def test_overheating_protection_applies_to_idle_only():
 @pytest.mark.parametrize("calibration_mode", list(CalibrationMode))
 @pytest.mark.parametrize("step", [0.1, 0.5, 1.0])
 @pytest.mark.parametrize("tolerance", [0.0, 0.3, 0.5])
-@pytest.mark.parametrize("cur_temp", [21.05, 21.3, 22.0, 23.7, 24.2, 26.4])
-@pytest.mark.parametrize("trv_temp", [20.0, 20.9, 21.0, 22.5])
+@pytest.mark.parametrize("room_temperature", [21.05, 21.3, 22.0, 23.7, 24.2, 26.4])
+@pytest.mark.parametrize("trv_temperature", [20.0, 20.9, 21.0, 22.5])
 def test_cooling_never_opens_further_than_idle(
-    calibration_mode, step, tolerance, cur_temp, trv_temp
+    calibration_mode, step, tolerance, room_temperature, trv_temperature
 ):
     """Cooling never commands a more open valve than the same idle room does."""
     kwargs = {
         "calibration_mode": calibration_mode,
-        "cur_temp": cur_temp,
-        "trv_temp": trv_temp,
+        "room_temperature": room_temperature,
+        "trv_temperature": trv_temperature,
         "tolerance": tolerance,
         "step": step,
     }
@@ -258,5 +268,9 @@ def test_cooling_never_opens_further_than_idle(
         build_bt(hvac_action=HVACAction.COOLING, **kwargs), ENTITY_ID
     )
 
+    assert cooling_setpoint is not None
+    assert idle_setpoint is not None
+    assert cooling_offset is not None
+    assert idle_offset is not None
     assert cooling_setpoint <= idle_setpoint
     assert cooling_offset >= idle_offset

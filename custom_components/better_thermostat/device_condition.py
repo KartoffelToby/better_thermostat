@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import StrEnum
 
 from homeassistant.components.climate.const import (
     ATTR_HVAC_ACTION,
@@ -26,7 +27,23 @@ import voluptuous as vol
 from . import DOMAIN
 from .utils.helpers import is_bt_climate_entity
 
-CONDITION_TYPES = {"is_hvac_mode", "is_hvac_action"}
+
+class ConditionType(StrEnum):
+    """The condition types this platform offers, as stored in an automation."""
+
+    IS_HVAC_MODE = "is_hvac_mode"
+    IS_HVAC_ACTION = "is_hvac_action"
+
+
+CONDITION_TYPES = frozenset(ConditionType)
+
+# The actions the thermostat reports: cooling only with a cooler configured.
+_HVAC_ACTIONS = [
+    HVACAction.OFF,
+    HVACAction.HEATING,
+    HVACAction.COOLING,
+    HVACAction.IDLE,
+]
 
 # Both extend the device-condition base schema, which carries the `condition`,
 # `device_id` and `domain` keys every condition this platform offers is built
@@ -34,7 +51,7 @@ CONDITION_TYPES = {"is_hvac_mode", "is_hvac_action"}
 HVAC_MODE_CONDITION = DEVICE_CONDITION_BASE_SCHEMA.extend(
     {
         vol.Required(CONF_ENTITY_ID): cv.entity_id_or_uuid,
-        vol.Required(CONF_TYPE): "is_hvac_mode",
+        vol.Required(CONF_TYPE): ConditionType.IS_HVAC_MODE,
         vol.Required(ATTR_HVAC_MODE): vol.In(
             [HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL]
         ),
@@ -44,10 +61,8 @@ HVAC_MODE_CONDITION = DEVICE_CONDITION_BASE_SCHEMA.extend(
 HVAC_ACTION_CONDITION = DEVICE_CONDITION_BASE_SCHEMA.extend(
     {
         vol.Required(CONF_ENTITY_ID): cv.entity_id_or_uuid,
-        vol.Required(CONF_TYPE): "is_hvac_action",
-        vol.Required(ATTR_HVAC_ACTION): vol.In(
-            [HVACAction.OFF, HVACAction.HEATING, HVACAction.IDLE]
-        ),
+        vol.Required(CONF_TYPE): ConditionType.IS_HVAC_ACTION,
+        vol.Required(ATTR_HVAC_ACTION): vol.In(_HVAC_ACTIONS),
     }
 )
 
@@ -74,7 +89,7 @@ async def async_get_conditions(
         }
 
         conditions.extend(
-            [{**base_condition, CONF_TYPE: cond} for cond in CONDITION_TYPES]
+            [{**base_condition, CONF_TYPE: cond} for cond in ConditionType]
         )
 
     return conditions
@@ -91,7 +106,7 @@ def async_condition_from_config(
         entity_registry.async_get(hass), config[CONF_ENTITY_ID]
     )
 
-    if config[CONF_TYPE] == "is_hvac_mode":
+    if config[CONF_TYPE] == ConditionType.IS_HVAC_MODE:
         hvac_mode = config[ATTR_HVAC_MODE]
 
         def test_is_hvac_mode(
@@ -108,20 +123,18 @@ def async_condition_from_config(
 
         return test_is_hvac_mode
 
-    if config[CONF_TYPE] == "is_hvac_action":
-        hvac_action = config[ATTR_HVAC_ACTION]
+    # The type is ConditionType.IS_HVAC_ACTION: the schema admits no other.
+    hvac_action = config[ATTR_HVAC_ACTION]
 
-        def test_is_hvac_action(
-            hass: HomeAssistant, variables: Mapping[str, object] | None
-        ) -> bool:
-            """Test if an HVAC action condition is met."""
-            if entity_id is None or (state := hass.states.get(entity_id)) is None:
-                return False
-            return state.attributes.get(ATTR_HVAC_ACTION) == hvac_action
+    def test_is_hvac_action(
+        hass: HomeAssistant, variables: Mapping[str, object] | None
+    ) -> bool:
+        """Test if an HVAC action condition is met."""
+        if entity_id is None or (state := hass.states.get(entity_id)) is None:
+            return False
+        return state.attributes.get(ATTR_HVAC_ACTION) == hvac_action
 
-        return test_is_hvac_action
-
-    return lambda *_: False
+    return test_is_hvac_action
 
 
 async def async_get_condition_capabilities(
@@ -130,7 +143,7 @@ async def async_get_condition_capabilities(
     """List condition capabilities."""
     condition_type = config[CONF_TYPE]
 
-    if condition_type == "is_hvac_mode":
+    if condition_type == ConditionType.IS_HVAC_MODE:
         return {
             "extra_fields": vol.Schema(
                 {
@@ -141,14 +154,10 @@ async def async_get_condition_capabilities(
             )
         }
 
-    if condition_type == "is_hvac_action":
+    if condition_type == ConditionType.IS_HVAC_ACTION:
         return {
             "extra_fields": vol.Schema(
-                {
-                    vol.Required(ATTR_HVAC_ACTION): vol.In(
-                        [HVACAction.OFF, HVACAction.HEATING, HVACAction.IDLE]
-                    )
-                }
+                {vol.Required(ATTR_HVAC_ACTION): vol.In(_HVAC_ACTIONS)}
             )
         }
 
