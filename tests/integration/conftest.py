@@ -279,9 +279,15 @@ class SimulatedClimate(ClimateEntity):
 
     @override
     async def async_set_hvac_mode(self, hvac_mode) -> None:
-        """Apply and confirm a mode write."""
+        """Apply and confirm a mode write.
+
+        A device whose profile names a ``mode_write_setpoint`` falls back to
+        it with every mode it is told.
+        """
         self.set_hvac_mode_calls.append(str(hvac_mode))
         self._attr_hvac_mode = hvac_mode
+        if self.profile.mode_write_setpoint is not None:
+            self._attr_target_temperature = self.profile.mode_write_setpoint
         self.async_write_ha_state()
 
 
@@ -332,7 +338,8 @@ class SimulatedOffsetNumber(_SimulatedNumber):
 
     def __init__(self, profile: DeviceProfile):
         """Start the device out uncalibrated, declared as the profile says."""
-        super().__init__(profile, "local_temperature_calibration")
+        super().__init__(profile, profile.offset_translation_key)
+        self._attr_translation_key = profile.offset_translation_key
         self._attr_native_value = 0.0
         if profile.offset_device_class is not None:
             self._attr_device_class = profile.offset_device_class

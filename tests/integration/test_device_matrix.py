@@ -59,6 +59,7 @@ from .device_profiles import (
     SPARE_TRV_ID,
     TADO_OFFSET_TRV,
     TRV_ID,
+    TUYA_OFFSET_TRV,
     VALVE_TRV,
     DeviceProfile,
     GroupScenario,
@@ -396,6 +397,58 @@ async def test_an_unanswered_offset_reopens_the_calibration_gate(hass, fake_trv)
     # divergence the reconciler compares against is a real one.
     reported = float(hass.states.get(offset_number.entity_id).state)
     assert trv.last_calibration != pytest.approx(reported)
+
+
+@pytest.mark.parametrize("fake_trv", [TUYA_OFFSET_TRV], indirect=True, ids=profile_id)
+async def test_an_offset_write_leaves_the_mode_and_the_target_alone(hass, fake_trv):
+    """Writing an offset to a head that kept its mode sends it no mode.
+
+    A head that falls back to a setpoint of its own whenever it is told a
+    mode would report that setpoint after the offset write, and the room
+    would take it for a turn at the device. The room keeps the target the
+    user set, and the head keeps the setpoint Better Thermostat gave it.
+    """
+    set_room_sensor(hass, 20.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    assert_profile_adopted(bt, fake_trv.profile)
+    trv = bt.real_trvs[TRV_ID]
+    offset_number = fake_trv.offset_number
+    assert offset_number is not None
+
+    with patch(WRITE_BUDGET, 0.0):
+        await hass.services.async_call(
+            "climate",
+            "set_temperature",
+            {"entity_id": BT_ENTITY, "temperature": 21.0},
+            blocking=True,
+        )
+        assert await wait_for(hass, lambda: fake_trv.target_temperature == 21.0)
+        fake_trv.set_hvac_mode_calls.clear()
+
+        baseline = len(offset_number.set_value_calls)
+        set_room_sensor(hass, 22.5)
+        assert await wait_for(
+            hass, lambda: len(offset_number.set_value_calls) > baseline
+        )
+        assert await wait_for(
+            hass, lambda: not bt.ignore_states and trv.calibration_received
+        )
+        assert await wait_for(
+            hass,
+            lambda: (
+                not any(
+                    task.get_name().startswith("bt_trigger_trv_change")
+                    for task in bt._owned_tasks
+                )
+            ),
+        )
+
+    assert fake_trv.set_hvac_mode_calls == []
+    assert bt.heat_target_temperature == 21.0
+    assert fake_trv.hvac_mode == HVACMode.HEAT_COOL
+    assert fake_trv.target_temperature == 21.0
 
 
 @pytest.mark.parametrize("fake_trv", [TADO_OFFSET_TRV], indirect=True, ids=profile_id)

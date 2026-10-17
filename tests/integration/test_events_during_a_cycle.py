@@ -550,7 +550,7 @@ async def test_a_head_that_leaves_its_mode_during_an_offset_write_is_put_back(ha
     Some heads drop out of their mode when their offset is written, so Better
     Thermostat sends the mode again a few seconds after an offset write. The
     head reports nothing that tells that drop from a switch at the device, so
-    the mode goes out whatever the head reports by then.
+    the mode goes out to a head that reports any other mode by then.
     """
     bt, (fake_trv,) = await _start(hass, MQTT_OFFSET_TRV)
     assert fake_trv.offset_number is not None
