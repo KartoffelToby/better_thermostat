@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from custom_components.better_thermostat.trv import Trv
 
-    from .base import AdapterCapabilities
+    from .base import AdapterCapabilities, DeviceChannels
 
 
 class AdapterProbeHost(Protocol):
@@ -86,11 +86,8 @@ class TrvAdapter(Protocol):
 
     async def get_info(
         self, host: AdapterProbeHost, entity_id: str, /
-    ) -> dict[str, bool]:
-        """Answer which channels the device offers.
-
-        The answer is keyed ``support_offset`` and ``support_valve``.
-        """
+    ) -> DeviceChannels:
+        """Answer which calibration channels the device offers."""
         ...
 
     async def init(self, host: AdapterHost, entity_id: str, /) -> None:

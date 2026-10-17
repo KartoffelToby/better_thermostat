@@ -40,6 +40,10 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatPidOutputSensor,
     BetterThermostatTempSlopeSensor,
     BetterThermostatVirtualTempSensor,
+    PidNumberRef,
+    PresetNumberRef,
+    SwitchKind,
+    SwitchRef,
     _BtMpcSensorBase,
     _BtSensorBase,
     _BtSimpleAttributeSensor,
@@ -1113,9 +1117,11 @@ class TestReleaseEntry:
             CalibrationMode.MPC_CALIBRATION: ["id1"]
         }
         _ENTITY_CLEANUP_CALLBACKS["entry_1"] = MagicMock()
-        _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid": dict[str, str | bool]()}
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid": dict[str, str]()}
-        _ACTIVE_SWITCH_ENTITIES["entry_1"] = {"uid": dict[str, str]()}
+        _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid": PresetNumberRef("away")}
+        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid": PidNumberRef("trv_1", "kp")}
+        _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
+            "uid": SwitchRef("trv_1", SwitchKind.CHILD_LOCK)
+        }
 
         _release_entry(entry.entry_id)
 
@@ -1448,8 +1454,8 @@ class TestCleanupPresetNumberEntities:
         reg.async_get_entity_id.return_value = "number.preset_away"
 
         _ACTIVE_PRESET_NUMBERS["entry_1"] = {
-            "uid_away": {"preset": "away"},
-            "uid_home": {"preset": "home"},
+            "uid_away": PresetNumberRef("away"),
+            "uid_home": PresetNumberRef("home"),
         }
         bt = _make_bt_climate()
         # Only "home" is current → "away" should be removed
@@ -1467,7 +1473,7 @@ class TestCleanupPresetNumberEntities:
     async def test_none_unique_id_skipped(self):
         """Entries with None as unique_id should be skipped."""
         reg = _make_entity_registry()
-        _ACTIVE_PRESET_NUMBERS["entry_1"] = {None: {"preset": "away"}}
+        _ACTIVE_PRESET_NUMBERS["entry_1"] = {None: PresetNumberRef("away")}
         bt = _make_bt_climate()
         await _cleanup_preset_number_entities(
             hass=MagicMock(),
@@ -1501,7 +1507,7 @@ class TestCleanupPresetNumberEntities:
         reg.async_get_entity_id.return_value = "number.preset_away"
         reg.async_remove.side_effect = RuntimeError("fail")
 
-        _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid_away": {"preset": "away"}}
+        _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid_away": PresetNumberRef("away")}
         bt = _make_bt_climate()
         await _cleanup_preset_number_entities(
             hass=MagicMock(),
@@ -1528,7 +1534,7 @@ class TestCleanupPidNumberEntities:
         reg = _make_entity_registry()
         reg.async_get_entity_id.return_value = "number.pid_kp"
 
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": {"trv": "trv_1", "param": "kp"}}
+        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": PidNumberRef("trv_1", "kp")}
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": Trv(
@@ -1546,7 +1552,7 @@ class TestCleanupPidNumberEntities:
     async def test_keeps_pid_entities_for_pid_trv(self):
         """Keeps pid entities for pid trv."""
         reg = _make_entity_registry()
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": {"trv": "trv_1", "param": "kp"}}
+        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": PidNumberRef("trv_1", "kp")}
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": Trv(
@@ -1577,14 +1583,14 @@ class TestCleanupPidNumberEntities:
         )
         tracked = _ACTIVE_PID_NUMBERS["entry_1"]
         # Should have 3 entries for trv_1 (kp, ki, kd)
-        trv_entries = [v for v in tracked.values() if v.get("trv") == "trv_1"]
+        trv_entries = [v for v in tracked.values() if v.trv == "trv_1"]
         assert len(trv_entries) == 3
 
     @pytest.mark.asyncio
     async def test_no_real_trvs_returns_empty_pid_trvs(self):
         """If no real_trvs, no PID TRVs should be found."""
         reg = _make_entity_registry()
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": {"trv": "trv_1", "param": "kp"}}
+        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": PidNumberRef("trv_1", "kp")}
         bt = _make_bt_climate(real_trvs={})
         reg.async_get_entity_id.return_value = "number.pid_kp"
         await _cleanup_pid_number_entities(
@@ -1608,7 +1614,7 @@ class TestCleanupPidNumberEntities:
         )
         # No PID TRVs found, nothing to merge
         tracked = _ACTIVE_PID_NUMBERS["entry_1"]
-        assert not any(v.get("trv") == "trv_1" for v in tracked.values())
+        assert not any(v.trv == "trv_1" for v in tracked.values())
 
 
 # ===========================================================================
@@ -1626,7 +1632,7 @@ class TestCleanupPidSwitchEntities:
         reg.async_get_entity_id.return_value = "switch.pid_auto_tune"
 
         _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
-            "uid_autotune": {"trv": "trv_1", "type": "pid_auto_tune"}
+            "uid_autotune": SwitchRef("trv_1", SwitchKind.PID_AUTO_TUNE)
         }
         bt = _make_bt_climate(
             real_trvs={
@@ -1648,7 +1654,7 @@ class TestCleanupPidSwitchEntities:
         reg.async_get_entity_id.return_value = "switch.child_lock"
 
         _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
-            "uid_lock": {"trv": "trv_removed", "type": "child_lock"}
+            "uid_lock": SwitchRef("trv_removed", SwitchKind.CHILD_LOCK)
         }
         bt = _make_bt_climate(
             real_trvs={
@@ -1668,7 +1674,7 @@ class TestCleanupPidSwitchEntities:
         """Keeps child lock for existing trv."""
         reg = _make_entity_registry()
         _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
-            "uid_lock": {"trv": "trv_1", "type": "child_lock"}
+            "uid_lock": SwitchRef("trv_1", SwitchKind.CHILD_LOCK)
         }
         bt = _make_bt_climate(
             real_trvs={
@@ -1700,8 +1706,8 @@ class TestCleanupPidSwitchEntities:
         )
         tracked = _ACTIVE_SWITCH_ENTITIES["entry_1"]
         # Should have pid_auto_tune + child_lock for trv_1
-        types = {v["type"] for v in tracked.values() if v.get("trv") == "trv_1"}
-        assert types == {"pid_auto_tune", "child_lock"}
+        kinds = {v.kind for v in tracked.values() if v.trv == "trv_1"}
+        assert kinds == {SwitchKind.PID_AUTO_TUNE, SwitchKind.CHILD_LOCK}
 
     @pytest.mark.asyncio
     async def test_child_lock_for_no_real_trvs(self):
@@ -1710,7 +1716,7 @@ class TestCleanupPidSwitchEntities:
         reg.async_get_entity_id.return_value = "switch.child_lock"
 
         _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
-            "uid_lock": {"trv": "trv_1", "type": "child_lock"}
+            "uid_lock": SwitchRef("trv_1", SwitchKind.CHILD_LOCK)
         }
         bt = _make_bt_climate(real_trvs=None)
         await _cleanup_pid_switch_entities(
@@ -1973,7 +1979,7 @@ class TestDynamicUpdateBelongsToTheEntry:
             await sensor_module._register_dynamic_entity_callback(
                 hass, entry, _make_bt_climate(), MagicMock()
             )
-        sensor_module._ENTITY_CLEANUP_CALLBACKS["entry_owned"](None)
+        sensor_module._ENTITY_CLEANUP_CALLBACKS["entry_owned"]()
 
         entry.async_create_background_task.assert_called_once()
         assert entry.async_create_background_task.call_args.args[0] is hass

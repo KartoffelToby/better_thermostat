@@ -17,7 +17,7 @@ from ..utils.helpers import (
     find_valve_entity,
     get_device_model,
 )
-from .base import AdapterCapabilities
+from .base import AdapterCapabilities, DeviceChannels
 from .generic import (
     discover_calibration_entity,
     get_calibration_offset as generic_get_calibration_offset,
@@ -44,7 +44,7 @@ CAPABILITIES = AdapterCapabilities(offset_write=True, valve_write=True)
 _QUIRK_VALVE_MODELS = {"Spirit", "ZWA021", "Z-TRV-V01"}
 
 
-async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
+async def get_info(self: AdapterProbeHost, entity_id: str) -> DeviceChannels:
     """Report offset and valve capabilities of the TRV.
 
     Capabilities are derived from the entities the device actually exposes, so
@@ -64,7 +64,7 @@ async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
         model = await get_device_model(self, entity_id)
         if model in _QUIRK_VALVE_MODELS:
             support_valve = True
-    return {"support_offset": support_offset, "support_valve": support_valve}
+    return DeviceChannels(offset_write=support_offset, valve_write=support_valve)
 
 
 async def init(self: AdapterHost, entity_id: str) -> None:

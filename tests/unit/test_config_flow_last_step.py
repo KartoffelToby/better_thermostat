@@ -10,17 +10,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.const import CONF_NAME
 import pytest
 
+from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.config_flow import (
     OptionsFlowHandler,
     _AdvancedContext,
     _TrvDraft,
 )
-from custom_components.better_thermostat.utils.const import CONF_THERMOSTAT
+from custom_components.better_thermostat.utils.const import (
+    CONF_THERMOSTAT,
+    CalibrationOutput,
+)
 
 ADVANCED_CONTEXT = _AdvancedContext(
     entity_id="climate.trv",
-    info={},
-    default_calibration="target_temp_based",
+    channels=DeviceChannels(),
+    default_calibration=CalibrationOutput.TARGET_TEMP_BASED,
     homematic=False,
     has_auto=False,
 )

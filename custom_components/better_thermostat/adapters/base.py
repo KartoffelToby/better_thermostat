@@ -55,6 +55,26 @@ class AdapterCapabilities:
     valve_needs_entity: bool = True
 
 
+@dataclass(frozen=True)
+class DeviceChannels:
+    """Which calibration channels one TRV device offers.
+
+    An adapter answers this from what Home Assistant already knows about
+    the device, before any TRV record exists, so the config flow can offer
+    only the calibration outputs the device can take.
+
+    Attributes
+    ----------
+    offset_write : bool
+        Whether the device takes a local temperature offset.
+    valve_write : bool
+        Whether the device takes a valve position.
+    """
+
+    offset_write: bool = False
+    valve_write: bool = False
+
+
 class OffsetScale(StrEnum):
     """How the value a calibration number publishes relates to Kelvin.
 

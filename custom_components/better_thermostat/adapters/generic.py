@@ -24,6 +24,7 @@ from ..utils.helpers import (
 )
 from .base import (
     AdapterCapabilities,
+    DeviceChannels,
     offset_scale,
     offset_to_published,
     published_step_to_offset,
@@ -75,14 +76,14 @@ def _option_to_offset(option: str) -> float | None:
         return None
 
 
-async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
+async def get_info(self: AdapterProbeHost, entity_id: str) -> DeviceChannels:
     """Get info from TRV."""
     support_offset = False
 
     calibration_entity_id = await find_local_calibration_entity(self, entity_id)
     if calibration_entity_id is not None:
         support_offset = True
-    return {"support_offset": support_offset, "support_valve": False}
+    return DeviceChannels(offset_write=support_offset, valve_write=False)
 
 
 async def discover_calibration_entity(self: AdapterHost, entity_id: str) -> None:
