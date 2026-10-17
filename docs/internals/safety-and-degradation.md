@@ -17,7 +17,7 @@ floor, calibration offsets to the device's calibration range, valve
 percentages to 0..`valve_max_opening`. The hull is the *second* guard:
 the calibration math keeps its own intermediate clamps for bit-exact
 debuggability. But the hull owns the boundary, and no write path may
-bypass it, including special cases like the boost safety reset.
+bypass it, including the valve close on an OFF intent.
 
 Safety-relevant writes (OFF for an open window or absent heat demand,
 frost-floor rewrites, closing the valve) also bypass the
@@ -59,9 +59,10 @@ a returning room sensor lifts HOLD straight to OPTIMAL.
   locked on the last known target (re-sent if the device loses it), and
   the frost floor stays enforced on every write. Nothing downstream of
   the HOLD decision may re-introduce an adjustment, boost included. The
-  only valve write on HOLD is the overheat-safe boost reset: while boost
-  heating is active and a suppression (open window, no heat demand)
-  forces the TRV to OFF, a direct-valve TRV gets its valve closed to 0 %.
+  only valve write on HOLD is the overheat-safe close: an OFF intent
+  (room switched off, open window, no heat demand) closes the valve to
+  0 % on a direct-valve TRV whose valve BT drives, by a calibration mode
+  that writes the valve or by boost.
   A room switched off turns its devices off on HOLD as on every other
   rung: the last known target is not locked in, and a TRV without an OFF
   mode receives its minimum setpoint.

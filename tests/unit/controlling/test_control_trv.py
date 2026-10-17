@@ -1651,23 +1651,17 @@ class TestControlTrvIgnoreFlagReset:
 # ---------------------------------------------------------------------------
 
 
-class TestBoostModeSafetyOverride:
-    """Test safety override resets valve when HVAC is forced to OFF during boost mode.
+class TestOffIntentClosesTheValve:
+    """An OFF intent closes the valve, during boost and on HOLD alike.
 
-    When boost mode sets valve to 100% but then HVAC is forced to OFF
-    (window_open or call_for_heat=False), the valve must be reset to 0%
-    to avoid a dangerous valve 100% + HVAC OFF conflict.
+    Boost forces the valve open, but an open window or a missing call for
+    heat turns the TRV off; the OFF intent outranks boost, so the valve
+    gets one 0% write and never the boost opening.
     """
 
     @pytest.mark.asyncio
-    async def test_window_open_resets_valve_during_boost(self):
-        """Test that window open resets valve to 0% when boost mode was active.
-
-        Scenario:
-        1. Boost mode sets valve to 100%
-        2. Window opens (window_open=True) which forces HVAC mode to OFF
-        3. Valve should be reset to 0% to avoid valve 100% + HVAC OFF conflict
-        """
+    async def test_window_open_closes_valve_during_boost(self):
+        """An open window during boost writes 0% to the valve, and nothing else."""
         mock_state = Mock()
         mock_state.state = HVACMode.HEAT
         mock_state.attributes = {"temperature": 20.0}
@@ -1751,11 +1745,7 @@ class TestBoostModeSafetyOverride:
 
             assert result is True
 
-            # First call: boost mode sets valve to 100%
-            # Second call: safety override resets valve to 0%
-            assert len(set_valve_calls) == 2
-            assert set_valve_calls[0][2] == 100  # Boost: 100%
-            assert set_valve_calls[1][2] == 0  # Safety reset: 0%
+            assert [call[2] for call in set_valve_calls] == [0]
 
     @pytest.mark.asyncio
     async def test_boost_does_not_override_hold(self):
@@ -1813,8 +1803,56 @@ class TestBoostModeSafetyOverride:
         assert mock_set_temperature.call_args[0][2] == 22.0
 
     @pytest.mark.asyncio
+    async def test_hold_still_closes_the_valve_when_switched_off(self):
+        """HOLD writes no calibrated valve percentage, but it does close the valve.
+
+        Without a usable temperature no controller runs, so the valve would
+        stay at its last opening while the thermostat is off.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            bt_hvac_mode=HVACMode.OFF,
+            real_trvs={
+                "climate.trv1": _with_valve_channel(
+                    _default_trv_config(
+                        advanced={
+                            "calibration_mode": CalibrationMode.MPC_V2_CALIBRATION,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
+                            "no_off_system_mode": False,
+                        }
+                    )
+                )
+            },
+        )
+        mock_self.real_trvs["climate.trv1"].last_valve_percent = 100
+        mock_self.kernel_state = replace(
+            mock_self.kernel_state, control_mode=ControlModeState(mode=ControlMode.HOLD)
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.OFF,
+            }
+            result = await control_trv(mock_self, "climate.trv1")
+
+        assert result is True
+        assert [call.args[2] for call in mock_set_valve.call_args_list] == [0]
+
+    @pytest.mark.asyncio
     async def test_boost_safety_reset_stamps_the_valve_budget(self):
-        """The 0% safety reset occupies the valve budget slot.
+        """The 0% close occupies the valve budget slot.
 
         It bypasses the budget gate (closing is the safe direction) but
         stamps the slot like every other valve write.
@@ -1827,17 +1865,19 @@ class TestBoostModeSafetyOverride:
             heat_target_temperature=22.0,
             window_open=True,
             real_trvs={
-                "climate.trv1": _default_trv_config(
-                    advanced={
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
-                        "no_off_system_mode": False,
-                    }
+                "climate.trv1": _with_valve_channel(
+                    _default_trv_config(
+                        advanced={
+                            "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
+                            "no_off_system_mode": False,
+                        }
+                    )
                 )
             },
         )
-        # A valve write 10 s ago keeps the budget closed for the boost
-        # 100% write; only the safety reset may run.
+        # A valve write 10 s ago keeps the budget closed; only the close,
+        # which bypasses it, may run.
         mock_self.real_trvs["climate.trv1"].last_write_monotonic["valve"] = 0.0
         mock_self.clock.advance(10.0)
 
@@ -1868,7 +1908,7 @@ class TestBoostModeSafetyOverride:
 
     @pytest.mark.asyncio
     async def test_failed_safety_reset_schedules_a_retry_cycle(self):
-        """A failed 0% safety reset is re-requested like any other write.
+        """A failed 0% close is re-requested like any other write.
 
         The budget slot is already stamped when the delegate reports
         failure, so without a follow-up cycle the valve stays at 100%
@@ -1903,7 +1943,7 @@ class TestBoostModeSafetyOverride:
 
         async def failing_set_valve(*args, **kwargs):
             set_valve_calls.append(args)
-            # The boost 100% write succeeds; the 0% safety reset fails.
+            # The 0% close fails.
             return args[2] != 0
 
         with (
@@ -1922,7 +1962,7 @@ class TestBoostModeSafetyOverride:
             result = await control_trv(mock_self, "climate.trv1")
 
         assert result is True
-        assert [call[2] for call in set_valve_calls] == [100, 0]
+        assert [call[2] for call in set_valve_calls] == [0]
 
         retries = [
             (coro, name) for coro, name in captured if "budget_retry" in (name or "")
@@ -1943,9 +1983,9 @@ class TestBoostModeSafetyOverride:
 
     @pytest.mark.asyncio
     async def test_failed_safety_reset_retries_at_the_normal_pace_on_homematicip(self):
-        """A failed 0% safety reset is retried after the normal spacing.
+        """A failed 0% close is retried after the normal spacing.
 
-        The reset bypasses the budget, so its retry must not wait out the
+        The close bypasses the budget, so its retry must not wait out the
         HomematicIP head's longer interval with the valve still open.
         """
         mock_self = _make_mock_self(
@@ -1956,13 +1996,15 @@ class TestBoostModeSafetyOverride:
             heat_target_temperature=22.0,
             window_open=True,
             real_trvs={
-                "climate.trv1": _default_trv_config(
-                    advanced={
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
-                        "no_off_system_mode": False,
-                        CONF_HOMEMATICIP: True,
-                    }
+                "climate.trv1": _with_valve_channel(
+                    _default_trv_config(
+                        advanced={
+                            "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
+                            "no_off_system_mode": False,
+                            CONF_HOMEMATICIP: True,
+                        }
+                    )
                 )
             },
         )
@@ -1974,7 +2016,7 @@ class TestBoostModeSafetyOverride:
         )
 
         async def failing_set_valve(*args, **kwargs):
-            # The boost 100% write succeeds; the 0% safety reset fails.
+            # The 0% close fails.
             return args[2] != 0
 
         with (
@@ -2006,14 +2048,8 @@ class TestBoostModeSafetyOverride:
         assert delays == [pytest.approx(MIN_WRITE_INTERVAL_S)]
 
     @pytest.mark.asyncio
-    async def test_no_heat_call_resets_valve_during_boost(self):
-        """Test that call_for_heat=False resets valve to 0% when boost mode was active.
-
-        Scenario:
-        1. Boost mode sets valve to 100%
-        2. call_for_heat becomes False which forces HVAC mode to OFF
-        3. Valve should be reset to 0% to avoid valve 100% + HVAC OFF conflict
-        """
+    async def test_no_heat_call_closes_valve_during_boost(self):
+        """A missing call for heat during boost writes 0% to the valve, and nothing else."""
         mock_state = Mock()
         mock_state.state = HVACMode.HEAT
         mock_state.attributes = {"temperature": 20.0}
@@ -2097,11 +2133,7 @@ class TestBoostModeSafetyOverride:
 
             assert result is True
 
-            # First call: boost mode sets valve to 100%
-            # Second call: safety override resets valve to 0%
-            assert len(set_valve_calls) == 2
-            assert set_valve_calls[0][2] == 100  # Boost: 100%
-            assert set_valve_calls[1][2] == 0  # Safety reset: 0%
+            assert [call[2] for call in set_valve_calls] == [0]
 
 
 class TestValveWriteResult:

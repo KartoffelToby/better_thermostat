@@ -50,7 +50,7 @@ from custom_components.better_thermostat.core.decide import decide, is_boost_hea
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.core.safety import clamp as safety_clamp
-from custom_components.better_thermostat.core.snapshot import WorldSnapshot
+from custom_components.better_thermostat.core.snapshot import HvacMode, WorldSnapshot
 from custom_components.better_thermostat.core.watchdog import (
     WATCHDOG_MAX_AGE_S,
     control_loop_stalled,
@@ -430,18 +430,32 @@ def _get_valve_control(
     entity_id: str,
     calibration_mode: CalibrationMode | None,
     calibration_output: CalibrationOutput | None,
+    *,
+    hvac_mode: HvacMode | None,
 ) -> tuple[ValveCommand | None, str | None]:
-    """Determine valve control settings based on boost mode or calibration.
+    """Determine valve control settings from the intent, boost or calibration.
+
+    ``hvac_mode`` is the kernel's intended mode for the TRV. An OFF intent
+    (BT off, an open window or door, no call for heat) closes the valve
+    wherever BT drives it, under a calibration mode that writes the valve
+    or under boost: the controllers publish no valve command then, so the
+    valve would otherwise stay at its last opening. Under any other mode BT
+    would not reopen the valve, so it does not close it either.
 
     Returns a tuple of (valve_command, source_name).
     Returns (None, None) if no valve control should be applied.
     """
     # Forcing the valve on a non-direct-valve TRV bypasses the calibration chain
     # and leaves the valve stuck open after boost ends.
-    if (
-        is_boost_heating(snapshot)
-        and calibration_output == CalibrationOutput.DIRECT_VALVE_BASED
-    ):
+    if calibration_output != CalibrationOutput.DIRECT_VALVE_BASED:
+        return None, None
+
+    if hvac_mode == HvacMode.OFF:
+        if calibration_mode in _VALVE_BALANCE_MODES or is_boost_heating(snapshot):
+            return {"valve_percent": 0, "apply_valve": True}, "hvac_off"
+        return None, None
+
+    if is_boost_heating(snapshot):
         _trv = self.real_trvs.get(entity_id)
         max_opening = _trv.valve_max_opening if _trv is not None else 100
         if isinstance(max_opening, (int, float)):
@@ -449,10 +463,6 @@ def _get_valve_control(
         else:
             target_percent = 100
         return {"valve_percent": target_percent, "apply_valve": True}, "boost_mode"
-
-    # Check calibration-based valve control
-    if calibration_output != CalibrationOutput.DIRECT_VALVE_BASED:
-        return None, None
 
     # Try calibration balance from various calibration modes
     cal_bal = self.real_trvs[entity_id].calibration_balance
@@ -2369,9 +2379,14 @@ async def control_trv(
                     _temperature = trv_desired.setpoint
                 _calibration = None
 
-            # Optional: set valve position if supported (e.g., MQTT/Z2M)
+            # Optional: set valve position if supported (e.g., MQTT/Z2M).
+            # HOLD writes no calibrated valve percentage; closing the valve
+            # for an OFF intent still applies there.
             try:
-                if self.kernel_state.control_mode.mode == ControlMode.HOLD:
+                if (
+                    self.kernel_state.control_mode.mode == ControlMode.HOLD
+                    and trv_desired.hvac_mode != HvacMode.OFF
+                ):
                     valve_settings, _source = None, None
                 else:
                     valve_settings, _source = _get_valve_control(
@@ -2380,6 +2395,7 @@ async def control_trv(
                         entity_id,
                         _calibration_mode,
                         _calibration_output,
+                        hvac_mode=trv_desired.hvac_mode,
                     )
                 # A valve with no channel to write through is not pursued,
                 # and no retry is scheduled for it, until one appears.
@@ -2427,11 +2443,15 @@ async def control_trv(
                             )
                             # The budget was already consumed but the valve never
                             # moved; re-derive on the catch-up cycle so the write
-                            # is not dropped permanently.
+                            # is not dropped permanently. A close bypasses the
+                            # budget, so its retry keeps the normal spacing
+                            # instead of a HomematicIP head's interval.
                             _schedule_budget_retry(
                                 self,
                                 entity_id,
-                                _budget_remaining(self, entity_id, "valve"),
+                                MIN_WRITE_INTERVAL_S
+                                if target_percent == 0
+                                else _budget_remaining(self, entity_id, "valve"),
                             )
                     else:
                         # A deferred valve write re-derives on the catch-up
@@ -2461,45 +2481,6 @@ async def control_trv(
                 _new_hvac_mode = HVACMode.OFF
             else:
                 _new_hvac_mode = _remapped_states.get("system_mode", None)
-
-            # Safety override: if boost mode was active but we forced OFF (open contact/no-heat),
-            # ensure valve is reset to 0% to prevent overheating. Only direct-valve
-            # calibration types accept valve commands; LOCAL_BASED and
-            # TARGET_TEMP_BASED control via offset / setpoint instead.
-            if (
-                is_boost_heating(snapshot)
-                and _new_hvac_mode == HVACMode.OFF
-                and _calibration_output == CalibrationOutput.DIRECT_VALVE_BASED
-            ):
-                _LOGGER.debug(
-                    "better_thermostat %s: Boost safety override - resetting valve to 0%% because HVAC mode is OFF",
-                    self.device_name,
-                )
-                # Closing the valve is the overheat-safe direction and skips
-                # the budget gate, but it is a real write: it passes the
-                # safety hull and occupies the budget slot like any other.
-                _reset_percent = round(
-                    _through_safety_hull(
-                        snapshot, entity_id, valve_percent=0.0
-                    ).valve_percent
-                    or 0.0
-                )
-                if not _valve_at_target(self, entity_id, _reset_percent):
-                    _consume_budget(self, entity_id, "valve", bypass=True)
-                    ok = await set_valve(self, entity_id, _reset_percent)
-                    if not ok:
-                        _LOGGER.debug(
-                            "better_thermostat %s: delegate.set_valve returned False for "
-                            "safety reset (target=%s%%, entity=%s)",
-                            self.device_name,
-                            _reset_percent,
-                            entity_id,
-                        )
-                        # The valve never moved; re-derive on a catch-up cycle
-                        # so the reset is not dropped permanently. The reset
-                        # bypasses the budget, so the retry keeps the normal
-                        # spacing instead of a HomematicIP head's interval.
-                        _schedule_budget_retry(self, entity_id, MIN_WRITE_INTERVAL_S)
 
             # Manage TRVs with no HVACMode.OFF
             _trv_has_no_off = _no_off_system_mode(self.real_trvs[entity_id])

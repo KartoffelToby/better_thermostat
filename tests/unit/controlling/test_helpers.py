@@ -27,7 +27,7 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperat
 from homeassistant.core import State
 import pytest
 
-from custom_components.better_thermostat.core.snapshot import Preset
+from custom_components.better_thermostat.core.snapshot import HvacMode, Preset
 from custom_components.better_thermostat.model_fixes import ZWA021
 from custom_components.better_thermostat.trv import PendingSetpoint, Trv
 from custom_components.better_thermostat.utils.const import (
@@ -46,6 +46,7 @@ from custom_components.better_thermostat.utils.controlling import (
     check_system_mode,
     check_target_temperature,
 )
+from custom_components.better_thermostat.utils.telemetry import HeatingPowerBalance
 from tests.factories import ThermostatStandIn, make_snapshot
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
@@ -887,6 +888,7 @@ class TestGetValveControlBoostCalibrationOutput:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.HEAT,
         )
         assert source == "boost_mode"
         assert bal == {"valve_percent": 100, "apply_valve": True}
@@ -900,6 +902,7 @@ class TestGetValveControlBoostCalibrationOutput:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationOutput.LOCAL_BASED,
+            hvac_mode=HvacMode.HEAT,
         )
         assert bal is None
         assert source is None
@@ -913,6 +916,7 @@ class TestGetValveControlBoostCalibrationOutput:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationOutput.TARGET_TEMP_BASED,
+            hvac_mode=HvacMode.HEAT,
         )
         assert bal is None
         assert source is None
@@ -946,6 +950,7 @@ class TestGetValveControlBoostMaxOpening:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.HEAT,
         )
         assert source == "boost_mode"
         assert bal == {"valve_percent": 100, "apply_valve": True}
@@ -959,6 +964,7 @@ class TestGetValveControlBoostMaxOpening:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.HEAT,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
 
@@ -971,6 +977,7 @@ class TestGetValveControlBoostMaxOpening:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.HEAT,
         )
         assert source == "boost_mode"
         assert bal == {"valve_percent": 60, "apply_valve": True}
@@ -984,6 +991,7 @@ class TestGetValveControlBoostMaxOpening:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.HEAT,
         )
         assert bal == {"valve_percent": 73, "apply_valve": True}
 
@@ -996,6 +1004,7 @@ class TestGetValveControlBoostMaxOpening:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.HEAT,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
 
@@ -1008,8 +1017,128 @@ class TestGetValveControlBoostMaxOpening:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.HEAT,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
+
+
+class TestGetValveControlOffIntent:
+    """An OFF intent closes the valve of a direct-valve TRV wherever BT drives it."""
+
+    _BALANCE = HeatingPowerBalance(
+        valve_percent=80,
+        apply_valve=True,
+        controller=CalibrationMode.HEATING_POWER_CALIBRATION,
+        debug={"source": "heating_power_calibration"},
+    )
+
+    def _mock_with_balance(self):
+        mock_self = ThermostatStandIn()
+        mock_self.real_trvs = {
+            "climate.trv1": Trv(
+                entity_id="climate.trv1", calibration_balance=self._BALANCE
+            )
+        }
+        return mock_self
+
+    def test_off_intent_outranks_the_calibration_balance(self):
+        """A controller balance left open does not survive an OFF intent."""
+        mock_self = self._mock_with_balance()
+        bal, source = _get_valve_control(
+            mock_self,
+            make_snapshot(),
+            "climate.trv1",
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+            CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.OFF,
+        )
+        assert source == "hvac_off"
+        assert bal == {"valve_percent": 0, "apply_valve": True}
+
+    def test_off_intent_closes_without_a_calibration_balance(self):
+        """A controller that publishes nothing while off still gets the valve closed."""
+        mock_self = ThermostatStandIn()
+        mock_self.real_trvs = {"climate.trv1": Trv(entity_id="climate.trv1")}
+        bal, source = _get_valve_control(
+            mock_self,
+            make_snapshot(),
+            "climate.trv1",
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.OFF,
+        )
+        assert source == "hvac_off"
+        assert bal == {"valve_percent": 0, "apply_valve": True}
+
+    def test_off_intent_outranks_boost(self):
+        """Boost does not open a valve the intent holds off."""
+        mock_self = self._mock_with_balance()
+        bal, source = _get_valve_control(
+            mock_self,
+            _boost_snapshot(),
+            "climate.trv1",
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+            CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.OFF,
+        )
+        assert source == "hvac_off"
+        assert bal == {"valve_percent": 0, "apply_valve": True}
+
+    def test_off_intent_leaves_a_non_valve_trv_alone(self):
+        """A TRV controlled by offset takes no valve command, off or not."""
+        mock_self = self._mock_with_balance()
+        bal, source = _get_valve_control(
+            mock_self,
+            make_snapshot(),
+            "climate.trv1",
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+            CalibrationOutput.LOCAL_BASED,
+            hvac_mode=HvacMode.OFF,
+        )
+        assert bal is None
+        assert source is None
+
+    def test_off_intent_leaves_a_valve_bt_never_writes_alone(self):
+        """Under a mode that only sends setpoints, nothing would reopen the valve."""
+        mock_self = self._mock_with_balance()
+        bal, source = _get_valve_control(
+            mock_self,
+            make_snapshot(),
+            "climate.trv1",
+            CalibrationMode.DEFAULT,
+            CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.OFF,
+        )
+        assert bal is None
+        assert source is None
+
+    def test_off_intent_closes_the_boost_valve_under_any_mode(self):
+        """Boost opens the valve under every mode, so the close follows it."""
+        mock_self = self._mock_with_balance()
+        bal, source = _get_valve_control(
+            mock_self,
+            _boost_snapshot(),
+            "climate.trv1",
+            CalibrationMode.DEFAULT,
+            CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.OFF,
+        )
+        assert source == "hvac_off"
+        assert bal == {"valve_percent": 0, "apply_valve": True}
+
+    def test_heat_intent_follows_the_calibration_balance(self):
+        """Switched back on, the controller's balance drives the valve again."""
+        mock_self = self._mock_with_balance()
+        bal, source = _get_valve_control(
+            mock_self,
+            make_snapshot(),
+            "climate.trv1",
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+            CalibrationOutput.DIRECT_VALVE_BASED,
+            hvac_mode=HvacMode.HEAT,
+        )
+        assert source == CalibrationMode.HEATING_POWER_CALIBRATION.value
+        assert bal == self._BALANCE
 
 
 class TestReconcileTolerance:
