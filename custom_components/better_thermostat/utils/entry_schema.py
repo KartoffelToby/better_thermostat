@@ -27,11 +27,17 @@ keys described here, with each value as stored, except that a whole number
 stored where a reader expects a float becomes that float, and that the
 boolean options are read with ``as_bool``, the reading the options flow saves
 them with.
+
+The target temperature bounds and step are stored with sentinels for
+"automatic"; ``target_temperature_bound`` and ``target_temperature_step`` read
+a stored value into a number, or ``None`` for automatic, so no other reader
+compares against the sentinels.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 from typing import Final, Literal, NotRequired, TypedDict
 
 from homeassistant.const import CONF_NAME
@@ -67,6 +73,7 @@ from .const import (
     CONF_WINDOW_OFF_DELAY,
     CONF_WINDOW_OFF_DELAY_AFTER,
     CONF_WINDOW_SENSORS,
+    TARGET_TEMP_BOUND_AUTO,
 )
 
 # A choice as stored: a string, a number from an older version, or ``None``.
@@ -111,7 +118,8 @@ TrvSettings = TypedDict(  # noqa: UP013
 # entity is set. ``off_temperature`` is in the system unit. The keys that take
 # a number or a string are stored as strings by the flows (the bounds and the
 # step as selector tokens) and as numbers by older versions and by hand; their
-# readers convert either with ``float()``.
+# readers convert either with ``float()``, the bounds and the step through
+# ``target_temperature_bound`` and ``target_temperature_step``.
 BtSettings = TypedDict(  # noqa: UP013
     "BtSettings",
     {
@@ -364,3 +372,74 @@ def parse_settings(raw: Mapping[str, object]) -> BtSettings:
     if CONF_PRESETS in raw:
         settings["presets"] = _parse_presets(raw[CONF_PRESETS])
     return settings
+
+
+def _finite_number(value: str | float) -> float:
+    """Return ``value`` as a finite float.
+
+    Raises
+    ------
+    ValueError
+        When ``value`` does not read as a finite number.
+    """
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{value!r} is not a finite number")
+    return number
+
+
+def target_temperature_bound(value: str | float | None) -> float | None:
+    """Read a stored target temperature bound in degrees Celsius.
+
+    Parameters
+    ----------
+    value : str | float | None
+        The bound as ``parse_settings`` returns it.
+
+    Returns
+    -------
+    float | None
+        The bound, or ``None`` when it follows the controlled entities: the
+        entry carries no value for it, an empty one, or the one the config
+        flow stores for a bound left on automatic (``TARGET_TEMP_BOUND_AUTO``).
+
+    Raises
+    ------
+    ValueError
+        When ``value`` does not read as a finite number.
+    """
+    if value is None or value == "":
+        return None
+    bound = _finite_number(value)
+    if bound == float(TARGET_TEMP_BOUND_AUTO):
+        return None
+    return bound
+
+
+def target_temperature_step(value: str | float | None) -> float | None:
+    """Read the stored target temperature step in degrees Celsius.
+
+    Parameters
+    ----------
+    value : str | float | None
+        The step as ``parse_settings`` returns it.
+
+    Returns
+    -------
+    float | None
+        The step, or ``None`` when it is automatic: the entry carries no value
+        for it, an empty one (what the flows store for automatic), or a step
+        of zero or less. The last covers ``"0.0"``, which older flows stored
+        for automatic, and every other spelling of zero.
+
+    Raises
+    ------
+    ValueError
+        When ``value`` does not read as a finite number.
+    """
+    if value is None or value == "":
+        return None
+    step = _finite_number(value)
+    if step <= 0.0:
+        return None
+    return step

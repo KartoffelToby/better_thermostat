@@ -21,6 +21,8 @@ from custom_components.better_thermostat.utils.entry_schema import (
     TrvAdvanced,
     TrvSettings,
     parse_settings,
+    target_temperature_bound,
+    target_temperature_step,
 )
 
 
@@ -363,3 +365,45 @@ def test_a_broken_structure_is_refused_by_name(raw, reason):
         parse_settings(raw)
 
     assert str(caught.value) == reason
+
+
+@pytest.mark.parametrize("stored", [None, "", "0.0", "0", "0.00", 0, 0.0, "-0.5", -0.5])
+def test_an_automatic_step_reads_as_none(stored):
+    """Every spelling of no step, and of a step of zero or less, is automatic.
+
+    The flows store ``""`` and, in older entries, ``"0.0"`` for automatic. A
+    hand-edited ``"0"`` or ``"0.00"`` is the same step and must not reach the
+    entity as a step of zero.
+    """
+    assert target_temperature_step(stored) is None
+
+
+@pytest.mark.parametrize(("stored", "step"), [("0.5", 0.5), (0.25, 0.25), ("1", 1.0)])
+def test_a_configured_step_reads_as_a_number(stored, step):
+    assert target_temperature_step(stored) == step
+
+
+@pytest.mark.parametrize("stored", ["fine", "nan", float("inf")])
+def test_a_step_that_is_no_finite_number_is_refused(stored):
+    with pytest.raises(ValueError):
+        target_temperature_step(stored)
+
+
+@pytest.mark.parametrize("stored", [None, "", const.TARGET_TEMP_BOUND_AUTO, -1.0, "-1"])
+def test_an_automatic_bound_reads_as_none(stored):
+    """No bound and the value the flows store for automatic both read as None."""
+    assert target_temperature_bound(stored) is None
+
+
+@pytest.mark.parametrize(
+    ("stored", "bound"), [("16.0", 16.0), (0.0, 0.0), ("-2", -2.0)]
+)
+def test_a_configured_bound_reads_as_a_number(stored, bound):
+    """A bound is a number of degrees, 0 °C and below included."""
+    assert target_temperature_bound(stored) == bound
+
+
+@pytest.mark.parametrize("stored", ["warm", "nan", float("-inf")])
+def test_a_bound_that_is_no_finite_number_is_refused(stored):
+    with pytest.raises(ValueError):
+        target_temperature_bound(stored)
