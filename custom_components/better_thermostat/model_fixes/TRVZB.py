@@ -27,6 +27,11 @@ VALVE_MAINTENANCE_INTERVAL_HOURS = 84
 _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT = 10
 _TRVZB_CLOSE_BUMP_DELAY_S = 5.0
 
+# On observed SONOFF TRVZB devices, the exact 100/0 opening/closing pair can
+# leave the valve idle and physically closed. Keep normal control one step
+# below that non-actuating endpoint; maintenance retains the full range.
+_TRVZB_MAX_CONTROL_OPEN_PCT = 99
+
 
 def _cancel_pending_valve_bump(trv_state) -> bool:
     """Cancel a scheduled valve write and report whether one was still due.
@@ -307,10 +312,14 @@ async def override_set_valve(self, entity_id, percent: int):
         if trv_state is None:
             return False
 
-        # During valve maintenance we don't want to add additional delayed steps.
+        # During valve maintenance we don't want to add additional delayed steps
+        # or constrain the full calibration travel.
         if getattr(self, "in_maintenance", False):
             ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
             return bool(ok)
+
+        clamped_full_open = target_pct > _TRVZB_MAX_CONTROL_OPEN_PCT
+        target_pct = min(target_pct, _TRVZB_MAX_CONTROL_OPEN_PCT)
 
         # Cancel any previous pending delayed "bump then set".
         bump_pending = _cancel_pending_valve_bump(trv_state)
@@ -328,7 +337,9 @@ async def override_set_valve(self, entity_id, percent: int):
 
         # Only apply workaround when closing further, and only when the motor
         # was not already driven open by a bump whose write is still due.
-        if target_pct < last_pct and not bump_pending:
+        # A requested full-open command clamped away from the broken endpoint
+        # is not a real close and must land directly.
+        if target_pct < last_pct and not bump_pending and not clamped_full_open:
             bump_pct = min(100, int(last_pct) + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT)
 
             # If we can't "bump open", fall back to direct set.

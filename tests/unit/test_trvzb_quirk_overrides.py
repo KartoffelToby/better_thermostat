@@ -177,14 +177,48 @@ class TestOverrideSetValve:
         assert "_trvzb_valve_bump_task" not in trv_state.extra
 
     @pytest.mark.asyncio
-    async def test_valve_maintenance_writes_directly(self, writes):
-        """Maintenance drives the valve itself and takes no deferred steps."""
-        mock_self, trv_state = _make_valve_self(last_pct=40, in_maintenance=True)
+    @pytest.mark.parametrize(
+        ("requested", "expected"), [(0, 0), (1, 1), (98, 98), (99, 99), (100, 99)]
+    )
+    async def test_normal_control_caps_only_the_full_open_endpoint(
+        self, writes, requested, expected
+    ):
+        """Normal control preserves 0-99 and maps only 100 to 99."""
+        mock_self, trv_state = _make_valve_self(last_pct=0)
 
-        handled = await quirk.override_set_valve(mock_self, ENTITY, 0)
+        handled = await quirk.override_set_valve(mock_self, ENTITY, requested)
 
         assert handled is True
-        assert writes == [0]
+        assert writes == [expected]
+        assert "_trvzb_valve_bump_task" not in trv_state.extra
+
+    @pytest.mark.asyncio
+    async def test_full_open_from_stale_100_skips_the_close_bump(self, writes):
+        """Escaping the dead endpoint writes 99 directly instead of bumping to 100."""
+        mock_self, trv_state = _make_valve_self(last_pct=100)
+
+        handled = await quirk.override_set_valve(mock_self, ENTITY, 100)
+        task = trv_state.extra.get("_trvzb_valve_bump_task")
+
+        try:
+            assert handled is True
+            assert writes == [99]
+            assert task is None
+        finally:
+            await _settle(task)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("requested", [0, 100])
+    async def test_valve_maintenance_writes_full_range_directly(
+        self, writes, requested
+    ):
+        """Maintenance retains full travel and takes no deferred steps."""
+        mock_self, trv_state = _make_valve_self(last_pct=40, in_maintenance=True)
+
+        handled = await quirk.override_set_valve(mock_self, ENTITY, requested)
+
+        assert handled is True
+        assert writes == [requested]
         assert "_trvzb_valve_bump_task" not in trv_state.extra
 
     @pytest.mark.asyncio
