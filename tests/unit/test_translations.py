@@ -161,10 +161,16 @@ def test_no_unknown_keys(lang: str):
 
 @pytest.mark.parametrize("lang", LANGUAGES)
 def test_all_keys_translated(lang: str):
-    """Every language must cover every runtime English key."""
+    """Catalogs cover runtime keys except the reviewed English fallbacks."""
     english = _load(TRANSLATIONS / "en.json")
     translated = _load(TRANSLATIONS / f"{lang}.json")
-    missing = sorted(key for key in english if key not in translated)
+    # The BLU TRV review requests English only for this new error until
+    # translators supply it. Keep the exception limited to these two keys.
+    pending_translation = {
+        "config.error.valve_only_calibration_mode",
+        "options.error.valve_only_calibration_mode",
+    }
+    missing = sorted(english.keys() - translated.keys() - pending_translation)
     assert not missing, f"{lang}.json is missing keys: {missing}"
 
 

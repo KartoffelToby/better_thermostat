@@ -663,6 +663,11 @@ def desired_diverges(
             # for the whole length of every cooling period.
             continue
 
+        if trv.uses_valve_only_control:
+            if _valve_diverges(self, trv):
+                return True
+            continue
+
         if intent.hvac_mode is not None:
             if intent.hvac_mode == HVACMode.OFF:
                 # A device that cannot switch off converges on its min
@@ -2481,6 +2486,12 @@ async def control_trv(
                 _new_hvac_mode = HVACMode.OFF
             else:
                 _new_hvac_mode = _remapped_states.get("system_mode", None)
+
+            if self.real_trvs[entity_id].uses_valve_only_control:
+                # The valve above uses the ordinary safety hull, budget and
+                # retry handling. No thermostat write or confirmation follows.
+                _stamp_heartbeat(self)
+                return True
 
             # Manage TRVs with no HVACMode.OFF
             _trv_has_no_off = _no_off_system_mode(self.real_trvs[entity_id])

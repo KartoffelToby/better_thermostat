@@ -665,6 +665,14 @@ async def trigger_trv_change(
             str(val_pos), self.device_name, "trv_event"
         )
 
+    if trv.uses_valve_only_control:
+        # Keep device telemetry, but its thermostat is not the room's input.
+        trv.hvac_mode = _org_trv_state.state
+        self.async_write_ha_state()
+        if request_cycle and _main_change:
+            request_control_cycle(self)
+        return
+
     _was_off = (
         prior_hvac_mode if prior_hvac_mode is not None else trv.hvac_mode
     ) == HVACMode.OFF
@@ -1096,11 +1104,12 @@ def convert_outbound_states(
             or advanced_flag(advanced, CONF_NO_OFF_SYSTEM_MODE)
         ):
             _min_temp = self.real_trvs[entity_id].min_temp
-            _LOGGER.debug(
-                "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
-                self.device_name,
-                _min_temp,
-            )
+            if not self.real_trvs[entity_id].uses_valve_only_control:
+                _LOGGER.debug(
+                    "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
+                    self.device_name,
+                    _min_temp,
+                )
             _new_heating_setpoint = _min_temp
             hvac_mode = None
 

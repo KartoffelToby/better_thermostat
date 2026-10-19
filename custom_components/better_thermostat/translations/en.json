@@ -88,7 +88,8 @@
       "trv_is_better_thermostat": "{trv} is a Better Thermostat. Select a real thermostat instead.",
       "trv_no_target_temperature": "{trv} does not accept a target temperature. Select a thermostat that does.",
       "cooler_is_better_thermostat": "{cooler} is a Better Thermostat. Select a real cooling device instead.",
-      "cooler_no_target_temperature": "{cooler} does not accept a target temperature. Select a cooling device that does."
+      "cooler_no_target_temperature": "{cooler} does not accept a target temperature. Select a cooling device that does.",
+      "valve_only_calibration_mode": "Direct valve control on this device requires a controller that produces a valve position. Choose AI Time Based, MPC, MPC v2, PID or TPI."
     },
     "abort": {
       "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
@@ -179,7 +180,8 @@
       "trv_is_better_thermostat": "{trv} is a Better Thermostat. Select a real thermostat instead.",
       "trv_no_target_temperature": "{trv} does not accept a target temperature. Select a thermostat that does.",
       "cooler_is_better_thermostat": "{cooler} is a Better Thermostat. Select a real cooling device instead.",
-      "cooler_no_target_temperature": "{cooler} does not accept a target temperature. Select a cooling device that does."
+      "cooler_no_target_temperature": "{cooler} does not accept a target temperature. Select a cooling device that does.",
+      "valve_only_calibration_mode": "Direct valve control on this device requires a controller that produces a valve position. Choose AI Time Based, MPC, MPC v2, PID or TPI."
     }
   },
   "issues": {

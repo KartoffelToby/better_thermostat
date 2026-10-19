@@ -52,3 +52,8 @@ without changing the integration's Python logic.
 3. When adding an entity name, add its key below `entity.<platform>` and set the
    entity's `_attr_translation_key` to that stable key.
 4. Run the translation tests before opening a pull request.
+
+The new `config.error.valve_only_calibration_mode` and
+`options.error.valve_only_calibration_mode` errors currently use the English
+fallback, as requested in the BLU TRV review. Translators can add these keys
+without changing code; the other catalog completeness checks still apply.

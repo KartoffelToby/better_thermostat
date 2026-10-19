@@ -45,6 +45,9 @@ class AdapterCapabilities:
     valve_needs_entity : bool
         Whether the valve write requires a discovered number entity
         rather than an ecosystem service call.
+    valve_only : bool
+        Whether Direct Valve Based uses the valve as its only actuator,
+        leaving the device's thermostat settings and reports independent.
     """
 
     offset_write: bool = False
@@ -53,6 +56,7 @@ class AdapterCapabilities:
     # therefore requires one) instead of an ecosystem service call.
     offset_needs_entity: bool = True
     valve_needs_entity: bool = True
+    valve_only: bool = False
 
 
 @dataclass(frozen=True)

@@ -81,6 +81,7 @@ from .utils.const import (
 from .utils.entry_schema import StoredChoice, TrvAdvanced, target_temperature_bound
 from .utils.helpers import (
     configured_calibration_mode,
+    configured_calibration_output,
     device_offers_mode,
     entry_name,
     entry_settings,
@@ -342,6 +343,28 @@ class _AdvancedContext:
     default_calibration: CalibrationOutput
     homematic: bool
     has_auto: bool
+    valve_only: bool = False
+
+
+def _valve_only_errors(
+    context: _AdvancedContext, advanced: _AdvancedDraft
+) -> dict[str, str]:
+    """Reject controllers that cannot drive a device's sole actuator."""
+    if (
+        context.valve_only
+        and configured_calibration_output(advanced)
+        == CalibrationOutput.DIRECT_VALVE_BASED
+        and configured_calibration_mode(advanced)
+        not in {
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.MPC_V2_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+        }
+    ):
+        return {CONF_CALIBRATION_MODE: "valve_only_calibration_mode"}
+    return {}
 
 
 def _int_or(value: object, fallback: int) -> int:
@@ -1090,6 +1113,11 @@ async def _prepare_advanced_context(
         default_calibration=_default_calibration_for(channels),
         homematic=bool(trv.integration and "homematic" in trv.integration.lower()),
         has_auto=_trv_supports_auto(flow, trv.entity_id),
+        valve_only=(
+            _adapter is not None
+            and _adapter.CAPABILITIES.valve_only
+            and channels.valve_write
+        ),
     )
 
 
@@ -1363,6 +1391,24 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
+            if errors := _valve_only_errors(ctx, advanced_data):
+                return self.async_show_form(
+                    step_id="advanced",
+                    data_schema=vol.Schema(
+                        _build_advanced_fields(
+                            sources=(user_input, existing_adv),
+                            default_calibration=ctx.default_calibration,
+                            homematic=ctx.homematic,
+                            has_auto=ctx.has_auto,
+                            channels=ctx.channels,
+                        )
+                    ),
+                    errors=errors,
+                    description_placeholders={
+                        "trv": ctx.entity_id,
+                        "docs_url": CONFIG_WALKTHROUGH_URL,
+                    },
+                )
             _LOGGER.debug(
                 "ConfigFlow advanced step storing data for %s (index %s): %s",
                 trv.entity_id,
@@ -1546,6 +1592,24 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
+            if errors := _valve_only_errors(ctx, advanced_data):
+                return self.async_show_form(
+                    step_id="advanced",
+                    data_schema=vol.Schema(
+                        _build_advanced_fields(
+                            sources=(user_input, existing_adv),
+                            default_calibration=ctx.default_calibration,
+                            homematic=ctx.homematic,
+                            has_auto=ctx.has_auto,
+                            channels=ctx.channels,
+                        )
+                    ),
+                    errors=errors,
+                    description_placeholders={
+                        "trv": ctx.entity_id,
+                        "docs_url": CONFIG_WALKTHROUGH_URL,
+                    },
+                )
             _LOGGER.debug(
                 "OptionsFlow advanced step storing data for %s (index %s): %s",
                 trv.entity_id,

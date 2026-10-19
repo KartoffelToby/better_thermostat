@@ -31,6 +31,26 @@ Direct valve control requires both:
 
 Devices that expose a controllable valve position work best with the advanced control modes (MPC/PID), because BT can set the valve opening directly. Select the **Direct Valve Based** calibration type to use it.
 
+### Shelly BLU TRV (direct valve control)
+
+Use Home Assistant's native Shelly integration with a compatible BLU gateway. The BLU TRV's own automatic temperature control must be disabled in Shelly's settings. Home Assistant then exposes its writable **Valve position** `number` instead of the read-only position sensor. Wait for the number to become available before configuring Better Thermostat. It must belong to the same TRV device as the `climate` entity; a gateway can serve several TRVs.
+
+In Better Thermostat, select the physical TRV and the room temperature sensor, then choose **Direct Valve Based**. Use **AI Time Based**, **MPC**, **MPC v2**, **PID** or **TPI**. External Sensor Offset Only (stored as Normal), Aggressive and No Calibration do not produce a valve opening and are rejected for this combination in both setup and options. Existing configurations with one of these modes must be changed to a valve-producing controller.
+
+During regulation, the valve percentage is the only actuator: Better Thermostat does not send a setpoint, HVAC mode or calibration offset to the BLU TRV. A device that still reports a target temperature follows the same rule. Change the room's target and mode on Better Thermostat; setpoint or mode reports from the physical TRV do not change them. Temperature and availability reports are still read. Periodic reconciliation checks the valve position, leaving differences in thermostat settings alone. An OFF or open-contact decision closes the valve rather than switching the device's thermostat off. Standard startup tweaks and the common valve-maintenance routine are unchanged.
+
+This policy is specific to an adopted BLU TRV valve. The Shelly TRV Gen1 also exposes a valve number, but its thermostat keeps running; that number does not enable this direct-control path. Ordinary target-temperature and offset control retain their existing behaviour.
+
+#### Switching back to Shelly's temperature control
+
+First set Better Thermostat to OFF and wait until the valve reports 0%. Stop any other automation that writes the valve. Re-enable automatic temperature control in Shelly, wait for Home Assistant to update the device's entities, then reconfigure Better Thermostat for **Target Temperature Based** (or stop using Better Thermostat for that device). For direct control again, disable Shelly's automatic control, wait for the writable number, and select Direct Valve Based with a supported controller. Do not switch Shelly modes while Better Thermostat is actively controlling the valve.
+
+#### Unavailable devices and outages
+
+An unavailable valve number does not cause Better Thermostat to fall back to setpoint or HVAC commands. The normal write budget and retry handling apply; there is no extra sleep inside the control lock for BLU TRVs. Restore the gateway connection or reload the Shelly integration after a firmware update if its entities do not recover. If an entity was disabled, re-enable it; if the device's mode changed, restore the intended mode and reconfigure BT.
+
+Direct control depends on Home Assistant, the gateway and the Bluetooth link. If these stop working, Better Thermostat cannot send a closure command and the last valve position may remain in effect. When all usable temperatures are lost, the HOLD fallback cannot delegate temperature regulation to a BLU TRV whose thermostat is disabled; the last position remains until a new valve decision can be sent. A room OFF or open-contact decision still requests closure when the device is reachable. Do not assume this provides a local automatic shutoff, frost protection or a boiler timeout. Any zone-relay timeout or independent temperature limit belongs outside Better Thermostat.
+
 ## Devices that are known to work
 
 Better Thermostat includes specific fixes and optimizations for the following devices to ensure they work correctly:

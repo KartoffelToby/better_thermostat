@@ -17,8 +17,7 @@ import logging
 
 from homeassistant.helpers import entity_registry as er
 
-from ..utils.const import CalibrationOutput
-from ..utils.helpers import configured_calibration_output, find_valve_entity
+from ..utils.helpers import find_valve_entity
 from .base import AdapterCapabilities, DeviceChannels
 from .generic import (
     discover_calibration_entity,
@@ -27,8 +26,8 @@ from .generic import (
     get_info as generic_get_info,
     get_max_calibration_offset,
     get_min_calibration_offset,
-    set_calibration_offset,
-    set_hvac_mode,
+    set_calibration_offset as generic_set_calibration_offset,
+    set_hvac_mode as generic_set_hvac_mode,
     set_temperature as generic_set_temperature,
 )
 from .types import AdapterHost, AdapterProbeHost
@@ -52,7 +51,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Shelly: the offset rides on a discovered calibration entity as on any
 # climate entity, the valve on the BLU TRV's valve number entity.
-CAPABILITIES = AdapterCapabilities(offset_write=True, valve_write=True)
+CAPABILITIES = AdapterCapabilities(offset_write=True, valve_write=True, valve_only=True)
 
 # The Shelly integration keys a BLU TRV's entities on its ``blutrv:<id>``
 # component, so the unique ID of its valve number carries that key.
@@ -126,32 +125,27 @@ async def init(self: AdapterHost, entity_id: str) -> None:
 async def set_temperature(
     self: AdapterHost, entity_id: str, temperature: float
 ) -> None:
-    """Set a new target temperature, unless the TRV has none to set.
-
-    A BLU TRV under direct valve control has its own thermostat switched
-    off and reports no target temperature. A setpoint sent then takes the
-    slow gateway path for nothing, so it is left out.
-    """
+    """Set the device target only while BT controls its thermostat."""
     trv = self.real_trvs.get(entity_id)
-    state = self.hass.states.get(entity_id)
-    if (
-        trv is not None
-        and configured_calibration_output(trv.advanced)
-        == CalibrationOutput.DIRECT_VALVE_BASED
-        and trv.valve_position_entity
-        and trv.valve_position_writable is True
-        and state is not None
-        and state.attributes.get("temperature") is None
-    ):
-        _LOGGER.debug(
-            "better_thermostat %s: %s runs on its valve and reports no target "
-            "temperature, skip set_temperature(%s)",
-            self.device_name,
-            entity_id,
-            temperature,
-        )
+    if trv is not None and trv.uses_valve_only_control:
         return
     await generic_set_temperature(self, entity_id, temperature)
+
+
+async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> None:
+    """Leave the device thermostat disabled while BT controls its valve."""
+    if self.real_trvs[entity_id].uses_valve_only_control:
+        return
+    await generic_set_hvac_mode(self, entity_id, hvac_mode)
+
+
+async def set_calibration_offset(
+    self: AdapterHost, entity_id: str, calibration_offset: float
+) -> bool:
+    """Write an offset only while BT controls the device thermostat."""
+    if self.real_trvs[entity_id].uses_valve_only_control:
+        return False
+    return await generic_set_calibration_offset(self, entity_id, calibration_offset)
 
 
 async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> None:
