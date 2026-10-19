@@ -222,7 +222,7 @@ Z2M_2_14_2_OPTIONS = (
 
 
 def _make_selector_self(
-    state, options=("internal", "external"), *, entries=None, trv=None
+    state, options=("internal", "external"), *, entries=None, trv=None, assumed=False
 ):
     """A BT stand-in whose TRV device carries a sensor selector.
 
@@ -230,6 +230,7 @@ def _make_selector_self(
     selector that publishes no state. ``trv`` is the registry entry the
     lookup starts from, so a test can hand it one that belongs to no
     device; it is the first of ``entries`` unless given separately.
+    ``assumed`` marks the state as assumed, as an optimistic MQTT select's.
     """
     mock_self = _make_self()
     if trv is None:
@@ -251,6 +252,8 @@ def _make_selector_self(
         selector_state = MagicMock()
         selector_state.state = state
         selector_state.attributes = {"options": list(options)}
+        if assumed:
+            selector_state.attributes["assumed_state"] = True
     mock_self.hass.states.get.return_value = selector_state
     return mock_self
 
@@ -448,6 +451,57 @@ class TestMaybeSelectExternalSensor:
 
         assert _selector_calls(mock_self) == []
 
+    @pytest.mark.parametrize(
+        ("shown", "options"),
+        [
+            (
+                "external_ignore_internal",
+                ("internal", "external", "external_ignore_internal"),
+            ),
+            ("remote_temperature", Z2M_2_14_2_OPTIONS),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_an_assumed_external_option_is_sent_again(
+        self, monkeypatch, shown, options
+    ):
+        """An optimistic select shows the last option sent, not the device's.
+
+        The option it shows is sent again, keeping the owner's choice among
+        the external options while putting the device back on it.
+        """
+        mock_self = _make_selector_self(shown, options=options, assumed=True)
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _selector_calls(mock_self) == [
+            {"entity_id": "select.trv1_temperature_sensor_select", "option": shown}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_assumed_fallback_report_is_replaced_by_the_external_option(
+        self, monkeypatch
+    ):
+        """The device's fallback report is no option to send back to it."""
+        mock_self = _make_selector_self(
+            "remote_source_offline", options=Z2M_2_14_2_OPTIONS, assumed=True
+        )
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _selector_calls(mock_self) == [
+            {
+                "entity_id": "select.trv1_temperature_sensor_select",
+                "option": "remote_temperature",
+            }
+        ]
+
 
 class TestExternalTemperatureWriteSelectsTheSensor:
     """The write and the sensor choice belong to the same intent."""
@@ -499,12 +553,14 @@ ZHA_INPUT = "number.trv1_external_temperature_sensor_value"
 ZHA_SWITCH = "switch.trv1_external_temperature_sensor"
 
 
-def _make_zha_self(monkeypatch, switch_state, *, input_unit="°C"):
+def _make_zha_self(monkeypatch, switch_state, *, input_unit="°C", assumed=False):
     """A BT stand-in whose TRV device carries ZHA's input and sensor switch.
 
     ZHA offers the sensor choice as a switch and no select. ``switch_state``
     is what the switch reports, ``None`` for a switch that publishes no
     state; ``input_unit`` is the unit the input number displays.
+    ``assumed`` marks the switch state as assumed, as an optimistic MQTT
+    switch's.
     """
     mock_self = _make_self()
     trv = _registry_entry("climate.trv1", domain="climate")
@@ -525,7 +581,9 @@ def _make_zha_self(monkeypatch, switch_state, *, input_unit="°C"):
         )
     }
     if switch_state is not None:
-        states[ZHA_SWITCH] = MagicMock(state=switch_state, attributes={})
+        states[ZHA_SWITCH] = MagicMock(
+            state=switch_state, attributes={"assumed_state": True} if assumed else {}
+        )
     mock_self.hass.states.get.side_effect = states.get
     mock_self.real_trvs = {"climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")}
     return mock_self
@@ -565,6 +623,21 @@ class TestZhaExternalTemperature:
         assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
 
         assert _service_calls(mock_self) == []
+
+    @pytest.mark.asyncio
+    async def test_a_switch_assumed_on_is_turned_on_again(self, monkeypatch):
+        """An optimistic switch shows the last command, not the device.
+
+        Once turned on it would read on for good, and a device that went
+        back to its own sensor would never be put on the external one.
+        """
+        mock_self = _make_zha_self(monkeypatch, "on", assumed=True)
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _service_calls(mock_self) == [
+            ("switch", "turn_on", {"entity_id": ZHA_SWITCH})
+        ]
 
     @pytest.mark.parametrize("reported", ["unavailable", "unknown", None])
     @pytest.mark.asyncio

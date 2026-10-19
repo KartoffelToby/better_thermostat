@@ -497,6 +497,10 @@ _EXTERNAL_SENSOR_OPTIONS = ("external", "remote_temperature")
 # by itself once the remote value returns.
 _ON_A_REMOTE_SENSOR = ("external", "remote_")
 
+# The selection a device reports when it fell back from the remote value. It
+# is a report, not a choice anyone makes.
+_REMOTE_SOURCE_OFFLINE = "remote_source_offline"
+
 
 def _find_device_entity(
     entity_registry: er.EntityRegistry,
@@ -569,6 +573,11 @@ async def maybe_select_external_sensor(self, entity_id: str) -> bool:
     A device already on an option naming an external sensor is left alone,
     whichever of them it is: the choice between them is its owner's.
 
+    An assumed state is no report: an optimistic MQTT select shows the last
+    option it was sent, whatever the device is on. The external option it
+    shows is sent again, so the owner's choice stays and a device that went
+    back to its own sensor is put on the external one.
+
     Zigbee2MQTT offers the choice as a select; ZHA offers it as a switch,
     which is turned on when the device carries no select.
 
@@ -606,17 +615,36 @@ async def maybe_select_external_sensor(self, entity_id: str) -> bool:
         # A selector that is not reporting names no option, and the device
         # behind it is in no state to take one either.
         return False
-    if str(state.state).startswith(_ON_A_REMOTE_SENSOR):
+    # The option the select shows, e.g. "internal", "external" or
+    # "remote_temperature".
+    current = str(state.state)
+    # True when Home Assistant only assumes the state: an optimistic MQTT
+    # select shows the last option it was sent, not what the device reports.
+    assumed = bool(state.attributes.get(ATTR_ASSUMED_STATE))
+    # True when the shown option is any external one ("external...",
+    # "remote_..."), including the device's "remote_source_offline" report.
+    on_remote = current.startswith(_ON_A_REMOTE_SENSOR)
+    # The device itself reports an external option: it already regulates on
+    # the value BT writes, and which external option is the owner's choice.
+    if on_remote and not assumed:
         return True
+    # From here the device is either on its own sensor, or its select state
+    # is assumed and says nothing about the device. Either way an option is
+    # sent; only the options the select offers can be.
     options = state.attributes.get("options")
-    option = next(
-        (
-            name
-            for name in _EXTERNAL_SENSOR_OPTIONS
-            if isinstance(options, (list, tuple)) and name in options
-        ),
-        None,
-    )
+    offered = options if isinstance(options, (list, tuple)) else ()
+    if on_remote and current in offered and current != _REMOTE_SOURCE_OFFLINE:
+        # Assumed and showing an external option someone chose: send that
+        # same option again, so the device is put back on it and the owner's
+        # choice among the external options is kept.
+        option = current
+    else:
+        # On the device's own sensor, or assumed on the fallback report,
+        # which is no choice to send back: send the plain external option,
+        # under whichever name this Zigbee2MQTT version offers it.
+        option = next(
+            (name for name in _EXTERNAL_SENSOR_OPTIONS if name in offered), None
+        )
     if option is None:
         _LOGGER.debug(
             "better_thermostat %s: TRVZB selector %s offers none of %s (%s)",
@@ -650,7 +678,8 @@ async def _switch_on_external_sensor(
     """Turn on the switch that has the TRV regulate on its external input.
 
     ZHA exposes the sensor choice as a switch rather than a select. A switch
-    already on is left alone.
+    already on is left alone, unless its state is assumed: an optimistic
+    MQTT switch shows the last command, so it is turned on again.
 
     Parameters
     ----------
@@ -689,7 +718,7 @@ async def _switch_on_external_sensor(
         # The device behind a switch that is not reporting is in no state to
         # take a command either.
         return False
-    if state.state == STATE_ON:
+    if state.state == STATE_ON and not state.attributes.get(ATTR_ASSUMED_STATE):
         return True
     await self.hass.services.async_call(
         "switch", "turn_on", {"entity_id": target}, blocking=True, context=self.context
