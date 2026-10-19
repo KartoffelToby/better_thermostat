@@ -726,6 +726,115 @@ class TestValveWriteTheDeviceRefuses:
         assert task.exception() is None
 
 
+class TestValveWriteSkipsValuesTheDeviceHolds:
+    """A degree the device already reports is not written again.
+
+    Every TRV report starts a control cycle, and every cycle commands the
+    valve, so a warming radiator was sent the same two degrees every few
+    seconds. The device's reported state, not the last command, decides: a
+    value the device lost or someone changed by hand is written again.
+    """
+
+    @staticmethod
+    def _trvzb_reporting(monkeypatch, reported, *, assumed=()):
+        """A TRVZB whose valve numbers report the given states.
+
+        The numbers named in ``assumed`` show an assumed state, as an
+        optimistic MQTT number does.
+        """
+        mock_self = TestValveWriteTheDeviceRefuses._trvzb_carrying(
+            monkeypatch,
+            [
+                _valve_number(VALVE_OPENING, "valve_opening_degree"),
+                _valve_number(VALVE_CLOSING, "valve_closing_degree"),
+            ],
+        )
+        states = {
+            entity: MagicMock(
+                state=value,
+                attributes={"assumed_state": True} if entity in assumed else {},
+            )
+            for entity, value in reported.items()
+        }
+        mock_self.hass.states.get.side_effect = states.get
+        mock_self.hass.services.async_call = AsyncMock()
+        return mock_self
+
+    @staticmethod
+    def _written(mock_self):
+        return [
+            call.args[2] for call in mock_self.hass.services.async_call.await_args_list
+        ]
+
+    @pytest.mark.asyncio
+    async def test_degrees_the_device_holds_are_not_written(self, monkeypatch):
+        mock_self = self._trvzb_reporting(
+            monkeypatch, {VALVE_OPENING: "100.0", VALVE_CLOSING: "0.0"}
+        )
+
+        assert await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 100)
+
+        assert self._written(mock_self) == []
+
+    @pytest.mark.asyncio
+    async def test_only_the_degree_that_drifted_is_written(self, monkeypatch):
+        """The closing degree was changed by hand; the opening one still holds."""
+        mock_self = self._trvzb_reporting(
+            monkeypatch, {VALVE_OPENING: "100", VALVE_CLOSING: "100"}
+        )
+
+        assert await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 100)
+
+        assert self._written(mock_self) == [{"entity_id": VALVE_CLOSING, "value": 0}]
+
+    @pytest.mark.parametrize("reported", ["unavailable", "unknown"])
+    @pytest.mark.asyncio
+    async def test_a_degree_that_reports_no_value_is_written(
+        self, monkeypatch, reported
+    ):
+        """No value reported is no value held."""
+        mock_self = self._trvzb_reporting(
+            monkeypatch, {VALVE_OPENING: reported, VALVE_CLOSING: "0"}
+        )
+
+        assert await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 100)
+
+        assert self._written(mock_self) == [{"entity_id": VALVE_OPENING, "value": 100}]
+
+    @pytest.mark.asyncio
+    async def test_an_assumed_state_is_written_every_time(self, monkeypatch):
+        """An optimistic MQTT number shows the last command, not the device.
+
+        Its state would match the target after the first write whether the
+        device took the value or not, so it is never taken as held.
+        """
+        mock_self = self._trvzb_reporting(
+            monkeypatch,
+            {VALVE_OPENING: "100", VALVE_CLOSING: "0"},
+            assumed={VALVE_OPENING, VALVE_CLOSING},
+        )
+
+        assert await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 100)
+
+        assert self._written(mock_self) == [
+            {"entity_id": VALVE_OPENING, "value": 100},
+            {"entity_id": VALVE_CLOSING, "value": 0},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_repeated_command_puts_nothing_on_the_wire(self, monkeypatch):
+        """The path a control cycle takes, end to end, for an unchanged valve."""
+        mock_self = self._trvzb_reporting(
+            monkeypatch, {VALVE_OPENING: "60", VALVE_CLOSING: "40"}
+        )
+        mock_self.real_trvs[ENTITY].last_valve_percent = 60
+
+        assert await quirk.override_set_valve(mock_self, ENTITY, 60)
+
+        assert self._written(mock_self) == []
+        assert "_trvzb_valve_bump_task" not in mock_self.real_trvs[ENTITY].extra
+
+
 class TestExternalTemperatureWriteTheDeviceRefuses:
     """A refused write is reported, not raised.
 

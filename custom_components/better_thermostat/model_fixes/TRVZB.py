@@ -10,6 +10,7 @@ import asyncio
 import logging
 
 from homeassistant.const import (
+    ATTR_ASSUMED_STATE,
     STATE_ON,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
@@ -119,6 +120,91 @@ async def override_set_temperature(self, entity_id, temperature):
     return False
 
 
+def _number_holds(self, number_entity_id: str, value: int) -> bool:
+    """Return whether a number entity already reports ``value``.
+
+    The state is what the device last reported, so a value it lost, or one
+    changed by hand, reads as not held and is written again. An assumed
+    state is no report: an optimistic MQTT number, one with no state topic
+    or configured as optimistic, shows the last command it was sent, so it
+    never counts as held and is written every time.
+
+    Parameters
+    ----------
+    self :
+        The Better Thermostat instance, supplying ``hass``.
+    number_entity_id : str
+        The number entity to read.
+    value : int
+        The value it should hold.
+
+    Returns
+    -------
+    bool
+        True when the entity reports exactly ``value``; False when it
+        reports another value, none that reads as a number, or an assumed
+        state.
+    """
+    state = self.hass.states.get(number_entity_id)
+    if state is None or state.attributes.get(ATTR_ASSUMED_STATE):
+        return False
+    try:
+        return float(str(state.state)) == float(value)
+    except ValueError:
+        return False
+
+
+async def _write_valve_number(
+    self, number_entity_id: str, value: int, label: str, entity_id: str
+) -> None:
+    """Write a valve number unless the device already reports the value.
+
+    Every control cycle commands the valve again, and a TRV report starts a
+    cycle, so a warming radiator would otherwise be sent the same degrees
+    every few seconds: two blocking Zigbee writes per TRV, each of which
+    also re-runs the TRVZB's own regulator.
+
+    Parameters
+    ----------
+    self :
+        The Better Thermostat instance, supplying ``hass`` and the context
+        the service call is made under.
+    number_entity_id : str
+        The number entity to write.
+    value : int
+        The value to write.
+    label : str
+        What the number is, for logging.
+    entity_id : str
+        The TRV the write is for, for logging.
+    """
+    if _number_holds(self, number_entity_id, value):
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB %s already %s on %s (for %s), not written",
+            self.device_name,
+            label,
+            value,
+            number_entity_id,
+            entity_id,
+        )
+        return
+    await self.hass.services.async_call(
+        "number",
+        "set_value",
+        {"entity_id": number_entity_id, "value": value},
+        blocking=True,
+        context=self.context,
+    )
+    _LOGGER.debug(
+        "better_thermostat %s: set TRVZB %s=%s on %s (for %s)",
+        self.device_name,
+        label,
+        value,
+        number_entity_id,
+        entity_id,
+    )
+
+
 async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
     """Try to set Sonoff TRVZB valve percent via a number entity on the same device.
 
@@ -127,6 +213,8 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
     percentage. Prefers explicit Sonoff entities:
       - ``number.*.valve_opening_degree`` = percent
       - ``number.*.valve_closing_degree`` = 100 - percent
+
+    A number that already reports its value is not written again.
 
     Parameters
     ----------
@@ -140,8 +228,9 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
     Returns
     -------
     bool
-        True when the requested position went out, False when no number
-        entity matched or the device refused one of the writes
+        True when the device holds the requested position, written now or
+        already reported, False when no number entity matched or the device
+        refused one of the writes
     """
     try:
         model = str(self.real_trvs[entity_id].model or "")
@@ -241,39 +330,18 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
 
         # If we have explicit opening, set it
         if opening_candidates:
-            target_open = opening_candidates[0]
-            await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": target_open, "value": pct},
-                blocking=True,
-                context=self.context,
-            )
-            _LOGGER.debug(
-                "better_thermostat %s: set TRVZB valve_opening_degree=%s on %s (for %s)",
-                self.device_name,
-                pct,
-                target_open,
-                entity_id,
+            await _write_valve_number(
+                self, opening_candidates[0], pct, "valve_opening_degree", entity_id
             )
             wrote = True
 
         # If we have explicit closing, set complement 100 - pct
         if closing_candidates:
-            target_close = closing_candidates[0]
-            comp = 100 - pct
-            await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": target_close, "value": comp},
-                blocking=True,
-                context=self.context,
-            )
-            _LOGGER.debug(
-                "better_thermostat %s: set TRVZB valve_closing_degree=%s on %s (for %s)",
-                self.device_name,
-                comp,
-                target_close,
+            await _write_valve_number(
+                self,
+                closing_candidates[0],
+                100 - pct,
+                "valve_closing_degree",
                 entity_id,
             )
             wrote = True
@@ -284,20 +352,8 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
             generic_candidates.sort(
                 key=lambda x: ("valve" not in x, "position" not in x)
             )
-            target = generic_candidates[0]
-            await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": target, "value": pct},
-                blocking=True,
-                context=self.context,
-            )
-            _LOGGER.debug(
-                "better_thermostat %s: set TRVZB generic valve percent %s%% on %s (for %s)",
-                self.device_name,
-                pct,
-                target,
-                entity_id,
+            await _write_valve_number(
+                self, generic_candidates[0], pct, "generic valve percent", entity_id
             )
             wrote = True
 
