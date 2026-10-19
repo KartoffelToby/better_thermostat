@@ -776,6 +776,21 @@ async def maybe_set_external_temperature(
                 entity_id,
             )
             return False
+        # If our temperature sensor is on the same device as the TRVZB, skip
+        # writing the temperature to the TRVZB and selecting the external sensor.
+        room_sensor = entity_registry.async_get(self.sensor_entity_id or "")
+        if (
+            room_sensor is not None
+            and room_sensor.device_id is not None
+            and room_sensor.device_id == reg_entity.device_id
+        ):
+            _LOGGER.debug(
+                "better_thermostat %s: TRVZB external temperature not mirrored: room sensor %s belongs to %s",
+                self.device_name,
+                self.sensor_entity_id,
+                entity_id,
+            )
+            return False
         target = _find_device_entity(
             entity_registry,
             reg_entity.device_id,

@@ -305,6 +305,7 @@ def _host(registry: Any, lookup: Lookup, candidate: str) -> MagicMock:
     host.unique_id = "bt_test"
     host.model = None
     host.context = None
+    host.sensor_entity_id = "sensor.room_temperature"
     host.hass.states.get = _state
     host.hass.services.async_call = AsyncMock(return_value=None)
     host.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, model="TRVZB", advanced={})}

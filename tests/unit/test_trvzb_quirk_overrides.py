@@ -19,6 +19,7 @@ def _make_self():
     mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
     mock_self.context = MagicMock()
+    mock_self.sensor_entity_id = "sensor.room_temperature"
     mock_self.hass.services.async_call = AsyncMock()
     return mock_self
 
@@ -543,6 +544,67 @@ class TestExternalTemperatureWriteSelectsTheSensor:
                 "entity_id": "select.trv1_temperature_sensor_select",
                 "option": "external",
             },
+        ]
+
+
+class TestExternalTemperatureIsNotMirroredIntoItsOwnSource:
+    """A reading the TRV took itself is not written back into it (#2751)."""
+
+    @staticmethod
+    def _trv_with_room_sensor(monkeypatch, room_sensor):
+        trv = _registry_entry("climate.trv1")
+        number = _registry_entry(
+            "number.trv1_external_temperature_input",
+            translation_key="external_temperature_input",
+        )
+        selector = _registry_entry(
+            "select.trv1_temperature_sensor_select",
+            translation_key="temperature_sensor_select",
+        )
+        mock_self = _make_selector_self(
+            "internal", entries=[trv, number, selector, room_sensor]
+        )
+        mock_self.sensor_entity_id = room_sensor.entity_id
+        mock_self.real_trvs = {
+            "climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")
+        }
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+        return mock_self
+
+    @pytest.mark.asyncio
+    async def test_a_room_sensor_on_the_trv_itself_is_not_written_back(
+        self, monkeypatch
+    ):
+        """On the remote option the TRV reports the written value as its own.
+
+        Mirroring its own reading into it, and switching it over to that
+        input, freezes the reading at the value of the first write.
+        """
+        mock_self = self._trv_with_room_sensor(
+            monkeypatch, _registry_entry("sensor.trv1_temperature")
+        )
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.4)
+            is False
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_room_sensor_on_another_device_is_still_mirrored(self, monkeypatch):
+        """Only the TRV's own reading is held back."""
+        mock_self = self._trv_with_room_sensor(
+            monkeypatch,
+            _registry_entry("sensor.living_room_temperature", device_id="dev2"),
+        )
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.4
+        )
+        assert _number_writes(mock_self) == [
+            {"entity_id": "number.trv1_external_temperature_input", "value": 21.4}
         ]
 
 
