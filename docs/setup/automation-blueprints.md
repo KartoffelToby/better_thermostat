@@ -83,7 +83,9 @@ avoid spam: a report within 24 hours of the previous notification is ignored.
 A combined blueprint with two optional alerts:
 
 - **Device error** – fires when Better Thermostat records at least one device
-  error, which happens when one of its TRVs becomes unavailable.
+  error, which happens when one of its TRVs becomes unavailable or does not
+  take the target temperature Better Thermostat writes to it (see
+  [Target temperature not taken](/faq/setpoint-not-applied/)).
 - **Target temperature reached** – fires after the room temperature has stayed
   at or above the setpoint for a configurable number of minutes.
 
