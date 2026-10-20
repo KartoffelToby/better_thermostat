@@ -721,6 +721,48 @@ class TestCheckTargetTemperature:
         assert trv.target_temperature_received is True
 
     @pytest.mark.asyncio
+    async def test_a_watchdog_that_gives_up_records_the_setpoint_the_device_holds(self):
+        """The setpoint a device holds instead of the write is BT's own.
+
+        The device takes the write of 29.0 as 28.0, the highest setpoint it
+        holds, and reports 28.0 until the watchdog gives up. From then on a
+        report of 28.0 is the write as the device took it, not a press. The
+        write itself stays the command and a value the device may still echo,
+        so the control loop keeps telling the device it has not converged.
+        """
+        trv = Trv(
+            entity_id="climate.trv1",
+            commanded_setpoint=29.0,
+            confirmed_setpoint=20.5,
+            target_temperature_received=False,
+        )
+        watched = trv.remember_setpoint_written(29.0)
+
+        mock_hass = MagicMock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 28.0}
+        )
+
+        mock_self = ThermostatStandIn()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+        durations, sleep_patch = _sleep_recorder()
+
+        with sleep_patch:
+            result = await check_target_temperature(
+                mock_self, "climate.trv1", watched, 29.0
+            )
+
+        assert result is True
+        assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1
+        assert trv.confirmed_setpoint == 28.0
+        assert trv.commanded_setpoint == 29.0
+        assert trv.echo_setpoint_values() == [29.0]
+        assert trv.target_temperature_received is True
+
+    @pytest.mark.asyncio
     async def test_a_maintenance_write_cannot_confirm_the_control_write(self):
         """Valve maintenance moves commanded_setpoint without going through control.
 

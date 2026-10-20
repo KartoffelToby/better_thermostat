@@ -2231,6 +2231,49 @@ class TestTargetTempAdoption:
 
         assert mock_bt.heat_target_temperature == 26.0
 
+    @pytest.mark.parametrize(
+        ("reported", "room_target"),
+        [
+            pytest.param(28.0, 20.5, id="device_repeats_the_setpoint_it_held"),
+            pytest.param(23.0, 23.0, id="knob_turned_away_from_it"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_setpoint_held_in_place_of_a_write_is_the_writes_echo(
+        self, mock_bt, reported, room_target
+    ):
+        """A device that took a write as a lower setpoint repeats BT's own write.
+
+        The room target is 20.5 and the calibrated write 29.0, which the device
+        holds as 28.0. The watchdog gave up on 29.0 with 28.0 reported, so 28.0
+        is what the device holds of BT's write. A report that only moves the
+        device's reading and carries 28.0 again leaves the room target alone;
+        a knob turned from 28.0 to 23.0 is the user's new target.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        mock_bt.heat_target_temperature = 20.5
+        trv.commanded_setpoint = 29.0
+        trv.remember_setpoint_written(29.0)
+        trv.remember_setpoint_confirmed(28.0, trv.confirmed_write_id)
+
+        old_state = _make_state(
+            attributes={"temperature": 28.0, "current_temperature": 30.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": reported, "current_temperature": 30.2}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == room_target
+
     @pytest.mark.asyncio
     async def test_setpoint_clamped_to_minimum(self, mock_bt):
         """Setpoint below min should be clamped."""
