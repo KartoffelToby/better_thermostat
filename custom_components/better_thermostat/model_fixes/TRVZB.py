@@ -9,9 +9,16 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import (
+    ATTR_ASSUMED_STATE,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from ..utils.helpers import is_sibling_entry
 
@@ -113,6 +120,91 @@ async def override_set_temperature(self, entity_id, temperature):
     return False
 
 
+def _number_holds(self, number_entity_id: str, value: int) -> bool:
+    """Return whether a number entity already reports ``value``.
+
+    The state is what the device last reported, so a value it lost, or one
+    changed by hand, reads as not held and is written again. An assumed
+    state is no report: an optimistic MQTT number, one with no state topic
+    or configured as optimistic, shows the last command it was sent, so it
+    never counts as held and is written every time.
+
+    Parameters
+    ----------
+    self :
+        The Better Thermostat instance, supplying ``hass``.
+    number_entity_id : str
+        The number entity to read.
+    value : int
+        The value it should hold.
+
+    Returns
+    -------
+    bool
+        True when the entity reports exactly ``value``; False when it
+        reports another value, none that reads as a number, or an assumed
+        state.
+    """
+    state = self.hass.states.get(number_entity_id)
+    if state is None or state.attributes.get(ATTR_ASSUMED_STATE):
+        return False
+    try:
+        return float(str(state.state)) == float(value)
+    except ValueError:
+        return False
+
+
+async def _write_valve_number(
+    self, number_entity_id: str, value: int, label: str, entity_id: str
+) -> None:
+    """Write a valve number unless the device already reports the value.
+
+    Every control cycle commands the valve again, and a TRV report starts a
+    cycle, so a warming radiator would otherwise be sent the same degrees
+    every few seconds: two blocking Zigbee writes per TRV, each of which
+    also re-runs the TRVZB's own regulator.
+
+    Parameters
+    ----------
+    self :
+        The Better Thermostat instance, supplying ``hass`` and the context
+        the service call is made under.
+    number_entity_id : str
+        The number entity to write.
+    value : int
+        The value to write.
+    label : str
+        What the number is, for logging.
+    entity_id : str
+        The TRV the write is for, for logging.
+    """
+    if _number_holds(self, number_entity_id, value):
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB %s already %s on %s (for %s), not written",
+            self.device_name,
+            label,
+            value,
+            number_entity_id,
+            entity_id,
+        )
+        return
+    await self.hass.services.async_call(
+        "number",
+        "set_value",
+        {"entity_id": number_entity_id, "value": value},
+        blocking=True,
+        context=self.context,
+    )
+    _LOGGER.debug(
+        "better_thermostat %s: set TRVZB %s=%s on %s (for %s)",
+        self.device_name,
+        label,
+        value,
+        number_entity_id,
+        entity_id,
+    )
+
+
 async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
     """Try to set Sonoff TRVZB valve percent via a number entity on the same device.
 
@@ -121,6 +213,8 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
     percentage. Prefers explicit Sonoff entities:
       - ``number.*.valve_opening_degree`` = percent
       - ``number.*.valve_closing_degree`` = 100 - percent
+
+    A number that already reports its value is not written again.
 
     Parameters
     ----------
@@ -134,8 +228,9 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
     Returns
     -------
     bool
-        True when the requested position went out, False when no number
-        entity matched or the device refused one of the writes
+        True when the device holds the requested position, written now or
+        already reported, False when no number entity matched or the device
+        refused one of the writes
     """
     try:
         model = str(self.real_trvs[entity_id].model or "")
@@ -235,39 +330,18 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
 
         # If we have explicit opening, set it
         if opening_candidates:
-            target_open = opening_candidates[0]
-            await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": target_open, "value": pct},
-                blocking=True,
-                context=self.context,
-            )
-            _LOGGER.debug(
-                "better_thermostat %s: set TRVZB valve_opening_degree=%s on %s (for %s)",
-                self.device_name,
-                pct,
-                target_open,
-                entity_id,
+            await _write_valve_number(
+                self, opening_candidates[0], pct, "valve_opening_degree", entity_id
             )
             wrote = True
 
         # If we have explicit closing, set complement 100 - pct
         if closing_candidates:
-            target_close = closing_candidates[0]
-            comp = 100 - pct
-            await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": target_close, "value": comp},
-                blocking=True,
-                context=self.context,
-            )
-            _LOGGER.debug(
-                "better_thermostat %s: set TRVZB valve_closing_degree=%s on %s (for %s)",
-                self.device_name,
-                comp,
-                target_close,
+            await _write_valve_number(
+                self,
+                closing_candidates[0],
+                100 - pct,
+                "valve_closing_degree",
                 entity_id,
             )
             wrote = True
@@ -278,20 +352,8 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
             generic_candidates.sort(
                 key=lambda x: ("valve" not in x, "position" not in x)
             )
-            target = generic_candidates[0]
-            await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": target, "value": pct},
-                blocking=True,
-                context=self.context,
-            )
-            _LOGGER.debug(
-                "better_thermostat %s: set TRVZB generic valve percent %s%% on %s (for %s)",
-                self.device_name,
-                pct,
-                target,
-                entity_id,
+            await _write_valve_number(
+                self, generic_candidates[0], pct, "generic valve percent", entity_id
             )
             wrote = True
 
@@ -405,13 +467,23 @@ async def override_set_valve(self, entity_id, percent: int):
         return False
 
 
-# Translation keys Zigbee2MQTT uses for the input the room temperature is
-# mirrored into.
-_TK_EXTERNAL_TEMP = frozenset({"external_temperature_input", "external_temperature"})
+# Translation keys for the input the room temperature is mirrored into:
+# Zigbee2MQTT's, and ZHA's ``external_temperature_sensor_value``.
+_TK_EXTERNAL_TEMP = frozenset(
+    {
+        "external_temperature_input",
+        "external_temperature",
+        "external_temperature_sensor_value",
+    }
+)
 
 # Translation keys Zigbee2MQTT uses for the selector that decides which sensor
 # the TRVZB regulates on.
 _TK_SENSOR_SELECT = frozenset({"temperature_sensor_select", "temperature_sensor"})
+
+# Translation key ZHA uses for the same choice, which it exposes as a switch:
+# on regulates on the external input, off on the device's own sensor.
+_TK_SENSOR_SWITCH = frozenset({"external_temperature_sensor"})
 
 # The option that hands regulation to the value BT writes, under each name
 # Zigbee2MQTT has given it: ``external`` up to 2.14.1, ``remote_temperature``
@@ -424,6 +496,10 @@ _EXTERNAL_SENSOR_OPTIONS = ("external", "remote_temperature")
 # fell back to its own sensor while the remote one is gone; it switches back
 # by itself once the remote value returns.
 _ON_A_REMOTE_SENSOR = ("external", "remote_")
+
+# The selection a device reports when it fell back from the remote value. It
+# is a report, not a choice anyone makes.
+_REMOTE_SOURCE_OFFLINE = "remote_source_offline"
 
 
 def _find_device_entity(
@@ -497,6 +573,14 @@ async def maybe_select_external_sensor(self, entity_id: str) -> bool:
     A device already on an option naming an external sensor is left alone,
     whichever of them it is: the choice between them is its owner's.
 
+    An assumed state is no report: an optimistic MQTT select shows the last
+    option it was sent, whatever the device is on. The external option it
+    shows is sent again, so the owner's choice stays and a device that went
+    back to its own sensor is put on the external one.
+
+    Zigbee2MQTT offers the choice as a select; ZHA offers it as a switch,
+    which is turned on when the device carries no select.
+
     Parameters
     ----------
     self :
@@ -508,8 +592,8 @@ async def maybe_select_external_sensor(self, entity_id: str) -> bool:
     Returns
     -------
     bool
-        True when the selector is on an external option, whether this call
-        put it there or found it there.
+        True when the selector is on an external option, or the switch is
+        on, whether this call put it there or found it there.
     """
     entity_registry = er.async_get(self.hass)
     reg_entity = entity_registry.async_get(entity_id)
@@ -523,28 +607,44 @@ async def maybe_select_external_sensor(self, entity_id: str) -> bool:
         "temperature_sensor_select",
     )
     if target is None:
-        _LOGGER.debug(
-            "better_thermostat %s: TRVZB temperature sensor selector not found for %s",
-            self.device_name,
-            entity_id,
+        return await _switch_on_external_sensor(
+            self, entity_registry, reg_entity.device_id, entity_id
         )
-        return False
     state = self.hass.states.get(target)
     if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         # A selector that is not reporting names no option, and the device
         # behind it is in no state to take one either.
         return False
-    if str(state.state).startswith(_ON_A_REMOTE_SENSOR):
+    # The option the select shows, e.g. "internal", "external" or
+    # "remote_temperature".
+    current = str(state.state)
+    # True when Home Assistant only assumes the state: an optimistic MQTT
+    # select shows the last option it was sent, not what the device reports.
+    assumed = bool(state.attributes.get(ATTR_ASSUMED_STATE))
+    # True when the shown option is any external one ("external...",
+    # "remote_..."), including the device's "remote_source_offline" report.
+    on_remote = current.startswith(_ON_A_REMOTE_SENSOR)
+    # The device itself reports an external option: it already regulates on
+    # the value BT writes, and which external option is the owner's choice.
+    if on_remote and not assumed:
         return True
+    # From here the device is either on its own sensor, or its select state
+    # is assumed and says nothing about the device. Either way an option is
+    # sent; only the options the select offers can be.
     options = state.attributes.get("options")
-    option = next(
-        (
-            name
-            for name in _EXTERNAL_SENSOR_OPTIONS
-            if isinstance(options, (list, tuple)) and name in options
-        ),
-        None,
-    )
+    offered = options if isinstance(options, (list, tuple)) else ()
+    if on_remote and current in offered and current != _REMOTE_SOURCE_OFFLINE:
+        # Assumed and showing an external option someone chose: send that
+        # same option again, so the device is put back on it and the owner's
+        # choice among the external options is kept.
+        option = current
+    else:
+        # On the device's own sensor, or assumed on the fallback report,
+        # which is no choice to send back: send the plain external option,
+        # under whichever name this Zigbee2MQTT version offers it.
+        option = next(
+            (name for name in _EXTERNAL_SENSOR_OPTIONS if name in offered), None
+        )
     if option is None:
         _LOGGER.debug(
             "better_thermostat %s: TRVZB selector %s offers none of %s (%s)",
@@ -572,13 +672,74 @@ async def maybe_select_external_sensor(self, entity_id: str) -> bool:
     return True
 
 
+async def _switch_on_external_sensor(
+    self, entity_registry: er.EntityRegistry, device_id: str | None, entity_id: str
+) -> bool:
+    """Turn on the switch that has the TRV regulate on its external input.
+
+    ZHA exposes the sensor choice as a switch rather than a select. A switch
+    already on is left alone, unless its state is assumed: an optimistic
+    MQTT switch shows the last command, so it is turned on again.
+
+    Parameters
+    ----------
+    self :
+        The Better Thermostat instance, supplying ``hass`` and the context
+        the service call is made under.
+    entity_registry : er.EntityRegistry
+        The registry to search.
+    device_id : str | None
+        The device that carries the switch.
+    entity_id : str
+        The TRV the switch is turned on for, for logging.
+
+    Returns
+    -------
+    bool
+        True when the switch is on, whether this call turned it on or found
+        it on.
+    """
+    target = _find_device_entity(
+        entity_registry,
+        device_id,
+        "switch",
+        _TK_SENSOR_SWITCH,
+        "external_temperature_sensor",
+    )
+    if target is None:
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB temperature sensor selector not found for %s",
+            self.device_name,
+            entity_id,
+        )
+        return False
+    state = self.hass.states.get(target)
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        # The device behind a switch that is not reporting is in no state to
+        # take a command either.
+        return False
+    if state.state == STATE_ON and not state.attributes.get(ATTR_ASSUMED_STATE):
+        return True
+    await self.hass.services.async_call(
+        "switch", "turn_on", {"entity_id": target}, blocking=True, context=self.context
+    )
+    _LOGGER.debug(
+        "better_thermostat %s: turned on TRVZB %s (for %s)",
+        self.device_name,
+        target,
+        entity_id,
+    )
+    return True
+
+
 async def maybe_set_external_temperature(self, entity_id, temperature: float) -> bool:
     """Set Sonoff TRVZB external temperature input via a number entity on the same device.
 
-    Looks for number.* entity matching external_temperature_input and writes the
-    given temperature (clamped to 0..99.9, rounded to one decimal). The sensor
-    selector is pointed at that input alongside the write, because a device
-    regulating on its own sensor never reads it.
+    Looks for the number.* entity of the external temperature input, under
+    Zigbee2MQTT's or ZHA's translation key, and writes the given temperature
+    (clamped to 0..99.9 °C, rounded to one decimal) in the unit that entity
+    displays. The sensor selector is pointed at that input alongside the
+    write, because a device regulating on its own sensor never reads it.
 
     Parameters
     ----------
@@ -625,7 +786,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
         )
         if target is None:
             _LOGGER.debug(
-                "better_thermostat %s: TRVZB external_temperature_input number entity not found for %s",
+                "better_thermostat %s: TRVZB external temperature input number entity not found for %s",
                 self.device_name,
                 entity_id,
             )
@@ -643,6 +804,23 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
             return False
         val = max(0.0, min(99.9, round(val, 1)))
 
+        # A temperature number takes its value in the unit it displays, which
+        # on a Fahrenheit system is Fahrenheit: ZHA's input reads a Celsius
+        # 19.7 as 19.7 °F and refuses it below its 32 °F minimum.
+        target_state = self.hass.states.get(target)
+        unit = (
+            target_state.attributes.get("unit_of_measurement")
+            if target_state is not None
+            else None
+        )
+        if unit == UnitOfTemperature.FAHRENHEIT:
+            val = round(
+                TemperatureConverter.convert(
+                    val, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+                ),
+                1,
+            )
+
         await self.hass.services.async_call(
             "number",
             "set_value",
@@ -651,7 +829,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
             context=self.context,
         )
         _LOGGER.debug(
-            "better_thermostat %s: set TRVZB external_temperature_input=%.1f on %s (for %s)",
+            "better_thermostat %s: set TRVZB external temperature input=%.1f on %s (for %s)",
             self.device_name,
             val,
             target,
