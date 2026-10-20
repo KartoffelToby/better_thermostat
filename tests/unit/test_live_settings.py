@@ -194,7 +194,7 @@ def reload(hass):
 
 class TestUpdateListener:
     async def test_a_live_setting_alone_applies_without_a_reload(self, hass, reload):
-        climate = MagicMock(spec=BetterThermostat)
+        climate = ThermostatStandIn(spec=BetterThermostat)
         entry = _loaded_entry(hass, climate)
         hass.config_entries.async_update_entry(
             entry, options={**_STORED, "tolerance": 0.6}
@@ -207,7 +207,7 @@ class TestUpdateListener:
         assert entry.runtime_data.settings == _settings(tolerance=0.6)
 
     async def test_any_other_change_reloads(self, hass, reload):
-        climate = MagicMock(spec=BetterThermostat)
+        climate = ThermostatStandIn(spec=BetterThermostat)
         entry = _loaded_entry(hass, climate)
         hass.config_entries.async_update_entry(
             entry, options={**_STORED, "tolerance": 0.6, "weather": "weather.home"}
@@ -220,7 +220,7 @@ class TestUpdateListener:
         assert entry.runtime_data.settings == _settings()
 
     async def test_settings_that_do_not_parse_reload(self, hass, reload):
-        climate = MagicMock(spec=BetterThermostat)
+        climate = ThermostatStandIn(spec=BetterThermostat)
         entry = _loaded_entry(hass, climate)
         hass.config_entries.async_update_entry(
             entry, options={**_STORED, "thermostat": "climate.trv"}
@@ -242,7 +242,7 @@ class TestUpdateListener:
         reload.assert_awaited_once_with(entry.entry_id)
 
     async def test_an_entry_that_is_not_loaded_reloads(self, hass, reload):
-        climate = MagicMock(spec=BetterThermostat)
+        climate = ThermostatStandIn(spec=BetterThermostat)
         entry = _loaded_entry(hass, climate)
         entry.mock_state(hass, ConfigEntryState.SETUP_ERROR)
         hass.config_entries.async_update_entry(
@@ -257,7 +257,7 @@ class TestUpdateListener:
 
 class TestStoreLiveSetting:
     async def test_writes_the_options_and_applies_them_at_once(self, hass, reload):
-        climate = MagicMock(spec=BetterThermostat)
+        climate = ThermostatStandIn(spec=BetterThermostat)
         entry = _loaded_entry(hass, climate)
 
         store_live_setting(hass, entry, "off_temperature", 15)
