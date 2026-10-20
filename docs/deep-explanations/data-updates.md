@@ -32,7 +32,7 @@ A reading that comes too soon is not lost: it is taken as soon as the 5 seconds 
 
 ### Changes made on the TRV
 
-When a TRV reports a new target temperature that Better Thermostat did not send, Better Thermostat takes it as your new target for the whole room. It does this while a window or door is open too: the heating stays paused, and the room heats to the new target once every window and door is closed. It does not do this while the child lock option is on or while the TRV is off, and a TRV that Better Thermostat switched off for an open window or door is off. Values Better Thermostat wrote itself and that the TRV reports back are recognised and not taken as your input.
+When a TRV reports a new target temperature that Better Thermostat did not send, Better Thermostat takes it as your new target for the whole room. It does this while a window or door is open too: the heating stays paused, and the room heats to the new target once every window and door is closed. It does not do this while the child lock option is on or while the TRV is off, and a TRV that Better Thermostat switched off for an open window or door is off. Values Better Thermostat wrote itself and that the TRV reports back are recognised and not taken as your input. Some TRVs cap the target lower than the maximum they report, so they keep a lower value than the one Better Thermostat sent. If the TRV has not confirmed the value after six minutes, Better Thermostat stops waiting and also counts the target the TRV reports at that point as its own.
 
 ### Changes made on the cooler
 

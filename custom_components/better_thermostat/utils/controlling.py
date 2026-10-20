@@ -3084,6 +3084,21 @@ async def check_target_temperature(
                 _awaited_setpoint,
                 _current_set_temperatures,
             )
+            # The device holds what it reports in place of the write, the
+            # write as a device with a lower ceiling than it publishes took
+            # it, so that value coming back is no press. The write stays the
+            # command and on the wire: the device may still apply it, and the
+            # next cycle still finds the device off the command. A device
+            # valve maintenance drove elsewhere meanwhile reports that drive,
+            # which answers no write.
+            _held_setpoint = read_setpoint_celsius(
+                self, _trv_state, TRV_SETPOINT_KEYS, "check_target_temperature()"
+            )
+            if (
+                _held_setpoint is not None
+                and trv.commanded_setpoint == _awaited_setpoint
+            ):
+                trv.remember_setpoint_confirmed(_held_setpoint, trv.confirmed_write_id)
             _timeout = 0
             break
         await asyncio.sleep(1)
