@@ -1,5 +1,5 @@
 {
-  "custom_components/better_thermostat/__init__.py": 97.2,
+  "custom_components/better_thermostat/__init__.py": 99.3,
   "custom_components/better_thermostat/adapters/__init__.py": 100.0,
   "custom_components/better_thermostat/adapters/base.py": 100.0,
   "custom_components/better_thermostat/adapters/conformance.py": 100.0,
@@ -64,7 +64,7 @@
   "custom_components/better_thermostat/model_fixes/default.py": 98.9,
   "custom_components/better_thermostat/model_fixes/model_quirks.py": 100.0,
   "custom_components/better_thermostat/model_fixes/types.py": 100.0,
-  "custom_components/better_thermostat/number.py": 99.1,
+  "custom_components/better_thermostat/number.py": 99.3,
   "custom_components/better_thermostat/sensor.py": 96.1,
   "custom_components/better_thermostat/switch.py": 100.0,
   "custom_components/better_thermostat/trv.py": 100.0,

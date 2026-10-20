@@ -471,6 +471,12 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Μέγιστο άνοιγμα βαλβίδας"
+      },
+      "off_temperature": {
+        "name": "Όριο εξωτερικής θερμοκρασίας"
+      },
+      "tolerance": {
+        "name": "Ανοχή"
       }
     },
     "switch": {

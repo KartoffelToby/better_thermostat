@@ -471,6 +471,12 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Apertura massima della valvola"
+      },
+      "off_temperature": {
+        "name": "Soglia temperatura esterna"
+      },
+      "tolerance": {
+        "name": "Tolleranza"
       }
     },
     "switch": {

@@ -471,6 +471,12 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Maksymalne otwarcie zaworu"
+      },
+      "off_temperature": {
+        "name": "Próg temperatury zewnętrznej"
+      },
+      "tolerance": {
+        "name": "Tolerancja"
       }
     },
     "switch": {
