@@ -111,6 +111,10 @@ class DeviceProfile:
     ``mode_write_setpoint`` is the setpoint the device falls back to whenever
     it is told a mode, even the one it is in: a Tuya head returns to 15 °C.
     ``None`` keeps the setpoint the device holds.
+
+    ``setpoint_ceiling`` is the highest setpoint the device holds, below the
+    ``max_temp`` it publishes: a write above it lands on the ceiling. ``None``
+    holds every setpoint up to ``max_temp``.
     """
 
     name: str
@@ -145,6 +149,7 @@ class DeviceProfile:
     off_target_temperature: float | None = None
     offset_translation_key: str = "local_temperature_calibration"
     mode_write_setpoint: float | None = None
+    setpoint_ceiling: float | None = None
 
 
 def published_unit(profile: DeviceProfile) -> UnitOfTemperature:
@@ -400,6 +405,21 @@ TUYA_OFFSET_TRV = DeviceProfile(
 Its one active mode is heat_cool, its calibration is the number the tuya
 integration names ``temp_correction``, and every mode written to it, even the
 one it is in, puts its setpoint back to 15 °C.
+"""
+
+ZWAVE_CAPPED_TRV = DeviceProfile(
+    name="zwave_capped_trv",
+    integration="zwave_js",
+    calibration="target_temp_based",
+    has_device_registry_entry=True,
+    max_temp=50.0,
+    setpoint_ceiling=28.0,
+)
+"""A Z-Wave JS head that holds no setpoint above 28 °C while publishing 50 °C.
+
+A Danfoss LC-13 reaches Home Assistant with the range of the command class
+rather than its own, so a calibrated setpoint between the two is written and
+comes back as 28 °C.
 """
 
 TADO_OFFSET_TRV = DeviceProfile(
@@ -672,6 +692,7 @@ SINGLE_ROLE_PROFILES = (
     OFF_GRID_FAHRENHEIT_TRV,
     MQTT_OFFSET_TRV,
     TUYA_OFFSET_TRV,
+    ZWAVE_CAPPED_TRV,
     TADO_OFFSET_TRV,
     VALVE_TRV,
     RANGE_ONLY_HEAT_TRV,
@@ -691,6 +712,9 @@ SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario | GroupScenario] = {
     "a thermostat entity with no device registry entry": GENERIC_HEAT_TRV,
     "a room with several heads that can disagree": GROUP_OF_THREE,
     "a head that resets its setpoint whenever it is told a mode": TUYA_OFFSET_TRV,
+    "a head that holds no setpoint as high as the maximum it publishes": (
+        ZWAVE_CAPPED_TRV
+    ),
 }
 """The device shapes users have reported a bug against, by what they are.
 

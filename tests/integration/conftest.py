@@ -252,7 +252,8 @@ class SimulatedClimate(ClimateEntity):
         The write is always recorded; with ``drop_next_setpoint_write``
         set it is then swallowed instead of applied, simulating a device
         that lost the command over the radio. A ranged write is recorded
-        as a dict of both bounds.
+        as a dict of both bounds. A device whose profile names a
+        ``setpoint_ceiling`` holds a setpoint above it as the ceiling.
         """
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is None:
@@ -274,7 +275,10 @@ class SimulatedClimate(ClimateEntity):
         if self.drop_next_setpoint_write:
             self.drop_next_setpoint_write = False
             return
-        self._attr_target_temperature = temperature
+        ceiling = self.profile.setpoint_ceiling
+        self._attr_target_temperature = (
+            temperature if ceiling is None else min(temperature, ceiling)
+        )
         self.async_write_ha_state()
 
     @override
