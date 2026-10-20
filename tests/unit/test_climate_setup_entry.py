@@ -14,6 +14,7 @@ import pytest
 
 from custom_components.better_thermostat import BetterThermostatData
 from custom_components.better_thermostat.climate import (
+    _configured_availability_guard_grace,
     _configured_off_temperature,
     _configured_temperature_step,
     _configured_tolerance,
@@ -174,6 +175,27 @@ def test_the_tolerance_is_read_into_a_celsius_delta(stored, unit, celsius):
     assert _configured_tolerance(stored, "Test BT", unit) == pytest.approx(celsius)
 
 
+@pytest.mark.parametrize(
+    ("stored", "seconds"),
+    [
+        (None, 600.0),
+        ("", 600.0),
+        (0, 0.0),
+        ("90", 90.0),
+        (1800.0, 1800.0),
+        ("soon", 600.0),
+        ("inf", 600.0),
+        (-60, 600.0),
+    ],
+)
+def test_the_availability_guard_grace_is_read_in_seconds(stored, seconds):
+    """An entry without a grace period, or with one that is no duration, gets the default.
+
+    No grace period at all is a choice the flow lets the user make.
+    """
+    assert _configured_availability_guard_grace(stored, "Test BT") == seconds
+
+
 @pytest.mark.asyncio
 async def test_an_entity_id_stored_empty_is_no_entity():
     """Every optional entity id stored as an empty string reads as no entity."""
@@ -185,6 +207,7 @@ async def test_an_entity_id_stored_empty_is_no_entity():
         "door_sensors": "",
         "weather": "",
         "outdoor_sensor": "",
+        "availability_guard": "",
     }
     entry = _entry(BetterThermostatData(settings=parse_settings(raw)))
 
@@ -199,3 +222,4 @@ async def test_an_entity_id_stored_empty_is_no_entity():
     assert config.door_sensor_entity_id is None
     assert config.weather_entity_id is None
     assert config.outdoor_sensor_entity_id is None
+    assert config.availability_guard_entity_id is None
