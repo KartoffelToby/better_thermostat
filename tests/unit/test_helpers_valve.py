@@ -353,6 +353,62 @@ async def test_find_local_calibration_entity_by_translation_key_temperature_offs
         assert result == "number.trv_generic_entity"
 
 
+async def test_find_local_calibration_entity_finds_the_tuya_temperature_correction():
+    """The temperature correction Home Assistant's tuya integration exposes is the offset.
+
+    The tuya integration registers a TRV's offset number under the
+    translation key ``temp_correction``, with a unique id that ends in that
+    key. The key identifies it whatever the user renamed the entity to.
+    """
+
+    bt_instance = _make_bt_instance()
+    device_id = "device_123"
+
+    reg_entity_trv = _make_trv_entry(device_id)
+
+    ent_correction = make_registry_entry(
+        "number.guest_room_trv_knob_correction",
+        unique_id="tuya.bf0123456789abcdeftemp_correction",
+        platform="tuya",
+        config_entry_id="config_123",
+        device_id=device_id,
+        translation_key="temp_correction",
+        original_name="Temperature correction",
+    )
+
+    with patch(
+        "custom_components.better_thermostat.utils.helpers.er.async_get"
+    ) as mock_er_get:
+        mock_er_get.return_value = make_entity_registry(reg_entity_trv, ent_correction)
+        result = await find_local_calibration_entity(bt_instance, "climate.my_trv")
+
+        assert result == "number.guest_room_trv_knob_correction"
+
+
+async def test_find_local_calibration_entity_matches_temperature_correction_by_name():
+    """A number named temperature correction is the offset without a known key."""
+
+    bt_instance = _make_bt_instance()
+    device_id = "device_123"
+
+    reg_entity_trv = _make_trv_entry(device_id)
+
+    ent_correction = _make_entity(
+        eid="number.trv_temperature_correction",
+        uid="opaque_uid",
+        device_id=device_id,
+        translation_key=None,
+    )
+
+    with patch(
+        "custom_components.better_thermostat.utils.helpers.er.async_get"
+    ) as mock_er_get:
+        mock_er_get.return_value = make_entity_registry(reg_entity_trv, ent_correction)
+        result = await find_local_calibration_entity(bt_instance, "climate.my_trv")
+
+        assert result == "number.trv_temperature_correction"
+
+
 async def test_find_local_calibration_entity_fallback_string_match():
     """Test that find_local_calibration_entity falls back to string matching when no translation_key."""
 
