@@ -8,6 +8,7 @@ carries a repair issue. Both go away as soon as the device holds the value.
 """
 
 import asyncio
+import contextlib
 from datetime import timedelta
 import json
 from unittest.mock import patch
@@ -30,11 +31,13 @@ from .conftest import (
     DOMAIN,
     WRITE_BUDGET,
     make_entry,
+    profile_id,
     set_room_sensor,
     setup_entry,
     wait_for,
     wait_for_startup,
 )
+from .device_profiles import ZWAVE_CAPPED_TRV
 
 # Below the room reading, so the head is asked for a setpoint it does not
 # hold yet: a room below its target already has the head on its maximum.
@@ -75,14 +78,24 @@ class _Head:
         self.writes: list[tuple[float, float]] = []
 
     async def receive(self, **kwargs) -> None:
-        """Record a setpoint write and apply it only while the head takes them."""
+        """Record a setpoint write and apply it as far as the head takes it.
+
+        While the head takes writes it holds what it was sent. Otherwise a
+        head with a ceiling of its own holds no more than that ceiling, and
+        any other head keeps what it held.
+        """
         temperature = kwargs["temperature"]
         assert isinstance(temperature, float)
         self.writes.append((self.clock.t, temperature))
         self.device.set_temperature_calls.append(temperature)
+        ceiling = self.device.profile.setpoint_ceiling
         if self.takes_writes:
             self.device._attr_target_temperature = temperature
-            self.device.async_write_ha_state()
+        elif ceiling is not None:
+            self.device._attr_target_temperature = min(temperature, ceiling)
+        else:
+            return
+        self.device.async_write_ha_state()
 
 
 class _ReconcileTicks:
@@ -120,10 +133,9 @@ async def _set_target(hass, temperature: float) -> None:
     )
 
 
-@pytest.fixture
-async def stubborn_room(hass, fake_trv):
-    """A running room whose head ignores every setpoint until told otherwise."""
-    set_room_sensor(hass, 18.0)
+@contextlib.asynccontextmanager
+async def _virtual_room(hass, fake_trv):
+    """Run the started room on virtual time, with the head's writes recorded."""
     entry = make_entry(fake_trv.profile)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
@@ -148,6 +160,14 @@ async def stubborn_room(hass, fake_trv):
     ):
         bt.clock = clock
         yield bt, entry, head
+
+
+@pytest.fixture
+async def stubborn_room(hass, fake_trv):
+    """A running room whose head ignores every setpoint until told otherwise."""
+    set_room_sensor(hass, 18.0)
+    async with _virtual_room(hass, fake_trv) as room:
+        yield room
 
 
 async def _write_until(hass, head: _Head, ticks: _ReconcileTicks, count: int) -> None:
@@ -232,6 +252,7 @@ async def test_a_head_that_ignores_the_setpoint_is_reported_until_it_takes_it(
     issue = _issue(hass, entry, entity_id)
     assert issue is not None
     assert issue.translation_key == "setpoint_not_applied"
+    assert issue.translation_placeholders is not None
     assert issue.translation_placeholders["entity"] == entity_id
     assert issue.learn_more_url == (
         "https://better-thermostat.org/faq/setpoint-not-applied"
@@ -268,3 +289,40 @@ async def test_a_user_change_reaches_a_backed_off_head_at_the_normal_pace(
     assert await wait_for(hass, lambda: len(head.writes) > writes)
     gap = head.writes[writes][0] - head.writes[writes - 1][0]
     assert gap < SETPOINT_RETRY_BACKOFF_MAX_S / 2, gap
+
+
+@pytest.mark.parametrize("fake_trv", [ZWAVE_CAPPED_TRV], indirect=True, ids=profile_id)
+async def test_a_head_capped_below_its_published_maximum_is_reported(hass, fake_trv):
+    """A head that holds its own ceiling instead of the calibrated setpoint.
+
+    The head publishes a maximum it does not hold, and the calibration asks it
+    for more than its real ceiling. It holds the ceiling, which is not what
+    was written, so after the run it is reported; once it takes the setpoint,
+    the report goes.
+    """
+    ceiling = fake_trv.profile.setpoint_ceiling
+    assert ceiling is not None
+    fake_trv._attr_current_temperature = 30.0
+    fake_trv.async_write_ha_state()
+    set_room_sensor(hass, 21.5)
+    async with _virtual_room(hass, fake_trv) as (bt, entry, head):
+        trv = bt.real_trvs[fake_trv.entity_id]
+        ticks = _ReconcileTicks(hass)
+
+        await _set_target(hass, 20.5)
+        while not trv.setpoint_unapplied_reported and ticks.count < _MAX_TICKS:
+            before = len(head.writes)
+            await ticks.fire()
+            await wait_for(hass, lambda: len(head.writes) > before, timeout_seconds=2.0)
+
+        assert trv.setpoint_unapplied_reported, head.writes
+        assert all(value > ceiling for _, value in head.writes)
+        assert fake_trv.target_temperature == ceiling
+        assert _errors(hass) == [fake_trv.entity_id]
+        assert _issue(hass, entry, fake_trv.entity_id) is not None
+
+        head.takes_writes = True
+        await _write_until(hass, head, ticks, len(head.writes) + 1)
+        assert await wait_for(hass, lambda: not trv.setpoint_unapplied_reported)
+        assert _errors(hass) == []
+        assert _issue(hass, entry, fake_trv.entity_id) is None

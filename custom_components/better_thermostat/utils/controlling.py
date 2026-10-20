@@ -2989,9 +2989,7 @@ def _follow_unapplied_setpoint(
             self,
             entity_id,
             wanted,
-            read_setpoint_celsius(
-                self, state, TRV_SETPOINT_KEYS, "_follow_unapplied_setpoint()"
-            ),
+            min(reported),
             _write_interval_seconds(self, trv, "setpoint"),
         )
 

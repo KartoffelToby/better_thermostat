@@ -4989,7 +4989,7 @@ class TestUnappliedSetpointRun:
         )
         mock_self.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
         mock_self.last_user_change_monotonic = None
-        mock_self.devices_errors = []
+        mock_self.devices_errors = list[str]()
         mock_self._unique_id = "entry"
         self.written: list[float] = []
         self.held = lambda value: None
@@ -5088,6 +5088,25 @@ class TestUnappliedSetpointRun:
             "wanted": "22.0 °C",
             "held": "20.0 °C",
         }
+
+    @pytest.mark.asyncio
+    async def test_the_report_names_the_setpoints_in_the_system_unit(self):
+        """A Fahrenheit system reads both setpoints in °F, rounded once.
+
+        The 22 °C target goes to the head on whole degrees Fahrenheit, as
+        72 °F; the head still holds 20 °C, 68 °F.
+        """
+        mock_self, _trv = self._room(attributes={"temperature": 68.0})
+        mock_self.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+
+        await self._ignored_writes(mock_self, SETPOINT_UNAPPLIED_WRITES_LIMIT)
+        await self._cycle(mock_self)
+
+        placeholders = self.registry.async_create_issue.call_args.kwargs[
+            "translation_placeholders"
+        ]
+        assert placeholders["wanted"] == "72.0 °F"
+        assert placeholders["held"] == "68.0 °F"
 
     @pytest.mark.asyncio
     async def test_the_report_goes_once_the_head_holds_the_setpoint(self):

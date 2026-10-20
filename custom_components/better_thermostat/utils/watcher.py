@@ -470,10 +470,8 @@ def get_device_errors(self: BetterThermostat) -> list[str]:
     return errors
 
 
-def _displayed_temperature(self: BetterThermostat, celsius: float | None) -> str:
+def _displayed_temperature(self: BetterThermostat, celsius: float) -> str:
     """Return a setpoint in °C as a repair issue shows it, in the system unit."""
-    if celsius is None:
-        return "?"
     unit = self.hass.config.units.temperature_unit
     value = TemperatureConverter.convert(celsius, UnitOfTemperature.CELSIUS, unit)
     return f"{round(value, 1)} {unit}"
@@ -483,7 +481,7 @@ def report_unapplied_setpoint(
     self: BetterThermostat,
     entity_id: str,
     wanted: float,
-    held: float | None,
+    held: float,
     retry_interval_seconds: float,
 ) -> None:
     """Report a TRV that does not take the setpoint written to it.
@@ -500,8 +498,8 @@ def report_unapplied_setpoint(
         Entity id of the TRV
     wanted : float
         The setpoint in °C Better Thermostat writes
-    held : float | None
-        The setpoint in °C the TRV reports instead, None when unreadable
+    held : float
+        The setpoint in °C the TRV reports instead
     retry_interval_seconds : float
         How long Better Thermostat waits before it writes the setpoint again
     """
