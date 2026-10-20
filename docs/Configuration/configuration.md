@@ -68,6 +68,10 @@ group:
 
 **Delay before the thermostat should turn off when the door is opened** and **Delay before the thermostat should turn on when the door is closed** The same two delays for the door sensor.
 
+**Availability guard** This is an optional field. Select a binary sensor, switch or input boolean that is on while your thermostats have power and off while they don't, for example wall thermostats that are powered by the heat pump or the boiler and lose power when it is switched off. While the guard is off, a thermostat that is unavailable raises no warning in the log and no [missing entity](/faq/missing-entity) repair, and a repair raised before the guard turned off is withdrawn. Leave it empty and every unavailable thermostat is reported. A guard that is itself unavailable or unknown counts as on, so an outage is still reported when the guard cannot tell. The guard changes only what is reported: an unavailable thermostat is left out of control either way.
+
+**Grace period after the availability guard turns on** How long a thermostat may stay unavailable after the guard turns on before it is reported, so it has time to boot and reconnect. The default is 10 minutes.
+
 **The outdoor temperature when the thermostat should turn off** This is an optional field. If you have an outdoor sensor or a weather entity, you can set a threshold. Once the outdoor temperature reaches the threshold, the thermostat is turned off. It is turned on again once the outdoor temperature drops 1 °C (1.8 °F) below the threshold, so an outdoor temperature that hovers around the threshold does not switch it on and off repeatedly. If you don't have an outdoor sensor or a weather entity, this field will be ignored.
 
 **Enabled Presets** Choose which presets this thermostat offers. Each enabled preset gets its own number entity for its temperature, see [Presets](/setup/presets/).

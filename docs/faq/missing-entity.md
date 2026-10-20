@@ -17,6 +17,10 @@ sensor, raise a [degraded mode](/faq/degraded-mode) issue instead.
   configured with no longer exists. A renamed entity does not cause this:
   Better Thermostat follows a new entity id on its own.
 
+- The device lost power on purpose, for example a wall thermostat that is
+  powered by the heat pump or the boiler and goes dark when it is switched
+  off. See [Thermostats without power](#thermostats-without-power).
+
 ## How to fix it
 
 1. Open **Settings → Devices & services** and find the entity named in
@@ -33,3 +37,14 @@ is removed from the Better Thermostat configuration. When Home Assistant
 starts or the Better Thermostat entry reloads, for example after its
 settings were saved, a TRV gets a few minutes to come up before the issue is
 raised again.
+
+## Thermostats without power
+
+If your thermostats are switched off together with the heating system, set
+the **Availability guard** in the Better Thermostat configuration to an
+entity that is on while they have power: the heat pump's power switch, or a
+binary sensor that follows it. While the guard is off, an unavailable
+thermostat raises no issue, and an issue raised before the guard turned off
+is withdrawn. Once the guard turns on, the thermostats get the **Grace period
+after the availability guard turns on** (10 minutes by default) to come back
+before a thermostat that is still missing is reported.
