@@ -96,6 +96,8 @@ This is the "brain" of Better Thermostat. How should it calculate the heating?
 
 **MPC v2 room size**: Only used by MPC v2. Leave it on *Auto* unless you want it to start from a fixed small, medium or large room model.
 
+**MPC v2 flow temperature**: Only used by MPC v2. Keep 65 °C for a boiler. With a heat pump or a weather-compensated boiler, enter the flow temperature it typically runs at.
+
 Use [Algorithm selection](/optimal-settings/algorithm-selection/) for decision help.
 
 ### Other important toggles

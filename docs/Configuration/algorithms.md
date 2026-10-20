@@ -86,6 +86,10 @@ The **MPC v2 room size** option sets the room model it starts from. *Auto* deriv
 
 Under *Auto* the room model follows the learned heat-loss rate. When it moves, or when you switch the room size, MPC v2 carries its estimates of the room over to the new model and continues from there instead of starting over.
 
+The **MPC v2 flow temperature** option is the temperature of the heating water that reaches the radiators. The default of 65 °C fits a boiler on a fixed heating curve. A heat pump or a weather-compensated boiler runs much cooler for most of the season. With 65 °C in the model, MPC v2 then expects more heat from each percent of valve opening than the radiator gives, and the room settles below its target. Enter a typical flow temperature for the heating season instead, for example 35 to 45 °C. The option takes one fixed value; Better Thermostat does not read a flow temperature sensor.
+
+A change to the flow temperature reloads the thermostat. MPC v2 keeps its estimates of the room. A room model that *Auto* learned under the old flow temperature no longer applies, so MPC v2 starts from the heat-loss rate again and learns a new one. If you go back to the old value, the model learned under it applies again.
+
 MPC v2 plans a new valve opening at most every 1.5 to 5 minutes, depending on how fast the room model is, and keeps sending that opening until the next plan. A valve position the TRV reports in between feeds the room model and the next plan, but does not replace the planned opening. The TRV's *Valve Max Opening* is the upper limit of every plan, so a valve held at that limit while the room stays just below the target does not build up demand that would overheat the room once the limit no longer binds.
 
 Its estimates show up in the *MPC v2 Virtual Temperature*, *MPC v2 Coupling*, *MPC v2 Disturbance* and *MPC v2 Room Time Constant* sensors. They start disabled on new installations; see [Entities](/setup/entities/#mpc-v2).
