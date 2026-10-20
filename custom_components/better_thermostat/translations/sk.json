@@ -210,6 +210,10 @@
     "shared_trv": {
       "title": "BT: {trv} ovláda viac ako jeden Better Thermostat",
       "description": "Termostat {trv} patrí týmto Better Thermostat: {entries}. Zapisujú doň konkurenčné cieľové teploty a režimy. V ich nastaveniach ho odstráňte zo všetkých okrem jedného; potom tento problém sám zmizne."
+    },
+    "setpoint_not_applied": {
+      "title": "BT: {name} - {entity} neprijíma cieľovú teplotu",
+      "description": "Better Thermostat opakovane zapisuje cieľovú teplotu {wanted} do {entity}, ale termostat stále hlási {held}. Miestnosť sa nevykuruje tak, ako Better Thermostat zamýšľa.\n\nČasté príčiny:\n- Termostat má vlastný limit nastavenej hodnoty nižší ako maximum, ktoré zverejňuje, napríklad `max_heat_setpoint_limit` v Zigbee2MQTT.\n- Termostat je v režime alebo predvoľbe, v ktorej ignoruje cieľové teploty, napríklad v režime rozvrhu.\n- Termostat stratil rádiové spojenie alebo má slabú batériu.\n\nBetter Thermostat cieľovú teplotu ďalej zapisuje, najviac raz za hodinu. Tento problém zmizne sám, keď termostat nahlási cieľovú teplotu."
     }
   },
   "services": {

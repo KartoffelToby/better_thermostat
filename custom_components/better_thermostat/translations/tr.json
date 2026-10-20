@@ -210,6 +210,10 @@
     "shared_trv": {
       "title": "BT: {trv} birden fazla Better Thermostat tarafından kontrol ediliyor",
       "description": "{trv} termostatı şu Better Thermostat’lara ait: {entries}. Ona çakışan hedef sıcaklıklar ve modlar yazıyorlar. Ayarlarından biri hariç hepsinden kaldırın; bu sorun ardından kendiliğinden kaybolur."
+    },
+    "setpoint_not_applied": {
+      "title": "BT: {name} - {entity} hedef sıcaklığı almıyor",
+      "description": "Better Thermostat hedef sıcaklık {wanted} değerini {entity} cihazına tekrar tekrar yazıyor, ancak termostat hâlâ {held} bildiriyor. Oda, Better Thermostat'un amaçladığı şekilde ısıtılmıyor.\n\nYaygın nedenler:\n- Termostatın, yayımladığı maksimumun altında kendi ayar noktası sınırı vardır, örneğin Zigbee2MQTT'deki `max_heat_setpoint_limit`.\n- Termostat, hedef sıcaklıkları yok saydığı bir mod veya ön ayardadır, örneğin bir program modu.\n- Termostat radyo bağlantısını kaybetmiş veya pili zayıftır.\n\nBetter Thermostat hedef sıcaklığı yazmaya devam eder, en fazla saatte bir kez. Termostat hedef sıcaklığı bildirdiğinde bu sorun kendiliğinden kaybolur."
     }
   },
   "services": {

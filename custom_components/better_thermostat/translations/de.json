@@ -210,6 +210,10 @@
     "shared_trv": {
       "title": "BT: {trv} wird von mehr als einem Better Thermostat gesteuert",
       "description": "Das Thermostat {trv} gehört zu diesen Better Thermostats: {entries}. Sie schreiben konkurrierende Solltemperaturen und Modi darauf. Entferne es in den Einstellungen aus allen bis auf eines; danach verschwindet dieser Hinweis von selbst."
+    },
+    "setpoint_not_applied": {
+      "title": "BT: {name} - {entity} übernimmt die Solltemperatur nicht",
+      "description": "Better Thermostat schreibt die Solltemperatur {wanted} wiederholt an {entity}, aber das Thermostat meldet weiterhin {held}. Der Raum wird nicht so geheizt, wie Better Thermostat es vorsieht.\n\nHäufige Ursachen:\n- Das Thermostat hat eine eigene Sollwertgrenze unterhalb des Maximums, das es veröffentlicht, zum Beispiel `max_heat_setpoint_limit` in Zigbee2MQTT.\n- Das Thermostat ist in einem Modus oder Preset, in dem es Solltemperaturen ignoriert, etwa einem Zeitplanmodus.\n- Das Thermostat hat die Funkverbindung verloren oder die Batterie ist schwach.\n\nBetter Thermostat schreibt die Solltemperatur weiter, höchstens einmal pro Stunde. Dieser Hinweis verschwindet von selbst, sobald das Thermostat die Solltemperatur meldet."
     }
   },
   "services": {

@@ -210,6 +210,10 @@
     "shared_trv": {
       "title": "BT: {trv} styres af mere end én Better Thermostat",
       "description": "Termostaten {trv} hører til disse Better Thermostats: {entries}. De skriver konkurrerende måltemperaturer og tilstande til den. Fjern den fra alle undtagen én i deres indstillinger; denne meddelelse forsvinder derefter af sig selv."
+    },
+    "setpoint_not_applied": {
+      "title": "BT: {name} - {entity} overtager ikke måltemperaturen",
+      "description": "Better Thermostat skriver gentagne gange måltemperaturen {wanted} til {entity}, men termostaten melder stadig {held}. Rummet opvarmes ikke, som Better Thermostat har tænkt.\n\nAlmindelige årsager:\n- Termostaten har sin egen grænse for setpunktet under det maksimum, den oplyser, for eksempel `max_heat_setpoint_limit` i Zigbee2MQTT.\n- Termostaten er i en tilstand eller forudindstilling, hvor den ignorerer måltemperaturer, f.eks. en tidsplantilstand.\n- Termostaten har mistet radioforbindelsen, eller batteriet er svagt.\n\nBetter Thermostat bliver ved med at skrive måltemperaturen, højst én gang i timen. Dette problem forsvinder af sig selv, når termostaten melder måltemperaturen."
     }
   },
   "services": {

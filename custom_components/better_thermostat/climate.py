@@ -283,6 +283,7 @@ from .utils.watcher import (
     await_optional_sensors,
     check_and_update_degraded_mode,
     check_critical_entities,
+    get_device_errors,
     is_entity_available,
     is_trv_available,
     room_sensor_reading,
@@ -4018,7 +4019,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # where they are published.
             ATTR_STATE_HEATING_POWER: round(self.heating_power, 4),
             ATTR_STATE_HEAT_LOSS: round(self.heat_loss_rate, 5),
-            ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
+            ATTR_STATE_ERRORS: json.dumps(get_device_errors(self)),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
             ATTR_STATE_ROOM_TEMPERATURE_FILTERED: self.room_temperature_filtered,
             # Degraded mode: thermostat running with some sensors unavailable
