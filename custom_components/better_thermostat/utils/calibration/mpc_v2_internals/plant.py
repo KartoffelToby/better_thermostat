@@ -13,6 +13,7 @@ a linearised (A, B, d) discrete-time system used by Kalman and the QP.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import numpy as np
 
@@ -240,6 +241,8 @@ class PlantModelRC2:
         Solves the RC2 fixed point: the heat-loss balance fixes the radiator
         temperature, which fixes the valve fraction. The result is **not**
         clamped to ``[0, 1]`` — callers saturate it or test it for feasibility.
+        A setpoint that needs a radiator at or above the supply water is out of
+        reach at any valve opening and returns ``math.inf``.
 
         Parameters
         ----------
@@ -253,11 +256,17 @@ class PlantModelRC2:
         Returns
         -------
         float
-            Steady-state valve fraction (unclamped).
+            Steady-state valve fraction (unclamped); ``math.inf`` when no
+            valve fraction holds the setpoint.
         """
         p = self.params
         T_rad_ss = self.steady_radiator_temperature(
             T_setpoint, T_outdoor, D_hat_K_per_min
         )
-        denom = max(p.gain_heater * (p.T_water - T_rad_ss), 1e-6)
-        return (T_rad_ss - T_setpoint) / denom
+        heat_demand_K = T_rad_ss - T_setpoint
+        valve_drive = p.gain_heater * (p.T_water - T_rad_ss)
+        if valve_drive <= 0.0:
+            # The radiator would have to reach the supply water: a heat demand
+            # is unreachable, no demand is held with the valve shut.
+            return math.inf if heat_demand_K > 0.0 else 0.0
+        return heat_demand_K / valve_drive
