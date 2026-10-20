@@ -471,6 +471,12 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Valve Max Opening"
+      },
+      "off_temperature": {
+        "name": "Outdoor Temperature Threshold"
+      },
+      "tolerance": {
+        "name": "Tolerance"
       }
     },
     "switch": {

@@ -471,6 +471,12 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Ouverture maximale de la vanne"
+      },
+      "off_temperature": {
+        "name": "Seuil de température extérieure"
+      },
+      "tolerance": {
+        "name": "Tolérance"
       }
     },
     "switch": {

@@ -471,6 +471,12 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Maksimal ventilåbning"
+      },
+      "off_temperature": {
+        "name": "Udetemperaturgrænse"
+      },
+      "tolerance": {
+        "name": "Tolerance"
       }
     },
     "switch": {

@@ -471,6 +471,12 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Максимальное открытие клапана"
+      },
+      "off_temperature": {
+        "name": "Порог наружной температуры"
+      },
+      "tolerance": {
+        "name": "Гистерезис"
       }
     },
     "switch": {
