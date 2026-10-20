@@ -591,8 +591,11 @@ def _lookup_mpc_v2_reid(
 
     Only a result fitted under ``flow_temperature`` (°C) is returned: its
     heater gain carries whatever error the flow temperature of the fit had,
-    so under another one it misstates the room. The result stays stored and
-    applies again once that flow temperature is configured again.
+    so under another one it misstates the room. A mismatching result stays
+    stored and applies again if its flow temperature is configured again
+    before the next accepted fit. That fit is stored under ``reid_key`` with
+    the flow temperature configured at the time, so it replaces the result
+    and drops this thermostat's legacy bucket entries.
     """
     state_mgr = self.state_mgr
     if state_mgr is None:

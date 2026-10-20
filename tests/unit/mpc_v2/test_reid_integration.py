@@ -1063,3 +1063,52 @@ def test_the_reload_after_a_flow_temperature_change_keeps_the_observer_state() -
     assert reloaded.controller is not None
     assert reloaded.controller.plant_coarse.params.T_water == 40.0
     assert reloaded.controller.export_snapshot() == old.controller.export_snapshot()
+
+
+def test_a_fit_under_a_new_flow_temperature_replaces_the_old_result(
+    monkeypatch,
+) -> None:
+    """One result per thermostat: going back only helps before the next fit.
+
+    Under a new flow temperature the stored result stays put and applies
+    again when its own flow temperature comes back. The next accepted fit is
+    stored under the same key with the new flow temperature, and from then
+    on the old one finds nothing.
+    """
+    from custom_components.better_thermostat import calibration as cal
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import ReidOutcome
+
+    bt = _make_bt()
+    bt.hass = _FakeHass()
+    key, _runtime = _due_fit(bt)
+    mpc_key = "bt:climate.x:t21.0"
+    bt.state_mgr.adopt_mpc_v2_reid(key, replace(_REID, flow_temperature=65.0))
+
+    assert cal._lookup_mpc_v2_reid(bt, key, mpc_key, 40.0) is None
+    back = cal._lookup_mpc_v2_reid(bt, key, mpc_key, 65.0)
+    assert back is not None
+    assert back.flow_temperature == 65.0
+
+    def _fake_fit(samples, prior):
+        return ReidOutcome(
+            status="accepted",
+            tau_room_min=180.0,
+            gain_heater=1.5,
+            rmse_prior_K=0.4,
+            rmse_fit_K=0.1,
+            n_segments=4,
+            n_samples=300,
+        )
+
+    monkeypatch.setattr(cal, "run_reid_fit", _fake_fit)
+    cal._maybe_start_mpc_v2_reid_fit(
+        bt, key, MpcV2Params(plant=PlantParams(T_water=40.0))
+    )
+
+    assert [
+        data.flow_temperature for data in bt.state_mgr.state.mpc_v2_reid.values()
+    ] == [40.0]
+    assert cal._lookup_mpc_v2_reid(bt, key, mpc_key, 65.0) is None
+    fitted = cal._lookup_mpc_v2_reid(bt, key, mpc_key, 40.0)
+    assert fitted is not None
+    assert fitted.gain_heater == 1.5
