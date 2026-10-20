@@ -156,6 +156,7 @@ def _populated_state() -> RuntimeState:
                 rmse_prior_kelvin=0.31,
                 rmse_fit_kelvin=0.12,
                 n_segments=9,
+                flow_temperature=40.0,
             ),
             "bt:defaults": MpcV2ReidData(),
         },

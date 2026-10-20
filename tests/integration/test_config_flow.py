@@ -32,6 +32,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_CHILD_LOCK,
     CONF_COOLER,
     CONF_MODEL,
+    CONF_MPC_V2_FLOW_TEMPERATURE,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_OUTDOOR_SENSOR,
     CONF_PRESETS,
@@ -406,6 +407,9 @@ async def test_options_flow_keeps_the_settings_of_a_thermostat_left_alone(hass):
             {CONF_MPC_V2_PLANT_PRESET: "huge_room"},
             {CONF_MPC_V2_PLANT_PRESET: MpcV2PlantPreset.AUTO},
         ),
+        ({CONF_MPC_V2_FLOW_TEMPERATURE: 120.0}, {CONF_MPC_V2_FLOW_TEMPERATURE: 65.0}),
+        ({CONF_MPC_V2_FLOW_TEMPERATURE: "hot"}, {CONF_MPC_V2_FLOW_TEMPERATURE: 65.0}),
+        ({CONF_MPC_V2_FLOW_TEMPERATURE: "42"}, {CONF_MPC_V2_FLOW_TEMPERATURE: 42.0}),
     ],
     ids=[
         "output_the_device_no_longer_offers",
@@ -413,6 +417,9 @@ async def test_options_flow_keeps_the_settings_of_a_thermostat_left_alone(hass):
         "mode_null",
         "mode_unknown",
         "preset_unknown",
+        "flow_temperature_out_of_range",
+        "flow_temperature_not_a_number",
+        "flow_temperature_as_text",
     ],
 )
 async def test_the_advanced_step_accepts_what_it_prefills(hass, stored, expected):

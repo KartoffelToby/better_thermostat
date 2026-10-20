@@ -17,6 +17,7 @@ import math
 
 import numpy as np
 
+from ..plant_preset import DEFAULT_FLOW_TEMPERATURE
 from ._types import FloatArray
 
 # Plausible band for the two identifiable prior components, as
@@ -46,7 +47,7 @@ class PlantParams:
     tau_rad_min: float = 15.0
     gain_heater: float = 2.0
     coupling_rad_room: float = 1.0
-    T_water: float = 65.0
+    T_water: float = DEFAULT_FLOW_TEMPERATURE
     valve_command_delay_s: float = 0.0
 
 
