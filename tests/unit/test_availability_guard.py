@@ -126,6 +126,26 @@ class TestCheckCriticalEntitiesWithAGuard:
         (call,) = ir.async_delete_issue.call_args_list
         assert call.args[2].endswith(f"missing_entity_{TRV_ID}")
 
+    async def test_a_report_made_before_the_startup_grace_is_withdrawn_in_it(
+        self, thermostat
+    ):
+        """Startup arms its grace again after the TRVs may have been reported.
+
+        The grace defers new reports only, so a report already made still
+        goes when the guard turns off within it.
+        """
+        thermostat.devices_errors = [TRV_ID]
+        thermostat._critical_grace_until = thermostat.clock.now() + timedelta(minutes=5)
+        _world(thermostat, _guard("off", thermostat.clock.now()), "unavailable")
+
+        with patch(WATCHER_IR) as ir:
+            await check_critical_entities(thermostat)
+
+        assert thermostat.devices_errors == []
+        ir.async_create_issue.assert_not_called()
+        (call,) = ir.async_delete_issue.call_args_list
+        assert call.args[2].endswith(f"missing_entity_{TRV_ID}")
+
     async def test_a_trv_still_away_after_the_grace_period_is_reported(
         self, thermostat, caplog
     ):

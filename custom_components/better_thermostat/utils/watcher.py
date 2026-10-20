@@ -443,7 +443,7 @@ async def check_critical_entities(self: BetterThermostat) -> None:
     While the availability guard says the TRVs have no power, or has said
     they have it for less than its grace period, an unavailable TRV is not
     an error: it raises no issue, and one it raised before the guard turned
-    off is withdrawn. Should it still be unavailable once the guard has been
+    off is withdrawn, also during a startup grace period. Should it still be unavailable once the guard has been
     ``on`` for the grace period, it is reported then.
 
     When an entity becomes available again, any previously raised
@@ -457,15 +457,18 @@ async def check_critical_entities(self: BetterThermostat) -> None:
 
     for entity in critical:
         if not is_trv_available(self, entity):
-            if in_grace:
+            # The guard goes first: the startup grace only defers new
+            # reports, and a report made before it was armed again still
+            # goes with the guard.
+            if not reportable:
+                _withdraw_outage_report(self, entity)
+            elif in_grace:
                 _LOGGER.debug(
                     "better_thermostat %s: Critical entity %s is unavailable "
                     "during startup grace period; deferring repair issue",
                     self.device_name,
                     entity,
                 )
-            elif not reportable:
-                _withdraw_outage_report(self, entity)
             elif entity not in self.devices_errors:
                 # Both the log line and the repair announce the outage, so
                 # both follow the transition into it. The check runs on every
