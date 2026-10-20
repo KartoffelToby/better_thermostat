@@ -48,6 +48,8 @@ from .utils.calibration.plant_preset import (
     FLOW_TEMPERATURE_BOUNDS,
 )
 from .utils.const import (
+    CONF_AVAILABILITY_GUARD,
+    CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
     CONF_CHILD_LOCK,
@@ -77,6 +79,7 @@ from .utils.const import (
     CONF_WINDOW_OFF_DELAY,
     CONF_WINDOW_OFF_DELAY_AFTER,
     CONF_WINDOW_SENSORS,
+    DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
     DEFAULT_CALIBRATION_MODE,
     SIGNAL_CONFIG_CHANGED,
     TARGET_TEMP_BOUND_AUTO,
@@ -321,6 +324,8 @@ _UserDraft = TypedDict(  # noqa: UP013
         "humidity_sensor": str | None,
         "outdoor_sensor": str | None,
         "weather": str | None,
+        "availability_guard": str | None,
+        "availability_guard_grace_seconds": NotRequired[int],
         "window_off_delay": NotRequired[int],
         "window_off_delay_after": NotRequired[int],
         "door_off_delay": NotRequired[int],
@@ -449,6 +454,11 @@ def _merged_settings(
     merged[CONF_HUMIDITY_SENSOR] = draft[CONF_HUMIDITY_SENSOR]
     merged[CONF_OUTDOOR_SENSOR] = draft[CONF_OUTDOOR_SENSOR]
     merged[CONF_WEATHER] = draft[CONF_WEATHER]
+    merged[CONF_AVAILABILITY_GUARD] = draft[CONF_AVAILABILITY_GUARD]
+    if CONF_AVAILABILITY_GUARD_GRACE_SECONDS in draft:
+        merged[CONF_AVAILABILITY_GUARD_GRACE_SECONDS] = draft[
+            CONF_AVAILABILITY_GUARD_GRACE_SECONDS
+        ]
     if CONF_WINDOW_OFF_DELAY in draft:
         merged[CONF_WINDOW_OFF_DELAY] = draft[CONF_WINDOW_OFF_DELAY]
     if CONF_WINDOW_OFF_DELAY_AFTER in draft:
@@ -939,6 +949,18 @@ def _build_user_fields(
                 duration_default = None
         add_field(key, selector.DurationSelector(), default=duration_default)
 
+    add_entity_selector(
+        CONF_AVAILABILITY_GUARD, domain=["binary_sensor", "switch", "input_boolean"]
+    )
+    grace = resolve(
+        CONF_AVAILABILITY_GUARD_GRACE_SECONDS, DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS
+    )
+    add_field(
+        CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
+        selector.DurationSelector(),
+        default=grace if isinstance(grace, dict) else _seconds_to_duration_dict(grace),
+    )
+
     suggested_off_temperature = _off_temperature_default(system_unit)
     off_temperature_default = _int_or(
         resolve(CONF_OFF_TEMPERATURE, suggested_off_temperature),
@@ -1073,6 +1095,9 @@ def _normalize_user_submission(
         CONF_HUMIDITY_SENSOR: _entity_or_none(user_input.get(CONF_HUMIDITY_SENSOR)),
         CONF_OUTDOOR_SENSOR: _entity_or_none(user_input.get(CONF_OUTDOOR_SENSOR)),
         CONF_WEATHER: _entity_or_none(user_input.get(CONF_WEATHER)),
+        CONF_AVAILABILITY_GUARD: _entity_or_none(
+            user_input.get(CONF_AVAILABILITY_GUARD)
+        ),
         CONF_OFF_TEMPERATURE: _int_or(off_temperature, suggested_off_temperature),
         CONF_TOLERANCE: _float_or(
             submitted(CONF_TOLERANCE, tolerance_fallback), tolerance_fallback
@@ -1121,6 +1146,15 @@ def _normalize_user_submission(
         )
     elif is_create and CONF_DOOR_OFF_DELAY_AFTER not in base:
         normalized[CONF_DOOR_OFF_DELAY_AFTER] = 0
+
+    if CONF_AVAILABILITY_GUARD_GRACE_SECONDS in user_input:
+        normalized[CONF_AVAILABILITY_GUARD_GRACE_SECONDS] = _duration_dict_to_seconds(
+            user_input[CONF_AVAILABILITY_GUARD_GRACE_SECONDS]
+        )
+    elif is_create and CONF_AVAILABILITY_GUARD_GRACE_SECONDS not in base:
+        normalized[CONF_AVAILABILITY_GUARD_GRACE_SECONDS] = (
+            DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS
+        )
 
     if CONF_PRESETS in user_input:
         normalized[CONF_PRESETS] = _submitted_presets(user_input[CONF_PRESETS])

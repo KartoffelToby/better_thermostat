@@ -12,12 +12,18 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 import math
 from typing import TYPE_CHECKING, Final, TypedDict
 
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
+from homeassistant.const import (
+    STATE_OFF,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util.unit_conversion import TemperatureConverter
@@ -349,6 +355,61 @@ def get_optional_sensors(self: BetterThermostat) -> list[str]:
     return optional
 
 
+def should_report_unavailable_trvs(
+    guard: State | None, now: datetime, grace_seconds: float
+) -> bool:
+    """Decide whether an unavailable TRV is reported, as the availability guard sees it.
+
+    The guard is an entity that says whether the TRVs are expected to have
+    power: ``on`` when they are, ``off`` when the heating system that feeds
+    them is switched off. A TRV that is unavailable while it is expected to
+    be unpowered is not a fault. One that is still unavailable once the
+    guard has been ``on`` for the grace period is.
+
+    Parameters
+    ----------
+    guard : State | None
+        The guard's state, or ``None`` when no guard is configured or the
+        configured one does not exist.
+    now : datetime
+        The current time.
+    grace_seconds : float
+        How long after the guard turned ``on`` a TRV is given to come back.
+
+    Returns
+    -------
+    bool
+        True when an unavailable TRV is reported. Without a guard, and with a
+        guard in any state other than ``on`` or ``off``, it is: a guard that
+        says nothing cannot vouch for an outage.
+    """
+    if guard is None:
+        return True
+    if guard.state == STATE_OFF:
+        return False
+    if guard.state != STATE_ON:
+        return True
+    return now - guard.last_changed >= timedelta(seconds=grace_seconds)
+
+
+def availability_guard_state(self: BetterThermostat) -> State | None:
+    """Return the state of the configured availability guard, if there is one."""
+    guard_entity_id = self.availability_guard_entity_id
+    if guard_entity_id is None:
+        return None
+    return self.hass.states.get(guard_entity_id)
+
+
+def unavailable_trvs_reportable(self: BetterThermostat) -> bool:
+    """Return whether an unavailable TRV of this thermostat is reported now."""
+    guard = availability_guard_state(self)
+    if guard is None:
+        return True
+    return should_report_unavailable_trvs(
+        guard, self.clock.now(), self.availability_guard_grace_seconds
+    )
+
+
 def get_critical_entities(self: BetterThermostat) -> list[str]:
     """Return list of critical entity IDs.
 
@@ -379,6 +440,12 @@ async def check_critical_entities(self: BetterThermostat) -> None:
     (e.g. cloud-backed Tado valves) are given time to come online. The issue
     is created once the grace window elapses if the entity is still missing.
 
+    While the availability guard says the TRVs have no power, or has said
+    they have it for less than its grace period, an unavailable TRV is not
+    an error: it raises no issue, and one it raised before the guard turned
+    off is withdrawn, also during a startup grace period. Should it still be unavailable once the guard has been
+    ``on`` for the grace period, it is reported then.
+
     When an entity becomes available again, any previously raised
     ``missing_entity_*`` issue is cleared automatically (and idempotently,
     so stale issues from a previous run are also removed).
@@ -386,10 +453,16 @@ async def check_critical_entities(self: BetterThermostat) -> None:
     critical = get_critical_entities(self)
     grace_until = self._critical_grace_until
     in_grace = grace_until is not None and self.clock.now() < grace_until
+    reportable = unavailable_trvs_reportable(self)
 
     for entity in critical:
         if not is_trv_available(self, entity):
-            if in_grace:
+            # The guard goes first: the startup grace only defers new
+            # reports, and a report made before it was armed again still
+            # goes with the guard.
+            if not reportable:
+                _withdraw_outage_report(self, entity)
+            elif in_grace:
                 _LOGGER.debug(
                     "better_thermostat %s: Critical entity %s is unavailable "
                     "during startup grace period; deferring repair issue",
@@ -443,6 +516,40 @@ async def check_critical_entities(self: BetterThermostat) -> None:
                 entry_issue_id(self._config_entry_id, "missing_entity", entity),
             )
             refresh_battery_reading(self, entity, recovered=recovered)
+
+
+def _withdraw_outage_report(self: BetterThermostat, entity: str) -> None:
+    """Take back the error and the repair issue of a TRV the guard excuses.
+
+    The guard can turn off after the TRVs have dropped out, so a TRV may
+    already have been reported. The report goes with the guard rather than
+    with the TRV: the TRV is reported anew if it is still unavailable once
+    the guard has been on for its grace period.
+    """
+    if entity in self.devices_errors:
+        _LOGGER.info(
+            "better_thermostat %s: Critical entity %s is unavailable while the "
+            "availability guard %s does not expect it to be reachable; no longer "
+            "reported",
+            self.device_name,
+            entity,
+            self.availability_guard_entity_id,
+        )
+        self.devices_errors.remove(entity)
+        self.async_write_ha_state()
+    else:
+        _LOGGER.debug(
+            "better_thermostat %s: Critical entity %s is unavailable while the "
+            "availability guard %s does not expect it to be reachable",
+            self.device_name,
+            entity,
+            self.availability_guard_entity_id,
+        )
+    ir.async_delete_issue(
+        self.hass,
+        DOMAIN,
+        entry_issue_id(self._config_entry_id, "missing_entity", entity),
+    )
 
 
 def get_device_errors(self: BetterThermostat) -> list[str]:
