@@ -104,6 +104,7 @@ CREATED_OPTIONS = {
                 "calibration": "target_temp_based",
                 "calibration_mode": "pid_calibration",
                 "mpc_v2_plant_preset": "auto",
+                "mpc_v2_flow_temperature": 65.0,
                 "protect_overheating": True,
                 "no_off_system_mode": False,
                 "heat_auto_swapped": False,
@@ -121,6 +122,7 @@ CREATED_OPTIONS = {
                 "calibration": "target_temp_based",
                 "calibration_mode": "heating_power_calibration",
                 "mpc_v2_plant_preset": "small_room",
+                "mpc_v2_flow_temperature": 40.0,
                 "protect_overheating": False,
                 "no_off_system_mode": False,
                 "heat_auto_swapped": False,
@@ -162,7 +164,11 @@ async def test_the_create_flow_writes_the_frozen_options(hass):
         CREATE_USER_INPUT,
         [
             {"child_lock": True, "calibration_mode": "pid_calibration"},
-            {"protect_overheating": False, "mpc_v2_plant_preset": "small_room"},
+            {
+                "protect_overheating": False,
+                "mpc_v2_plant_preset": "small_room",
+                "mpc_v2_flow_temperature": 40,
+            },
         ],
     )
 
@@ -224,6 +230,7 @@ UPDATED_OPTIONS = {
                 "calibration": "target_temp_based",
                 "calibration_mode": "pid_calibration",
                 "mpc_v2_plant_preset": "auto",
+                "mpc_v2_flow_temperature": 65.0,
                 "protect_overheating": False,
                 "no_off_system_mode": False,
                 "heat_auto_swapped": False,
@@ -242,6 +249,7 @@ UPDATED_OPTIONS = {
                 "calibration": "target_temp_based",
                 "calibration_mode": "tpi_calibration",
                 "mpc_v2_plant_preset": "auto",
+                "mpc_v2_flow_temperature": 65.0,
                 "protect_overheating": True,
                 "no_off_system_mode": False,
                 "heat_auto_swapped": False,
@@ -328,7 +336,11 @@ async def test_a_refused_first_submission_leaves_nothing_behind(hass):
         CREATE_USER_INPUT,
         [
             {"child_lock": True, "calibration_mode": "pid_calibration"},
-            {"protect_overheating": False, "mpc_v2_plant_preset": "small_room"},
+            {
+                "protect_overheating": False,
+                "mpc_v2_plant_preset": "small_room",
+                "mpc_v2_flow_temperature": 40,
+            },
         ],
         refused_first=CREATE_USER_INPUT
         | {"target_temp_min": "min_max_30", "tolerance": 1.5, "presets": ["away"]},

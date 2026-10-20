@@ -147,7 +147,8 @@
       "fitted_ts": 1700000011.0,
       "n_segments": 9,
       "rmse_prior_K": 0.31,
-      "rmse_fit_K": 0.12
+      "rmse_fit_K": 0.12,
+      "flow_temperature": 40.0
     },
     "bt:defaults": {
       "tau_room_min": 0.0,
@@ -155,7 +156,8 @@
       "fitted_ts": 0.0,
       "n_segments": 0,
       "rmse_prior_K": 0.0,
-      "rmse_fit_K": 0.0
+      "rmse_fit_K": 0.0,
+      "flow_temperature": 65.0
     }
   },
   "pid": {

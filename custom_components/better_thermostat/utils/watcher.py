@@ -17,9 +17,16 @@ import logging
 import math
 from typing import TYPE_CHECKING, Final, TypedDict
 
-from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import (
+    STATE_OFF,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.core.fsm.control_mode import (
     LadderParams,
@@ -540,6 +547,134 @@ def _withdraw_outage_report(self: BetterThermostat, entity: str) -> None:
         DOMAIN,
         entry_issue_id(self._config_entry_id, "missing_entity", entity),
     )
+
+
+def get_device_errors(self: BetterThermostat) -> list[str]:
+    """Return the TRVs the thermostat's ``errors`` attribute lists.
+
+    A TRV is listed while it is unavailable and while it does not take the
+    setpoint Better Thermostat keeps writing to it, each TRV once.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+
+    Returns
+    -------
+    list[str]
+        Entity ids of the TRVs in error, the unavailable ones first
+    """
+    errors = list(self.devices_errors)
+    errors.extend(
+        entity_id
+        for entity_id, trv in self.real_trvs.items()
+        if trv.setpoint_unapplied_reported and entity_id not in errors
+    )
+    return errors
+
+
+def _displayed_temperature(self: BetterThermostat, celsius: float) -> str:
+    """Return a setpoint in °C as a repair issue shows it, in the system unit."""
+    unit = self.hass.config.units.temperature_unit
+    value = TemperatureConverter.convert(celsius, UnitOfTemperature.CELSIUS, unit)
+    return f"{round(value, 1)} {unit}"
+
+
+def report_unapplied_setpoint(
+    self: BetterThermostat,
+    entity_id: str,
+    wanted: float,
+    held: float,
+    retry_interval_seconds: float,
+) -> None:
+    """Report a TRV that does not take the setpoint written to it.
+
+    The TRV joins the thermostat's errors and gets a repair issue, once per
+    run of writes it did not take; ``clear_unapplied_setpoint`` takes both
+    back. Every further report of the run brings the issue's setpoints up to
+    date, so it names what the latest cycle wants and the TRV holds. The
+    registry leaves an issue whose shown values did not change untouched.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity id of the TRV
+    wanted : float
+        The setpoint in °C Better Thermostat writes
+    held : float
+        The setpoint in °C the TRV reports instead
+    retry_interval_seconds : float
+        How long Better Thermostat waits before it writes the setpoint again
+    """
+    trv = self.real_trvs[entity_id]
+    first_report = not trv.setpoint_unapplied_reported
+    if first_report:
+        trv.setpoint_unapplied_reported = True
+        _LOGGER.warning(
+            "better_thermostat %s: TRV %s did not take the target temperature %s "
+            "after %d writes and reports %s; writing it again every %.0f minutes "
+            "at most",
+            self.device_name,
+            entity_id,
+            wanted,
+            trv.unapplied_setpoint_writes,
+            held,
+            retry_interval_seconds / 60.0,
+        )
+    ir.async_create_issue(
+        hass=self.hass,
+        domain=DOMAIN,
+        issue_id=entry_issue_id(
+            self._config_entry_id, "setpoint_not_applied", entity_id
+        ),
+        is_fixable=False,
+        is_persistent=False,
+        learn_more_url="https://better-thermostat.org/faq/setpoint-not-applied",
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="setpoint_not_applied",
+        translation_placeholders={
+            "name": self.device_name,
+            "entity": entity_id,
+            "wanted": _displayed_temperature(self, wanted),
+            "held": _displayed_temperature(self, held),
+        },
+    )
+    if first_report:
+        self.async_write_ha_state()
+
+
+def clear_unapplied_setpoint(self: BetterThermostat, entity_id: str) -> None:
+    """End a TRV's run of setpoint writes it did not take.
+
+    Called when the TRV is seen holding what Better Thermostat wants or last
+    wrote. A raised report is taken back with the run.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity id of the TRV
+    """
+    trv = self.real_trvs[entity_id]
+    trv.unapplied_setpoint_writes = 0
+    if not trv.setpoint_unapplied_reported:
+        return
+    trv.setpoint_unapplied_reported = False
+    _LOGGER.info(
+        "better_thermostat %s: TRV %s holds the target temperature again",
+        self.device_name,
+        entity_id,
+    )
+    ir.async_delete_issue(
+        self.hass,
+        DOMAIN,
+        entry_issue_id(self._config_entry_id, "setpoint_not_applied", entity_id),
+    )
+    self.async_write_ha_state()
 
 
 # Default delays for the optional-sensor startup retry loop.

@@ -286,6 +286,7 @@ from .utils.watcher import (
     await_optional_sensors,
     check_and_update_degraded_mode,
     check_critical_entities,
+    get_device_errors,
     is_entity_available,
     is_trv_available,
     room_sensor_reading,
@@ -884,6 +885,45 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """Return the configured tolerance in Kelvin."""
         return self.config.tolerance
 
+    def apply_live_settings(self, settings: BtSettings) -> None:
+        """Take the outdoor threshold and the tolerance from ``settings``.
+
+        Both are read the way setup reads them, and both take effect without
+        a reload. A changed threshold runs the outdoor check again, which
+        requests a control cycle when its decision flips; a changed tolerance
+        requests a control cycle. While the startup sequence runs, its own
+        checks and its first cycle read the new values.
+
+        Parameters
+        ----------
+        settings : BtSettings
+            The entry's settings, parsed.
+        """
+        config = replace(
+            self.config,
+            off_temperature=_configured_off_temperature(
+                settings.get(CONF_OFF_TEMPERATURE), self.device_name, self._unit
+            ),
+            tolerance=_configured_tolerance(
+                settings.get(CONF_TOLERANCE), self.device_name, self._unit
+            ),
+        )
+        if config == self.config:
+            return
+        threshold_changed = config.off_temperature != self.config.off_temperature
+        tolerance_changed = config.tolerance != self.config.tolerance
+        self.config = config
+        self.async_write_ha_state()
+        if self.startup_running:
+            return
+        if threshold_changed:
+            self._spawn_owned(
+                self._trigger_check_weather(self.clock.utcnow()),
+                name=f"bt_outdoor_threshold_{self.device_name}",
+            )
+        if tolerance_changed and self.bt_hvac_mode != HVACMode.OFF:
+            request_control_cycle(self)
+
     @property
     def availability_guard_entity_id(self) -> str | None:
         """Return the entity that says whether the TRVs have power."""
@@ -1132,6 +1172,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.all_trvs: list[TrvSettings] = trv_configs
         # Static configuration and live runtime values each get a container;
         # the flat attribute names delegate into them via properties.
+        # apply_live_settings replaces the configuration as a whole.
         self.config = config
         self.runtime = BtRuntime()
         self._unique_id = unique_id
@@ -4046,7 +4087,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # where they are published.
             ATTR_STATE_HEATING_POWER: round(self.heating_power, 4),
             ATTR_STATE_HEAT_LOSS: round(self.heat_loss_rate, 5),
-            ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
+            ATTR_STATE_ERRORS: json.dumps(get_device_errors(self)),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
             ATTR_STATE_ROOM_TEMPERATURE_FILTERED: self.room_temperature_filtered,
             # Degraded mode: thermostat running with some sensors unavailable

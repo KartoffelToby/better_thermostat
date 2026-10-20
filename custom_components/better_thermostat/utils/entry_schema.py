@@ -58,6 +58,7 @@ from .const import (
     CONF_HUMIDITY_SENSOR,
     CONF_INTEGRATION,
     CONF_MODEL,
+    CONF_MPC_V2_FLOW_TEMPERATURE,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_NO_OFF_SYSTEM_MODE,
     CONF_OFF_TEMPERATURE,
@@ -87,13 +88,16 @@ type StoredChoice = str | int | float | None
 # numbers there (``calibration_mode`` 0 for the default mode) or ``None``.
 # ``balance_mode`` is the setting ``calibration_mode`` replaced; entries that
 # predate it still carry it and it is still read. A flag stored as ``None`` is
-# left out, which every reader takes the same way as ``None``.
+# left out, which every reader takes the same way as ``None``. The flow
+# temperature is in the system unit and kept as stored, like the numbers of
+# the settings below.
 TrvAdvanced = TypedDict(  # noqa: UP013
     "TrvAdvanced",
     {
         "calibration": StoredChoice,
         "calibration_mode": StoredChoice,
         "mpc_v2_plant_preset": StoredChoice,
+        "mpc_v2_flow_temperature": str | float | None,
         "protect_overheating": bool,
         "no_off_system_mode": bool,
         "heat_auto_swapped": bool,
@@ -302,6 +306,10 @@ def _parse_advanced(value: object, where: str) -> TrvAdvanced:
     for choice_key in _CHOICE_KEYS:
         if choice_key in raw:
             advanced[choice_key] = _choice(raw[choice_key], f"{where}.{choice_key}")
+    if CONF_MPC_V2_FLOW_TEMPERATURE in raw:
+        advanced[CONF_MPC_V2_FLOW_TEMPERATURE] = _number_or_text(
+            raw[CONF_MPC_V2_FLOW_TEMPERATURE], f"{where}.{CONF_MPC_V2_FLOW_TEMPERATURE}"
+        )
     for flag_key in _FLAG_KEYS:
         flag = raw.get(flag_key)
         if flag is not None:

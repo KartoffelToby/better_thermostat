@@ -63,6 +63,7 @@ from .calibration.mpc_v2.reid import ReidBuffer
 from .calibration.mpc_v2.state import MpcV2Payload
 from .calibration.mpc_v2_internals.plant import GAIN_HEATER_BOUNDS, TAU_ROOM_BOUNDS_MIN
 from .calibration.pid import PIDState
+from .calibration.plant_preset import DEFAULT_FLOW_TEMPERATURE
 from .calibration.tpi import TpiState
 from .const import (
     DOMAIN,
@@ -119,7 +120,10 @@ class MpcV2ReidData:
 
     Carries the fitted plant-prior components plus the validation metrics
     of the accepting fit; the sample buffer that produced it is in-memory
-    only and never persisted.
+    only and never persisted. ``flow_temperature`` is the supply water
+    temperature in °C the fit simulated the room with: the fitted gain
+    absorbs any error in it, so the result only describes the room under
+    that flow temperature.
     """
 
     tau_room_minutes: float = 0.0
@@ -128,6 +132,7 @@ class MpcV2ReidData:
     rmse_prior_kelvin: float = 0.0
     rmse_fit_kelvin: float = 0.0
     n_segments: int = 0
+    flow_temperature: float = DEFAULT_FLOW_TEMPERATURE
 
 
 @dataclass
@@ -354,6 +359,7 @@ def write_mpc_v2_reid(data: MpcV2ReidData) -> StoredMpcV2Reid:
         "n_segments": data.n_segments,
         "rmse_prior_K": data.rmse_prior_kelvin,
         "rmse_fit_K": data.rmse_fit_kelvin,
+        "flow_temperature": data.flow_temperature,
     }
 
 
@@ -948,8 +954,8 @@ def deserialize_mpc_v2_reid(
     plant-prior lookup moves on: to another stored result sharing this
     entity's key prefix, and failing that to the heat-loss-derived prior.
 
-    Three checks reject an entry. A NaN or infinity in one of the five
-    float fields; a stored ``null`` in any of the six, since none of them
+    Three checks reject an entry. A NaN or infinity in one of the six
+    float fields; a stored ``null`` in any of the seven, since none of them
     is declared to hold one; and a ``tau_room_minutes`` or ``gain_heater``
     outside :data:`TAU_ROOM_BOUNDS_MIN` / :data:`GAIN_HEATER_BOUNDS`,
     inclusive at both ends, since those two are the pair that seeds the
@@ -961,7 +967,8 @@ def deserialize_mpc_v2_reid(
     stored value as a learned result sitting at the edge of the band.
 
     A float field that does not parse keeps its default, which leaves the
-    entry usable as the schema grows. ``n_segments`` is metadata: a value
+    entry usable as the schema grows. An entry without a flow temperature
+    was fitted with the default one. ``n_segments`` is metadata: a value
     that is not a storable count falls back to 0 and the entry survives —
     except a null, which is refused there as in every other field.
 
@@ -996,6 +1003,9 @@ def deserialize_mpc_v2_reid(
                 "rmse_fit_kelvin", number, held.rmse_fit_kelvin
             ),
             n_segments=read.required("n_segments", _stored_tally, held.n_segments),
+            flow_temperature=read.required(
+                "flow_temperature", number, held.flow_temperature
+            ),
         )
     except _PoisonedStateError as error:
         _discard_poisoned_entry(error, "mpc_v2_reid", key, poisoned)

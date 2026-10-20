@@ -62,7 +62,8 @@
           "calibration": "Type de calibrage",
           "calibration_mode": "Mode de calibrage",
           "no_off_system_mode": "Utiliser la température minimale au lieu de « arrêt »",
-          "mpc_v2_plant_preset": "MPC v2 taille de la pièce"
+          "mpc_v2_plant_preset": "MPC v2 taille de la pièce",
+          "mpc_v2_flow_temperature": "MPC v2 température de départ"
         },
         "data_description": {
           "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
@@ -73,7 +74,8 @@
           "calibration": "Comment le calibrage est appliqué sur le TRV\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage de température. Proposé uniquement si le TRV a un décalage de température modifiable.\n***Commande directe de la vanne*** : Régler directement l'ouverture de la vanne. Proposé uniquement si le TRV a une position de vanne modifiable. Les modes de calibrage qui ne calculent pas d'ouverture de vanne envoient une température cible à la place.",
           "calibration_mode": "Comment le calibrage est calculé\n***IA basée sur le temps (par défaut)*** : Apprend au fil du temps la puissance de chauffe de la pièce et en déduit le calibrage.\n***Décalage du capteur externe uniquement*** : Corrige le capteur interne du TRV avec votre capteur de température externe. Aucun régulateur ne s'ajoute par-dessus.\n***MPC prédictif (bêta)*** : Prédit la température de la pièce et en déduit une ouverture de vanne. Apprend le comportement thermique de la pièce.\n***(IA) MPC v2 (QP + Kalman, expérimental)*** : Estime l'état de la pièce avec un filtre de Kalman et calcule une ouverture de vanne avec un régulateur à modèle prédictif. Le réglage MPC v2 taille de la pièce choisit le modèle de la pièce : appris dans la pièce (Auto) ou fixe pour une taille de pièce (petite, moyenne, grande).\n***Agressif*** : Ajoute un supplément au calibrage tant que la pièce chauffe et saute le délai de tolérance, pour que le TRV commence à chauffer plus tôt. Utile si votre pièce chauffe lentement.\n***Contrôleur TPI*** : Calcule la durée d'enclenchement des cycles de chauffe à partir de l'écart de température.\n***Contrôleur PID*** : Calcule une ouverture de vanne à partir de l'écart de température avec un terme proportionnel, intégral et dérivé.\n***Sans étalonnage*** : Envoie la température cible au TRV sans la modifier et n'applique aucune correction.",
           "no_off_system_mode": "Avec cette option, Better Thermostat envoie au TRV sa température minimale au lieu de « arrêt ». Un TRV qui indique sa température minimale est considéré comme éteint : dès que tous les TRV de la pièce sont éteints, la pièce s'éteint, et tourner une molette vers le haut la rallume. Un tour de molette pendant qu'une fenêtre ou une porte est ouverte compte aussi ; le chauffage attend alors que toutes les fenêtres et portes soient fermées. Un TRV sans mode « arrêt » reçoit sa température minimale même sans cette option. Activez-la pour un TRV dont le mode « arrêt » ne fonctionne pas, ou pour un TRV sans mode « arrêt » dont la molette doit allumer et éteindre Better Thermostat.",
-          "mpc_v2_plant_preset": "Utilisé uniquement par le mode de calibrage MPC v2.\n***Auto*** : Déduit le modèle de la pièce de ce que Better Thermostat a appris sur elle, par exemple son taux de déperdition thermique.\n***Petite, moyenne ou grande pièce*** : Part d'un modèle de pièce fixe pour cette taille de pièce."
+          "mpc_v2_plant_preset": "Utilisé uniquement par le mode de calibrage MPC v2.\n***Auto*** : Déduit le modèle de la pièce de ce que Better Thermostat a appris sur elle, par exemple son taux de déperdition thermique.\n***Petite, moyenne ou grande pièce*** : Part d'un modèle de pièce fixe pour cette taille de pièce.",
+          "mpc_v2_flow_temperature": "Utilisé uniquement par le mode de calibrage MPC v2. La température de l'eau de chauffage qui alimente les radiateurs. Gardez 65 °C (149 °F) pour une chaudière à courbe de chauffe fixe. Pour une pompe à chaleur ou une chaudière à régulation climatique, saisissez une valeur typique de la saison de chauffe, par exemple 35 à 45 °C (95 à 113 °F). Après une modification, MPC v2 réapprend le modèle de la pièce avec la nouvelle valeur."
         }
       },
       "confirm": {
@@ -163,7 +165,8 @@
           "calibration": "Le type de calibrage que vous souhaitez utiliser",
           "calibration_mode": "Mode de calibrage",
           "no_off_system_mode": "Utiliser la température minimale au lieu de « arrêt »",
-          "mpc_v2_plant_preset": "MPC v2 taille de la pièce"
+          "mpc_v2_plant_preset": "MPC v2 taille de la pièce",
+          "mpc_v2_flow_temperature": "MPC v2 température de départ"
         },
         "data_description": {
           "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
@@ -174,7 +177,8 @@
           "calibration": "Comment le calibrage est appliqué sur le TRV\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage de température. Proposé uniquement si le TRV a un décalage de température modifiable.\n***Commande directe de la vanne*** : Régler directement l'ouverture de la vanne. Proposé uniquement si le TRV a une position de vanne modifiable. Les modes de calibrage qui ne calculent pas d'ouverture de vanne envoient une température cible à la place.",
           "calibration_mode": "Comment le calibrage est calculé\n***IA basée sur le temps (par défaut)*** : Apprend au fil du temps la puissance de chauffe de la pièce et en déduit le calibrage.\n***Décalage du capteur externe uniquement*** : Corrige le capteur interne du TRV avec votre capteur de température externe. Aucun régulateur ne s'ajoute par-dessus.\n***MPC prédictif (bêta)*** : Prédit la température de la pièce et en déduit une ouverture de vanne. Apprend le comportement thermique de la pièce.\n***(IA) MPC v2 (QP + Kalman, expérimental)*** : Estime l'état de la pièce avec un filtre de Kalman et calcule une ouverture de vanne avec un régulateur à modèle prédictif. Le réglage MPC v2 taille de la pièce choisit le modèle de la pièce : appris dans la pièce (Auto) ou fixe pour une taille de pièce (petite, moyenne, grande).\n***Agressif*** : Ajoute un supplément au calibrage tant que la pièce chauffe et saute le délai de tolérance, pour que le TRV commence à chauffer plus tôt. Utile si votre pièce chauffe lentement.\n***Contrôleur TPI*** : Calcule la durée d'enclenchement des cycles de chauffe à partir de l'écart de température.\n***Contrôleur PID*** : Calcule une ouverture de vanne à partir de l'écart de température avec un terme proportionnel, intégral et dérivé.\n***Sans étalonnage*** : Envoie la température cible au TRV sans la modifier et n'applique aucune correction.",
           "no_off_system_mode": "Avec cette option, Better Thermostat envoie au TRV sa température minimale au lieu de « arrêt ». Un TRV qui indique sa température minimale est considéré comme éteint : dès que tous les TRV de la pièce sont éteints, la pièce s'éteint, et tourner une molette vers le haut la rallume. Un tour de molette pendant qu'une fenêtre ou une porte est ouverte compte aussi ; le chauffage attend alors que toutes les fenêtres et portes soient fermées. Un TRV sans mode « arrêt » reçoit sa température minimale même sans cette option. Activez-la pour un TRV dont le mode « arrêt » ne fonctionne pas, ou pour un TRV sans mode « arrêt » dont la molette doit allumer et éteindre Better Thermostat.",
-          "mpc_v2_plant_preset": "Utilisé uniquement par le mode de calibrage MPC v2.\n***Auto*** : Déduit le modèle de la pièce de ce que Better Thermostat a appris sur elle, par exemple son taux de déperdition thermique.\n***Petite, moyenne ou grande pièce*** : Part d'un modèle de pièce fixe pour cette taille de pièce."
+          "mpc_v2_plant_preset": "Utilisé uniquement par le mode de calibrage MPC v2.\n***Auto*** : Déduit le modèle de la pièce de ce que Better Thermostat a appris sur elle, par exemple son taux de déperdition thermique.\n***Petite, moyenne ou grande pièce*** : Part d'un modèle de pièce fixe pour cette taille de pièce.",
+          "mpc_v2_flow_temperature": "Utilisé uniquement par le mode de calibrage MPC v2. La température de l'eau de chauffage qui alimente les radiateurs. Gardez 65 °C (149 °F) pour une chaudière à courbe de chauffe fixe. Pour une pompe à chaleur ou une chaudière à régulation climatique, saisissez une valeur typique de la saison de chauffe, par exemple 35 à 45 °C (95 à 113 °F). Après une modification, MPC v2 réapprend le modèle de la pièce avec la nouvelle valeur."
         }
       }
     },
@@ -214,6 +218,10 @@
     "shared_trv": {
       "title": "BT : {trv} est contrôlé par plusieurs Better Thermostat",
       "description": "Le thermostat {trv} appartient à ces Better Thermostat : {entries}. Ils lui envoient des consignes et des modes concurrents. Retirez-le de tous sauf un dans leurs paramètres ; ce problème disparaît ensuite de lui-même."
+    },
+    "setpoint_not_applied": {
+      "title": "BT : {name} - {entity} n'applique pas la température cible",
+      "description": "Better Thermostat écrit à plusieurs reprises la température cible {wanted} sur {entity}, mais le thermostat indique toujours {held}. La pièce n'est pas chauffée comme Better Thermostat le prévoit.\n\nCauses fréquentes :\n- Le thermostat a sa propre limite de consigne, inférieure au maximum qu'il publie, par exemple `max_heat_setpoint_limit` dans Zigbee2MQTT.\n- Le thermostat est dans un mode ou un préréglage dans lequel il ignore les températures cibles, comme un mode programmé.\n- Le thermostat a perdu sa connexion radio ou sa batterie est faible.\n\nBetter Thermostat continue d'écrire la température cible, au plus une fois par heure. Ce problème disparaît de lui-même dès que le thermostat indique la température cible."
     }
   },
   "services": {
@@ -479,6 +487,12 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Ouverture maximale de la vanne"
+      },
+      "off_temperature": {
+        "name": "Seuil de température extérieure"
+      },
+      "tolerance": {
+        "name": "Tolérance"
       }
     },
     "switch": {

@@ -65,6 +65,28 @@ temperature has dropped 1 °C (1.8 °F) below the threshold. With a threshold of
 thermostats turn off at 18 °C and back on at 17 °C. An outdoor temperature that hovers around
 the threshold therefore does not switch the thermostats on and off repeatedly.
 
+## Changing the threshold
+
+The threshold is set in the device's settings and is also the **Outdoor Temperature Threshold**
+number on the device page. Both hold the same value: a change in either shows in the other.
+A new threshold takes effect at once, without restarting the device: Better Thermostat checks
+the outdoor temperature against it right away. To use one threshold for several rooms, let an
+automation set the number of each device, for example from an `input_number` helper:
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: input_number.outdoor_threshold
+actions:
+  - action: number.set_value
+    target:
+      entity_id:
+        - number.living_room_outdoor_temperature_threshold
+        - number.bedroom_outdoor_temperature_threshold
+    data:
+      value: "{{ states('input_number.outdoor_threshold') }}"
+```
+
 ## Checking the decision
 
 - **The `call_for_heat` attribute.** Open **Developer Tools → States** and select the Better

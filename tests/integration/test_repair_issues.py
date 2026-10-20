@@ -156,7 +156,7 @@ async def test_a_trv_still_missing_after_a_reload_is_reported_again(hass, trv_gr
         entry, absent = await start_with_a_head_gone(hass, trv_group)
         old_thermostat = entry.runtime_data.climate
 
-        await change_the_options(hass, entry, tolerance=0.5)
+        await change_the_options(hass, entry, presets=["eco"])
         assert await wait_for(hass, lambda: bt_issues(hass))
 
     assert entry.runtime_data.climate is not old_thermostat
