@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .utils.const import (
+    CONF_AVAILABILITY_GUARD,
     CONF_COOLER,
     CONF_DOOR_SENSORS,
     CONF_HUMIDITY_SENSOR,
@@ -50,6 +51,7 @@ _SENSOR_KEYS = (
     CONF_DOOR_SENSORS,
     CONF_COOLER,
     CONF_WEATHER,
+    CONF_AVAILABILITY_GUARD,
 )
 
 

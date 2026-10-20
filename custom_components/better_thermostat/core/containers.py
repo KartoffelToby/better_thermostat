@@ -39,6 +39,8 @@ class BtConfig:
     outdoor_sensor_entity_id: str | None = None
     off_temperature: float | None = None
     tolerance: float = 0.0
+    availability_guard_entity_id: str | None = None
+    availability_guard_grace_seconds: float = 0.0
 
 
 @dataclass

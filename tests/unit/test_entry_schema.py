@@ -65,6 +65,8 @@ def _full() -> dict[str, object]:
         "door_sensors": None,
         "outdoor_sensor": "sensor.outdoor",
         "weather": None,
+        "availability_guard": "binary_sensor.heat_pump_powered",
+        "availability_guard_grace_seconds": 900,
         "window_off_delay": 30,
         "window_off_delay_after": 0,
         "door_off_delay": 15.5,
@@ -90,6 +92,7 @@ def test_every_described_key_survives_parsing():
 
 
 _NUMBER_KEYS = (
+    "availability_guard_grace_seconds",
     "window_off_delay",
     "window_off_delay_after",
     "door_off_delay",
@@ -255,6 +258,8 @@ def test_the_described_keys_are_the_ones_the_constants_hold():
         const.CONF_DOOR_SENSORS,
         const.CONF_OUTDOOR_SENSOR,
         const.CONF_WEATHER,
+        const.CONF_AVAILABILITY_GUARD,
+        const.CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
         const.CONF_WINDOW_OFF_DELAY,
         const.CONF_WINDOW_OFF_DELAY_AFTER,
         const.CONF_DOOR_OFF_DELAY,

@@ -26,6 +26,11 @@ DOMAIN: Final = "better_thermostat"
 
 DEFAULT_NAME: Final = "Better Thermostat"
 
+# How long a TRV may stay unavailable after the availability guard turns on
+# before it is reported. Thermostats powered from the heating system boot and
+# rejoin their network in that time.
+DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS: Final = 600
+
 # ``hass.data`` key holding, per entry and platform, the thermostat name the
 # entity ids were last built from. It outlives the reload it describes and is
 # dropped when the entry is removed.
@@ -66,6 +71,8 @@ CONF_WINDOW_OFF_DELAY_AFTER: Final = "window_off_delay_after"
 CONF_DOOR_OFF_DELAY: Final = "door_off_delay"
 CONF_DOOR_OFF_DELAY_AFTER: Final = "door_off_delay_after"
 CONF_OUTDOOR_SENSOR: Final = "outdoor_sensor"
+CONF_AVAILABILITY_GUARD: Final = "availability_guard"
+CONF_AVAILABILITY_GUARD_GRACE_SECONDS: Final = "availability_guard_grace_seconds"
 CONF_VALVE_MAINTENANCE: Final = "valve_maintenance"
 CONF_MIN_TEMP: Final = "min_temp"
 CONF_MAX_TEMP: Final = "max_temp"

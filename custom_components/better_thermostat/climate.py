@@ -152,6 +152,8 @@ from .utils.const import (
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_ROOM_TEMPERATURE_FILTERED,
     ATTR_STATE_WINDOW_OPEN,
+    CONF_AVAILABILITY_GUARD,
+    CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
     CONF_CHILD_LOCK,
     CONF_COOLER,
     CONF_DOOR_OFF_DELAY,
@@ -172,6 +174,7 @@ from .utils.const import (
     CONF_WINDOW_OFF_DELAY,
     CONF_WINDOW_OFF_DELAY_AFTER,
     CONF_WINDOW_SENSORS,
+    DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
     DEFAULT_MAX_TEMP,
     DEFAULT_MIN_TEMP,
     DEFAULT_TARGET_TEMP,
@@ -286,6 +289,7 @@ from .utils.watcher import (
     is_entity_available,
     is_trv_available,
     room_sensor_reading,
+    unavailable_trvs_reportable,
 )
 from .utils.weather import DampedSource, check_ambient_air_temperature, check_weather
 
@@ -516,6 +520,32 @@ def _configured_delay(value: str | float | None, device_name: str, field: str) -
     return 0.0
 
 
+def _configured_availability_guard_grace(
+    value: str | float | None, device_name: str
+) -> float:
+    """Return the configured availability guard grace period in seconds.
+
+    An entry that carries none takes the default. One that does not read as
+    a finite number, or a negative one, is logged and takes the default too.
+    """
+    if value is None or value == "":
+        return float(DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS)
+    try:
+        grace = float(value)
+    except ValueError:
+        grace = math.nan
+    if math.isfinite(grace) and grace >= 0:
+        return grace
+    _LOGGER.warning(
+        "better_thermostat %s: invalid %s '%s', using %d seconds",
+        device_name,
+        CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
+        value,
+        DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
+    )
+    return float(DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS)
+
+
 def _configured_temperature_bound(
     value: str | float | None, device_name: str, field: str
 ) -> float | None:
@@ -666,6 +696,10 @@ def _configured_bt_config(settings: BtSettings, unit: UnitOfTemperature) -> BtCo
             settings.get(CONF_OFF_TEMPERATURE), name, unit
         ),
         tolerance=_configured_tolerance(settings.get(CONF_TOLERANCE), name, unit),
+        availability_guard_entity_id=settings.get(CONF_AVAILABILITY_GUARD) or None,
+        availability_guard_grace_seconds=_configured_availability_guard_grace(
+            settings.get(CONF_AVAILABILITY_GUARD_GRACE_SECONDS), name
+        ),
     )
 
 
@@ -849,6 +883,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     def tolerance(self) -> float:
         """Return the configured tolerance in Kelvin."""
         return self.config.tolerance
+
+    @property
+    def availability_guard_entity_id(self) -> str | None:
+        """Return the entity that says whether the TRVs have power."""
+        return self.config.availability_guard_entity_id
+
+    @property
+    def availability_guard_grace_seconds(self) -> float:
+        """Return how long a TRV may stay away after the guard turns on."""
+        return self.config.availability_guard_grace_seconds
 
     @property
     def room_temperature(self) -> float | None:
@@ -1857,6 +1901,18 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     async def _trigger_door_change(self, event: Event[EventStateChangedData]) -> None:
         await self._trigger_contact_change(event, trigger_door_change, "door")
 
+    async def _trigger_availability_guard_change(
+        self, event: Event[EventStateChangedData]
+    ) -> None:
+        """Report or withdraw TRV outages as the availability guard changes.
+
+        A guard that turns off withdraws the reports of the TRVs that are
+        away, and one that stops answering reports them. One that turns on
+        reports them once its grace period has passed, which the ladder tick
+        notices: it checks the TRVs every minute.
+        """
+        await check_critical_entities(self)
+
     async def _trigger_cooler_change(self, event: Event[EventStateChangedData]) -> None:
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
@@ -2013,8 +2069,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     entity_id,
                 )
             return False
+        # A TRV the availability guard does not expect to be reachable is no
+        # fault, so starting without it is no warning either.
+        level = logging.WARNING if unavailable_trvs_reportable(self) else logging.INFO
         for entity_id in unavailable:
-            _LOGGER.warning(
+            _LOGGER.log(
+                level,
                 "better_thermostat %s: TRV/climate entity '%s' is still unavailable "
                 "after the startup grace window; starting without it, it is "
                 "initialised as soon as it reports again",
@@ -3414,6 +3474,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     self.hass,
                     [self.outdoor_sensor_entity_id],
                     self._trigger_outdoor_change,
+                )
+            )
+        if self.availability_guard_entity_id is not None:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    [self.availability_guard_entity_id],
+                    self._trigger_availability_guard_change,
                 )
             )
         # One keepalive right away, so a TRV that mirrors the room temperature

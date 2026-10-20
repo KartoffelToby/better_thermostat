@@ -178,6 +178,13 @@ definition = "Entity id of the outdoor temperature sensor."
 rejected = ["outdoor_sensor"]
 
 [[term]]
+name = "availability_guard_entity_id"
+zone = "A"
+definition = "Entity id of the entity that says whether the TRVs are expected to have power: on while they are, off while the heating system that feeds them is switched off."
+rejected = ["availability_guard"]
+note = "`availability_guard` is the key the setting is stored under; an identifier holding the entity id carries the suffix."
+
+[[term]]
 name = "trv"
 zone = "A"
 definition = "The `Trv` object."

@@ -25,6 +25,7 @@ from .conftest import (
 from .device_profiles import GENERIC_HEAT_TRV, SPARE_HEAT_TRV, SPARE_TRV_ID, TRV_ID
 
 ENTRY_NAME = "Stored Room"
+GUARD_ID = "binary_sensor.heat_pump_powered"
 
 
 def _serialised(options) -> str:
@@ -81,6 +82,8 @@ CREATE_USER_INPUT = {
     "window_sensors": WINDOW_ID,
     "window_off_delay": {"hours": 0, "minutes": 2, "seconds": 5},
     "window_off_delay_after": {"hours": 0, "minutes": 0, "seconds": 30},
+    "availability_guard": GUARD_ID,
+    "availability_guard_grace_seconds": {"hours": 0, "minutes": 15, "seconds": 0},
     "off_temperature": 18,
     "presets": ["comfort", "eco"],
     "tolerance": 0.4,
@@ -134,6 +137,8 @@ CREATED_OPTIONS = {
     "humidity_sensor": None,
     "outdoor_sensor": None,
     "weather": None,
+    "availability_guard": GUARD_ID,
+    "availability_guard_grace_seconds": 900,
     "window_off_delay": 125,
     "window_off_delay_after": 30,
     "door_off_delay": 0,
@@ -260,6 +265,8 @@ UPDATED_OPTIONS = {
     "humidity_sensor": None,
     "outdoor_sensor": None,
     "weather": None,
+    "availability_guard": None,
+    "availability_guard_grace_seconds": 600,
     "window_off_delay_after": 0,
     "door_off_delay": 0,
     "door_off_delay_after": 0,

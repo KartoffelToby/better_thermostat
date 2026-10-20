@@ -44,6 +44,8 @@ from homeassistant.const import CONF_NAME
 
 from .advanced_flags import as_bool
 from .const import (
+    CONF_AVAILABILITY_GUARD,
+    CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
     CONF_CHILD_LOCK,
@@ -133,6 +135,8 @@ BtSettings = TypedDict(  # noqa: UP013
         "door_sensors": NotRequired[str | None],
         "outdoor_sensor": NotRequired[str | None],
         "weather": NotRequired[str | None],
+        "availability_guard": NotRequired[str | None],
+        "availability_guard_grace_seconds": NotRequired[str | float | None],
         "window_off_delay": NotRequired[str | float | None],
         "window_off_delay_after": NotRequired[str | float | None],
         "door_off_delay": NotRequired[str | float | None],
@@ -155,8 +159,10 @@ type _TextKey = Literal[
     "door_sensors",
     "outdoor_sensor",
     "weather",
+    "availability_guard",
 ]
 type _NumberOrTextKey = Literal[
+    "availability_guard_grace_seconds",
     "window_off_delay",
     "window_off_delay_after",
     "door_off_delay",
@@ -188,8 +194,10 @@ _TEXT_KEYS: Final[tuple[_TextKey, ...]] = (
     CONF_DOOR_SENSORS,
     CONF_OUTDOOR_SENSOR,
     CONF_WEATHER,
+    CONF_AVAILABILITY_GUARD,
 )
 _NUMBER_OR_TEXT_KEYS: Final[tuple[_NumberOrTextKey, ...]] = (
+    CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
     CONF_WINDOW_OFF_DELAY,
     CONF_WINDOW_OFF_DELAY_AFTER,
     CONF_DOOR_OFF_DELAY,
