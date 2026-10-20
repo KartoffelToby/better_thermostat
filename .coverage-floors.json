@@ -18,6 +18,7 @@
   "custom_components/better_thermostat/core/__init__.py": 100.0,
   "custom_components/better_thermostat/core/calibrator.py": 100.0,
   "custom_components/better_thermostat/core/clock.py": 100.0,
+  "custom_components/better_thermostat/core/conditions.py": 100.0,
   "custom_components/better_thermostat/core/containers.py": 100.0,
   "custom_components/better_thermostat/core/decide.py": 100.0,
   "custom_components/better_thermostat/core/desired.py": 100.0,

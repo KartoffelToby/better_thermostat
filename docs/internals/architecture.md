@@ -106,6 +106,15 @@ valve percentage. The one valve write left on HOLD is the close on an
 OFF intent: a direct-valve TRV whose valve BT drives (by a calibration
 mode that writes the valve, or by boost) still gets it closed to 0 %.
 
+Startup, maintenance, an open window or door and a missing call for
+heat are **conditions with a meaning** (`core/conditions.py`). The
+meaning fixes the effect (release the TRVs or turn them off, and whether
+the heat demand passes through) and the rank; `decide()` collects the
+active conditions and the highest-ranked one rules. Window and door are
+two sources of the one window-open meaning. Mode OFF is the user's
+choice, not a condition, and ranks between the release conditions and
+the rest, as the diagram shows.
+
 OFF intents carry their **suppression reason** so the shell can choose
 between a literal OFF (window, no heat demand) and the device-specific
 remap of the user's OFF mode, without reading the kernel's internals.

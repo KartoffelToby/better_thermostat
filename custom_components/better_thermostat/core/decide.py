@@ -7,12 +7,12 @@ the snapshot.
 
 The cascade (top wins):
 
-1. Lifecycle gate — while startup or valve maintenance runs, nothing is
-   commanded.
+1. Release conditions — while startup or valve maintenance runs, nothing
+   is commanded.
 2. Mode — OFF turns every TRV off.
-3. Window/Door — an open window or door turns every TRV off without
+3. Window open — an open window or door turns every TRV off without
    touching the mode.
-4. Call for heat — without heat demand every TRV is turned off.
+4. No call for heat — without heat demand every TRV is turned off.
 5. Heating — every addressed TRV is asked to heat towards the room
    target. Under the ladder's HOLD rung no calibration runs; the intent
    carries the raw user target (passthrough) so the device stays locked
@@ -20,6 +20,14 @@ The cascade (top wins):
    calibrated numbers (setpoint corrections, offsets, valve
    percentages) are computed in the shell by the calibration
    strategies.
+
+Tiers 1, 3 and 4 are conditions with a meaning (``core/conditions.py``):
+``decide()`` collects the active ones, and the highest-ranked one rules
+with the effect its meaning fixes. The window and door regions are
+two sources of the one window-open meaning; the window's suppression
+reason wins the annunciation when both are open. Mode OFF is the user's
+choice rather than a condition and ranks between the release conditions
+and the others.
 
 Reachability is an address filter applied across the cascade rather than
 a tier of it: an unreachable TRV is dropped from the addressed set and
@@ -39,6 +47,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 
+from .conditions import (
+    EFFECTS,
+    RANK_ABOVE_MODE_OFF,
+    RANK_BELOW_MODE_OFF,
+    Action,
+    Condition,
+    Meaning,
+    strongest,
+)
 from .desired import DesiredState, Suppression, TrvDesired
 from .fsm.control_mode import ControlModeState
 from .fsm.lifecycle import LifecyclePhase, LifecycleState, tick as lifecycle_tick
@@ -150,14 +167,48 @@ def _with_mode(
     }
 
 
+def _active_conditions(snapshot: WorldSnapshot, state: KernelState) -> list[Condition]:
+    """Collect the conditions active in this cycle, window before door."""
+    conditions: list[Condition] = []
+    if state.lifecycle.startup_running:
+        conditions.append(Condition(Meaning.STARTUP))
+    if state.maintenance.is_blocking(snapshot.now_monotonic):
+        # A maintenance run that exceeded its maximum runtime stops
+        # blocking — the region's liveness invariant.
+        conditions.append(Condition(Meaning.MAINTENANCE))
+    if state.window.effective_open:
+        conditions.append(Condition(Meaning.WINDOW_OPEN, Suppression.WINDOW))
+    if state.door.effective_open:
+        conditions.append(Condition(Meaning.WINDOW_OPEN, Suppression.DOOR))
+    if not snapshot.call_for_heat:
+        conditions.append(
+            Condition(Meaning.NO_CALL_FOR_HEAT, Suppression.NO_CALL_FOR_HEAT)
+        )
+    return conditions
+
+
+def _apply(
+    condition: Condition, addressed: list[str], snapshot: WorldSnapshot
+) -> DesiredState:
+    """Build the desired state the ruling condition's effect fixes."""
+    effect = EFFECTS[condition.meaning]
+    call_for_heat = snapshot.call_for_heat if effect.keeps_call_for_heat else False
+    if effect.action == Action.RELEASE:
+        return DesiredState(call_for_heat=call_for_heat)
+    return DesiredState(
+        call_for_heat=call_for_heat,
+        trvs=_with_mode(addressed, HvacMode.OFF, condition.suppression),
+    )
+
+
 def decide(
     snapshot: WorldSnapshot, state: KernelState
 ) -> tuple[DesiredState, KernelState]:
     """Map one world snapshot onto the desired state of every TRV.
 
-    The deterministic precedence cascade (top wins): the lifecycle and
-    maintenance gate, mode OFF, an open window, no call for heat, and
-    otherwise heating to the target.
+    The deterministic precedence cascade (top wins): the release
+    conditions (startup, maintenance), mode OFF, an open window or door,
+    no call for heat, and otherwise heating to the target.
 
     The input state is never mutated; a fresh successor state is returned.
     The flight recorder records the input as the pre-decide state of the
@@ -192,16 +243,12 @@ def decide(
         },
     )
 
-    if state.lifecycle.startup_running or state.maintenance.is_blocking(
-        snapshot.now_monotonic
-    ):
-        # Lifecycle gate: no intent while starting up, and maintenance
-        # pre-empts control entirely (it owns the valves). A maintenance
-        # run that exceeded its maximum runtime stops blocking — the
-        # region's liveness invariant.
-        return DesiredState(call_for_heat=snapshot.call_for_heat), state
-
+    conditions = _active_conditions(snapshot, state)
     addressed = _addressed(snapshot)
+
+    ruling = strongest(conditions, RANK_ABOVE_MODE_OFF)
+    if ruling is not None:
+        return _apply(ruling, addressed, snapshot), state
 
     if state.mode.hvac_mode == HvacMode.OFF:
         return (
@@ -209,29 +256,9 @@ def decide(
             state,
         )
 
-    if state.window.effective_open or state.door.effective_open:
-        # An open window or door turns every TRV off without touching the
-        # mode. Both regions debounce independently; the window reason wins
-        # the annunciation when both are open.
-        suppression = (
-            Suppression.WINDOW if state.window.effective_open else Suppression.DOOR
-        )
-        return (
-            DesiredState(
-                call_for_heat=snapshot.call_for_heat,
-                trvs=_with_mode(addressed, HvacMode.OFF, suppression),
-            ),
-            state,
-        )
-
-    if not snapshot.call_for_heat:
-        return (
-            DesiredState(
-                call_for_heat=False,
-                trvs=_with_mode(addressed, HvacMode.OFF, Suppression.NO_CALL_FOR_HEAT),
-            ),
-            state,
-        )
+    ruling = strongest(conditions, RANK_BELOW_MODE_OFF)
+    if ruling is not None:
+        return _apply(ruling, addressed, snapshot), state
 
     # Heating rung. Under the ladder's HOLD rung no usable temperature
     # exists, so no calibration runs — but the intent still carries the
