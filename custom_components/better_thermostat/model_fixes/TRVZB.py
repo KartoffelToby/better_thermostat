@@ -521,6 +521,10 @@ _TK_SENSOR_SELECT = frozenset({"temperature_sensor_select", "temperature_sensor"
 # from 2.14.2 on.
 _EXTERNAL_SENSOR_OPTIONS = ("external", "remote_temperature")
 
+# The option that regulates on the device's own sensor: ``internal`` up to
+# Zigbee2MQTT 2.14.1, ``local_temperature`` from 2.14.2 on.
+_INTERNAL_SENSOR_OPTIONS = ("internal", "local_temperature")
+
 # Selections that already regulate on a remote value. Devices offer more than
 # one option naming an external sensor, so a device on any of them is left as
 # its owner set it. ``remote_source_offline`` is the device reporting that it
@@ -590,6 +594,48 @@ def _find_device_entity(
     return None
 
 
+def _sensor_selector(self: ModelFixHost, entity_id: str) -> tuple[str, State] | None:
+    """Return the TRV's sensor selector and its state, or ``None``.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        The Better Thermostat instance, supplying ``hass``.
+    entity_id : str
+        The TRV whose device carries the selector.
+
+    Returns
+    -------
+    tuple[str, State] | None
+        The selector's entity id and its state, or ``None`` when the device
+        has no selector or the selector is not reporting an option.
+    """
+    entity_registry = er.async_get(self.hass)
+    reg_entity = entity_registry.async_get(entity_id)
+    if reg_entity is None:
+        return None
+    target = _find_device_entity(
+        entity_registry,
+        reg_entity.device_id,
+        "select",
+        _TK_SENSOR_SELECT,
+        "temperature_sensor_select",
+    )
+    if target is None:
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB temperature sensor selector not found for %s",
+            self.device_name,
+            entity_id,
+        )
+        return None
+    state = self.hass.states.get(target)
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        # A selector that is not reporting names no option, and the device
+        # behind it is in no state to take one either.
+        return None
+    return target, state
+
+
 async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bool:
     """Point the TRV's sensor selector at the value BT writes.
 
@@ -615,29 +661,10 @@ async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bo
         True when the selector is on an external option, whether this call
         put it there or found it there.
     """
-    entity_registry = er.async_get(self.hass)
-    reg_entity = entity_registry.async_get(entity_id)
-    if reg_entity is None:
+    selector = _sensor_selector(self, entity_id)
+    if selector is None:
         return False
-    target = _find_device_entity(
-        entity_registry,
-        reg_entity.device_id,
-        "select",
-        _TK_SENSOR_SELECT,
-        "temperature_sensor_select",
-    )
-    if target is None:
-        _LOGGER.debug(
-            "better_thermostat %s: TRVZB temperature sensor selector not found for %s",
-            self.device_name,
-            entity_id,
-        )
-        return False
-    state = self.hass.states.get(target)
-    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-        # A selector that is not reporting names no option, and the device
-        # behind it is in no state to take one either.
-        return False
+    target, state = selector
     if state.state.startswith(_ON_A_REMOTE_SENSOR):
         return True
     options = state.attributes.get("options")
@@ -667,6 +694,69 @@ async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bo
     )
     _LOGGER.debug(
         "better_thermostat %s: set TRVZB %s from '%s' to '%s' (for %s)",
+        self.device_name,
+        target,
+        state.state,
+        option,
+        entity_id,
+    )
+    return True
+
+
+async def maybe_select_internal_sensor(self: ModelFixHost, entity_id: str) -> bool:
+    """Point the TRV's sensor selector back at its own sensor.
+
+    A room sensor on the TRV's own device is that device's reading. A device
+    regulating on a remote value it was fed from that reading reports the
+    fed value as its own and stops following the room, so a selector found on
+    a remote option is moved back.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        The Better Thermostat instance, supplying ``hass`` and the context
+        the service call is made under.
+    entity_id : str
+        The TRV whose device carries the selector.
+
+    Returns
+    -------
+    bool
+        True when this call moved the selector onto the internal option.
+    """
+    selector = _sensor_selector(self, entity_id)
+    if selector is None:
+        return False
+    target, state = selector
+    if not state.state.startswith(_ON_A_REMOTE_SENSOR):
+        return False
+    options = state.attributes.get("options")
+    option = next(
+        (
+            name
+            for name in _INTERNAL_SENSOR_OPTIONS
+            if isinstance(options, (list, tuple)) and name in options
+        ),
+        None,
+    )
+    if option is None:
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB selector %s offers none of %s (%s)",
+            self.device_name,
+            target,
+            _INTERNAL_SENSOR_OPTIONS,
+            options,
+        )
+        return False
+    await self.hass.services.async_call(
+        "select",
+        "select_option",
+        {"entity_id": target, "option": option},
+        blocking=True,
+        context=self.context,
+    )
+    _LOGGER.debug(
+        "better_thermostat %s: set TRVZB %s from '%s' back to '%s' (for %s)",
         self.device_name,
         target,
         state.state,
@@ -776,8 +866,9 @@ async def maybe_set_external_temperature(
                 entity_id,
             )
             return False
-        # If our temperature sensor is on the same device as the TRVZB, skip
-        # writing the temperature to the TRVZB and selecting the external sensor.
+        # A room sensor on the TRV's own device is the TRV's reading: mirroring
+        # it back would freeze it at the value of the first write. A selector
+        # an earlier write left on the remote option is moved back.
         room_sensor = entity_registry.async_get(self.sensor_entity_id or "")
         if (
             room_sensor is not None
@@ -790,6 +881,7 @@ async def maybe_set_external_temperature(
                 self.sensor_entity_id,
                 entity_id,
             )
+            await maybe_select_internal_sensor(self, entity_id)
             return False
         target = _find_device_entity(
             entity_registry,

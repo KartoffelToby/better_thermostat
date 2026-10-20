@@ -551,7 +551,9 @@ class TestExternalTemperatureIsNotMirroredIntoItsOwnSource:
     """A reading the TRV took itself is not written back into it (#2751)."""
 
     @staticmethod
-    def _trv_with_room_sensor(monkeypatch, room_sensor):
+    def _trv_with_room_sensor(
+        monkeypatch, room_sensor, selected="internal", options=("internal", "external")
+    ):
         trv = _registry_entry("climate.trv1")
         number = _registry_entry(
             "number.trv1_external_temperature_input",
@@ -562,7 +564,7 @@ class TestExternalTemperatureIsNotMirroredIntoItsOwnSource:
             translation_key="temperature_sensor_select",
         )
         mock_self = _make_selector_self(
-            "internal", entries=[trv, number, selector, room_sensor]
+            selected, options, entries=[trv, number, selector, room_sensor]
         )
         mock_self.sensor_entity_id = room_sensor.entity_id
         mock_self.real_trvs = {
@@ -584,6 +586,53 @@ class TestExternalTemperatureIsNotMirroredIntoItsOwnSource:
         """
         mock_self = self._trv_with_room_sensor(
             monkeypatch, _registry_entry("sensor.trv1_temperature")
+        )
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.4)
+            is False
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        ("selected", "options", "internal"),
+        [
+            ("external", ("internal", "external"), "internal"),
+            ("remote_temperature", Z2M_2_14_2_OPTIONS, "local_temperature"),
+            ("remote_source_offline", Z2M_2_14_2_OPTIONS, "local_temperature"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_selector_left_on_the_remote_option_is_moved_back(
+        self, monkeypatch, selected, options, internal
+    ):
+        """A TRV an earlier write left on its fed value regulates on its own again.
+
+        Otherwise it keeps reporting the last value written into it.
+        """
+        mock_self = self._trv_with_room_sensor(
+            monkeypatch, _registry_entry("sensor.trv1_temperature"), selected, options
+        )
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.4)
+            is False
+        )
+        assert _number_writes(mock_self) == []
+        assert _selector_calls(mock_self) == [
+            {"entity_id": "select.trv1_temperature_sensor_select", "option": internal}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_selector_offering_no_internal_option_is_left_alone(
+        self, monkeypatch
+    ):
+        """Without an option to go back to, nothing is selected."""
+        mock_self = self._trv_with_room_sensor(
+            monkeypatch,
+            _registry_entry("sensor.trv1_temperature"),
+            "external",
+            ("external",),
         )
 
         assert (

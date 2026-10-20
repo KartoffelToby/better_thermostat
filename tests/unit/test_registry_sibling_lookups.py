@@ -173,6 +173,11 @@ async def _trvzb_sensor_selected(host, _registry, candidate):
     return candidate in _written(host)
 
 
+async def _trvzb_internal_sensor_selected(host, _registry, candidate):
+    await TRVZB.maybe_select_internal_sensor(host, TRV_ID)
+    return candidate in _written(host)
+
+
 async def _trvzb_external_temperature_written(host, _registry, candidate):
     await TRVZB.maybe_set_external_temperature(host, TRV_ID, 20.5)
     return candidate in _written(host)
@@ -264,6 +269,13 @@ LOOKUPS = {
             _trvzb_sensor_selected,
             {"translation_key": "temperature_sensor_select"},
             ("internal", {"options": ["internal", "external"]}),
+        ),
+        Lookup(
+            "TRVZB.maybe_select_internal_sensor",
+            "select.trv_temperature_sensor_select",
+            _trvzb_internal_sensor_selected,
+            {"translation_key": "temperature_sensor_select"},
+            ("external", {"options": ["internal", "external"]}),
         ),
         Lookup(
             "TRVZB.maybe_set_external_temperature",
