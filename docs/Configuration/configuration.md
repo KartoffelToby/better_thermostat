@@ -88,7 +88,7 @@ group:
 
 - ***Offset Based***: Apply the calibration to the offset. This will not be an option if your TRV doesn't support offset mode.
 
-- ***Direct Valve Based***: Set the valve opening directly. This is only offered when your TRV exposes a writable valve position. The valve opening comes from the calibration mode: AI Time Based, MPC Predictive, MPC v2, TPI Controller and PID Controller produce one. The other modes send a target temperature, as with Target Temperature Based.
+- ***Direct Valve Based***: Set the valve opening directly. This is only offered when your TRV exposes a writable valve position. The valve opening comes from the calibration mode: AI Time Based, MPC Predictive, MPC v2, TPI Controller and PID Controller produce one, and close the valve to 0 % while the TRV is off because Better Thermostat is off, a window is open or no heat is called for. The other modes send a target temperature, as with Target Temperature Based.
 
 The preselected type is Offset Based if your TRV supports it, otherwise Direct Valve Based if it supports valve control, otherwise Target Temperature Based.
 
