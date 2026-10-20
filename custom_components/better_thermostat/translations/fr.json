@@ -206,6 +206,10 @@
     "shared_trv": {
       "title": "BT : {trv} est contrôlé par plusieurs Better Thermostat",
       "description": "Le thermostat {trv} appartient à ces Better Thermostat : {entries}. Ils lui envoient des consignes et des modes concurrents. Retirez-le de tous sauf un dans leurs paramètres ; ce problème disparaît ensuite de lui-même."
+    },
+    "setpoint_not_applied": {
+      "title": "BT : {name} - {entity} n'applique pas la température cible",
+      "description": "Better Thermostat écrit à plusieurs reprises la température cible {wanted} sur {entity}, mais le thermostat indique toujours {held}. La pièce n'est pas chauffée comme Better Thermostat le prévoit.\n\nCauses fréquentes :\n- Le thermostat a sa propre limite de consigne, inférieure au maximum qu'il publie, par exemple `max_heat_setpoint_limit` dans Zigbee2MQTT.\n- Le thermostat est dans un mode ou un préréglage dans lequel il ignore les températures cibles, comme un mode programmé.\n- Le thermostat a perdu sa connexion radio ou sa batterie est faible.\n\nBetter Thermostat continue d'écrire la température cible, au plus une fois par heure. Ce problème disparaît de lui-même dès que le thermostat indique la température cible."
     }
   },
   "services": {

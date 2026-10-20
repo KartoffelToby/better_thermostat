@@ -206,6 +206,10 @@
     "shared_trv": {
       "title": "BT: {trv} è controllato da più di un Better Thermostat",
       "description": "Il termostato {trv} appartiene a questi Better Thermostat: {entries}. Gli inviano temperature obiettivo e modalità in conflitto. Rimuovilo da tutti tranne uno nelle loro impostazioni; poi questo problema scompare da solo."
+    },
+    "setpoint_not_applied": {
+      "title": "BT: {name} - {entity} non accetta la temperatura obiettivo",
+      "description": "Better Thermostat scrive ripetutamente la temperatura obiettivo {wanted} su {entity}, ma il termostato continua a riportare {held}. La stanza non viene riscaldata come previsto da Better Thermostat.\n\nCause comuni:\n- Il termostato ha un proprio limite del setpoint inferiore al massimo che pubblica, ad esempio `max_heat_setpoint_limit` in Zigbee2MQTT.\n- Il termostato è in una modalità o in un preset in cui ignora le temperature obiettivo, come una modalità programmata.\n- Il termostato ha perso la connessione radio o la batteria è scarica.\n\nBetter Thermostat continua a scrivere la temperatura obiettivo, al massimo una volta all'ora. Questo problema si risolve da solo non appena il termostato riporta la temperatura obiettivo."
     }
   },
   "services": {

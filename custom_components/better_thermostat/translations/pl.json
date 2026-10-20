@@ -206,6 +206,10 @@
     "shared_trv": {
       "title": "BT: {trv} jest sterowany przez więcej niż jeden Better Thermostat",
       "description": "Termostat {trv} należy do tych Better Thermostat: {entries}. Zapisują do niego sprzeczne temperatury docelowe i tryby. Usuń go w ustawieniach ze wszystkich oprócz jednego; potem ten problem zniknie sam."
+    },
+    "setpoint_not_applied": {
+      "title": "BT: {name} - {entity} nie przyjmuje temperatury docelowej",
+      "description": "Better Thermostat wielokrotnie zapisuje temperaturę docelową {wanted} do {entity}, ale termostat nadal zgłasza {held}. Pomieszczenie nie jest ogrzewane tak, jak zamierza Better Thermostat.\n\nCzęste przyczyny:\n- Termostat ma własny limit nastawy niższy niż publikowane maksimum, na przykład `max_heat_setpoint_limit` w Zigbee2MQTT.\n- Termostat jest w trybie lub presecie, w którym ignoruje temperatury docelowe, na przykład w trybie harmonogramu.\n- Termostat utracił połączenie radiowe lub ma słabą baterię.\n\nBetter Thermostat nadal zapisuje temperaturę docelową, najwyżej raz na godzinę. Ten problem znika sam, gdy termostat zgłosi temperaturę docelową."
     }
   },
   "services": {

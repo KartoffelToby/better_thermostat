@@ -206,6 +206,10 @@
     "shared_trv": {
       "title": "BT: {trv} is controlled by more than one Better Thermostat",
       "description": "The thermostat {trv} belongs to these Better Thermostats: {entries}. They write competing target temperatures and modes to it. Remove it from all but one of them in their settings; this issue clears itself afterwards."
+    },
+    "setpoint_not_applied": {
+      "title": "BT: {name} - {entity} does not take the target temperature",
+      "description": "Better Thermostat keeps writing the target temperature {wanted} to {entity}, but the thermostat still reports {held}. The room is not heated the way Better Thermostat intends.\n\nCommon causes:\n- The thermostat has a setpoint limit of its own below the maximum it publishes, for example `max_heat_setpoint_limit` in Zigbee2MQTT.\n- The thermostat is in a mode or preset in which it ignores target temperatures, such as a schedule mode.\n- The thermostat lost its radio connection or its battery is low.\n\nBetter Thermostat keeps writing the target temperature, at most once an hour. This issue clears itself once the thermostat reports the target temperature."
     }
   },
   "services": {
