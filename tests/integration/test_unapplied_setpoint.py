@@ -268,6 +268,44 @@ async def test_a_head_that_ignores_the_setpoint_is_reported_until_it_takes_it(
     assert _issue(hass, entry, entity_id) is None
 
 
+async def test_a_reported_head_shows_the_setpoint_of_the_latest_cycle(
+    hass, stubborn_room
+):
+    """The repair issue follows a new target the head refuses as well.
+
+    The head holds neither the old nor the new setpoint, so the run goes on
+    and the TRV stays reported; the issue names the setpoint written last,
+    not the one of the first report.
+    """
+    bt, entry, head = stubborn_room
+    entity_id = head.device.entity_id
+    trv = bt.real_trvs[entity_id]
+    ticks = _ReconcileTicks(hass)
+
+    await _set_target(hass, _NEW_TARGET)
+    await _write_until(hass, head, ticks, SETPOINT_UNAPPLIED_WRITES_LIMIT)
+    while not trv.setpoint_unapplied_reported and ticks.count < _MAX_TICKS:
+        await ticks.fire()
+    assert trv.setpoint_unapplied_reported
+    issue = _issue(hass, entry, entity_id)
+    assert issue is not None
+    assert issue.translation_placeholders is not None
+    first_wanted = issue.translation_placeholders["wanted"]
+
+    writes = len(head.writes)
+    await _set_target(hass, _NEW_TARGET - 1.0)
+    assert await wait_for(hass, lambda: len(head.writes) > writes)
+    written = head.writes[-1][1]
+
+    assert trv.setpoint_unapplied_reported
+    assert _errors(hass) == [entity_id]
+    issue = _issue(hass, entry, entity_id)
+    assert issue is not None
+    assert issue.translation_placeholders is not None
+    assert issue.translation_placeholders["wanted"] == f"{round(written, 1)} °C"
+    assert issue.translation_placeholders["wanted"] != first_wanted
+
+
 async def test_a_user_change_reaches_a_backed_off_head_at_the_normal_pace(
     hass, stubborn_room
 ):

@@ -5062,8 +5062,12 @@ class TestUnappliedSetpointRun:
             assert len(self.written) == count + 1, f"no write after {wait}s"
 
     @pytest.mark.asyncio
-    async def test_a_run_at_its_limit_is_reported_once(self):
-        """Six ignored writes put the head into the errors with a repair issue."""
+    async def test_a_run_at_its_limit_is_reported_once(self, caplog):
+        """Six ignored writes put the head into the errors with a repair issue.
+
+        A further cycle that finds the head off the same setpoint hands the
+        registry the same issue again and logs nothing new.
+        """
         mock_self, trv = self._room()
 
         await self._ignored_writes(mock_self, SETPOINT_UNAPPLIED_WRITES_LIMIT - 1)
@@ -5078,7 +5082,11 @@ class TestUnappliedSetpointRun:
 
         assert trv.setpoint_unapplied_reported is True
         assert get_device_errors(mock_self) == [self.HEAD]
-        self.registry.async_create_issue.assert_called_once()
+        calls = self.registry.async_create_issue.call_args_list
+        assert len(calls) == 2
+        assert calls[0] == calls[1]
+        warnings = [r for r in caplog.records if "did not take" in r.getMessage()]
+        assert len(warnings) == 1
         issue = self.registry.async_create_issue.call_args.kwargs
         assert issue["issue_id"] == f"entry_setpoint_not_applied_{self.HEAD}"
         assert issue["translation_key"] == "setpoint_not_applied"

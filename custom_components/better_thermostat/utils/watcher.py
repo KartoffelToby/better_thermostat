@@ -488,7 +488,9 @@ def report_unapplied_setpoint(
 
     The TRV joins the thermostat's errors and gets a repair issue, once per
     run of writes it did not take; ``clear_unapplied_setpoint`` takes both
-    back.
+    back. Every further report of the run brings the issue's setpoints up to
+    date, so it names what the latest cycle wants and the TRV holds. The
+    registry leaves an issue whose shown values did not change untouched.
 
     Parameters
     ----------
@@ -504,20 +506,20 @@ def report_unapplied_setpoint(
         How long Better Thermostat waits before it writes the setpoint again
     """
     trv = self.real_trvs[entity_id]
-    if trv.setpoint_unapplied_reported:
-        return
-    trv.setpoint_unapplied_reported = True
-    _LOGGER.warning(
-        "better_thermostat %s: TRV %s did not take the target temperature %s "
-        "after %d writes and reports %s; writing it again every %.0f minutes "
-        "at most",
-        self.device_name,
-        entity_id,
-        wanted,
-        trv.unapplied_setpoint_writes,
-        held,
-        retry_interval_seconds / 60.0,
-    )
+    first_report = not trv.setpoint_unapplied_reported
+    if first_report:
+        trv.setpoint_unapplied_reported = True
+        _LOGGER.warning(
+            "better_thermostat %s: TRV %s did not take the target temperature %s "
+            "after %d writes and reports %s; writing it again every %.0f minutes "
+            "at most",
+            self.device_name,
+            entity_id,
+            wanted,
+            trv.unapplied_setpoint_writes,
+            held,
+            retry_interval_seconds / 60.0,
+        )
     ir.async_create_issue(
         hass=self.hass,
         domain=DOMAIN,
@@ -536,7 +538,8 @@ def report_unapplied_setpoint(
             "held": _displayed_temperature(self, held),
         },
     )
-    self.async_write_ha_state()
+    if first_report:
+        self.async_write_ha_state()
 
 
 def clear_unapplied_setpoint(self: BetterThermostat, entity_id: str) -> None:

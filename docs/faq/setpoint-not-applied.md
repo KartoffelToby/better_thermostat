@@ -7,9 +7,9 @@ slug: faq/setpoint-not-applied
 Better Thermostat raises this repair issue when one of its TRVs keeps
 reporting a different target temperature from the one Better Thermostat
 writes to it. The issue names the TRV, the target temperature Better
-Thermostat wants and the one the TRV reports. The TRV is also listed in the
-thermostat's `errors` attribute, so the `device_error` device trigger and the
-[device error blueprint](/setup/automation-blueprints/) fire for it.
+Thermostat wants and the one the TRV reports, as of the latest control cycle.
+The TRV is also listed in the thermostat's `errors` attribute, so the
+`device_error` device trigger and the [device error blueprint](/setup/automation-blueprints/) fire for it.
 
 ## When it is raised
 
@@ -21,11 +21,16 @@ written value onto their own grid.
 
 When the TRV does not take the value, the second write follows after the
 normal 30 seconds between writes (ten minutes for a HomematicIP head), and
-every further one waits twice as long as the one before, up to one hour. The issue is raised once six
-writes in a row have not been taken, about a quarter of an hour after the
-first one. From then on Better Thermostat writes the target temperature at
-most once an hour. When you change the room's target temperature, the next
-write goes out at the normal pace.
+every further one waits twice as long as the one before, up to one hour.
+The issue is raised when the TRV still does not hold the value after six
+writes in a row. At the 30 second interval the waits are 30 seconds, 1, 2, 4
+and 8 minutes, so the issue appears about a quarter of an hour after the
+first write. A HomematicIP head waits 10, 20 and 40 minutes and then one hour
+twice, so its issue appears a little over three hours after the first write.
+The waits keep doubling after that until they reach one hour, and from then
+on Better Thermostat writes the target temperature once an hour. When you
+change the room's target temperature, the next write goes out at the normal
+pace.
 
 ## Common causes
 
