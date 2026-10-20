@@ -133,6 +133,11 @@ class ModelFixHost(Protocol):
         ...
 
     @property
+    def sensor_entity_id(self) -> str | None:
+        """Entity id of the room temperature sensor, None when none is set."""
+        ...
+
+    @property
     def real_trvs(self) -> Mapping[str, ModelFixTrv]:
         """Per-TRV records, keyed by climate entity id."""
         ...

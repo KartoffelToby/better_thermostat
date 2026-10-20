@@ -55,6 +55,7 @@ def _make_self(selector_state="internal"):
     mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
     mock_self.context = MagicMock()
+    mock_self.sensor_entity_id = "sensor.room_temperature"
     mock_self.hass.services.async_call = AsyncMock()
     mock_self.real_trvs = {ENTITY: Trv(entity_id=ENTITY, model="TRV-ZBT")}
     mock_self._registry = make_entity_registry(*_trv_zbt_entries())
