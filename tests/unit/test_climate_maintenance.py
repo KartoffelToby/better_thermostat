@@ -22,7 +22,7 @@ from custom_components.better_thermostat.core.fsm.maintenance import (
     MaintenanceIdle,
     MaintenanceRunning,
 )
-from tests.factories import ThermostatStandIn, make_trv
+from tests.factories import ThermostatStandIn, make_trv, trv_record
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -227,7 +227,6 @@ async def test_due_and_enabled_dispatches_maintenance(bt):
 
 def _startup_bt(advanced):
     """Minimal BetterThermostat mock for _finalize_startup."""
-    from custom_components.better_thermostat.trv import Trv
 
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
@@ -235,7 +234,9 @@ def _startup_bt(advanced):
     mock._degraded_grace_until = None
     mock.kernel_state = KernelState()
     mock.clock = FakeClock(now_value=_NOW, monotonic_value=1000.0)
-    mock.real_trvs = {"climate.trv": Trv(entity_id="climate.trv", advanced=advanced)}
+    mock.real_trvs = {
+        "climate.trv": trv_record(entity_id="climate.trv", advanced=advanced)
+    }
     mock.entity_ids = ["climate.trv"]
     mock.all_trvs = None
     mock.all_entities = dict[str, None]()

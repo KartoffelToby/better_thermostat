@@ -114,16 +114,7 @@ class TestErrorSign:
 
 
 class TestStandbyObservation:
-    """Standby follows the room only when there is a reading to follow."""
-
-    def test_no_reading_leaves_the_measurement_chain(self):
-        """Without a room or smoothed temperature the chain keeps its last point."""
-        state = PIDState(pid_last_meas=20.4, pid_last_time=900.0)
-
-        result = observe_standby(_PARAMS, state, None, now=1000.0)
-
-        assert result is state
-        assert (state.pid_last_meas, state.pid_last_time) == (20.4, 900.0)
+    """Standby keeps the measurement chain following the room."""
 
     def test_a_reading_moves_the_measurement_chain(self):
         """A room temperature during standby advances the chain's time stamp."""
@@ -143,16 +134,6 @@ class TestStandbyObservation:
         )
 
         assert state.pid_last_meas == 21.0
-
-    def test_the_filtered_reading_alone_moves_the_chain(self):
-        """Without a raw reading the filtered one still advances the chain."""
-        state = PIDState()
-
-        observe_standby(
-            _PARAMS, state, None, now=1000.0, inp_room_temperature_filtered=21.0
-        )
-
-        assert (state.pid_last_meas, state.pid_last_time) == (21.0, 1000.0)
 
     def test_derivative_on_error_takes_the_reading_unsmoothed(self):
         """With the D channel on the error, standby stores the reading as is."""

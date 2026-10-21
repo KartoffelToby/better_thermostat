@@ -20,8 +20,7 @@ from custom_components.better_thermostat.climate import (
     EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
     BetterThermostat,
 )
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 TRV_ID = "climate.trv"
 TRV_ID_2 = "climate.trv2"
@@ -48,8 +47,8 @@ def _bt_with_two_trvs(quirks):
     bt.device_name = "Test BT"
     bt.room_temperature = ROOM_TEMPERATURE
     bt.real_trvs = {
-        TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks),
-        TRV_ID_2: Trv(entity_id=TRV_ID_2, model_quirks=quirks),
+        TRV_ID: trv_record(entity_id=TRV_ID, model_quirks=quirks),
+        TRV_ID_2: trv_record(entity_id=TRV_ID_2, model_quirks=quirks),
     }
     bt._temperature_filter_lock = None
     _publish_room_sensor(bt, str(ROOM_TEMPERATURE))
@@ -165,7 +164,7 @@ async def test_the_tick_writes_nothing_without_a_room_temperature():
     bt.room_temperature = None
     quirks = MagicMock()
     quirks.maybe_set_external_temperature = AsyncMock()
-    bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks)}
+    bt.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID, model_quirks=quirks)}
 
     await BetterThermostat._external_temperature_keepalive(bt)
 

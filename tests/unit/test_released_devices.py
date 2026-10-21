@@ -14,12 +14,11 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.switch import (
     BetterThermostatReleaseDevicesSwitch,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerTracker,
     HeatLossTracker,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 
@@ -148,7 +147,7 @@ def _room_setting_up_two_trvs() -> ThermostatStandIn:
     bt.hass = MagicMock()
     bt.hass.states.get.return_value = None
     bt.real_trvs = {
-        entity_id: Trv(entity_id=entity_id, calibration=None)
+        entity_id: trv_record(entity_id=entity_id, calibration=None)
         for entity_id in (_FIRST_TRV, _SECOND_TRV)
     }
     bt.all_entities = dict.fromkeys(bt.real_trvs)

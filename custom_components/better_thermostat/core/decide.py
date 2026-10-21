@@ -131,7 +131,6 @@ def is_boost_heating(snapshot: WorldSnapshot) -> bool:
     return (
         snapshot.preset_mode == Preset.BOOST
         and snapshot.room_temperature is not None
-        and snapshot.heat_target_temperature is not None
         and snapshot.room_temperature < snapshot.heat_target_temperature
     )
 

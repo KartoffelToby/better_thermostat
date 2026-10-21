@@ -11,8 +11,7 @@ from datetime import UTC, datetime
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.decide import running_kernel_state
 from custom_components.better_thermostat.core.fsm.maintenance import MaintenanceIdle
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import make_state_attributes_bt
+from tests.factories import make_state_attributes_bt, trv_record
 
 
 def _extra_state_attributes(bt: BetterThermostat) -> dict[str, object]:
@@ -49,22 +48,22 @@ class TestValveMethod:
     def test_absent_without_reported_methods(self):
         """No TRV reported a method, so no key."""
         bt = make_state_attributes_bt(
-            real_trvs={"climate.trv": Trv(entity_id="climate.trv")}
+            real_trvs={"climate.trv": trv_record(entity_id="climate.trv")}
         )
         attrs = _extra_state_attributes(bt)
         assert "valve_method" not in attrs
 
     def test_reported_methods_are_summarized(self):
         """Each TRV that reports a method appears in the summary."""
-        trv = Trv(entity_id="climate.trv", last_valve_method="adapter")
+        trv = trv_record(entity_id="climate.trv", last_valve_method="adapter")
         bt = make_state_attributes_bt(real_trvs={"climate.trv": trv})
         attrs = _extra_state_attributes(bt)
         assert attrs["valve_method"] == {"climate.trv": "adapter"}
 
     def test_only_reporting_trvs_appear(self):
         """A TRV without a recorded method is left out of the summary."""
-        reporting = Trv(entity_id="climate.a", last_valve_method="adapter")
-        silent = Trv(entity_id="climate.b")
+        reporting = trv_record(entity_id="climate.a", last_valve_method="adapter")
+        silent = trv_record(entity_id="climate.b")
         bt = make_state_attributes_bt(
             real_trvs={"climate.a": reporting, "climate.b": silent}
         )

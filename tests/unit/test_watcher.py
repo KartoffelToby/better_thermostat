@@ -18,7 +18,7 @@ from custom_components.better_thermostat.core.fsm.lifecycle import (
     LifecycleState,
 )
 from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 # The battery level and battery entity a thermostat records per entity.
 BatteryStates = dict[str, dict[str, str | None]]
@@ -61,8 +61,8 @@ def mock_bt_instance(mock_hass):
     bt.outdoor_sensor_entity_id = "sensor.outdoor_temp"
     bt.weather_entity_id = "weather.home"
     bt.real_trvs = {
-        "climate.trv_1": Trv(entity_id="climate.trv_1"),
-        "climate.trv_2": Trv(entity_id="climate.trv_2"),
+        "climate.trv_1": trv_record(entity_id="climate.trv_1"),
+        "climate.trv_2": trv_record(entity_id="climate.trv_2"),
     }
     bt.devices_errors = list[str]()
     # A MagicMock would answer .get() with another MagicMock, which the
@@ -2118,7 +2118,9 @@ class TestAwaitCriticalEntities:
         )
 
         # Single TRV configured
-        mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1")
+        }
 
         call_count = 0
 
@@ -2154,7 +2156,9 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1")
+        }
         mock_bt_instance.hass.states.get.side_effect = _answers_with(
             "unavailable"
         )  # never comes online
@@ -2183,7 +2187,9 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1")
+        }
 
         mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
@@ -2228,8 +2234,8 @@ class TestAwaitCriticalEntities:
         )
 
         mock_bt_instance.real_trvs = {
-            "climate.trv_1": Trv(entity_id="climate.trv_1"),
-            "climate.trv_2": Trv(entity_id="climate.trv_2"),
+            "climate.trv_1": trv_record(entity_id="climate.trv_1"),
+            "climate.trv_2": trv_record(entity_id="climate.trv_2"),
         }
 
         trv1_calls = 0
@@ -2269,7 +2275,9 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1")
+        }
 
         get_count = 0
 

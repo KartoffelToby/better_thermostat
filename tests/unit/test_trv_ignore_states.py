@@ -12,18 +12,18 @@ from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.events.trv import accepts_user_setpoint
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationOutput,
 )
+from tests.factories import trv_record
 
 
 @pytest.fixture
 def trv():
     """Build a TRV whose every flag permits adopting a reported setpoint."""
-    return Trv(
+    return trv_record(
         entity_id="climate.test_trv",
         hvac_mode=HVACMode.HEAT,
         hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
@@ -78,7 +78,7 @@ class TestIgnoreTrvStates:
 
     def test_ignore_trv_states_default_is_false(self):
         """The ignore_trv_states flag defaults to False when not set."""
-        trv = Trv(entity_id="climate.default_test")
+        trv = trv_record(entity_id="climate.default_test")
 
         assert trv.ignore_trv_states is False
 

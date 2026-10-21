@@ -10,8 +10,7 @@ import pytest
 
 from custom_components.better_thermostat.adapters import generic, mqtt, shelly, zwave_js
 from custom_components.better_thermostat.adapters.base import DeviceChannels
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 # Adapters whose offset bounds come from an entity discovery found.
 ENTITY_ADAPTERS = (generic, mqtt, shelly, zwave_js)
@@ -56,7 +55,7 @@ def _leave_the_trv_without_a_calibration_entity(bt):
         Mock BetterThermostat instance to rewrite in place.
     """
     bt.real_trvs = {
-        "climate.test_trv": Trv(
+        "climate.test_trv": trv_record(
             entity_id="climate.test_trv", local_temperature_calibration_entity=None
         )
     }
@@ -78,7 +77,7 @@ def mock_bt_instance(mock_hass):
     bt.hass = mock_hass
     bt.device_name = "Test Thermostat"
     bt.real_trvs = {
-        "climate.test_trv": Trv(
+        "climate.test_trv": trv_record(
             entity_id="climate.test_trv",
             local_temperature_calibration_entity="number.test_calibration",
         )

@@ -1,9 +1,10 @@
 """Drift guard binding the benchmark's input stage to production.
 
 ``input_stage.RoomTemperatureInput`` re-implements the acceptance gate of
-``events/temperature.trigger_temperature_change`` and the EMA of
-``_update_room_temperature_ema``, whose thresholds are locals and entity
-attributes rather than importable constants. This test drives the real
+``events/temperature.trigger_temperature_change``, whose thresholds are
+locals rather than importable constants, and the EMA of
+``_update_room_temperature_ema``, whose time constant it imports as
+``ROOM_TEMPERATURE_EMA_TAU_S``. This test drives the real
 production handler through a thermostat stand-in with the same reading
 sequence as the benchmark stage and asserts both commit the same value
 after every reading, so retuning the production gate without the
@@ -26,6 +27,7 @@ import pytest
 
 from custom_components.better_thermostat.core.decide import running_kernel_state
 from custom_components.better_thermostat.events.temperature import (
+    ROOM_TEMPERATURE_EMA_TAU_S,
     _update_room_temperature_ema,
     trigger_temperature_change,
 )
@@ -74,7 +76,7 @@ def _thermostat() -> ThermostatStandIn:
     bt.last_change_direction = 0
     bt.last_known_external_temperature = None
     bt.last_external_sensor_change = None
-    bt.room_temperature_ema_tau_seconds = 300.0
+    bt.room_temperature_ema_tau_seconds = ROOM_TEMPERATURE_EMA_TAU_S
     bt._room_temperature_ema_monotonic = None
     bt.room_temperature_ema = None
     bt.room_temperature_filtered = None
