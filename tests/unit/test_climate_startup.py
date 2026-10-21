@@ -43,7 +43,6 @@ from custom_components.better_thermostat.events.temperature import (
     PLATEAU_ACCEPT_WINDOW,
     trigger_temperature_change,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_HEAT_LOSS,
@@ -63,7 +62,7 @@ from custom_components.better_thermostat.utils.entry_schema import TrvSettings
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
 from custom_components.better_thermostat.utils.state_manager import ThermalStats
 from custom_components.better_thermostat.utils.watcher import BatteryReading
-from tests.factories import ThermostatStandIn, make_trv
+from tests.factories import ThermostatStandIn, make_trv, trv_record
 
 SENSOR_ID = "sensor.room_temp"
 TRV_ID = "climate.test_trv"
@@ -114,14 +113,8 @@ def bt():
     # a dict passes attribute reads straight through MagicMock and hides
     # whatever the code under test asks of a member.
     mock.real_trvs = {
-        TRV_ID: Trv(
-            entity_id=TRV_ID,
-            calibration=None,
-            integration="generic_thermostat",
-            adapter=None,
-            model_quirks=None,
-            model="SomeModel",
-            advanced={},
+        TRV_ID: trv_record(
+            entity_id=TRV_ID, calibration=None, model="SomeModel", advanced={}
         )
     }
     mock.cooler_entity_id = None
@@ -242,11 +235,9 @@ def plateau_bt(bt, hass):
     quirks = MagicMock()
     quirks.maybe_set_external_temperature = AsyncMock()
     bt.real_trvs = {
-        TRV_ID: Trv(
+        TRV_ID: trv_record(
             entity_id=TRV_ID,
             calibration=None,
-            integration="generic_thermostat",
-            adapter=None,
             model_quirks=quirks,
             model="SomeModel",
             advanced={},
@@ -276,12 +267,9 @@ def _make_no_off_trv(entity_id):
     after the startup mode is decided, so this is the shape the startup path
     actually sees.
     """
-    return Trv(
+    return trv_record(
         entity_id=entity_id,
         calibration=None,
-        integration="generic_thermostat",
-        adapter=None,
-        model_quirks=None,
         model="SomeModel",
         advanced={"no_off_system_mode": True, "child_lock": False},
     )
@@ -881,7 +869,7 @@ class TestCheckEntitiesReady:
     def test_trv_unknown_returns_false(self, bt):
         """An entity saying nothing leaves its device unaccounted for."""
         sensor = _make_sensor_state()
-        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID)}
+        bt.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID)}
         bt.hass.states.get.return_value = State(TRV_ID, STATE_UNKNOWN)
         result = BetterThermostat._check_entities_ready(bt, sensor)
         assert result is False
@@ -898,7 +886,7 @@ class TestCheckEntitiesReady:
 
         sensor = _make_sensor_state()
         bt.real_trvs = {
-            TRV_ID: Trv(
+            TRV_ID: trv_record(
                 entity_id=TRV_ID,
                 model_quirks=ZWA021,
                 advanced={"calibration": CalibrationOutput.DIRECT_VALVE_BASED},
@@ -925,8 +913,8 @@ class TestCheckEntitiesReady:
         sensor = _make_sensor_state()
         _arm_grace(bt, remaining=timedelta(seconds=30))
         bt.real_trvs = {
-            TRV_ID: Trv(entity_id=TRV_ID),
-            TRV_ID_2: Trv(entity_id=TRV_ID_2),
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
         }
 
         def side_effect(entity_id):
@@ -967,8 +955,8 @@ class TestCheckEntitiesReady:
         sensor = _make_sensor_state()
         _arm_grace(bt, remaining=timedelta(seconds=-1))
         bt.real_trvs = {
-            TRV_ID: Trv(entity_id=TRV_ID),
-            TRV_ID_2: Trv(entity_id=TRV_ID_2),
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
         }
         bt.hass.states.get.side_effect = lambda entity_id: State(
             entity_id, STATE_UNAVAILABLE
@@ -1025,8 +1013,8 @@ class TestCheckEntitiesReady:
         """
         _arm_grace(bt, remaining=timedelta(seconds=-1))
         bt.real_trvs = {
-            TRV_ID: Trv(entity_id=TRV_ID),
-            TRV_ID_2: Trv(entity_id=TRV_ID_2),
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
         }
         _install_states(
             bt,
@@ -1049,7 +1037,10 @@ def _arm_grace(bt, *, remaining: timedelta) -> None:
 
 def _two_trvs_second_gone(bt) -> None:
     """Give ``bt`` two TRVs, the first ready and the second unavailable."""
-    bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID), TRV_ID_2: Trv(entity_id=TRV_ID_2)}
+    bt.real_trvs = {
+        TRV_ID: trv_record(entity_id=TRV_ID),
+        TRV_ID_2: trv_record(entity_id=TRV_ID_2),
+    }
 
     def side_effect(entity_id):
         if entity_id == TRV_ID:
@@ -1112,8 +1103,8 @@ class TestCollectTrvStates:
     def test_missing_trv_state_skipped(self, bt):
         """Test Missing trv state skipped."""
         bt.real_trvs = {
-            TRV_ID: Trv(entity_id=TRV_ID),
-            TRV_ID_2: Trv(entity_id=TRV_ID_2),
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
         }
 
         def side_effect(entity_id):
@@ -1133,8 +1124,8 @@ class TestCollectTrvStates:
         would be read off a device that has not been set up.
         """
         bt.real_trvs = {
-            TRV_ID: Trv(entity_id=TRV_ID),
-            TRV_ID_2: Trv(entity_id=TRV_ID_2, awaiting_initialization=True),
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2, awaiting_initialization=True),
         }
         bt.hass.states.get.side_effect = lambda entity_id: _make_trv_state(
             entity_id=entity_id
@@ -1617,7 +1608,7 @@ class TestInitializeTrvCurrentTemperature:
     """
 
     def _trv_only_bt(self, bt, attrs, unit="°C"):
-        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=None)}
+        bt.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID, calibration=None)}
         bt.hass.config.units.temperature_unit = unit
         bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
         return bt
@@ -1663,7 +1654,7 @@ class TestInitializeTrvEchoSetpoints:
     """Startup takes the device's own setpoint as the one it may echo."""
 
     def _trv_only_bt(self, bt, attrs):
-        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=None)}
+        bt.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID, calibration=None)}
         bt.hass.config.units.temperature_unit = "°C"
         bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
         return bt
@@ -1709,7 +1700,7 @@ class TestInitializeTrvRangeFallback:
     """
 
     def _trv_only_bt(self, bt, unit, state):
-        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=None)}
+        bt.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID, calibration=None)}
         bt.hass.config.units.temperature_unit = unit
         bt.hass.states.get.return_value = state
         return bt
@@ -1768,7 +1759,9 @@ class TestInitializeTrvCalibrationFallback:
 
     def _offset_trv_bt(self, bt):
         """Wire the thermostat to one TRV that carries its own offset."""
-        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=LOCAL_CALIBRATION)}
+        bt.real_trvs = {
+            TRV_ID: trv_record(entity_id=TRV_ID, calibration=LOCAL_CALIBRATION)
+        }
         bt.hass.states.get.return_value = _make_trv_state()
         # The fallback is what these tests read back off the TRV, so it runs
         # for real while the rest of the instance stays a stand-in.
@@ -1955,7 +1948,7 @@ class TestInitializeTrvReadsOffsetsOnlyForOffsetTrvs:
         the calibration type alone.
         """
         bt.real_trvs = {
-            TRV_ID: Trv(
+            TRV_ID: trv_record(
                 entity_id=TRV_ID,
                 calibration=calibration,
                 local_temperature_calibration_entity="number.trv_offset",
@@ -2296,7 +2289,7 @@ class TestRestoreState:
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps({"comfort": 25.28}),
         }
         bt._saved_state = old
-        bt.heat_target_temperature = None
+        bt.heat_target_temperature = DEFAULT_TARGET_TEMP
         bt.cool_target_temperature = None
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
@@ -2330,7 +2323,7 @@ class TestRestoreState:
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps({"comfort": 33.0}),
         }
         bt._saved_state = old
-        bt.heat_target_temperature = None
+        bt.heat_target_temperature = DEFAULT_TARGET_TEMP
         bt.cool_target_temperature = None
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
@@ -2374,7 +2367,7 @@ class TestRestoreState:
             ),
         }
         bt._saved_state = old
-        bt.heat_target_temperature = None
+        bt.heat_target_temperature = DEFAULT_TARGET_TEMP
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2610,7 +2603,7 @@ class TestRestoreState:
     async def test_no_old_state_uses_trv_defaults(self, bt):
         """Without a stored state the target is taken from the TRV's setpoint."""
         bt._saved_state = None
-        bt.heat_target_temperature = None
+        bt.heat_target_temperature = DEFAULT_TARGET_TEMP
 
         states = [_make_trv_state(attrs={ATTR_TEMPERATURE: 20.0})]
         await BetterThermostat._restore_state(bt, states)
@@ -2764,7 +2757,9 @@ class _AdvancingClock:
 
 def _trv_refusing_every_write(attempts: list[str]):
     """A thermostat whose only TRV raises on every setpoint write."""
-    trv = Trv(entity_id=TRV_ID, target_temp_step=0.5, min_temp=5.0, max_temp=30.0)
+    trv = trv_record(
+        entity_id=TRV_ID, target_temp_step=0.5, min_temp=5.0, max_temp=30.0
+    )
 
     async def refuse(_self, entity_id, _temperature):
         """Record the attempt and fail it the way an unreachable TRV does."""
@@ -3372,7 +3367,7 @@ def _two_heads():
     second head has to exist for a two-state case to say anything.
     """
     return {
-        entity_id: Trv(entity_id=entity_id, calibration=None)
+        entity_id: trv_record(entity_id=entity_id, calibration=None)
         for entity_id in (TRV_ID, TRV_ID_2)
     }
 
@@ -3684,8 +3679,8 @@ class TestStartupWithoutAnUnavailableTrv:
     async def test_startup_initialises_only_the_trvs_it_did_not_leave_behind(self, bt):
         """The TRV left behind is not read or set up by startup."""
         bt.real_trvs = {
-            TRV_ID: Trv(entity_id=TRV_ID, calibration=None),
-            TRV_ID_2: Trv(
+            TRV_ID: trv_record(entity_id=TRV_ID, calibration=None),
+            TRV_ID_2: trv_record(
                 entity_id=TRV_ID_2, calibration=None, awaiting_initialization=True
             ),
         }
@@ -3707,8 +3702,8 @@ class TestStartupWithoutAnUnavailableTrv:
     async def test_a_named_trv_is_initialised_on_its_own(self, bt):
         """A TRV named explicitly is initialised whatever it is marked as."""
         bt.real_trvs = {
-            TRV_ID: Trv(entity_id=TRV_ID, calibration=None),
-            TRV_ID_2: Trv(
+            TRV_ID: trv_record(entity_id=TRV_ID, calibration=None),
+            TRV_ID_2: trv_record(
                 entity_id=TRV_ID_2, calibration=None, awaiting_initialization=True
             ),
         }
@@ -3733,8 +3728,8 @@ def _room_with_a_trv_left_behind(bt, *, available: bool):
     bt.is_removed = False
     bt._trvs_initializing = set()
     bt.real_trvs = {
-        TRV_ID: Trv(entity_id=TRV_ID),
-        TRV_ID_2: Trv(entity_id=TRV_ID_2, awaiting_initialization=True),
+        TRV_ID: trv_record(entity_id=TRV_ID),
+        TRV_ID_2: trv_record(entity_id=TRV_ID_2, awaiting_initialization=True),
     }
 
     def state(entity_id):

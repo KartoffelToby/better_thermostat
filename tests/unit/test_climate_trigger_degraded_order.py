@@ -18,8 +18,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     LadderParams,
 )
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _WATCHER = "custom_components.better_thermostat.utils.watcher"
@@ -34,7 +33,7 @@ def bt():
     mock.device_name = "Test BT"
     mock.kernel_state = KernelState()
     mock.clock = FakeClock()
-    mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID)}
+    mock.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID)}
     mock.sensor_entity_id = SENSOR_ID
     mock.humidity_sensor_entity_id = None
     mock.window_sensor_entity_id = None

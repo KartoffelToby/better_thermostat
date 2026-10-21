@@ -9,7 +9,12 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 quirk = importlib.import_module("custom_components.better_thermostat.model_fixes.TRVZB")
 
@@ -60,7 +65,7 @@ def _make_valve_self(last_percent=40, *, in_maintenance=False):
     mock_self = _make_self()
     mock_self.in_maintenance = in_maintenance
     mock_self.is_removed = False
-    trv_state = Trv(entity_id=ENTITY)
+    trv_state = trv_record(entity_id=ENTITY)
     trv_state.last_valve_percent = last_percent
     mock_self.real_trvs = {ENTITY: trv_state}
     return mock_self, trv_state
@@ -525,7 +530,7 @@ class TestExternalTemperatureWriteSelectsTheSensor:
         )
         mock_self = _make_selector_self("internal", entries=[trv, number, selector])
         mock_self.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")
+            "climate.trv1": trv_record(entity_id="climate.trv1", model="TRVZB")
         }
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
@@ -568,7 +573,7 @@ class TestExternalTemperatureIsNotMirroredIntoItsOwnSource:
         )
         mock_self.sensor_entity_id = room_sensor.entity_id
         mock_self.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")
+            "climate.trv1": trv_record(entity_id="climate.trv1", model="TRVZB")
         }
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
@@ -696,7 +701,7 @@ class TestValveWriteTheDeviceRefuses:
         mock_self = _make_self()
         mock_self.in_maintenance = False
         mock_self.is_removed = False
-        mock_self.real_trvs = {ENTITY: Trv(entity_id=ENTITY, model="TRVZB")}
+        mock_self.real_trvs = {ENTITY: trv_record(entity_id=ENTITY, model="TRVZB")}
         return mock_self
 
     @pytest.mark.parametrize(
@@ -792,7 +797,7 @@ class TestExternalTemperatureWriteTheDeviceRefuses:
         )
         mock_self = _make_selector_self("internal", entries=[trv, number, selector])
         mock_self.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")
+            "climate.trv1": trv_record(entity_id="climate.trv1", model="TRVZB")
         }
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
@@ -834,7 +839,7 @@ def _trvzb_with_numbers(monkeypatch, numbers, *, model="TRVZB"):
     monkeypatch.setattr(quirk.er, "async_get", lambda hass: registry, raising=True)
     mock_self = _make_self()
     mock_self.in_maintenance = False
-    mock_self.real_trvs = {ENTITY: Trv(entity_id=ENTITY, model=model)}
+    mock_self.real_trvs = {ENTITY: trv_record(entity_id=ENTITY, model=model)}
     return mock_self
 
 

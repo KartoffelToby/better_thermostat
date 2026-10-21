@@ -93,7 +93,7 @@ class WorldSnapshot:
 
     now: datetime
     now_monotonic: float
-    heat_target_temperature: float | None = None
+    heat_target_temperature: float
     cool_target_temperature: float | None = None
     hvac_mode: HvacMode | None = None
     room_temperature: float | None = None

@@ -25,12 +25,11 @@ from custom_components.better_thermostat.core.fsm.lifecycle import (
     LifecyclePhase,
     tick as lifecycle_tick,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.watcher import (
     STARTUP_DEGRADED_GRACE_PERIOD,
     check_and_update_degraded_mode,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _WATCHER = "custom_components.better_thermostat.utils.watcher"
@@ -47,7 +46,7 @@ def _startup_bt():
     mock.kernel_state = KernelState()
     mock.clock = FakeClock()
     type(mock).startup_running = BetterThermostat.startup_running
-    mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, advanced={})}
+    mock.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID, advanced={})}
     mock.entity_ids = [TRV_ID]
     mock.all_trvs = None
     mock.all_entities = dict[str, None]()

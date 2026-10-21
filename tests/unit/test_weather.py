@@ -93,7 +93,7 @@ def make_bt(
         outdoor_sensor_entity_id=outdoor_sensor_entity_id,
         off_temperature=off_temperature,
     )
-    bt.runtime = BtRuntime(call_for_heat=call_for_heat)
+    bt.runtime = BtRuntime(heat_target_temperature=21.0, call_for_heat=call_for_heat)
     bt.hass = hass
     bt.entity_id = "climate.test_bt"
     bt.clock = FakeClock()

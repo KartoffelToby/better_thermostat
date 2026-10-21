@@ -131,12 +131,6 @@ class MpcAdapter(ControlCycleGate):
         finally:
             self._restore()
 
-        if out is None:
-            # ``compute_mpc``'s contract allows None (no recommendation);
-            # production then skips the MPC result for this cycle. The
-            # benchmark has no fallback controller, so map it to a closed
-            # valve — the same floor the window-open path emits.
-            return BenchmarkOutput(valve_percent=0.0, diagnostics={"early_exit": True})
         return BenchmarkOutput(
             valve_percent=float(out.valve_percent),
             diagnostics=dict(out.debug) if out.debug else {},

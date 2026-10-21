@@ -13,7 +13,6 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlModeState,
 )
 from custom_components.better_thermostat.number import _PID_GAIN_SETTINGS
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import MpcOutput
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Diagnostics,
@@ -39,6 +38,7 @@ from tests.factories import (
     make_calibration_balance,
     make_snapshot,
     make_state,
+    trv_record,
 )
 
 
@@ -172,7 +172,7 @@ class TestStrategyRegistry:
         registry = self._registry(percent=55)
         bt = ThermostatStandIn()
         bt.device_name = "Test BT"
-        bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+        bt.real_trvs = {"climate.trv": trv_record(entity_id="climate.trv")}
 
         percent, use_valve = registry[mode].run(bt, "climate.trv")
 
@@ -201,7 +201,7 @@ class TestStrategyRegistry:
         bt.room_temperature = 20.0
         bt.heat_target_temperature = 21.0
         bt.kernel_state = make_state()
-        bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+        bt.real_trvs = {"climate.trv": trv_record(entity_id="climate.trv")}
 
         cap = strategy.capability(bt, "climate.trv")
         assert cap == CapabilityLevel.HEALTHY
@@ -233,7 +233,7 @@ class TestStrategyRegistry:
             control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
         )
         bt.real_trvs = {
-            "climate.trv": Trv(entity_id="climate.trv", current_temperature=20.5)
+            "climate.trv": trv_record(entity_id="climate.trv", current_temperature=20.5)
         }
         bt.hass.states.get.side_effect = lambda entity_id: State(
             entity_id, "heat", {"current_temperature": 20.5}
@@ -270,7 +270,9 @@ class TestBalanceCalibrator:
         bt.heat_target_temperature = 21.0
         bt.kernel_state = make_state()
         bt.real_trvs = {
-            "climate.trv": Trv(entity_id="climate.trv", calibration_balance=balance)
+            "climate.trv": trv_record(
+                entity_id="climate.trv", calibration_balance=balance
+            )
         }
         strategy = registry[CalibrationMode.PID_CALIBRATION]
         return BalanceCalibrator(bt, "climate.trv", strategy), bt

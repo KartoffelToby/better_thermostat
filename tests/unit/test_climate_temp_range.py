@@ -239,13 +239,13 @@ def test_celsius_bounds_are_read_as_published(lower):
         "5",
         "30.0",
     ]
+    unit = UnitOfTemperature.CELSIUS
     for value in values:
-        for unit in (UnitOfTemperature.CELSIUS, None):
-            assert bound_to_celsius(
-                str(value), unit, lower=lower, instance_name="test"
-            ) == convert_to_float_celsius(
-                str(value), "test", "", unit_of_measurement=unit
-            ), (value, unit)
+        assert bound_to_celsius(
+            str(value), unit, lower=lower, instance_name="test"
+        ) == convert_to_float_celsius(
+            str(value), "test", "", unit_of_measurement=unit
+        ), value
 
 
 def test_celsius_bounds_without_unit_attr_unchanged(bt):

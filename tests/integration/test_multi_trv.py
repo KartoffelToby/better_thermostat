@@ -39,6 +39,7 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.watchdog import WATCHDOG_MAX_AGE_S
+from custom_components.better_thermostat.model_fixes import TRVZB, ZWA021
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
 )
@@ -555,6 +556,32 @@ async def test_two_heads_of_different_models_each_get_what_they_can_express(
         assert_write_is(head.set_temperature_calls[-1], 21.5, head.profile)
     assert mode_commands(events, whole_degree.entity_id) == []
     assert hass.states.get(whole_degree.entity_id).state == HVACMode.HEAT_COOL
+
+
+@pytest.mark.parametrize("trv_group", [MIXED_GRID_GROUP], indirect=True, ids=profile_id)
+async def test_a_head_the_registry_cannot_name_keeps_its_own_configured_model(
+    hass, trv_group
+):
+    """Each head falls back to the model configured for it, not the room's.
+
+    Neither head has a device registry entry, so the registry names no model
+    and the one the entry stores for the head stands in, together with that
+    model's quirks. The thermostat-level model joins the models of all heads
+    and names no quirk module of its own.
+    """
+    half_degree, whole_degree = trv_group.scenario.profiles
+    set_room_sensor(hass, 19.5)
+    entry = make_entry(trv_group.scenario)
+    configured = {half_degree.entity_id: TRVZB, whole_degree.entity_id: ZWA021}
+    for head in entry.data["thermostat"]:
+        head["model"] = configured[head["trv"]].__name__.rsplit(".", 1)[-1]
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    for entity_id, quirks in configured.items():
+        trv = bt.real_trvs[entity_id]
+        assert trv.model == quirks.__name__.rsplit(".", 1)[-1]
+        assert trv.model_quirks is quirks
 
 
 @pytest.mark.parametrize("trv_group", [VALVE_GROUP], indirect=True, ids=profile_id)

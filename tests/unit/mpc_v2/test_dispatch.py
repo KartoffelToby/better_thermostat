@@ -28,7 +28,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
 from custom_components.better_thermostat.utils.telemetry import MpcV2Balance
-from tests.factories import make_calibration_balance
+from tests.factories import make_calibration_balance, trv_record
 
 
 class _FakeStateManager:
@@ -134,7 +134,7 @@ def _make_trv(
     valve_max_opening: float = 100.0,
 ) -> Trv:
     """Build a Trv configured for MPC v2 calibration."""
-    return Trv(
+    return trv_record(
         entity_id=entity_id,
         current_temperature=current_temperature,
         valve_max_opening=valve_max_opening,
@@ -150,7 +150,6 @@ def _make_trv(
         valve_position_writable=supports_valve,
         valve_position_entity="number.trv_valve" if supports_valve else None,
         max_temp=max_temp,
-        model_quirks=None,
     )
 
 

@@ -47,6 +47,7 @@ from custom_components.better_thermostat.utils.const import (
     MpcV2PlantPreset,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
+from tests.factories import trv_record
 
 
 class _InMemoryStateManager:
@@ -100,7 +101,7 @@ class _InMemoryStateManager:
 
 def _valve_trv(entity_id: str, mode: CalibrationMode) -> Trv:
     """Build a direct-valve TRV configured for one calibration mode."""
-    return Trv(
+    return trv_record(
         entity_id=entity_id,
         current_temperature=19.0,
         valve_max_opening=100.0,
@@ -112,7 +113,6 @@ def _valve_trv(entity_id: str, mode: CalibrationMode) -> Trv:
         valve_position_writable=True,
         valve_position_entity="number.trv_valve",
         max_temp=30.0,
-        model_quirks=None,
     )
 
 

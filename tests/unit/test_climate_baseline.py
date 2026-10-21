@@ -33,7 +33,7 @@ from custom_components.better_thermostat.utils.thermal_learning import (
     HeatLossTracker,
     Reading,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 # ---------------------------------------------------------------------------
 # Fixture
@@ -177,11 +177,6 @@ class TestShouldHeatWithTolerance:
     def _call(self, bt, previous_action, tol):
         return BetterThermostat._should_heat_with_tolerance(bt, previous_action, tol)
 
-    def test_target_temperature_none(self, mock_bt):
-        """Return False when target temperature is None."""
-        mock_bt.heat_target_temperature = None
-        assert self._call(mock_bt, HVACAction.IDLE, 0.5) is False
-
     def test_room_temperature_none(self, mock_bt):
         """Return False when current temperature is None."""
         mock_bt.room_temperature = None
@@ -250,11 +245,6 @@ class TestComputeHvacAction:
     def _call(self, bt):
         return BetterThermostat._compute_hvac_action(bt)
 
-    def test_target_temperature_none_returns_idle(self, mock_bt):
-        """Return IDLE when target temperature is None."""
-        mock_bt.heat_target_temperature = None
-        assert self._call(mock_bt) == HVACAction.IDLE
-
     def test_room_temperature_none_returns_idle(self, mock_bt):
         """Return IDLE when current temperature is None."""
         mock_bt.room_temperature = None
@@ -309,7 +299,7 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1", hvac_action=HVACAction.HEATING
             )
         }
@@ -321,7 +311,7 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", valve_position=50)
+            "climate.trv1": trv_record(entity_id="climate.trv1", valve_position=50)
         }
         assert self._call(mock_bt) == HVACAction.HEATING
 
@@ -331,7 +321,7 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", last_valve_percent=0.8)
+            "climate.trv1": trv_record(entity_id="climate.trv1", last_valve_percent=0.8)
         }
         assert self._call(mock_bt) == HVACAction.HEATING
 
@@ -341,7 +331,7 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.HEATING
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1", hvac_action=HVACAction.HEATING
             )
         }
@@ -354,7 +344,7 @@ class TestComputeHvacAction:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.ignore_states = True
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1", hvac_action=HVACAction.HEATING
             )
         }
@@ -366,7 +356,7 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1",
                 hvac_action=HVACAction.HEATING,
                 ignore_trv_states=True,
@@ -380,7 +370,7 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1", hvac_action=HVACAction.HEATING
             )
         }
@@ -1601,18 +1591,13 @@ class TestEnforceCoolAboveHeat:
         self._call(mock_bt, regardless_of_hvac_mode=True)
         assert mock_bt.cool_target_temperature == 22.5
 
-    def test_regardless_of_hvac_mode_keeps_the_none_guards(self, mock_bt):
-        """Without both targets there is no pair to order."""
+    def test_regardless_of_hvac_mode_keeps_the_none_guard(self, mock_bt):
+        """Without a cooling target there is no pair to order."""
         mock_bt.hvac_mode = HVACMode.OFF
         mock_bt.heat_target_temperature = 22.0
         mock_bt.cool_target_temperature = None
         self._call(mock_bt, regardless_of_hvac_mode=True)
         assert mock_bt.cool_target_temperature is None
-
-        mock_bt.heat_target_temperature = None
-        mock_bt.cool_target_temperature = 20.0
-        self._call(mock_bt, regardless_of_hvac_mode=True)
-        assert mock_bt.cool_target_temperature == 20.0
 
     def test_regardless_of_hvac_mode_keeps_the_ordering_guard(self, mock_bt):
         """A pair already in order is left alone whatever the mode is."""
@@ -1950,14 +1935,6 @@ class TestEnforceHeatBelowCool:
         assert mock_bt.heat_target_temperature == 5.0
         assert caplog.text == ""
 
-    def test_none_heat_target_is_noop(self, mock_bt):
-        """A None heat target does not raise and stays None."""
-        mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.heat_target_temperature = None
-        mock_bt.cool_target_temperature = 22.0
-        self._call(mock_bt)
-        assert mock_bt.heat_target_temperature is None
-
 
 # ===========================================================================
 # 9. TestBoundTargetToRange
@@ -2042,13 +2019,6 @@ class TestClampInboundCoolTarget:
         mock_bt.hvac_mode = HVACMode.OFF
         mock_bt.heat_target_temperature = 22.0
         assert self._call(mock_bt, 20.0) == 22.5
-
-    def test_none_heat_target_is_noop(self, mock_bt):
-        """Without a heating target there is no bound to clamp against."""
-        mock_bt.cooler_entity_id = "climate.ac"
-        mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.heat_target_temperature = None
-        assert self._call(mock_bt, 20.0) == 20.0
 
     def test_value_above_heat_target_is_kept(self, mock_bt):
         """A value that already clears the heating target is returned unchanged."""

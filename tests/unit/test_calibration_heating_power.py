@@ -22,12 +22,11 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.helpers import (
     heating_power_valve_position,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 ENTITY_ID = "climate.test_trv"
 _CAL = "custom_components.better_thermostat.calibration"
@@ -66,7 +65,7 @@ def _make_bt(
     )
 
     bt.real_trvs = {
-        ENTITY_ID: Trv(
+        ENTITY_ID: trv_record(
             entity_id=ENTITY_ID,
             advanced={
                 "calibration_mode": CalibrationMode.HEATING_POWER_CALIBRATION,
@@ -258,13 +257,9 @@ class TestUnderSensorFallback:
         assert result == (1.5, False)
         assert bt.real_trvs[ENTITY_ID].calibration_balance is None
 
-    @pytest.mark.parametrize("missing", ["room_temperature", "heat_target_temperature"])
-    def test_setpoint_without_demand_drops_the_valve_intent(self, missing):
-        """No target or no room reading leaves no valve intent to replay."""
+    def test_setpoint_without_demand_drops_the_valve_intent(self):
+        """No room reading leaves no valve intent to replay."""
         bt = _make_bt(HVACAction.HEATING, room_temperature=None)
-        if missing == "heat_target_temperature":
-            bt = _make_bt(HVACAction.HEATING)
-            bt.heat_target_temperature = None
         bt.real_trvs[ENTITY_ID].calibration_balance = {
             "valve_percent": 40,
             "apply_valve": True,
