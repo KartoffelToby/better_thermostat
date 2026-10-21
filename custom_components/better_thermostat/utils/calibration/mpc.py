@@ -104,8 +104,8 @@ class MpcInput:
     """Input parameters for MPC calibration calculation."""
 
     key: str
-    target_temperature: float | None
-    room_temperature: float | None
+    target_temperature: float
+    room_temperature: float
     room_temperature_filtered: float | None = None
     trv_temperature: float | None = None
     tolerance_K: float = 0.0
@@ -344,20 +344,13 @@ def _update_perf_curve(
     now: float,
     extra_debug: MpcDebugInfo,
 ) -> None:
-    if inp.room_temperature is None:
-        return
-    if (
-        not inp.heating_allowed
-        or inp.window_open
-        or inp.learning_paused
-        or inp.target_temperature is None
-    ):
-        state.last_room_temperature = float(inp.room_temperature)
+    if not inp.heating_allowed or inp.window_open or inp.learning_paused:
+        state.last_room_temperature = inp.room_temperature
         state.last_room_temperature_ts = now
         return
 
     if state.last_room_temperature_ts <= 0.0 or state.last_room_temperature is None:
-        state.last_room_temperature = float(inp.room_temperature)
+        state.last_room_temperature = inp.room_temperature
         state.last_room_temperature_ts = now
         return
 
@@ -366,7 +359,7 @@ def _update_perf_curve(
     if dt_s < min_window:
         return
 
-    room_delta = float(inp.room_temperature) - float(state.last_room_temperature)
+    room_delta = inp.room_temperature - float(state.last_room_temperature)
     dt_min = dt_s / 60.0
     if dt_min <= 0:
         return
@@ -388,7 +381,7 @@ def _update_perf_curve(
         trv_delta = float(inp.trv_temperature) - float(state.last_trv_temperature)
         trv_rate = trv_delta / dt_min
 
-    error_K = float(inp.target_temperature) - float(inp.room_temperature)
+    error_K = inp.target_temperature - inp.room_temperature
 
     stats = state.perf_curve.setdefault(
         label,
@@ -424,7 +417,7 @@ def _update_perf_curve(
     extra_debug["perf_curve_bin"] = label
     extra_debug["perf_room_rate"] = _round_for_debug(room_rate, 4)
 
-    state.last_room_temperature = float(inp.room_temperature)
+    state.last_room_temperature = inp.room_temperature
     state.last_room_temperature_ts = now
 
 
@@ -722,7 +715,7 @@ def compute_mpc(
     *,
     state: _MpcState,
     all_states: Mapping[str, _MpcState],
-) -> tuple[MpcOutput | None, _MpcState]:
+) -> tuple[MpcOutput, _MpcState]:
     """Run the predictive controller and emit a valve recommendation.
 
     Parameters
@@ -741,9 +734,8 @@ def compute_mpc(
 
     Returns
     -------
-    tuple[MpcOutput | None, _MpcState]
-        The valve recommendation (or ``None`` on early exit) **and** the
-        updated state object.  The caller owns persistence.
+    tuple[MpcOutput, _MpcState]
+        The valve recommendation **and** the updated state object.  The caller owns persistence.
     """
 
     now = time()
@@ -824,28 +816,15 @@ def compute_mpc(
             inp.window_open,
             inp.heating_allowed,
         )
-    elif inp.target_temperature is None or inp.room_temperature is None:
-        percent = state.last_percent if state.last_percent is not None else 0.0
-        delta_kelvin = None
-        _LOGGER.debug(
-            "better_thermostat %s: MPC missing temps (%s) reusing last_percent=%s",
-            name,
-            entity,
-            _round_for_debug(percent, 2),
-        )
     else:
         use_virtual_temperature = params.use_virtual_temperature
 
         tolerance = max(0.0, float(inp.tolerance_K or 0.0))
         tolerance_hold_block = False
 
-        if (
-            tolerance > 0.0
-            and inp.target_temperature is not None
-            and inp.room_temperature is not None
-        ):
-            room_temperature = float(inp.room_temperature)
-            heat_target_temperature = float(inp.target_temperature)
+        if tolerance > 0.0:
+            room_temperature = inp.room_temperature
+            heat_target_temperature = inp.target_temperature
             restart_threshold = heat_target_temperature - tolerance
 
             if state.tolerance_hold_active:
@@ -880,8 +859,8 @@ def compute_mpc(
         #
         # NOTE: Even during tolerance hold we keep this observer running so
         # virtual temperature does not go stale before heating resumes.
-        if use_virtual_temperature and inp.room_temperature is not None:
-            sensor_temperature = float(inp.room_temperature)
+        if use_virtual_temperature:
+            sensor_temperature = inp.room_temperature
             Q = max(1e-6, float(params.kalman_Q))  # process noise / sec
             R = max(1e-6, float(params.kalman_R))  # measurement noise
 
@@ -1097,12 +1076,8 @@ def _compute_predictive_percent(
     - adaptation moves the gain and loss estimates by EMA, in °C/min
     """
 
-    # compute_mpc calls this only with both temperatures present.
-    assert inp.room_temperature is not None
-    assert inp.target_temperature is not None
-
-    room_temperature = float(inp.room_temperature)
-    target_temperature = float(inp.target_temperature)
+    room_temperature = inp.room_temperature
+    target_temperature = inp.target_temperature
 
     # Determine which temperature to use for the cost function (Raw vs Filtered)
     # Default to filtered (EMA) for stability.
@@ -1491,7 +1466,7 @@ def _compute_predictive_percent(
                 if dt_residual < ss_min_interval_s or dt_residual > ss_max_interval_s:
                     gain_ss_rate_limited = True
 
-                e_now = target_temperature - float(inp.room_temperature)
+                e_now = target_temperature - inp.room_temperature
 
                 if (
                     (not gain_ss_rate_limited)
@@ -1873,12 +1848,12 @@ def _room_rise_over(
     it spans an interval of its own. The move is scaled from that interval
     to *window_s*. ``None`` when there is no earlier reading to compare.
     """
-    if inp.room_temperature is None or state.last_room_temperature is None:
+    if state.last_room_temperature is None:
         return None
     elapsed_s = now - state.last_room_temperature_ts
     if state.last_room_temperature_ts <= 0.0 or elapsed_s <= 0.0:
         return None
-    room_delta = float(inp.room_temperature) - float(state.last_room_temperature)
+    room_delta = inp.room_temperature - float(state.last_room_temperature)
     return room_delta * window_s / elapsed_s
 
 
@@ -1941,16 +1916,13 @@ def _post_process_percent(
     target_changed = False
 
     # track target temperature changes
-    if inp.target_temperature is not None:
-        prev_target = state.last_target_temperature
-        if prev_target is not None:
-            try:
-                target_changed = (
-                    abs(float(inp.target_temperature) - float(prev_target)) >= 0.05
-                )
-            except TypeError, ValueError:
-                target_changed = False
-        state.last_target_temperature = inp.target_temperature
+    prev_target = state.last_target_temperature
+    if prev_target is not None:
+        try:
+            target_changed = abs(inp.target_temperature - float(prev_target)) >= 0.05
+        except TypeError, ValueError:
+            target_changed = False
+    state.last_target_temperature = inp.target_temperature
 
     # update frequency limiter
     too_soon = (now - state.last_update_ts) < params.min_update_interval_s
@@ -1958,12 +1930,8 @@ def _post_process_percent(
         too_soon = False
 
     # compute delta_kelvin if missing
-    if inp.target_temperature is not None and inp.room_temperature is not None:
-        try:
-            if delta_kelvin is None:
-                delta_kelvin = inp.target_temperature - inp.room_temperature
-        except TypeError, ValueError:
-            delta_kelvin = None
+    if delta_kelvin is None:
+        delta_kelvin = inp.target_temperature - inp.room_temperature
 
     # 2) MIN EFFECTIVE OPENING (FIRST!)
     if params.enable_min_effective_percent:

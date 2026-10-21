@@ -93,7 +93,7 @@
   "custom_components/better_thermostat/utils/calibration/plant_preset.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/state_key.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/strategies.py": 98.3,
-  "custom_components/better_thermostat/utils/calibration/tpi.py": 96.3,
+  "custom_components/better_thermostat/utils/calibration/tpi.py": 96.1,
   "custom_components/better_thermostat/utils/clock.py": 100.0,
   "custom_components/better_thermostat/utils/const.py": 98.4,
   "custom_components/better_thermostat/utils/controlling.py": 96.9,

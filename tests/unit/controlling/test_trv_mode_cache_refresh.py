@@ -34,7 +34,7 @@ from custom_components.better_thermostat.utils.controlling import (
     refresh_cached_trv_modes,
 )
 from custom_components.better_thermostat.utils.helpers import SentCommand
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 ENTITY_ID = "climate.test_trv"
 _CTRL = "custom_components.better_thermostat.utils.controlling"
@@ -118,7 +118,7 @@ def thermostat(reported_states):
         BetterThermostat._clamp_inbound_heat_target(bt, value)
     )
     bt.real_trvs = {
-        ENTITY_ID: Trv(
+        ENTITY_ID: trv_record(
             entity_id=ENTITY_ID,
             hvac_mode="heat",
             hvac_modes=OFFERED_MODES,
@@ -134,7 +134,6 @@ def thermostat(reported_states):
             last_calibration=0.0,
             ignore_trv_states=False,
             model="SomeModel",
-            model_quirks=None,
             hvac_action=HVACAction.HEATING,
             valve_position=50,
             advanced={

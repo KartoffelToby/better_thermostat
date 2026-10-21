@@ -26,11 +26,15 @@ import pytest
 from custom_components.better_thermostat.adapters import mqtt, valve_entity
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.switch import BetterThermostatChildLockSwitch
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils import helpers
 from custom_components.better_thermostat.utils.const import CONF_CHILD_LOCK
 from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 TRV_ID = "climate.trv"
 TRV_DEVICE = "device_trv"
@@ -77,7 +81,7 @@ def _host(registry: Any, advanced: TrvAdvanced | None = None) -> MagicMock:
     host.hass.states.get = _state
     host.hass.services.async_call = AsyncMock(return_value=None)
     host.real_trvs = {
-        TRV_ID: Trv(entity_id=TRV_ID, model="TRVZB", advanced=advanced or {})
+        TRV_ID: trv_record(entity_id=TRV_ID, model="TRVZB", advanced=advanced or {})
     }
     return host
 

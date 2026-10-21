@@ -42,8 +42,13 @@ from custom_components.better_thermostat.adapters import (
 from custom_components.better_thermostat.adapters.valve_entity import (
     ValveEntityUnreachableError,
 )
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests import stub_adapter
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 ENTITY_ID = "climate.trv"
 _RETRY = "custom_components.better_thermostat.utils.retry"
@@ -90,7 +95,7 @@ NON_VALVE_ADAPTERS = sorted(set(ADAPTER_IDS) - set(VALVE_ADAPTERS))
 
 
 def _thermostat(
-    adapter=None,
+    adapter=stub_adapter,
     valve_entity=VALVE_ENTITY,
     valve_writable=True,
     valve_bounds=(0.0, 100.0, 1.0),
@@ -140,7 +145,7 @@ def _thermostat(
     # Anything else is an entity the state machine does not know, which is
     # what a stale discovery result looks like from in here.
     thermostat.hass.states.get = states.get
-    trv = Trv(entity_id=ENTITY_ID)
+    trv = trv_record(entity_id=ENTITY_ID)
     trv.valve_position_entity = valve_entity
     trv.valve_position_writable = valve_writable
     trv.adapter = adapter

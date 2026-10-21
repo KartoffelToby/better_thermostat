@@ -136,8 +136,8 @@ class TrvInfo(Protocol):
     """
 
     @property
-    def model(self) -> str | None:
-        """Detected TRV model, if known."""
+    def model(self) -> str:
+        """Detected TRV model."""
         ...
 
     @property
@@ -325,7 +325,7 @@ _PID_SCALAR_FIELDS: tuple[tuple[PIDScalarKey, str, int], ...] = (
 def _pick_representative_trv(real_trvs: Mapping[str, TrvInfo]) -> str | None:
     """Prefer a sonoff/trvzb TRV; else first key."""
     for entity_id, info in real_trvs.items():
-        model = (info.model or "").lower()
+        model = info.model.lower()
         if "sonoff" in model or "trvzb" in model:
             return entity_id
     return next(iter(real_trvs), None)

@@ -17,8 +17,7 @@ from unittest.mock import MagicMock
 from homeassistant.components.climate import HVACMode
 import pytest
 
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 
 @pytest.fixture
@@ -32,7 +31,7 @@ def mock_bt_instance_no_calibration():
     bt.room_temperature = 20.0
     bt.window_open = False
     bt.real_trvs = {
-        "climate.test_trv": Trv(
+        "climate.test_trv": trv_record(
             entity_id="climate.test_trv",
             hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
             min_temp=5.0,
@@ -61,7 +60,7 @@ def mock_bt_instance_no_calibration_with_remap():
     bt.room_temperature = 20.0
     bt.window_open = False
     bt.real_trvs = {
-        "climate.test_trv_remap": Trv(
+        "climate.test_trv_remap": trv_record(
             entity_id="climate.test_trv_remap",
             hvac_modes=[HVACMode.AUTO, HVACMode.OFF],  # No HEAT mode, needs remap
             min_temp=5.0,
@@ -89,7 +88,7 @@ def mock_bt_instance_no_calibration_no_off():
     bt.room_temperature = 20.0
     bt.window_open = False
     bt.real_trvs = {
-        "climate.test_trv_no_off": Trv(
+        "climate.test_trv_no_off": trv_record(
             entity_id="climate.test_trv_no_off",
             hvac_modes=[HVACMode.HEAT],  # No OFF mode
             min_temp=5.0,

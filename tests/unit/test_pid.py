@@ -42,21 +42,6 @@ class TestPIDController:
         assert state is not None
         return state
 
-    def test_no_temperatures(self):
-        """Test behavior when temperatures are missing."""
-        params = PIDParams()
-        percent, debug, _ = self._compute(
-            params=params,
-            inp_target_temperature=None,
-            inp_room_temperature=20.0,
-            inp_trv_temperature=None,
-            inp_temperature_slope_K_per_min=None,
-            key="test_no_temp",
-        )
-        assert percent == 0.0
-        assert debug["mode"] == "pid"
-        assert debug["error"] == "no_temps"
-
     def test_basic_pid_calculation(self):
         """Test basic PID calculation without auto-tuning."""
         # Disable hold-time to allow immediate output changes

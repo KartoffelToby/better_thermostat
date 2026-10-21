@@ -53,8 +53,8 @@ class ModelFixTrv(Protocol):
         ...
 
     @property
-    def model(self) -> str | None:
-        """Device model string, or None while it is undetermined."""
+    def model(self) -> str:
+        """Device model string."""
         ...
 
     @property
@@ -63,8 +63,8 @@ class ModelFixTrv(Protocol):
         ...
 
     @property
-    def model_quirks(self) -> ModelQuirks | None:
-        """Quirk module loaded for the TRV, or None before it is loaded."""
+    def model_quirks(self) -> ModelQuirks:
+        """Quirk module loaded for the TRV."""
         ...
 
     @property
@@ -100,12 +100,8 @@ class ModelFixHost(Protocol):
         ...
 
     @property
-    def heat_target_temperature(self) -> float | None:
-        """Setpoint Better Thermostat is regulating towards.
-
-        Optional on the entity, and the DEFAULT calibration mode is the one
-        mode that does not demand a setpoint before calling into the quirks.
-        """
+    def heat_target_temperature(self) -> float:
+        """Setpoint Better Thermostat is regulating towards."""
         ...
 
     @property

@@ -36,14 +36,13 @@ _LOGGER = logging.getLogger(__name__)
 _QUIRK_MODULE_ALIASES = {"Spirit": "ZWA021", "Z-TRV-V01": "ZWA021"}
 
 
-def get_model_quirks_name(model: str | None) -> str:
+def get_model_quirks_name(model: str) -> str:
     """Return the name of the quirk module a device model is driven by.
 
     Parameters
     ----------
-    model : str | None
-        Model string the device registry reports, or None while the model
-        is undetermined.
+    model : str
+        Model string the device registry reports.
 
     Returns
     -------
@@ -51,8 +50,7 @@ def get_model_quirks_name(model: str | None) -> str:
         Module name to load: the model itself, unless another model's
         module answers for it.
     """
-    model_str = model if model is not None else ""
-    return _QUIRK_MODULE_ALIASES.get(model_str, model_str)
+    return _QUIRK_MODULE_ALIASES.get(model, model)
 
 
 async def _import_quirks(self: QuirkLoaderHost, module_path: str) -> ModelQuirks:
@@ -85,7 +83,7 @@ async def _import_quirks(self: QuirkLoaderHost, module_path: str) -> ModelQuirks
 
 
 async def load_model_quirks(
-    self: QuirkLoaderHost, model: str | None, entity_id: str
+    self: QuirkLoaderHost, model: str, entity_id: str
 ) -> ModelQuirks:
     """Load model quirks module for a given TRV model, falling back to default.
 
@@ -109,7 +107,7 @@ async def load_model_quirks(
             "better_thermostat %s: using quirks module '%s' for model '%s' (trv %s)",
             self.device_name,
             module_path,
-            model_str or "<none>",
+            model_str,
             entity_id,
         )
     except ImportError as e:
@@ -121,7 +119,7 @@ async def load_model_quirks(
                 "better_thermostat %s: quirks module '%s' not available for model '%s' (trv %s): %s; using default",
                 self.device_name,
                 module_path,
-                model_str or "<none>",
+                model_str,
                 entity_id,
                 e,
             )
@@ -132,7 +130,7 @@ async def load_model_quirks(
                 self.device_name,
                 default_module,
                 module_path,
-                model_str or "<none>",
+                model_str,
                 entity_id,
                 e2,
             )
@@ -142,10 +140,7 @@ async def load_model_quirks(
 
 
 def _quirks(self: ModelFixHost, entity_id: str) -> ModelQuirks:
-    quirks = self.real_trvs[entity_id].model_quirks
-    if quirks is None:
-        raise AttributeError(f"no model quirks loaded for {entity_id}")
-    return quirks
+    return self.real_trvs[entity_id].model_quirks
 
 
 def quirk_writes_valve(model_quirks: object) -> bool:
@@ -160,7 +155,7 @@ def quirk_writes_valve(model_quirks: object) -> bool:
     Parameters
     ----------
     model_quirks : object
-        Quirk module loaded for a TRV, or None where none is loaded.
+        Quirk module loaded for a TRV.
 
     Returns
     -------

@@ -134,33 +134,15 @@ async def load_adapter(
     return adapter
 
 
-class AdapterNotLoadedError(AttributeError):
-    """A TRV record carries no adapter module to delegate to.
-
-    The climate entity builds every record from a loaded adapter, so a
-    record without one is a programming error. It derives from
-    ``AttributeError``, the error a call on the missing module would have
-    raised, so the retry wrapper fails it fast and every handler that
-    catches the attribute error keeps catching it.
-    """
-
-
 def _adapter(self: AdapterHost, entity_id: str) -> TrvAdapter:
-    """Answer the adapter module of the TRV, raising when it has none.
+    """Answer the adapter module of the TRV.
 
     Raises
     ------
     KeyError
         The thermostat holds no TRV under ``entity_id``
-    AdapterNotLoadedError
-        The TRV record carries no adapter module
     """
-    adapter = self.real_trvs[entity_id].adapter
-    if adapter is None:
-        raise AdapterNotLoadedError(
-            f"better_thermostat {self.device_name}: no adapter is loaded for {entity_id}"
-        )
-    return adapter
+    return self.real_trvs[entity_id].adapter
 
 
 async def init(self: AdapterHost, entity_id: str) -> None:
@@ -299,9 +281,7 @@ def _onto_device_grid(
     step = 0.5
     try:
         step = setpoint_write_step(self, entity_id)
-        stepped = round_by_step(float(t), step)
-        # The rounding answers None only for a missing argument.
-        rounded = t if stepped is None else stepped
+        rounded = round_by_step(float(t), step)
     except TypeError, ValueError, OverflowError:
         rounded = float(t)
 
@@ -677,8 +657,7 @@ def _valve_channels(self: BetterThermostat, entity_id: str) -> list[ValveChannel
     # ecosystem that declares no valve channel writes nothing, and reporting
     # the discovery as a completed write would tell the caller a position was
     # taken that the device never saw.
-    adapter = trv_state.adapter if trv_state is not None else None
-    declared = adapter.CAPABILITIES if adapter is not None else None
+    declared = trv_state.adapter.CAPABILITIES if trv_state is not None else None
     adapter_writes_valve = declared is None or declared.valve_write
     # An adapter whose valve channel is an ecosystem service call has no
     # helper entity to discover. `Trv.capabilities` already reads the flag
@@ -689,7 +668,7 @@ def _valve_channels(self: BetterThermostat, entity_id: str) -> list[ValveChannel
     valve_writable = (
         trv_state.valve_position_writable if trv_state is not None else None
     )
-    adapter_write = adapter.set_valve if adapter is not None else None
+    adapter_write = trv_state.adapter.set_valve if trv_state is not None else None
 
     # Each channel carries whether its own answer decides the outcome: a quirk
     # reports whether it took the position, while an adapter call that returns
