@@ -309,3 +309,11 @@ inspect what shape `fit_plant` expects.
 ```sh
 uv run python -m pytest tests/benchmark/tests -p no:homeassistant
 ```
+
+`tests/test_regression_gate.py` runs `mpc`, `mpc_v2`, `pid`, `tpi` and
+`default` over five noise-free scenarios and holds each controller's mean
+score per dimension above a floor recorded in `_FLOORS`, about 0.02
+below the current value. A floor more than 0.04 below the measured mean
+fails as well, and the message names the value to record. A change that
+moves a controller therefore updates `_FLOORS` in the same pull request,
+downward with a reason or upward to lock in the gain.
