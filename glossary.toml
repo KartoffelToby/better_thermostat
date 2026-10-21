@@ -287,6 +287,20 @@ zone = "A"
 definition = "The algorithm that computes the calibration (default, aggressive, PID, MPC, …)."
 rejected = []
 
+[[term]]
+name = "learning_paused"
+zone = "C"
+definition = "Whether the user paused learning with the Pause Learning switch."
+rejected = []
+note = "Published through `ATTR_STATE_LEARNING_PAUSED` and restored from it. The learners read `learning_held`, not this."
+
+[[term]]
+name = "learning_held"
+zone = "A"
+definition = "Whether the learners hold what they learned: from the start of a pause to the end of the first control cycle after it."
+rejected = []
+note = "Each learner receives it in its own inputs under the name `learning_paused`."
+
 # ---------------------------------------------------------------------------
 # General
 # ---------------------------------------------------------------------------

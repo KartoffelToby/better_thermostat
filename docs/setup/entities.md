@@ -46,7 +46,11 @@ Set them from an automation to change several devices at once, for example to fo
 
 ## Switches
 
-**Child Lock** exists for every TRV. It turns the *Ignore all inputs on the TRV like a child lock* option on and off and, where the TRV has a child lock entity of its own, that one too. Better Thermostat looks for a switch or lock on the TRV's device named for the child lock first; only when there is none does it use one whose name merely contains "lock". The switch and the startup sync of the option pick the same entity.
+**Release devices** exists for every device. Turned on, it hands the room's TRVs and cooler to you: Better Thermostat writes nothing to them, takes over nothing they report and learns nothing until it is turned off, which brings them back onto the thermostat's own settings with one control cycle. It keeps its state over a restart. See [Releasing the devices](/setup/releasing-devices/).
+
+**Pause Learning** exists for every device. While it is on, Better Thermostat keeps regulating but learns nothing from the room: the heating power, the heat loss and the state of every calibration controller stay as they are. Turn it on from an automation while the room behaves in a way that would teach the controllers something wrong, such as a boiler heating hot water or a lit fireplace. See [Pausing learning](/setup/pause-learning/).
+
+**Child Lock** exists for every TRV. It turns the *Ignore all inputs on the TRV like a child lock* option on and off and, where the TRV has a child lock entity of its own, that one too. While the devices are released it cannot be changed. Better Thermostat looks for a switch or lock on the TRV's device named for the child lock first; only when there is none does it use one whose name merely contains "lock". The switch and the startup sync of the option pick the same entity.
 
 **Window Detection** exists for every device with a window or door sensor. It is on by default, and then an open window or door turns the heating off as described in [Window sensor](/faq/window-sensor/). Turned off, the window and door sensors no longer affect the heating, and a close delay that is still running is dropped, so heating resumes at once. The thermostat shows the setting in its `window_detection` attribute, and the switch keeps its state across restarts. See [Turning window detection off](/faq/window-sensor/#turning-window-detection-off).
 

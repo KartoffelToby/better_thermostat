@@ -1189,3 +1189,49 @@ class TestExternalTemperatureIsOnlyWrittenWhereItCanLand:
         assert _number_writes(mock_self) == [
             {"entity_id": "number.trv1_external_temperature_input", "value": written}
         ]
+
+
+class TestNothingFollowsTheRelease:
+    """A write under way when the devices are released is the last one.
+
+    The bump and the external input are written first, and what follows
+    them, the deferred target and the sensor selector, are writes of their
+    own that the released devices do not get.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_target_a_bump_deferred_is_not_sent(self, monkeypatch):
+        """The valve stays on the bump; the user owns it from the release on."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+        mock_self = _trvzb_with_numbers(
+            monkeypatch, [_valve_number(VALVE_OPENING, "valve_opening_degree")]
+        )
+        mock_self.is_removed = False
+        trv_state = mock_self.real_trvs[ENTITY]
+        trv_state.last_valve_percent = 40
+
+        assert await quirk.override_set_valve(mock_self, ENTITY, 30) is True
+        mock_self.devices_released = True
+        await trv_state.extra["_trvzb_valve_bump_task"]
+
+        assert _number_writes(mock_self) == [{"entity_id": VALVE_OPENING, "value": 50}]
+
+    @pytest.mark.asyncio
+    async def test_the_selector_is_not_moved_after_the_input(self, monkeypatch):
+        """The input went out; the selector that would follow it does not."""
+        device = TestExternalTemperatureWriteTheDeviceRefuses
+        mock_self = device._device_on_the_internal_sensor(monkeypatch)
+
+        async def released_during_the_input(domain, *_args, **_kwargs):
+            if domain == "number":
+                mock_self.devices_released = True
+
+        mock_self.hass.services.async_call = AsyncMock(
+            side_effect=released_during_the_input
+        )
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.4
+        )
+        assert len(_number_writes(mock_self)) == 1
+        assert _selector_calls(mock_self) == []

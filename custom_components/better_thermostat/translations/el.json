@@ -496,6 +496,9 @@
       }
     },
     "switch": {
+      "release_devices": {
+        "name": "Αποδέσμευση συσκευών"
+      },
       "pid_auto_tune": {
         "name": "{trv_name} Αυτόματος συντονισμός PID"
       },
@@ -507,6 +510,9 @@
       },
       "child_lock_no_trv": {
         "name": "Παιδικό κλείδωμα"
+      },
+      "pause_learning": {
+        "name": "Παύση εκμάθησης"
       },
       "window_detection": {
         "name": "Ανίχνευση παραθύρου"
@@ -623,6 +629,9 @@
     },
     "invalid_settings": {
       "message": "Οι αποθηκευμένες ρυθμίσεις αυτού του Better Thermostat δεν μπορούν να διαβαστούν: {reason}. Αλλάξτε τες στις επιλογές του ή αφαιρέστε το και προσθέστε το ξανά."
+    },
+    "devices_released": {
+      "message": "Οι συσκευές του {device_name} είναι αποδεσμευμένες. Απενεργοποιήστε την Αποδέσμευση συσκευών ώστε το Better Thermostat να τις ελέγχει ξανά."
     }
   }
 }

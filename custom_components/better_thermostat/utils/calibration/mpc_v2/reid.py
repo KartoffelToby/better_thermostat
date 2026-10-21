@@ -51,6 +51,9 @@ class ReidSample:
     T_outdoor: float | None = None
     T_trv: float | None = None
     window_open: bool = False
+    # Recorded while learning was paused: like an open-contact sample it
+    # never enters a fit and cuts the run it falls into.
+    learning_paused: bool = False
 
 
 @dataclass
@@ -68,7 +71,12 @@ class ReidBuffer:
     samples: list[ReidSample] = field(default_factory=list)
 
     def append(self, sample: ReidSample) -> bool:
-        """Add a sample; returns ``False`` when deduped or non-finite."""
+        """Add a sample; returns ``False`` when deduped or non-finite.
+
+        A paused sample deduped by the spacing floor marks the sample it
+        follows as paused instead, so a pause cuts the buffer even when it
+        starts right after a sample.
+        """
         for value in (sample.t_s, sample.T_room, sample.u_frac):
             if not math.isfinite(value):
                 return False
@@ -76,6 +84,8 @@ class ReidBuffer:
             if optional is not None and not math.isfinite(optional):
                 return False
         if self.samples and sample.t_s - self.samples[-1].t_s < self.min_spacing_s:
+            if sample.learning_paused:
+                self.samples[-1] = replace(self.samples[-1], learning_paused=True)
             return False
         self.samples.append(sample)
         if len(self.samples) > self.maxlen:
@@ -171,7 +181,7 @@ def extract_segments(samples: list[ReidSample], config: ReidConfig) -> list[Segm
         run = []
 
     for sample in samples:
-        if sample.window_open or sample.T_outdoor is None:
+        if sample.window_open or sample.learning_paused or sample.T_outdoor is None:
             _flush()
             run_class = None
             continue

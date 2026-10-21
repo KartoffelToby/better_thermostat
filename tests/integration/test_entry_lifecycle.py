@@ -230,7 +230,8 @@ async def test_a_setup_that_fails_part_way_leaves_no_thermostat_behind(hass, fak
     ):
         assert not await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
-        assert entry.state is ConfigEntryState.SETUP_ERROR
+        failed: ConfigEntryState = entry.state
+        assert failed is ConfigEntryState.SETUP_ERROR
         bt_state = hass.states.get(BT_ENTITY)
         assert bt_state is None or bt_state.state == "unavailable"
 

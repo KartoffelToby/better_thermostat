@@ -169,6 +169,7 @@ def _make_bt(preset: StoredChoice = MpcV2PlantPreset.AUTO) -> Any:
         real_trvs={"climate.x": _make_trv("climate.x", preset)},
         heat_target_temperature=21.0,
         room_temperature=19.5,
+        learning_held=False,
         tolerance=0.0,
         window_open=False,
         contact_open=False,
@@ -719,6 +720,7 @@ def test_a_fit_already_running_starts_no_second_one(monkeypatch) -> None:
     cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
 
     assert started == []
+    runtime = bt.state_mgr.get_mpc_v2_reid_runtime(key)
     assert runtime.fit_inflight is True
 
 
@@ -1113,3 +1115,134 @@ def test_a_fit_under_a_new_flow_temperature_replaces_the_old_result(
     fitted = cal._lookup_mpc_v2_reid(bt, key, mpc_key, 40.0)
     assert fitted is not None
     assert fitted.gain_heater == 1.5
+
+
+# -- Paused learning ----------------------------------------------------------
+
+
+def _accepted_outcome() -> Any:
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import ReidOutcome
+
+    return ReidOutcome(
+        status="accepted",
+        tau_room_min=_REID.tau_room_minutes,
+        gain_heater=_REID.gain_heater,
+        rmse_prior_K=0.4,
+        rmse_fit_K=0.1,
+        n_segments=4,
+        n_samples=300,
+    )
+
+
+def test_a_held_dispatch_records_a_sample_that_cuts_the_buffer() -> None:
+    """While learning is held each cycle records a paused sample, valve known or not."""
+    bt = _make_bt()
+    bt.learning_held = True
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert out is not None
+    key = next(iter(bt.state_mgr._mpc_v2_reid_live))
+    samples = bt.state_mgr.get_mpc_v2_reid_runtime(key).buffer.samples
+    assert [sample.learning_paused for sample in samples] == [True]
+
+
+def test_a_long_pause_leaves_the_recorded_samples_in_the_buffer() -> None:
+    """A pause records one cut, however many cycles it holds."""
+    bt = _make_bt()
+    bt.real_trvs["climate.x"].last_valve_percent = 37
+    _compute_mpc_v2_balance(bt, "climate.x")
+    bt.learning_held = True
+    for _ in range(5):
+        bt.clock.advance(300.0)
+        _compute_mpc_v2_balance(bt, "climate.x")
+
+    key = next(iter(bt.state_mgr._mpc_v2_reid_live))
+    samples = bt.state_mgr.get_mpc_v2_reid_runtime(key).buffer.samples
+    assert [sample.learning_paused for sample in samples] == [False, True]
+
+
+def test_a_pause_shorter_than_the_gap_still_splits_the_segments() -> None:
+    """No transient spans a pause, however short: its samples cut the run."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2.reid import (
+        ReidBuffer,
+        extract_segments,
+    )
+
+    config = ReidConfig()
+    buffer = ReidBuffer()
+    for i in range(20):
+        buffer.append(
+            ReidSample(
+                t_s=i * 300.0,
+                T_room=19.0 + 0.2 * i,
+                u_frac=0.8,
+                T_outdoor=5.0,
+                learning_paused=i == 10,
+            )
+        )
+
+    segments = extract_segments(buffer.samples, config)
+    assert len(segments) == 2
+    assert all(sample.t_s != 3000.0 for s in segments for sample in s.samples)
+    unpaused = [replace(sample, learning_paused=False) for sample in buffer.samples]
+    assert len(extract_segments(unpaused, config)) == 1
+
+
+def test_a_paused_sample_inside_the_spacing_floor_marks_the_one_before() -> None:
+    """A pause starting right after a sample still cuts the buffer there."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2.reid import (
+        ReidBuffer,
+    )
+
+    buffer = ReidBuffer()
+    buffer.append(ReidSample(t_s=0.0, T_room=20.0, u_frac=0.8, T_outdoor=5.0))
+    buffer.append(ReidSample(t_s=10.0, T_room=20.0, u_frac=0.0, learning_paused=True))
+
+    assert len(buffer.samples) == 1
+    assert buffer.samples[0].learning_paused is True
+
+
+def test_no_fit_starts_while_learning_is_held(monkeypatch) -> None:
+    """A fit that is due waits for the pause to end."""
+    from custom_components.better_thermostat import calibration as cal
+
+    bt = _make_bt()
+    bt.hass = _FakeHass()
+    key, runtime = _due_fit(bt)
+    calls: list[int] = []
+    monkeypatch.setattr(
+        cal,
+        "run_reid_fit",
+        lambda samples, prior: calls.append(len(samples)) or _accepted_outcome(),
+    )
+
+    bt.learning_held = True
+    cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
+    assert calls == []
+    assert runtime.last_fit_attempt_ts == 0.0
+
+    bt.learning_held = False
+    cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
+    assert len(calls) == 1
+    assert bt.state_mgr.get_mpc_v2_reid(key) is not None
+
+
+def test_a_fit_finishing_while_learning_is_held_is_discarded(monkeypatch) -> None:
+    """A fit started before the pause adopts nothing when it completes during it."""
+    from custom_components.better_thermostat import calibration as cal
+
+    pending = _PendingFuture(_accepted_outcome())
+    bt = _make_bt()
+    bt.hass = SimpleNamespace(
+        async_add_executor_job=lambda func, *args: pending, config=_METRIC_CONFIG
+    )
+    key, runtime = _due_fit(bt)
+    bt.schedule_save_state.reset_mock()
+
+    cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
+    bt.learning_held = True
+    pending.resolve()
+
+    assert bt.state_mgr.get_mpc_v2_reid(key) is None
+    bt.schedule_save_state.assert_not_called()
+    assert runtime.fit_inflight is False

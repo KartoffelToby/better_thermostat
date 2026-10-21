@@ -63,10 +63,12 @@ ENTITY_TRANSLATION_KEYS = {
         "valve_max_opening_no_trv",
     },
     "switch": {
+        "release_devices",
         "pid_auto_tune",
         "pid_auto_tune_no_trv",
         "child_lock",
         "child_lock_no_trv",
+        "pause_learning",
         "window_detection",
     },
 }

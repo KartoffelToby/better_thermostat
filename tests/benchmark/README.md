@@ -28,7 +28,7 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
  *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   36
   mpc_v2                0.934  0.075    0.969  0.071     0.840  0.223    0.986  0.033   36
   tpi                   0.834  0.112    0.705  0.227     0.958  0.033    0.970  0.018   36
-  pid                   0.822  0.131    0.887  0.164     0.605  0.347    0.984  0.025   36
+  pid                   0.822  0.131    0.887  0.164     0.607  0.348    0.984  0.025   36
   mpc                   0.762  0.134    0.906  0.133     0.378  0.368    0.981  0.025   36
   bangbang              0.631  0.140    0.787  0.177     0.141  0.278    0.974  0.037   36
 ```
@@ -94,8 +94,8 @@ continuous on scenarios where the Oracle barely moves the valve.
 **energy** — heat the radiator delivered to the room, relative to the
 Oracle's optimum, symmetric around 1.0× so under-heating (missed
 setpoint) costs the same as over-heating (wasted energy). It follows the
-plant, not the command: a valve held shut by deadband or stiction
-delivers no heat however often it is commanded open. Overshoot costs
+plant, not the command: a command that deadband or stiction holds back
+adds no heat over a closed valve, however often it is sent. Overshoot costs
 little here, since 0.3 K above the setpoint raises the losses by only a
 few per cent, so most controllers land between 0.95 and 1.00.
 

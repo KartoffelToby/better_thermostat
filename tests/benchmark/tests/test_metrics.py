@@ -113,7 +113,7 @@ def test_integral_valve_percent_minutes():
 
 
 def test_delivered_heat_integrates_the_heat_rate():
-    """A 60-minute window at 0.02 K/min delivers 1.2 K by trapezoidal integration."""
+    """A 60-minute window at 0.02 K/min delivers 1.2 K."""
     n = 61
     series = TimeSeries(
         t_s=[i * 60.0 for i in range(n)],
@@ -124,6 +124,19 @@ def test_delivered_heat_integrates_the_heat_rate():
     )
     m = compute_metrics(series, transient_start_s=0.0)
     assert m.delivered_heat_K == pytest.approx(1.2)
+
+
+def test_delivered_heat_charges_each_step_its_starting_rate():
+    """The rate recorded at a step's start covers that step; the last one none."""
+    series = TimeSeries(
+        t_s=[0.0, 60.0, 120.0],
+        T_room=[20.0] * 3,
+        T_setpoint=[20.0] * 3,
+        valve_percent=[0.0] * 3,
+        heat_to_room_K_per_min=[0.0, 1.0, 5.0],
+    )
+    m = compute_metrics(series, transient_start_s=0.0)
+    assert m.delivered_heat_K == pytest.approx(1.0)
 
 
 def test_timeseries_rejects_mismatched_lengths():

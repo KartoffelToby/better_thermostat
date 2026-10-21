@@ -297,3 +297,21 @@ class TestTheReportedSurface:
         surface = await _reported_surface(None, {"entity_id": "", "writable": True})
 
         assert surface.valve_write is False
+
+
+@pytest.mark.asyncio
+async def test_preset_reset_is_not_sent_once_the_devices_are_released():
+    """The discovery can take a while; released meanwhile, no preset follows."""
+    bt = _bt_with_preset(["none", "auto", "manual", "holiday"], preset_mode="auto")
+
+    async def released_during_the_discovery(*_args, **_kwargs):
+        bt.devices_released = True
+
+    with (
+        patch(_FIND_VALVE, AsyncMock(return_value=None)),
+        patch(_FIND_CALIBRATION, AsyncMock(side_effect=released_during_the_discovery)),
+        patch(_WAIT_FOR_CALIBRATION, AsyncMock(return_value=None)),
+    ):
+        await init(bt, ENTITY_ID)
+
+    assert _preset_calls(bt) == []

@@ -496,6 +496,9 @@
       }
     },
     "switch": {
+      "release_devices": {
+        "name": "Geräte freigeben"
+      },
       "pid_auto_tune": {
         "name": "{trv_name} PID Auto-Tuning"
       },
@@ -507,6 +510,9 @@
       },
       "child_lock_no_trv": {
         "name": "Kindersicherung"
+      },
+      "pause_learning": {
+        "name": "Lernen pausieren"
       },
       "window_detection": {
         "name": "Fenstererkennung"
@@ -623,6 +629,9 @@
     },
     "invalid_settings": {
       "message": "Die gespeicherten Einstellungen dieses Better Thermostat können nicht gelesen werden: {reason}. Ändere sie in seinen Optionen oder entferne es und füge es neu hinzu."
+    },
+    "devices_released": {
+      "message": "Die Geräte von {device_name} sind freigegeben. Schalte „Geräte freigeben“ aus, damit Better Thermostat sie wieder steuert."
     }
   }
 }

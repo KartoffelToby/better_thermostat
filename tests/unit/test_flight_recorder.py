@@ -353,9 +353,7 @@ def test_restored_running_maintenance_without_timestamp_never_blocks():
     state_from_dict loads running_since=None alongside phase "running"
     as IDLE; the restored region must not pre-empt control forever.
     """
-    from custom_components.better_thermostat.core.fsm.maintenance import (
-        MaintenancePhase,
-    )
+    from custom_components.better_thermostat.core.fsm.maintenance import MaintenanceIdle
 
     recorder = FlightRecorder()
     desired, _ = decide(_snapshot(), running_kernel_state())
@@ -367,7 +365,7 @@ def test_restored_running_maintenance_without_timestamp_never_blocks():
         "running_since": None,
     }
     rebuilt = state_from_dict(_json_object(entry["state"]))
-    assert rebuilt.maintenance.phase == MaintenancePhase.IDLE
+    assert rebuilt.maintenance == MaintenanceIdle()
     assert rebuilt.maintenance.is_blocking(now_monotonic=0.0) is False
     assert rebuilt.maintenance.is_blocking(now_monotonic=99_999.0) is False
     matches, _ = replay(entry)
@@ -376,9 +374,7 @@ def test_restored_running_maintenance_without_timestamp_never_blocks():
 
 def test_restored_start_timestamp_outside_running_is_dropped():
     """A start timestamp next to a non-RUNNING phase loads without it."""
-    from custom_components.better_thermostat.core.fsm.maintenance import (
-        MaintenancePhase,
-    )
+    from custom_components.better_thermostat.core.fsm.maintenance import MaintenanceDue
 
     recorder = FlightRecorder()
     desired, _ = decide(_snapshot(), running_kernel_state())
@@ -390,8 +386,22 @@ def test_restored_start_timestamp_outside_running_is_dropped():
         "running_since": 900.0,
     }
     rebuilt = state_from_dict(_json_object(entry["state"]))
-    assert rebuilt.maintenance.phase == MaintenancePhase.DUE
-    assert rebuilt.maintenance.running_since is None
+    assert rebuilt.maintenance == MaintenanceDue()
+
+
+def test_restored_unknown_maintenance_phase_is_rejected():
+    """A phase tag outside idle/due/running does not load."""
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["state"]["maintenance"] = {
+        "phase": "paused",
+        "next_due": None,
+        "running_since": None,
+    }
+    with pytest.raises(ValueError, match="paused"):
+        state_from_dict(_json_object(entry["state"]))
 
 
 def _split_pending_entry(control_mode: dict[str, Json]) -> ExportedDecision:
@@ -563,8 +573,7 @@ class TestRoundtripCompleteness:
             LifecycleState,
         )
         from custom_components.better_thermostat.core.fsm.maintenance import (
-            MaintenancePhase,
-            MaintenanceState,
+            MaintenanceRunning,
         )
         from custom_components.better_thermostat.core.fsm.mode import ModeState
         from custom_components.better_thermostat.core.fsm.reachability import (
@@ -598,6 +607,7 @@ class TestRoundtripCompleteness:
             "call_for_heat": True,
             "window_open": True,
             "preset_mode": Preset.ECO,
+            "devices_released": True,
             "tolerance": 0.3,
             "outdoor_temperature": 5.5,
             "is_day": False,
@@ -612,10 +622,8 @@ class TestRoundtripCompleteness:
         state_kwargs = {
             "window": WindowState(phase=WindowPhase.OPENING, pending_since=900.0),
             "door": WindowState(phase=WindowPhase.CLOSING, pending_since=920.0),
-            "maintenance": MaintenanceState(
-                phase=MaintenancePhase.RUNNING,
-                next_due=datetime(2026, 2, 1, tzinfo=UTC),
-                running_since=950.0,
+            "maintenance": MaintenanceRunning(
+                next_due=datetime(2026, 2, 1, tzinfo=UTC), running_since=950.0
             ),
             "lifecycle": LifecycleState(
                 phase=LifecyclePhase.RUNNING,
@@ -650,9 +658,13 @@ class TestRoundtripCompleteness:
             "suppression": Suppression.WINDOW,
         }
         assert set(trv_desired_kwargs) == {f.name for f in fields(TrvDesired)}
-        desired = DesiredState(
-            call_for_heat=True, trvs={"climate.trv": TrvDesired(**trv_desired_kwargs)}
-        )
+        desired_kwargs = {
+            "call_for_heat": True,
+            "trvs": {"climate.trv": TrvDesired(**trv_desired_kwargs)},
+            "devices_released": True,
+        }
+        assert set(desired_kwargs) == {f.name for f in fields(DesiredState)}
+        desired = DesiredState(**desired_kwargs)
 
         recorder = FlightRecorder()
         recorder.record(snapshot, state, desired)
@@ -661,3 +673,8 @@ class TestRoundtripCompleteness:
         assert snapshot_from_dict(entry["snapshot"]) == snapshot
         assert state_from_dict(_json_object(entry["state"])) == state
         assert desired_from_dict(entry["desired"]) == desired
+        assert entry["state"]["maintenance"] == {
+            "phase": "running",
+            "next_due": "2026-02-01T00:00:00+00:00",
+            "running_since": 950.0,
+        }

@@ -60,6 +60,11 @@ class AdapterHost(AdapterProbeHost, Protocol):
         """Per-TRV records, keyed by entity id."""
         ...
 
+    @property
+    def devices_released(self) -> bool:
+        """Whether the room's devices are the user's, so nothing is sent to them."""
+        ...
+
 
 @runtime_checkable
 class TrvAdapter(Protocol):

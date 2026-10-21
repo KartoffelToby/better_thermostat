@@ -108,6 +108,56 @@ async def test_the_tick_skips_a_trv_that_still_awaits_its_initialization():
 
 
 @pytest.mark.asyncio
+async def test_the_tick_writes_nothing_while_the_devices_are_released():
+    """Released devices are kept alive by nobody; each falls back on its own."""
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    bt.devices_released = True
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirks) == []
+
+
+@pytest.mark.asyncio
+async def test_a_release_during_the_tick_stops_the_writes_after_it():
+    """The write under way completes; the TRVs after it get nothing."""
+    quirks = MagicMock()
+    bt = _bt_with_two_trvs(quirks)
+
+    async def released_during_the_write(_bt, _entity_id, _value):
+        bt.devices_released = True
+        return True
+
+    quirks.maybe_set_external_temperature = AsyncMock(
+        side_effect=released_during_the_write
+    )
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirks) == [(TRV_ID, ROOM_TEMPERATURE)]
+
+
+@pytest.mark.asyncio
+async def test_a_release_while_the_tick_waits_for_its_turn_sends_nothing():
+    """The tick queues on the filter lock; released meanwhile, it writes nothing."""
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    bt._temperature_filter_lock = asyncio.Lock()
+
+    await bt._temperature_filter_lock.acquire()
+    tick = asyncio.create_task(BetterThermostat._external_temperature_keepalive(bt))
+    await asyncio.sleep(0)
+    bt.devices_released = True
+    bt._temperature_filter_lock.release()
+    await tick
+
+    assert _written_values(quirks) == []
+
+
+@pytest.mark.asyncio
 async def test_the_tick_writes_nothing_without_a_room_temperature():
     """No reading means no value to keep alive."""
     bt = ThermostatStandIn()

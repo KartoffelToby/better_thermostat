@@ -96,6 +96,7 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         real_trvs=real_trvs,
         heat_target_temperature=21.0,
         room_temperature=19.5,
+        learning_held=False,
         room_temperature_filtered=None,
         tolerance=0.0,
         temperature_slope=None,
