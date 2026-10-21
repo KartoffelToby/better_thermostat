@@ -195,3 +195,29 @@ def test_timeseries_rejects_non_finite_values():
             valve_percent=[0.0, 0.0],
             heat_to_room_K_per_min=[0.0, 0.0],
         )
+
+
+def test_discomfort_counts_only_the_deviation_beyond_the_band():
+    """0.5 K off the setpoint for an hour is 0.3 K·h beyond the 0.2 K band."""
+    series = _flat_series(21.5, 21.0, n=61)
+    m = compute_metrics(series, transient_start_s=0.0)
+    assert m.discomfort_K_h == pytest.approx(0.3)
+    assert m.transient_duration_h == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("value", [21.15, 20.85])
+def test_discomfort_is_zero_inside_the_band(value: float):
+    m = compute_metrics(_flat_series(value, 21.0, n=61), transient_start_s=0.0)
+    assert m.discomfort_K_h == 0.0
+
+
+def test_discomfort_counts_both_directions():
+    above = compute_metrics(_flat_series(21.5, 21.0, n=61), transient_start_s=0.0)
+    below = compute_metrics(_flat_series(20.5, 21.0, n=61), transient_start_s=0.0)
+    assert below.discomfort_K_h == pytest.approx(above.discomfort_K_h)
+
+
+def test_discomfort_starts_at_the_transient():
+    m = compute_metrics(_flat_series(21.5, 21.0, n=61), transient_start_s=1800.0)
+    assert m.discomfort_K_h == pytest.approx(0.15)
+    assert m.transient_duration_h == pytest.approx(0.5)

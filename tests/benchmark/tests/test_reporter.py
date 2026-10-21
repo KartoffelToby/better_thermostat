@@ -33,6 +33,8 @@ def _m(rmse: float = 0.1, integral: float = 100.0, cycles: int = 10) -> MetricVa
         time_above_setpoint_K_h=0.1,
         time_below_setpoint_K_h=0.1,
         valve_sweet_spot_residency_percent=50.0,
+        discomfort_K_h=0.0,
+        transient_duration_h=2.0,
     )
 
 
