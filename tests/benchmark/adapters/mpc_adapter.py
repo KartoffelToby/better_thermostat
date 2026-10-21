@@ -112,6 +112,8 @@ class MpcAdapter:
                 key=key,
                 target_temperature=ctx.target_temperature,
                 room_temperature=ctx.room_temperature,
+                room_temperature_filtered=ctx.room_temperature_filtered,
+                temperature_slope_K_per_min=ctx.temperature_slope_K_per_min,
                 trv_temperature=ctx.trv_temperature,
                 outdoor_temperature=ctx.outdoor_temperature,
                 window_open=ctx.window_open,

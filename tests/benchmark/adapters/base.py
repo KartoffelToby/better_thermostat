@@ -21,7 +21,9 @@ class BenchmarkContext:
     t: float  # seconds since scenario start
     dt: float  # time since last step (seconds)
     target_temperature: float
-    room_temperature: float  # measurement coming out of the sensor model
+    # The room temperature Better Thermostat has committed from the sensor
+    # reports (see ``input_stage``); what production hands its controllers.
+    room_temperature: float
     raw_room_temperature: float  # plant-internal truth (for adapters that cheat-peek)
     trv_temperature: float | None  # radiator surface, if supported
     outdoor_temperature: float
@@ -32,6 +34,10 @@ class BenchmarkContext:
     # like the reading; the noise-free part of the sensor's error that no
     # controller can observe.
     sensor_calibration_error_K: float = 0.0
+    # Production's EMA of the committed room temperature and the slope its
+    # minute tick derives from it; ``None`` before the first tick.
+    room_temperature_filtered: float | None = None
+    temperature_slope_K_per_min: float | None = None
 
 
 @dataclass(frozen=True)

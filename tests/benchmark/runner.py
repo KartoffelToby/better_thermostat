@@ -36,6 +36,7 @@ from .adapters.passive_modes import (
 )
 from .adapters.pid_adapter import PidAdapter
 from .adapters.tpi_adapter import TpiAdapter
+from .input_stage import RoomTemperatureInput
 from .metrics import MetricValues, TimeSeries, compute_metrics
 from .plant import (
     PROFILE_DOE_MIDRISE_APT,
@@ -275,6 +276,7 @@ def _drive_adapter(
     # ``zlib.crc32`` is used over the built-in ``hash`` because the latter
     # is salted per process (PYTHONHASHSEED) and would break determinism.
     sensor = Sensor(sensor_params, seed=zlib.crc32(scenario.name.encode()))
+    room_input = RoomTemperatureInput()
     adapter.reset()
 
     t_s_list: list[float] = []
@@ -285,7 +287,6 @@ def _drive_adapter(
 
     t = 0.0
     last_valve_percent = 0.0
-    last_measured_temperature = facade.T_room
     restart_fired = False
 
     while t <= duration_s + 1e-6:
@@ -308,6 +309,7 @@ def _drive_adapter(
                 if isinstance(candidate, dict):
                     stored = candidate
             adapter.reset(prior=stored)
+            room_input.reset()
             restart_fired = True
 
         target = scenario.setpoint_schedule(t)
@@ -327,12 +329,12 @@ def _drive_adapter(
             if scenario.controller_solar_schedule is not None
             else solar_intensity
         )
-        # On dropout the sensor returns None; the controller keeps using
-        # its last good reading rather than being handed the plant truth.
-        sampled = sensor.read(t, facade.T_room)
-        if sampled is not None:
-            last_measured_temperature = sampled
-        T_measured = last_measured_temperature
+        # On dropout the sensor returns None and the input stage holds its
+        # last committed value rather than handing over the plant truth.
+        room_input.update(t, sensor.read(t, facade.T_room))
+        T_measured = room_input.room_temperature
+        if T_measured is None:
+            T_measured = facade.T_room
 
         ctx = BenchmarkContext(
             t=t,
@@ -346,6 +348,8 @@ def _drive_adapter(
             solar_intensity=controller_solar,
             last_valve_percent=last_valve_percent,
             sensor_calibration_error_K=sensor.observed_calibration_error_K,
+            room_temperature_filtered=room_input.room_temperature_filtered,
+            temperature_slope_K_per_min=room_input.temperature_slope_K_per_min,
         )
 
         out = adapter.step(ctx)
