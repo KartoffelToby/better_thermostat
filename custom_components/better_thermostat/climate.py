@@ -1536,7 +1536,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.real_trvs[trv["trv"]] = Trv(
                 entity_id=trv["trv"],
                 calibration=configured_calibration_output(_advanced),
-                integration=trv["integration"],
                 adapter=_adapter,
                 model_quirks=_model_quirks,
                 model=resolved_model,

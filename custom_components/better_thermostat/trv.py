@@ -1,7 +1,7 @@
 """Per-TRV domain object.
 
 A :class:`Trv` bundles everything Better Thermostat knows about one
-thermostatic radiator valve: static configuration (integration, model,
+thermostatic radiator valve: static configuration (model,
 adapter, quirks), reported device state, and the write-tracking flags
 the control loop maintains. The entries of ``real_trvs`` are
 instances of this class, accessed via typed attributes.
@@ -146,7 +146,6 @@ class Trv:
     adapter: TrvAdapter
     # The model-quirk module ``load_model_quirks`` imported for the model.
     model_quirks: ModelQuirks
-    integration: str | None = None
     # What BT writes to calibrate the TRV; None when the configuration
     # selects no calibration type.
     calibration: CalibrationOutput | None = None
@@ -229,7 +228,6 @@ class Trv:
     # Whether that report is raised: the TRV is listed in the thermostat's
     # errors and carries a repair issue.
     setpoint_unapplied_reported: bool = False
-    last_valve_position: float | None = None
     last_hvac_mode: str | None = None
     # A mode command still on the wire that the room took back before the
     # device confirmed it. The device already held the mode the room wanted
@@ -260,7 +258,6 @@ class Trv:
     # hides the turn from the state the end of the cycle reads, so the turn
     # is read first.
     held_turn: tuple[State, State] | None = None
-    last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually put on the
     # wire, after its own clamp to the device's declared offset range;
     # ``last_calibration_requested`` is the value asked for before that

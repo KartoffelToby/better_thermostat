@@ -17,7 +17,7 @@ from tests.factories import trv_record
 
 
 def _make() -> Trv:
-    return trv_record(entity_id="climate.trv", integration="mqtt", model="TRVZB")
+    return trv_record(entity_id="climate.trv", model="TRVZB")
 
 
 class TestTypedAccess:

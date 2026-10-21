@@ -114,11 +114,7 @@ def bt():
     # whatever the code under test asks of a member.
     mock.real_trvs = {
         TRV_ID: trv_record(
-            entity_id=TRV_ID,
-            calibration=None,
-            integration="generic_thermostat",
-            model="SomeModel",
-            advanced={},
+            entity_id=TRV_ID, calibration=None, model="SomeModel", advanced={}
         )
     }
     mock.cooler_entity_id = None
@@ -242,7 +238,6 @@ def plateau_bt(bt, hass):
         TRV_ID: trv_record(
             entity_id=TRV_ID,
             calibration=None,
-            integration="generic_thermostat",
             model_quirks=quirks,
             model="SomeModel",
             advanced={},
@@ -275,7 +270,6 @@ def _make_no_off_trv(entity_id):
     return trv_record(
         entity_id=entity_id,
         calibration=None,
-        integration="generic_thermostat",
         model="SomeModel",
         advanced={"no_off_system_mode": True, "child_lock": False},
     )
