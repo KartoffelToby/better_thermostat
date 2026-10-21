@@ -122,6 +122,12 @@ definition = "Outdoor temperature from the weather entity or outdoor sensor."
 rejected = ["outdoor_temp", "outdoor_temp_C"]
 
 [[term]]
+name = "flow_temperature"
+zone = "B"
+definition = "Temperature of the heating water flowing to the radiators, which MPC v2 models the room with. Stored in the system unit as `mpc_v2_flow_temperature`, °C everywhere else; the control-theory notation writes it `T_water`."
+rejected = ["supply_temperature", "water_temperature", "supply_water_temperature"]
+
+[[term]]
 name = "off_temperature"
 zone = "C"
 definition = "Outdoor threshold above which BT switches the TRV off."
@@ -176,6 +182,13 @@ name = "outdoor_sensor_entity_id"
 zone = "A"
 definition = "Entity id of the outdoor temperature sensor."
 rejected = ["outdoor_sensor"]
+
+[[term]]
+name = "availability_guard_entity_id"
+zone = "A"
+definition = "Entity id of the entity that says whether the TRVs are expected to have power: on while they are, off while the heating system that feeds them is switched off."
+rejected = ["availability_guard"]
+note = "`availability_guard` is the key the setting is stored under; an identifier holding the entity id carries the suffix."
 
 [[term]]
 name = "trv"

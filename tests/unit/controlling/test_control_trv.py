@@ -50,6 +50,8 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.controlling import (
     HOMEMATICIP_MIN_WRITE_INTERVAL_S,
     MIN_WRITE_INTERVAL_S,
+    SETPOINT_RETRY_BACKOFF_MAX_S,
+    SETPOINT_UNAPPLIED_WRITES_LIMIT,
     _mode_switched_during_cycle,
     _setpoint_turned_during_cycle,
     check_calibration,
@@ -57,6 +59,7 @@ from custom_components.better_thermostat.utils.controlling import (
     control_trv,
 )
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
+from custom_components.better_thermostat.utils.watcher import get_device_errors
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
@@ -2254,7 +2257,7 @@ class TestValveWriteResult:
             for _ in range(3):
                 # Each cycle finds every write slot open, so a catch-up
                 # cycle could only be asked for on the valve's behalf.
-                mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+                mock_self.clock.advance(SETPOINT_RETRY_BACKOFF_MAX_S + 1)
                 mock_set_valve, task_names = await self._run_cycle(mock_self, False)
                 mock_set_valve.assert_not_called()
                 assert "bt_budget_retry_climate.trv1" not in task_names
@@ -2329,7 +2332,7 @@ class TestValveWriteResult:
         task_names: list[str | None] = []
         with patch(f"{_HELPERS}.er.async_get", return_value=registry):
             for _ in range(count):
-                mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+                mock_self.clock.advance(SETPOINT_RETRY_BACKOFF_MAX_S + 1)
                 mock_set_valve, names = await self._run_cycle(
                     mock_self, None, write=delegate.set_valve
                 )
@@ -4068,7 +4071,7 @@ class TestEchoSetpointBookkeeping:
             awaited_write_id = trv.last_setpoint_write_id
 
             for value in (24.0, 25.0):
-                mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+                mock_self.clock.advance(SETPOINT_RETRY_BACKOFF_MAX_S + 1)
                 mock_convert.return_value = {
                     "temperature": value,
                     "system_mode": HVACMode.HEAT,
@@ -4381,9 +4384,10 @@ class TestHomematicIPWritePacing:
     def _room(self, heads):
         """Return a thermostat driving ``heads`` (entity id -> homematicip).
 
-        Only the budget retries the cycles queue are kept, for the test to
-        run, each with the task handle it was given; every other task a
-        cycle creates, such as a confirmation watchdog, is closed at once.
+        Each head holds 20 °C and takes every setpoint written to it. Only
+        the budget retries the cycles queue are kept, for the test to run,
+        each with the task handle it was given; every other task a cycle
+        creates, such as a confirmation watchdog, is closed at once.
         """
         real_trvs = {
             entity_id: _paced_trv(entity_id, homematicip=flag)
@@ -4394,6 +4398,11 @@ class TestHomematicIPWritePacing:
             trv_attrs={"temperature": 20.0},
             real_trvs=real_trvs,
         )
+        self._states = {
+            entity_id: State(entity_id, HVACMode.HEAT, {"temperature": 20.0})
+            for entity_id in heads
+        }
+        mock_self.hass.states.get.side_effect = self._states.get
         created = self._retries
 
         def _capture(coro, name=None, **kwargs):
@@ -4408,12 +4417,14 @@ class TestHomematicIPWritePacing:
         mock_self.last_user_change_monotonic = None
         return mock_self, created
 
-    @staticmethod
-    async def _cycle(mock_self, entity_ids, target, written):
+    async def _cycle(self, mock_self, entity_ids, target, written):
         """Run one control cycle over ``entity_ids`` asking for ``target``."""
 
         async def _record(_self, entity_id, value):
             written.append((entity_id, value))
+            self._states[entity_id] = State(
+                entity_id, HVACMode.HEAT, {"temperature": value}
+            )
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
@@ -4937,3 +4948,307 @@ class TestRoomOffOnATrvWithoutOffMode:
             await control_trv(mock_self, "climate.trv1")
 
         mock_set_temperature.assert_not_called()
+
+
+_WATCHER = "custom_components.better_thermostat.utils.watcher"
+
+
+class TestUnappliedSetpointRun:
+    """A setpoint the head does not take is written again, paced, and reported."""
+
+    HEAD = "climate.head"
+    TARGET = 22.0
+
+    @pytest.fixture(autouse=True)
+    def _issue_registry(self):
+        """Stand in for Home Assistant's repair issue registry."""
+        with patch(f"{_WATCHER}.ir") as registry:
+            self.registry = registry
+            yield
+
+    def _room(self, attributes=None):
+        """Return a thermostat whose one head holds 20 °C, and that head.
+
+        The head answers with ``self.held``: given the value written, it
+        returns the setpoint it reports afterwards, or None to keep
+        reporting what it held. It starts out ignoring every write.
+        """
+        trv = _paced_trv(self.HEAD, homematicip=False)
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={self.HEAD: trv},
+        )
+        self.attributes = (
+            {"temperature": 20.0} if attributes is None else dict(attributes)
+        )
+        mock_self.hass.states.get.side_effect = lambda entity_id: (
+            State(self.HEAD, HVACMode.HEAT, self.attributes)
+            if entity_id == self.HEAD
+            else None
+        )
+        mock_self.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_self.last_user_change_monotonic = None
+        mock_self.devices_errors = list[str]()
+        mock_self._unique_id = "entry"
+        self.written: list[float] = []
+        self.held = lambda value: None
+        return mock_self, trv
+
+    async def _cycle(self, mock_self, target=None):
+        """Run one control cycle asking the head for ``target``."""
+
+        async def _record(_self, _entity_id, value):
+            self.written.append(value)
+            reported = self.held(value)
+            if reported is not None:
+                self.attributes["temperature"] = reported
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_temperature"], autospec=True, side_effect=_record),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": self.TARGET if target is None else target,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, self.HEAD)
+
+    async def _ignored_writes(self, mock_self, count):
+        """Drive ``count`` writes the head ignores, each with its slot open."""
+        for _ in range(count):
+            await self._cycle(mock_self)
+            mock_self.clock.advance(SETPOINT_RETRY_BACKOFF_MAX_S + 1)
+
+    @pytest.mark.asyncio
+    async def test_a_lost_write_goes_out_again_at_the_normal_pace(self):
+        """The head did not take the write; the next free slot repeats it."""
+        mock_self, trv = self._room()
+
+        await self._cycle(mock_self)
+        mock_self.clock.advance(MIN_WRITE_INTERVAL_S)
+        self.held = lambda value: value
+        await self._cycle(mock_self)
+
+        assert self.written == [self.TARGET, self.TARGET]
+        await self._cycle(mock_self)
+        assert self.written == [self.TARGET, self.TARGET]
+        assert trv.unapplied_setpoint_writes == 0
+
+    @pytest.mark.asyncio
+    async def test_each_further_write_waits_twice_as_long_up_to_an_hour(self):
+        """A head that keeps ignoring the setpoint is written ever less often."""
+        mock_self, _trv = self._room()
+        await self._cycle(mock_self)
+
+        expected_waits = [30.0, 60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 3600.0]
+        assert expected_waits[0] == MIN_WRITE_INTERVAL_S
+        assert expected_waits[-1] == SETPOINT_RETRY_BACKOFF_MAX_S
+        for wait in [*expected_waits, SETPOINT_RETRY_BACKOFF_MAX_S]:
+            count = len(self.written)
+            mock_self.clock.advance(wait - 1)
+            await self._cycle(mock_self)
+            assert len(self.written) == count, f"wrote before {wait}s"
+            mock_self.clock.advance(1)
+            await self._cycle(mock_self)
+            assert len(self.written) == count + 1, f"no write after {wait}s"
+
+    @pytest.mark.asyncio
+    async def test_a_run_at_its_limit_is_reported_once(self, caplog):
+        """Six ignored writes put the head into the errors with a repair issue.
+
+        A further cycle that finds the head off the same setpoint hands the
+        registry the same issue again and logs nothing new.
+        """
+        mock_self, trv = self._room()
+
+        await self._ignored_writes(mock_self, SETPOINT_UNAPPLIED_WRITES_LIMIT - 1)
+        await self._cycle(mock_self)
+        assert trv.setpoint_unapplied_reported is False
+        assert get_device_errors(mock_self) == []
+        self.registry.async_create_issue.assert_not_called()
+
+        mock_self.clock.advance(SETPOINT_RETRY_BACKOFF_MAX_S + 1)
+        await self._cycle(mock_self)
+        await self._cycle(mock_self)
+
+        assert trv.setpoint_unapplied_reported is True
+        assert get_device_errors(mock_self) == [self.HEAD]
+        calls = self.registry.async_create_issue.call_args_list
+        assert len(calls) == 2
+        assert calls[0] == calls[1]
+        warnings = [r for r in caplog.records if "did not take" in r.getMessage()]
+        assert len(warnings) == 1
+        issue = self.registry.async_create_issue.call_args.kwargs
+        assert issue["issue_id"] == f"entry_setpoint_not_applied_{self.HEAD}"
+        assert issue["translation_key"] == "setpoint_not_applied"
+        assert issue["translation_placeholders"] == {
+            "name": "test_thermostat",
+            "entity": self.HEAD,
+            "wanted": "22.0 °C",
+            "held": "20.0 °C",
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_report_names_the_setpoints_in_the_system_unit(self):
+        """A Fahrenheit system reads both setpoints in °F, rounded once.
+
+        The 22 °C target goes to the head on whole degrees Fahrenheit, as
+        72 °F; the head still holds 20 °C, 68 °F.
+        """
+        mock_self, _trv = self._room(attributes={"temperature": 68.0})
+        mock_self.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+
+        await self._ignored_writes(mock_self, SETPOINT_UNAPPLIED_WRITES_LIMIT)
+        await self._cycle(mock_self)
+
+        placeholders = self.registry.async_create_issue.call_args.kwargs[
+            "translation_placeholders"
+        ]
+        assert placeholders["wanted"] == "72.0 °F"
+        assert placeholders["held"] == "68.0 °F"
+
+    @pytest.mark.asyncio
+    async def test_the_report_goes_once_the_head_holds_the_setpoint(self):
+        """A head that holds the setpoint leaves the errors, and its issue goes."""
+        mock_self, trv = self._room()
+        await self._ignored_writes(mock_self, SETPOINT_UNAPPLIED_WRITES_LIMIT)
+        await self._cycle(mock_self)
+        assert trv.setpoint_unapplied_reported is True
+
+        self.attributes["temperature"] = self.TARGET
+        await self._cycle(mock_self)
+
+        assert trv.setpoint_unapplied_reported is False
+        assert trv.unapplied_setpoint_writes == 0
+        assert get_device_errors(mock_self) == []
+        self.registry.async_delete_issue.assert_called_once_with(
+            mock_self.hass,
+            "better_thermostat",
+            f"entry_setpoint_not_applied_{self.HEAD}",
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_head_holding_the_last_write_starts_a_new_run(self):
+        """A head that took the last write has not refused the next target."""
+        mock_self, trv = self._room()
+        await self._ignored_writes(mock_self, 4)
+        self.attributes["temperature"] = self.TARGET
+
+        await self._cycle(mock_self, target=23.0)
+
+        assert self.written[-1] == 23.0
+        assert trv.unapplied_setpoint_writes == 1
+
+    @pytest.mark.asyncio
+    async def test_a_head_one_step_off_the_write_is_not_backed_off_or_reported(self):
+        """A head landing one step short of each write has taken it.
+
+        Such a head truncates the write onto its own grid. It is written
+        at the normal pace as before and never reported.
+        """
+        mock_self, trv = self._room()
+        self.held = lambda value: value - 0.5
+
+        for _ in range(SETPOINT_UNAPPLIED_WRITES_LIMIT + 4):
+            await self._cycle(mock_self)
+            mock_self.clock.advance(MIN_WRITE_INTERVAL_S)
+
+        assert len(self.written) == SETPOINT_UNAPPLIED_WRITES_LIMIT + 4
+        assert trv.setpoint_unapplied_reported is False
+
+    @pytest.mark.asyncio
+    async def test_a_head_two_steps_off_the_write_is_backed_off(self):
+        """Two steps short of the write is a refusal, not the device's grid."""
+        mock_self, trv = self._room()
+        self.held = lambda value: value - 1.0
+
+        for _ in range(SETPOINT_UNAPPLIED_WRITES_LIMIT + 4):
+            await self._cycle(mock_self)
+            mock_self.clock.advance(MIN_WRITE_INTERVAL_S)
+
+        assert len(self.written) < SETPOINT_UNAPPLIED_WRITES_LIMIT
+        assert trv.unapplied_setpoint_writes > 1
+
+    @pytest.mark.asyncio
+    async def test_a_head_without_a_readable_setpoint_starts_no_run(self):
+        """No report of the setpoint tells neither a refusal nor a take."""
+        mock_self, trv = self._room(attributes={})
+
+        for _ in range(SETPOINT_UNAPPLIED_WRITES_LIMIT + 4):
+            await self._cycle(mock_self)
+            mock_self.clock.advance(MIN_WRITE_INTERVAL_S)
+
+        assert len(self.written) == SETPOINT_UNAPPLIED_WRITES_LIMIT + 4
+        assert trv.unapplied_setpoint_writes == 0
+        assert trv.setpoint_unapplied_reported is False
+
+    @pytest.mark.asyncio
+    async def test_a_user_change_is_written_without_the_backoff(self):
+        """The user's new target goes out once the normal interval has passed."""
+        mock_self, _trv = self._room()
+        await self._ignored_writes(mock_self, SETPOINT_UNAPPLIED_WRITES_LIMIT)
+        await self._cycle(mock_self)
+        count = len(self.written)
+
+        mock_self.clock.advance(MIN_WRITE_INTERVAL_S)
+        await self._cycle(mock_self, target=21.0)
+        assert len(self.written) == count
+
+        mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
+        await self._cycle(mock_self, target=21.0)
+        assert self.written[count:] == [21.0]
+
+    @pytest.mark.asyncio
+    async def test_the_watchdog_takes_the_report_back_when_the_head_confirms(self):
+        """The head confirming the newest write ends the run without a cycle."""
+        mock_self, trv = self._room()
+        await self._ignored_writes(mock_self, SETPOINT_UNAPPLIED_WRITES_LIMIT)
+        await self._cycle(mock_self)
+        assert trv.setpoint_unapplied_reported is True
+
+        self.attributes["temperature"] = self.TARGET
+        with patch("asyncio.sleep", new=AsyncMock()):
+            await check_target_temperature(
+                mock_self, self.HEAD, trv.last_setpoint_write_id, self.TARGET
+            )
+
+        assert trv.setpoint_unapplied_reported is False
+        assert trv.unapplied_setpoint_writes == 0
+
+    @pytest.mark.asyncio
+    async def test_a_superseded_watchdog_leaves_the_run_alone(self):
+        """An older write confirmed says nothing about the newest one."""
+        mock_self, trv = self._room()
+        await self._ignored_writes(mock_self, SETPOINT_UNAPPLIED_WRITES_LIMIT)
+        await self._cycle(mock_self)
+        older_write_id = trv.last_setpoint_write_id - 1
+        run = trv.unapplied_setpoint_writes
+
+        self.attributes["temperature"] = self.TARGET
+        with patch("asyncio.sleep", new=AsyncMock()):
+            await check_target_temperature(
+                mock_self, self.HEAD, older_write_id, self.TARGET
+            )
+
+        assert trv.setpoint_unapplied_reported is True
+        assert trv.unapplied_setpoint_writes == run
+
+    def test_an_unavailable_head_that_refuses_is_listed_once(self):
+        """The errors name each TRV once, the unavailable ones first."""
+        mock_self, trv = self._room()
+        other = _paced_trv("climate.other", homematicip=False)
+        other.setpoint_unapplied_reported = True
+        trv.setpoint_unapplied_reported = True
+        mock_self.real_trvs["climate.other"] = other
+        mock_self.devices_errors = ["climate.other"]
+
+        assert get_device_errors(mock_self) == ["climate.other", self.HEAD]

@@ -20,6 +20,8 @@
           "door_off_delay_after": "Forsinkelse, før termostaten tænder, når døren er lukket",
           "outdoor_sensor": "Hvis du har en udeføler, kan du bruge den til at få udetemperaturen",
           "weather": "Din vejrentitet for at få udendørstemperaturen",
+          "availability_guard": "Tilgængelighedsvagt",
+          "availability_guard_grace_seconds": "Henstandsperiode efter tilgængelighedsvagten tænder",
           "target_temp_min": "Mål minimum temperatur",
           "target_temp_max": "Mål maksimum temperatur",
           "target_temp_step": "Trin for måltemperatur",
@@ -41,6 +43,8 @@
           "door_off_delay_after": "Hvor længe alle døre skal være lukkede, før varmen fortsætter.",
           "outdoor_sensor": "Valgfri. Leverer udetemperaturen til udetærsklen og har forrang for vejrenheden.",
           "weather": "Valgfri. Leverer udetemperaturen, når der ikke er valgt en udendørssensor.",
+          "availability_guard": "Valgfri. En binær sensor, kontakt eller input boolean, der er tændt, mens termostaterne har strøm. Mens den er slukket, giver en utilgængelig termostat hverken advarsel eller reparation.",
+          "availability_guard_grace_seconds": "Hvor længe en termostat må være utilgængelig, efter tilgængelighedsvagten er tændt, før den bliver rapporteret.",
           "target_temp_min": "Det laveste mål, du kan indstille. Auto bruger det område, dine enheder melder.",
           "target_temp_max": "Det højeste mål, du kan indstille. Auto bruger det område, dine enheder melder.",
           "target_temp_step": "Hvor meget målet ændres pr. trin. Auto bruger det groveste trin, dine termostater melder.",
@@ -58,7 +62,8 @@
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
           "no_off_system_mode": "Brug minimumstemperaturen i stedet for 'slukket'",
-          "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
+          "mpc_v2_plant_preset": "MPC v2 rumstørrelse",
+          "mpc_v2_flow_temperature": "MPC v2 fremløbstemperatur"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
@@ -69,7 +74,8 @@
           "calibration": "Hvordan kalibreringen anvendes på TRV'en\n***Baseret på måltemperatur***: Anvend kalibreringen på måltemperaturen.\n***Baseret på forskydning***: Anvend kalibreringen på temperaturforskydningen. Tilbydes kun, når TRV'en har en skrivbar temperaturforskydning.\n***Direkte ventilstyring***: Indstil ventilåbningen direkte. Tilbydes kun, når TRV'en har en skrivbar ventilposition. Kalibreringstilstande, der ikke giver en ventilåbning, sender i stedet en måltemperatur.",
           "calibration_mode": "Hvordan kalibreringen beregnes\n***AI tidsbaseret (standard)***: Lærer rummets varmeeffekt over tid og udleder kalibreringen af den.\n***Kun ekstern sensorforskydning***: Korrigerer TRV'ens interne sensor med din eksterne temperatursensor. Der kører ingen regulator ovenpå.\n***MPC forudsigende (beta)***: Forudsiger rumtemperaturen og beregner en ventilåbning ud fra den. Lærer rummets termiske adfærd.\n***(AI) MPC v2 (QP + Kalman, eksperimentel)***: Estimerer rummets tilstand med et Kalman-filter og beregner en ventilåbning med en modelprædiktiv regulator. Indstillingen MPC v2 rumstørrelse vælger rummodellen: lært fra rummet (automatisk) eller fast for en rumstørrelse (lille, mellemstort, stort).\n***Aggressiv***: Hæver kalibreringen, mens rummet opvarmes, og springer toleranceforsinkelsen over, så TRV'en begynder at varme tidligere. Nyttigt, hvis dit rum varmes langsomt op.\n***TPI-regulator***: Beregner varmecyklussernes driftstid ud fra temperaturforskellen.\n***PID-regulator***: Beregner en ventilåbning ud fra temperaturafvigelsen med et proportional-, integral- og differentialled.\n***Ingen kalibrering***: Sender måltemperaturen uændret til TRV'en og foretager ingen korrektion.",
           "no_off_system_mode": "Med denne indstilling sender Better Thermostat TRV'en dens minimumstemperatur i stedet for 'slukket'. En TRV, der rapporterer sin minimumstemperatur, regnes som slukket: når alle rummets TRV'er er slukket, slukker rummet, og når en drejeknap skrues op, tænder det igen. Et drej, mens et vindue eller en dør er åben, tæller også; opvarmningen venter så, til alle vinduer og døre er lukket. En TRV uden 'slukket'-tilstand får sin minimumstemperatur også uden denne indstilling. Slå den til for en TRV, hvis 'slukket'-tilstand ikke virker, eller for en TRV uden 'slukket'-tilstand, hvis drejeknap skal tænde og slukke Better Thermostat.",
-          "mpc_v2_plant_preset": "Bruges kun af kalibreringstilstanden MPC v2.\n***Automatisk***: Udleder rummodellen af det, Better Thermostat har lært om rummet, f.eks. dets varmetabsrate.\n***Lille, mellemstort eller stort rum***: Starter fra en fast rummodel for den rumstørrelse."
+          "mpc_v2_plant_preset": "Bruges kun af kalibreringstilstanden MPC v2.\n***Automatisk***: Udleder rummodellen af det, Better Thermostat har lært om rummet, f.eks. dets varmetabsrate.\n***Lille, mellemstort eller stort rum***: Starter fra en fast rummodel for den rumstørrelse.",
+          "mpc_v2_flow_temperature": "Bruges kun af kalibreringstilstanden MPC v2. Temperaturen på det varmtvand, der løber til radiatorerne. Behold 65 °C (149 °F) for en kedel med fast varmekurve. For en varmepumpe eller en vejrkompenseret kedel indtastes en typisk værdi for fyringssæsonen, f.eks. 35 til 45 °C (95 til 113 °F). Efter en ændring lærer MPC v2 rummodellen igen under den nye værdi."
         }
       },
       "confirm": {
@@ -116,6 +122,8 @@
           "door_off_delay_after": "Forsinkelse, før termostaten tænder, når døren er lukket",
           "outdoor_sensor": "Har du en udendørsføler, kan du bruge den til at få udetemperaturen",
           "weather": "Din vejrentitet for at få udendørstemperaturen",
+          "availability_guard": "Tilgængelighedsvagt",
+          "availability_guard_grace_seconds": "Henstandsperiode efter tilgængelighedsvagten tænder",
           "target_temp_min": "Mål minimum temperatur",
           "target_temp_max": "Mål maksimum temperatur",
           "target_temp_step": "Trin for måltemperatur",
@@ -137,6 +145,8 @@
           "door_off_delay_after": "Hvor længe alle døre skal være lukkede, før varmen fortsætter.",
           "outdoor_sensor": "Valgfri. Leverer udetemperaturen til udetærsklen og har forrang for vejrenheden.",
           "weather": "Valgfri. Leverer udetemperaturen, når der ikke er valgt en udendørssensor.",
+          "availability_guard": "Valgfri. En binær sensor, kontakt eller input boolean, der er tændt, mens termostaterne har strøm. Mens den er slukket, giver en utilgængelig termostat hverken advarsel eller reparation.",
+          "availability_guard_grace_seconds": "Hvor længe en termostat må være utilgængelig, efter tilgængelighedsvagten er tændt, før den bliver rapporteret.",
           "target_temp_min": "Det laveste mål, du kan indstille. Auto bruger det område, dine enheder melder.",
           "target_temp_max": "Det højeste mål, du kan indstille. Auto bruger det område, dine enheder melder.",
           "target_temp_step": "Hvor meget målet ændres pr. trin. Auto bruger det groveste trin, dine termostater melder.",
@@ -155,7 +165,8 @@
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
           "no_off_system_mode": "Brug minimumstemperaturen i stedet for 'slukket'",
-          "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
+          "mpc_v2_plant_preset": "MPC v2 rumstørrelse",
+          "mpc_v2_flow_temperature": "MPC v2 fremløbstemperatur"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
@@ -166,7 +177,8 @@
           "calibration": "Hvordan kalibreringen anvendes på TRV'en\n***Baseret på måltemperatur***: Anvend kalibreringen på måltemperaturen.\n***Baseret på forskydning***: Anvend kalibreringen på temperaturforskydningen. Tilbydes kun, når TRV'en har en skrivbar temperaturforskydning.\n***Direkte ventilstyring***: Indstil ventilåbningen direkte. Tilbydes kun, når TRV'en har en skrivbar ventilposition. Kalibreringstilstande, der ikke giver en ventilåbning, sender i stedet en måltemperatur.",
           "calibration_mode": "Hvordan kalibreringen beregnes\n***AI tidsbaseret (standard)***: Lærer rummets varmeeffekt over tid og udleder kalibreringen af den.\n***Kun ekstern sensorforskydning***: Korrigerer TRV'ens interne sensor med din eksterne temperatursensor. Der kører ingen regulator ovenpå.\n***MPC forudsigende (beta)***: Forudsiger rumtemperaturen og beregner en ventilåbning ud fra den. Lærer rummets termiske adfærd.\n***(AI) MPC v2 (QP + Kalman, eksperimentel)***: Estimerer rummets tilstand med et Kalman-filter og beregner en ventilåbning med en modelprædiktiv regulator. Indstillingen MPC v2 rumstørrelse vælger rummodellen: lært fra rummet (automatisk) eller fast for en rumstørrelse (lille, mellemstort, stort).\n***Aggressiv***: Hæver kalibreringen, mens rummet opvarmes, og springer toleranceforsinkelsen over, så TRV'en begynder at varme tidligere. Nyttigt, hvis dit rum varmes langsomt op.\n***TPI-regulator***: Beregner varmecyklussernes driftstid ud fra temperaturforskellen.\n***PID-regulator***: Beregner en ventilåbning ud fra temperaturafvigelsen med et proportional-, integral- og differentialled.\n***Ingen kalibrering***: Sender måltemperaturen uændret til TRV'en og foretager ingen korrektion.",
           "no_off_system_mode": "Med denne indstilling sender Better Thermostat TRV'en dens minimumstemperatur i stedet for 'slukket'. En TRV, der rapporterer sin minimumstemperatur, regnes som slukket: når alle rummets TRV'er er slukket, slukker rummet, og når en drejeknap skrues op, tænder det igen. Et drej, mens et vindue eller en dør er åben, tæller også; opvarmningen venter så, til alle vinduer og døre er lukket. En TRV uden 'slukket'-tilstand får sin minimumstemperatur også uden denne indstilling. Slå den til for en TRV, hvis 'slukket'-tilstand ikke virker, eller for en TRV uden 'slukket'-tilstand, hvis drejeknap skal tænde og slukke Better Thermostat.",
-          "mpc_v2_plant_preset": "Bruges kun af kalibreringstilstanden MPC v2.\n***Automatisk***: Udleder rummodellen af det, Better Thermostat har lært om rummet, f.eks. dets varmetabsrate.\n***Lille, mellemstort eller stort rum***: Starter fra en fast rummodel for den rumstørrelse."
+          "mpc_v2_plant_preset": "Bruges kun af kalibreringstilstanden MPC v2.\n***Automatisk***: Udleder rummodellen af det, Better Thermostat har lært om rummet, f.eks. dets varmetabsrate.\n***Lille, mellemstort eller stort rum***: Starter fra en fast rummodel for den rumstørrelse.",
+          "mpc_v2_flow_temperature": "Bruges kun af kalibreringstilstanden MPC v2. Temperaturen på det varmtvand, der løber til radiatorerne. Behold 65 °C (149 °F) for en kedel med fast varmekurve. For en varmepumpe eller en vejrkompenseret kedel indtastes en typisk værdi for fyringssæsonen, f.eks. 35 til 45 °C (95 til 113 °F). Efter en ændring lærer MPC v2 rummodellen igen under den nye værdi."
         }
       }
     },
@@ -206,6 +218,10 @@
     "shared_trv": {
       "title": "BT: {trv} styres af mere end én Better Thermostat",
       "description": "Termostaten {trv} hører til disse Better Thermostats: {entries}. De skriver konkurrerende måltemperaturer og tilstande til den. Fjern den fra alle undtagen én i deres indstillinger; denne meddelelse forsvinder derefter af sig selv."
+    },
+    "setpoint_not_applied": {
+      "title": "BT: {name} - {entity} overtager ikke måltemperaturen",
+      "description": "Better Thermostat skriver gentagne gange måltemperaturen {wanted} til {entity}, men termostaten melder stadig {held}. Rummet opvarmes ikke, som Better Thermostat har tænkt.\n\nAlmindelige årsager:\n- Termostaten har sin egen grænse for setpunktet under det maksimum, den oplyser, for eksempel `max_heat_setpoint_limit` i Zigbee2MQTT.\n- Termostaten er i en tilstand eller forudindstilling, hvor den ignorerer måltemperaturer, f.eks. en tidsplantilstand.\n- Termostaten har mistet radioforbindelsen, eller batteriet er svagt.\n\nBetter Thermostat bliver ved med at skrive måltemperaturen, højst én gang i timen. Dette problem forsvinder af sig selv, når termostaten melder måltemperaturen."
     }
   },
   "services": {
@@ -471,6 +487,12 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Maksimal ventilåbning"
+      },
+      "off_temperature": {
+        "name": "Udetemperaturgrænse"
+      },
+      "tolerance": {
+        "name": "Tolerance"
       }
     },
     "switch": {

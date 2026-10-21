@@ -7,6 +7,7 @@ from collections.abc import Collection, Iterable, Mapping
 import copy
 from dataclasses import dataclass, replace
 import logging
+import math
 from typing import Final, Literal, NotRequired, TypedDict, override
 
 from homeassistant import config_entries
@@ -42,7 +43,13 @@ from .adapters.delegate import load_adapter
 from .adapters.types import TrvAdapter
 from .model_fixes.model_quirks import load_model_quirks, quirk_writes_valve
 from .utils.advanced_flags import as_bool as _as_bool
+from .utils.calibration.plant_preset import (
+    DEFAULT_FLOW_TEMPERATURE,
+    FLOW_TEMPERATURE_BOUNDS,
+)
 from .utils.const import (
+    CONF_AVAILABILITY_GUARD,
+    CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
     CONF_CHILD_LOCK,
@@ -54,6 +61,7 @@ from .utils.const import (
     CONF_HOMEMATICIP,
     CONF_HUMIDITY_SENSOR,
     CONF_MODEL,
+    CONF_MPC_V2_FLOW_TEMPERATURE,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_NO_OFF_SYSTEM_MODE,
     CONF_OFF_TEMPERATURE,
@@ -71,6 +79,7 @@ from .utils.const import (
     CONF_WINDOW_OFF_DELAY,
     CONF_WINDOW_OFF_DELAY_AFTER,
     CONF_WINDOW_SENSORS,
+    DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
     DEFAULT_CALIBRATION_MODE,
     SIGNAL_CONFIG_CHANGED,
     TARGET_TEMP_BOUND_AUTO,
@@ -198,6 +207,52 @@ _MPC_V2_PLANT_PRESET_CHOICES: tuple[MpcV2PlantPreset, ...] = (
     MpcV2PlantPreset.LARGE_ROOM,
 )
 
+
+def _celsius_in_system_unit(celsius: float, system_unit: str | None) -> float:
+    """Return a temperature given in °C in the system unit."""
+    if system_unit == UnitOfTemperature.FAHRENHEIT:
+        return TemperatureConverter.convert(
+            celsius, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+        )
+    return celsius
+
+
+def _flow_temperature_selector(system_unit: str | None) -> selector.NumberSelector:
+    """Return the flow-temperature field, bounded and labelled in the system unit."""
+    lower, upper = (
+        _celsius_in_system_unit(bound, system_unit) for bound in FLOW_TEMPERATURE_BOUNDS
+    )
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=lower,
+            max=upper,
+            step=1,
+            unit_of_measurement=(
+                UnitOfTemperature.FAHRENHEIT
+                if system_unit == UnitOfTemperature.FAHRENHEIT
+                else UnitOfTemperature.CELSIUS
+            ),
+            mode=selector.NumberSelectorMode.BOX,
+        )
+    )
+
+
+def _flow_temperature_default(stored: object, system_unit: str | None) -> float:
+    """Return the flow temperature the form suggests, in the system unit.
+
+    A stored value outside the range the field accepts, or one that is not a
+    number, would be refused when the user submits the form unchanged, so the
+    default flow temperature takes its place.
+    """
+    lower, upper = (
+        _celsius_in_system_unit(bound, system_unit) for bound in FLOW_TEMPERATURE_BOUNDS
+    )
+    value = _float_or(stored, math.nan)
+    if lower <= value <= upper:
+        return value
+    return _celsius_in_system_unit(DEFAULT_FLOW_TEMPERATURE, system_unit)
+
+
 MPC_V2_PLANT_PRESET_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=list(_MPC_V2_PLANT_PRESET_CHOICES),
@@ -269,6 +324,8 @@ _UserDraft = TypedDict(  # noqa: UP013
         "humidity_sensor": str | None,
         "outdoor_sensor": str | None,
         "weather": str | None,
+        "availability_guard": str | None,
+        "availability_guard_grace_seconds": NotRequired[int],
         "window_off_delay": NotRequired[int],
         "window_off_delay_after": NotRequired[int],
         "door_off_delay": NotRequired[int],
@@ -283,14 +340,16 @@ _UserDraft = TypedDict(  # noqa: UP013
 )
 
 # One thermostat's advanced options as the flow normalises a submission. The
-# choices are kept as submitted; the plant preset is left out when the
-# submission does not carry it.
+# choices are kept as submitted; the plant preset and the flow temperature are
+# left out when the submission does not carry them. The flow temperature is in
+# the system unit.
 _AdvancedDraft = TypedDict(  # noqa: UP013
     "_AdvancedDraft",
     {
         "calibration": StoredChoice,
         "calibration_mode": StoredChoice,
         "mpc_v2_plant_preset": NotRequired[StoredChoice],
+        "mpc_v2_flow_temperature": NotRequired[float],
         "protect_overheating": bool,
         "no_off_system_mode": bool,
         "heat_auto_swapped": bool,
@@ -395,6 +454,11 @@ def _merged_settings(
     merged[CONF_HUMIDITY_SENSOR] = draft[CONF_HUMIDITY_SENSOR]
     merged[CONF_OUTDOOR_SENSOR] = draft[CONF_OUTDOOR_SENSOR]
     merged[CONF_WEATHER] = draft[CONF_WEATHER]
+    merged[CONF_AVAILABILITY_GUARD] = draft[CONF_AVAILABILITY_GUARD]
+    if CONF_AVAILABILITY_GUARD_GRACE_SECONDS in draft:
+        merged[CONF_AVAILABILITY_GUARD_GRACE_SECONDS] = draft[
+            CONF_AVAILABILITY_GUARD_GRACE_SECONDS
+        ]
     if CONF_WINDOW_OFF_DELAY in draft:
         merged[CONF_WINDOW_OFF_DELAY] = draft[CONF_WINDOW_OFF_DELAY]
     if CONF_WINDOW_OFF_DELAY_AFTER in draft:
@@ -421,6 +485,8 @@ def _stored_advanced(draft: _AdvancedDraft) -> TrvAdvanced:
     }
     if CONF_MPC_V2_PLANT_PRESET in draft:
         stored[CONF_MPC_V2_PLANT_PRESET] = draft[CONF_MPC_V2_PLANT_PRESET]
+    if CONF_MPC_V2_FLOW_TEMPERATURE in draft:
+        stored[CONF_MPC_V2_FLOW_TEMPERATURE] = draft[CONF_MPC_V2_FLOW_TEMPERATURE]
     stored[CONF_PROTECT_OVERHEATING] = draft[CONF_PROTECT_OVERHEATING]
     stored[CONF_NO_OFF_SYSTEM_MODE] = draft[CONF_NO_OFF_SYSTEM_MODE]
     stored[CONF_HEAT_AUTO_SWAPPED] = draft[CONF_HEAT_AUTO_SWAPPED]
@@ -567,6 +633,7 @@ def _build_advanced_fields(
     homematic: bool,
     has_auto: bool,
     channels: DeviceChannels | None = None,
+    system_unit: str | None = None,
 ) -> OrderedDict[vol.Marker, object]:
     views = [_without_balance_mode(source) for source in sources if source is not None]
 
@@ -635,6 +702,14 @@ def _build_advanced_fields(
             ),
         )
     ] = MPC_V2_PLANT_PRESET_SELECTOR
+    ordered[
+        vol.Optional(
+            CONF_MPC_V2_FLOW_TEMPERATURE,
+            default=_flow_temperature_default(
+                get_value(CONF_MPC_V2_FLOW_TEMPERATURE, None), system_unit
+            ),
+        )
+    ] = _flow_temperature_selector(system_unit)
 
     ordered[
         vol.Optional(
@@ -692,6 +767,9 @@ def _normalize_advanced_submission(
         normalized[CONF_MPC_V2_PLANT_PRESET] = _submitted_choice(
             data[CONF_MPC_V2_PLANT_PRESET], MpcV2PlantPreset.AUTO
         )
+    flow_temperature = _float_or(data.get(CONF_MPC_V2_FLOW_TEMPERATURE), math.nan)
+    if math.isfinite(flow_temperature):
+        normalized[CONF_MPC_V2_FLOW_TEMPERATURE] = flow_temperature
 
     _LOGGER.debug("Normalized advanced submission: %s", normalized)
 
@@ -871,6 +949,18 @@ def _build_user_fields(
                 duration_default = None
         add_field(key, selector.DurationSelector(), default=duration_default)
 
+    add_entity_selector(
+        CONF_AVAILABILITY_GUARD, domain=["binary_sensor", "switch", "input_boolean"]
+    )
+    grace = resolve(
+        CONF_AVAILABILITY_GUARD_GRACE_SECONDS, DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS
+    )
+    add_field(
+        CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
+        selector.DurationSelector(),
+        default=grace if isinstance(grace, dict) else _seconds_to_duration_dict(grace),
+    )
+
     suggested_off_temperature = _off_temperature_default(system_unit)
     off_temperature_default = _int_or(
         resolve(CONF_OFF_TEMPERATURE, suggested_off_temperature),
@@ -1005,6 +1095,9 @@ def _normalize_user_submission(
         CONF_HUMIDITY_SENSOR: _entity_or_none(user_input.get(CONF_HUMIDITY_SENSOR)),
         CONF_OUTDOOR_SENSOR: _entity_or_none(user_input.get(CONF_OUTDOOR_SENSOR)),
         CONF_WEATHER: _entity_or_none(user_input.get(CONF_WEATHER)),
+        CONF_AVAILABILITY_GUARD: _entity_or_none(
+            user_input.get(CONF_AVAILABILITY_GUARD)
+        ),
         CONF_OFF_TEMPERATURE: _int_or(off_temperature, suggested_off_temperature),
         CONF_TOLERANCE: _float_or(
             submitted(CONF_TOLERANCE, tolerance_fallback), tolerance_fallback
@@ -1053,6 +1146,15 @@ def _normalize_user_submission(
         )
     elif is_create and CONF_DOOR_OFF_DELAY_AFTER not in base:
         normalized[CONF_DOOR_OFF_DELAY_AFTER] = 0
+
+    if CONF_AVAILABILITY_GUARD_GRACE_SECONDS in user_input:
+        normalized[CONF_AVAILABILITY_GUARD_GRACE_SECONDS] = _duration_dict_to_seconds(
+            user_input[CONF_AVAILABILITY_GUARD_GRACE_SECONDS]
+        )
+    elif is_create and CONF_AVAILABILITY_GUARD_GRACE_SECONDS not in base:
+        normalized[CONF_AVAILABILITY_GUARD_GRACE_SECONDS] = (
+            DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS
+        )
 
     if CONF_PRESETS in user_input:
         normalized[CONF_PRESETS] = _submitted_presets(user_input[CONF_PRESETS])
@@ -1399,6 +1501,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             homematic=ctx.homematic,
             has_auto=ctx.has_auto,
             channels=ctx.channels,
+            system_unit=self.hass.config.units.temperature_unit,
         )
         _LOGGER.debug(
             "ConfigFlow advanced step showing form for trv=%s with defaults=%s",
@@ -1619,6 +1722,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             homematic=ctx.homematic,
             has_auto=ctx.has_auto,
             channels=ctx.channels,
+            system_unit=self.hass.config.units.temperature_unit,
         )
         _LOGGER.debug(
             "OptionsFlow advanced step showing form for trv=%s with defaults=%s",
