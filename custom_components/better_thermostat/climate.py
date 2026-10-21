@@ -1516,9 +1516,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # Resolve/refresh model dynamically at startup to ensure correct quirks
             resolved_model = trv.get("model")
             try:
-                # prefers state model_id when present
+                # The device registry names the model; the model configured
+                # for this TRV stands in when it names none.
                 detected_model = await get_device_model(
-                    self, trv["trv"], configured_model=self.model
+                    self, trv["trv"], configured_model=resolved_model
                 )
                 if (
                     isinstance(detected_model, str)

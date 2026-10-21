@@ -557,6 +557,30 @@ async def test_two_heads_of_different_models_each_get_what_they_can_express(
     assert hass.states.get(whole_degree.entity_id).state == HVACMode.HEAT_COOL
 
 
+@pytest.mark.parametrize("trv_group", [MIXED_GRID_GROUP], indirect=True, ids=profile_id)
+async def test_a_head_the_registry_cannot_name_keeps_its_own_configured_model(
+    hass, trv_group
+):
+    """Each head falls back to the model configured for it, not the room's.
+
+    Neither head has a device registry entry, so the registry names no model
+    and the one the entry stores for the head stands in. The thermostat-level
+    model joins the models of all heads and names no quirk module of its own.
+    """
+    half_degree, whole_degree = trv_group.scenario.profiles
+    set_room_sensor(hass, 19.5)
+    entry = make_entry(trv_group.scenario)
+    configured = {half_degree.entity_id: "HEAD-A", whole_degree.entity_id: "HEAD-B"}
+    for head in entry.data["thermostat"]:
+        head["model"] = configured[head["trv"]]
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    assert {
+        entity_id: bt.real_trvs[entity_id].model for entity_id in configured
+    } == configured
+
+
 @pytest.mark.parametrize("trv_group", [VALVE_GROUP], indirect=True, ids=profile_id)
 async def test_the_colder_head_of_a_valve_group_is_opened_further(hass, trv_group):
     """One room-level valve command reaches the heads as two openings.
