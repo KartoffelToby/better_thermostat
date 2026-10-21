@@ -485,6 +485,9 @@
       },
       "child_lock_no_trv": {
         "name": "Børnesikring"
+      },
+      "window_detection": {
+        "name": "Vinduesregistrering"
       }
     },
     "sensor": {

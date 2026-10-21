@@ -485,6 +485,9 @@
       },
       "child_lock_no_trv": {
         "name": "Детский замок"
+      },
+      "window_detection": {
+        "name": "Обнаружение окна"
       }
     },
     "sensor": {

@@ -126,7 +126,7 @@ from .model_fixes.model_quirks import (
     trv_report_is_unreadable,
 )
 from .model_fixes.types import ExternalTemperatureQuirk
-from .switch import restored_child_lock
+from .switch import restored_child_lock, restored_window_detection
 from .trv import Trv
 from .utils.advanced_flags import advanced_flag
 from .utils.calibration.pid import (
@@ -151,6 +151,7 @@ from .utils.const import (
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_ROOM_TEMPERATURE_FILTERED,
+    ATTR_STATE_WINDOW_DETECTION,
     ATTR_STATE_WINDOW_OPEN,
     CONF_CHILD_LOCK,
     CONF_COOLER,
@@ -1098,6 +1099,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.map_on_hvac_mode = HVACMode.HEAT
         self.clock: Clock = SystemClock()
         self.kernel_state = KernelState()
+        # The contact state the window and door settle workers last
+        # announced, keyed by contact kind.
+        self.announced_contact_open: dict[str, bool] = {}
         self.flight_recorder = FlightRecorder()
         self.next_valve_maintenance: datetime | None = self.clock.now() + timedelta(
             hours=randint(1, 24 * 5)
@@ -1361,6 +1365,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # so the saved state is read now and not in the startup, which waits
         # until Home Assistant has started.
         self._saved_state = await self.async_get_last_available_state()
+        # The window detection switch is set up after the thermostat, and
+        # control must not run on the default before it restores.
+        if self.has_contact_sensor and (
+            restored_window_detection(self.hass, self.unique_id) is False
+        ):
+            self.kernel_state = replace(self.kernel_state, window_detection=False)
 
         self._control_task = self.hass.async_create_background_task(
             control_queue(self), name=f"bt_control_queue_{self.device_name}"
@@ -3876,6 +3886,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             heat_target_temperature=self.heat_target_temperature,
             outdoor_temperature=outdoor_temperature,
         )
+        if self.contact_sensed_open:
+            # A cycle that heats against an open window teaches nothing about
+            # the radiator. With window detection off the heating runs on
+            # while the window is open.
+            self._heating_tracker.abort_cycle()
 
         if result.action_changed:
             self.old_attr_hvac_action = result.current_action
@@ -3900,7 +3915,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.room_temperature,
             current_action,
             self.clock.utcnow(),
-            window_open=self.contact_open,
+            window_open=self.contact_sensed_open,
         )
 
         if result.cycle_result is not None:
@@ -3934,12 +3949,31 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     def contact_open(self) -> bool:
-        """Return True when a window or door contact is confirmed open.
+        """Return True when an open window or door suppresses heating.
 
         Both sensor kinds suppress heating once their debounce delay has
-        passed; this is the combined flag the control logic gates on.
+        passed, as long as window detection is on; this is the combined
+        flag the control logic gates on, the same one ``decide()`` reads.
+        """
+        return self.kernel_state.window_detection and self.contact_sensed_open
+
+    @property
+    def contact_sensed_open(self) -> bool:
+        """Return True when a window or door contact is confirmed open.
+
+        Unlike :attr:`contact_open` it holds with window detection off as
+        well: an open window still drives the room's temperature, so
+        learning reads this one.
         """
         return self.window_open or self.door_open
+
+    @property
+    def has_contact_sensor(self) -> bool:
+        """Return whether a window or a door sensor is configured."""
+        return (
+            self.window_sensor_entity_id is not None
+            or self.door_sensor_entity_id is not None
+        )
 
     def _minute_tick_attributes(self) -> tuple[float | None, float | None]:
         """Return the published values the minute EMA tick moves.
@@ -4010,6 +4044,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if self.next_valve_maintenance is not None:
             dev_specific["next_valve_maintenance"] = (
                 self.next_valve_maintenance.isoformat()
+            )
+        if self.has_contact_sensor:
+            dev_specific[ATTR_STATE_WINDOW_DETECTION] = (
+                self.kernel_state.window_detection
             )
 
         # Optional: summarize last valve method per TRV (adapter vs override)

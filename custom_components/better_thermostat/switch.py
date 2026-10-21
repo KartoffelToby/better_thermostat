@@ -27,6 +27,7 @@ from .entity import (
     last_available_state,
     remove_unclaimed_registry_entries,
 )
+from .events.contact import set_window_detection
 from .sensor import _ACTIVE_SWITCH_ENTITIES, SwitchKind, SwitchRef
 from .utils.advanced_flags import advanced_flag
 from .utils.calibration.pid import (
@@ -84,6 +85,9 @@ async def async_setup_entry(
         switch_unique_ids[child_lock_switch._attr_unique_id] = SwitchRef(
             trv_entity_id, SwitchKind.CHILD_LOCK
         )
+
+    if bt_climate.has_contact_sensor:
+        switches.append(BetterThermostatWindowDetectionSwitch(bt_climate))
 
     # Track created switch entities for cleanup
     _ACTIVE_SWITCH_ENTITIES[entry.entry_id] = switch_unique_ids
@@ -238,6 +242,82 @@ def restored_child_lock(
     extra = stored.extra_data.as_dict() if stored.extra_data else None
     saved = last_available_state(stored.state, extra)
     return _switch_state_wins(saved.state if saved else None, extra, configured)
+
+
+def restored_window_detection(hass: HomeAssistant, bt_unique_id: str) -> bool | None:
+    """Return the window detection the thermostat's switch restores to.
+
+    ``None`` when the switch has no saved state. Read before the switch
+    itself is set up, so the thermostat's first control cycle already runs
+    with the restored setting.
+    """
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "switch", DOMAIN, f"{bt_unique_id}_window_detection"
+    )
+    if entity_id is None:
+        return None
+    stored = restore_state.async_get(hass).last_states.get(entity_id)
+    if stored is None:
+        return None
+    extra = stored.extra_data.as_dict() if stored.extra_data else None
+    saved = last_available_state(stored.state, extra)
+    if saved is None or saved.state not in (STATE_ON, STATE_OFF):
+        return None
+    return saved.state == STATE_ON
+
+
+class BetterThermostatWindowDetectionSwitch(
+    FollowsThermostat, SwitchEntity, RestoresLastAvailableState
+):
+    """Switch that lets the window and door sensors turn the heating off.
+
+    The setting lives in the thermostat's kernel state. The thermostat
+    restores it from this switch's saved state before its startup; the
+    switch restores it once more when it is added, for a saved state the
+    thermostat could not find by the switch's entity id.
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_translation_key = "window_detection"
+
+    def __init__(self, bt_climate: BetterThermostat) -> None:
+        """Initialize the switch."""
+        self._bt_climate = bt_climate
+        self._attr_unique_id = f"{bt_climate.unique_id}_window_detection"
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        self._follow_thermostat()
+        last_state = await self.async_get_last_available_state()
+        if last_state is not None and last_state.state in (STATE_ON, STATE_OFF):
+            await set_window_detection(self._bt_climate, last_state.state == STATE_ON)
+
+    @property
+    @override
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return self._bt_climate.device_info
+
+    @property
+    @override
+    def is_on(self) -> bool:
+        """Return whether open windows and doors turn the heating off."""
+        return self._bt_climate.kernel_state.window_detection
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Let open windows and doors turn the heating off again."""
+        await set_window_detection(self._bt_climate, True)
+        self.async_write_ha_state()
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Keep heating whatever the window and door sensors report."""
+        await set_window_detection(self._bt_climate, False)
+        self.async_write_ha_state()
 
 
 class BetterThermostatChildLockSwitch(

@@ -485,6 +485,9 @@
       },
       "child_lock_no_trv": {
         "name": "Blokada rodzicielska"
+      },
+      "window_detection": {
+        "name": "Wykrywanie okna"
       }
     },
     "sensor": {

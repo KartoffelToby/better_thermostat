@@ -485,6 +485,9 @@
       },
       "child_lock_no_trv": {
         "name": "Kindersicherung"
+      },
+      "window_detection": {
+        "name": "Fenstererkennung"
       }
     },
     "sensor": {

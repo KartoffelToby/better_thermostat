@@ -264,6 +264,7 @@ _CONSTRUCTOR_DEFAULTED = (
     "_outdoor_check_lock",
     "_temperature_filter_lock",
     "control_cycle_started_monotonic",
+    "announced_contact_open",
 )
 _CONSTRUCTOR_LITERALS = _constructor_literals()
 STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
@@ -426,6 +427,7 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
     bt._preset_cool_temperature = None
     bt.preset_mgr = PresetManager(temperatures={})
     bt.door_open = False
+    bt.has_contact_sensor = False
     bt.kernel_state = running_kernel_state()
     bt.clock = FakeClock()
     bt.temperature_slope = None

@@ -161,6 +161,7 @@ def _make_bt(preset: StoredChoice = MpcV2PlantPreset.AUTO) -> Any:
         tolerance=0.0,
         window_open=False,
         contact_open=False,
+        contact_sensed_open=False,
         kernel_state=SimpleNamespace(
             control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL)
         ),
