@@ -405,7 +405,7 @@ class TestNoZeroForReleasedDevices:
 
     @pytest.mark.asyncio
     async def test_a_release_during_the_wait_writes_no_zero(self):
-        """The helper never reported; released meanwhile, it is left alone."""
+        """Released devices get no zero, also when the wait is what they interrupt."""
         mock_self = _mock_self_with_select()
         mock_self.hass.states.get = lambda requested: State(
             CALIBRATION_ENTITY, "unavailable", {}
