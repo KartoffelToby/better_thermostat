@@ -11,12 +11,7 @@ from collections.abc import Mapping
 import logging
 from typing import NamedTuple
 
-from homeassistant.const import (
-    ATTR_UNIT_OF_MEASUREMENT,
-    STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
-    UnitOfTemperature,
-)
+from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -31,7 +26,10 @@ from custom_components.better_thermostat.model_fixes.types import (
     ValveChannelQuirk,
     ValveQuirk,
 )
-from custom_components.better_thermostat.utils.helpers import is_sibling_entry
+from custom_components.better_thermostat.utils.helpers import (
+    is_sibling_entry,
+    state_is_live,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -635,7 +633,7 @@ def _sensor_selector(self: ModelFixHost, entity_id: str) -> tuple[str, State] | 
         )
         return None
     state = self.hass.states.get(target)
-    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    if not state_is_live(state):
         # A selector that is not reporting names no option, and the device
         # behind it is in no state to take one either.
         return None

@@ -12,13 +12,13 @@ import logging
 from typing import TYPE_CHECKING, Final
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from ..utils.const import CalibrationOutput
 from ..utils.helpers import (
     celsius_to_system_temperature,
     find_local_calibration_entity,
     normalize_hvac_mode,
+    state_is_live,
     supports_single_target_temperature,
     supports_temperature_range,
 )
@@ -167,7 +167,7 @@ async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
     if calibration_entity is not None:
         state = self.hass.states.get(calibration_entity)
-        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if not state_is_live(state):
             return 0.0
         try:
             # For SELECT entities, remove the 'k' suffix if present (e.g., "1.5k" -> "1.5")
