@@ -27,8 +27,8 @@ def fix_local_calibration(
     """Adjust the local calibration offset for SEA801/SEA802 devices.
 
     The function applies small adjustments based on the external and target
-    temperatures to avoid incorrect temperature behavior; without either of
-    them the offset is returned unchanged.
+    temperatures to avoid incorrect temperature behavior; without an
+    external temperature the offset is returned unchanged.
 
     Parameters
     ----------

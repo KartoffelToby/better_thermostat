@@ -3,6 +3,7 @@
 from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime
 import json
+import math
 
 import pytest
 
@@ -27,7 +28,6 @@ from custom_components.better_thermostat.core.snapshot import (
     TrvReported,
     WorldSnapshot,
 )
-from custom_components.better_thermostat.utils.const import DEFAULT_TARGET_TEMP
 
 
 def _snapshot(target=21.0) -> WorldSnapshot:
@@ -159,6 +159,24 @@ class TestReplay:
         matches, _ = replay(entry)
         assert matches is False
 
+    def test_a_non_finite_heating_target_replays_as_recorded(self):
+        """A decision on a NaN target matches its replay.
+
+        The export nulls the target and every setpoint decided on it, so
+        the replay decides on a NaN target again and compares its own
+        decision nulled the same way.
+        """
+        recorder = FlightRecorder()
+        state = running_kernel_state()
+        snapshot = replace(_snapshot(), heat_target_temperature=float("nan"))
+        desired, _ = decide(snapshot, state)
+        recorder.record(snapshot, state, desired)
+
+        entry = json.loads(json.dumps(recorder.export(), allow_nan=False))[0]
+        assert entry["desired"]["trvs"]["climate.trv"]["setpoint"] is None
+        matches, _ = replay(entry)
+        assert matches is True
+
     def test_reconstruction_is_lossless_for_the_kernel(self):
         """Snapshot and state reconstruct into equal kernel inputs."""
         recorder = FlightRecorder()
@@ -234,14 +252,14 @@ class TestReplayValidation:
             replay(entry)
 
 
-def test_non_finite_required_floats_roundtrip_to_neutral_defaults():
-    """An export nulled by the JSON path re-imports with neutral defaults.
+def test_non_finite_required_floats_roundtrip_to_their_defaults():
+    """An export nulled by the JSON path re-imports with per-field defaults.
 
     The exporter writes None wherever a recorded float was non-finite;
     the import path accepts those nulls on the required-float fields
-    and substitutes the documented neutral defaults (now_monotonic 0.0,
-    the entity's initial heating target, tolerance 0.0, solar_intensity
-    0.0) instead of rejecting the entry.
+    and substitutes the documented defaults (now_monotonic 0.0, a NaN
+    heating target, tolerance 0.0, solar_intensity 0.0) instead of
+    rejecting the entry.
     """
     recorder = FlightRecorder()
     state = replace(
@@ -263,7 +281,7 @@ def test_non_finite_required_floats_roundtrip_to_neutral_defaults():
     assert entry["snapshot"]["solar_intensity"] is None
     rebuilt = snapshot_from_dict(entry["snapshot"])
     assert rebuilt.now_monotonic == 0.0
-    assert rebuilt.heat_target_temperature == DEFAULT_TARGET_TEMP
+    assert math.isnan(rebuilt.heat_target_temperature)
     assert rebuilt.tolerance == 0.0
     assert rebuilt.solar_intensity == 0.0
 

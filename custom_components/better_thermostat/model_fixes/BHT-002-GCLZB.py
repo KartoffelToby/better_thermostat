@@ -22,8 +22,8 @@ def fix_local_calibration(
 
     Rounds to the nearest integer (towards ceiling if the room is heating)
     to recover from the erroneous float values produced by some Zigbee
-    integrations. Without a room temperature or a setpoint the heating
-    direction is unknown and the offset rounds down.
+    integrations. Without a room temperature the heating direction is
+    unknown and the offset rounds down.
 
     Parameters
     ----------

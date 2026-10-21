@@ -120,11 +120,6 @@ def _float_or_none(value: Json) -> float | None:
     return float(value)
 
 
-# The heating target an entity starts with (``DEFAULT_TARGET_TEMP``); the
-# kernel stays free of Home Assistant imports, so it is restated here.
-_REPLAY_HEAT_TARGET = 5.0
-
-
 def _float_or_default(value: Json, default: float) -> float:
     """Read a required float, substituting ``default`` for null.
 
@@ -264,16 +259,17 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
     if now is None:
         raise ValueError("snapshot export lacks a parseable 'now'")
     # The required floats accept the exporter's non-finite-to-null
-    # mapping with per-field neutral defaults: a nulled monotonic clock
-    # loads as 0.0 (replay does not depend on clock alignment), a nulled
-    # heating target as the entity's initial target, a nulled tolerance
+    # mapping with per-field defaults: a nulled monotonic clock loads as
+    # 0.0 (replay does not depend on clock alignment), a nulled heating
+    # target as NaN (the target is never None, so the null stands for the
+    # non-finite target the kernel decided on), a nulled tolerance
     # as 0.0 (no dead-band), a nulled solar intensity as 0.0 (no solar
     # contribution).
     return WorldSnapshot(
         now=now,
         now_monotonic=_float_or_default(data["now_monotonic"], 0.0),
         heat_target_temperature=_float_or_default(
-            data["heat_target_temperature"], _REPLAY_HEAT_TARGET
+            data["heat_target_temperature"], math.nan
         ),
         cool_target_temperature=_float_or_none(data["cool_target_temperature"]),
         hvac_mode=parse_hvac_mode(_str_or_none(data["hvac_mode"])),
@@ -432,10 +428,14 @@ def replay(entry: ExportedDecision) -> tuple[bool, DesiredState]:
     """Re-run one exported decision tuple through the kernel.
 
     Returns ``(matches, recomputed_desired)`` — ``matches`` is True when
-    the kernel reproduces the recorded decision exactly.
+    the kernel reproduces the recorded decision exactly. The recomputed
+    decision is compared in its exported form, as the recorded one was
+    exported: a non-finite value the kernel decides on reads as null on
+    both sides.
     """
     snapshot = snapshot_from_dict(_dict_of(entry["snapshot"]))
     state = state_from_dict(_dict_of(entry["state"]))
     recorded = desired_from_dict(_dict_of(entry["desired"]))
     recomputed, _ = decide(snapshot, state)
-    return recomputed == recorded, recomputed
+    exported = desired_from_dict(_dict_of(_json_safe(asdict(recomputed))))
+    return exported == recorded, recomputed
