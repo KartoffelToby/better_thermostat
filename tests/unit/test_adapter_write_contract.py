@@ -36,6 +36,7 @@ from custom_components.better_thermostat.adapters import (
     mqtt,
     shelly,
     tado,
+    zha,
     zwave_js,
 )
 from custom_components.better_thermostat.adapters.valve_entity import (
@@ -54,6 +55,7 @@ ADAPTERS = {
     "mqtt": mqtt,
     "shelly": shelly,
     "tado": tado,
+    "zha": zha,
     "zwave_js": zwave_js,
 }
 ADAPTER_IDS = sorted(ADAPTERS)
