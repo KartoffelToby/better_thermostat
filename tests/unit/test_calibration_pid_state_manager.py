@@ -6,14 +6,13 @@ import pytest
 
 from custom_components.better_thermostat.calibration import _compute_pid_balance
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.pid import (
     DEFAULT_PID_KP,
     PIDState,
     build_pid_key,
     build_pid_loop_key,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 
 class _PidStateStub:
@@ -51,7 +50,7 @@ def _make_bt(state_mgr: _PidStateStub) -> ThermostatStandIn:
     bt.bt_hvac_mode = "heat"
     bt.clock = FakeClock(monotonic_value=1_000.0)
     bt.real_trvs = {
-        "climate.trv": Trv(
+        "climate.trv": trv_record(
             entity_id="climate.trv",
             advanced={},
             current_temperature=21.0,

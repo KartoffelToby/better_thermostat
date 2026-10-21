@@ -21,7 +21,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
 from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.events.trv import trigger_trv_change
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import Trv, UnreadReport
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -34,7 +34,7 @@ from custom_components.better_thermostat.utils.controlling import (
     refresh_cached_trv_modes,
 )
 from custom_components.better_thermostat.utils.helpers import SentCommand
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 ENTITY_ID = "climate.test_trv"
 _CTRL = "custom_components.better_thermostat.utils.controlling"
@@ -118,7 +118,7 @@ def thermostat(reported_states):
         BetterThermostat._clamp_inbound_heat_target(bt, value)
     )
     bt.real_trvs = {
-        ENTITY_ID: Trv(
+        ENTITY_ID: trv_record(
             entity_id=ENTITY_ID,
             hvac_mode="heat",
             hvac_modes=OFFERED_MODES,
@@ -134,7 +134,6 @@ def thermostat(reported_states):
             last_calibration=0.0,
             ignore_trv_states=False,
             model="SomeModel",
-            model_quirks=None,
             hvac_action=HVACAction.HEATING,
             valve_position=50,
             advanced={
@@ -307,7 +306,9 @@ class TestReportsHeldDuringACycle:
         self, thermostat, reported_states
     ):
         """A TRV that reported during the cycle is read once, and only it."""
-        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        thermostat.real_trvs[ENTITY_ID].unread_report = UnreadReport(
+            state_before=None, hvac_mode_before=None
+        )
         handler = AsyncMock()
 
         with patch(f"{_CTRL}.trigger_trv_change", new=handler):
@@ -326,7 +327,9 @@ class TestReportsHeldDuringACycle:
         self, thermostat
     ):
         """While a mode command is unconfirmed, the mode is not read at cycle end."""
-        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        thermostat.real_trvs[ENTITY_ID].unread_report = UnreadReport(
+            state_before=None, hvac_mode_before=None
+        )
         thermostat.real_trvs[ENTITY_ID].system_mode_received = False
         handler = AsyncMock()
 
@@ -341,7 +344,9 @@ class TestReportsHeldDuringACycle:
         self, thermostat, reported_states
     ):
         """A TRV that dropped off the network is not read."""
-        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        thermostat.real_trvs[ENTITY_ID].unread_report = UnreadReport(
+            state_before=None, hvac_mode_before=None
+        )
         reported_states[ENTITY_ID] = State(ENTITY_ID, STATE_UNAVAILABLE)
         handler = AsyncMock()
 
@@ -349,12 +354,15 @@ class TestReportsHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         handler.assert_not_awaited()
-        assert thermostat.real_trvs[ENTITY_ID].report_unread is False
+        trv = thermostat.real_trvs[ENTITY_ID]
+        assert trv.report_unread is False
 
     @pytest.mark.asyncio
     async def test_a_failing_read_leaves_the_control_loop_running(self, thermostat):
         """A report that cannot be read is logged, not raised into the queue worker."""
-        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        thermostat.real_trvs[ENTITY_ID].unread_report = UnreadReport(
+            state_before=None, hvac_mode_before=None
+        )
         handler = AsyncMock(side_effect=RuntimeError("boom"))
 
         with (
@@ -371,7 +379,9 @@ class TestReportsHeldDuringACycle:
         self, thermostat, reported_states, operating
     ):
         """A TRV reporting ``unknown`` is read exactly when the handler reads it."""
-        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        thermostat.real_trvs[ENTITY_ID].unread_report = UnreadReport(
+            state_before=None, hvac_mode_before=None
+        )
         reported_states[ENTITY_ID] = State(ENTITY_ID, STATE_UNKNOWN)
         handler = AsyncMock()
 
@@ -405,7 +415,9 @@ class TestReportsHeldDuringACycle:
         action, requests none: a device answering inside every cycle would
         otherwise keep one cycle following the next.
         """
-        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        thermostat.real_trvs[ENTITY_ID].unread_report = UnreadReport(
+            state_before=None, hvac_mode_before=None
+        )
 
         async def read(bt, event, **kwargs):
             bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.IDLE
@@ -786,7 +798,7 @@ class TestALockedPressHeldDuringACycle:
     def _lock(thermostat):
         trv = thermostat.real_trvs[ENTITY_ID]
         trv.advanced["child_lock"] = True
-        trv.report_unread = True
+        trv.unread_report = UnreadReport(state_before=None, hvac_mode_before=None)
         return trv
 
     @pytest.mark.asyncio

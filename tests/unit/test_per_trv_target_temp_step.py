@@ -17,13 +17,12 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.events.trv import trigger_trv_change
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
     CalibrationOutput,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 TRV_ID = "climate.fine_trv"
 COOLER_ID = "climate.coarse_ac"
@@ -82,7 +81,7 @@ def bt():
     )
     mock.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     mock.real_trvs = {
-        TRV_ID: Trv(
+        TRV_ID: trv_record(
             entity_id=TRV_ID,
             calibration=None,
             model="SomeModel",

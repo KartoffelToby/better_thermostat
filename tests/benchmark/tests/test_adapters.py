@@ -140,6 +140,23 @@ def test_oracle_feedback_uses_plant_truth():
     assert out.diagnostics["error_K"] == pytest.approx(0.0)
 
 
+def test_oracle_feedback_includes_the_sensor_calibration_error():
+    """The oracle sees a sensor bias as every other controller does."""
+    adapter = IdealOracleAdapter()
+    ctx = BenchmarkContext(
+        t=0.0,
+        dt=30.0,
+        target_temperature=21.0,
+        room_temperature=21.0,
+        raw_room_temperature=20.5,
+        trv_temperature=None,
+        outdoor_temperature=5.0,
+        sensor_calibration_error_K=0.5,
+    )
+    out = adapter.step(ctx)
+    assert out.diagnostics["error_K"] == pytest.approx(0.0)
+
+
 def test_benchmark_output_rejects_mismatched_duty_valve_mirror():
     """duty_cycle_percent paired with a non-matching valve_percent is rejected."""
     BenchmarkOutput(valve_percent=30.0, duty_cycle_percent=30.0)  # mirror OK

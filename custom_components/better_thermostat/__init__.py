@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from asyncio import Lock, gather
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 from typing import TYPE_CHECKING, Final, Literal
 
@@ -19,6 +19,7 @@ from homeassistant.helpers.typing import ConfigType, VolDictType, VolSchemaType
 from homeassistant.util.unit_conversion import TemperatureConverter
 import voluptuous as vol
 
+from .tracked_entities import TrackedEntities
 from .utils.const import (
     BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     CONF_CALIBRATION_MODE,
@@ -83,10 +84,13 @@ class BetterThermostatData:
     The climate entity is set by the climate platform; the platforms set up
     after it find it here. ``settings`` holds the entry's settings as setup
     parsed them; it is ``None`` only for a container built without them.
+    ``tracked_entities`` records the entities the sensor, number and switch
+    platforms created, for removing the ones the configuration dropped.
     """
 
     climate: BetterThermostat | None = None
     settings: BtSettings | None = None
+    tracked_entities: TrackedEntities = field(default_factory=TrackedEntities)
 
 
 type BetterThermostatConfigEntry = ConfigEntry[BetterThermostatData]

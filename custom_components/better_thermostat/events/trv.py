@@ -26,9 +26,9 @@ from custom_components.better_thermostat.calibration import (
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.model_fixes.model_quirks import (
-    load_model_quirks,
     trv_report_is_unreadable,
 )
+from custom_components.better_thermostat.trv import UnreadReport
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
@@ -50,7 +50,6 @@ from custom_components.better_thermostat.utils.helpers import (
     cooling_owns_dual_role_report,
     device_offers_mode,
     dual_role_entity_id,
-    get_device_model,
     group_all_members_off,
     is_reasonable_temperature,
     mode_remap,
@@ -162,33 +161,31 @@ def _hold_report(
     the held turn, for the end of the cycle to read when a later report
     switches the device off or brings it back.
     """
+    unread = trv.unread_report
     previous_setpoint = _held_setpoint(self, old_state)
     returned = previous_setpoint is None
     moved_after_return = _held_setpoint(
-        self, trv.state_before_held_report
+        self, unread.state_before if unread is not None else None
     ) is None and previous_setpoint != _held_setpoint(self, new_state)
     switched_on_after_first_report = (
-        trv.report_unread
+        unread is not None
         and old_state is not None
         and old_state.state == HVACMode.OFF
         and _reports_on(new_state)
     )
     pressed_after_switch_on = (
-        trv.report_unread
-        and trv.hvac_mode_before_held_report == HVACMode.OFF
+        unread is not None
+        and unread.hvac_mode_before == HVACMode.OFF
         and _reports_on(old_state)
         and _reports_on(new_state)
         and previous_setpoint != _held_setpoint(self, new_state)
     )
-    if not trv.report_unread or returned or moved_after_return:
-        trv.state_before_held_report = old_state
-        trv.hvac_mode_before_held_report = trv.hvac_mode
+    if unread is None or returned or moved_after_return:
+        unread = UnreadReport(state_before=old_state, hvac_mode_before=trv.hvac_mode)
     if switched_on_after_first_report:
-        trv.state_before_held_report = old_state
-        trv.hvac_mode_before_held_report = HVACMode.OFF
+        unread = UnreadReport(state_before=old_state, hvac_mode_before=HVACMode.OFF)
     if pressed_after_switch_on and old_state is not None:
-        trv.state_before_held_report = old_state
-        trv.hvac_mode_before_held_report = old_state.state
+        unread = UnreadReport(state_before=old_state, hvac_mode_before=old_state.state)
     if (
         old_state is not None
         and new_state is not None
@@ -198,7 +195,7 @@ def _hold_report(
         and _held_setpoint(self, new_state) not in (None, previous_setpoint)
     ):
         trv.held_turn = (old_state, new_state)
-    trv.report_unread = True
+    trv.unread_report = unread
 
 
 def reports_written_setpoint(
@@ -406,11 +403,7 @@ async def trigger_trv_change(
         return
     if self.control_queue_task is None:
         return
-    if (
-        self.heat_target_temperature is None
-        or self.room_temperature is None
-        or self.tolerance is None
-    ):
+    if self.room_temperature is None or self.tolerance is None:
         return
     if self.bt_update_lock:
         return
@@ -470,35 +463,6 @@ async def trigger_trv_change(
     # carries none, and an older one may hold a string. The config flow, the
     # child lock switch and both guards below read the flag the same way.
     child_lock = advanced_flag(advanced, CONF_CHILD_LOCK)
-
-    # Dynamic model detection: only once (e.g. at startup), not on every event
-    try:
-        # Only check when the state carries hints
-        if not trv.model and (
-            "model_id" in _org_trv_state.attributes
-            or "device" in _org_trv_state.attributes
-        ):
-            detected = await get_device_model(
-                self, entity_id, configured_model=self.model
-            )
-            if isinstance(detected, str) and detected:
-                _LOGGER.info(
-                    "better_thermostat %s: TRV %s model detected: %s; loading quirks",
-                    self.device_name,
-                    entity_id,
-                    detected,
-                )
-                quirks = await load_model_quirks(self, detected, entity_id)
-                trv.model = detected
-                trv.model_quirks = quirks
-    except Exception as e:
-        _LOGGER.debug(
-            "better_thermostat %s: dynamic model detection failed for %s: %s",
-            self.device_name,
-            entity_id,
-            e,
-            exc_info=True,
-        )
 
     _new_current_temperature = attr_to_celsius(
         self, _org_trv_state, "current_temperature", None, "TRV_current_temp"
@@ -595,18 +559,6 @@ async def trigger_trv_change(
             )
             _main_change = False
             if trv.calibration is CalibrationOutput.LOCAL_BASED:
-                # The awaits above (model detection, quirk loading) can
-                # outlive the entry: the offset read resolves the adapter
-                # through a raw real_trvs index, so skip it once the TRV
-                # is no longer tracked.
-                if entity_id not in self.real_trvs:
-                    _LOGGER.debug(
-                        "better_thermostat %s: TRV %s is no longer tracked, "
-                        "skipping offset read",
-                        self.device_name,
-                        entity_id,
-                    )
-                    return
                 trv.last_calibration = await get_calibration_offset(self, entity_id)
 
         # Under SENSOR_FALLBACK the TRV readings are the room temperature,

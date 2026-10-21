@@ -22,7 +22,6 @@ from custom_components.better_thermostat.calibration import (
     _compute_pid_balance,
 )
 from custom_components.better_thermostat.climate import BetterThermostat
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_module
 from custom_components.better_thermostat.utils.calibration.mpc import build_mpc_key
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
@@ -34,6 +33,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
 )
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.controlling import control_queue
+from tests.factories import trv_record
 from tests.unit.controlling.test_control_queue import _idle_room, _stop, _wait_until
 from tests.unit.test_contact_gates_controllers import _bt, _valve_trv
 from tests.unit.test_pause_learning import (
@@ -86,7 +86,7 @@ class _Loop:
 
     def __init__(self) -> None:
         self.bt = _make_releasable(_idle_room())
-        self.bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}
+        self.bt.real_trvs = {ENTITY_ID: trv_record(entity_id=ENTITY_ID)}
         self.queue: asyncio.Queue[object] = self.bt.control_queue_task
         self.held_by_cycle: list[bool] = []
         self.trv_writes = asyncio.Event()

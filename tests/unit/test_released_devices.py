@@ -14,12 +14,11 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.switch import (
     BetterThermostatReleaseDevicesSwitch,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerTracker,
     HeatLossTracker,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 
@@ -103,7 +102,8 @@ async def test_taking_the_devices_back_resumes_with_one_cycle():
     with patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()) as critical:
         await BetterThermostat.async_set_devices_released(bt, False)
 
-    assert bt.devices_released is False
+    released: bool = bt.devices_released
+    assert released is False
     bt._initialize_arrived_trvs.assert_awaited_once()
     bt._external_temperature_keepalive.assert_awaited_once_with()
     critical.assert_awaited_once_with(bt)
@@ -153,7 +153,7 @@ def _room_setting_up_two_trvs() -> ThermostatStandIn:
     bt.hass = MagicMock()
     bt.hass.states.get.return_value = None
     bt.real_trvs = {
-        entity_id: Trv(entity_id=entity_id, calibration=None)
+        entity_id: trv_record(entity_id=entity_id, calibration=None)
         for entity_id in (_FIRST_TRV, _SECOND_TRV)
     }
     bt.all_entities = dict.fromkeys(bt.real_trvs)

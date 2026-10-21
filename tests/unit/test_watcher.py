@@ -18,7 +18,7 @@ from custom_components.better_thermostat.core.fsm.lifecycle import (
     LifecycleState,
 )
 from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 # The battery level and battery entity a thermostat records per entity.
 BatteryStates = dict[str, dict[str, str | None]]
@@ -61,8 +61,8 @@ def mock_bt_instance(mock_hass):
     bt.outdoor_sensor_entity_id = "sensor.outdoor_temp"
     bt.weather_entity_id = "weather.home"
     bt.real_trvs = {
-        "climate.trv_1": Trv(entity_id="climate.trv_1"),
-        "climate.trv_2": Trv(entity_id="climate.trv_2"),
+        "climate.trv_1": trv_record(entity_id="climate.trv_1"),
+        "climate.trv_2": trv_record(entity_id="climate.trv_2"),
     }
     bt.devices_errors = list[str]()
     # A MagicMock would answer .get() with another MagicMock, which the
@@ -1553,7 +1553,8 @@ class TestDegradedModeGracePeriod:
         assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert any("Exiting degraded mode" in r.message for r in caplog.records)
         assert mock_ir.async_delete_issue.called
-        assert mock_bt_instance._degraded_warning_emitted is False
+        warned: bool = mock_bt_instance._degraded_warning_emitted
+        assert warned is False
 
     @pytest.mark.asyncio
     async def test_no_double_warning(self, mock_bt_instance, caplog):
@@ -1677,7 +1678,8 @@ class TestCoolerDegradedMode:
         assert mock_bt_instance.unavailable_sensors == []
         assert any("Exiting degraded mode" in r.message for r in caplog.records)
         assert mock_ir.async_delete_issue.call_args.args[-1] == "entry_1_degraded_mode"
-        assert mock_bt_instance._degraded_warning_emitted is False
+        warned: bool = mock_bt_instance._degraded_warning_emitted
+        assert warned is False
 
     @pytest.mark.asyncio
     async def test_dead_cooler_is_not_a_critical_entity(self, mock_bt_instance):
@@ -2116,7 +2118,9 @@ class TestAwaitCriticalEntities:
         )
 
         # Single TRV configured
-        mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1")
+        }
 
         call_count = 0
 
@@ -2152,7 +2156,9 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1")
+        }
         mock_bt_instance.hass.states.get.side_effect = _answers_with(
             "unavailable"
         )  # never comes online
@@ -2181,7 +2187,9 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1")
+        }
 
         mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
@@ -2226,8 +2234,8 @@ class TestAwaitCriticalEntities:
         )
 
         mock_bt_instance.real_trvs = {
-            "climate.trv_1": Trv(entity_id="climate.trv_1"),
-            "climate.trv_2": Trv(entity_id="climate.trv_2"),
+            "climate.trv_1": trv_record(entity_id="climate.trv_1"),
+            "climate.trv_2": trv_record(entity_id="climate.trv_2"),
         }
 
         trv1_calls = 0
@@ -2267,7 +2275,9 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1")
+        }
 
         get_count = 0
 

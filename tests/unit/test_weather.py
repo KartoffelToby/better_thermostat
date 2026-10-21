@@ -93,7 +93,7 @@ def make_bt(
         outdoor_sensor_entity_id=outdoor_sensor_entity_id,
         off_temperature=off_temperature,
     )
-    bt.runtime = BtRuntime(call_for_heat=call_for_heat)
+    bt.runtime = BtRuntime(heat_target_temperature=21.0, call_for_heat=call_for_heat)
     bt.hass = hass
     bt.entity_id = "climate.test_bt"
     bt.clock = FakeClock()
@@ -885,7 +885,8 @@ class TestCheckAmbientAirTemperature:
         assert bt.damped_outdoor_temperature == pytest.approx(
             2.0 + 16.0 * -math.expm1(-held_seconds / (24 * HOUR_S))
         )
-        assert bt.call_for_heat is True
+        call_for_heat: bool = bt.call_for_heat
+        assert call_for_heat is True
 
     async def test_a_check_during_the_history_read_waits_for_it(self):
         """A check that starts during the history read queues behind it.

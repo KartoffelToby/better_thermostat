@@ -3,13 +3,12 @@
 from unittest.mock import MagicMock, patch
 
 from custom_components.better_thermostat.calibration import _compute_mpc_balance
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcState,
     build_mpc_group_key,
     build_mpc_key,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 
 class _MpcStateStub:
@@ -49,7 +48,7 @@ def _make_bt(state_mgr: _MpcStateStub) -> ThermostatStandIn:
     bt.weather_entity_id = None
     bt.hass.states.get.return_value = None
     bt.real_trvs = {
-        "climate.trv": Trv(
+        "climate.trv": trv_record(
             entity_id="climate.trv",
             advanced={},
             current_temperature=21.0,
@@ -77,7 +76,7 @@ def test_mpc_balance_handles_multiple_trvs() -> None:
     """Multi-TRV setups aggregate TRV temperatures via attribute access."""
     state_mgr = _MpcStateStub()
     bt = _make_bt(state_mgr)
-    bt.real_trvs["climate.trv2"] = Trv(
+    bt.real_trvs["climate.trv2"] = trv_record(
         entity_id="climate.trv2",
         advanced={},
         current_temperature=23.5,

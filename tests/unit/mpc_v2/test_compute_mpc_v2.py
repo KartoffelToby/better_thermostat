@@ -41,8 +41,8 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plan
 def _baseline_input(
     *,
     key: str = "room",
-    target_temperature: float | None = 22.0,
-    room_temperature: float | None = 20.0,
+    target_temperature: float = 22.0,
+    room_temperature: float = 20.0,
     trv_temperature: float | None = None,
     outdoor_temperature: float | None = 5.0,
     heating_allowed: bool = True,
@@ -74,12 +74,6 @@ def test_window_open_returns_none() -> None:
 def test_heating_disallowed_returns_none() -> None:
     """Disallowed heating returns no command."""
     out, _ = compute_mpc_v2(_baseline_input(heating_allowed=False), MpcV2Params(), None)
-    assert out is None
-
-
-def test_missing_current_temperature_returns_none() -> None:
-    """A missing current room temperature returns no command."""
-    out, _ = compute_mpc_v2(_baseline_input(room_temperature=None), MpcV2Params(), None)
     assert out is None
 
 

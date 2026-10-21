@@ -22,7 +22,7 @@ from custom_components.better_thermostat.number import (
     BetterThermostatValveMaxOpeningNumber,
 )
 from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 _TRV_ID = "climate.living_room"
 
@@ -47,7 +47,7 @@ def _make_entity() -> tuple[
     BetterThermostatValveMaxOpeningNumber, Trv, ThermostatStandIn
 ]:
     """Return the cap entity wired to one real ``Trv`` it can write to."""
-    trv = Trv(entity_id=_TRV_ID)
+    trv = trv_record(entity_id=_TRV_ID)
     bt_climate = ThermostatStandIn()
     bt_climate.unique_id = "test_bt"
     bt_climate.device_name = "Test BT"

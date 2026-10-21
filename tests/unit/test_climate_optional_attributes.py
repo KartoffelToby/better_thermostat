@@ -2,18 +2,16 @@
 
 ``next_valve_maintenance`` and ``valve_method`` are published only when the
 entity actually holds the data behind them: a scheduled maintenance run, and
-at least one TRV that has recorded how its valve was last written. A schedule
-stamp that is not a timestamp surfaces as an error rather than as a silently
-missing attribute.
+at least one TRV that has recorded how its valve was last written.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
-import pytest
-
 from custom_components.better_thermostat.climate import BetterThermostat
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import make_state_attributes_bt
+from custom_components.better_thermostat.core.decide import running_kernel_state
+from custom_components.better_thermostat.core.fsm.maintenance import MaintenanceIdle
+from tests.factories import make_state_attributes_bt, trv_record
 
 
 def _extra_state_attributes(bt: BetterThermostat) -> dict[str, object]:
@@ -24,26 +22,24 @@ def _extra_state_attributes(bt: BetterThermostat) -> dict[str, object]:
 
 
 class TestNextValveMaintenance:
-    """The schedule stamp is published as ISO8601 when it is a timestamp."""
+    """The maintenance schedule is published as ISO8601 when there is one."""
 
     def test_absent_without_a_schedule(self):
         """No schedule means no key."""
-        bt = make_state_attributes_bt(next_valve_maintenance=None)
+        bt = make_state_attributes_bt()
         attrs = _extra_state_attributes(bt)
         assert "next_valve_maintenance" not in attrs
 
     def test_timestamp_is_published_as_iso8601(self):
         """A datetime schedule is rendered in ISO8601."""
         due = datetime(2026, 1, 8, 12, 0, tzinfo=UTC)
-        bt = make_state_attributes_bt(next_valve_maintenance=due)
+        bt = make_state_attributes_bt(
+            kernel_state=replace(
+                running_kernel_state(), maintenance=MaintenanceIdle(next_due=due)
+            )
+        )
         attrs = _extra_state_attributes(bt)
         assert attrs["next_valve_maintenance"] == due.isoformat()
-
-    def test_a_schedule_that_is_not_a_timestamp_surfaces(self):
-        """A stamp without ``isoformat`` raises rather than dropping the key."""
-        bt = make_state_attributes_bt(next_valve_maintenance="2026-01-08T12:00:00")
-        with pytest.raises(AttributeError):
-            _extra_state_attributes(bt)
 
 
 class TestValveMethod:
@@ -52,22 +48,22 @@ class TestValveMethod:
     def test_absent_without_reported_methods(self):
         """No TRV reported a method, so no key."""
         bt = make_state_attributes_bt(
-            real_trvs={"climate.trv": Trv(entity_id="climate.trv")}
+            real_trvs={"climate.trv": trv_record(entity_id="climate.trv")}
         )
         attrs = _extra_state_attributes(bt)
         assert "valve_method" not in attrs
 
     def test_reported_methods_are_summarized(self):
         """Each TRV that reports a method appears in the summary."""
-        trv = Trv(entity_id="climate.trv", last_valve_method="adapter")
+        trv = trv_record(entity_id="climate.trv", last_valve_method="adapter")
         bt = make_state_attributes_bt(real_trvs={"climate.trv": trv})
         attrs = _extra_state_attributes(bt)
         assert attrs["valve_method"] == {"climate.trv": "adapter"}
 
     def test_only_reporting_trvs_appear(self):
         """A TRV without a recorded method is left out of the summary."""
-        reporting = Trv(entity_id="climate.a", last_valve_method="adapter")
-        silent = Trv(entity_id="climate.b")
+        reporting = trv_record(entity_id="climate.a", last_valve_method="adapter")
+        silent = trv_record(entity_id="climate.b")
         bt = make_state_attributes_bt(
             real_trvs={"climate.a": reporting, "climate.b": silent}
         )

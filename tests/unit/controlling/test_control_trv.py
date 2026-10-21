@@ -41,7 +41,7 @@ from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode as _parse_mode,
 )
 from custom_components.better_thermostat.model_fixes import TRVZB, ZWA021
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import UnreadReport
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -52,7 +52,9 @@ from custom_components.better_thermostat.utils.controlling import (
     MIN_WRITE_INTERVAL_S,
     SETPOINT_RETRY_BACKOFF_MAX_S,
     SETPOINT_UNAPPLIED_WRITES_LIMIT,
+    TaskManager,
     _mode_switched_during_cycle,
+    _schedule_budget_retry,
     _setpoint_turned_during_cycle,
     check_calibration,
     check_target_temperature,
@@ -60,7 +62,13 @@ from custom_components.better_thermostat.utils.controlling import (
 )
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
 from custom_components.better_thermostat.utils.watcher import get_device_errors
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests import stub_adapter
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
 # *controlling* module level because that is where they are imported.
@@ -183,7 +191,7 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
 def _default_trv_config(**overrides):
     """Return a default real_trvs entry (a Trv) for a single TRV."""
     return replace(
-        Trv(
+        trv_record(
             entity_id="climate.trv1",
             ignore_trv_states=False,
             hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -210,7 +218,9 @@ def _with_valve_channel(trv):
     """Give ``trv`` a writable valve number entity to take valve positions."""
     trv.valve_position_entity = "number.trv1_valve_opening_degree"
     trv.valve_position_writable = True
-    trv.adapter = SimpleNamespace(CAPABILITIES=None, set_valve=AsyncMock())
+    trv.adapter = SimpleNamespace(
+        CAPABILITIES=stub_adapter.CAPABILITIES, set_valve=AsyncMock()
+    )
     return trv
 
 
@@ -317,9 +327,8 @@ class TestControlTrvUnavailablePath:
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is True
-            assert (
-                mock_self.real_trvs["climate.trv1"].reachability_retry_pending is True
-            )
+            trv = mock_self.real_trvs["climate.trv1"]
+            assert trv.reachability_retry_pending is True
             assert mock_self.task_manager.create_task.called
 
     @pytest.mark.asyncio
@@ -1586,7 +1595,8 @@ class TestControlTrvIgnoreFlagReset:
             with pytest.raises(asyncio.CancelledError):
                 await task
 
-        assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
+        trv = mock_self.real_trvs["climate.trv1"]
+        assert trv.ignore_trv_states is False
 
     @pytest.mark.asyncio
     async def test_cancel_while_waiting_for_lock_keeps_holder_flag(self):
@@ -1629,7 +1639,8 @@ class TestControlTrvIgnoreFlagReset:
 
             holder = asyncio.create_task(control_trv(mock_self, "climate.trv1"))
             await asyncio.wait_for(entered_write.wait(), timeout=5)
-            assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is True
+            trv = mock_self.real_trvs["climate.trv1"]
+            assert trv.ignore_trv_states is True
 
             waiter = asyncio.create_task(control_trv(mock_self, "climate.trv1"))
             # Let the waiter run until it suspends on the held lock.
@@ -1646,7 +1657,8 @@ class TestControlTrvIgnoreFlagReset:
             with pytest.raises(asyncio.CancelledError):
                 await holder
 
-        assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
+        trv = mock_self.real_trvs["climate.trv1"]
+        assert trv.ignore_trv_states is False
 
 
 # ---------------------------------------------------------------------------
@@ -1705,7 +1717,7 @@ class TestOffIntentClosesTheValve:
         mock_self.bt_max_temp = 30.0
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1",
                 ignore_trv_states=False,
                 max_temp=30.0,
@@ -1977,7 +1989,8 @@ class TestOffIntentClosesTheValve:
         with patch("asyncio.sleep", new=AsyncMock()):
             await coro
         assert mock_self.control_queue_task.get_nowait() is mock_self
-        assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is False
+        trv = mock_self.real_trvs["climate.trv1"]
+        assert trv.budget_retry_pending is False
 
         # Close any other captured coroutines to avoid RuntimeWarning.
         for coro, name in captured:
@@ -2093,7 +2106,7 @@ class TestOffIntentClosesTheValve:
         mock_self.bt_max_temp = 30.0
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1",
                 ignore_trv_states=False,
                 max_temp=30.0,
@@ -2308,7 +2321,9 @@ class TestValveWriteResult:
         trv = mock_self.real_trvs["climate.trv1"]
         trv.model = "TRVZB"
         trv.model_quirks = TRVZB
-        trv.adapter = SimpleNamespace(CAPABILITIES=None, set_valve=AsyncMock())
+        trv.adapter = SimpleNamespace(
+            CAPABILITIES=stub_adapter.CAPABILITIES, set_valve=AsyncMock()
+        )
         trv.valve_position_entity = None
         trv.valve_position_writable = None
         entries = [make_registry_entry("climate.trv1", device_id="trvzb")]
@@ -2397,6 +2412,20 @@ class TestValveWriteResult:
         assert mock_self.real_trvs["climate.trv1"].last_valve_method == "override"
 
 
+class TestBudgetRetryOnARemovedThermostat:
+    """A thermostat being removed starts no follow-up cycle for a deferred write."""
+
+    def test_no_retry_is_recorded_once_the_task_manager_is_closed(self):
+        """The closed manager starts no task, so no retry is left pending."""
+        mock_self = _make_mock_self(real_trvs={"climate.trv1": _default_trv_config()})
+        mock_self.task_manager = TaskManager()
+        mock_self.task_manager.cancel_all()
+
+        _schedule_budget_retry(mock_self, "climate.trv1", 5.0)
+
+        assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is False
+
+
 # ---------------------------------------------------------------------------
 # Race condition / lock coverage (from test_race_condition_lock_coverage.py)
 # ---------------------------------------------------------------------------
@@ -2471,7 +2500,7 @@ class TestRaceConditionLockCoverage:
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1",
                 ignore_trv_states=False,
                 hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -2488,7 +2517,7 @@ class TestRaceConditionLockCoverage:
                     "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 },
             ),
-            "climate.trv2": Trv(
+            "climate.trv2": trv_record(
                 entity_id="climate.trv2",
                 ignore_trv_states=False,
                 hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -2665,7 +2694,7 @@ class TestRaceConditionLockCoverage:
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1",
                 ignore_trv_states=False,
                 hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -2681,7 +2710,7 @@ class TestRaceConditionLockCoverage:
                     "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 },
             ),
-            "climate.trv2": Trv(
+            "climate.trv2": trv_record(
                 entity_id="climate.trv2",
                 ignore_trv_states=False,
                 hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -2774,7 +2803,7 @@ class TestRaceConditionLockCoverage:
         mock_self.window_open = False
         mock_self.call_for_heat = True
         mock_self.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1",
                 ignore_trv_states=False,
                 hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -2957,7 +2986,7 @@ def mock_bt_grouped():
     bt.kernel_state = _kernel_state_for(bt)
     bt.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     bt.real_trvs = {
-        "climate.trv_1": Trv(
+        "climate.trv_1": trv_record(
             entity_id="climate.trv_1",
             calibration_received=True,
             last_calibration=2.0,
@@ -2971,7 +3000,7 @@ def mock_bt_grouped():
                 "calibration_mode": 0,  # DEFAULT
             },
         ),
-        "climate.trv_2": Trv(
+        "climate.trv_2": trv_record(
             entity_id="climate.trv_2",
             calibration_received=True,
             last_calibration=2.0,
@@ -2982,7 +3011,7 @@ def mock_bt_grouped():
             ignore_trv_states=False,
             advanced={"calibration": 0, "calibration_mode": 0},
         ),
-        "climate.trv_3": Trv(
+        "climate.trv_3": trv_record(
             entity_id="climate.trv_3",
             calibration_received=False,  # Stuck at False!
             last_calibration=2.0,
@@ -3050,7 +3079,8 @@ class TestGroupedTrvCalibration:
             mock_set_calibration_offset.assert_awaited_once_with(
                 mock_bt_grouped, entity_id, 3.0
             )
-            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
+            trv = mock_bt_grouped.real_trvs[entity_id]
+            assert trv.calibration_received is False
 
     async def test_calibration_sent_when_received_true_and_differs(
         self, mock_bt_grouped
@@ -3091,7 +3121,8 @@ class TestGroupedTrvCalibration:
             mock_set_calibration_offset.assert_called_once_with(
                 mock_bt_grouped, entity_id, 3.0
             )
-            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
+            trv = mock_bt_grouped.real_trvs[entity_id]
+            assert trv.calibration_received is False
 
     async def test_missing_reference_calibration_skips_offset_write(
         self, mock_bt_grouped
@@ -3224,7 +3255,8 @@ class TestGroupedTrvCalibration:
 
             await control_trv(mock_bt_grouped, entity_id)
 
-            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
+            trv = mock_bt_grouped.real_trvs[entity_id]
+            assert trv.calibration_received is False
 
 
 class TestControlTrvOnADualRoleEntity:
@@ -3240,7 +3272,7 @@ class TestControlTrvOnADualRoleEntity:
     @classmethod
     def _make_shared_self(cls, device_modes, *, heat_auto_swapped=False):
         """Build a mock whose cooler is also the controlled thermostat."""
-        trv = Trv(
+        trv = trv_record(
             entity_id=cls.SHARED_ID,
             ignore_trv_states=False,
             hvac_modes=device_modes,
@@ -3349,7 +3381,7 @@ class TestControlTrvOnADualRoleEntity:
 def _offset_trv_config(**overrides):
     """Return a Trv configured for offset (LOCAL_BASED) calibration."""
     return replace(
-        Trv(
+        trv_record(
             entity_id="climate.trv1",
             ignore_trv_states=False,
             hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -3875,6 +3907,7 @@ class TestOffsetWriteGate:
         with patch(f"{_CTRL}.get_calibration_offset", autospec=True, return_value=-2.0):
             assert await earlier_watchdog is True
 
+        trv = mock_self.real_trvs["climate.trv1"]
         assert trv.calibration_received is False
 
 
@@ -4234,6 +4267,7 @@ class TestSetpointWatchdogAcrossAFailingWrite:
             await control_trv(mock_self, "climate.trv1")
 
         assert set_temperature.await_count == 2
+        trv = mock_self.real_trvs["climate.trv1"]
         assert trv.target_temperature_received is True
         assert trv.confirmed_setpoint == 24.0
 
@@ -4376,7 +4410,7 @@ class TestSetpointWatchdogAcrossAFailingWrite:
 
 def _paced_trv(entity_id, *, homematicip):
     """Return a TRV holding 20 °C whose config marks it HomematicIP or not."""
-    return Trv(
+    return trv_record(
         entity_id=entity_id,
         ignore_trv_states=False,
         hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -4632,9 +4666,11 @@ class TestPressesDuringACycle:
     def _pressed_trv(*, child_lock: bool = False, before: str = HVACMode.OFF):
         trv = _default_trv_config(last_hvac_mode=HVACMode.OFF, hvac_mode=HVACMode.OFF)
         trv.advanced = {**(trv.advanced or {}), "child_lock": child_lock}
-        trv.report_unread = True
-        trv.state_before_held_report = State(
-            "climate.trv1", before, attributes={"temperature": 20.0}
+        trv.unread_report = UnreadReport(
+            state_before=State(
+                "climate.trv1", before, attributes={"temperature": 20.0}
+            ),
+            hvac_mode_before=None,
         )
         return trv
 
@@ -5108,6 +5144,7 @@ class TestUnappliedSetpointRun:
         await self._cycle(mock_self)
         await self._cycle(mock_self)
 
+        trv = mock_self.real_trvs[self.HEAD]
         assert trv.setpoint_unapplied_reported is True
         assert get_device_errors(mock_self) == [self.HEAD]
         calls = self.registry.async_create_issue.call_args_list
@@ -5155,6 +5192,7 @@ class TestUnappliedSetpointRun:
         self.attributes["temperature"] = self.TARGET
         await self._cycle(mock_self)
 
+        trv = mock_self.real_trvs[self.HEAD]
         assert trv.setpoint_unapplied_reported is False
         assert trv.unapplied_setpoint_writes == 0
         assert get_device_errors(mock_self) == []
@@ -5249,6 +5287,7 @@ class TestUnappliedSetpointRun:
                 mock_self, self.HEAD, trv.last_setpoint_write_id, self.TARGET
             )
 
+        trv = mock_self.real_trvs[self.HEAD]
         assert trv.setpoint_unapplied_reported is False
         assert trv.unapplied_setpoint_writes == 0
 

@@ -18,7 +18,6 @@ def test_default_is_a_pure_offset_mode():
     """DEFAULT: no controller, no tolerance band, no post adjustments."""
     traits = MODE_TRAITS[CalibrationMode.DEFAULT]
     assert traits.balance is None
-    assert traits.needs_target is False
     assert traits.uses_tolerance_band is False
     assert traits.skip_post_adjustments is True
     assert traits.adjust is None

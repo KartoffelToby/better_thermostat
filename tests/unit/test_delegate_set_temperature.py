@@ -14,8 +14,7 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_temperature,
     setpoint_on_device_grid,
 )
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 ENTITY_ID = "climate.trv"
 
@@ -27,7 +26,7 @@ def bt():
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
     mock.bt_target_temperature_step = None
-    trv = Trv(entity_id=ENTITY_ID, min_temp=5.0, max_temp=30.0)
+    trv = trv_record(entity_id=ENTITY_ID, min_temp=5.0, max_temp=30.0)
     trv.adapter = MagicMock()
     trv.adapter.set_temperature = AsyncMock(return_value=True)
     mock.real_trvs = {ENTITY_ID: trv}

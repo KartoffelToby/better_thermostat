@@ -24,12 +24,10 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     _detect_regime_change,
     _detect_trv_profile,
     _MpcState,
-    _parse_bucket,
     _post_process_percent,
     _room_rise_over,
     _round_for_debug,
     _seed_state_from_siblings,
-    _split_mpc_key,
     _update_perf_curve,
     build_mpc_group_key,
     build_mpc_key,
@@ -207,36 +205,6 @@ class TestRoundForDebug:
         assert _round_for_debug(-1.2345, 3) == -1.234
 
 
-class TestSplitMpcKey:
-    """Tests for _split_mpc_key."""
-
-    def test_valid_key(self):
-        """Test splitting a valid three-part MPC key."""
-        parts = _split_mpc_key("abc:climate.trv:t22.0")
-        assert parts is not None
-        uid, entity, bucket = parts
-        assert uid == "abc"
-        assert entity == "climate.trv"
-        assert bucket == "t22.0"
-
-    def test_invalid_key_no_colons(self):
-        """Test that a key without colons returns None."""
-        assert _split_mpc_key("nocolons") is None
-
-    def test_key_with_one_colon(self):
-        """Test that a key with only one colon returns None."""
-        assert _split_mpc_key("one:two") is None
-
-    def test_key_with_extra_colons(self):
-        """Test that extra colons are kept in the bucket part."""
-        parts = _split_mpc_key("a:b:c:d:e")
-        assert parts is not None
-        uid, entity, bucket = parts
-        assert uid == "a"
-        assert entity == "b"
-        assert bucket == "c:d:e"
-
-
 class TestCurveBinLabel:
     """Tests for _curve_bin_label."""
 
@@ -395,24 +363,6 @@ class TestComputeMpcBasic:
         result = _compute(_inp(heating_allowed=False), _default_params())
         assert result.valve_percent == 0
 
-    def test_missing_target_temperature(self):
-        """Test that None target temperature produces 0% valve."""
-        result = _compute(_inp(target_temperature=None), _default_params())
-        assert result is not None
-        assert result.valve_percent == 0
-
-    def test_missing_current_temperature(self):
-        """Test that None current temperature does not crash."""
-        result = _compute(_inp(room_temperature=None), _default_params())
-        assert result is not None
-
-    def test_both_temps_none(self):
-        """Test that both temps None does not crash."""
-        result = _compute(
-            _inp(target_temperature=None, room_temperature=None), _default_params()
-        )
-        assert result is not None
-
     def test_large_positive_error_gives_high_valve(self):
         """4K below target -> valve should be high."""
         result = _compute(
@@ -490,7 +440,8 @@ class TestComputeMpcBasic:
         _STATES["cal_abort"].is_calibration_active = True
 
         _compute(_inp(key="cal_abort", window_open=True), params)
-        assert _STATES["cal_abort"].is_calibration_active is False
+        state = _STATES["cal_abort"]
+        assert state.is_calibration_active is False
 
     def test_valve_integration_accumulates(self):
         """u_integral should accumulate valve position over time."""
@@ -1130,15 +1081,6 @@ class TestPostProcessing:
 class TestPerfCurveSampling:
     """Tests for _update_perf_curve."""
 
-    def test_perf_curve_not_updated_without_temps(self):
-        """Test that perf_curve is not updated when current_temp is None."""
-        state = _MpcState()
-        params = _default_params()
-        inp = _inp(room_temperature=None)
-        debug: MpcDebugInfo = {}
-        _update_perf_curve(state, inp, params, time(), debug)
-        assert state.perf_curve == {}
-
     def test_perf_curve_records_bin(self):
         """After two calls with enough time gap, a bin should be recorded."""
         state = _MpcState()
@@ -1203,6 +1145,7 @@ class TestForcedCalibration:
         _compute(
             _inp(key="calend", room_temperature=21.7, target_temperature=22.0), params
         )
+        state = _STATES["calend"]
         assert state.is_calibration_active is False
 
     def test_calibration_keeps_valve_at_zero(self):
@@ -2912,15 +2855,6 @@ class TestFinalMinimumOpeningClamp:
 
 class TestUnparseableTargetBuckets:
     """Sibling seeding with keys whose target bucket is not a number."""
-
-    @pytest.mark.parametrize("bucket", [None, "", "x21.0", "tunknown"])
-    def test_bucket_without_a_number_parses_to_none(self, bucket):
-        """Only a ``t`` followed by a number is a target bucket."""
-        assert _parse_bucket(bucket) is None
-
-    def test_bucket_with_a_number_parses(self):
-        """``t21.5`` is the 21.5 °C bucket."""
-        assert _parse_bucket("t21.5") == 21.5
 
     def test_unknown_own_bucket_still_seeds_from_a_sibling(self):
         """A state keyed under an unknown target seeds from a numbered sibling."""

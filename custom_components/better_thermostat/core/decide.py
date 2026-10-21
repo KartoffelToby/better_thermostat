@@ -45,7 +45,7 @@ from types import MappingProxyType
 from .desired import DesiredState, Suppression, TrvDesired
 from .fsm.control_mode import ControlModeState
 from .fsm.lifecycle import LifecyclePhase, LifecycleState, tick as lifecycle_tick
-from .fsm.maintenance import MaintenanceState
+from .fsm.maintenance import MaintenanceIdle, MaintenanceState
 from .fsm.mode import ModeState
 from .fsm.reachability import ReachabilityState, step as reachability_step
 from .fsm.window import WindowState
@@ -80,7 +80,7 @@ class KernelState:
 
     window: WindowState = field(default_factory=WindowState)
     door: WindowState = field(default_factory=WindowState)
-    maintenance: MaintenanceState = field(default_factory=MaintenanceState)
+    maintenance: MaintenanceState = field(default_factory=MaintenanceIdle)
     lifecycle: LifecycleState = field(default_factory=LifecycleState)
     mode: ModeState = field(default_factory=ModeState)
     control_mode: ControlModeState = field(default_factory=ControlModeState)
@@ -131,7 +131,6 @@ def is_boost_heating(snapshot: WorldSnapshot) -> bool:
     return (
         snapshot.preset_mode == Preset.BOOST
         and snapshot.room_temperature is not None
-        and snapshot.heat_target_temperature is not None
         and snapshot.room_temperature < snapshot.heat_target_temperature
     )
 

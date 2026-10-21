@@ -21,12 +21,10 @@ from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.maintenance import (
-    MaintenancePhase,
-    MaintenanceState,
+    MaintenanceDue,
     start_run,
 )
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _NEXT = datetime(2026, 1, 8, 12, 0, tzinfo=UTC)
@@ -38,8 +36,7 @@ def bt():
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.ignore_states = False
-    mock.next_valve_maintenance = None
-    mock.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+    mock.real_trvs = {"climate.trv": trv_record(entity_id="climate.trv")}
     mock.clock = FakeClock(monotonic_value=1000.0)
     mock.kernel_state = KernelState()
     mock.bt_hvac_mode = HVACMode.HEAT
@@ -57,10 +54,7 @@ def _snapshots():
 async def test_reentry_guard(bt):
     """A run while the region is RUNNING returns without doing work."""
     bt.kernel_state = replace(
-        bt.kernel_state,
-        maintenance=start_run(
-            MaintenanceState(phase=MaintenancePhase.DUE), now_monotonic=900.0
-        ),
+        bt.kernel_state, maintenance=start_run(MaintenanceDue(), now_monotonic=900.0)
     )
     with patch(f"{_CLIMATE}.build_trv_snapshots") as snap:
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
@@ -78,7 +72,7 @@ async def test_happy_path_resets_flags_and_reschedules(bt):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
     assert BetterThermostat.in_maintenance.__get__(bt) is False
     assert bt.ignore_states is False
-    assert bt.next_valve_maintenance == _NEXT
+    assert bt.kernel_state.maintenance.next_due == _NEXT
     bt.control_queue_task.put_nowait.assert_called_once_with(bt)
 
 
@@ -141,7 +135,8 @@ async def test_deferred_control_kicks_even_when_off(bt):
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
     bt.control_queue_task.put_nowait.assert_called_once_with(bt)
-    assert bt._control_needed_after_maintenance is False
+    still_needed: bool = bt._control_needed_after_maintenance
+    assert still_needed is False
 
 
 @pytest.mark.asyncio
@@ -288,7 +283,7 @@ async def test_service_reports_a_failed_run(bt, caplog):
     """A run that fails surfaces as an error and leaves its cause in the log."""
     bt.in_maintenance = False
     bt.real_trvs = {
-        "climate.trv": Trv(
+        "climate.trv": trv_record(
             entity_id="climate.trv", advanced={"valve_maintenance": True}
         )
     }

@@ -1,7 +1,5 @@
 """Tests for the calibrator contract: capability nesting, strategies, healing."""
 
-from unittest.mock import MagicMock
-
 from homeassistant.core import State
 import pytest
 
@@ -15,9 +13,11 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlModeState,
 )
 from custom_components.better_thermostat.number import _PID_GAIN_SETTINGS
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import MpcOutput
-from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Output
+from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+    MpcV2Diagnostics,
+    MpcV2Output,
+)
 from custom_components.better_thermostat.utils.calibration.pid import (
     PidGain,
     PIDParams,
@@ -38,6 +38,7 @@ from tests.factories import (
     make_calibration_balance,
     make_snapshot,
     make_state,
+    trv_record,
 )
 
 
@@ -106,18 +107,36 @@ class TestCalibratorProtocol:
         assert cal.actuate(make_snapshot()) == 42.0
 
 
+def _outputs(percent: int) -> tuple[MpcOutput, MpcV2Output, TpiOutput]:
+    """Build each controller's result carrying ``percent``."""
+    diagnostics = MpcV2Diagnostics(
+        T_room_hat=20.0,
+        T_rad_hat=30.0,
+        D_hat_K_per_min=0.0,
+        tau_room_min=60.0,
+        coupling_rad_room=1.0,
+    )
+    return (
+        MpcOutput(valve_percent=percent),
+        MpcV2Output(valve_percent=percent, diagnostics=diagnostics),
+        TpiOutput(duty_cycle_percent=percent),
+    )
+
+
 class TestStrategyRegistry:
     """The registry maps controller modes to balance strategies."""
 
-    def _registry(self, percent=55.0, use_valve=False):
+    def _registry(self, percent: int = 55, use_valve=False):
+        mpc, mpc_v2, tpi = _outputs(percent)
+
         def compute_mpc(bt, entity_id):
-            return MagicMock(spec=MpcOutput, valve_percent=percent), use_valve
+            return mpc, use_valve
 
         def compute_mpc_v2(bt, entity_id):
-            return MagicMock(spec=MpcV2Output, valve_percent=percent), use_valve
+            return mpc_v2, use_valve
 
         def compute_tpi(bt, entity_id):
-            return MagicMock(spec=TpiOutput, duty_cycle_percent=percent), use_valve
+            return tpi, use_valve
 
         def compute_pid(bt, entity_id):
             return percent, use_valve
@@ -150,10 +169,10 @@ class TestStrategyRegistry:
 
         The percent also feeds the TRV's oscillation history.
         """
-        registry = self._registry(percent=55.0)
+        registry = self._registry(percent=55)
         bt = ThermostatStandIn()
         bt.device_name = "Test BT"
-        bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+        bt.real_trvs = {"climate.trv": trv_record(entity_id="climate.trv")}
 
         percent, use_valve = registry[mode].run(bt, "climate.trv")
 
@@ -182,7 +201,7 @@ class TestStrategyRegistry:
         bt.room_temperature = 20.0
         bt.heat_target_temperature = 21.0
         bt.kernel_state = make_state()
-        bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+        bt.real_trvs = {"climate.trv": trv_record(entity_id="climate.trv")}
 
         cap = strategy.capability(bt, "climate.trv")
         assert cap == CapabilityLevel.HEALTHY
@@ -214,7 +233,7 @@ class TestStrategyRegistry:
             control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
         )
         bt.real_trvs = {
-            "climate.trv": Trv(entity_id="climate.trv", current_temperature=20.5)
+            "climate.trv": trv_record(entity_id="climate.trv", current_temperature=20.5)
         }
         bt.hass.states.get.side_effect = lambda entity_id: State(
             entity_id, "heat", {"current_temperature": 20.5}
@@ -241,15 +260,9 @@ class TestBalanceCalibrator:
         balance: CalibrationBalance | None = None,
     ):
         registry = build_strategy_registry(
-            lambda bt, e: (MagicMock(spec=MpcOutput, valve_percent=percent), use_valve),
-            lambda bt, e: (
-                MagicMock(spec=MpcV2Output, valve_percent=percent),
-                use_valve,
-            ),
-            lambda bt, e: (
-                MagicMock(spec=TpiOutput, duty_cycle_percent=percent),
-                use_valve,
-            ),
+            lambda bt, e: (None, False),
+            lambda bt, e: (None, False),
+            lambda bt, e: (None, False),
             lambda bt, e: (percent, use_valve),
         )
         bt = ThermostatStandIn()
@@ -257,9 +270,11 @@ class TestBalanceCalibrator:
         bt.heat_target_temperature = 21.0
         bt.kernel_state = make_state()
         bt.real_trvs = {
-            "climate.trv": Trv(entity_id="climate.trv", calibration_balance=balance)
+            "climate.trv": trv_record(
+                entity_id="climate.trv", calibration_balance=balance
+            )
         }
-        strategy = registry[CalibrationMode.MPC_CALIBRATION]
+        strategy = registry[CalibrationMode.PID_CALIBRATION]
         return BalanceCalibrator(bt, "climate.trv", strategy), bt
 
     def test_satisfies_the_protocol(self):

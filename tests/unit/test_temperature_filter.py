@@ -11,7 +11,7 @@ def _thermostat() -> BetterThermostat:
     """Entity shell holding the EMA state, without running __init__."""
     bt = object.__new__(BetterThermostat)
     bt.config = BtConfig(device_name="dummy")
-    bt.runtime = BtRuntime()
+    bt.runtime = BtRuntime(heat_target_temperature=21.0)
     bt.room_temperature_ema_tau_seconds = 900.0
     bt._room_temperature_ema_monotonic = None
     return bt
