@@ -97,7 +97,8 @@ async def test_taking_the_devices_back_resumes_with_one_cycle():
     with patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()) as critical:
         await BetterThermostat.async_set_devices_released(bt, False)
 
-    assert bt.devices_released is False
+    released: bool = bt.devices_released
+    assert released is False
     bt._initialize_arrived_trvs.assert_awaited_once()
     bt._external_temperature_keepalive.assert_awaited_once_with()
     critical.assert_awaited_once_with(bt)

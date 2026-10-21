@@ -1553,7 +1553,8 @@ class TestDegradedModeGracePeriod:
         assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert any("Exiting degraded mode" in r.message for r in caplog.records)
         assert mock_ir.async_delete_issue.called
-        assert mock_bt_instance._degraded_warning_emitted is False
+        warned: bool = mock_bt_instance._degraded_warning_emitted
+        assert warned is False
 
     @pytest.mark.asyncio
     async def test_no_double_warning(self, mock_bt_instance, caplog):
@@ -1677,7 +1678,8 @@ class TestCoolerDegradedMode:
         assert mock_bt_instance.unavailable_sensors == []
         assert any("Exiting degraded mode" in r.message for r in caplog.records)
         assert mock_ir.async_delete_issue.call_args.args[-1] == "entry_1_degraded_mode"
-        assert mock_bt_instance._degraded_warning_emitted is False
+        warned: bool = mock_bt_instance._degraded_warning_emitted
+        assert warned is False
 
     @pytest.mark.asyncio
     async def test_dead_cooler_is_not_a_critical_entity(self, mock_bt_instance):

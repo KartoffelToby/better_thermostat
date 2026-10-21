@@ -17,6 +17,7 @@ dev = [
     "ruff>=0.16.10",
     "yamllint>=1.38.0",
     "hypothesis>=6.168.4",
+    "types-pyyaml>=6.0.12.20260906",  # lets pyrefly check the YAML-reading tests
 ]
 
 [tool.uv]
@@ -198,7 +199,7 @@ pythonVersion = "3.14"
 python-version = "3.14"
 project-includes = ["custom_components/better_thermostat", "scripts", "tests"]
 min-severity = "error"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true, unnecessary-type-conversion = "error" }
+errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true, unnecessary-type-conversion = "error", untyped-import = "error", deprecated = "error" }
 
 # Every file under project-includes is checked at the strictness declared above,
 # and no file outside tests/ is exempt from any of it: a new file is strict from

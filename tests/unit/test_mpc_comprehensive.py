@@ -458,7 +458,8 @@ class TestComputeMpcBasic:
         _STATES["cal_abort"].is_calibration_active = True
 
         _compute(_inp(key="cal_abort", window_open=True), params)
-        assert _STATES["cal_abort"].is_calibration_active is False
+        state = _STATES["cal_abort"]
+        assert state.is_calibration_active is False
 
     def test_valve_integration_accumulates(self):
         """u_integral should accumulate valve position over time."""
@@ -1171,6 +1172,7 @@ class TestForcedCalibration:
         _compute(
             _inp(key="calend", room_temperature=21.7, target_temperature=22.0), params
         )
+        state = _STATES["calend"]
         assert state.is_calibration_active is False
 
     def test_calibration_keeps_valve_at_zero(self):

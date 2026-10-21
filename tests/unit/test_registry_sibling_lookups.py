@@ -20,7 +20,7 @@ enabled entry and none for a disabled one, as a running instance does.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Generator
 import contextlib
 from dataclasses import dataclass, field
 from typing import Any
@@ -325,7 +325,7 @@ def _host(registry: Any, lookup: Lookup, candidate: str) -> MagicMock:
 
 
 @contextlib.contextmanager
-def _registry_in_place(registry: Any) -> Iterator[None]:
+def _registry_in_place(registry: Any) -> Generator[None]:
     """Hand ``registry`` to every module under test; no device is registered."""
     device_registry = MagicMock(spec=dr.DeviceRegistry)
     device_registry.async_get.return_value = None
