@@ -96,14 +96,16 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         real_trvs=real_trvs,
         heat_target_temperature=21.0,
         room_temperature=19.5,
+        learning_held=False,
         room_temperature_filtered=None,
         tolerance=0.0,
         temperature_slope=None,
         window_open=False,
         door_open=False,
-        # The real entity derives this from both contacts; the dispatcher
-        # reads the combined flag, so the stand-in has to carry it too.
+        # The real entity derives these from both contacts; the dispatcher
+        # reads the combined flags, so the stand-in has to carry them too.
         contact_open=False,
+        contact_sensed_open=False,
         kernel_state=SimpleNamespace(
             control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL)
         ),

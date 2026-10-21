@@ -18,6 +18,7 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache,
 )
 
+from custom_components.better_thermostat.core.snapshot import Preset
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
 )
@@ -30,6 +31,7 @@ from .conftest import (
     make_entry,
     set_room_sensor,
     setup_entry,
+    wait_for,
     wait_for_startup,
 )
 from .device_profiles import GENERIC_HEAT_TRV
@@ -381,3 +383,63 @@ async def test_a_restart_outside_a_preset_keeps_no_target_to_hand_back(hass, fak
     await _activate(hass, "none")
 
     assert _target(hass) == 22.5
+
+
+async def _decided_presets(hass, bt):
+    """Return the preset the last decision's input state and snapshot carry.
+
+    The flight recorder stores the kernel state a decision started from next
+    to the world snapshot it read, and the diagnostics download exports both.
+    A fresh room reading starts a control cycle, so the last record belongs
+    to the state the thermostat is in now.
+    """
+    recorded = len(bt.flight_recorder)
+    set_room_sensor(hass, 18.5)
+    assert await wait_for(hass, lambda: len(bt.flight_recorder) > recorded)
+    last = bt.flight_recorder.export()[-1]
+    return last["state"]["mode"]["preset"], last["snapshot"]["preset_mode"]
+
+
+async def test_a_restored_preset_reaches_the_kernel(hass, fake_trv):
+    """A preset restored after a restart is the preset the kernel holds.
+
+    The climate entity publishes the preset of its preset manager, while the
+    kernel's mode region keeps its own copy. Both come back from the saved
+    state, so the exported decision input names the same preset twice.
+    """
+    mock_restore_cache(
+        hass,
+        (
+            State(
+                BT_ENTITY,
+                "heat",
+                {
+                    "temperature": COMFORT_DEFAULT,
+                    "preset_mode": "comfort",
+                    "current_temperature": 18.0,
+                },
+            ),
+        ),
+    )
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "comfort"
+    assert bt.kernel_state.mode.preset == Preset.COMFORT
+    assert await _decided_presets(hass, bt) == ("comfort", "comfort")
+
+
+async def test_a_manual_target_leaves_the_preset_in_the_kernel_too(hass, fake_trv):
+    """A manual target that ends the preset clears it from the kernel as well."""
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await _activate(hass, "comfort")
+    assert bt.kernel_state.mode.preset == Preset.COMFORT
+
+    await _set_target(hass, 23.0)
+
+    assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "none"
+    assert bt.kernel_state.mode.preset is None
+    assert await _decided_presets(hass, bt) == (None, "none")

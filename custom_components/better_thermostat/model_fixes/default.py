@@ -80,7 +80,11 @@ async def override_set_temperature(
 
 
 async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
-    """Run initial tweaks for the device."""
+    """Run initial tweaks for the device.
+
+    Each tweak is a write of its own. The devices can be released while an
+    earlier one is under way, and the tweaks after it are not sent then.
+    """
     entity_registry = er.async_get(self.hass)
     reg_entity = entity_registry.async_get(entity_id)
 
@@ -121,6 +125,8 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                 )
 
         # 2. Child lock sync setting
+        if self.devices_released:
+            return
         stored_child_lock = self.real_trvs[entity_id].advanced.get(CONF_CHILD_LOCK)
         if stored_child_lock is not None:
             child_lock_setting = as_bool(stored_child_lock)
@@ -178,6 +184,8 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                     )
 
         # 3. Away / Window detection -> Off
+        if self.devices_released:
+            return
         # Window detection disable the interal trv window detection, its handled by better_thermostat
         win_entity = find_entity(
             ["switch"],
@@ -208,6 +216,8 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                 )
 
         # Away mode -> Off
+        if self.devices_released:
+            return
         # Disable the away mode on the device if available
         away_entity = find_entity(
             ["switch"], ["away_mode", "away mode", "holiday_mode", "holiday"]

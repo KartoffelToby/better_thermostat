@@ -44,6 +44,20 @@ def test_window_open_postpones_an_hour():
     assert out.next_due == NOW + timedelta(hours=1)
 
 
+def test_released_devices_postpone_an_hour():
+    """A due exercise waits while the devices are released.
+
+    It writes to them, and the release ends sooner or later; it does not run
+    in the same breath as the devices are taken back either.
+    """
+    state = MaintenanceState(next_due=NOW - timedelta(minutes=1))
+    out = evaluate_tick(
+        state, NOW, window_open=False, has_enabled_trvs=True, devices_released=True
+    )
+    assert out.phase == MaintenancePhase.IDLE
+    assert out.next_due == NOW + timedelta(hours=1)
+
+
 def test_hvac_off_does_not_postpone():
     """OFF mode arms the region: that is when a valve is most likely to seize."""
     out = evaluate_tick(

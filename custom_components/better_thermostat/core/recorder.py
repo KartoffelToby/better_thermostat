@@ -149,8 +149,9 @@ def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
 
     ``KernelState.reachability`` is a read-only ``MappingProxyType``,
     which :func:`dataclasses.asdict` cannot recurse into. The proxy is
-    converted to a plain ``dict`` of ``asdict``-ed entries; every other
-    field is a frozen region dataclass flattened by ``asdict``.
+    converted to a plain ``dict`` of ``asdict``-ed entries; the scalar
+    fields are taken as they are, and every other field is a frozen region
+    dataclass flattened by ``asdict``.
 
     Parameters
     ----------
@@ -172,6 +173,7 @@ def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
         "reachability": {
             entity_id: asdict(entry) for entity_id, entry in state.reachability.items()
         },
+        "window_detection": state.window_detection,
         "last_control_monotonic": state.last_control_monotonic,
     }
 
@@ -280,6 +282,9 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
         call_for_heat=_bool_of(data["call_for_heat"]),
         window_open=_bool_or_none(data.get("window_open")),
         preset_mode=parse_preset(_str_or_none(data["preset_mode"])),
+        # An export from before the room could release its devices carries
+        # no such key; its devices were never released.
+        devices_released=_bool_of(data.get("devices_released", False)),
         tolerance=_float_or_default(data["tolerance"], 0.0),
         outdoor_temperature=_float_or_none(data["outdoor_temperature"]),
         is_day=_bool_of(data["is_day"]),
@@ -396,6 +401,8 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
             pending=_pending_window_of(control_mode),
         ),
         reachability=reachability,
+        # An export without the flag was recorded with window detection on.
+        window_detection=_bool_of(data.get("window_detection", True)),
         last_control_monotonic=_float_or_none(data["last_control_monotonic"]),
     )
 
@@ -417,7 +424,11 @@ def desired_from_dict(data: dict[str, Json]) -> DesiredState:
                 else None
             ),
         )
-    return DesiredState(call_for_heat=_bool_of(data["call_for_heat"]), trvs=trvs)
+    return DesiredState(
+        call_for_heat=_bool_of(data["call_for_heat"]),
+        trvs=trvs,
+        devices_released=_bool_of(data.get("devices_released", False)),
+    )
 
 
 def replay(entry: ExportedDecision) -> tuple[bool, DesiredState]:

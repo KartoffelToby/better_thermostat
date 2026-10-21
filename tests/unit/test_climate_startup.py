@@ -129,6 +129,7 @@ def bt():
     mock.humidity_sensor_entity_id = None
     mock.window_sensor_entity_id = None
     mock.door_sensor_entity_id = None
+    mock.has_contact_sensor = False
     mock.all_entities = dict[str, None]()
     mock.unavailable_sensors = list[str]()
     mock.degraded_mode = False
@@ -524,9 +525,13 @@ def owned_task_bt(bt, hass):
     bt.is_removed = False
     bt._owned_tasks = set()
     bt._final_flush_task = None
+    # A first start: Home Assistant saved no state for the thermostat.
+    bt.async_get_last_available_state = AsyncMock(return_value=None)
     bt._spawn_owned = lambda coro, *, name: BetterThermostat._spawn_owned(
         bt, coro, name=name
     )
+    # A first start: nothing was saved before it.
+    bt.async_get_last_available_state = AsyncMock(return_value=None)
     return bt
 
 

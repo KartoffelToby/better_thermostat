@@ -69,6 +69,27 @@ same cycle.
 At startup, each TRV's initial tweak has a 60-second budget; a TRV whose
 tweak runs out of time counts as failed and the startup moves on.
 
+## Released devices
+
+While the *Release devices* switch is on, the kernel's intent is marked as
+released and addresses no device. A control cycle then neither controls a
+TRV nor runs the cooling channel, and the reconciler queues nothing. The
+writes outside the control cycle stand down as well: the external room
+temperature and its keepalive, the steps of a valve maintenance run, the
+child lock, and the initialisation of a TRV at startup, which waits for
+the devices to be taken back. A cycle decides once and then awaits its
+writes one after the other, so each TRV and cooler write, and each
+write of a TRV's initialisation, checks the switch itself right before
+it goes out: a release that comes in while a cycle or an initialisation
+is under way ends the writes that follow, and a write already sent
+completes. The same holds inside a write: each attempt of the retry
+chain, the next valve channel, the mode an offset write restores, the
+preset or sensor selector a model quirk pairs with its command, the
+deferred close after a TRVZB valve bump, and the external temperature
+for the next TRV each check the switch before they go out. Taking them
+back requests one control cycle, which writes the differences like any
+other.
+
 ## The write budget
 
 Non-safety writes to one TRV keep a minimum spacing of 30 seconds,

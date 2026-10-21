@@ -53,6 +53,19 @@ door gate independently: either region being effectively open turns
 every TRV off without touching the mode. When both are open, the
 window suppression reason wins the annunciation.
 
+## Window detection: a mask over both
+
+`KernelState.window_detection` is the user's **Window Detection**
+switch, not a region. `decide()` reads the window and door regions only
+while it is true; false, the cascade falls through to the heat demand.
+The regions keep running with the switch off, so learning still sees an
+open window, but they step with zero delays: there is no switching to
+debounce. Turning the switch off therefore commits every pending
+transition at once, a close delay included. Turning it on restarts each
+region from CLOSED with the configured delays and the sensor's current
+reading, so an open window waits out the open delay first. The flag is
+restored from the switch's saved state before the thermostat's startup.
+
 ## Maintenance: valve exercise with a liveness bound
 
 ```mermaid

@@ -69,6 +69,13 @@ def _scenarios() -> dict[str, tuple[WorldSnapshot, KernelState]]:
             make_snapshot(),
             make_state(door=WindowState(phase=WindowPhase.OPEN)),
         ),
+        "devices_released": (make_snapshot(devices_released=True), make_state()),
+        "window_open_detection_off": (
+            make_snapshot(),
+            make_state(
+                window=WindowState(phase=WindowPhase.OPEN), window_detection=False
+            ),
+        ),
         "startup_running": (make_snapshot(), make_state(lifecycle=LifecycleState())),
         "maintenance_running": (
             make_snapshot(),
