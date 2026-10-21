@@ -41,21 +41,6 @@ def _learning_room(*, released: bool) -> ThermostatStandIn:
     return bt
 
 
-@pytest.mark.parametrize(
-    ("released", "updates"), [pytest.param(True, 0, id="released"), (False, 1)]
-)
-@pytest.mark.asyncio
-async def test_the_learners_take_nothing_from_a_released_room(released, updates):
-    """Heating power and heat loss learn only from a room the control drives."""
-    bt = _learning_room(released=released)
-
-    await BetterThermostat.calculate_heating_power(bt)
-    await BetterThermostat.calculate_heat_loss(bt)
-
-    assert bt._heating_tracker.update.call_count == updates
-    assert bt._loss_tracker.update.call_count == updates
-
-
 def _releasable_room() -> ThermostatStandIn:
     bt = _learning_room(released=False)
     bt.startup_running = False
@@ -63,6 +48,27 @@ def _releasable_room() -> ThermostatStandIn:
     bt._external_temperature_keepalive = AsyncMock()
     bt.control_queue_task = MagicMock()
     return bt
+
+
+@pytest.mark.parametrize("released", [True, False], ids=["released", "controlled"])
+@pytest.mark.asyncio
+async def test_the_learners_take_nothing_from_a_released_room(released):
+    """Heating power and heat loss learn only from a room the control drives.
+
+    A release holds them as a learning pause does: they still follow the
+    room, and the reading teaches them nothing.
+    """
+    bt = _releasable_room()
+
+    with patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()):
+        await BetterThermostat.async_set_devices_released(bt, released)
+    await BetterThermostat.calculate_heating_power(bt)
+    await BetterThermostat.calculate_heat_loss(bt)
+
+    for tracker in (bt._heating_tracker, bt._loss_tracker):
+        assert tracker.update.call_count == 1
+        assert tracker.update.call_args.kwargs["learning_paused"] is released
+    assert bt.learning_paused is False
 
 
 @pytest.mark.asyncio

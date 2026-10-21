@@ -110,10 +110,11 @@ mode that writes the valve, or by boost) still gets it closed to 0 %.
 
 The release tier is the user's *Release devices* switch. Its intent
 addresses no TRV and is marked as released, and the shell reads the mark:
-it leaves the cooler alone as well, feeds the learners nothing and writes
-nothing else to the devices until the switch is turned off again. The
-regions keep tracking meanwhile, so the first cycle after the release
-decides on the window, mode and targets that hold by then.
+it leaves the cooler alone as well and writes nothing else to the
+devices until the switch is turned off again. The learners are held as
+during a learning pause, the take-back cycle included. The regions keep
+tracking meanwhile, so the first cycle after the release decides on the
+window, mode and targets that hold by then.
 
 OFF intents carry their **suppression reason** so the shell can choose
 between a literal OFF (window, no heat demand) and the device-specific
