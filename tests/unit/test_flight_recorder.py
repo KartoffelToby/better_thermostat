@@ -569,6 +569,7 @@ class TestRoundtripCompleteness:
             "call_for_heat": True,
             "window_open": True,
             "preset_mode": Preset.ECO,
+            "devices_released": True,
             "tolerance": 0.3,
             "outdoor_temperature": 5.5,
             "is_day": False,
@@ -620,9 +621,13 @@ class TestRoundtripCompleteness:
             "suppression": Suppression.WINDOW,
         }
         assert set(trv_desired_kwargs) == {f.name for f in fields(TrvDesired)}
-        desired = DesiredState(
-            call_for_heat=True, trvs={"climate.trv": TrvDesired(**trv_desired_kwargs)}
-        )
+        desired_kwargs = {
+            "call_for_heat": True,
+            "trvs": {"climate.trv": TrvDesired(**trv_desired_kwargs)},
+            "devices_released": True,
+        }
+        assert set(desired_kwargs) == {f.name for f in fields(DesiredState)}
+        desired = DesiredState(**desired_kwargs)
 
         recorder = FlightRecorder()
         recorder.record(snapshot, state, desired)

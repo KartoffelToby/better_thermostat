@@ -474,6 +474,9 @@
       }
     },
     "switch": {
+      "release_devices": {
+        "name": "Uvoľniť zariadenia"
+      },
       "pid_auto_tune": {
         "name": "{trv_name} PID Auto Tune"
       },
@@ -598,6 +601,9 @@
     },
     "invalid_settings": {
       "message": "Uložené nastavenia tohto Better Thermostat nie je možné prečítať: {reason}. Zmeňte ich v jeho možnostiach alebo ho odstráňte a pridajte znova."
+    },
+    "devices_released": {
+      "message": "Zariadenia {device_name} sú uvoľnené. Vypnite Uvoľniť zariadenia, aby ich Better Thermostat znova ovládal."
     }
   }
 }

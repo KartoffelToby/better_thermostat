@@ -42,6 +42,12 @@
       }
     },
     "switch": {
+      "release_devices": {
+        "default": "mdi:hand-back-right",
+        "state": {
+          "off": "mdi:hand-back-right-off"
+        }
+      },
       "child_lock": {
         "default": "mdi:account-lock",
         "state": {

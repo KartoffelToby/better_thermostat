@@ -103,6 +103,7 @@ SUPPORT_FLAGS: Final = (
 ATTR_STATE_WINDOW_OPEN: Final = "window_open"
 ATTR_STATE_DOOR_OPEN: Final = "door_open"
 ATTR_STATE_CALL_FOR_HEAT: Final = "call_for_heat"
+ATTR_STATE_DEVICES_RELEASED: Final = "devices_released"
 ATTR_STATE_PRESET_TEMPERATURE: Final = "preset_temperature"
 ATTR_STATE_PRESET_COOL_TEMPERATURE: Final = "preset_cool_temperature"
 ATTR_STATE_PRESET_COOL_TEMPERATURES: Final = "preset_cool_temperatures"

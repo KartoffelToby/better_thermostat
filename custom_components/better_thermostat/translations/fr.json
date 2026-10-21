@@ -474,6 +474,9 @@
       }
     },
     "switch": {
+      "release_devices": {
+        "name": "Libérer les appareils"
+      },
       "pid_auto_tune": {
         "name": "{trv_name} Réglage automatique PID"
       },
@@ -598,6 +601,9 @@
     },
     "invalid_settings": {
       "message": "Les paramètres enregistrés de ce Better Thermostat ne peuvent pas être lus : {reason}. Modifiez-les dans ses options, ou supprimez-le et ajoutez-le à nouveau."
+    },
+    "devices_released": {
+      "message": "Les appareils de {device_name} sont libérés. Désactivez Libérer les appareils pour que Better Thermostat les contrôle à nouveau."
     }
   }
 }

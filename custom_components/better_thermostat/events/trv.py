@@ -665,6 +665,15 @@ async def trigger_trv_change(
             str(val_pos), self.device_name, "trv_event"
         )
 
+    if self.devices_released:
+        # The user drives the device. Its mode is cached as it reports it, so
+        # that once the device is taken back its next report reads as no
+        # change rather than as a press, and nothing it reports becomes the
+        # room's mode or target.
+        trv.hvac_mode = _org_trv_state.state
+        self.async_write_ha_state()
+        return
+
     _was_off = (
         prior_hvac_mode if prior_hvac_mode is not None else trv.hvac_mode
     ) == HVACMode.OFF

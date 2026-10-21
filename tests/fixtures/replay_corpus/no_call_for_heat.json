@@ -1,6 +1,7 @@
 {
   "desired": {
     "call_for_heat": false,
+    "devices_released": false,
     "trvs": {
       "climate.trv1": {
         "calibration_offset": null,
@@ -23,6 +24,7 @@
   "snapshot": {
     "call_for_heat": false,
     "cool_target_temperature": null,
+    "devices_released": false,
     "heat_target_temperature": 21.0,
     "hvac_mode": "heat",
     "is_day": true,

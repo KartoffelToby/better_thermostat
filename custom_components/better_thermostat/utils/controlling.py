@@ -742,6 +742,9 @@ async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) ->
         return
     try:
         snapshot, desired = compute_control_cycle(self, record=False, commit=False)
+        if desired.devices_released:
+            # A released device diverges by design; it is the user's.
+            return
         desired = safety_clamp(desired, snapshot)
         if not desired_diverges(self, snapshot, desired):
             return
@@ -1378,7 +1381,8 @@ async def control_queue(self: BetterThermostat) -> None:
                         self.ignore_states = True
                         self.control_cycle_started_monotonic = self.clock.monotonic()
 
-                        # Calculate heating power once per cycle
+                        # Calculate heating power once per cycle; nothing is
+                        # learned while the devices are released.
                         try:
                             await self.calculate_heating_power()
                         except Exception:
@@ -1407,6 +1411,17 @@ async def control_queue(self: BetterThermostat) -> None:
                                 self.device_name,
                             )
 
+                        # Released devices are the user's: the cycle sends
+                        # neither the cooler nor any TRV a command. Without a
+                        # decision the room's own flag says the same.
+                        _released = (
+                            cycle[1].devices_released
+                            if cycle is not None
+                            else self.devices_released
+                        )
+                        if _released:
+                            _stamp_heartbeat(self)
+
                         # Handle cooler logic once per cycle, on the same
                         # observation the TRVs are controlled with. A cooler
                         # that is also a TRV still awaiting its initialisation
@@ -1419,8 +1434,11 @@ async def control_queue(self: BetterThermostat) -> None:
                             else None
                         )
                         if self.cooler_entity_id is not None and not (
-                            _cooler_trv is not None
-                            and _cooler_trv.awaiting_initialization
+                            _released
+                            or (
+                                _cooler_trv is not None
+                                and _cooler_trv.awaiting_initialization
+                            )
                         ):
                             try:
                                 await control_cooler(
@@ -1448,7 +1466,7 @@ async def control_queue(self: BetterThermostat) -> None:
                         )
                         tasks = []
                         controlled_trvs = []
-                        for trv in self.real_trvs.keys():
+                        for trv in [] if _released else self.real_trvs.keys():
                             if _cooling_owns_shared and trv == _shared_entity_id:
                                 _LOGGER.debug(
                                     "better_thermostat %s: %s is driven by the cooling "
@@ -1502,8 +1520,11 @@ async def control_queue(self: BetterThermostat) -> None:
                             # cycle, so a mode a device reported meanwhile
                             # never reached it. Settle the caches before the
                             # window closes, so the device's next report is
-                            # read as the change it carries.
-                            refresh_cached_trv_modes(self)
+                            # read as the change it carries. A released cycle
+                            # commanded nothing, and the caches keep the modes
+                            # the devices report.
+                            if not _released:
+                                refresh_cached_trv_modes(self)
                             self.ignore_states = False
                             await read_reports_held_during_cycle(self)
 
@@ -2311,6 +2332,9 @@ async def control_trv(
             if cycle is None:
                 cycle = compute_control_cycle(self)
             snapshot, desired = cycle
+            if desired.devices_released:
+                # The device is the user's: not commanded, and not missing.
+                return True
             trv_desired = desired.trvs.get(entity_id)
 
             # The kernel addresses only reachable TRVs (boost overrides the skip).

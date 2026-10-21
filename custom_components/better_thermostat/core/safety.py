@@ -199,4 +199,8 @@ def clamp(
         )
         for entity_id, intent in desired.trvs.items()
     }
-    return DesiredState(call_for_heat=desired.call_for_heat, trvs=clamped)
+    return DesiredState(
+        call_for_heat=desired.call_for_heat,
+        trvs=clamped,
+        devices_released=desired.devices_released,
+    )

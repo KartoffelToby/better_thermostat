@@ -208,6 +208,10 @@ async def _commit_temperature_update(
             self.device_name,
             exc,
         )
+    if self.devices_released:
+        # The devices are the user's; a TRV that reads the room through this
+        # value falls back to its own sensor after its silence window.
+        entity_ids = []
     for entity_id in entity_ids:
         try:
             _trv = self.real_trvs.get(entity_id)

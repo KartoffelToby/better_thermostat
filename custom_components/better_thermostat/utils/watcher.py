@@ -381,12 +381,26 @@ async def check_critical_entities(self: BetterThermostat) -> None:
     When an entity becomes available again, any previously raised
     ``missing_entity_*`` issue is cleared automatically (and idempotently,
     so stale issues from a previous run are also removed).
+
+    While the devices are released, an outage is the user's business: no
+    TRV is reported, and an issue an earlier outage raised is withdrawn. The
+    check after the devices are taken back reports what is still missing.
     """
     critical = get_critical_entities(self)
     grace_until = self._critical_grace_until
     in_grace = grace_until is not None and self.clock.now() < grace_until
 
     for entity in critical:
+        if self.devices_released:
+            if entity in self.devices_errors:
+                self.devices_errors.remove(entity)
+                self.async_write_ha_state()
+            ir.async_delete_issue(
+                self.hass,
+                DOMAIN,
+                entry_issue_id(self._config_entry_id, "missing_entity", entity),
+            )
+            continue
         if not is_trv_available(self, entity):
             if in_grace:
                 _LOGGER.debug(
