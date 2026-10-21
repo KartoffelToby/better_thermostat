@@ -126,7 +126,6 @@ class ModeTraits:
     """
 
     balance: BalanceStrategy | None = None
-    needs_target: bool = True
     uses_tolerance_band: bool = True
     skip_post_adjustments: bool = False
     tolerance_delay: bool = True
@@ -189,7 +188,6 @@ class BalanceStrategy:
         if (
             trv is None
             or effective_room_temperature(bt) is None
-            or bt.heat_target_temperature is None
             or trv.calibrator_health != CalibratorHealth.HEALTHY
         ):
             return CapabilityLevel.CONFIGURED

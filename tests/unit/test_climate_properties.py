@@ -40,12 +40,6 @@ def _prop(name, bt):
 # --- target_temperature (clamping) -----------------------------------------
 
 
-def test_target_temperature_none(bt):
-    """No internal target -> None."""
-    bt.heat_target_temperature = None
-    assert _prop("target_temperature", bt) is None
-
-
 def test_target_temperature_without_bounds(bt):
     """Without bounds the raw target is returned."""
     bt.bt_min_temp = None

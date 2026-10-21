@@ -100,12 +100,8 @@ class ModelFixHost(Protocol):
         ...
 
     @property
-    def heat_target_temperature(self) -> float | None:
-        """Setpoint Better Thermostat is regulating towards.
-
-        Optional on the entity, and the DEFAULT calibration mode is the one
-        mode that does not demand a setpoint before calling into the quirks.
-        """
+    def heat_target_temperature(self) -> float:
+        """Setpoint Better Thermostat is regulating towards."""
         ...
 
     @property

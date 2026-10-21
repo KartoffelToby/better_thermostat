@@ -14,7 +14,7 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from ..calibration import _get_current_outdoor_temperature, _get_solar_context
 from ..core.snapshot import TrvReported, WorldSnapshot, parse_hvac_mode, parse_preset
 from ..model_fixes.model_quirks import trv_state_unknown_as_available
-from .helpers import convert_to_float
+from .helpers import convert_to_float, round_by_step
 
 if TYPE_CHECKING:
     from ..climate import BetterThermostat
@@ -100,7 +100,9 @@ def build_snapshot(self: BetterThermostat) -> WorldSnapshot:
     return WorldSnapshot(
         now=self.clock.now(),
         now_monotonic=self.clock.monotonic(),
-        heat_target_temperature=_as_float(self, self.heat_target_temperature),
+        # The 0.01 grid convert_to_float puts the room temperature on, so a
+        # room resting on its target compares equal to it.
+        heat_target_temperature=round_by_step(self.heat_target_temperature, 0.01),
         cool_target_temperature=_as_float(self, self.cool_target_temperature),
         hvac_mode=parse_hvac_mode(self.bt_hvac_mode),
         room_temperature=_as_float(self, self.room_temperature),

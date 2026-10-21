@@ -16,7 +16,7 @@ def _bare_entity() -> BetterThermostat:
     """Entity shell with containers attached, without running __init__."""
     bare = object.__new__(BetterThermostat)
     bare.config = BtConfig(device_name="Test BT", tolerance=0.3)
-    bare.runtime = BtRuntime()
+    bare.runtime = BtRuntime(heat_target_temperature=21.0)
     return bare
 
 

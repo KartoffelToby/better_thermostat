@@ -264,7 +264,7 @@ class KernelMachine(RuleBasedStateMachine):
         self.door = ContactModel(raw_since=self.mono)
         self.room_available = True
         self.room_temperature: float | None = 19.0
-        self.heat_target_temperature: float | None = 21.0
+        self.heat_target_temperature: float = 21.0
         self.call_for_heat = True
         self.trvs = {entity_id: TrvWorld() for entity_id in TRV_IDS}
         self.calibration = calibration
@@ -573,8 +573,8 @@ class KernelMachine(RuleBasedStateMachine):
         self.model_preset = None if preset in (None, "none", "") else preset
         self._control_cycle()
 
-    @rule(new_target=st.one_of(st.none(), temperatures))
-    def user_sets_target(self, new_target: float | None) -> None:
+    @rule(new_target=temperatures)
+    def user_sets_target(self, new_target: float) -> None:
         """The room target changes (user, preset or schedule)."""
         self.heat_target_temperature = new_target
         self._control_cycle()
@@ -700,7 +700,6 @@ class KernelMachine(RuleBasedStateMachine):
         boost = (
             self.model_preset == Preset.BOOST
             and self.room_temperature is not None
-            and self.heat_target_temperature is not None
             and self.room_temperature < self.heat_target_temperature
         )
         addressed = [e for e, trv in self.trvs.items() if trv.available or boost]

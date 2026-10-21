@@ -396,7 +396,7 @@ def _compute_mpc_balance(
     trv_state = self.real_trvs[entity_id]
 
     mpc_room_temperature = effective_room_temperature(self)
-    if self.heat_target_temperature is None or mpc_room_temperature is None:
+    if mpc_room_temperature is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -831,7 +831,7 @@ def _compute_mpc_v2_balance(
     trv_state = self.real_trvs[entity_id]
 
     mpc_room_temperature = effective_room_temperature(self)
-    if self.heat_target_temperature is None or mpc_room_temperature is None:
+    if mpc_room_temperature is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -1026,7 +1026,7 @@ def _compute_tpi_balance(
     trv_state = self.real_trvs[entity_id]
 
     _room_temperature = effective_room_temperature(self)
-    if self.heat_target_temperature is None or _room_temperature is None:
+    if _room_temperature is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -1104,7 +1104,7 @@ def _compute_pid_balance(
     trv_state = self.real_trvs[entity_id]
 
     _pid_room_temperature = effective_room_temperature(self)
-    if self.heat_target_temperature is None or _pid_room_temperature is None:
+    if _pid_room_temperature is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -1284,7 +1284,7 @@ MODE_TRAITS: Final[Mapping[CalibrationMode, ModeTraits]] = MappingProxyType(
         # Pure offset from external sensor vs TRV temperature; no
         # controller, no tolerance/overheating heuristics.
         CalibrationMode.DEFAULT: ModeTraits(
-            needs_target=False, uses_tolerance_band=False, skip_post_adjustments=True
+            uses_tolerance_band=False, skip_post_adjustments=True
         ),
         CalibrationMode.MPC_CALIBRATION: ModeTraits(
             balance=BALANCE_STRATEGIES[CalibrationMode.MPC_CALIBRATION],
@@ -1375,12 +1375,9 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
     _cur_external_temperature = effective_room_temperature(self)
     if _cur_external_temperature is None:
         return None
-    if traits.needs_target and self.heat_target_temperature is None:
-        return None
-
     _cur_target_temperature = self.heat_target_temperature
 
-    if traits.uses_tolerance_band and _cur_target_temperature is not None:
+    if traits.uses_tolerance_band:
         # Add tolerance check – use asymmetric band [target - tol, target]
         # so the TRV stops receiving a heating-promoting calibration once
         # the room reaches the set temperature (not target + tolerance).
@@ -1453,7 +1450,7 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
         _percent, _use_valve = _calibrator.cached()
         if _use_valve:
             _new_trv_calibration = _current_trv_calibration
-        elif _percent is not None and _cur_target_temperature is not None:
+        elif _percent is not None:
             _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
             if _max_temp is not None:
                 _valve_fraction = max(0.0, min(1.0, _percent / 100.0))
@@ -1523,7 +1520,7 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
 
         # Overheating protection only ever closes the valve: the term counts
         # from heating target + tolerance and is zero below that line.
-        if _overheating_protection and _cur_target_temperature is not None:
+        if _overheating_protection:
             if self.hvac_action == HVACAction.IDLE:
                 if _cur_external_temperature > _cur_target_temperature + self.tolerance:
                     _new_trv_calibration += (
@@ -1614,18 +1611,14 @@ def calculate_calibration_setpoint(
         configured_calibration_mode(self.real_trvs[entity_id].advanced)
     )
 
-    # Without a target or a room reading there is no demand, so no valve
-    # intent from an earlier cycle may outlive it.
-    if self.heat_target_temperature is None:
-        self.real_trvs[entity_id].calibration_balance = None
-        return None
-
+    # Without a room reading there is no demand, so no valve intent from an
+    # earlier cycle may outlive it.
     _effective_room_temperature = effective_room_temperature(self)
     if _effective_room_temperature is None:
         self.real_trvs[entity_id].calibration_balance = None
         return None
     _cur_external_temperature = float(_effective_room_temperature)
-    _cur_target_temperature = float(self.heat_target_temperature)
+    _cur_target_temperature = self.heat_target_temperature
 
     _cur_trv_temperature_raw = self.real_trvs[entity_id].current_temperature
     _cur_trv_temperature = _convert_to_float(_cur_trv_temperature_raw)

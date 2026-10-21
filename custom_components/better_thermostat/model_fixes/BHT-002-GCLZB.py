@@ -42,11 +42,7 @@ def fix_local_calibration(
     _room_temperature = self.room_temperature
     _heat_target_temperature = self.heat_target_temperature
 
-    if (
-        _room_temperature is not None
-        and _heat_target_temperature is not None
-        and _room_temperature < _heat_target_temperature
-    ):
+    if _room_temperature is not None and _room_temperature < _heat_target_temperature:
         calibration_offset = float(math.ceil(calibration_offset))
     else:
         calibration_offset = float(math.floor(calibration_offset))

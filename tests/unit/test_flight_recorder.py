@@ -27,6 +27,7 @@ from custom_components.better_thermostat.core.snapshot import (
     TrvReported,
     WorldSnapshot,
 )
+from custom_components.better_thermostat.utils.const import DEFAULT_TARGET_TEMP
 
 
 def _snapshot(target=21.0) -> WorldSnapshot:
@@ -239,7 +240,8 @@ def test_non_finite_required_floats_roundtrip_to_neutral_defaults():
     The exporter writes None wherever a recorded float was non-finite;
     the import path accepts those nulls on the required-float fields
     and substitutes the documented neutral defaults (now_monotonic 0.0,
-    tolerance 0.0, solar_intensity 0.0) instead of rejecting the entry.
+    the entity's initial heating target, tolerance 0.0, solar_intensity
+    0.0) instead of rejecting the entry.
     """
     recorder = FlightRecorder()
     state = replace(
@@ -249,16 +251,19 @@ def test_non_finite_required_floats_roundtrip_to_neutral_defaults():
     snapshot = replace(
         _snapshot(),
         now_monotonic=float("inf"),
+        heat_target_temperature=float("nan"),
         tolerance=float("nan"),
         solar_intensity=float("nan"),
     )
     recorder.record(snapshot, state, desired)
     entry = json.loads(json.dumps(recorder.export(), allow_nan=False))[0]
     assert entry["snapshot"]["now_monotonic"] is None
+    assert entry["snapshot"]["heat_target_temperature"] is None
     assert entry["snapshot"]["tolerance"] is None
     assert entry["snapshot"]["solar_intensity"] is None
     rebuilt = snapshot_from_dict(entry["snapshot"])
     assert rebuilt.now_monotonic == 0.0
+    assert rebuilt.heat_target_temperature == DEFAULT_TARGET_TEMP
     assert rebuilt.tolerance == 0.0
     assert rebuilt.solar_intensity == 0.0
 

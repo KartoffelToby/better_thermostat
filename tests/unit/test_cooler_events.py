@@ -279,19 +279,6 @@ class TestCoolerSetpointClamping:
         assert mock_bt.heat_target_temperature == 20.0
 
     @pytest.mark.asyncio
-    async def test_setpoint_clamped_to_min_without_a_heating_target(self, mock_bt):
-        """With no heating target known the range is the only bound."""
-        mock_bt.heat_target_temperature = None
-        old_state = _make_state(attributes={"temperature": 25.0})
-        new_state = _make_state(attributes={"temperature": 2.0})
-        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
-
-        await trigger_cooler_change(mock_bt, event)
-
-        assert mock_bt.cool_target_temperature == 5.0  # clamped to min
-        assert mock_bt.heat_target_temperature is None
-
-    @pytest.mark.asyncio
     async def test_setpoint_clamped_to_maximum(self, mock_bt):
         """Setpoint above max should be clamped to bt_max_temp."""
         old_state = _make_state(attributes={"temperature": 25.0})
@@ -320,27 +307,6 @@ class TestCoolerSetpointClamping:
         assert mock_bt.heat_target_temperature == 20.0
         assert "setpoint outside of range" not in caplog.text
         assert "does not clear the heating target" in caplog.text
-
-    @pytest.mark.asyncio
-    async def test_setpoint_at_exact_min_is_kept_without_a_heating_target(
-        self, mock_bt, caplog
-    ):
-        """The lower bound is inclusive and passes the value through untouched.
-
-        With the heating target unknown the range is the only bound, so neither
-        bound moved the reported setpoint and neither may say that it did.
-        """
-        mock_bt.heat_target_temperature = None
-        old_state = _make_state(attributes={"temperature": 25.0})
-        new_state = _make_state(attributes={"temperature": 5.0})
-        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
-
-        caplog.set_level(logging.INFO)
-        await trigger_cooler_change(mock_bt, event)
-
-        assert mock_bt.cool_target_temperature == 5.0
-        assert "setpoint outside of range" not in caplog.text
-        assert "does not clear the heating target" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_setpoint_at_exact_max_not_clamped(self, mock_bt):
@@ -669,23 +635,6 @@ class TestInboundCoolSetpointClamp:
         assert mock_bt.cool_target_temperature == 25.5
         assert mock_bt.heat_target_temperature == 25.0
         assert mock_bt.heat_target_temperature < mock_bt.cool_target_temperature
-
-    @pytest.mark.asyncio
-    async def test_report_is_not_bounded_without_a_heating_target(self, mock_bt):
-        """An unknown heating target is no bound and stays unknown.
-
-        There is nothing to clear and nothing to yield, so the reported setpoint
-        is adopted as it arrived.
-        """
-        mock_bt.heat_target_temperature = None
-        old_state = _make_state(attributes={"temperature": 27.0})
-        new_state = _make_state(attributes={"temperature": 23.0})
-        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
-
-        await trigger_cooler_change(mock_bt, event)
-
-        assert mock_bt.cool_target_temperature == 23.0
-        assert mock_bt.heat_target_temperature is None
 
 
 # ---------------------------------------------------------------------------

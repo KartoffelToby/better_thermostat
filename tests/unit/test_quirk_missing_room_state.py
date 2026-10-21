@@ -52,16 +52,10 @@ def _thermostat(room_temperature, heat_target_temperature):
     return bt
 
 
-@pytest.mark.parametrize(
-    ("room_temperature", "heat_target_temperature"),
-    [(None, 21.0), (20.0, None), (None, None)],
-)
 @pytest.mark.parametrize("quirk", CONDITIONAL_NUDGE_QUIRKS)
-def test_conditional_nudge_returns_offset_when_a_reading_is_missing(
-    quirk, room_temperature, heat_target_temperature
-):
-    """Without both readings there is nothing to compare, so nothing changes."""
-    bt = _thermostat(room_temperature, heat_target_temperature)
+def test_conditional_nudge_returns_offset_without_a_room_reading(quirk):
+    """Without a room reading there is nothing to compare, so nothing changes."""
+    bt = _thermostat(room_temperature=None, heat_target_temperature=21.0)
 
     assert quirk.fix_local_calibration(bt, ENTITY_ID, 1.3) == 1.3
 
@@ -99,15 +93,9 @@ def test_sea801_leaves_the_offset_to_mpc():
     assert SEA801.fix_local_calibration(bt, ENTITY_ID, 1.3) == 1.3
 
 
-@pytest.mark.parametrize(
-    ("room_temperature", "heat_target_temperature"),
-    [(None, 21.0), (20.0, None), (None, None)],
-)
-def test_bht_002_rounds_down_when_a_reading_is_missing(
-    room_temperature, heat_target_temperature
-):
+def test_bht_002_rounds_down_without_a_room_reading():
     """The heating direction is unknown, so the sanitizing round-down applies."""
-    bt = _thermostat(room_temperature, heat_target_temperature)
+    bt = _thermostat(room_temperature=None, heat_target_temperature=21.0)
 
     assert BHT_002_GCLZB.fix_local_calibration(bt, ENTITY_ID, 1.7) == 1.0
 

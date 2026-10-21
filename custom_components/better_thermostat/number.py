@@ -487,7 +487,6 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         cool_value = value
         if (
             self._bt_climate.preset_mode == self._preset_mode
-            and self._bt_climate.heat_target_temperature is not None
             and value <= self._bt_climate.heat_target_temperature
         ):
             step = self._bt_climate.bt_target_temperature_step or 0.5

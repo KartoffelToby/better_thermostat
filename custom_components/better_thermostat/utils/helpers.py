@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict
+from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict, overload
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -2489,6 +2489,20 @@ class Rounding:
 # value a full reading step away is a different reading and keeps its
 # direction.
 _STEP_GRID_SNAP = 0.005
+
+
+@overload
+def round_by_step(
+    value: float, step: float, f_rounding: Callable[[float], float] = Rounding.nearest
+) -> float: ...
+
+
+@overload
+def round_by_step(
+    value: float | None,
+    step: float | None,
+    f_rounding: Callable[[float], float] = Rounding.nearest,
+) -> float | None: ...
 
 
 def round_by_step(

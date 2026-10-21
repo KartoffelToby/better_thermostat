@@ -60,7 +60,7 @@ def _host(
     bt.attr_hvac_action = None
     bt.hvac_action = None
     bt.room_temperature = ROOM
-    bt.heat_target_temperature = None
+    bt.heat_target_temperature = ROOM
     bt.real_trvs = {
         ENTITY_ID: Trv(
             entity_id=ENTITY_ID,
