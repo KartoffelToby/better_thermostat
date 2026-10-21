@@ -68,7 +68,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_report_is_unreadable,
     trv_state_unknown_as_available,
 )
-from custom_components.better_thermostat.trv import WithdrawnHvacMode
+from custom_components.better_thermostat.trv import BudgetRetry, WithdrawnHvacMode
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
 from custom_components.better_thermostat.utils.const import (
@@ -378,25 +378,25 @@ def _schedule_budget_retry(
     trv = self.real_trvs[entity_id]
     delay = max(retry_in_seconds, 0.0)
     due_at = self.clock.monotonic() + delay
-    if trv.budget_retry_due_at is not None and trv.budget_retry_due_at <= due_at:
-        return
-    if trv.budget_retry_task is not None:
-        trv.budget_retry_task.cancel()
-    trv.budget_retry_due_at = due_at
+    scheduled = trv.budget_retry
+    if scheduled is not None:
+        if scheduled.due_at <= due_at:
+            return
+        scheduled.task.cancel()
+        trv.budget_retry = None
 
     async def _retry() -> None:
         try:
             await asyncio.sleep(delay)
         finally:
             # A replacement retry owns the bookkeeping from here on.
-            if trv.budget_retry_due_at == due_at:
-                trv.budget_retry_due_at = None
-                trv.budget_retry_task = None
+            if trv.budget_retry is not None and trv.budget_retry.due_at == due_at:
+                trv.budget_retry = None
         request_control_cycle(self)
 
-    trv.budget_retry_task = self.task_manager.create_task(
-        _retry(), name=f"bt_budget_retry_{entity_id}"
-    )
+    task = self.task_manager.create_task(_retry(), name=f"bt_budget_retry_{entity_id}")
+    if task is not None:
+        trv.budget_retry = BudgetRetry(due_at=due_at, task=task)
 
 
 def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None:
@@ -1228,13 +1228,12 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
         The Better Thermostat climate entity instance
     """
     for entity_id, trv in list(self.real_trvs.items()):
-        if not trv.report_unread:
+        unread = trv.unread_report
+        if unread is None:
             continue
-        trv.report_unread = False
-        previous = trv.state_before_held_report
-        trv.state_before_held_report = None
-        prior_hvac_mode = trv.hvac_mode_before_held_report
-        trv.hvac_mode_before_held_report = None
+        trv.unread_report = None
+        previous = unread.state_before
+        prior_hvac_mode = unread.hvac_mode_before
         temperature_moved = trv.temperature_moved_while_held
         trv.temperature_moved_while_held = False
         held_turn = trv.held_turn
@@ -3009,15 +3008,13 @@ def _setpoint_turned_during_cycle(self: BetterThermostat, entity_id: str) -> boo
     own setpoint, not a turn: the inbound handler takes neither as a press.
     """
     trv = self.real_trvs[entity_id]
-    if not trv.report_unread or advanced_flag(trv.advanced, CONF_CHILD_LOCK):
+    unread = trv.unread_report
+    if unread is None or advanced_flag(trv.advanced, CONF_CHILD_LOCK):
         return False
-    if (
-        trv.state_before_held_report is not None
-        and trv.state_before_held_report.state == HVACMode.OFF
-    ):
+    if unread.state_before is not None and unread.state_before.state == HVACMode.OFF:
         return False
     before = read_setpoint_celsius(
-        self, trv.state_before_held_report, TRV_SETPOINT_KEYS, "control_trv()"
+        self, unread.state_before, TRV_SETPOINT_KEYS, "control_trv()"
     )
     live = self.hass.states.get(entity_id)
     reported = read_setpoint_celsius(self, live, TRV_SETPOINT_KEYS, "control_trv()")
@@ -3037,14 +3034,15 @@ def _mode_switched_during_cycle(
     mode the inbound handler reads as heat or off counts: the end of the
     cycle ignores any other, so a write skipped for it would not follow.
     """
-    if not trv.report_unread or advanced_flag(trv.advanced, CONF_CHILD_LOCK):
+    unread = trv.unread_report
+    if unread is None or advanced_flag(trv.advanced, CONF_CHILD_LOCK):
         return False
     if mode_remap(self, entity_id, reported_mode, True) not in (
         HVACMode.OFF,
         HVACMode.HEAT,
     ):
         return False
-    before = trv.state_before_held_report
+    before = unread.state_before
     if before is None or before.state in UNAVAILABLE_OR_UNKNOWN_STATES:
         return False
     if reported_mode in UNAVAILABLE_OR_UNKNOWN_STATES:
