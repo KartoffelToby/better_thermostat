@@ -123,13 +123,47 @@ When you arrive and switch the preset back, learning resumes from the heating po
 
 ### Several reasons for one room
 
-Each recipe above turns the switch off when its own reason ends, even if another reason still holds. When a room has more than one reason to pause, combine them in a template binary sensor and drive the switch from that sensor alone:
+Each recipe above turns the switch off when its own reason ends, even if another reason still holds. When a room has more than one reason to pause, combine them in a template binary sensor and drive the switch from that sensor alone. The fireplace first becomes a sensor of its own, with the same thresholds and delay as its recipe above:
 
 ```yaml
 template:
+  - triggers:
+      - trigger: numeric_state
+        entity_id: sensor.fireplace_temperature
+        above: 40
+        id: burning
+      - trigger: numeric_state
+        entity_id: sensor.fireplace_temperature
+        below: 35
+        for:
+          minutes: 30
+        id: out
+    binary_sensor:
+      - name: Fireplace burning
+        state: "{{ trigger.id == 'burning' }}"
   - binary_sensor:
       - name: Living room learning paused
+        availability: "{{ has_value('binary_sensor.boiler_heats_radiators') }}"
         state: >-
           {{ is_state('binary_sensor.boiler_heats_radiators', 'off')
-             or states('sensor.fireplace_temperature') | float(0) > 40 }}
+             or is_state('binary_sensor.fireplace_burning', 'on') }}
+```
+
+The fireplace sensor only changes when one of its triggers fires, so it stays on until the fireplace has been below 35 °C for 30 minutes, and it keeps its state across a restart. The combined sensor is unavailable while the boiler sensor is, and this automation then leaves the switch alone:
+
+```yaml
+alias: Pause learning in the living room
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.living_room_learning_paused
+    to: "on"
+    id: pause
+  - trigger: state
+    entity_id: binary_sensor.living_room_learning_paused
+    to: "off"
+    id: resume
+actions:
+  - action: "switch.turn_{{ 'on' if trigger.id == 'pause' else 'off' }}"
+    target:
+      entity_id: switch.living_room_pause_learning
 ```
