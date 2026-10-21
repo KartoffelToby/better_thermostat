@@ -18,7 +18,7 @@ The devices of the room are yours: every TRV and the cooler, if one is configure
 - Better Thermostat learns nothing from the room. The heating power and heat loss it is following are given up, because what the room does now is not the result of its control.
 - A device that goes offline raises no repair issue. One that is already raised is withdrawn and comes back once the switch is off, if the device is still missing.
 
-The thermostat itself stays available and keeps its own mode, target temperatures and preset. You can still change them; they apply when the switch is turned off. Its attribute `devices_released` is `true`, so a template or a condition can read it.
+The thermostat itself stays available and keeps its own mode, target temperatures and preset. You can still change them; they apply when the switch is turned off. Its HVAC action keeps showing whether the room calls for heat by those targets, whatever the released devices do. Its attribute `devices_released` is `true`, so a template or a condition can read it.
 
 A TRV that takes the room temperature from Better Thermostat, such as a Sonoff TRVZB, keeps the last value it was sent and falls back to its own sensor once its silence window is over.
 

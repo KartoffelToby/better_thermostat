@@ -1413,13 +1413,17 @@ async def control_queue(self: BetterThermostat) -> None:
 
                         # Released devices are the user's: the cycle sends
                         # neither the cooler nor any TRV a command. Without a
-                        # decision the room's own flag says the same.
+                        # decision the room's own flag says the same. The
+                        # room's own heating action still advances, as in a
+                        # cycle that dispatches no device, and the decision
+                        # counts as a completed cycle.
                         _released = (
                             cycle[1].devices_released
                             if cycle is not None
                             else self.devices_released
                         )
                         if _released:
+                            advance_hvac_action(self)
                             _stamp_heartbeat(self)
 
                         # Handle cooler logic once per cycle, on the same
