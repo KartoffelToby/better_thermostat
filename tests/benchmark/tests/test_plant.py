@@ -76,3 +76,10 @@ def test_plant_params_reject_non_positive_wall_coupling_in_rc3():
     """RC3 mode requires a positive room-wall coupling."""
     with pytest.raises(ValueError):
         PlantParams(tau_wall_min=900.0, r_room_wall=0.0)
+
+
+def test_heat_to_room_is_the_radiator_term_of_the_room_balance():
+    """The reported heat rate is coupling × (T_rad − T_room) / tau_room."""
+    params = PlantParams(tau_room_min=200.0, coupling_rad_room=0.8)
+    plant = TwoStatePlant(params, PlantState(T_room=20.0, T_rad=45.0))
+    assert plant.heat_to_room_K_per_min == pytest.approx(0.8 * 25.0 / 200.0)

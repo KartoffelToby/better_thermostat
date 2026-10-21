@@ -14,7 +14,7 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from ..calibration import _get_current_outdoor_temperature, _get_solar_context
 from ..core.snapshot import TrvReported, WorldSnapshot, parse_hvac_mode, parse_preset
 from ..model_fixes.model_quirks import trv_state_unknown_as_available
-from .helpers import convert_to_float, round_by_step
+from .helpers import convert_to_float, round_by_step, state_is_live
 
 if TYPE_CHECKING:
     from ..climate import BetterThermostat
@@ -65,7 +65,7 @@ def _raw_window_open(self: BetterThermostat) -> bool | None:
     if not window_sensor_entity_id or self.hass is None:
         return None
     state = self.hass.states.get(window_sensor_entity_id)
-    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    if not state_is_live(state):
         return None
     return state.state not in ("off", "false", "closed")
 
@@ -111,6 +111,7 @@ def build_snapshot(self: BetterThermostat) -> WorldSnapshot:
         call_for_heat=self.call_for_heat,
         window_open=_raw_window_open(self),
         preset_mode=parse_preset(self.preset_mode),
+        devices_released=self.devices_released,
         tolerance=_as_float(self, self.tolerance) or 0.0,
         outdoor_temperature=_get_current_outdoor_temperature(self),
         is_day=is_day,

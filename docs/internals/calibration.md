@@ -84,6 +84,32 @@ This contract is pinned as a named test
 (`tests/unit/test_standby_contract.py`), so a regression in any layer
 reads as a standby-contract break rather than an unrelated unit failure.
 
+## Paused learning
+
+The *Pause Learning* switch sets `learning_paused` on the entity, which
+publishes it as a state attribute and restores it from its own saved
+state during startup. The learners read `learning_held` instead: it turns
+on with the pause and off at the end of the first control cycle after
+it, which the switch requests when it turns off. That cycle restarts
+every learning interval, so none spans the pause. Every learner receives
+the flag the way it receives its other context: the heating-power and
+heat-loss trackers as an `update()` argument, MPC and MPC v2 in their
+input dataclasses, PID as a `compute_pid()` argument. Unlike standby, a
+paused controller keeps actuating on the values it holds:
+
+- the trackers abort the cycle in progress and start none,
+- PID holds its integral and gains and restarts the auto-tune context,
+- MPC skips adaptation, forced loss calibration and dead-zone, profile
+  and performance-curve evidence, and restarts its learning interval
+  every cycle,
+- MPC v2 holds the disturbance estimate and the error integral, records
+  one paused sample per pause that cuts the re-identification buffer,
+  starts no fit and discards one that completes during the pause.
+
+State estimates (the EMA, the slope, the MPC virtual temperature, the
+MPC v2 observer, the PID measurement chain) keep tracking the room, so
+learning resumes from fresh estimates and no interval spans the pause.
+
 There is **no external readiness gate** in front of actuation:
 closed-loop learners bootstrap *through* actuation, and an external
 "only actuate when ready" gate would prevent them from ever warming

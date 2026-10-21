@@ -149,6 +149,12 @@ async def trigger_cooler_change(
         # a reply still on its way.
         cooler_send_cache(self)["hvac_mode_reported"] = self.clock.monotonic()
 
+    if self.devices_released:
+        # The user drives the cooler: nothing it reports becomes the room's
+        # cooling target, and no cycle is asked to put it back.
+        self.async_write_ha_state()
+        return
+
     _main_change = False
     _step = device_setpoint_step(self, new_state, "trigger_cooler_change()")
     # The previous state only answers whether the cooler was publishing a

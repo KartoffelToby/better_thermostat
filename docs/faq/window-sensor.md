@@ -66,3 +66,127 @@ slamming or a quick airing check, are filtered out.
 - A window opened or closed while Better Thermostat is still starting up
   is picked up when startup finishes, and the delays apply to it as to
   any other change. The same holds for a door sensor.
+
+## Turning window detection off
+
+Every device with a window or door sensor has a **Window Detection**
+switch in the *Configuration* section of its device page. It is on by
+default, and the sections above describe what it does then.
+
+Turned off, the window and door sensors no longer affect the heating:
+
+- Heating resumes at once, even while a window is open. A close delay
+  that is still running is dropped as well, so a window you have just
+  closed stops holding the heating off.
+- The thermostat's `window_open` and `door_open` attributes still show
+  what the sensors report, and the device triggers for an opened or
+  closed window still fire. The delays do not apply to them while the
+  switch is off.
+- An open window still counts for learning: a heating cycle that runs
+  with the window open does not teach the heating power, and the heat
+  loss is not learned while it is open.
+- The thermostat shows the setting in its `window_detection` attribute.
+
+Turned back on while a window is open, the window counts as just opened:
+heating stops once the open delay has run out, as with any other opening.
+With an open delay of `0` it stops at once.
+
+The switch keeps its state across restarts. A switch that stays off by
+mistake, for example from an automation that never turns it back on,
+shows as `window_detection: false` on the thermostat.
+
+### Lower the temperature instead of switching off
+
+Some TRVs drain their battery when they are switched off and on often.
+To keep them on at the Eco temperature while a window is open, turn
+**Window Detection** off and let an automation set the Eco preset. The
+automation saves the thermostat's state when the window opens and puts
+it back when the window closes, so the preset you had before returns.
+The `for:` lines take the place of the open and close delays.
+
+```yaml
+automation:
+  - alias: "Living room: Eco while the window is open"
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.living_room_window
+        to: "on"
+        for: "00:00:30"
+        id: opened
+      - trigger: state
+        entity_id: binary_sensor.living_room_window
+        to: "off"
+        for: "00:00:30"
+        id: closed
+    actions:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: opened
+            sequence:
+              - action: scene.create
+                data:
+                  scene_id: living_room_before_airing
+                  snapshot_entities:
+                    - climate.living_room
+              - action: climate.set_preset_mode
+                target:
+                  entity_id: climate.living_room
+                data:
+                  preset_mode: eco
+          - conditions:
+              - condition: trigger
+                id: closed
+            sequence:
+              - action: scene.turn_on
+                target:
+                  entity_id: scene.living_room_before_airing
+```
+
+The Eco preset must be enabled under **Enabled Presets**.
+
+### A button that resumes heating now
+
+If you close the window and do not want to wait for the close delay, a
+script that turns **Window Detection** off and on again resumes heating
+at once. Turning it off drops the running close delay; turning it back
+on reads the window as closed, so detection stays on for the next
+opening.
+
+```yaml
+script:
+  living_room_resume_heating:
+    alias: "Living room: resume heating now"
+    sequence:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.living_room_window_detection
+      - action: switch.turn_on
+        target:
+          entity_id: switch.living_room_window_detection
+```
+
+Add the script to a dashboard as a button.
+
+### Ignore a faulty window sensor
+
+When a window sensor is stuck on *open*, or reports open while the
+window is closed, turn **Window Detection** off until the sensor is
+fixed. The switch can sit on a dashboard next to the thermostat. To
+make sure it does not stay off for good, an automation can turn it back
+on after a while:
+
+```yaml
+automation:
+  - alias: "Living room: window detection back on after two hours"
+    triggers:
+      - trigger: state
+        entity_id: switch.living_room_window_detection
+        to: "off"
+        for: "02:00:00"
+    actions:
+      - action: switch.turn_on
+        target:
+          entity_id: switch.living_room_window_detection
+```

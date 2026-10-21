@@ -129,6 +129,7 @@ def bt():
     mock.humidity_sensor_entity_id = None
     mock.window_sensor_entity_id = None
     mock.door_sensor_entity_id = None
+    mock.has_contact_sensor = False
     mock.all_entities = dict[str, None]()
     mock.unavailable_sensors = list[str]()
     mock.degraded_mode = False
@@ -524,9 +525,13 @@ def owned_task_bt(bt, hass):
     bt.is_removed = False
     bt._owned_tasks = set()
     bt._final_flush_task = None
+    # A first start: Home Assistant saved no state for the thermostat.
+    bt.async_get_last_available_state = AsyncMock(return_value=None)
     bt._spawn_owned = lambda coro, *, name: BetterThermostat._spawn_owned(
         bt, coro, name=name
     )
+    # A first start: nothing was saved before it.
+    bt.async_get_last_available_state = AsyncMock(return_value=None)
     return bt
 
 
@@ -593,11 +598,10 @@ class TestOwnedBackgroundTasks:
         Anything added afterwards is invisible to it and goes on writing to
         TRVs the entity has already let go of.
         """
-        started = False
+        started = asyncio.Event()
 
         async def write_to_a_trv():
-            nonlocal started
-            started = True
+            started.set()
 
         # Home Assistant runs the on-remove callbacks, which set the flag,
         # before it awaits async_will_remove_from_hass.
@@ -610,7 +614,7 @@ class TestOwnedBackgroundTasks:
         await hass.async_block_till_done()
 
         assert task is None
-        assert started is False
+        assert not started.is_set()
         assert owned_task_bt._owned_tasks == set()
 
     @pytest.mark.asyncio
@@ -671,14 +675,13 @@ class TestOwnedBackgroundTasks:
         running. These ticks re-send setpoints and the external temperature,
         so one that outlives the unload drives TRVs the entity has let go of.
         """
-        reached_the_trv = False
+        reached_the_trv = asyncio.Event()
         writing = asyncio.Event()
 
         async def keeps_writing(now):
             writing.set()
             await asyncio.sleep(0)
-            nonlocal reached_the_trv
-            reached_the_trv = True
+            reached_the_trv.set()
 
         BetterThermostat._start_owned_timer_work(
             owned_task_bt, keeps_writing, "bt_test_tick", dt_util.utcnow()
@@ -688,7 +691,7 @@ class TestOwnedBackgroundTasks:
         await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
         await hass.async_block_till_done()
 
-        assert reached_the_trv is False
+        assert not reached_the_trv.is_set()
         assert owned_task_bt._owned_tasks == set()
 
     @pytest.mark.asyncio
@@ -2631,7 +2634,8 @@ class TestRestoreState:
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
 
-        assert bt.call_for_heat is True
+        call_for_heat: bool = bt.call_for_heat
+        assert call_for_heat is True
 
     @pytest.mark.asyncio
     async def test_restores_heat_loss_clamped(self, bt):
@@ -2676,7 +2680,8 @@ class TestRestoreState:
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
-        assert bt.bt_hvac_mode is HVACMode.HEAT
+        restored: HVACMode | None = bt.bt_hvac_mode
+        assert restored is HVACMode.HEAT
 
     @pytest.mark.asyncio
     async def test_unrecognised_mode_left_unset(self, bt):
@@ -3935,7 +3940,8 @@ class TestATrvThatArrivesAfterStartup:
             await first
 
         bt._initialize_trvs.assert_awaited_once_with([TRV_ID_2])
-        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is False
+        trv = bt.real_trvs[TRV_ID_2]
+        assert trv.awaiting_initialization is False
 
     @pytest.mark.asyncio
     async def test_a_failed_initialization_is_tried_again_on_the_next_report(self, bt):
@@ -3955,8 +3961,9 @@ class TestATrvThatArrivesAfterStartup:
 
         with patch(f"{_CLIMATE}.request_control_cycle") as request:
             await BetterThermostat._initialize_arrived_trvs(bt)
-        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is False
-        assert bt.real_trvs[TRV_ID_2].failed_initialization_attempts == 0
+        trv = bt.real_trvs[TRV_ID_2]
+        assert trv.awaiting_initialization is False
+        assert trv.failed_initialization_attempts == 0
         request.assert_called_once_with(bt)
 
     @pytest.mark.asyncio
@@ -4006,8 +4013,9 @@ class TestATrvThatArrivesAfterStartup:
         assert bt._trvs_initializing == set()
 
         request = await _attempt_setup(bt, failing_step, fail=False)
-        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is False
-        assert bt.real_trvs[TRV_ID_2].failed_initialization_attempts == 0
+        trv = bt.real_trvs[TRV_ID_2]
+        assert trv.awaiting_initialization is False
+        assert trv.failed_initialization_attempts == 0
         request.assert_called_once_with(bt)
 
     @pytest.mark.asyncio

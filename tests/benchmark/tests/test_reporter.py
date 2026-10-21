@@ -28,6 +28,7 @@ def _m(rmse: float = 0.1, integral: float = 100.0, cycles: int = 10) -> MetricVa
         rmse_tracking_K=rmse,
         valve_cycle_count=cycles,
         integral_valve_percent_minutes=integral,
+        delivered_heat_K=integral / 1000.0,
         total_valve_travel_percent=500.0,
         time_above_setpoint_K_h=0.1,
         time_below_setpoint_K_h=0.1,

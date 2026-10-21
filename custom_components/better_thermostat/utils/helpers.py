@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict
+from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict, TypeGuard
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -972,7 +972,7 @@ def group_all_members_off(self: BetterThermostat) -> bool:
     saw_member = False
     for entity_id in trv_ids:
         state = self.hass.states.get(entity_id)
-        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+        if not state_is_live(state):
             continue
         saw_member = True
         if not member_counts_as_off(self, entity_id, state):
@@ -2013,7 +2013,30 @@ def state_says_nothing(state: State | None) -> bool:
     bool
             True when the state is missing, ``unavailable`` or ``unknown``
     """
-    return state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+    return not state_is_live(state)
+
+
+def state_is_live(state: State | None) -> TypeGuard[State]:
+    """Answer whether a state reports its device as it is now.
+
+    The exact negation of :func:`state_says_nothing`: a present state that is
+    neither ``unavailable`` nor ``unknown``. A True answer narrows *state* to
+    ``State``. A False answer leaves it ``State | None``, because an
+    ``unavailable`` or ``unknown`` state is still a ``State`` and its retained
+    attributes stay readable.
+
+    Parameters
+    ----------
+    state : State | None
+            the device state to inspect
+
+    Returns
+    -------
+    TypeGuard[State]
+            True when the state is present and neither ``unavailable`` nor
+            ``unknown``
+    """
+    return state is not None and state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
 
 
 def resolve_state_change_event(

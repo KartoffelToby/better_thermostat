@@ -110,6 +110,11 @@ class ModelFixHost(Protocol):
         ...
 
     @property
+    def devices_released(self) -> bool:
+        """Whether the room's devices are the user's, so nothing is sent to them."""
+        ...
+
+    @property
     def device_name(self) -> str:
         """Name of the Better Thermostat instance, for log lines."""
         ...

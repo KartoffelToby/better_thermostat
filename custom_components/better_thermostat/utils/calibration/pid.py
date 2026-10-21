@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Final, Literal, Protocol, TypedDict
 
 from ...core.calibrator import CalibratorHealth
 from ...core.watchdog import CONTROL_TICK_S
+from .state_key import StateKey, bucket_tag_of, round_to_bucket
 
 if TYPE_CHECKING:
     from ...climate import BetterThermostat
@@ -340,6 +341,7 @@ def compute_pid(
     *,
     state: PIDState,
     now: float | None = None,
+    learning_paused: bool = False,
 ) -> tuple[float, PIDDebugInfo, PIDState]:
     """Compute PID-based valve opening percentage.
 
@@ -369,6 +371,13 @@ def compute_pid(
         Monotonic timestamp of this cycle; defaults to ``time.monotonic()``.
         Callers with an injected clock pass their own reading so the
         controller shares the entity's time source.
+    learning_paused:
+        Whether learning is paused. The integral is held as it is, neither
+        growing nor relieved, because the error of a paused room is not the
+        valve's doing, and auto-tuning starts over: the side of the target
+        it compares against is dropped and its minimum interval restarts,
+        so no tuning step compares a reading from before the pause with
+        one after it. P and D keep acting on the held gains.
 
     Returns
     -------
@@ -480,8 +489,11 @@ def compute_pid(
     u_prop = p_term + i_prop + d_term
     # Saturated control output
     u_sat = max(0.0, min(max_opening, u_prop))
-    # If saturated and the error would worsen saturation, block integration
-    if (u_prop > u_sat and e > 0) or (u_prop < u_sat and e < 0):
+    # A paused loop holds its integral. Otherwise, if saturated and the
+    # error would worsen saturation, block integration.
+    if learning_paused:
+        i_term = i_prev
+    elif (u_prop > u_sat and e > 0) or (u_prop < u_sat and e < 0):
         i_term = i_prev
         aw_blocked = True
     else:
@@ -492,7 +504,8 @@ def compute_pid(
     # or closes earlier.
     cur_sign = 1 if e > 0 else (-1 if e < 0 else 0)
     if (
-        st.last_error_sign is not None
+        not learning_paused
+        and st.last_error_sign is not None
         and st.last_error_sign != 0
         and cur_sign not in (0, st.last_error_sign)
         and abs(delta_kelvin or 0.0) <= params.steady_state_band_K
@@ -578,7 +591,10 @@ def compute_pid(
     st.last_error_sign = 1 if e > 0 else (-1 if e < 0 else 0)
 
     # Optional auto-tuning (conservative)
-    if params.auto_tune:
+    if learning_paused:
+        st.last_delta_sign = None
+        st.last_tune_ts = now
+    elif params.auto_tune:
         _auto_tune_pid(
             params,
             st,
@@ -791,17 +807,7 @@ def build_pid_loop_key(self: _HasUniqueId, entity_id: str) -> str:
     ``{unique_id}:{entity_id}:t<bucket>``. Both formats are the keys of
     the stored entries, so a change to either orphans what is stored.
     """
-    return f"{resolve_unique_id(self)}:{entity_id}"
-
-
-def round_to_bucket(temperature: float) -> float:
-    """Round a target temperature to its 0.5 °C bucket centre."""
-    return round(float(temperature) * 2.0) / 2.0
-
-
-def format_bucket(bucket: float) -> str:
-    """Format a bucket centre as a ``t<temperature>`` tag (e.g. ``t21.0``)."""
-    return f"t{bucket:.1f}"
+    return str(StateKey(resolve_unique_id(self), entity_id))
 
 
 def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
@@ -818,17 +824,13 @@ def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
     -------
         PID key string
     """
-    try:
-        tcur = self.heat_target_temperature
-        bucket_tag = (
-            format_bucket(round_to_bucket(tcur))
-            if isinstance(tcur, (int, float))
-            else "tunknown"
+    return str(
+        StateKey(
+            resolve_unique_id(self),
+            entity_id,
+            bucket_tag_of(self.heat_target_temperature),
         )
-    except ValueError, OverflowError:
-        bucket_tag = "tunknown"
-
-    return f"{build_pid_loop_key(self, entity_id)}:{bucket_tag}"
+    )
 
 
 # --- Loop and bucket entries -----------------------------------------------

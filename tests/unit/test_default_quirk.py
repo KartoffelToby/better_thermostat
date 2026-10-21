@@ -572,3 +572,50 @@ class TestAdoptionRunsEveryStep:
         call = thermostat.hass.services.async_call.await_args_list[0]
         assert call.kwargs["blocking"] is True
         assert call.kwargs["context"] is thermostat.context
+
+
+class TestAdoptionStopsAtTheRelease:
+    """The devices can be released while one of the four steps is under way.
+
+    That step's write completes, and the steps after it send nothing.
+    """
+
+    @pytest.mark.parametrize(
+        "released_by", [0, 1, 2], ids=["calibration", "lock", "window"]
+    )
+    @pytest.mark.asyncio
+    async def test_the_steps_after_the_release_send_nothing(self, released_by):
+        """Every write up to the release goes out, and none after it."""
+        thermostat = _thermostat(
+            child_lock=True,
+            states={
+                CHILD_LOCK_SWITCH: STATE_OFF,
+                WINDOW_SWITCH: STATE_ON,
+                AWAY_SWITCH: STATE_ON,
+            },
+        )
+
+        async def released_by_one_step(*_args, **_kwargs):
+            if thermostat.hass.services.async_call.await_count == released_by + 1:
+                thermostat.devices_released = True
+
+        thermostat.hass.services.async_call = AsyncMock(
+            side_effect=released_by_one_step
+        )
+
+        await _run_tweak(
+            thermostat,
+            calibration=CALIBRATION_ENTITY,
+            child_lock=CHILD_LOCK_SWITCH,
+            window=WINDOW_SWITCH,
+            away=AWAY_SWITCH,
+        )
+
+        assert (
+            _calls(thermostat)
+            == [
+                ("number", "set_value", {"entity_id": CALIBRATION_ENTITY, "value": 0}),
+                ("switch", "turn_on", {"entity_id": CHILD_LOCK_SWITCH}),
+                ("switch", "turn_off", {"entity_id": WINDOW_SWITCH}),
+            ][: released_by + 1]
+        )

@@ -29,6 +29,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
     trv_report_is_unreadable,
 )
+from custom_components.better_thermostat.trv import UnreadReport
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
@@ -162,33 +163,31 @@ def _hold_report(
     the held turn, for the end of the cycle to read when a later report
     switches the device off or brings it back.
     """
+    unread = trv.unread_report
     previous_setpoint = _held_setpoint(self, old_state)
     returned = previous_setpoint is None
     moved_after_return = _held_setpoint(
-        self, trv.state_before_held_report
+        self, unread.state_before if unread is not None else None
     ) is None and previous_setpoint != _held_setpoint(self, new_state)
     switched_on_after_first_report = (
-        trv.report_unread
+        unread is not None
         and old_state is not None
         and old_state.state == HVACMode.OFF
         and _reports_on(new_state)
     )
     pressed_after_switch_on = (
-        trv.report_unread
-        and trv.hvac_mode_before_held_report == HVACMode.OFF
+        unread is not None
+        and unread.hvac_mode_before == HVACMode.OFF
         and _reports_on(old_state)
         and _reports_on(new_state)
         and previous_setpoint != _held_setpoint(self, new_state)
     )
-    if not trv.report_unread or returned or moved_after_return:
-        trv.state_before_held_report = old_state
-        trv.hvac_mode_before_held_report = trv.hvac_mode
+    if unread is None or returned or moved_after_return:
+        unread = UnreadReport(state_before=old_state, hvac_mode_before=trv.hvac_mode)
     if switched_on_after_first_report:
-        trv.state_before_held_report = old_state
-        trv.hvac_mode_before_held_report = HVACMode.OFF
+        unread = UnreadReport(state_before=old_state, hvac_mode_before=HVACMode.OFF)
     if pressed_after_switch_on and old_state is not None:
-        trv.state_before_held_report = old_state
-        trv.hvac_mode_before_held_report = old_state.state
+        unread = UnreadReport(state_before=old_state, hvac_mode_before=old_state.state)
     if (
         old_state is not None
         and new_state is not None
@@ -198,7 +197,7 @@ def _hold_report(
         and _held_setpoint(self, new_state) not in (None, previous_setpoint)
     ):
         trv.held_turn = (old_state, new_state)
-    trv.report_unread = True
+    trv.unread_report = unread
 
 
 def reports_written_setpoint(
@@ -660,6 +659,15 @@ async def trigger_trv_change(
         trv.valve_position = convert_to_float(
             str(val_pos), self.device_name, "trv_event"
         )
+
+    if self.devices_released:
+        # The user drives the device. Its mode is cached as it reports it, so
+        # that once the device is taken back its next report reads as no
+        # change rather than as a press, and nothing it reports becomes the
+        # room's mode or target.
+        trv.hvac_mode = _org_trv_state.state
+        self.async_write_ha_state()
+        return
 
     _was_off = (
         prior_hvac_mode if prior_hvac_mode is not None else trv.hvac_mode

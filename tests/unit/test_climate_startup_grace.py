@@ -162,7 +162,8 @@ async def test_startup_arms_grace_before_the_first_degraded_check(caplog):
 
         assert any("Entering degraded mode" in r.message for r in caplog.records)
         create_issue.assert_called_once()
-        assert bt._degraded_warning_emitted is True
+        warned: bool = bt._degraded_warning_emitted
+        assert warned is True
 
 
 @pytest.mark.asyncio
@@ -269,4 +270,5 @@ async def test_degraded_sensor_stays_silent_during_grace_and_warns_after(caplog)
 
         assert any("Entering degraded mode" in r.message for r in caplog.records)
         create_issue.assert_called_once()
-        assert bt._degraded_warning_emitted is True
+        warned: bool = bt._degraded_warning_emitted
+        assert warned is True

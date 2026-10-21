@@ -105,6 +105,9 @@ class WorldSnapshot:
     # debounced window region in the kernel state rules the control law.
     window_open: bool | None = None
     preset_mode: Preset | None = None
+    # The user has handed the room's devices over: no device is commanded
+    # until they are taken back.
+    devices_released: bool = False
     tolerance: float = 0.0
     outdoor_temperature: float | None = None
     is_day: bool = True
