@@ -191,16 +191,18 @@ def _compute_integral_valve(series: TimeSeries) -> float:
 
 
 def _compute_delivered_heat(series: TimeSeries) -> float:
-    """Trapezoidal integral of heat_to_room_K_per_min over time (units: K)."""
+    """Left-endpoint integral of heat_to_room_K_per_min over time (units: K).
+
+    Each sample holds the rate at the start of its step, which is the rate
+    the explicit-Euler plant applies for that whole step, so the sum equals
+    the heat the simulator delivered.
+    """
     if len(series.t_s) < 2:
         return 0.0
     total = 0.0
     for i in range(1, len(series.t_s)):
         dt_min = (series.t_s[i] - series.t_s[i - 1]) / 60.0
-        average_rate = (
-            series.heat_to_room_K_per_min[i] + series.heat_to_room_K_per_min[i - 1]
-        ) / 2.0
-        total += average_rate * dt_min
+        total += series.heat_to_room_K_per_min[i - 1] * dt_min
     return total
 
 

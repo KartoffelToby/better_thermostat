@@ -94,8 +94,8 @@ continuous on scenarios where the Oracle barely moves the valve.
 **energy** — heat the radiator delivered to the room, relative to the
 Oracle's optimum, symmetric around 1.0× so under-heating (missed
 setpoint) costs the same as over-heating (wasted energy). It follows the
-plant, not the command: a valve held shut by deadband or stiction
-delivers no heat however often it is commanded open. Overshoot costs
+plant, not the command: a command that deadband or stiction holds back
+adds no heat over a closed valve, however often it is sent. Overshoot costs
 little here, since 0.3 K above the setpoint raises the losses by only a
 few per cent, so most controllers land between 0.95 and 1.00.
 
