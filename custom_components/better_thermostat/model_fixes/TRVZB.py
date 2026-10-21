@@ -295,8 +295,14 @@ async def maybe_set_sonoff_valve_percent(
     -------
     bool
             True when the requested position went out, False when no
-            number entity matched or the device refused one of the writes
+            number entity matched, the device refused one of the writes or
+            the devices are released
     """
+    # A position that follows an earlier write, the close after a bump or
+    # a fallback after a refused bump, is not sent once the devices are the
+    # user's. The opening and closing degree of one position go out together.
+    if self.devices_released:
+        return False
     try:
         candidates = _valve_number_candidates(self, entity_id)
         if candidates is None:
@@ -924,7 +930,10 @@ async def maybe_set_external_temperature(
             entity_id,
         )
         # The value just written only reaches the control loop of a device
-        # that is regulating on it.
+        # that is regulating on it. The selector is a write of its own, and
+        # none goes out once the devices are the user's.
+        if self.devices_released:
+            return True
         await maybe_select_external_sensor(self, entity_id)
         return True
     except (
