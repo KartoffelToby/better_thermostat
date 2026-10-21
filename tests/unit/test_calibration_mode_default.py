@@ -21,7 +21,6 @@ from custom_components.better_thermostat import (
     config_flow as config_flow_module,
 )
 from custom_components.better_thermostat.calibration import calculate_calibration_local
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils import (
     controlling as controlling_module,
     helpers as helpers_module,
@@ -35,15 +34,16 @@ from custom_components.better_thermostat.utils.helpers import (
     configured_calibration_mode,
     normalize_calibration_mode,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 _RUNTIME_MODULES = (calibration_module, controlling_module)
 
 
-def _thermostat_without_target(stored_mode: StoredChoice) -> ThermostatStandIn:
-    """A thermostat carrying *stored_mode* and no target temperature.
+def _thermostat_inside_the_band(stored_mode: StoredChoice) -> ThermostatStandIn:
+    """A thermostat carrying *stored_mode* with the room inside its tolerance band.
 
-    Without a target, only a mode that needs none produces a value, which
+    Inside the band a mode with a tolerance band holds the last calibration
+    (2.0) while DEFAULT, which has none, recomputes the offset (0.0). That
     makes the resolved mode observable from the return value alone.
     """
     bt = ThermostatStandIn()
@@ -54,7 +54,7 @@ def _thermostat_without_target(stored_mode: StoredChoice) -> ThermostatStandIn:
     bt.attr_hvac_action = None
     bt.hvac_action = None
     bt.room_temperature = 20.0
-    bt.heat_target_temperature = None
+    bt.heat_target_temperature = 20.25
 
     quirks = MagicMock()
     quirks.fix_local_calibration.side_effect = (
@@ -62,7 +62,7 @@ def _thermostat_without_target(stored_mode: StoredChoice) -> ThermostatStandIn:
     )
 
     bt.real_trvs = {
-        "climate.trv": Trv(
+        "climate.trv": trv_record(
             entity_id="climate.trv",
             advanced={"calibration_mode": stored_mode},
             current_temperature=22.0,
@@ -117,14 +117,14 @@ def test_unresolvable_stored_mode_falls_back_to_the_shared_default(
 ):
     """A stored mode that normalizes to ``None`` resolves to the shared default.
 
-    The default is swapped for a mode that works without a target, so a
-    returned value proves the fallback read the constant rather than
-    naming a mode of its own.
+    The default is swapped for DEFAULT, the one mode without a tolerance
+    band, so a recomputed offset proves the fallback read the constant
+    rather than naming a mode of its own.
     """
     monkeypatch.setattr(
         helpers_module, "DEFAULT_CALIBRATION_MODE", CalibrationMode.DEFAULT
     )
-    thermostat = _thermostat_without_target(stored_mode)
+    thermostat = _thermostat_inside_the_band(stored_mode)
 
     assert calculate_calibration_local(thermostat, "climate.trv") == 0.0
 
@@ -145,9 +145,9 @@ def test_a_named_but_unknown_mode_does_not_become_the_default(monkeypatch):
     monkeypatch.setattr(
         helpers_module, "DEFAULT_CALIBRATION_MODE", CalibrationMode.DEFAULT
     )
-    thermostat = _thermostat_without_target("a mode from another version")
+    thermostat = _thermostat_inside_the_band("a mode from another version")
 
-    assert calculate_calibration_local(thermostat, "climate.trv") is None
+    assert calculate_calibration_local(thermostat, "climate.trv") == 2.0
 
 
 def test_config_flow_uses_the_shared_default():

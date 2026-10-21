@@ -159,6 +159,17 @@ PROFILE_STANDARD = PlantParams(
     T_water=65.0,
 )
 
+# STANDARD with a radiator sized for a -15 °C design outdoor temperature:
+# 1.4x the radiator-to-room coupling holds 21 °C at -15 °C with the valve
+# about 70 % open; STANDARD needs more than 90 % below about -7 °C.
+PROFILE_COLD_CLIMATE = PlantParams(
+    tau_room_min=480.0,
+    tau_rad_min=15.0,
+    gain_heater=2.0,
+    coupling_rad_room=1.4,
+    T_water=65.0,
+)
+
 PROFILE_LARGE_SLOW = PlantParams(
     tau_room_min=720.0,
     tau_rad_min=25.0,

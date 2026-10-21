@@ -18,10 +18,14 @@ from homeassistant.helpers import entity_registry as er
 import pytest
 
 from custom_components.better_thermostat.adapters.base import DeviceChannels
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils import helpers
 from custom_components.better_thermostat.utils.const import CalibrationOutput
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 quirk = importlib.import_module(
     "custom_components.better_thermostat.model_fixes.ZWA021"
@@ -41,7 +45,7 @@ def _make_self(calibration=None):
     mock_self.context = MagicMock()
     mock_self.hass.services.async_call = AsyncMock()
     mock_self.real_trvs = {
-        "climate.trv1": Trv(
+        "climate.trv1": trv_record(
             entity_id="climate.trv1", advanced={"calibration": calibration}
         )
     }
@@ -311,10 +315,6 @@ class TestTheSpiritIsDrivenByTheZWA021Quirk:
         """Every other model names its own module."""
         assert quirks.get_model_quirks_name("TRVZB") == "TRVZB"
 
-    def test_no_model_yields_no_module_name(self):
-        """An undetermined model resolves to nothing to import."""
-        assert quirks.get_model_quirks_name(None) == ""
-
     @pytest.mark.asyncio
     async def test_the_loader_imports_the_zwa021_module_for_a_spirit(self):
         """The module path the loader builds carries the resolved name."""
@@ -464,7 +464,7 @@ class TestConfigurationParametersAreNoCalibrationEntity:
 
     def _host(self):
         host = _make_self()
-        host.real_trvs = {self.TRV: Trv(entity_id=self.TRV, advanced={})}
+        host.real_trvs = {self.TRV: trv_record(entity_id=self.TRV, advanced={})}
         return host
 
     @pytest.mark.asyncio

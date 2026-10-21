@@ -29,8 +29,12 @@ from custom_components.better_thermostat.adapters import (
     zwave_js,
 )
 from custom_components.better_thermostat.adapters.base import AdapterCapabilities
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 ENTITY_ID = "climate.trv"
 VALVE_ENTITY = "number.trv_valve_position"
@@ -65,7 +69,7 @@ def _thermostat(adapter, quirks=None):
     thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
     thermostat.bt_target_temperature_step = 0.5
-    trv = Trv(entity_id=ENTITY_ID)
+    trv = trv_record(entity_id=ENTITY_ID)
     trv.valve_position_entity = VALVE_ENTITY
     trv.valve_position_writable = True
     trv.adapter = adapter

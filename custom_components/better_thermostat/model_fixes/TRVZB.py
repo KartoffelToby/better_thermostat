@@ -175,7 +175,7 @@ def _valve_number_candidates(
     Returns the opening, closing and generic candidates, or ``None`` when
     the TRV is no Sonoff model or has no registry entry.
     """
-    model = self.real_trvs[entity_id].model or ""
+    model = self.real_trvs[entity_id].model
     # The TRV-ZBT's valve numbers configure its own controller and position
     # nothing, so it is ruled out before the Sonoff match below takes it in.
     if _TRV_ZBT_MODEL in model.lower():
@@ -848,7 +848,7 @@ async def maybe_set_external_temperature(
         TRVZB or TRV-ZBT, names no such input, or the value is not a number.
     """
     try:
-        model = self.real_trvs[entity_id].model or ""
+        model = self.real_trvs[entity_id].model
         if not (
             "sonoff" in model.lower()
             or "trvzb" in model.lower()
