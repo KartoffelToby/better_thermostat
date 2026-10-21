@@ -2,7 +2,8 @@
 
 The entity's attributes split into three lifecycles:
 
-* :class:`BtConfig` — static configuration, set once at setup and frozen.
+* :class:`BtConfig` — static configuration, set at setup and frozen; the
+  settings that apply without a reload replace it as a whole.
 * :class:`BtRuntime` — live operating values, changing with every
   observation or control cycle, rebuilt from scratch on restart.
 * learned values — these have owned homes elsewhere: the heating-power
@@ -22,7 +23,12 @@ from dataclasses import dataclass, fields
 
 @dataclass(frozen=True)
 class BtConfig:
-    """Static configuration: set once at setup, never changed afterwards."""
+    """Static configuration: set at setup, frozen.
+
+    The outdoor threshold and the tolerance apply without a reload, so a
+    change of either replaces the whole container; no field is written in
+    place.
+    """
 
     device_name: str = ""
     model: str | None = None
@@ -39,6 +45,8 @@ class BtConfig:
     outdoor_sensor_entity_id: str | None = None
     off_temperature: float | None = None
     tolerance: float = 0.0
+    availability_guard_entity_id: str | None = None
+    availability_guard_grace_seconds: float = 0.0
 
 
 @dataclass

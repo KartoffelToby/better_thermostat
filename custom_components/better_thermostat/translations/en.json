@@ -20,6 +20,8 @@
           "door_off_delay_after": "Delay before the thermostat should turn on when the door is closed",
           "outdoor_sensor": "Outdoor temperature sensor",
           "weather": "Weather entity to get the outdoor temperature",
+          "availability_guard": "Availability guard",
+          "availability_guard_grace_seconds": "Grace period after the availability guard turns on",
           "target_temp_min": "Target minimum temperature",
           "target_temp_max": "Target maximum temperature",
           "target_temp_step": "Target temperature step",
@@ -41,6 +43,8 @@
           "door_off_delay_after": "How long every door has to stay closed before the heating resumes.",
           "outdoor_sensor": "Optional. Supplies the outdoor temperature for the outdoor threshold and takes precedence over the weather entity.",
           "weather": "Optional. Supplies the outdoor temperature when no outdoor sensor is selected.",
+          "availability_guard": "Optional. A binary sensor, switch or input boolean that is on while the thermostats have power. While it is off, an unavailable thermostat raises no warning and no repair.",
+          "availability_guard_grace_seconds": "How long a thermostat may stay unavailable after the availability guard turns on before it is reported.",
           "target_temp_min": "The lowest target you can set. Auto takes the range your devices report.",
           "target_temp_max": "The highest target you can set. Auto takes the range your devices report.",
           "target_temp_step": "How far the target moves per step. Auto takes the coarsest step your thermostats report.",
@@ -58,7 +62,8 @@
           "calibration": "Calibration type",
           "calibration_mode": "Calibration mode",
           "no_off_system_mode": "Use the minimum temperature instead of 'off'",
-          "mpc_v2_plant_preset": "MPC v2 room size"
+          "mpc_v2_plant_preset": "MPC v2 room size",
+          "mpc_v2_flow_temperature": "MPC v2 flow temperature"
         },
         "data_description": {
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
@@ -69,7 +74,8 @@
           "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset. Only offered when the TRV has a writable temperature offset.\n***Direct Valve Based***: Set the valve opening directly. Only offered when the TRV has a writable valve position. Calibration modes that produce no valve opening send a target temperature instead.",
           "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
           "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV turned to its minimum temperature counts as switched off: once every TRV of the room is off, the room switches off, and turning a knob up switches it back on. A turn while a window or door is open counts too; the heating then waits until every window and door is closed. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
-          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
+          "mpc_v2_flow_temperature": "Only used by the MPC v2 calibration mode. The temperature of the heating water flowing to the radiators. Keep 65 °C (149 °F) for a boiler with a fixed heating curve. For a heat pump or a weather-compensated boiler, enter a typical value for the heating season, for example 35 to 45 °C (95 to 113 °F). After a change, MPC v2 learns the room model again under the new value."
         }
       },
       "confirm": {
@@ -117,6 +123,8 @@
           "door_off_delay_after": "Delay before the thermostat should turn on when the door is closed",
           "outdoor_sensor": "Outdoor temperature sensor",
           "weather": "Weather entity to get the outdoor temperature",
+          "availability_guard": "Availability guard",
+          "availability_guard_grace_seconds": "Grace period after the availability guard turns on",
           "target_temp_min": "Target minimum temperature",
           "target_temp_max": "Target maximum temperature",
           "target_temp_step": "Target temperature step",
@@ -138,6 +146,8 @@
           "door_off_delay_after": "How long every door has to stay closed before the heating resumes.",
           "outdoor_sensor": "Optional. Supplies the outdoor temperature for the outdoor threshold and takes precedence over the weather entity.",
           "weather": "Optional. Supplies the outdoor temperature when no outdoor sensor is selected.",
+          "availability_guard": "Optional. A binary sensor, switch or input boolean that is on while the thermostats have power. While it is off, an unavailable thermostat raises no warning and no repair.",
+          "availability_guard_grace_seconds": "How long a thermostat may stay unavailable after the availability guard turns on before it is reported.",
           "target_temp_min": "The lowest target you can set. Auto takes the range your devices report.",
           "target_temp_max": "The highest target you can set. Auto takes the range your devices report.",
           "target_temp_step": "How far the target moves per step. Auto takes the coarsest step your thermostats report.",
@@ -156,7 +166,8 @@
           "calibration": "Calibration type",
           "calibration_mode": "Calibration mode",
           "no_off_system_mode": "Use the minimum temperature instead of 'off'",
-          "mpc_v2_plant_preset": "MPC v2 room size"
+          "mpc_v2_plant_preset": "MPC v2 room size",
+          "mpc_v2_flow_temperature": "MPC v2 flow temperature"
         },
         "data_description": {
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
@@ -167,7 +178,8 @@
           "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset. Only offered when the TRV has a writable temperature offset.\n***Direct Valve Based***: Set the valve opening directly. Only offered when the TRV has a writable valve position. Calibration modes that produce no valve opening send a target temperature instead.",
           "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
           "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV turned to its minimum temperature counts as switched off: once every TRV of the room is off, the room switches off, and turning a knob up switches it back on. A turn while a window or door is open counts too; the heating then waits until every window and door is closed. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
-          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
+          "mpc_v2_flow_temperature": "Only used by the MPC v2 calibration mode. The temperature of the heating water flowing to the radiators. Keep 65 °C (149 °F) for a boiler with a fixed heating curve. For a heat pump or a weather-compensated boiler, enter a typical value for the heating season, for example 35 to 45 °C (95 to 113 °F). After a change, MPC v2 learns the room model again under the new value."
         }
       }
     },
@@ -208,6 +220,10 @@
     "shared_trv": {
       "title": "BT: {trv} is controlled by more than one Better Thermostat",
       "description": "The thermostat {trv} belongs to these Better Thermostats: {entries}. They write competing target temperatures and modes to it. Remove it from all but one of them in their settings; this issue clears itself afterwards."
+    },
+    "setpoint_not_applied": {
+      "title": "BT: {name} - {entity} does not take the target temperature",
+      "description": "Better Thermostat keeps writing the target temperature {wanted} to {entity}, but the thermostat still reports {held}. The room is not heated the way Better Thermostat intends.\n\nCommon causes:\n- The thermostat has a setpoint limit of its own below the maximum it publishes, for example `max_heat_setpoint_limit` in Zigbee2MQTT.\n- The thermostat is in a mode or preset in which it ignores target temperatures, such as a schedule mode.\n- The thermostat lost its radio connection or its battery is low.\n\nBetter Thermostat keeps writing the target temperature, at most once an hour. This issue clears itself once the thermostat reports the target temperature."
     }
   },
   "services": {
@@ -473,6 +489,12 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Valve Max Opening"
+      },
+      "off_temperature": {
+        "name": "Outdoor Temperature Threshold"
+      },
+      "tolerance": {
+        "name": "Tolerance"
       }
     },
     "switch": {

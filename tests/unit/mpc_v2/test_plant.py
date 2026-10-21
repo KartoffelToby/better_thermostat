@@ -198,3 +198,46 @@ def test_a_month_long_gap_runs_no_more_plant_code_than_one_step() -> None:
     assert _plant_lines_run(lambda: predict(month_s)) == _plant_lines_run(
         lambda: predict(plant.dt_s)
     )
+
+
+def test_steady_input_holds_a_reachable_setpoint() -> None:
+    """The steady valve fraction balances the radiator drive against the loss."""
+    plant = PlantModelRC2(
+        PlantParams(gain_heater=2.0, coupling_rad_room=3.0, T_water=33.0), dt_s=30.0
+    )
+    # Radiator 27 °C holds 21 °C at 3 °C outdoors: 6 K / (2 · 6 K).
+    assert plant.steady_input(21.0, 3.0) == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("outdoor_temperature", [-20.0, -15.0])
+def test_steady_input_is_infinite_when_the_radiator_must_pass_the_water(
+    outdoor_temperature: float,
+) -> None:
+    """A setpoint that needs a radiator at or above the supply water is unreachable.
+
+    At -15 °C the radiator must sit exactly at the 33 °C supply water, at
+    -20 °C above it. No valve fraction holds either, so both are infinite
+    rather than a large finite number that reads as a valid demand.
+    """
+    plant = PlantModelRC2(
+        PlantParams(gain_heater=2.0, coupling_rad_room=3.0, T_water=33.0), dt_s=30.0
+    )
+    assert plant.steady_radiator_temperature(21.0, outdoor_temperature) >= 33.0
+
+    assert plant.steady_input(21.0, outdoor_temperature) == math.inf
+
+
+def test_steady_input_is_zero_without_demand_above_the_water() -> None:
+    """A setpoint above the water that free heat holds needs a closed valve.
+
+    The disturbance covers more than the loss, so the steady radiator sits
+    between the 20 °C water and the room and the valve holds the setpoint
+    shut.
+    """
+    plant = PlantModelRC2(
+        PlantParams(gain_heater=2.0, coupling_rad_room=3.0, T_water=20.0), dt_s=30.0
+    )
+    surplus = (21.0 - 5.0 + 1.5) / plant.params.tau_room_min
+    assert 20.0 <= plant.steady_radiator_temperature(21.0, 5.0, surplus) < 21.0
+
+    assert plant.steady_input(21.0, 5.0, surplus) == 0.0

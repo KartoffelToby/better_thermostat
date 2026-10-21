@@ -6,10 +6,10 @@ from asyncio import Lock, gather
 import copy
 from dataclasses import dataclass
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final, Literal
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform, UnitOfTemperature
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
@@ -26,6 +26,7 @@ from .utils.const import (
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
     CONF_THERMOSTAT,
+    CONF_TOLERANCE,
     CONF_WEATHER,
     CONF_WINDOW_OFF_DELAY,
     CONF_WINDOW_OFF_DELAY_AFTER,
@@ -67,6 +68,12 @@ PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.NUMBER, Platform.SWITCH
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
 RELOAD_LOCKS = f"{DOMAIN}_reload_locks"
+
+# The settings a running thermostat takes without a reload.
+type LiveSetting = Literal["off_temperature", "tolerance"]
+LIVE_SETTINGS: Final[frozenset[LiveSetting]] = frozenset(
+    {CONF_OFF_TEMPERATURE, CONF_TOLERANCE}
+)
 
 
 @dataclass
@@ -351,11 +358,83 @@ def _reload_lock(hass: HomeAssistant, entry: BetterThermostatConfigEntry) -> Loc
     return hass.data.setdefault(RELOAD_LOCKS, {}).setdefault(entry.entry_id, Lock())
 
 
+def _without_live_settings(settings: BtSettings) -> dict[str, object]:
+    """Return ``settings`` without the ones a running thermostat takes live."""
+    return {key: value for key, value in settings.items() if key not in LIVE_SETTINGS}
+
+
+def _apply_live_settings(entry: BetterThermostatConfigEntry) -> bool:
+    """Hand a change of the live settings alone to the running thermostat.
+
+    The entry's stored settings are the one source of the outdoor threshold
+    and the tolerance. When they differ from the settings the thermostat was
+    set up with in nothing but those two, the thermostat takes them as they
+    are and keeps running.
+
+    Parameters
+    ----------
+    entry : BetterThermostatConfigEntry
+        The config entry whose settings were written.
+
+    Returns
+    -------
+    bool
+        Whether the running thermostat took the settings; ``False`` means
+        the entry has to be reloaded for them to apply.
+    """
+    if entry.state is not ConfigEntryState.LOADED:
+        return False
+    climate = _climate_of(entry)
+    running = entry.runtime_data.settings
+    if climate is None or running is None:
+        return False
+    try:
+        settings = parse_settings(entry_settings(entry))
+    except InvalidSettingsError:
+        return False
+    if _without_live_settings(settings) != _without_live_settings(running):
+        return False
+    entry.runtime_data.settings = settings
+    climate.apply_live_settings(settings)
+    return True
+
+
+def store_live_setting(
+    hass: HomeAssistant,
+    entry: BetterThermostatConfigEntry,
+    key: LiveSetting,
+    value: float,
+) -> None:
+    """Write one live setting to ``entry`` and apply it to the thermostat.
+
+    The value is stored in the entry's options, where the options flow reads
+    and writes it, in the system unit. The running thermostat takes it at
+    once, so the update listener that follows finds nothing left to apply
+    and does not reload the entry.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance.
+    entry : BetterThermostatConfigEntry
+        The loaded config entry of the thermostat.
+    key : LiveSetting
+        The setting to write.
+    value : float
+        The new value, in the system unit.
+    """
+    options = {**entry_settings(entry), key: value}
+    hass.config_entries.async_update_entry(entry, data={}, options=options)
+    _apply_live_settings(entry)
+
+
 async def config_entry_update_listener(
     hass: HomeAssistant, entry: BetterThermostatConfigEntry
 ) -> None:
-    """Handle options update."""
+    """Apply written settings: live where they allow it, otherwise by a reload."""
     async with _reload_lock(hass, entry):
+        if _apply_live_settings(entry):
+            return
         await hass.config_entries.async_reload(entry.entry_id)
 
 

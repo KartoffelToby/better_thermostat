@@ -25,6 +25,7 @@ from .conftest import (
 from .device_profiles import GENERIC_HEAT_TRV, SPARE_HEAT_TRV, SPARE_TRV_ID, TRV_ID
 
 ENTRY_NAME = "Stored Room"
+GUARD_ID = "binary_sensor.heat_pump_powered"
 
 
 def _serialised(options) -> str:
@@ -81,6 +82,8 @@ CREATE_USER_INPUT = {
     "window_sensors": WINDOW_ID,
     "window_off_delay": {"hours": 0, "minutes": 2, "seconds": 5},
     "window_off_delay_after": {"hours": 0, "minutes": 0, "seconds": 30},
+    "availability_guard": GUARD_ID,
+    "availability_guard_grace_seconds": {"hours": 0, "minutes": 15, "seconds": 0},
     "off_temperature": 18,
     "presets": ["comfort", "eco"],
     "tolerance": 0.4,
@@ -101,6 +104,7 @@ CREATED_OPTIONS = {
                 "calibration": "target_temp_based",
                 "calibration_mode": "pid_calibration",
                 "mpc_v2_plant_preset": "auto",
+                "mpc_v2_flow_temperature": 65.0,
                 "protect_overheating": True,
                 "no_off_system_mode": False,
                 "heat_auto_swapped": False,
@@ -118,6 +122,7 @@ CREATED_OPTIONS = {
                 "calibration": "target_temp_based",
                 "calibration_mode": "heating_power_calibration",
                 "mpc_v2_plant_preset": "small_room",
+                "mpc_v2_flow_temperature": 40.0,
                 "protect_overheating": False,
                 "no_off_system_mode": False,
                 "heat_auto_swapped": False,
@@ -134,6 +139,8 @@ CREATED_OPTIONS = {
     "humidity_sensor": None,
     "outdoor_sensor": None,
     "weather": None,
+    "availability_guard": GUARD_ID,
+    "availability_guard_grace_seconds": 900,
     "window_off_delay": 125,
     "window_off_delay_after": 30,
     "door_off_delay": 0,
@@ -157,7 +164,11 @@ async def test_the_create_flow_writes_the_frozen_options(hass):
         CREATE_USER_INPUT,
         [
             {"child_lock": True, "calibration_mode": "pid_calibration"},
-            {"protect_overheating": False, "mpc_v2_plant_preset": "small_room"},
+            {
+                "protect_overheating": False,
+                "mpc_v2_plant_preset": "small_room",
+                "mpc_v2_flow_temperature": 40,
+            },
         ],
     )
 
@@ -219,6 +230,7 @@ UPDATED_OPTIONS = {
                 "calibration": "target_temp_based",
                 "calibration_mode": "pid_calibration",
                 "mpc_v2_plant_preset": "auto",
+                "mpc_v2_flow_temperature": 65.0,
                 "protect_overheating": False,
                 "no_off_system_mode": False,
                 "heat_auto_swapped": False,
@@ -237,6 +249,7 @@ UPDATED_OPTIONS = {
                 "calibration": "target_temp_based",
                 "calibration_mode": "tpi_calibration",
                 "mpc_v2_plant_preset": "auto",
+                "mpc_v2_flow_temperature": 65.0,
                 "protect_overheating": True,
                 "no_off_system_mode": False,
                 "heat_auto_swapped": False,
@@ -260,6 +273,8 @@ UPDATED_OPTIONS = {
     "humidity_sensor": None,
     "outdoor_sensor": None,
     "weather": None,
+    "availability_guard": None,
+    "availability_guard_grace_seconds": 600,
     "window_off_delay_after": 0,
     "door_off_delay": 0,
     "door_off_delay_after": 0,
@@ -321,7 +336,11 @@ async def test_a_refused_first_submission_leaves_nothing_behind(hass):
         CREATE_USER_INPUT,
         [
             {"child_lock": True, "calibration_mode": "pid_calibration"},
-            {"protect_overheating": False, "mpc_v2_plant_preset": "small_room"},
+            {
+                "protect_overheating": False,
+                "mpc_v2_plant_preset": "small_room",
+                "mpc_v2_flow_temperature": 40,
+            },
         ],
         refused_first=CREATE_USER_INPUT
         | {"target_temp_min": "min_max_30", "tolerance": 1.5, "presets": ["away"]},

@@ -61,6 +61,9 @@ from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 from custom_components.better_thermostat import BetterThermostatConfigEntry
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.utils.const import (
+    DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
+)
 
 from .device_profiles import (
     GENERIC_HEAT_TRV,
@@ -667,6 +670,8 @@ def make_entry(
     heat_auto_swapped: bool = False,
     with_outdoor_sensor: bool = False,
     off_temperature: int = 5,
+    availability_guard_entity_id: str | None = None,
+    availability_guard_grace_seconds: int = DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
 ) -> MockConfigEntry:
     """Build a config entry for ``devices``, matching the current entry schema.
 
@@ -680,6 +685,10 @@ def make_entry(
     ``off_temperature`` is stored as the flow stores it, in the system unit;
     it only takes effect with ``with_outdoor_sensor``, which wires the sensor
     at ``OUTDOOR_ID``.
+
+    ``availability_guard_entity_id`` is the entity that says whether the TRVs
+    have power, and ``availability_guard_grace_seconds`` how long they get to
+    come back once it turns on.
     """
     if isinstance(devices, GroupScenario):
         profiles, cooler = list(devices.profiles), None
@@ -722,6 +731,8 @@ def make_entry(
         "target_temp_step": profiles[0].configured_target_temperature_step,
         "tolerance": 0.3,
         "off_temperature": off_temperature,
+        "availability_guard": availability_guard_entity_id,
+        "availability_guard_grace_seconds": availability_guard_grace_seconds,
     }
     if with_outdoor_sensor:
         data["outdoor_sensor"] = OUTDOOR_ID

@@ -33,6 +33,8 @@ This page explains the two setup screens in plain language and gives practical d
 - **Delay before the thermostat should turn off when the window is opened**: How long to wait after opening a window before pausing the heat (prevents pausing if you just open it for a quick second).
 - **Delay before the thermostat should turn on when the window is closed**: How long to wait after closing the window before resuming heat.
 - **Delay before the thermostat should turn off when the door is opened** / **Delay before the thermostat should turn on when the door is closed**: The same two delays for the door sensor.
+- **Availability guard**: Only needed if your thermostats lose power on purpose, for example wall thermostats fed by the heat pump. Pick an entity that is on while they have power; while it is off, an unavailable thermostat is not reported as missing.
+- **Grace period after the availability guard turns on**: How long the thermostats get to come back after the guard turns on (10 minutes by default).
 - **The outdoor temperature when the thermostat should turn off**: Once it gets this warm outside, the heating turns off automatically to save energy and money. It turns back on once it is 1 °C (1.8 °F) colder than this. The outdoor temperature is damped with a time constant of 24 hours, so short changes count only a little. See [Summer mode](/deep-explanations/summer-mode/).
 - **Enabled Presets**: Choose which modes you want to use (like Eco mode for saving energy while away).
 - **Tolerance, to prevent the thermostat from turning on and off too often**: A small temperature buffer so your heater doesn't constantly click on and off if the temperature fluctuates slightly.
@@ -95,6 +97,8 @@ This is the "brain" of Better Thermostat. How should it calculate the heating?
 - **No Calibration**: Passes your target temperature to the radiator unchanged.
 
 **MPC v2 room size**: Only used by MPC v2. Leave it on *Auto* unless you want it to start from a fixed small, medium or large room model.
+
+**MPC v2 flow temperature**: Only used by MPC v2. Keep 65 °C for a boiler. With a heat pump or a weather-compensated boiler, enter the flow temperature it typically runs at.
 
 Use [Algorithm selection](/optimal-settings/algorithm-selection/) for decision help.
 
