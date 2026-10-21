@@ -14,6 +14,11 @@ from typing import TYPE_CHECKING, Literal, NamedTuple, TypedDict, overload
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
+from custom_components.better_thermostat.utils.calibration.state_key import (
+    GROUP_KEY_SEGMENT,
+    StateKey,
+    bucket_tag_of,
+)
 
 if TYPE_CHECKING:
     from ...climate import BetterThermostat
@@ -413,24 +418,6 @@ def _update_perf_curve(
     state.last_room_temperature_ts = now
 
 
-def _split_mpc_key(key: str) -> tuple[str, str, str] | None:
-    try:
-        uid, entity, bucket = key.split(":", 2)
-    except ValueError:
-        return None
-    return uid, entity, bucket
-
-
-def _parse_bucket(bucket: str | None) -> float | None:
-    """Parse a target-temperature bucket label (``t21.0``) back into a float."""
-    if not bucket or not bucket.startswith("t"):
-        return None
-    try:
-        return float(bucket[1:])
-    except ValueError:
-        return None
-
-
 def _seed_state_from_siblings(
     key: str, state: _MpcState, params: MpcParams, all_states: Mapping[str, _MpcState]
 ) -> None:
@@ -456,24 +443,20 @@ def _seed_state_from_siblings(
     heals) is skipped for that field and the next-nearest sibling is
     tried, so seeding cannot re-poison a freshly sanitized state.
     """
-    own_parts = _split_mpc_key(key)
-    if own_parts is None:
+    own = StateKey.parse(key)
+    if own is None or own.bucket_tag is None:
         return
-    uid, entity, bucket = own_parts
-    if not uid or not entity:
+    if not own.unique_id or not own.segment:
         return
-    own_target = _parse_bucket(bucket)
+    own_target = own.bucket_temperature
     siblings: list[tuple[float, _MpcState]] = []
     for other_key, other_state in all_states.items():
         if other_key == key:
             continue
-        other_parts = _split_mpc_key(other_key)
-        if other_parts is None:
+        other = StateKey.parse(other_key)
+        if other is None or not other.is_bucket_of(own):
             continue
-        ouid, oentity, obucket = other_parts
-        if ouid != uid or oentity != entity:
-            continue
-        other_target = _parse_bucket(obucket)
+        other_target = other.bucket_temperature
         if own_target is not None and other_target is not None:
             distance = abs(other_target - own_target)
         else:
@@ -530,19 +513,11 @@ def build_mpc_key(bt: BetterThermostat, entity_id: str) -> str:
     For multi-TRV setups the caller should prefer ``build_mpc_group_key``
     so that all TRVs share a single MPC model.
     """
-
-    try:
-        target = bt.heat_target_temperature
-        bucket = (
-            f"t{round(float(target) * 2.0) / 2.0:.1f}"
-            if isinstance(target, (int, float))
-            else "tunknown"
+    return str(
+        StateKey(
+            resolve_unique_id(bt), entity_id, bucket_tag_of(bt.heat_target_temperature)
         )
-    except ValueError, OverflowError:
-        bucket = "tunknown"
-
-    uid = resolve_unique_id(bt)
-    return f"{uid}:{entity_id}:{bucket}"
+    )
 
 
 def build_mpc_group_key(bt: BetterThermostat) -> str:
@@ -551,19 +526,13 @@ def build_mpc_group_key(bt: BetterThermostat) -> str:
     All TRVs under the same BT instance share this key so that a single
     MPC model learns the room dynamics from the external sensor.
     """
-
-    try:
-        target = bt.heat_target_temperature
-        bucket = (
-            f"t{round(float(target) * 2.0) / 2.0:.1f}"
-            if isinstance(target, (int, float))
-            else "tunknown"
+    return str(
+        StateKey(
+            resolve_unique_id(bt),
+            GROUP_KEY_SEGMENT,
+            bucket_tag_of(bt.heat_target_temperature),
         )
-    except ValueError, OverflowError:
-        bucket = "tunknown"
-
-    uid = resolve_unique_id(bt)
-    return f"{uid}:group:{bucket}"
+    )
 
 
 # Compensation factor: additional valve-% per Kelvin that a TRV is colder

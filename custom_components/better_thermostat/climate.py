@@ -129,12 +129,8 @@ from .model_fixes.types import ExternalTemperatureQuirk
 from .switch import restored_child_lock
 from .trv import Trv
 from .utils.advanced_flags import advanced_flag
-from .utils.calibration.pid import (
-    PIDParams,
-    format_bucket,
-    resolve_unique_id,
-    round_to_bucket,
-)
+from .utils.calibration.pid import PIDParams, resolve_unique_id
+from .utils.calibration.state_key import StateKey, format_bucket, round_to_bucket
 from .utils.clock import SystemClock
 from .utils.const import (
     ATTR_STATE_BATTERIES,
@@ -5489,7 +5485,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 uid = resolve_unique_id(self)
                 for entity_id in self.real_trvs:
                     for bucket in buckets:
-                        key = f"{uid}:{entity_id}:{bucket}"
+                        key = str(StateKey(uid, entity_id, bucket))
                         pid_state = state_mgr.get_pid(key)
                         pid_state.pid_kp = kp
                         pid_state.pid_ki = ki
