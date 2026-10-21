@@ -1144,6 +1144,21 @@ def test_a_held_dispatch_records_a_sample_that_cuts_the_buffer() -> None:
     assert [sample.learning_paused for sample in samples] == [True]
 
 
+def test_a_long_pause_leaves_the_recorded_samples_in_the_buffer() -> None:
+    """A pause records one cut, however many cycles it holds."""
+    bt = _make_bt()
+    bt.real_trvs["climate.x"].last_valve_percent = 37
+    _compute_mpc_v2_balance(bt, "climate.x")
+    bt.learning_held = True
+    for _ in range(5):
+        bt.clock.advance(300.0)
+        _compute_mpc_v2_balance(bt, "climate.x")
+
+    key = next(iter(bt.state_mgr._mpc_v2_reid_live))
+    samples = bt.state_mgr.get_mpc_v2_reid_runtime(key).buffer.samples
+    assert [sample.learning_paused for sample in samples] == [False, True]
+
+
 def test_a_pause_shorter_than_the_gap_still_splits_the_segments() -> None:
     """No transient spans a pause, however short: its samples cut the run."""
     from custom_components.better_thermostat.utils.calibration.mpc_v2.reid import (

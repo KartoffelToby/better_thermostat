@@ -98,6 +98,28 @@ async def test_a_heating_cycle_under_way_is_dropped_when_learning_pauses(hass):
     assert await wait_for(hass, lambda: bt._heating_tracker.start is None)
 
 
+async def test_the_cycle_that_ends_a_pause_still_holds(hass):
+    """The control cycle requested on resuming learns nothing either.
+
+    A heating cycle the tracker started during the pause would otherwise be
+    timed from paused time; that cycle drops it, and the hold ends after it.
+    """
+    entry, bt = await _started(hass)
+    switch = _pause_switch(hass, entry)
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": switch}, blocking=True
+    )
+    await hass.async_block_till_done()
+    bt._heating_tracker.start = Reading(19.0, bt.clock.utcnow())
+
+    await hass.services.async_call(
+        "switch", "turn_off", {"entity_id": switch}, blocking=True
+    )
+
+    assert await wait_for(hass, lambda: bt.learning_held is False)
+    assert bt._heating_tracker.start is None
+
+
 async def test_an_idle_stretch_under_way_is_dropped_when_learning_pauses(hass):
     """The idle stretch the heat-loss tracker is timing teaches nothing once paused."""
     entry, bt = await _started(hass)
