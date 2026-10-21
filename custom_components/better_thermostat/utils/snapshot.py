@@ -109,6 +109,7 @@ def build_snapshot(self: BetterThermostat) -> WorldSnapshot:
         call_for_heat=self.call_for_heat,
         window_open=_raw_window_open(self),
         preset_mode=parse_preset(self.preset_mode),
+        devices_released=self.devices_released,
         tolerance=_as_float(self, self.tolerance) or 0.0,
         outdoor_temperature=_get_current_outdoor_temperature(self),
         is_day=is_day,

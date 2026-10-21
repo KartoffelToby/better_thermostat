@@ -26,7 +26,7 @@ import contextlib
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .conftest import SimulatedClimate, SimulatedOffsetNumber
+from .conftest import SimulatedClimate, SimulatedOffsetNumber, SimulatedValveNumber
 
 # How long a device has to confirm a write before Better Thermostat gives up
 # on it. A test that asks whether a watchdog ends because the device answered
@@ -95,7 +95,8 @@ class HeldWrite:
 
 @contextlib.asynccontextmanager
 async def holding_next_write(
-    device: SimulatedClimate | SimulatedOffsetNumber, method: WriteMethod
+    device: SimulatedClimate | SimulatedOffsetNumber | SimulatedValveNumber,
+    method: WriteMethod,
 ) -> AsyncIterator[HeldWrite]:
     """Hold the next write ``device`` receives through ``method``.
 

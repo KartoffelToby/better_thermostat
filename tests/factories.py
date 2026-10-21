@@ -264,6 +264,7 @@ _CONSTRUCTOR_DEFAULTED = (
     "_outdoor_check_lock",
     "_temperature_filter_lock",
     "control_cycle_started_monotonic",
+    "devices_released",
     "announced_contact_open",
     "last_user_change_monotonic",
     "learning_paused",

@@ -282,6 +282,9 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
         call_for_heat=_bool_of(data["call_for_heat"]),
         window_open=_bool_or_none(data.get("window_open")),
         preset_mode=parse_preset(_str_or_none(data["preset_mode"])),
+        # An export from before the room could release its devices carries
+        # no such key; its devices were never released.
+        devices_released=_bool_of(data.get("devices_released", False)),
         tolerance=_float_or_default(data["tolerance"], 0.0),
         outdoor_temperature=_float_or_none(data["outdoor_temperature"]),
         is_day=_bool_of(data["is_day"]),
@@ -421,7 +424,11 @@ def desired_from_dict(data: dict[str, Json]) -> DesiredState:
                 else None
             ),
         )
-    return DesiredState(call_for_heat=_bool_of(data["call_for_heat"]), trvs=trvs)
+    return DesiredState(
+        call_for_heat=_bool_of(data["call_for_heat"]),
+        trvs=trvs,
+        devices_released=_bool_of(data.get("devices_released", False)),
+    )
 
 
 def replay(entry: ExportedDecision) -> tuple[bool, DesiredState]:

@@ -454,6 +454,24 @@ def _stamp_heartbeat(self: BetterThermostat) -> None:
     )
 
 
+def _released_during_cycle(self: BetterThermostat, entity_id: str | None) -> bool:
+    """Return whether the devices are the user's at this write.
+
+    A cycle decides once and then writes device after device, awaiting each
+    write. The devices can be released meanwhile, and from then on nothing
+    is sent to them, whatever the cycle decided before. Every write of a
+    cycle asks this right before it goes out.
+    """
+    if not self.devices_released:
+        return False
+    _LOGGER.debug(
+        "better_thermostat %s: devices released during the cycle, leaving %s alone",
+        self.device_name,
+        entity_id,
+    )
+    return True
+
+
 # The calibration modes whose balance can drive the valve directly. Such a
 # balance is reported under the mode's own name as its source.
 _VALVE_BALANCE_MODES: Final[frozenset[CalibrationMode]] = frozenset(
@@ -785,6 +803,9 @@ async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) ->
         return
     try:
         snapshot, desired = compute_control_cycle(self, record=False, commit=False)
+        if desired.devices_released:
+            # A released device diverges by design; it is the user's.
+            return
         desired = safety_clamp(desired, snapshot)
         if not desired_diverges(self, snapshot, desired):
             return
@@ -1422,7 +1443,8 @@ async def control_queue(self: BetterThermostat) -> None:
                         self.control_cycle_started_monotonic = self.clock.monotonic()
                         pause_changes_before_learners = self.learning_pause_changes
 
-                        # Calculate heating power once per cycle
+                        # Calculate heating power once per cycle; nothing is
+                        # learned while the devices are released.
                         try:
                             await self.calculate_heating_power()
                         except Exception:
@@ -1451,6 +1473,21 @@ async def control_queue(self: BetterThermostat) -> None:
                                 self.device_name,
                             )
 
+                        # Released devices are the user's: the cycle sends
+                        # neither the cooler nor any TRV a command. Without a
+                        # decision the room's own flag says the same. The
+                        # room's own heating action still advances, as in a
+                        # cycle that dispatches no device, and the decision
+                        # counts as a completed cycle.
+                        _released = (
+                            cycle[1].devices_released
+                            if cycle is not None
+                            else self.devices_released
+                        )
+                        if _released:
+                            advance_hvac_action(self)
+                            _stamp_heartbeat(self)
+
                         # Handle cooler logic once per cycle, on the same
                         # observation the TRVs are controlled with. A cooler
                         # that is also a TRV still awaiting its initialisation
@@ -1463,8 +1500,11 @@ async def control_queue(self: BetterThermostat) -> None:
                             else None
                         )
                         if self.cooler_entity_id is not None and not (
-                            _cooler_trv is not None
-                            and _cooler_trv.awaiting_initialization
+                            _released
+                            or (
+                                _cooler_trv is not None
+                                and _cooler_trv.awaiting_initialization
+                            )
                         ):
                             try:
                                 await control_cooler(
@@ -1492,7 +1532,7 @@ async def control_queue(self: BetterThermostat) -> None:
                         )
                         tasks = []
                         controlled_trvs = []
-                        for trv in self.real_trvs.keys():
+                        for trv in [] if _released else self.real_trvs.keys():
                             if _cooling_owns_shared and trv == _shared_entity_id:
                                 _LOGGER.debug(
                                     "better_thermostat %s: %s is driven by the cooling "
@@ -1554,8 +1594,11 @@ async def control_queue(self: BetterThermostat) -> None:
                             # cycle, so a mode a device reported meanwhile
                             # never reached it. Settle the caches before the
                             # window closes, so the device's next report is
-                            # read as the change it carries.
-                            refresh_cached_trv_modes(self)
+                            # read as the change it carries. A released cycle
+                            # commanded nothing, and the caches keep the modes
+                            # the devices report.
+                            if not _released:
+                                refresh_cached_trv_modes(self)
                             self.ignore_states = False
                             await read_reports_held_during_cycle(self)
 
@@ -1767,6 +1810,9 @@ async def _write_cooler_mode(
             self.cooler_entity_id,
             last_sent["hvac_mode_failed"].count,
         )
+        should_send_mode = False
+
+    if should_send_mode and _released_during_cycle(self, self.cooler_entity_id):
         should_send_mode = False
 
     if should_send_mode:
@@ -2188,6 +2234,13 @@ async def control_cooler(
         )
         temperature_to_send = None
 
+    # Released devices are the user's; nothing is attempted, so the failure
+    # backoff below records nothing either.
+    if temperature_to_send is not None and _released_during_cycle(
+        self, self.cooler_entity_id
+    ):
+        temperature_to_send = None
+
     # The command the payload would carry, in °C, as the failure backoff
     # compares it: a rejected send leaves the send cache untouched, so the
     # attempted command is what tells a retry from a new command.
@@ -2363,6 +2416,12 @@ async def control_trv(
             if cycle is None:
                 cycle = compute_control_cycle(self)
             snapshot, desired = cycle
+            if desired.devices_released or _released_during_cycle(self, entity_id):
+                # The device is the user's: not commanded, and not missing.
+                # The live flag covers a release that came in after the
+                # decision, while this TRV waited for the lock; nothing is
+                # awaited from here to the valve write.
+                return True
             trv_desired = desired.trvs.get(entity_id)
 
             # The kernel addresses only reachable TRVs (boost overrides the skip).
@@ -2611,6 +2670,8 @@ async def control_trv(
                     _reported_hvac_mode,
                     _new_hvac_mode,
                 )
+                if _released_during_cycle(self, entity_id):
+                    return True
                 _commanded_before = self.real_trvs[entity_id].last_hvac_mode
                 self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
                 self.real_trvs[entity_id].withdrawn_hvac_mode = None
@@ -2751,6 +2812,8 @@ async def control_trv(
                         if _last_requested is None:
                             _last_requested = _last_sent
                         if float(_last_requested) != _calibration or _command_diverged:
+                            if _released_during_cycle(self, entity_id):
+                                return True
                             # A deferred offset re-derives on the next control cycle
                             # once the slot is free again.
                             if _consume_budget(self, entity_id, "offset"):
@@ -2832,6 +2895,8 @@ async def control_trv(
                     ),
                     _current_set_temperatures,
                 ):
+                    if _released_during_cycle(self, entity_id):
+                        return True
                     trv = self.real_trvs[entity_id]
                     _follow_unapplied_setpoint(
                         self, entity_id, _trv, _temperature, _current_set_temperatures

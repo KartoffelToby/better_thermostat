@@ -496,6 +496,9 @@
       }
     },
     "switch": {
+      "release_devices": {
+        "name": "Rilascia dispositivi"
+      },
       "pid_auto_tune": {
         "name": "{trv_name} Autotuning PID"
       },
@@ -626,6 +629,9 @@
     },
     "invalid_settings": {
       "message": "Le impostazioni salvate di questo Better Thermostat non possono essere lette: {reason}. Modificale nelle sue opzioni, oppure rimuovilo e aggiungilo di nuovo."
+    },
+    "devices_released": {
+      "message": "I dispositivi di {device_name} sono rilasciati. Disattiva Rilascia dispositivi perché Better Thermostat li controlli di nuovo."
     }
   }
 }

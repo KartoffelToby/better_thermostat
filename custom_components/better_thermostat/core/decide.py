@@ -7,13 +7,16 @@ the snapshot.
 
 The cascade (top wins):
 
-1. Lifecycle gate — while startup or valve maintenance runs, nothing is
+1. Release — while the user has the room's devices released, nothing is
+   commanded and the intent says so, so the shell leaves the cooler and
+   the learners alone as well.
+2. Lifecycle gate — while startup or valve maintenance runs, nothing is
    commanded.
-2. Mode — OFF turns every TRV off.
-3. Window/Door — an open window or door turns every TRV off without
+3. Mode — OFF turns every TRV off.
+4. Window/Door — an open window or door turns every TRV off without
    touching the mode, as long as window detection is on.
-4. Call for heat — without heat demand every TRV is turned off.
-5. Heating — every addressed TRV is asked to heat towards the room
+5. Call for heat — without heat demand every TRV is turned off.
+6. Heating — every addressed TRV is asked to heat towards the room
    target. Under the ladder's HOLD rung no calibration runs; the intent
    carries the raw user target (passthrough) so the device stays locked
    on the last known target with the safety hull's frost floor. The
@@ -162,9 +165,10 @@ def decide(
 ) -> tuple[DesiredState, KernelState]:
     """Map one world snapshot onto the desired state of every TRV.
 
-    The deterministic precedence cascade (top wins): the lifecycle and
-    maintenance gate, mode OFF, an open window while window detection is
-    on, no call for heat, and otherwise heating to the target.
+    The deterministic precedence cascade (top wins): released devices,
+    the lifecycle and maintenance gate, mode OFF, an open window while
+    window detection is on, no call for heat, and otherwise heating to
+    the target.
 
     The input state is never mutated; a fresh successor state is returned.
     The flight recorder records the input as the pre-decide state of the
@@ -198,6 +202,15 @@ def decide(
             for entity_id, trv in snapshot.trvs.items()
         },
     )
+
+    if snapshot.devices_released:
+        # Release: the devices are the user's. The regions above keep
+        # tracking, so the cycle after the release decides on what holds
+        # by then.
+        return (
+            DesiredState(call_for_heat=snapshot.call_for_heat, devices_released=True),
+            state,
+        )
 
     if state.lifecycle.startup_running or state.maintenance.is_blocking(
         snapshot.now_monotonic

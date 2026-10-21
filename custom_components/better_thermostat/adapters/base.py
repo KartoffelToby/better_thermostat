@@ -295,6 +295,10 @@ async def wait_for_calibration_entity_or_timeout(
                 calibration_entity,
             )
             _retry_count += 1
+            # The devices can be released while the wait goes on, and the
+            # write that ends it is not sent to them then.
+            if self.devices_released:
+                return
             if _retry_count >= _max_retries:
                 _LOGGER.warning(
                     "better_thermostat %s: local_temperature_calibration entity '%s' not available after timeout, forcing calibration to 0",

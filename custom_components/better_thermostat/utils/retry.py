@@ -86,6 +86,15 @@ class DeviceCallTimeoutError(TimeoutError):
     """A device call that did not return within ``DEVICE_CALL_TIMEOUT_S``."""
 
 
+class WriteWithheldError(Exception):
+    """A device write not sent because the devices are the user's.
+
+    It ends a retry chain on the attempt it is raised in: a write that has
+    not gone out by the time the devices are released does not go out
+    later either.
+    """
+
+
 @asynccontextmanager
 async def device_call_deadline() -> AsyncGenerator[None]:
     """Bound the device call in the block to ``DEVICE_CALL_TIMEOUT_S``.
@@ -130,7 +139,8 @@ def async_retry(
     rather than after the whole backoff budget. A :class:`DeviceCallTimeoutError`
     is re-raised on the first attempt as well: the call has already waited
     out its deadline, and another attempt at a device that does not answer
-    only repeats the wait. An attempt that is retried
+    only repeats the wait. So is a :class:`WriteWithheldError`, which says
+    the write is not to go out at all. An attempt that is retried
     is logged at ``log_level``, debug unless the caller asks otherwise, and
     the failure that ends the attempts as one warning. The traceback goes
     with them only while debug logging is on, and the caller the error is
@@ -183,7 +193,7 @@ def async_retry(
                 try:
                     return await func(*args, **kwargs)
                 except exceptions as e:
-                    if isinstance(e, DeviceCallTimeoutError):
+                    if isinstance(e, (DeviceCallTimeoutError, WriteWithheldError)):
                         raise
                     if isinstance(e, UNRECOVERABLE_EXCEPTIONS) and not isinstance(
                         e, RETRYABLE_DESPITE_TYPE
