@@ -647,9 +647,10 @@ def _record_mpc_v2_reid_sample(
     on (``ReidConfig.max_gap_s``), keeping transients on either side of
     a degraded episode separate.
 
-    While learning is paused each cycle records a paused sample instead,
-    which cuts the buffer like an open contact, so no fitted transient
-    spans the pause however short it is.
+    While learning is paused the first held cycle records a paused sample
+    instead, which cuts the buffer like an open contact, so no fitted
+    transient spans the pause however short it is; the later held cycles
+    record nothing, so a long pause does not push the real samples out.
     """
     state_mgr = self.state_mgr
     if state_mgr is None:
@@ -659,14 +660,18 @@ def _record_mpc_v2_reid_sample(
         return
     t_room = float(room_temperature)
     if self.learning_held:
-        state_mgr.get_mpc_v2_reid_runtime(reid_key).buffer.append(
-            ReidSample(
-                t_s=self.clock.monotonic(),
-                T_room=t_room,
-                u_frac=0.0,
-                learning_paused=True,
+        buffer = state_mgr.get_mpc_v2_reid_runtime(reid_key).buffer
+        # One paused sample cuts the run; more would only push real samples
+        # out of the bounded buffer during a long pause.
+        if not buffer.samples or not buffer.samples[-1].learning_paused:
+            buffer.append(
+                ReidSample(
+                    t_s=self.clock.monotonic(),
+                    T_room=t_room,
+                    u_frac=0.0,
+                    learning_paused=True,
+                )
             )
-        )
         return
     if self.kernel_state.control_mode.mode != ControlMode.OPTIMAL:
         return

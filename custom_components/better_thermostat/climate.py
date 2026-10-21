@@ -1454,6 +1454,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # so the saved state is read now and not in the startup, which waits
         # until Home Assistant has started.
         self._saved_state = await self.async_get_last_available_state()
+        # The pause belongs to the "Pause learning" switch, whose platform is
+        # set up after climate, so it comes back from the thermostat's own
+        # state. It is read here, before the switch exists and before the
+        # startup waits for its devices, so a switch command during that wait
+        # is not overwritten and no control cycle learns before it.
+        if self._saved_state is not None:
+            self.learning_paused = (
+                self._saved_state.attributes.get(ATTR_STATE_LEARNING_PAUSED) is True
+            )
+            self.learning_held = self.learning_paused
 
         self._control_task = self.hass.async_create_background_task(
             control_queue(self), name=f"bt_control_queue_{self.device_name}"
@@ -2618,13 +2628,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 )
                 if _restored_loss is not None:
                     self.heat_loss_rate = _restored_loss
-            # The pause belongs to the "Pause learning" switch, whose platform
-            # is set up after climate, so it comes back from the thermostat's
-            # own state, before the first control cycle can learn anything.
-            self.learning_paused = (
-                old_state.attributes.get(ATTR_STATE_LEARNING_PAUSED) is True
-            )
-            self.learning_held = self.learning_paused
             _LOGGER.debug(
                 "better_thermostat %s: state restoration completed", self.device_name
             )
