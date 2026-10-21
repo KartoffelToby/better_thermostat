@@ -26,11 +26,11 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
  *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   36
-  mpc_v2                0.853  0.098    0.965  0.039     0.577  0.313    0.988  0.026   36
-  tpi                   0.750  0.173    0.735  0.227     0.626  0.340    0.971  0.019   36
-  pid                   0.747  0.167    0.829  0.193     0.453  0.363    0.983  0.024   36
-  mpc                   0.697  0.148    0.837  0.182     0.277  0.298    0.977  0.025   36
-  bangbang              0.598  0.170    0.678  0.230     0.216  0.303    0.971  0.044   36
+  mpc_v2                0.858  0.097    0.975  0.027     0.577  0.313    0.988  0.026   36
+  tpi                   0.779  0.177    0.783  0.220     0.626  0.340    1.000  0.002   36
+  pid                   0.764  0.138    0.860  0.131     0.453  0.363    0.991  0.025   36
+  mpc                   0.717  0.126    0.870  0.138     0.277  0.298    0.993  0.026   36
+  bangbang              0.662  0.139    0.805  0.158     0.216  0.303    0.973  0.045   36
 ```
 
 Higher is better. Each dimension is **oracle-normalised**: `1.0` matches
@@ -67,9 +67,11 @@ Run `uv run python -m tests.benchmark.runner --help` for the full flag list.
 ### What each dimension measures
 
 **comfort** — how close the room temperature stays to the setpoint.
-Internally a weighted sum: 0.4·overshoot-excess + 0.4·settling-time ratio
-+ 0.2·steady-state-error excess, all measured against the Oracle on the
-same scenario.
+Internally a weighted sum: 0.5·discomfort-excess + 0.25·overshoot-excess
++ 0.25·settling-time ratio, all measured against the Oracle on the same
+scenario. Discomfort is the deviation beyond ±0.2 K of the setpoint,
+integrated in K·h over the scored phase, so a controller that oscillates
+after it settled, or holds an offset, pays for every hour of it.
 
 | Score | What it means in practice |
 |---|---|
@@ -91,20 +93,21 @@ continuous on scenarios where the Oracle barely moves the valve.
 | 0.20–0.40 | High wear; expect motor lifetime and battery hits. |
 | < 0.20 | Pathological cycling (BangBang territory). |
 
-**energy** — heat the radiator delivered to the room, relative to the
-Oracle's optimum, symmetric around 1.0× so under-heating (missed
-setpoint) costs the same as over-heating (wasted energy). It follows the
-plant, not the command: a command that deadband or stiction holds back
-adds no heat over a closed valve, however often it is sent. Overshoot costs
-little here, since 0.3 K above the setpoint raises the losses by only a
-few per cent, so most controllers land between 0.95 and 1.00.
+**energy** — heat the radiator delivered to the room beyond the
+Oracle's optimum. Heating less than the Oracle is not a saving: the room
+then misses its setpoint, which comfort already scores, so energy does
+not charge it a second time. It follows the plant, not the command: a
+command that deadband or stiction holds back adds no heat over a closed
+valve, however often it is sent. Overshoot costs little here, since
+0.3 K above the setpoint raises the losses by only a few per cent, so
+most controllers land between 0.95 and 1.00.
 
 | Score | What it means in practice |
 |---|---|
-| 1.00 | Same heat input as the Oracle. |
-| 0.75–1.00 | Within ~25 % of the optimum either way. |
-| 0.50–0.75 | 25–50 % over- or under-heating. |
-| 0.00 | Either 2× the Oracle's heat or the room missed the setpoint entirely. |
+| 1.00 | No more heat than the Oracle. |
+| 0.75–1.00 | Up to ~25 % more heat than the optimum. |
+| 0.50–0.75 | 25–50 % over-heating. |
+| 0.00 | 2× the Oracle's heat or more. |
 
 **overall** — profile-weighted sum. Defaults to `balanced`
 (0.5·comfort + 0.3·actuator + 0.2·energy). Other profiles
@@ -118,11 +121,13 @@ a controller wins.
   normalises against the Oracle, so it scores itself 1.0 on every
   scenario, including the permanent-disturbance ones (diurnal outdoor,
   multi-day weather) where the disturbance cancels on both sides.
-* **BangBang ≈ 0.60** — noise floor. A deliberately naive on/off
-  controller; anything close to BangBang has a problem.
+* **BangBang ≈ 0.66** — noise floor. A deliberately naive on/off
+  controller; anything close to BangBang has a problem. `default`,
+  `no_calibration` and `linear_p` sit there: they leave the room below
+  its setpoint, and the discomfort score counts every hour of that.
 * **Production controllers (`pid`, `tpi`, `mpc`, `heating_power`) ≈
-  0.67–0.75, `mpc_v2` ≈ 0.85.** That band is the realistic operating
-  range. A controller above 0.75 is beating most of the field; near the
+  0.70–0.78, `mpc_v2` ≈ 0.86.** That band is the realistic operating
+  range. A controller above 0.78 is beating most of the field; near the
   BangBang floor means a clear weakness in at least one dimension.
 
 Rule of thumb: when a controller scores well below the Oracle, look at
@@ -160,18 +165,18 @@ score by noise and reporting threshold (balanced profile, 36 scenarios):
 
 | σ | threshold | mpc_v2 | tpi | pid | mpc | heating_power | bangbang |
 |---|---|---|---|---|---|---|---|
-| 0.00 K | 0.1 K | 0.862 | 0.807 | 0.752 | 0.697 | 0.723 | 0.597 |
-| **0.02 K** | **0.1 K** | **0.853** | **0.750** | **0.747** | **0.697** | **0.668** | **0.598** |
-| 0.05 K | 0.1 K | 0.822 | 0.661 | 0.730 | 0.685 | 0.570 | 0.602 |
-| 0.00 K | 0.5 K | 0.735 | 0.790 | 0.670 | 0.647 | 0.725 | 0.588 |
-| 0.02 K | 0.5 K | 0.745 | 0.781 | 0.674 | 0.659 | 0.721 | 0.583 |
-| 0.05 K | 0.5 K | 0.731 | 0.777 | 0.684 | 0.651 | 0.712 | 0.592 |
+| 0.00 K | 0.1 K | 0.868 | 0.836 | 0.768 | 0.715 | 0.751 | 0.660 |
+| **0.02 K** | **0.1 K** | **0.858** | **0.779** | **0.764** | **0.717** | **0.698** | **0.662** |
+| 0.05 K | 0.1 K | 0.827 | 0.692 | 0.750 | 0.705 | 0.593 | 0.663 |
+| 0.00 K | 0.5 K | 0.764 | 0.813 | 0.689 | 0.674 | 0.746 | 0.638 |
+| 0.02 K | 0.5 K | 0.774 | 0.807 | 0.696 | 0.675 | 0.737 | 0.637 |
+| 0.05 K | 0.5 K | 0.762 | 0.804 | 0.702 | 0.678 | 0.726 | 0.638 |
 
-Bold is the default; the 0.5 K rows add an hourly report. TPI and PID
-swap places around 0.02 K of noise, and a sensor that reports only every
-0.5 K moves MPC v2 behind TPI. Read the ranking of TPI, PID and
-`heating_power` as dependent on the sensor; MPC v2 leads as long as the
-sensor reports tenths.
+Bold is the default; the 0.5 K rows add an hourly report. TPI leads PID
+up to about 0.02 K of noise and falls behind it at 0.05 K, and a sensor
+that reports only every 0.5 K moves MPC v2 behind TPI. Read the ranking
+of TPI, PID and `heating_power` as dependent on the sensor; MPC v2 leads
+as long as the sensor reports tenths.
 
 ### Multi-TRV (`--multi-trv`)
 
@@ -217,7 +222,7 @@ scenario's `trv_sensor_rad_fraction`, 0.1 by default, sets how much of
 the radiator's excess that reading picks up. The fraction is an
 estimate. Between 0.05 and 0.2, TPI stays first on the Tuya and Sonoff
 presets and MPC v2 on Tado; on Bosch, MPC v2 overtakes TPI at 0.2.
-Absolute scores move by up to 0.06. The older `"heuristic"`
+Absolute scores move by up to 0.13. The older `"heuristic"`
 and `"inversion"` mappings remain selectable.
 
 `reports_valve_position` decides what the inner controller gets as the
@@ -241,10 +246,10 @@ Thermostat passes it to MPC v2 when the TRV's climate entity carries a
   reasonable user priorities, but if your application is asymmetric
   (e.g. comfort cost ≫ energy cost) the right answer may require
   reading the dimension columns, not the `overall`.
-* **Energy scoring is symmetric.** Under- and over-heating cost the
-  same. If you're optimising specifically for energy savings (where
-  under-heating is acceptable and over-heating is the only cost), use
-  the comfort and actuator columns separately and reweight outside.
+* **Energy scores over-heating only.** Heat below the Oracle's is a
+  missed setpoint and shows up in comfort, not as a saving. If you
+  accept a cooler room to save energy, read `delivered_heat_K` and the
+  comfort column separately and weigh them yourself.
 * **The scenario library doesn't cover everything.** Notable
   omissions: multi-zone thermal coupling, occupancy schedules,
   photovoltaic-driven setpoint shifts, HVAC topologies beyond
