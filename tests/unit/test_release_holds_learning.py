@@ -165,7 +165,9 @@ async def test_the_cycle_that_takes_the_devices_back_still_holds():
     assert loop.bt.learning_paused is False
 
 
-@pytest.mark.parametrize("pause_first", [True, False], ids=["pause_first", "release_first"])
+@pytest.mark.parametrize(
+    "pause_first", [True, False], ids=["pause_first", "release_first"]
+)
 @pytest.mark.asyncio
 async def test_the_hold_lasts_until_a_cycle_after_both_have_ended(pause_first):
     """With a pause and a release, ending one of them leaves the learners held.
