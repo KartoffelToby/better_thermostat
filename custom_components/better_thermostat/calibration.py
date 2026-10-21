@@ -650,12 +650,14 @@ def _record_mpc_v2_reid_sample(
     While learning is paused the first held cycle records a paused sample
     instead, which cuts the buffer like an open contact, so no fitted
     transient spans the pause however short it is; the later held cycles
-    record nothing, so a long pause does not push the real samples out.
+    record nothing, so a long pause does not push the real samples out. The
+    room temperature is the one the control law uses, so a pause under
+    SENSOR_FALLBACK also cuts the buffer.
     """
     state_mgr = self.state_mgr
     if state_mgr is None:
         return
-    room_temperature = self.room_temperature
+    room_temperature = effective_room_temperature(self)
     if room_temperature is None:
         return
     t_room = float(room_temperature)
