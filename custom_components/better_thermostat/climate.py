@@ -2456,6 +2456,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.preset_mgr.mode = _old_preset
             else:
                 self.preset_mgr.mode = PRESET_NONE
+            self._advance_preset_region()
 
             _LOGGER.debug(
                 "better_thermostat %s: applying restored preset temperature...",
@@ -5131,6 +5132,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             if _deviating_target is not None:
                 old_preset = self.preset_mgr.mode
                 self.preset_mgr.deactivate()
+                self._advance_preset_region()
                 # The manual targets replace the ones saved on entering the
                 # preset, for cooling as for heating: a later return to
                 # PRESET_NONE keeps what the user set here.
@@ -5307,6 +5309,19 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """Return the current preset mode."""
         return self.preset_mgr.mode
 
+    def _advance_preset_region(self) -> None:
+        """Advance the kernel's mode region to the preset manager's mode.
+
+        The preset manager holds the preset the entity publishes and the
+        control cycle reads; the mode region keeps the kernel's copy, which
+        the flight recorder stores with every decision. Every write to the
+        preset manager's mode is followed by this call.
+        """
+        self.kernel_state = replace(
+            self.kernel_state,
+            mode=mode_set_preset(self.kernel_state.mode, self.preset_mgr.mode),
+        )
+
     @override
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode (HA async API).
@@ -5326,10 +5341,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 min_temp=get_heat_temperature_range(self)[0],
                 max_temp=get_heat_temperature_range(self)[1],
             )
-            self.kernel_state = replace(
-                self.kernel_state,
-                mode=mode_set_preset(self.kernel_state.mode, self.preset_mgr.mode),
-            )
+            self._advance_preset_region()
 
             if (
                 new_temperature is None
