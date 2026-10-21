@@ -53,6 +53,10 @@ One radiator heats much faster than the others in the house, or it is oversized 
 
 Enable **Ignore all inputs on the TRV like a child lock**. Better Thermostat then reverts any change made on the TRV and accepts changes only on its own thermostat entity. The *Child Lock* switch on the device turns this on and off, together with the TRV's own child lock where it has one.
 
+## Running a device yourself for a while
+
+An air conditioner's self-cleaning sequence, radiators held open while the heating system is filled, or an air conditioner run by hand: Better Thermostat would put each of them back. Turn on the **Release devices** switch for that time. Better Thermostat then leaves the room's devices alone until you turn it off again. See [Releasing the devices](/setup/releasing-devices/).
+
 ## TRVs that stick after the summer
 
 A valve that has not moved for months can get stuck. If your TRV has no maintenance routine of its own, enable **If your thermostat has no own maintenance mode, you can use this one**. Better Thermostat then opens and closes the valve from time to time.
