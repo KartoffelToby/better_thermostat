@@ -10,13 +10,13 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 import math
 from typing import NamedTuple, TypedDict
 
 from .decide import KernelState, decide
-from .desired import DesiredState, Suppression, TrvDesired
+from .desired import DesiredState, HeatingBlock, Suppression, TrvDesired
 from .fsm.control_mode import ControlMode, ControlModeState, PendingWindow
 from .fsm.lifecycle import LifecyclePhase, LifecycleState
 from .fsm.maintenance import MaintenancePhase, MaintenanceState
@@ -428,6 +428,11 @@ def desired_from_dict(data: dict[str, Json]) -> DesiredState:
         call_for_heat=_bool_of(data["call_for_heat"]),
         trvs=trvs,
         devices_released=_bool_of(data.get("devices_released", False)),
+        heating_blocked_by=(
+            HeatingBlock(_str_of(data["heating_blocked_by"]))
+            if data.get("heating_blocked_by") is not None
+            else None
+        ),
     )
 
 
@@ -439,6 +444,11 @@ def replay(entry: ExportedDecision) -> tuple[bool, DesiredState]:
     """
     snapshot = snapshot_from_dict(_dict_of(entry["snapshot"]))
     state = state_from_dict(_dict_of(entry["state"]))
-    recorded = desired_from_dict(_dict_of(entry["desired"]))
+    desired = _dict_of(entry["desired"])
+    recorded = desired_from_dict(desired)
     recomputed, _ = decide(snapshot, state)
+    if "heating_blocked_by" not in desired:
+        # An export from before the kernel named the block carries none, so
+        # the block is left out of the comparison.
+        recorded = replace(recorded, heating_blocked_by=recomputed.heating_blocked_by)
     return recomputed == recorded, recomputed

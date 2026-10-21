@@ -17,6 +17,7 @@ from custom_components.better_thermostat.core.recorder import (
     ExportedDecision,
     FlightRecorder,
     Json,
+    desired_from_dict,
     replay,
     snapshot_from_dict,
     state_from_dict,
@@ -331,6 +332,32 @@ def test_export_without_window_detection_loads_with_detection_on():
     assert replay(entry)[0] is True
 
 
+def test_export_without_heating_block_still_replays():
+    """A decision recorded before the kernel named its block still matches."""
+    recorder = FlightRecorder()
+    state = replace(running_kernel_state(), window=WindowState(phase=WindowPhase.OPEN))
+    desired, _ = decide(_snapshot(), state)
+    recorder.record(_snapshot(), state, desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    assert entry["desired"]["heating_blocked_by"] == "window"
+    del entry["desired"]["heating_blocked_by"]
+
+    assert desired_from_dict(entry["desired"]).heating_blocked_by is None
+    assert replay(entry) == (True, desired)
+
+
+def test_replay_detects_a_diverging_heating_block():
+    """A recorded block the kernel does not reproduce fails the replay."""
+    recorder = FlightRecorder()
+    state = replace(running_kernel_state(), window=WindowState(phase=WindowPhase.OPEN))
+    desired, _ = decide(_snapshot(), state)
+    recorder.record(_snapshot(), state, desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["desired"]["heating_blocked_by"] = "door"
+
+    assert replay(entry) == (False, desired)
+
+
 def test_replay_reproduces_a_decision_with_window_detection_off():
     """The switch is part of the recorded input, so the replay heats too."""
     recorder = FlightRecorder()
@@ -551,6 +578,7 @@ class TestRoundtripCompleteness:
         from custom_components.better_thermostat.core.decide import KernelState
         from custom_components.better_thermostat.core.desired import (
             DesiredState,
+            HeatingBlock,
             Suppression,
             TrvDesired,
         )
@@ -570,7 +598,6 @@ class TestRoundtripCompleteness:
         from custom_components.better_thermostat.core.fsm.reachability import (
             ReachabilityState,
         )
-        from custom_components.better_thermostat.core.recorder import desired_from_dict
 
         trv_reported_kwargs = {
             "entity_id": "climate.trv",
@@ -655,6 +682,7 @@ class TestRoundtripCompleteness:
             "call_for_heat": True,
             "trvs": {"climate.trv": TrvDesired(**trv_desired_kwargs)},
             "devices_released": True,
+            "heating_blocked_by": HeatingBlock.DEVICES_RELEASED,
         }
         assert set(desired_kwargs) == {f.name for f in fields(DesiredState)}
         desired = DesiredState(**desired_kwargs)

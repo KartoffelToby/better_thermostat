@@ -3,7 +3,11 @@
 from datetime import timedelta
 
 from custom_components.better_thermostat.core.decide import KernelState, decide
-from custom_components.better_thermostat.core.desired import Suppression
+from custom_components.better_thermostat.core.desired import (
+    SUPPRESSION_BLOCKS,
+    HeatingBlock,
+    Suppression,
+)
 from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
@@ -20,6 +24,40 @@ from custom_components.better_thermostat.core.snapshot import (
     TrvReported,
 )
 from tests.factories import make_snapshot, make_state
+
+
+class TestHeatingBlock:
+    """The block a decision names is a closed list with fixed words."""
+
+    def test_every_suppression_names_the_block_of_its_own_word(self):
+        """Each suppression stands for exactly one block, spelled the same."""
+        assert dict(SUPPRESSION_BLOCKS) == {
+            Suppression.WINDOW: HeatingBlock.WINDOW,
+            Suppression.DOOR: HeatingBlock.DOOR,
+            Suppression.NO_CALL_FOR_HEAT: HeatingBlock.NO_CALL_FOR_HEAT,
+        }
+        assert all(
+            block.value == suppression.value
+            for suppression, block in SUPPRESSION_BLOCKS.items()
+        )
+
+    def test_the_block_words_are_the_published_contract(self):
+        """Automations compare against these words; renaming one breaks them."""
+        assert [block.value for block in HeatingBlock] == [
+            "devices_released",
+            "startup",
+            "valve_maintenance",
+            "hvac_off",
+            "window",
+            "door",
+            "no_call_for_heat",
+        ]
+
+    def test_the_heating_rung_names_no_block(self):
+        """A room that is heated towards its target is blocked by nothing."""
+        desired, _ = decide(make_snapshot(), make_state())
+        assert desired.trvs
+        assert desired.heating_blocked_by is None
 
 
 class TestLifecycleGate:
