@@ -196,6 +196,17 @@ def _compute_delivered_heat(series: TimeSeries) -> float:
     Each sample holds the rate at the start of its step, which is the rate
     the explicit-Euler plant applies for that whole step, so the sum equals
     the heat the simulator delivered.
+
+    Parameters
+    ----------
+    series : TimeSeries
+        Recorded run whose ``heat_to_room_K_per_min`` samples are summed.
+
+    Returns
+    -------
+    float
+        Heat delivered to the room over the run, as the room-air
+        temperature rise it would cause without losses, in K.
     """
     if len(series.t_s) < 2:
         return 0.0
