@@ -557,9 +557,42 @@ def compute_control_cycle(
     desired, post_state = decide(snapshot, pre_state)
     if commit:
         self.kernel_state = post_state
+        publish_heating_blocked_by(self, desired)
     if record:
         self.flight_recorder.record(snapshot, pre_state, desired)
     return snapshot, desired
+
+
+def publish_heating_blocked_by(self: BetterThermostat, desired: DesiredState) -> None:
+    """Publish the block a decision names, writing the state when it changed.
+
+    The ``heating_blocked_by`` attribute carries the kernel's word for why
+    the room is not heated, never one the shell derives from the inputs.
+    """
+    if desired.heating_blocked_by == self.heating_blocked_by:
+        return
+    self.heating_blocked_by = desired.heating_blocked_by
+    if self.hass is not None:
+        self.async_write_ha_state()
+
+
+def publish_kernel_verdict(self: BetterThermostat) -> None:
+    """Ask the kernel about the room as it is now and publish its block.
+
+    For a change of a cascade input that no control cycle follows: the
+    devices being released, and valve maintenance starting or ending. Like
+    the reconciler's probe it records nothing and commits no region. A
+    failure is logged and leaves the attribute on the last decision, so the
+    caller's own work goes on.
+    """
+    try:
+        _, desired = compute_control_cycle(self, record=False, commit=False)
+        publish_heating_blocked_by(self, desired)
+    except Exception:
+        _LOGGER.exception(
+            "better_thermostat %s: asking the kernel for the heating block failed",
+            self.device_name,
+        )
 
 
 def _reconcile_tolerance(self: BetterThermostat, state: State) -> float:
@@ -1443,8 +1476,7 @@ async def control_queue(self: BetterThermostat) -> None:
                         self.control_cycle_started_monotonic = self.clock.monotonic()
                         pause_changes_before_learners = self.learning_pause_changes
 
-                        # Calculate heating power once per cycle; nothing is
-                        # learned while the devices are released.
+                        # Calculate heating power once per cycle
                         try:
                             await self.calculate_heating_power()
                         except Exception:
@@ -1560,13 +1592,15 @@ async def control_queue(self: BetterThermostat) -> None:
                         # Run all TRV controls in parallel
                         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                        # Every learner has run on this cycle; a pause that
-                        # ended before it is over for the next one. A pause
-                        # that changed while the cycle ran stays held: its
-                        # learners ran before the change, so the next cycle
-                        # is the first to hold after it.
+                        # Every learner has run on this cycle; a pause or a
+                        # release that ended before it is over for the next
+                        # one. One that changed while the cycle ran stays
+                        # held: its learners ran before the change, so the
+                        # next cycle is the first to hold after it.
                         if self.learning_pause_changes == pause_changes_before_learners:
-                            self.learning_held = self.learning_paused
+                            self.learning_held = (
+                                self.learning_paused or self.devices_released
+                            )
 
                         failures: list[tuple[str, BaseException | bool]] = [
                             (controlled_trvs[i], res)

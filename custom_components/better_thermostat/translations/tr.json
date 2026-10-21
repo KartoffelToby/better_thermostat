@@ -400,6 +400,32 @@
     }
   },
   "entity": {
+    "climate": {
+      "better_thermostat": {
+        "state_attributes": {
+          "heating_blocked_by": {
+            "name": "Isıtmayı engelleyen",
+            "state": {
+              "devices_released": "Cihazlar serbest bırakıldı",
+              "startup": "Başlatılıyor",
+              "valve_maintenance": "Vana bakımı",
+              "hvac_off": "Termostat kapalı",
+              "window": "Pencere açık",
+              "door": "Kapı açık",
+              "no_call_for_heat": "Isı talebi yok"
+            }
+          },
+          "active_overrides": {
+            "name": "Etkin geçersiz kılmalar",
+            "state": {
+              "devices_released": "Cihazlar serbest bırakıldı",
+              "learning_paused": "Öğrenme duraklatıldı",
+              "window_detection_off": "Pencere algılama kapalı"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "pid_kp": {
         "name": "{trv_name} PID Kp (oransal)"

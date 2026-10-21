@@ -400,6 +400,32 @@
     }
   },
   "entity": {
+    "climate": {
+      "better_thermostat": {
+        "state_attributes": {
+          "heating_blocked_by": {
+            "name": "Ogrzewanie zablokowane przez",
+            "state": {
+              "devices_released": "Urządzenia zwolnione",
+              "startup": "Uruchamianie",
+              "valve_maintenance": "Konserwacja zaworów",
+              "hvac_off": "Termostat wyłączony",
+              "window": "Okno otwarte",
+              "door": "Drzwi otwarte",
+              "no_call_for_heat": "Brak zapotrzebowania na ciepło"
+            }
+          },
+          "active_overrides": {
+            "name": "Aktywne nadpisania",
+            "state": {
+              "devices_released": "Urządzenia zwolnione",
+              "learning_paused": "Uczenie wstrzymane",
+              "window_detection_off": "Wykrywanie okna wyłączone"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "pid_kp": {
         "name": "{trv_name} PID Kp (proporcjonalny)"

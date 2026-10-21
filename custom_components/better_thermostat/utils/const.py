@@ -131,6 +131,8 @@ ATTR_STATE_ERRORS: Final = "errors"
 ATTR_STATE_BATTERIES: Final = "batteries"
 ATTR_STATE_OFF_TEMPERATURE: Final = "off_temperature"
 ATTR_STATE_LEARNING_PAUSED: Final = "learning_paused"
+ATTR_STATE_HEATING_BLOCKED_BY: Final = "heating_blocked_by"
+ATTR_STATE_ACTIVE_OVERRIDES: Final = "active_overrides"
 ATTR_HEATING_POWER_NORMALIZED: Final = "heating_power_normalized"
 ATTR_PID_ERROR: Final = "pid_error_kelvin"
 ATTR_PID_MEASUREMENT_FILTERED: Final = "pid_measurement_filtered"
@@ -181,6 +183,20 @@ BETTERTHERMOSTAT_RESET_PID_SCHEMA: Final = make_entity_service_schema(
         vol.Optional("defaults_kd"): vol.Coerce(float),
     }
 )
+
+
+class Override(StrEnum):
+    """A switch the user holds away from its default.
+
+    The thermostat lists the ones in effect in its ``active_overrides``
+    attribute, whatever the kernel decides meanwhile, so a switch an
+    automation forgot to turn back does not act unseen. The values are a
+    public contract: automations compare against them.
+    """
+
+    DEVICES_RELEASED = "devices_released"
+    LEARNING_PAUSED = "learning_paused"
+    WINDOW_DETECTION_OFF = "window_detection_off"
 
 
 class CalibrationOutput(StrEnum):
