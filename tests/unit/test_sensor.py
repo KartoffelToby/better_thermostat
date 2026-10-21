@@ -67,6 +67,7 @@ from tests.factories import (
     make_calibration_balance,
     make_entity_registry,
     make_registry_entry,
+    trv_record,
 )
 
 DOMAIN = "better_thermostat"
@@ -137,7 +138,7 @@ def _make_entity_registry():
 def _trvs_in_modes(*modes):
     """Build one real Trv per calibration mode, keyed trv_1, trv_2, ..."""
     return {
-        f"trv_{index}": Trv(
+        f"trv_{index}": trv_record(
             entity_id=f"trv_{index}", advanced={CONF_CALIBRATION_MODE: mode}
         )
         for index, mode in enumerate(modes, start=1)
@@ -451,7 +452,7 @@ class TestMpcSensorState:
 
     def _make_trv_with_debug(self, **debug_values):
         return {
-            "trv_1": Trv(
+            "trv_1": trv_record(
                 entity_id="trv_1",
                 calibration_balance=make_calibration_balance(
                     CalibrationMode.MPC_CALIBRATION, debug_values
@@ -491,7 +492,7 @@ class TestMpcSensorState:
 
     def test_no_calibration_balance_returns_none(self):
         """No calibration balance returns none."""
-        bt = _make_bt_climate(real_trvs={"trv_1": Trv(entity_id="trv_1")})
+        bt = _make_bt_climate(real_trvs={"trv_1": trv_record(entity_id="trv_1")})
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
@@ -507,7 +508,7 @@ class TestMpcSensorState:
         """A PID payload under the same key leaves the sensor empty."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     calibration_balance=make_calibration_balance(
                         CalibrationMode.PID_CALIBRATION, {"mpc_gain": 0.05}
@@ -546,8 +547,8 @@ class TestMpcSensorState:
         """When multiple TRVs exist, the first with debug data should be used."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(entity_id="trv_1"),
-                "trv_2": Trv(
+                "trv_1": trv_record(entity_id="trv_1"),
+                "trv_2": trv_record(
                     entity_id="trv_2",
                     calibration_balance=make_calibration_balance(
                         CalibrationMode.MPC_CALIBRATION, {"mpc_virtual_temp": "23.000"}
@@ -565,7 +566,7 @@ class TestMpcV2SensorState:
 
     @staticmethod
     def _trv(name, controller, **debug):
-        return Trv(
+        return trv_record(
             entity_id=name,
             calibration_balance=make_calibration_balance(controller, debug),
         )
@@ -622,7 +623,7 @@ class TestMpcV2SensorState:
         """Heads without a balance, or on another controller, are passed over."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(entity_id="trv_1"),
+                "trv_1": trv_record(entity_id="trv_1"),
                 "trv_2": self._trv(
                     "trv_2", CalibrationMode.MPC_CALIBRATION, tau_room_min=1.0
                 ),
@@ -648,7 +649,7 @@ class TestPidSensorState:
 
     def _make_trv_with_debug(self, **debug_values):
         return {
-            "trv_1": Trv(
+            "trv_1": trv_record(
                 entity_id="trv_1",
                 calibration_balance=make_calibration_balance(
                     CalibrationMode.PID_CALIBRATION, {"mode": "pid", **debug_values}
@@ -718,7 +719,7 @@ class TestGetActiveAlgorithms:
         """Mpc calibration detected."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION},
                 )
@@ -731,7 +732,7 @@ class TestGetActiveAlgorithms:
         """String values should be auto-converted to CalibrationMode enum."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: "mpc_calibration"},
                 )
@@ -744,7 +745,7 @@ class TestGetActiveAlgorithms:
         """Invalid calibration mode skipped."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: "totally_invalid_mode"},
                 )
@@ -757,11 +758,11 @@ class TestGetActiveAlgorithms:
         """Multiple trvs different modes."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION},
                 ),
-                "trv_2": Trv(
+                "trv_2": trv_record(
                     entity_id="trv_2",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION},
                 ),
@@ -777,7 +778,9 @@ class TestGetActiveAlgorithms:
         """A stored ``None`` runs the default mode, so that mode is active."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(entity_id="trv_1", advanced={CONF_CALIBRATION_MODE: None})
+                "trv_1": trv_record(
+                    entity_id="trv_1", advanced={CONF_CALIBRATION_MODE: None}
+                )
             }
         )
         result = _get_active_algorithms(bt)
@@ -785,7 +788,7 @@ class TestGetActiveAlgorithms:
 
     def test_missing_advanced_key_reports_the_default_mode(self):
         """A TRV without advanced settings runs the default mode."""
-        bt = _make_bt_climate(real_trvs={"trv_1": Trv(entity_id="trv_1")})
+        bt = _make_bt_climate(real_trvs={"trv_1": trv_record(entity_id="trv_1")})
         result = _get_active_algorithms(bt)
         assert result == {DEFAULT_CALIBRATION_MODE}
 
@@ -793,7 +796,7 @@ class TestGetActiveAlgorithms:
         """A mis-cased mode name brings the sensors of the mode the calibration runs."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: "MPC_Calibration"},
                 )
@@ -825,7 +828,7 @@ class TestSetupAlgorithmSensors:
         entry = _make_entry(climate=None)
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION},
                 )
@@ -859,7 +862,7 @@ class TestSetupAlgorithmSensors:
         entry = _make_entry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION},
                 )
@@ -1477,7 +1480,7 @@ class TestCleanupPidNumberEntities:
         tracked.pid_numbers = {"uid_kp": PidNumberRef("trv_1", "kp")}
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT},
                 )
@@ -1496,7 +1499,7 @@ class TestCleanupPidNumberEntities:
         tracked.pid_numbers = {"uid_kp": PidNumberRef("trv_1", "kp")}
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION},
                 )
@@ -1514,7 +1517,7 @@ class TestCleanupPidNumberEntities:
         reg = _make_entity_registry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION},
                 )
@@ -1548,7 +1551,7 @@ class TestCleanupPidNumberEntities:
         reg = _make_entity_registry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1", advanced={CONF_CALIBRATION_MODE: "totally_bogus"}
                 )
             }
@@ -1581,7 +1584,7 @@ class TestCleanupPidSwitchEntities:
         }
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT},
                 )
@@ -1602,7 +1605,7 @@ class TestCleanupPidSwitchEntities:
         tracked.switches = {"uid_lock": SwitchRef("trv_removed", SwitchKind.CHILD_LOCK)}
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT},
                 )
@@ -1621,7 +1624,7 @@ class TestCleanupPidSwitchEntities:
         tracked.switches = {"uid_lock": SwitchRef("trv_1", SwitchKind.CHILD_LOCK)}
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT},
                 )
@@ -1639,7 +1642,7 @@ class TestCleanupPidSwitchEntities:
         reg = _make_entity_registry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION},
                 )
@@ -1726,7 +1729,9 @@ class TestEdgeCasesAndPotentialBugs:
     @pytest.mark.asyncio
     async def test_get_active_algorithms_with_empty_advanced(self):
         """A TRV with empty advanced settings runs the default mode."""
-        bt = _make_bt_climate(real_trvs={"trv_1": Trv(entity_id="trv_1", advanced={})})
+        bt = _make_bt_climate(
+            real_trvs={"trv_1": trv_record(entity_id="trv_1", advanced={})}
+        )
         result = _get_active_algorithms(bt)
         assert result == {DEFAULT_CALIBRATION_MODE}
 

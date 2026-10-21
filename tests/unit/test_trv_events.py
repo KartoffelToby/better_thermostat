@@ -47,7 +47,7 @@ from custom_components.better_thermostat.utils.helpers import (
     SentCommand,
     mode_remap,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 ENTITY_ID = "climate.test_trv"
 PEER_ID = "climate.test_trv_peer"
@@ -117,7 +117,7 @@ def mock_bt():
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
 
     bt.real_trvs = {
-        ENTITY_ID: Trv(
+        ENTITY_ID: trv_record(
             entity_id=ENTITY_ID,
             hvac_mode=HVACMode.HEAT,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
@@ -133,7 +133,6 @@ def mock_bt():
             last_calibration=0.0,
             ignore_trv_states=False,
             model="SomeModel",
-            model_quirks=None,
             hvac_action=HVACAction.HEATING,
             valve_position=50,
             advanced={
@@ -184,7 +183,7 @@ def _add_homematicip_peer(bt):
     Returns the state the peer reports, so a caller can route
     ``hass.states.get`` to the right state per entity.
     """
-    peer = Trv(
+    peer = trv_record(
         entity_id=PEER_ID,
         hvac_mode=HVACMode.HEAT,
         hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
@@ -200,7 +199,6 @@ def _add_homematicip_peer(bt):
         last_calibration=0.0,
         ignore_trv_states=False,
         model="SomeModel",
-        model_quirks=None,
         hvac_action=HVACAction.HEATING,
         valve_position=50,
         advanced={
@@ -3768,7 +3766,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}} for _ in entity_ids]
 
     bt.real_trvs = {
-        eid: Trv(
+        eid: trv_record(
             entity_id=eid,
             hvac_mode=HVACMode.HEAT,
             hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
@@ -3784,7 +3782,6 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
             last_calibration=0.0,
             ignore_trv_states=False,
             model="SomeModel",
-            model_quirks=None,
             hvac_action=HVACAction.HEATING,
             valve_position=50,
             advanced={
@@ -4757,7 +4754,7 @@ class TestInternalRereadAfterTheDebounce:
         trv = self._prepare(
             mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
         )
-        replacement = Trv(entity_id=ENTITY_ID, current_temperature=18.0)
+        replacement = trv_record(entity_id=ENTITY_ID, current_temperature=18.0)
         clock = [self.T0 + timedelta(seconds=1)]
         timers: list[_ArmedTimer] = []
         coro = self._start(mock_bt, trv)

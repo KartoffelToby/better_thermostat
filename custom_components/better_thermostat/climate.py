@@ -1513,32 +1513,18 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         for trv in self.all_trvs:
             _advanced: TrvAdvanced = trv.get("advanced", {})
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
-            # Resolve/refresh model dynamically at startup to ensure correct quirks
-            resolved_model = trv.get("model")
-            try:
-                # prefers state model_id when present
-                detected_model = await get_device_model(
-                    self, trv["trv"], configured_model=self.model
-                )
-                if (
-                    isinstance(detected_model, str)
-                    and detected_model
-                    and detected_model != resolved_model
-                ):
-                    _LOGGER.info(
-                        "better_thermostat %s: detected model '%s' for %s (was '%s' in config), using detected model",
-                        self.device_name,
-                        detected_model,
-                        trv["trv"],
-                        resolved_model,
-                    )
-                    resolved_model = detected_model
-            except (AttributeError, TypeError) as e:
-                _LOGGER.debug(
-                    "better_thermostat %s: get_device_model(%s) failed: %s",
+            # The device registry names the model the quirks are loaded for;
+            # the thermostat's configured model stands in when it names none.
+            resolved_model = await get_device_model(
+                self, trv["trv"], configured_model=self.model
+            )
+            if resolved_model != trv.get("model"):
+                _LOGGER.info(
+                    "better_thermostat %s: detected model '%s' for %s (was '%s' in config), using detected model",
                     self.device_name,
-                    trv.get("trv"),
-                    e,
+                    resolved_model,
+                    trv["trv"],
+                    trv.get("model"),
                 )
             _LOGGER.debug(
                 "better_thermostat %s: loading model quirks: model='%s' trv='%s'",

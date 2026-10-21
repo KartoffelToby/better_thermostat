@@ -17,9 +17,8 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.model_fixes import model_quirks
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils import retry
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 ENTITY_ID = "climate.trv"
 LOGGER = model_quirks.__name__
@@ -32,7 +31,7 @@ SHTRV_01 = importlib.import_module(
 )
 
 
-def _host(model_quirks_module=None, trv_reading=None):
+def _host(model_quirks_module, trv_reading=None):
     """A host whose TRV carries ``model_quirks_module`` and reports ``trv_reading``."""
     host = ThermostatStandIn()
     host.device_name = "Test BT"
@@ -45,7 +44,7 @@ def _host(model_quirks_module=None, trv_reading=None):
     )
     host.hass.states.get = MagicMock(return_value=state)
     host.real_trvs = {
-        ENTITY_ID: Trv(entity_id=ENTITY_ID, model_quirks=model_quirks_module)
+        ENTITY_ID: trv_record(entity_id=ENTITY_ID, model_quirks=model_quirks_module)
     }
     return host
 

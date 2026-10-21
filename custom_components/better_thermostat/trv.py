@@ -142,14 +142,14 @@ class Trv:
     entity_id: str
 
     # -- Static configuration --------------------------------------------
+    model: str
+    adapter: TrvAdapter
+    # The model-quirk module ``load_model_quirks`` imported for the model.
+    model_quirks: ModelQuirks
     integration: str | None = None
-    model: str | None = None
     # What BT writes to calibrate the TRV; None when the configuration
     # selects no calibration type.
     calibration: CalibrationOutput | None = None
-    adapter: TrvAdapter | None = None
-    # The model-quirk module ``load_model_quirks`` imported for the model.
-    model_quirks: ModelQuirks | None = None
     advanced: TrvAdvanced = field(default_factory=TrvAdvanced)
 
     # -- Reported device state -------------------------------------------
@@ -453,18 +453,13 @@ class Trv:
         offset_entity = self.local_temperature_calibration_entity is not None
         valve_entity = bool(self.valve_position_entity and self.valve_position_writable)
 
-        declared = self.adapter.CAPABILITIES if self.adapter is not None else None
-        if declared is None:
-            # A TRV without an adapter: the discovered surface rules.
-            offset_write = offset_entity
-            valve_write = valve_entity
-        else:
-            offset_write = declared.offset_write and (
-                offset_entity or not declared.offset_needs_entity
-            )
-            valve_write = declared.valve_write and (
-                valve_entity or not declared.valve_needs_entity
-            )
+        declared = self.adapter.CAPABILITIES
+        offset_write = declared.offset_write and (
+            offset_entity or not declared.offset_needs_entity
+        )
+        valve_write = declared.valve_write and (
+            valve_entity or not declared.valve_needs_entity
+        )
 
         # An unreported mode list counts as no-off: BT then sends min temperature
         # instead of an OFF the device may not support. The cached list holds
