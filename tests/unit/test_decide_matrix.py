@@ -1,7 +1,8 @@
 """Behaviour matrix for the decision kernel's precedence cascade.
 
-The matrix crosses each input the cascade reads: the lifecycle and
-maintenance gate, the room's HVAC mode, the debounced window and door
+The matrix crosses each input the cascade reads: whether the user has
+released the room's devices, the lifecycle and maintenance gate, the room's
+HVAC mode, the debounced window and door
 regions, the snapshot's heat demand, and boost heating with one reachable
 and one unreachable TRV. Every cell compares the complete
 :class:`DesiredState` that ``decide()`` returns.
@@ -9,7 +10,7 @@ and one unreachable TRV. Every cell compares the complete
 The expected values do not come from a second implementation of the
 cascade. They come from three tables written down as data:
 
-* ``DECISION_TABLE`` holds six rows whose patterns do not overlap, so each
+* ``DECISION_TABLE`` holds seven rows whose patterns do not overlap, so each
   row reads on its own and no row depends on the order of the others.
   ``test_decision_table_covers_each_cell_once`` holds that property.
 * ``ADDRESSED`` says which TRVs receive an intent at all.
@@ -93,6 +94,8 @@ BOOST = {
 
 DEMAND = {"demand": True, "no_demand": False}
 
+RELEASED = {"held": False, "released": True}
+
 # --- Expected-outcome tables -----------------------------------------------
 
 # Which lifecycle and maintenance phases hold control back. A starting
@@ -136,6 +139,7 @@ RELEASE = "release"  # no TRV receives an intent
 class Rule:
     """One row of the decision table: a pattern and the outcome it demands."""
 
+    released: bool | str
     gated: bool | str
     mode: str
     window: str
@@ -145,6 +149,7 @@ class Rule:
     setpoint: float | None
     suppression: Suppression | None
     call_for_heat: bool | str
+    devices_released: bool
 
     def matches(self, cell: Cell) -> bool:
         """Return whether ``cell`` falls under this row's pattern."""
@@ -152,6 +157,7 @@ class Rule:
         return all(
             want in (ANY, have)
             for want, have in (
+                (self.released, RELEASED[cell.released]),
                 (self.gated, GATED[cell.lifecycle, cell.maintenance]),
                 (self.mode, mode),
                 (self.window, cell.window),
@@ -163,13 +169,14 @@ class Rule:
 
 # fmt: off
 DECISION_TABLE = (
-    #     gated  mode     window    door      demand  | trv mode      setpoint  suppression                    call_for_heat
-    Rule(True,  ANY,     ANY,      ANY,      ANY,      RELEASE,      None,     None,                          KEEP),
-    Rule(False, "off",   ANY,      ANY,      ANY,      HvacMode.OFF, None,     None,                          False),
-    Rule(False, "other", "open",   ANY,      ANY,      HvacMode.OFF, None,     Suppression.WINDOW,            KEEP),
-    Rule(False, "other", "closed", "open",   ANY,      HvacMode.OFF, None,     Suppression.DOOR,              KEEP),
-    Rule(False, "other", "closed", "closed", False,    HvacMode.OFF, None,     Suppression.NO_CALL_FOR_HEAT,  False),
-    Rule(False, "other", "closed", "closed", True,     ROOM_MODE,    TARGET,   None,                          True),
+    #     released gated  mode     window    door      demand  | trv mode      setpoint  suppression                    call_for_heat  released
+    Rule(True,     ANY,   ANY,     ANY,      ANY,      ANY,      RELEASE,      None,     None,                          KEEP,          True),
+    Rule(False,    True,  ANY,     ANY,      ANY,      ANY,      RELEASE,      None,     None,                          KEEP,          False),
+    Rule(False,    False, "off",   ANY,      ANY,      ANY,      HvacMode.OFF, None,     None,                          False,         False),
+    Rule(False,    False, "other", "open",   ANY,      ANY,      HvacMode.OFF, None,     Suppression.WINDOW,            KEEP,          False),
+    Rule(False,    False, "other", "closed", "open",   ANY,      HvacMode.OFF, None,     Suppression.DOOR,              KEEP,          False),
+    Rule(False,    False, "other", "closed", "closed", False,    HvacMode.OFF, None,     Suppression.NO_CALL_FOR_HEAT,  False,         False),
+    Rule(False,    False, "other", "closed", "closed", True,     ROOM_MODE,    TARGET,   None,                          True,          False),
 )
 # fmt: on
 
@@ -185,10 +192,15 @@ class Cell:
     door: str
     demand: str
     boost: str
+    released: str = "held"
 
     @property
     def id(self) -> str:
-        """Return the pytest id naming each axis value."""
+        """Return the pytest id naming each axis value.
+
+        A cell whose devices are held carries no release part, so it keeps
+        the id it had before the release axis was added.
+        """
         return "-".join(
             (
                 self.lifecycle,
@@ -198,6 +210,7 @@ class Cell:
                 f"door_{self.door}",
                 self.demand,
                 self.boost,
+                *(() if self.released == "held" else (self.released,)),
             )
         )
 
@@ -207,6 +220,7 @@ class Cell:
             now_monotonic=NOW_MONOTONIC,
             heat_target_temperature=TARGET,
             call_for_heat=DEMAND[self.demand],
+            devices_released=RELEASED[self.released],
             trvs={
                 REACHABLE: TrvReported(entity_id=REACHABLE, available=True),
                 UNREACHABLE: TrvReported(entity_id=UNREACHABLE, available=False),
@@ -233,7 +247,7 @@ def _cells(*, lifecycles: tuple[str, ...]) -> list[Cell]:
     return [
         Cell(*values)
         for values in product(
-            lifecycles, MAINTENANCE, MODES, CONTACT, CONTACT, DEMAND, BOOST
+            lifecycles, MAINTENANCE, MODES, CONTACT, CONTACT, DEMAND, BOOST, RELEASED
         )
     ]
 
@@ -252,7 +266,9 @@ def _expected(cell: Cell) -> DesiredState:
     call_for_heat = demand if rule.call_for_heat == KEEP else rule.call_for_heat
     assert isinstance(call_for_heat, bool)
     if rule.trv_mode == RELEASE:
-        return DesiredState(call_for_heat=call_for_heat)
+        return DesiredState(
+            call_for_heat=call_for_heat, devices_released=rule.devices_released
+        )
     trv_mode = MODES[cell.mode] if rule.trv_mode == ROOM_MODE else rule.trv_mode
     assert isinstance(trv_mode, HvacMode)
     return DesiredState(
