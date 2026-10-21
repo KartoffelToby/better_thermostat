@@ -64,7 +64,7 @@ async def async_setup_entry(
     if not bt_climate:
         return
 
-    switches: list[SwitchEntity] = []
+    switches: list[SwitchEntity] = [BetterThermostatPauseLearningSwitch(bt_climate)]
     switch_unique_ids: dict[str | None, SwitchRef] = {}
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
     for trv_entity_id, trv in bt_climate.real_trvs.items():
@@ -103,6 +103,56 @@ async def async_setup_entry(
     )
     async_normalize_bt_entity_ids(hass, entry, Platform.SWITCH)
     async_add_entities(switches)
+
+
+class BetterThermostatPauseLearningSwitch(FollowsThermostat, SwitchEntity):
+    """Switch that pauses every learner of the thermostat.
+
+    While it is on, nothing the thermostat learns from the room changes and
+    regulation runs on what was learned before. The pause lives on the
+    thermostat, which publishes it as ``learning_paused`` and restores it
+    from its own saved state before its first control cycle, so the switch
+    holds no state of its own and needs no restore.
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_translation_key = "pause_learning"
+
+    def __init__(self, bt_climate: BetterThermostat) -> None:
+        """Initialize the switch."""
+        self._bt_climate = bt_climate
+        self._attr_unique_id = f"{bt_climate.unique_id}_pause_learning"
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        self._follow_thermostat()
+
+    @property
+    @override
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return self._bt_climate.device_info
+
+    @property
+    @override
+    def is_on(self) -> bool:
+        """Return whether learning is paused."""
+        return self._bt_climate.learning_paused
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Pause learning."""
+        self._bt_climate.set_learning_paused(True)
+        self.async_write_ha_state()
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Resume learning."""
+        self._bt_climate.set_learning_paused(False)
+        self.async_write_ha_state()
 
 
 class BetterThermostatPIDAutoTuneSwitch(

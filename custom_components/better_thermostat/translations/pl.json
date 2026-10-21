@@ -507,6 +507,9 @@
       },
       "child_lock_no_trv": {
         "name": "Blokada rodzicielska"
+      },
+      "pause_learning": {
+        "name": "Wstrzymaj uczenie"
       }
     },
     "sensor": {

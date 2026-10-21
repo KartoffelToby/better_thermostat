@@ -151,6 +151,7 @@ def compute_mpc_v2(
         T_outdoor=T_outdoor,
         T_rad=inp.trv_temperature,
         u_max=None if cap_percent is None else cap_percent / 100.0,
+        learning_paused=inp.learning_paused,
     )
 
     # Round half up. The built-in ``round`` is half to even, so it sends every

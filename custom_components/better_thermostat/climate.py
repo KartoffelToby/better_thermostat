@@ -144,6 +144,7 @@ from .utils.const import (
     ATTR_STATE_ERRORS,
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
+    ATTR_STATE_LEARNING_PAUSED,
     ATTR_STATE_MAIN_MODE,
     ATTR_STATE_OFF_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURE,
@@ -1267,6 +1268,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self._loss_tracker = HeatLossTracker()
         # Heat loss tracking (idle cooling rate)
         self.heat_loss_rate = 0.01
+        # Set by the "Pause learning" switch and published as an attribute.
+        self.learning_paused = False
+        # What every learner reads through its inputs: while it is set they
+        # hold what they learned and regulation carries on with the values
+        # held. It turns on with the pause and off at the end of the first
+        # control cycle after it, so no learning interval spans the pause.
+        self.learning_held = False
         self._async_unsub_state_changed: CALLBACK_TYPE | None = None
         # Every configured entity, each once, in the order it was registered;
         # the battery scan visits them in that order.
@@ -2610,6 +2618,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 )
                 if _restored_loss is not None:
                     self.heat_loss_rate = _restored_loss
+            # The pause belongs to the "Pause learning" switch, whose platform
+            # is set up after climate, so it comes back from the thermostat's
+            # own state, before the first control cycle can learn anything.
+            self.learning_paused = (
+                old_state.attributes.get(ATTR_STATE_LEARNING_PAUSED) is True
+            )
+            self.learning_held = self.learning_paused
             _LOGGER.debug(
                 "better_thermostat %s: state restoration completed", self.device_name
             )
@@ -3984,6 +3999,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.clock.utcnow(),
             heat_target_temperature=self.heat_target_temperature,
             outdoor_temperature=outdoor_temperature,
+            learning_paused=self.learning_held,
         )
 
         if result.action_changed:
@@ -4010,6 +4026,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             current_action,
             self.clock.utcnow(),
             window_open=self.contact_open,
+            learning_paused=self.learning_held,
         )
 
         if result.cycle_result is not None:
@@ -4040,6 +4057,34 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 exc_info=True,
             )
         return None
+
+    @callback
+    def set_learning_paused(self, paused: bool) -> None:
+        """Pause or resume learning, and publish the new state.
+
+        The learners hold from now on. They resume at the end of the next
+        control cycle, which is requested here: that cycle still holds and
+        restarts every learning interval, so the first one evaluated after
+        the pause starts after it.
+
+        Parameters
+        ----------
+        paused : bool
+            whether learning is paused
+        """
+        if paused == self.learning_paused:
+            return
+        self.learning_paused = paused
+        if paused:
+            self.learning_held = True
+        else:
+            request_control_cycle(self)
+        _LOGGER.info(
+            "better_thermostat %s: learning %s",
+            self.device_name,
+            "paused" if paused else "resumed",
+        )
+        self.async_write_ha_state()
 
     @property
     def contact_open(self) -> bool:
@@ -4083,6 +4128,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             ATTR_STATE_OFF_TEMPERATURE: self.off_temperature,
             CONF_TOLERANCE: self.tolerance,
+            ATTR_STATE_LEARNING_PAUSED: self.learning_paused,
             # The learned rates carry full precision; they are rounded here,
             # where they are published.
             ATTR_STATE_HEATING_POWER: round(self.heating_power, 4),

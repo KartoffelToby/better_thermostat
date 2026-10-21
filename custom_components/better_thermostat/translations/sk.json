@@ -507,6 +507,9 @@
       },
       "child_lock_no_trv": {
         "name": "Detská poistka"
+      },
+      "pause_learning": {
+        "name": "Pozastaviť učenie"
       }
     },
     "sensor": {

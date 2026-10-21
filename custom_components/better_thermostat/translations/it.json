@@ -507,6 +507,9 @@
       },
       "child_lock_no_trv": {
         "name": "Blocco bambini"
+      },
+      "pause_learning": {
+        "name": "Sospendi apprendimento"
       }
     },
     "sensor": {

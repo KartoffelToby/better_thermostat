@@ -1519,6 +1519,10 @@ async def control_queue(self: BetterThermostat) -> None:
                         # Run all TRV controls in parallel
                         results = await asyncio.gather(*tasks, return_exceptions=True)
 
+                        # Every learner has run on this cycle; a pause that
+                        # ended before it is over for the next one.
+                        self.learning_held = self.learning_paused
+
                         failures: list[tuple[str, BaseException | bool]] = [
                             (controlled_trvs[i], res)
                             for i, res in enumerate(results)
