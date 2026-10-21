@@ -68,6 +68,33 @@ class TestLifecycleGate:
         assert state_after.lifecycle.phase == LifecyclePhase.STARTING
 
 
+class TestReleasedDevices:
+    """While the devices are released, the kernel commands nothing."""
+
+    def test_the_regions_keep_tracking_while_the_devices_are_released(self):
+        """The cycle after the release decides on what holds by then.
+
+        Lifecycle and reachability advance on a released cycle as on any
+        other, so taking the devices back does not start from regions that
+        stood still for the length of the release.
+        """
+        snapshot = make_snapshot(
+            devices_released=True,
+            trvs={"climate.t": TrvReported(entity_id="climate.t", available=False)},
+        )
+        state = make_state(
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING,
+                grace_until=snapshot.now - timedelta(seconds=1),
+            )
+        )
+        desired, state_after = decide(snapshot, state)
+        assert desired.devices_released is True
+        assert dict(desired.trvs) == {}
+        assert state_after.lifecycle.phase == LifecyclePhase.RUNNING
+        assert state_after.reachability["climate.t"].online is False
+
+
 class TestModeOff:
     """OFF mode turns every TRV off."""
 

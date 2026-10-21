@@ -71,12 +71,19 @@ type MaintenanceState = MaintenanceIdle | MaintenanceDue | MaintenanceRunning
 
 
 def evaluate_tick(
-    state: MaintenanceState, now: datetime, *, window_open: bool, has_enabled_trvs: bool
+    state: MaintenanceState,
+    now: datetime,
+    *,
+    window_open: bool,
+    has_enabled_trvs: bool,
+    devices_released: bool = False,
 ) -> MaintenanceState:
     """Advance the region on a scheduler tick.
 
     An open window pushes the schedule out an hour, which terminates
-    because a window closes again. Without any maintenance-enabled TRV
+    because a window closes again. Released devices push it out an hour
+    as well: the exercise writes to them, and they are taken back sooner
+    or later. Without any maintenance-enabled TRV
     the next check moves a week out. Otherwise a due schedule arms DUE.
 
     HVAC mode is deliberately not a postpone reason. A valve held shut
@@ -93,6 +100,8 @@ def evaluate_tick(
         Whether a window is currently open.
     has_enabled_trvs : bool
         Whether any TRV has valve maintenance enabled.
+    devices_released : bool
+        Whether the user has the room's devices released.
 
     Returns
     -------
@@ -103,7 +112,7 @@ def evaluate_tick(
         return state
     if state.next_due is not None and now < state.next_due:
         return state
-    if window_open:
+    if window_open or devices_released:
         return MaintenanceIdle(next_due=now + timedelta(hours=1))
     if not has_enabled_trvs:
         return MaintenanceIdle(next_due=now + timedelta(days=7))

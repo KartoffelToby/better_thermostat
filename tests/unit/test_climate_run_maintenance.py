@@ -296,3 +296,57 @@ async def test_service_reports_a_failed_run(bt, caplog):
     assert failed.value.translation_key == "valve_maintenance_failed"
     assert isinstance(failed.value.__cause__, RuntimeError)
     assert "adapter gone" in caplog.text
+
+
+def _exercise_every_channel():
+    """run_valve_maintenance stand-in that drives each write channel once."""
+
+    async def exercise(
+        infos, *, set_valve_fn, set_temperature_fn, set_hvac_mode_fn, **kwargs
+    ):
+        await set_valve_fn("climate.trv", 100)
+        await set_temperature_fn("climate.trv", 30.0)
+        await set_hvac_mode_fn("climate.trv", HVACMode.HEAT)
+
+    return AsyncMock(side_effect=exercise)
+
+
+@pytest.mark.parametrize(
+    ("released", "writes"),
+    [pytest.param(True, 0, id="released"), pytest.param(False, 1, id="held")],
+)
+@pytest.mark.asyncio
+async def test_a_run_writes_nothing_while_the_devices_are_released(
+    bt, released, writes
+):
+    """A run under way when the devices are released stops writing to them.
+
+    Its restore at the end is a write as well, and the devices are the
+    user's from the release on.
+    """
+    bt.devices_released = released
+    bt._temperature_lock = asyncio.Lock()
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", _exercise_every_channel()),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+        patch(f"{_CLIMATE}.adapter_set_valve", AsyncMock(return_value=True)) as valve,
+        patch(f"{_CLIMATE}.adapter_set_temperature", AsyncMock()) as setpoint,
+        patch(f"{_CLIMATE}.adapter_set_hvac_mode", AsyncMock()) as mode,
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+    assert (valve.await_count, setpoint.await_count, mode.await_count) == (
+        writes,
+        writes,
+        writes,
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_service_refuses_while_the_devices_are_released(bt):
+    """Valve maintenance on demand is refused while the devices are the user's."""
+    bt.devices_released = True
+    bt.in_maintenance = False
+    with pytest.raises(ServiceValidationError) as raised:
+        await BetterThermostat.run_valve_maintenance_service(bt)
+    assert raised.value.translation_key == "devices_released"

@@ -410,3 +410,36 @@ class TestNoQuirkLetsARefusalEscape:
             assert answer is None
         else:
             assert answer is False
+
+
+class TestTheTuyaValveGetsNothingOnceReleased:
+    """TV02-Zigbee pairs each command with its manual preset.
+
+    The devices can be released while the first of the two writes is under
+    way, and the second does not go out then.
+    """
+
+    @pytest.mark.parametrize(
+        ("command", "first_service"),
+        [
+            pytest.param("mode", "set_hvac_mode", id="mode_then_preset"),
+            pytest.param("setpoint", "set_preset_mode", id="preset_then_setpoint"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_second_write_is_not_sent(self, command, first_service):
+        """The write under way completes; the one that would follow it does not."""
+        host = _host(model="TV02-Zigbee")
+
+        async def released_during_the_first(_domain, _service, _data, **_kwargs):
+            host.devices_released = True
+
+        host.hass.services.async_call = AsyncMock(side_effect=released_during_the_first)
+
+        if command == "mode":
+            handled = await TV02.override_set_hvac_mode(host, ENTITY_ID, "heat")
+        else:
+            handled = await TV02.override_set_temperature(host, ENTITY_ID, 21.0)
+
+        assert handled is True
+        assert _services_called(host) == [first_service]

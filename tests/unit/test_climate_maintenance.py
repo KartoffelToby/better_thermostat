@@ -313,3 +313,20 @@ async def test_via_device_binding_skipped_and_cleared_for_multi_trv():
 
     bind.assert_not_awaited()
     unbind.assert_awaited_once_with(bt.hass, "bt_uid", "entry_1")
+
+
+@pytest.mark.asyncio
+async def test_a_due_run_waits_while_the_devices_are_released(bt):
+    """A due exercise is put off while the devices are the user's."""
+    bt.devices_released = True
+    with (
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(
+            f"{_CLIMATE}.collect_maintenance_trvs",
+            MagicMock(return_value=["climate.trv"]),
+        ),
+    ):
+        await BetterThermostat._maintenance_tick(bt)
+    bt._spawn_owned.assert_not_called()
+    assert bt.kernel_state.maintenance.next_due == _NOW + timedelta(hours=1)

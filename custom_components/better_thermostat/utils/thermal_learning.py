@@ -207,13 +207,25 @@ class HeatingPowerTracker:
         *,
         heat_target_temperature: float | None = None,
         outdoor_temperature: float | None = None,
+        learning_paused: bool = False,
     ) -> HeatingPowerUpdate:
-        """Process one temperature reading and return what changed."""
+        """Process one temperature reading and return what changed.
+
+        While ``learning_paused`` is set the reading teaches nothing: a
+        cycle in progress is aborted, no new one starts and the observed
+        target range stays as it is. The action is still tracked, so a
+        cycle that started before the pause and is still heating after it
+        is never evaluated; the next one starts with the next heating start.
+        """
         action_changed = current_action != self._prev_action
+
+        if learning_paused:
+            self.abort_cycle()
 
         # --- Transition: heating starts ---
         if (
-            current_action == HVACAction.HEATING
+            not learning_paused
+            and current_action == HVACAction.HEATING
             and self._prev_action != HVACAction.HEATING
         ):
             self.start = Reading(room_temperature, now)
@@ -246,7 +258,7 @@ class HeatingPowerTracker:
         )
 
         # --- Dynamic target range ---
-        if heat_target_temperature is not None:
+        if heat_target_temperature is not None and not learning_paused:
             self.min_target = min(self.min_target, heat_target_temperature)
             self.max_target = max(self.max_target, heat_target_temperature)
 
@@ -424,8 +436,14 @@ class HeatLossTracker:
         now: datetime,
         *,
         window_open: bool = False,
+        learning_paused: bool = False,
     ) -> HeatLossUpdate:
-        """Process one temperature reading and return what changed."""
+        """Process one temperature reading and return what changed.
+
+        While ``learning_paused`` is set the idle stretch in progress is
+        dropped as it is for an open window, so a stretch that straddles
+        the pause is never evaluated.
+        """
         # The first reading without cooling is the cycle that switches the
         # cooler off, so the settle window starts there.
         if (
@@ -436,7 +454,7 @@ class HeatLossTracker:
 
         # An open window or a running cooler drives the drop, so the stretch
         # it covers says nothing about passive heat loss: reset tracking.
-        if window_open or current_action == HVACAction.COOLING:
+        if window_open or learning_paused or current_action == HVACAction.COOLING:
             self.start = None
             self.end = None
             self._prev_action = current_action
@@ -462,6 +480,14 @@ class HeatLossTracker:
 
         self._prev_action = current_action
         return HeatLossUpdate(cycle_result=cycle_result)
+
+    def abort_cycle(self) -> None:
+        """Give up on the idle stretch being followed, so that it teaches nothing.
+
+        The next stretch starts with the next reading that is not heating.
+        """
+        self.start = None
+        self.end = None
 
     # Internals
 
