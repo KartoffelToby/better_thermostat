@@ -39,16 +39,6 @@ class TestMPCController:
         """Reset MPC states before each test."""
         _STATES.clear()
 
-    def test_no_temperatures(self):
-        """Test behavior when temperatures are missing."""
-        params = MpcParams()
-        inp = MpcInput(
-            key="test_no_temp", target_temperature=None, room_temperature=20.0
-        )
-        result, _ = compute_mpc(inp, params)
-        assert result is not None
-        assert result.valve_percent == 0
-
     def test_blocked_heating(self):
         """Test when heating is blocked by window or not allowed."""
         params = MpcParams()

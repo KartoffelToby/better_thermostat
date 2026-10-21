@@ -1,7 +1,7 @@
 """Per-TRV domain object.
 
 A :class:`Trv` bundles everything Better Thermostat knows about one
-thermostatic radiator valve: static configuration (integration, model,
+thermostatic radiator valve: static configuration (model,
 adapter, quirks), reported device state, and the write-tracking flags
 the control loop maintains. The entries of ``real_trvs`` are
 instances of this class, accessed via typed attributes.
@@ -145,14 +145,13 @@ class Trv:
     entity_id: str
 
     # -- Static configuration --------------------------------------------
-    integration: str | None = None
-    model: str | None = None
+    model: str
+    adapter: TrvAdapter
+    # The model-quirk module ``load_model_quirks`` imported for the model.
+    model_quirks: ModelQuirks
     # What BT writes to calibrate the TRV; None when the configuration
     # selects no calibration type.
     calibration: CalibrationOutput | None = None
-    adapter: TrvAdapter | None = None
-    # The model-quirk module ``load_model_quirks`` imported for the model.
-    model_quirks: ModelQuirks | None = None
     advanced: TrvAdvanced = field(default_factory=TrvAdvanced)
 
     # -- Reported device state -------------------------------------------
@@ -232,7 +231,6 @@ class Trv:
     # Whether that report is raised: the TRV is listed in the thermostat's
     # errors and carries a repair issue.
     setpoint_unapplied_reported: bool = False
-    last_valve_position: float | None = None
     last_hvac_mode: str | None = None
     # A mode command still on the wire that the room took back before the
     # device confirmed it. The device already held the mode the room wanted
@@ -263,7 +261,6 @@ class Trv:
     # hides the turn from the state the end of the cycle reads, so the turn
     # is read first.
     held_turn: tuple[State, State] | None = None
-    last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually put on the
     # wire, after its own clamp to the device's declared offset range;
     # ``last_calibration_requested`` is the value asked for before that
@@ -456,18 +453,13 @@ class Trv:
         offset_entity = self.local_temperature_calibration_entity is not None
         valve_entity = bool(self.valve_position_entity and self.valve_position_writable)
 
-        declared = self.adapter.CAPABILITIES if self.adapter is not None else None
-        if declared is None:
-            # A TRV without an adapter: the discovered surface rules.
-            offset_write = offset_entity
-            valve_write = valve_entity
-        else:
-            offset_write = declared.offset_write and (
-                offset_entity or not declared.offset_needs_entity
-            )
-            valve_write = declared.valve_write and (
-                valve_entity or not declared.valve_needs_entity
-            )
+        declared = self.adapter.CAPABILITIES
+        offset_write = declared.offset_write and (
+            offset_entity or not declared.offset_needs_entity
+        )
+        valve_write = declared.valve_write and (
+            valve_entity or not declared.valve_needs_entity
+        )
 
         # An unreported mode list counts as no-off: BT then sends min temperature
         # instead of an OFF the device may not support. The cached list holds

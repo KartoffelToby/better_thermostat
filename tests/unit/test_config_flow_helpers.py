@@ -10,7 +10,7 @@ the value the current flow would have stored.
 from collections.abc import Mapping
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.const import CONF_NAME
+from homeassistant.const import CONF_NAME, UnitOfTemperature
 import pytest
 
 from custom_components.better_thermostat.adapters.base import DeviceChannels
@@ -98,6 +98,7 @@ def _offered_calibration_mode(stored):
         default_calibration=CalibrationOutput.TARGET_TEMP_BASED,
         homematic=False,
         has_auto=False,
+        system_unit=UnitOfTemperature.CELSIUS,
     )
     return next(
         marker.default() for marker in fields if marker == CONF_CALIBRATION_MODE
@@ -229,7 +230,10 @@ def _submission(**overrides):
 )
 def test_the_thermostats_come_out_as_a_list_of_entity_ids(heaters, expected):
     normalized = _normalize_user_submission(
-        _submission(**{CONF_THERMOSTAT: heaters}), mode="create", base=None
+        _submission(**{CONF_THERMOSTAT: heaters}),
+        mode="create",
+        base=None,
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert normalized[CONF_THERMOSTAT] == expected
@@ -254,6 +258,7 @@ def test_a_missing_range_bound_is_stored_as_auto(bound):
         _submission(**{CONF_TARGET_TEMP_MIN: bound, CONF_TARGET_TEMP_MAX: bound}),
         mode="create",
         base=None,
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert normalized[CONF_TARGET_TEMP_MIN] == TARGET_TEMP_BOUND_AUTO
@@ -345,6 +350,7 @@ def test_a_range_bound_that_is_not_a_number_raises_no_range_error():
         mode="create",
         base=None,
         errors=errors,
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert errors == {}
@@ -372,12 +378,18 @@ def test_a_choice_that_is_not_a_scalar_takes_its_default():
 
 def test_a_preset_list_keeps_only_preset_names():
     normalized = _normalize_user_submission(
-        _submission(presets=["eco", 3]), mode="update", base=None
+        _submission(presets=["eco", 3]),
+        mode="update",
+        base=None,
+        system_unit=UnitOfTemperature.CELSIUS,
     )
     assert normalized["presets"] == ["eco"]
 
     normalized = _normalize_user_submission(
-        _submission(presets="eco"), mode="update", base=None
+        _submission(presets="eco"),
+        mode="update",
+        base=None,
+        system_unit=UnitOfTemperature.CELSIUS,
     )
     assert normalized["presets"] is None
 

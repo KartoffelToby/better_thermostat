@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 
+from homeassistant.const import UnitOfTemperature
 import pytest
 import yaml
 
@@ -364,12 +365,21 @@ def _published_form_fields() -> dict[tuple[str, str], set[str]]:
             homematic=True,
             has_auto=True,
             channels=DeviceChannels(offset_write=True, valve_write=True),
+            system_unit=UnitOfTemperature.CELSIUS,
         )
     )
     return {
-        ("config", "user"): keys(_build_user_fields(mode="create", current={})),
+        ("config", "user"): keys(
+            _build_user_fields(
+                mode="create", current={}, system_unit=UnitOfTemperature.CELSIUS
+            )
+        ),
         ("config", "advanced"): advanced,
-        ("options", "user"): keys(_build_user_fields(mode="update", current={})),
+        ("options", "user"): keys(
+            _build_user_fields(
+                mode="update", current={}, system_unit=UnitOfTemperature.CELSIUS
+            )
+        ),
         ("options", "advanced"): advanced,
     }
 

@@ -34,9 +34,16 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.model_fixes import SPZB0001, ZWA021
-from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.const import CalibrationOutput
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from custom_components.better_thermostat.utils.const import (
+    GENERIC_MODEL,
+    CalibrationOutput,
+)
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 # The device name carries a hyphen, so the module is reached by name.
 TV02 = import_module("custom_components.better_thermostat.model_fixes.TV02-Zigbee")
@@ -59,7 +66,7 @@ REFUSALS = [
 REFUSAL_IDS = ["unreachable", "unsupported", "transport"]
 
 
-def _host(state=None, model=None, advanced=None):
+def _host(state=None, model=GENERIC_MODEL, advanced=None):
     """A Better Thermostat stand-in whose every service call is refused."""
     host = ThermostatStandIn()
     host.device_name = "Test BT"
@@ -69,7 +76,7 @@ def _host(state=None, model=None, advanced=None):
     host.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     host.hass.states.get.return_value = state
     host.hass.services.async_call = AsyncMock()
-    trv = Trv(entity_id=ENTITY_ID)
+    trv = trv_record(entity_id=ENTITY_ID)
     trv.model = model
     if advanced is not None:
         trv.advanced = advanced

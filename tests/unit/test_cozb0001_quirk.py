@@ -18,12 +18,11 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     local_calibration_shifts_setpoint,
 )
 from custom_components.better_thermostat.model_fixes.types import ModelQuirks
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_PROTECT_OVERHEATING,
     CalibrationMode,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 ENTITY_ID = "climate.comet"
 ROOM = 20.0
@@ -35,7 +34,7 @@ def _host(
     step: float = 0.1,
     protect_overheating: bool = False,
     mode: CalibrationMode = CalibrationMode.DEFAULT,
-    quirks: ModelQuirks | None = COZB0001,
+    quirks: ModelQuirks = COZB0001,
 ) -> ThermostatStandIn:
     bt = ThermostatStandIn()
     bt.kernel_state = make_state()
@@ -45,9 +44,9 @@ def _host(
     bt.attr_hvac_action = None
     bt.hvac_action = None
     bt.room_temperature = ROOM
-    bt.heat_target_temperature = None
+    bt.heat_target_temperature = ROOM
     bt.real_trvs = {
-        ENTITY_ID: Trv(
+        ENTITY_ID: trv_record(
             entity_id=ENTITY_ID,
             advanced={
                 "calibration_mode": mode,
@@ -84,10 +83,6 @@ class TestTheCometIsDeclaredASetpointShifter:
 
     def test_a_module_without_the_answer_offsets_its_reading(self):
         bt = _host(quirks=default)
-        assert local_calibration_shifts_setpoint(bt, ENTITY_ID) is False
-
-    def test_a_trv_without_a_loaded_module_offsets_its_reading(self):
-        bt = _host(quirks=None)
         assert local_calibration_shifts_setpoint(bt, ENTITY_ID) is False
 
 

@@ -23,13 +23,12 @@ from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
 from custom_components.better_thermostat.core.recorder import FlightRecorder
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import control_queue
 from custom_components.better_thermostat.utils.retry import (
     CommandCancelledError,
     command_cancellation_as_disconnect,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 ENTITY_ID = "climate.trv"
@@ -84,7 +83,7 @@ async def test_a_trv_write_the_library_cancelled_is_retried_and_fails_cleanly():
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.hass = MagicMock()
-    trv = Trv(entity_id=ENTITY_ID)
+    trv = trv_record(entity_id=ENTITY_ID)
     trv.adapter = MagicMock()
     trv.adapter.set_calibration_offset = AsyncMock(
         side_effect=_cancelled_by_the_library
@@ -136,7 +135,7 @@ def _room() -> ThermostatStandIn:
     bt.startup_running = False
     bt.calculate_heating_power = AsyncMock()
     bt.cooler_entity_id = None
-    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}
+    bt.real_trvs = {ENTITY_ID: trv_record(entity_id=ENTITY_ID)}
     return bt
 
 
@@ -219,7 +218,7 @@ async def test_a_tweak_the_library_cancelled_fails_that_trv_not_the_startup():
     bt.heat_target_temperature = 21.0
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.context = MagicMock()
-    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, calibration=None)}
+    bt.real_trvs = {ENTITY_ID: trv_record(entity_id=ENTITY_ID, calibration=None)}
 
     with (
         patch("custom_components.better_thermostat.climate.init", autospec=True),

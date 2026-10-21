@@ -47,6 +47,7 @@ from custom_components.better_thermostat.utils.state_manager import (
     _serialize,
     deserialize_mpc_v2_reid,
 )
+from tests.factories import trv_record
 
 _REID = MpcV2ReidData(
     tau_room_minutes=240.0,
@@ -147,7 +148,7 @@ def test_deserialize_rejects_malformed_reid_payload() -> None:
 
 def _make_trv(entity_id: str, preset: StoredChoice) -> Trv:
     """Build a Trv configured for MPC v2 calibration with a given preset."""
-    return Trv(
+    return trv_record(
         entity_id=entity_id,
         current_temperature=19.0,
         valve_max_opening=100.0,
@@ -159,7 +160,6 @@ def _make_trv(entity_id: str, preset: StoredChoice) -> Trv:
         valve_position_writable=True,
         valve_position_entity="number.trv_valve",
         max_temp=30.0,
-        model_quirks=None,
     )
 
 

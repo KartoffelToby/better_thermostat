@@ -81,16 +81,6 @@ class TpiAdapter:
         finally:
             self._restore_time()
 
-        if out is None:
-            # ``compute_tpi``'s contract allows None (no recommendation);
-            # production then skips the TPI result for this cycle. The
-            # benchmark has no fallback controller, so map it to a zero
-            # duty cycle — the same floor the window-open path emits.
-            return BenchmarkOutput(
-                duty_cycle_percent=0.0,
-                valve_percent=0.0,
-                diagnostics={"early_exit": True},
-            )
         return BenchmarkOutput(
             duty_cycle_percent=float(out.duty_cycle_percent),
             valve_percent=float(out.duty_cycle_percent),

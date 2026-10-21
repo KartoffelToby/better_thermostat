@@ -14,12 +14,12 @@ from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import WorldSnapshot
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import control_queue
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 
 def _tracked_trv(entity_id: str) -> Trv:
     """Build the record the entity keeps for one controlled TRV."""
-    return Trv(entity_id=entity_id)
+    return trv_record(entity_id=entity_id)
 
 
 def _thermostat() -> ThermostatStandIn:

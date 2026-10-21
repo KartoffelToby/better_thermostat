@@ -6,7 +6,7 @@ the key from the submitted ``user_input``. The normalized result must then
 drop the previously stored value instead of silently keeping it.
 """
 
-from homeassistant.const import CONF_NAME
+from homeassistant.const import CONF_NAME, UnitOfTemperature
 
 from custom_components.better_thermostat.config_flow import (
     _build_user_fields,
@@ -40,7 +40,10 @@ def test_cooler_removed_when_key_absent_from_input():
     }
 
     normalized = _normalize_user_submission(
-        user_input, mode="update", base=_base_with_cooler()
+        user_input,
+        mode="update",
+        base=_base_with_cooler(),
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert normalized[CONF_COOLER] is None
@@ -57,7 +60,10 @@ def test_cooler_removed_when_input_empty():
         }
 
         normalized = _normalize_user_submission(
-            user_input, mode="update", base=_base_with_cooler()
+            user_input,
+            mode="update",
+            base=_base_with_cooler(),
+            system_unit=UnitOfTemperature.CELSIUS,
         )
 
         assert normalized[CONF_COOLER] is None
@@ -73,7 +79,10 @@ def test_cooler_retained_when_present_in_input():
     }
 
     normalized = _normalize_user_submission(
-        user_input, mode="update", base={CONF_COOLER: "climate.old_ac"}
+        user_input,
+        mode="update",
+        base={CONF_COOLER: "climate.old_ac"},
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert normalized[CONF_COOLER] == "climate.ac"
@@ -89,7 +98,10 @@ def test_cooler_updated_to_different_entity():
     }
 
     normalized = _normalize_user_submission(
-        user_input, mode="update", base=_base_with_cooler()
+        user_input,
+        mode="update",
+        base=_base_with_cooler(),
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert normalized[CONF_COOLER] == "climate.new_ac"
@@ -108,7 +120,9 @@ def test_door_sensor_removed_when_key_absent_from_input():
         CONF_THERMOSTAT: ["climate.trv"],
         CONF_TEMPERATURE_SENSOR: "sensor.temp",
     }
-    normalized = _normalize_user_submission(user_input, mode="update", base=base)
+    normalized = _normalize_user_submission(
+        user_input, mode="update", base=base, system_unit=UnitOfTemperature.CELSIUS
+    )
     assert normalized[CONF_DOOR_SENSORS] is None
 
 
@@ -121,7 +135,9 @@ def test_door_timeouts_normalized_from_duration_dicts():
         CONF_DOOR_OFF_DELAY: {"hours": 0, "minutes": 5, "seconds": 0},
         CONF_DOOR_OFF_DELAY_AFTER: {"hours": 0, "minutes": 0, "seconds": 30},
     }
-    normalized = _normalize_user_submission(user_input, mode="create")
+    normalized = _normalize_user_submission(
+        user_input, mode="create", system_unit=UnitOfTemperature.CELSIUS
+    )
     assert normalized[CONF_DOOR_OFF_DELAY] == 300
     assert normalized[CONF_DOOR_OFF_DELAY_AFTER] == 30
 
@@ -133,7 +149,9 @@ def test_door_timeouts_default_to_zero_on_create():
         CONF_THERMOSTAT: ["climate.trv"],
         CONF_TEMPERATURE_SENSOR: "sensor.temp",
     }
-    normalized = _normalize_user_submission(user_input, mode="create")
+    normalized = _normalize_user_submission(
+        user_input, mode="create", system_unit=UnitOfTemperature.CELSIUS
+    )
     assert normalized[CONF_DOOR_OFF_DELAY] == 0
     assert normalized[CONF_DOOR_OFF_DELAY_AFTER] == 0
 
@@ -147,7 +165,9 @@ def test_heaters_are_preserved_when_the_form_is_redisplayed():
     error message they were supposed to correct.
     """
     fields = _build_user_fields(
-        mode="create", current={CONF_THERMOSTAT: ["climate.trv", "climate.trv_2"]}
+        mode="create",
+        current={CONF_THERMOSTAT: ["climate.trv", "climate.trv_2"]},
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     heater_marker = next(marker for marker in fields if marker == CONF_THERMOSTAT)
