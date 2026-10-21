@@ -24,7 +24,7 @@ The **Pause Learning** switch stops that. You decide in Home Assistant when the 
 - Nothing learned changes. The learned heating power and heat loss stay as they are, the PID controller neither changes its gains nor lets its integral grow, and MPC Predictive and MPC v2 hold what they learned about the room.
 - A heating cycle or an idle period that is running when the switch turns on is discarded, not evaluated, the same way an open window discards it.
 
-When the switch turns off, Better Thermostat runs one more control cycle right away, still without learning, and every learner starts its next interval from that cycle. Learning then resumes from the values held. Nothing that happened during the pause is caught up, and no measurement from before or during the pause is compared with one after it.
+When the switch turns off, Better Thermostat runs one more control cycle right away, still without learning, and every learner starts its next interval from that cycle. Learning then resumes from the values held. Nothing that happened during the pause is caught up, and no learning interval spans the pause.
 
 The thermostat shows the pause too. Its `learning_paused` attribute is `true` while the switch is on, which you can read in **Developer Tools → States** or use in a template. The switch keeps its state across a restart of Home Assistant.
 
