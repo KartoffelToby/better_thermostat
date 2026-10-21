@@ -19,6 +19,7 @@ from . import schedules
 from .actuator import ActuatorParams, ActuatorProfile
 from .plant import (
     PROFILE_BOILER_LIMITED,
+    PROFILE_COLD_CLIMATE,
     PROFILE_STANDARD,
     PROFILE_UNDERFLOOR,
     PlantParams,
@@ -498,7 +499,9 @@ def _build_synthetic_weather_scenario(
         ),
         duration_minutes=duration_h * 60,
         initial=InitialConditions(T_room=setpoint, T_rad=setpoint + 8.0),
-        plant=PROFILE_STANDARD,
+        # The winter slices reach about -15 °C, so the radiator is sized
+        # for that design temperature.
+        plant=PROFILE_COLD_CLIMATE,
         setpoint_schedule=schedules.constant(setpoint),
         outdoor_schedule=outdoor,
         solar_intensity_schedule=solar,
