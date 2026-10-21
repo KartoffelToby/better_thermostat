@@ -481,6 +481,14 @@ class HeatLossTracker:
         self._prev_action = current_action
         return HeatLossUpdate(cycle_result=cycle_result)
 
+    def abort_cycle(self) -> None:
+        """Give up on the idle stretch being followed, so that it teaches nothing.
+
+        The next stretch starts with the next reading that is not heating.
+        """
+        self.start = None
+        self.end = None
+
     # Internals
 
     def _finalize(self) -> CycleResult:

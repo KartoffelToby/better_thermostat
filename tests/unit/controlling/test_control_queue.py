@@ -9,6 +9,7 @@ import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
+from custom_components.better_thermostat.core.desired import DesiredState
 from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import WorldSnapshot
 from custom_components.better_thermostat.trv import Trv
@@ -503,7 +504,10 @@ class TestControlQueueOnADualRoleEntity:
         None
         """
         await mock_self.control_queue_task.put(mock_self)
-        with patch(f"{cls._CTRL}.compute_control_cycle", return_value=(Mock(), Mock())):
+        with patch(
+            f"{cls._CTRL}.compute_control_cycle",
+            return_value=(Mock(), DesiredState(call_for_heat=True)),
+        ):
             queue_task = asyncio.create_task(control_queue(mock_self))
             try:
                 if until is None:
@@ -702,3 +706,97 @@ class TestControlQueueOnADualRoleEntity:
             await self._run_one_cycle(mock_self)
 
         assert mock_self.kernel_state.last_control_monotonic == 1234.0
+
+
+class TestControlQueueWithReleasedDevices:
+    """A cycle while the devices are released commands none of them."""
+
+    TRV_ID = "climate.radiator"
+    COOLER_ID = "climate.air_conditioner"
+    _CTRL = "custom_components.better_thermostat.utils.controlling"
+
+    @classmethod
+    def _make_self(cls, *, released: bool) -> ThermostatStandIn:
+        mock_self = _thermostat()
+        mock_self.device_name = "test_thermostat"
+        mock_self.in_maintenance = False
+        mock_self.ignore_states = False
+        mock_self.startup_running = False
+        mock_self.calculate_heating_power = AsyncMock()
+        mock_self.cooler_entity_id = cls.COOLER_ID
+        mock_self.real_trvs = {cls.TRV_ID: _tracked_trv(cls.TRV_ID)}
+        mock_self.devices_released = released
+        mock_self.control_queue_task = asyncio.Queue()
+        return mock_self
+
+    @classmethod
+    async def _run_one_cycle(cls, mock_self, cycle):
+        """Run one queued cycle on ``cycle`` and return what it dispatched.
+
+        The cooler and TRV controls, the mode cache refresh and the heating
+        action advance come back as the mocks that stood in for them.
+        """
+        await mock_self.control_queue_task.put(mock_self)
+        with (
+            patch(f"{cls._CTRL}.compute_control_cycle", return_value=cycle),
+            patch(f"{cls._CTRL}.control_cooler", new=AsyncMock()) as control_cooler,
+            patch(
+                f"{cls._CTRL}.control_trv", new=AsyncMock(return_value=True)
+            ) as control_trv,
+            patch(f"{cls._CTRL}.refresh_cached_trv_modes") as refresh_modes,
+            patch(f"{cls._CTRL}.advance_hvac_action") as advance_action,
+        ):
+            queue_task = asyncio.create_task(control_queue(mock_self))
+            try:
+                await asyncio.wait_for(mock_self.control_queue_task.join(), timeout=5)
+            finally:
+                queue_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await queue_task
+        return control_cooler, control_trv, refresh_modes, advance_action
+
+    @pytest.mark.asyncio
+    async def test_a_released_cycle_commands_neither_the_cooler_nor_a_trv(self):
+        """The kernel's release reaches no device, and the cycle still counts.
+
+        The mode caches are left as the devices report them: the cycle
+        commanded nothing they could be waiting for. The room's own heating
+        action advances as in any cycle, so it does not stand still on what
+        it showed when the devices were released.
+        """
+        mock_self = self._make_self(released=True)
+        mock_self.clock.advance(10.0)
+
+        cooler, trv, refresh_modes, advance_action = await self._run_one_cycle(
+            mock_self, (Mock(), DesiredState(call_for_heat=True, devices_released=True))
+        )
+
+        cooler.assert_not_awaited()
+        trv.assert_not_awaited()
+        refresh_modes.assert_not_called()
+        advance_action.assert_called_once_with(mock_self)
+        assert mock_self.kernel_state.last_control_monotonic == 10.0
+        assert mock_self.ignore_states is False
+
+    @pytest.mark.asyncio
+    async def test_without_a_decision_the_release_still_holds(self):
+        """A cycle whose decision failed falls back on the room's own flag."""
+        mock_self = self._make_self(released=True)
+
+        cooler, trv, _, _ = await self._run_one_cycle(mock_self, None)
+
+        cooler.assert_not_awaited()
+        trv.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_held_cycle_commands_the_cooler_and_the_trvs(self):
+        """The counterpart: held devices are commanded."""
+        mock_self = self._make_self(released=False)
+
+        cooler, trv, refresh_modes, _ = await self._run_one_cycle(
+            mock_self, (Mock(), DesiredState(call_for_heat=True))
+        )
+
+        cooler.assert_awaited_once()
+        trv.assert_awaited_once()
+        refresh_modes.assert_called_once()

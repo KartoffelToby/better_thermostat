@@ -24,12 +24,10 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     _detect_regime_change,
     _detect_trv_profile,
     _MpcState,
-    _parse_bucket,
     _post_process_percent,
     _room_rise_over,
     _round_for_debug,
     _seed_state_from_siblings,
-    _split_mpc_key,
     _update_perf_curve,
     build_mpc_group_key,
     build_mpc_key,
@@ -205,36 +203,6 @@ class TestRoundForDebug:
     def test_handles_negative(self):
         """Test rounding negative floats (Python banker's rounding)."""
         assert _round_for_debug(-1.2345, 3) == -1.234
-
-
-class TestSplitMpcKey:
-    """Tests for _split_mpc_key."""
-
-    def test_valid_key(self):
-        """Test splitting a valid three-part MPC key."""
-        parts = _split_mpc_key("abc:climate.trv:t22.0")
-        assert parts is not None
-        uid, entity, bucket = parts
-        assert uid == "abc"
-        assert entity == "climate.trv"
-        assert bucket == "t22.0"
-
-    def test_invalid_key_no_colons(self):
-        """Test that a key without colons returns None."""
-        assert _split_mpc_key("nocolons") is None
-
-    def test_key_with_one_colon(self):
-        """Test that a key with only one colon returns None."""
-        assert _split_mpc_key("one:two") is None
-
-    def test_key_with_extra_colons(self):
-        """Test that extra colons are kept in the bucket part."""
-        parts = _split_mpc_key("a:b:c:d:e")
-        assert parts is not None
-        uid, entity, bucket = parts
-        assert uid == "a"
-        assert entity == "b"
-        assert bucket == "c:d:e"
 
 
 class TestCurveBinLabel:
@@ -2914,15 +2882,6 @@ class TestFinalMinimumOpeningClamp:
 
 class TestUnparseableTargetBuckets:
     """Sibling seeding with keys whose target bucket is not a number."""
-
-    @pytest.mark.parametrize("bucket", [None, "", "x21.0", "tunknown"])
-    def test_bucket_without_a_number_parses_to_none(self, bucket):
-        """Only a ``t`` followed by a number is a target bucket."""
-        assert _parse_bucket(bucket) is None
-
-    def test_bucket_with_a_number_parses(self):
-        """``t21.5`` is the 21.5 °C bucket."""
-        assert _parse_bucket("t21.5") == 21.5
 
     def test_unknown_own_bucket_still_seeds_from_a_sibling(self):
         """A state keyed under an unknown target seeds from a numbered sibling."""

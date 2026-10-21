@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
+import contextlib
 from dataclasses import dataclass
 from datetime import datetime
 import logging
@@ -22,6 +23,7 @@ from custom_components.better_thermostat.utils.helpers import (
 from ..model_fixes.types import ValveChannelQuirk, ValveQuirk
 from ..utils.retry import (
     DeviceCallTimeoutError,
+    WriteWithheldError,
     async_retry,
     command_cancellation_as_disconnect,
     device_call_deadline,
@@ -239,6 +241,9 @@ async def set_temperature(
     ``float()`` takes them, rounding carries them through, and the clamp
     turns them into a bound — a NaN target would reach the device as its
     maximum setpoint.
+
+    A setpoint withheld because the devices were released while it waited
+    for an attempt is not sent, and is no failure either.
     """
     # Normalize input to float early
     t: float | None = None
@@ -278,14 +283,15 @@ async def set_temperature(
     # went out must not claim.
     self.real_trvs[entity_id].commanded_setpoint = rounded
 
-    await _write_on_channel(
-        self,
-        entity_id,
-        "temperature",
-        f"setpoint {rounded}",
-        _adapter(self, entity_id).set_temperature,
-        rounded,
-    )
+    with contextlib.suppress(WriteWithheldError):
+        await _write_on_channel(
+            self,
+            entity_id,
+            "temperature",
+            f"setpoint {rounded}",
+            _adapter(self, entity_id).set_temperature,
+            rounded,
+        )
 
 
 def _onto_device_grid(
@@ -433,6 +439,11 @@ async def _write_on_channel[H: AdapterHost, T, R](
     return. The outage is named at WARNING when it begins, once an hour
     while it lasts, and at INFO when it ends.
 
+    No attempt starts once the devices are released, so a retry still due
+    then, and a write that follows another one inside an adapter, is not
+    sent; the write raises :class:`WriteWithheldError` instead and leaves
+    the channel's reachability as it was.
+
     Each attempt is bounded by ``DEVICE_CALL_TIMEOUT_S``. A write that does
     not return by then is cancelled and fails like one that raised, without
     the rest of the retry chain: the device did not answer, and the room has
@@ -461,6 +472,8 @@ async def _write_on_channel[H: AdapterHost, T, R](
 
     Raises
     ------
+    WriteWithheldError
+        When the devices are released before an attempt
     Exception
         The write's own exception, once the attempts it gets are spent
     """
@@ -469,6 +482,16 @@ async def _write_on_channel[H: AdapterHost, T, R](
     outage = outages.get(channel)
 
     async def write_to_device(host: H, target: str, payload: T) -> R:
+        # Every attempt asks: a retry, or the next valve channel, is a new
+        # write, and none goes out once the devices are the user's.
+        if host.devices_released:
+            _LOGGER.debug(
+                "better_thermostat %s: devices released, %s for %s not sent",
+                device_name,
+                what,
+                target,
+            )
+            raise WriteWithheldError(what)
         async with device_call_deadline():
             with command_cancellation_as_disconnect():
                 return await write(host, target, payload)
@@ -482,6 +505,8 @@ async def _write_on_channel[H: AdapterHost, T, R](
     )
     try:
         answer = await attempt(self, entity_id, value)
+    except WriteWithheldError:
+        raise
     except Exception:
         now = time.monotonic()
         if outage is None:

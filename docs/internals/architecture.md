@@ -87,6 +87,8 @@ wins:
 
 ```mermaid
 flowchart TD
+    R{Devices released?} -->|yes| R1[No intents, released]
+    R -->|no| A
     A{Startup or maintenance running?} -->|yes| A1[No intents]
     A -->|no| B{Mode OFF?}
     B -->|yes| B1[OFF intent for every TRV]
@@ -105,6 +107,13 @@ sends the setpoint uncalibrated and writes no offset and no calibrated
 valve percentage. The one valve write left on HOLD is the close on an
 OFF intent: a direct-valve TRV whose valve BT drives (by a calibration
 mode that writes the valve, or by boost) still gets it closed to 0 %.
+
+The release tier is the user's *Release devices* switch. Its intent
+addresses no TRV and is marked as released, and the shell reads the mark:
+it leaves the cooler alone as well, feeds the learners nothing and writes
+nothing else to the devices until the switch is turned off again. The
+regions keep tracking meanwhile, so the first cycle after the release
+decides on the window, mode and targets that hold by then.
 
 OFF intents carry their **suppression reason** so the shell can choose
 between a literal OFF (window, no heat demand) and the device-specific

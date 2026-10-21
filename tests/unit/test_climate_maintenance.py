@@ -19,8 +19,8 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.maintenance import (
     MAX_RUN_S,
-    MaintenancePhase,
-    MaintenanceState,
+    MaintenanceIdle,
+    MaintenanceRunning,
 )
 from tests.factories import ThermostatStandIn, make_trv
 
@@ -33,7 +33,6 @@ def bt():
     """Minimal BetterThermostat mock for maintenance scheduling."""
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
-    mock.next_valve_maintenance = None
     mock.contact_open = False
     mock.real_trvs = {"climate.trv": make_trv("climate.trv")}
     mock.clock = FakeClock(now_value=_NOW, monotonic_value=1000.0)
@@ -86,9 +85,7 @@ async def test_already_in_maintenance_returns(bt):
     """A tick during an in-flight maintenance run does nothing."""
     bt.kernel_state = replace(
         bt.kernel_state,
-        maintenance=MaintenanceState(
-            phase=MaintenancePhase.RUNNING, running_since=bt.clock.monotonic()
-        ),
+        maintenance=MaintenanceRunning(running_since=bt.clock.monotonic()),
     )
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
@@ -105,7 +102,9 @@ async def test_already_in_maintenance_returns(bt):
 @pytest.mark.asyncio
 async def test_not_due_yet_returns(bt):
     """When the next run is still in the future, the tick is a no-op."""
-    bt.next_valve_maintenance = _NOW + timedelta(hours=2)
+    bt.kernel_state = KernelState(
+        maintenance=MaintenanceIdle(next_due=_NOW + timedelta(hours=2))
+    )
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
@@ -128,7 +127,7 @@ async def test_window_open_postpones_one_hour(bt):
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
     ):
         await BetterThermostat._maintenance_tick(bt)
-    assert bt.next_valve_maintenance == _NOW + timedelta(hours=1)
+    assert bt.kernel_state.maintenance.next_due == _NOW + timedelta(hours=1)
     bt._spawn_owned.assert_not_called()
 
 
@@ -159,7 +158,7 @@ async def test_window_open_still_postpones_while_off(bt):
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
     ):
         await BetterThermostat._maintenance_tick(bt)
-    assert bt.next_valve_maintenance == _NOW + timedelta(hours=1)
+    assert bt.kernel_state.maintenance.next_due == _NOW + timedelta(hours=1)
     bt._spawn_owned.assert_not_called()
 
 
@@ -172,30 +171,25 @@ async def test_no_enabled_trvs_schedules_far_future(bt):
         patch(f"{_CLIMATE}.collect_maintenance_trvs", MagicMock(return_value=[])),
     ):
         await BetterThermostat._maintenance_tick(bt)
-    assert bt.next_valve_maintenance == _NOW + timedelta(days=7)
+    assert bt.kernel_state.maintenance.next_due == _NOW + timedelta(days=7)
     bt._spawn_owned.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_schedule_resync_keeps_running_since(bt):
-    """Re-syncing the schedule must not turn a stale run into a permanent block.
+async def test_tick_keeps_a_stale_run_unblocked(bt):
+    """A tick leaves a stale run as it is instead of restarting its clock.
 
-    A RUNNING region older than MAX_RUN_S no longer blocks. When the
-    legacy schedule attribute diverges from the region's next_due, the
-    resync has to carry running_since along — dropping it would recreate
-    a RUNNING region without a timestamp, which blocks unconditionally.
+    A RUNNING region older than MAX_RUN_S no longer blocks; a tick that
+    reset running_since would turn it back into a blocking one.
     """
     stale_now = MAX_RUN_S + 1.0
     bt.clock = FakeClock(now_value=_NOW, monotonic_value=stale_now)
     bt.kernel_state = replace(
         bt.kernel_state,
-        maintenance=MaintenanceState(
-            phase=MaintenancePhase.RUNNING,
-            next_due=_NOW - timedelta(hours=2),
-            running_since=0.0,
+        maintenance=MaintenanceRunning(
+            next_due=_NOW - timedelta(hours=2), running_since=0.0
         ),
     )
-    bt.next_valve_maintenance = _NOW
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
@@ -206,6 +200,7 @@ async def test_schedule_resync_keeps_running_since(bt):
     ):
         await BetterThermostat._maintenance_tick(bt)
     region = bt.kernel_state.maintenance
+    assert isinstance(region, MaintenanceRunning)
     assert region.running_since == 0.0
     assert region.is_blocking(stale_now) is False
 
@@ -318,3 +313,20 @@ async def test_via_device_binding_skipped_and_cleared_for_multi_trv():
 
     bind.assert_not_awaited()
     unbind.assert_awaited_once_with(bt.hass, "bt_uid", "entry_1")
+
+
+@pytest.mark.asyncio
+async def test_a_due_run_waits_while_the_devices_are_released(bt):
+    """A due exercise is put off while the devices are the user's."""
+    bt.devices_released = True
+    with (
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(
+            f"{_CLIMATE}.collect_maintenance_trvs",
+            MagicMock(return_value=["climate.trv"]),
+        ),
+    ):
+        await BetterThermostat._maintenance_tick(bt)
+    bt._spawn_owned.assert_not_called()
+    assert bt.kernel_state.maintenance.next_due == _NOW + timedelta(hours=1)

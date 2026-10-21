@@ -100,7 +100,9 @@ async def init(self: AdapterHost, entity_id: str) -> None:
 
     await discover_calibration_entity(self, entity_id)
 
-    if not resets_preset:
+    # The discovery can wait for a while, and the devices can be released
+    # meanwhile; the preset is not sent to them then.
+    if not resets_preset or self.devices_released:
         return
 
     state = self.hass.states.get(entity_id)

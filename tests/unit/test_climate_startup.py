@@ -530,6 +530,8 @@ def owned_task_bt(bt, hass):
     bt._spawn_owned = lambda coro, *, name: BetterThermostat._spawn_owned(
         bt, coro, name=name
     )
+    # A first start: nothing was saved before it.
+    bt.async_get_last_available_state = AsyncMock(return_value=None)
     return bt
 
 

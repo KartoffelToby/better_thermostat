@@ -116,6 +116,11 @@ specific situation". The oracle normalises against itself, so it scores
 **1.0** by construction — a real controller approaching 1.0 is matching
 the perfect-knowledge bound. Read the oracle as a ceiling, not a target:
 it cheats by knowing the plant exactly, which no deployable controller can.
+It feeds back on the true room temperature, so sensor lag and noise do not
+lower the ceiling. A sensor's calibration error (bias, drift) is the one
+fault it shares with the candidates: nothing can observe it without a
+second reference, so the fault scenarios score what a controller adds on
+top of it.
 
 ---
 
@@ -212,10 +217,11 @@ arbitrary:
   settling are weighted equally because a user notices a temperature
   swing and a slow approach about equally; steady-state error is weighted
   less because it is usually small once settled.)
-* **Actuator** = 1 − (excess travel / 4× oracle travel). Failure at 5×
-  the oracle's total travel. When the oracle barely moves, the candidate
-  is scored against an absolute floor so a low-activity controller still
-  scores near 1.0.
+* **Actuator** = 1 − excess travel / (4 × max(oracle travel, 125 %)).
+  Failure at 5× the oracle's total travel. When the oracle barely moves,
+  the 125 % floor takes its place, so 500 % of travel scores 0 against an
+  idle oracle and the score does not jump as the oracle's travel nears
+  zero.
 * **Energy** = 1 − |ratio − 1|, symmetric. Failure at 2× the oracle's
   integral (over-heating) or 0 (room never heated). When the oracle's
   integral is below a small floor (the scenario barely heated), the
@@ -234,7 +240,7 @@ controller wins, not just the overall.
 
 ## §7 — Scenario taxonomy: what is covered and why
 
-The 37 scenarios are not arbitrary. Each probes a specific stress that a
+The 36 scenarios are not arbitrary. Each probes a specific stress that a
 real Better Thermostat install encounters. They group into families;
 within a family, scenarios vary magnitude or plant to expose where a
 controller breaks.
@@ -256,7 +262,7 @@ the core tracking test (rise time, overshoot, re-planning).
 
 | Scenario | Probes |
 |---|---|
-| `S07_outdoor_step_cold` (5→−10, hold 21) | Sudden cold snap — disturbance rejection. |
+| `S07_outdoor_step_cold` (5→−5, hold 21) | Sudden cold snap — disturbance rejection. |
 | `S08_outdoor_ramp_warm` (5→12 over 6 h) | Slow load change — drift, integral action. |
 | `S22_diurnal_outdoor` (24 h cycle) | Continuous disturbance — never settles. |
 
@@ -296,8 +302,8 @@ gracefully when the forecast is wrong.
 | Scenario | Probes |
 |---|---|
 | `S12_sensor_dropout` (10 min none) | Holds sane output through a reporting gap. |
-| `S17_sensor_bias` (+0.5 K) | Constant offset — steady-state error it cannot see. |
-| `S18_sensor_drift` (+0.05 K/h) | Slow drift — moving blind spot. |
+| `S17_sensor_bias` (+0.5 K) | Constant offset — no error beyond the bias it cannot see. |
+| `S18_sensor_drift` (+0.05 K/h) | Slow drift — no error beyond the moving blind spot. |
 | `S35_sample_jitter` (±45 s) | Irregular Zigbee report timing. |
 
 *Why:* real Zigbee temperature sensors drop out, drift, and report
@@ -322,11 +328,18 @@ ignores this hunts and wears the motor.
 | `S33_ufh_asymmetric` | Underfloor with asymmetric over/undershoot cost. |
 | `S23_boiler_limited` (42 °C supply HP) | Low supply temperature — limited authority. |
 | `S29_heatpump_steady_state` | Valve sweet-spot residency for heat-pump COP. |
-| `S26_cooling_mode` (reverse-acting) | Chilled-water / cooling — sign-flipped control. |
 | `S27_pipe_fill_after_idle` (120 s delay) | Boiler→radiator transport lag from cold. |
 
-*Why:* BT runs on radiators, underfloor, heat pumps, and in cooling mode;
-a controller must not assume a hot, fast, instantly-responding radiator.
+*Why:* BT runs on radiators, underfloor and heat pumps; a controller must
+not assume a hot, fast, instantly-responding radiator.
+
+Every scenario leaves the oracle headroom: its steady-state valve stays at
+or below 90 % at every setpoint and outdoor temperature the scenario
+visits (`test_scenario_feasibility.py`). A setpoint the plant cannot hold
+saturates every controller at a fully open valve and turns the run into a
+measure of the plant's capacity, in which a naive controller ties the
+oracle. The two synthetic winter weeks are the exception: their cold snaps
+undersize the standard plant for about a quarter of the week.
 
 ### H — Lifecycle & operational (real-world operation)
 
@@ -438,7 +451,7 @@ Read the matrix top-down with three anchors (full tables in
   scores 1.0 on every scenario by construction.
 * **BangBang ≈ 0.58** — the noise floor. A naive on/off controller;
   anything near it has a real problem.
-* **Production controllers ≈ 0.71–0.80** — the realistic band.
+* **Production controllers ≈ 0.75–0.83** — the realistic band.
 
 Then read *across* the dimension columns, not just `overall`:
 

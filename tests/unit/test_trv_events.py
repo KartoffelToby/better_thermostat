@@ -5242,3 +5242,63 @@ class TestOutboundForDevicesWithoutModes:
         assert result is not None
         assert result["temperature"] == mock_bt.heat_target_temperature
         assert result["system_mode"] is None
+
+
+# ---------------------------------------------------------------------------
+# Released devices
+# ---------------------------------------------------------------------------
+
+
+class TestReleasedTrv:
+    """While the devices are released, what a TRV reports stays the user's."""
+
+    @staticmethod
+    async def _switch_on_at_the_device(bt):
+        """Switch the TRV on at the device while the room is off."""
+        bt.bt_hvac_mode = HVACMode.OFF
+        trv = bt.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "off"
+        trv.last_hvac_mode = "off"
+        trv_state = _make_state(state_str="heat")
+        bt.hass.states.get.return_value = trv_state
+        event = _make_event(
+            bt, new_state=trv_state, old_state=_make_state(state_str="off")
+        )
+        await trigger_trv_change(bt, event)
+
+    @pytest.mark.asyncio
+    async def test_a_released_trv_switched_on_leaves_the_room_off(self, mock_bt):
+        """Switching a released TRV on does not switch the room on.
+
+        The device's mode is cached as reported, so once the devices are
+        taken back its next report reads as no change, not as a press.
+        """
+        mock_bt.devices_released = True
+
+        await self._switch_on_at_the_device(mock_bt)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_mode == "heat"
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_held_trv_switched_on_switches_the_room_on(self, mock_bt):
+        """The counterpart: a held TRV switched on at the device is a press."""
+        await self._switch_on_at_the_device(mock_bt)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    async def test_a_setpoint_turned_at_a_released_trv_stays_the_users(self, mock_bt):
+        """The room's target is not taken from a released TRV."""
+        mock_bt.devices_released = True
+        new_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        event = _make_event(mock_bt, new_state=new_state, old_state=_make_state())
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == 19.0
+        mock_bt.control_queue_task.put_nowait.assert_not_called()

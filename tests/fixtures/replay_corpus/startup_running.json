@@ -1,11 +1,13 @@
 {
   "desired": {
     "call_for_heat": true,
+    "devices_released": false,
     "trvs": {}
   },
   "snapshot": {
     "call_for_heat": true,
     "cool_target_temperature": null,
+    "devices_released": false,
     "heat_target_temperature": 21.0,
     "hvac_mode": "heat",
     "is_day": true,

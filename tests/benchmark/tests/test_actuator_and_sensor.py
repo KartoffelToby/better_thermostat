@@ -175,6 +175,7 @@ def test_sensor_bias_and_drift_apply():
     later = s.read(3600.0, 20.0)
     assert later is not None
     assert abs(later - 20.6) < 1e-6
+    assert s.calibration_error_K(3600.0) == pytest.approx(0.6)
 
 
 def test_sensor_dropout_window_with_start():

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Final, Literal, Protocol, TypedDict
 
 from ...core.calibrator import CalibratorHealth
 from ...core.watchdog import CONTROL_TICK_S
+from .state_key import StateKey, bucket_tag_of, round_to_bucket
 
 if TYPE_CHECKING:
     from ...climate import BetterThermostat
@@ -806,17 +807,7 @@ def build_pid_loop_key(self: _HasUniqueId, entity_id: str) -> str:
     ``{unique_id}:{entity_id}:t<bucket>``. Both formats are the keys of
     the stored entries, so a change to either orphans what is stored.
     """
-    return f"{resolve_unique_id(self)}:{entity_id}"
-
-
-def round_to_bucket(temperature: float) -> float:
-    """Round a target temperature to its 0.5 °C bucket centre."""
-    return round(float(temperature) * 2.0) / 2.0
-
-
-def format_bucket(bucket: float) -> str:
-    """Format a bucket centre as a ``t<temperature>`` tag (e.g. ``t21.0``)."""
-    return f"t{bucket:.1f}"
+    return str(StateKey(resolve_unique_id(self), entity_id))
 
 
 def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
@@ -833,17 +824,13 @@ def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
     -------
         PID key string
     """
-    try:
-        tcur = self.heat_target_temperature
-        bucket_tag = (
-            format_bucket(round_to_bucket(tcur))
-            if isinstance(tcur, (int, float))
-            else "tunknown"
+    return str(
+        StateKey(
+            resolve_unique_id(self),
+            entity_id,
+            bucket_tag_of(self.heat_target_temperature),
         )
-    except ValueError, OverflowError:
-        bucket_tag = "tunknown"
-
-    return f"{build_pid_loop_key(self, entity_id)}:{bucket_tag}"
+    )
 
 
 # --- Loop and bucket entries -----------------------------------------------

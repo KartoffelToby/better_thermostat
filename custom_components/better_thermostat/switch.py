@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, override
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er, restore_state
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -28,7 +28,7 @@ from .entity import (
     remove_unclaimed_registry_entries,
 )
 from .events.contact import set_window_detection
-from .sensor import _ACTIVE_SWITCH_ENTITIES, SwitchKind, SwitchRef
+from .tracked_entities import SwitchKind, SwitchRef
 from .utils.advanced_flags import advanced_flag
 from .utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
@@ -65,7 +65,10 @@ async def async_setup_entry(
     if not bt_climate:
         return
 
-    switches: list[SwitchEntity] = [BetterThermostatPauseLearningSwitch(bt_climate)]
+    switches: list[SwitchEntity] = [
+        BetterThermostatReleaseDevicesSwitch(bt_climate),
+        BetterThermostatPauseLearningSwitch(bt_climate),
+    ]
     switch_unique_ids: dict[str | None, SwitchRef] = {}
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
     for trv_entity_id, trv in bt_climate.real_trvs.items():
@@ -90,7 +93,7 @@ async def async_setup_entry(
         switches.append(BetterThermostatWindowDetectionSwitch(bt_climate))
 
     # Track created switch entities for cleanup
-    _ACTIVE_SWITCH_ENTITIES[entry.entry_id] = switch_unique_ids
+    entry.runtime_data.tracked_entities.switches = switch_unique_ids
 
     _LOGGER.debug(
         "Better Thermostat %s: Created %d switch entities",
@@ -107,6 +110,54 @@ async def async_setup_entry(
     )
     async_normalize_bt_entity_ids(hass, entry, Platform.SWITCH)
     async_add_entities(switches)
+
+
+class BetterThermostatReleaseDevicesSwitch(FollowsThermostat, SwitchEntity):
+    """Switch that hands the room's devices to the user while it is on.
+
+    The thermostat holds the setting and publishes it as the
+    ``devices_released`` attribute, which it restores after a restart before
+    its startup writes to any device; the switch shows and sets it.
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_translation_key = "release_devices"
+
+    def __init__(self, bt_climate: BetterThermostat) -> None:
+        """Initialize the switch."""
+        self._bt_climate = bt_climate
+        self._attr_unique_id = f"{bt_climate.unique_id}_release_devices"
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        self._follow_thermostat()
+
+    @property
+    @override
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return self._bt_climate.device_info
+
+    @property
+    @override
+    def is_on(self) -> bool:
+        """Return whether the devices are released."""
+        return self._bt_climate.devices_released
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Release the devices."""
+        await self._bt_climate.async_set_devices_released(True)
+        self.async_write_ha_state()
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Take the devices back."""
+        await self._bt_climate.async_set_devices_released(False)
+        self.async_write_ha_state()
 
 
 class BetterThermostatPauseLearningSwitch(FollowsThermostat, SwitchEntity):
@@ -451,7 +502,10 @@ class BetterThermostatChildLockSwitch(
             return
         held = advanced_flag(trv.advanced, CONF_CHILD_LOCK)
         trv.advanced[CONF_CHILD_LOCK] = restored
-        if restored != held:
+        # Released devices are not written to. The restored lock is the
+        # setting from here on; the initialisation that follows taking them
+        # back syncs it where the TRV's model quirk does.
+        if restored != held and not self._bt_climate.devices_released:
             # The device may still report the state from before a command
             # the startup sent, so the restored one is sent regardless.
             await self._set_child_lock(restored, force=True)
@@ -474,14 +528,30 @@ class BetterThermostatChildLockSwitch(
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
+        self._refuse_while_released()
         self._update_state(True)
         await self._set_child_lock(True)
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
+        self._refuse_while_released()
         self._update_state(False)
         await self._set_child_lock(False)
+
+    def _refuse_while_released(self) -> None:
+        """Refuse a change of the lock while the devices are released.
+
+        The lock is written to the device, and released devices are the
+        user's. A change accepted without the write would leave the switch
+        showing a lock the device does not have.
+        """
+        if self._bt_climate.devices_released:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="devices_released",
+                translation_placeholders={"device_name": self._bt_climate.device_name},
+            )
 
     def _update_state(self, state: bool) -> None:
         """Update the state."""

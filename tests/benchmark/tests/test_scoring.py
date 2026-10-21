@@ -124,6 +124,26 @@ def test_actuator_score_handles_low_oracle_travel():
     assert 0.4 < actuator_score(candidate, oracle) < 0.6
 
 
+def test_actuator_score_is_continuous_as_oracle_travel_approaches_zero():
+    """Oracle travel just above and just below 1 % gives the same score."""
+    candidate = _zero_metrics(total_valve_travel_percent=36.0)
+    below = actuator_score(candidate, _zero_metrics(total_valve_travel_percent=0.9))
+    above = actuator_score(candidate, _zero_metrics(total_valve_travel_percent=1.3))
+    assert below == pytest.approx(above, abs=0.01)
+    assert above > 0.9
+
+
+def test_actuator_score_against_idle_oracle_fails_at_500_percent():
+    """An idle oracle still lets a candidate spend up to 500 % of travel."""
+    idle = _zero_metrics(total_valve_travel_percent=0.0)
+    assert actuator_score(
+        _zero_metrics(total_valve_travel_percent=500.0), idle
+    ) == pytest.approx(0.0)
+    assert actuator_score(
+        _zero_metrics(total_valve_travel_percent=250.0), idle
+    ) == pytest.approx(0.5)
+
+
 # ---------- Energy score ----------
 
 

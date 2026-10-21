@@ -13,14 +13,12 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     PIDState,
     effective_pid_gain,
-    format_bucket,
     freeze_pid_gains,
     pid_auto_tune,
     pid_cycle_params,
     pid_cycle_state,
     pid_loop_state,
     resolve_unique_id,
-    round_to_bucket,
     settle_pid_cycle,
 )
 
@@ -42,27 +40,6 @@ class TestResolveUniqueId:
         bt = BetterThermostat.__new__(BetterThermostat)
         bt._unique_id = "entry_1"
         assert resolve_unique_id(bt) == "entry_1"
-
-
-class TestBucketHelpers:
-    """round_to_bucket snaps to 0.5 °C; format_bucket renders the tag."""
-
-    def test_round_down(self):
-        """21.2 snaps to 21.0."""
-        assert round_to_bucket(21.2) == 21.0
-
-    def test_round_up(self):
-        """21.3 snaps to 21.5."""
-        assert round_to_bucket(21.3) == 21.5
-
-    def test_round_exact(self):
-        """An already-aligned value is unchanged."""
-        assert round_to_bucket(21.5) == 21.5
-
-    def test_format(self):
-        """format_bucket renders a one-decimal t-tag."""
-        assert format_bucket(21.0) == "t21.0"
-        assert format_bucket(21.5) == "t21.5"
 
 
 _LOOP = "uid:climate.trv"
