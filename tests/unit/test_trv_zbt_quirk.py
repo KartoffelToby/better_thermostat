@@ -171,18 +171,32 @@ class TestNoValveWrite:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("model_id", "found"),
-        [("TRV-ZBT", None), ("trv-zbt", None), ("OTHER-TRV", HEATING_VALVE)],
+        ("model_id", "model", "found"),
+        [
+            ("TRV-ZBT", None, None),
+            ("trv-zbt", None, None),
+            ("OTHER-TRV", None, HEATING_VALVE),
+            (None, "TRV-ZBT", None),
+            (None, "TRV-ZBT (Thermostatic radiator valve)", None),
+            (None, "OTHER-TRV", HEATING_VALVE),
+        ],
     )
-    async def test_the_valve_lookup_turns_down_only_the_trv_zbt(self, model_id, found):
+    async def test_the_valve_lookup_turns_down_only_the_trv_zbt(
+        self, model_id, model, found
+    ):
         """The adapter finds no valve entity on a TRV-ZBT, in any letter case.
 
-        The same entities on a device of another model are still found,
-        so the exclusion follows the model and not the entity names.
+        Zigbee2MQTT registers the model as model_id, ZHA as model, so either
+        field names the TRV-ZBT. The same entities on a device of another
+        model are still found, so the exclusion follows the model and not
+        the entity names.
         """
         bt = ThermostatStandIn()
         device = dr.DeviceEntry(
-            config_entry_id="entry", model_id=model_id, identifiers={("mqtt", DEVICE)}
+            config_entry_id="entry",
+            model_id=model_id,
+            model=model,
+            identifiers={("mqtt", DEVICE)},
         )
         registry = make_entity_registry(*_trv_zbt_entries())
 
