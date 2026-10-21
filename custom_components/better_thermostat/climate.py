@@ -1275,6 +1275,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # held. It turns on with the pause and off at the end of the first
         # control cycle after it, so no learning interval spans the pause.
         self.learning_held = False
+        # Counts every change of the pause. A control cycle releases the hold
+        # only if the pause did not change while it ran: a cycle whose
+        # learners ran before the change has not held after it.
+        self.learning_pause_changes = 0
         self._async_unsub_state_changed: CALLBACK_TYPE | None = None
         # Every configured entity, each once, in the order it was registered;
         # the battery scan visits them in that order.
@@ -4078,6 +4082,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if paused == self.learning_paused:
             return
         self.learning_paused = paused
+        self.learning_pause_changes += 1
         if paused:
             self.learning_held = True
         else:

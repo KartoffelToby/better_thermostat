@@ -48,12 +48,14 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     compute_pid,
 )
 from custom_components.better_thermostat.utils.const import CalibrationMode
+from custom_components.better_thermostat.utils.controlling import control_queue
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerTracker,
     HeatLossTracker,
     ema_smooth,
 )
 from tests.factories import ThermostatStandIn, make_state
+from tests.unit.controlling.test_control_queue import _idle_room, _stop, _wait_until
 from tests.unit.test_contact_gates_controllers import _bt, _valve_trv
 
 ENTITY_ID = "climate.trv"
@@ -623,6 +625,7 @@ def _bare_thermostat() -> tuple[BetterThermostat, MagicMock]:
     bt = object.__new__(BetterThermostat)
     bt.learning_paused = False
     bt.learning_held = False
+    bt.learning_pause_changes = 0
     bt.control_queue_task = asyncio.Queue(maxsize=1)
     publish = MagicMock()
     bt.async_write_ha_state = publish
@@ -656,3 +659,51 @@ def test_setting_the_pause_it_already_has_changes_nothing():
 
     publish.assert_not_called()
     assert bt.control_queue_task.empty()
+
+
+@pytest.mark.asyncio
+async def test_a_pause_within_a_running_cycle_holds_the_next_cycle():
+    """A pause that starts and ends while a cycle waits for its TRVs still holds.
+
+    That cycle ran its learners before the pause, so it cannot end the hold:
+    the cycle the resume requests runs its learners held, and only the cycle
+    after that learns again.
+    """
+    bt = _idle_room()
+    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}
+    bt.async_write_ha_state = MagicMock()
+    queue: asyncio.Queue[object] = asyncio.Queue(maxsize=1)
+    bt.control_queue_task = queue
+    held_by_cycle: list[bool] = []
+
+    async def run_learners() -> None:
+        held_by_cycle.append(bt.learning_held)
+
+    bt.calculate_heating_power = run_learners
+    trvs_released = asyncio.Event()
+
+    async def control_trv(_bt, _entity_id, cycle=None) -> bool:
+        await trvs_released.wait()
+        return True
+
+    queue.put_nowait(bt)
+    with patch(
+        "custom_components.better_thermostat.utils.controlling.control_trv",
+        new=control_trv,
+    ):
+        loop_task = asyncio.create_task(control_queue(bt))
+        try:
+            await _wait_until(lambda: held_by_cycle == [False])
+            BetterThermostat.set_learning_paused(bt, True)
+            BetterThermostat.set_learning_paused(bt, False)
+            trvs_released.set()
+            await asyncio.wait_for(queue.join(), timeout=1)
+            held_after_resume = list(held_by_cycle), bt.learning_held
+
+            queue.put_nowait(bt)
+            await asyncio.wait_for(queue.join(), timeout=1)
+        finally:
+            await _stop(loop_task)
+
+    assert held_after_resume == ([False, True], False)
+    assert held_by_cycle == [False, True, False]
