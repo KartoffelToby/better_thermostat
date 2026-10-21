@@ -24,7 +24,7 @@ from .plant import (
     PROFILE_UNDERFLOOR,
     PlantParams,
 )
-from .sensor import SensorParams
+from .sensor import TRV_SENSOR_RAD_FRACTION, SensorParams
 from .weather.synthetic import CHICAGO_LIKE, DENVER_LIKE, ClimateParams, make_schedules
 
 
@@ -89,6 +89,8 @@ class ScenarioConfig:
     window_loss_K_per_min: float = 0.5  # heat lost per minute while window is open
     solar_max_K_per_min: float = 0.03  # plant-side heat gain at full solar (1.0)
     sensor_params: SensorParams | None = None
+    # Share of the radiator's excess the TRV's own sensor picks up.
+    trv_sensor_rad_fraction: float = TRV_SENSOR_RAD_FRACTION
     actuator_params: ActuatorParams | None = None
     # Per-scenario override for the stabilisation phase. ``None`` defers
     # to the CLI default.

@@ -131,9 +131,9 @@ class NoCalibrationAdapter:
     """``CalibrationMode.NO_CALIBRATION`` — TRV tracks its own internal sensor.
 
     BT pushes ``bt_target`` straight through with no offset. The TRV's
-    P-loop closes against ``trv_temperature`` (the radiator-mounted sensor),
-    not against the room sensor — so the controller's error reference is
-    whatever the TRV body is reading, not what the room actually is.
+    P-loop closes against ``trv_temperature`` (the TRV's own sensor on the
+    radiator), not against the room sensor — so the controller's error
+    reference reads warm while the radiator heats.
     """
 
     name: str = "no_calibration"
@@ -148,12 +148,16 @@ class NoCalibrationAdapter:
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Output ``p_gain · (target - trv_internal)``, clamped."""
-        # Fall back to the external sensor only when the scenario lacks
-        # an explicit TRV temperature (sensorless plant variants).
-        trv_T = (
-            ctx.trv_temperature
-            if ctx.trv_temperature is not None
-            else ctx.room_temperature
+        # The TRV regulates on its internal measurement, before it rounds
+        # its report. Fall back to the external sensor only when the
+        # scenario lacks a TRV temperature (sensorless plant variants).
+        trv_T = next(
+            (
+                v
+                for v in (ctx.trv_internal_temperature, ctx.trv_temperature)
+                if v is not None
+            ),
+            ctx.room_temperature,
         )
         error_K = ctx.target_temperature - trv_T
         valve = _proportional(error_K, self._params)

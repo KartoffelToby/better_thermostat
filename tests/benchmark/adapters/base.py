@@ -25,7 +25,7 @@ class BenchmarkContext:
     # reports (see ``input_stage``); what production hands its controllers.
     room_temperature: float
     raw_room_temperature: float  # plant-internal truth (for adapters that cheat-peek)
-    trv_temperature: float | None  # radiator surface, if supported
+    trv_temperature: float | None  # the TRV's own sensor reading, if supported
     outdoor_temperature: float
     window_open: bool = False
     solar_intensity: float = 0.0  # 0.0 - 1.0
@@ -38,6 +38,9 @@ class BenchmarkContext:
     # minute tick derives from it; ``None`` before the first tick.
     room_temperature_filtered: float | None = None
     temperature_slope_K_per_min: float | None = None
+    # The TRV's internal measurement before it rounds its report; the TRV's
+    # own regulation runs on it, Better Thermostat never sees it.
+    trv_internal_temperature: float | None = None
 
 
 @dataclass(frozen=True)

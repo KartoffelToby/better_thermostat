@@ -13,7 +13,7 @@ from statistics import pstdev
 import pytest
 
 from tests.benchmark.actuator import Actuator, ActuatorParams, ActuatorProfile
-from tests.benchmark.sensor import Sensor, SensorParams
+from tests.benchmark.sensor import Sensor, SensorParams, trv_sensor_reading
 
 
 def test_actuator_linear_default():
@@ -267,3 +267,15 @@ def test_observed_calibration_error_follows_the_reported_value():
     reading = s.read(600.0, 20.0)
     assert reading == pytest.approx(20.05)
     assert s.observed_calibration_error_K == pytest.approx(0.05)
+
+
+def test_trv_sensor_reads_a_share_of_the_radiator_excess():
+    """The TRV reads room + fraction·(radiator − room)."""
+    assert trv_sensor_reading(20.0, 40.0) == pytest.approx(22.0)
+    assert trv_sensor_reading(20.0, 40.0, rad_fraction=0.0) == pytest.approx(20.0)
+
+
+def test_trv_sensor_reports_in_tenths():
+    """The reading lands on the 0.1 K grid TRVs report on."""
+    assert trv_sensor_reading(20.0, 40.4) == 22.0
+    assert trv_sensor_reading(20.0, 40.6) == 22.1

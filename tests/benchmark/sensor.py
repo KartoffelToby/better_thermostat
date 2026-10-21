@@ -88,6 +88,44 @@ class SensorParams:
             )
 
 
+# Share of the radiator's excess temperature a TRV's own sensor picks up
+# (0 reads the room, 1 the radiator), and the resolution TRVs report their
+# temperature at.
+TRV_SENSOR_RAD_FRACTION = 0.1
+TRV_SENSOR_RESOLUTION_K = 0.1
+
+
+def trv_sensor_reading(
+    T_room: float,
+    T_rad: float,
+    rad_fraction: float = TRV_SENSOR_RAD_FRACTION,
+    resolution_K: float = TRV_SENSOR_RESOLUTION_K,
+) -> float:
+    """Return what the sensor of a TRV mounted on the radiator reads.
+
+    Parameters
+    ----------
+    T_room : float
+        Room air temperature in °C.
+    T_rad : float
+        Radiator body temperature in °C.
+    rad_fraction : float
+        Share of the radiator's excess the TRV's sensor picks up.
+    resolution_K : float
+        Grid the reading is reported on; ``0`` returns the TRV's internal,
+        unrounded measurement.
+
+    Returns
+    -------
+    float
+        The reading in °C.
+    """
+    reading = T_room + rad_fraction * (T_rad - T_room)
+    if resolution_K <= 0.0:
+        return reading
+    return round(round(reading / resolution_K) * resolution_K, 6)
+
+
 class Sensor:
     """Sampled-output sensor with optional thermal lag and EMA filtering.
 

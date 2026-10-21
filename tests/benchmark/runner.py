@@ -67,7 +67,7 @@ from .reporter import (
 )
 from .scenarios import ALL_SCENARIOS, ScenarioConfig
 from .scoring import PROFILES, UserProfile
-from .sensor import Sensor, SensorParams
+from .sensor import Sensor, SensorParams, trv_sensor_reading
 
 ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     "mpc": MpcAdapter,
@@ -342,7 +342,9 @@ def _drive_adapter(
             target_temperature=target,
             room_temperature=T_measured,
             raw_room_temperature=facade.T_room,
-            trv_temperature=facade.T_rad,
+            trv_temperature=trv_sensor_reading(
+                facade.T_room, facade.T_rad, scenario.trv_sensor_rad_fraction
+            ),
             outdoor_temperature=T_outdoor,
             window_open=window_open,
             solar_intensity=controller_solar,
@@ -350,6 +352,12 @@ def _drive_adapter(
             sensor_calibration_error_K=sensor.observed_calibration_error_K,
             room_temperature_filtered=room_input.room_temperature_filtered,
             temperature_slope_K_per_min=room_input.temperature_slope_K_per_min,
+            trv_internal_temperature=trv_sensor_reading(
+                facade.T_room,
+                facade.T_rad,
+                scenario.trv_sensor_rad_fraction,
+                resolution_K=0.0,
+            ),
         )
 
         out = adapter.step(ctx)
