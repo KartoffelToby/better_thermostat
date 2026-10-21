@@ -40,8 +40,9 @@ def compute_mpc_v2(
 ) -> tuple[MpcV2Output | None, MpcV2State]:
     """Run one v2 cycle and return a percent recommendation + updated state.
 
-    Early-exits to ``(None, state)`` when essential inputs are missing — the
-    caller treats this as "hold last value".
+    Early-exits to ``(None, state)`` while heating is not allowed, a window
+    is open or an input is not finite; the caller treats this as "hold last
+    value".
 
     ``now`` overrides the wall-clock used as the controller's ``t_s``.
     Production callers leave it ``None`` (real ``time.time()``); tests
@@ -55,12 +56,7 @@ def compute_mpc_v2(
     if state.created_ts == 0.0:
         state.created_ts = now
 
-    if (
-        inp.room_temperature is None
-        or inp.target_temperature is None
-        or not inp.heating_allowed
-        or inp.window_open
-    ):
+    if not inp.heating_allowed or inp.window_open:
         return None, state
 
     # Reject non-finite sensor inputs. Without this guard a NaN propagates

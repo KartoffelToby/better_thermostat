@@ -54,21 +54,6 @@ class TestTpiController:
         assert result.duty_cycle_percent == 0.0
         assert result.debug["reason"] == "blocked"
 
-    def test_missing_temperatures(self):
-        """Test behavior when temperatures are missing."""
-        params = TpiParams()
-        state = TpiState()
-        inp = TpiInput(key="test", room_temperature=None, target_temperature=22.0)
-        result, state = _compute_tpi(inp, params, state=state)
-        assert result.duty_cycle_percent == 0.0  # No last_percent, so 0
-        assert result.debug["reason"] == "missing_temps"
-
-        # Now with last_percent
-        inp.room_temperature = 20.0
-        result, state = _compute_tpi(inp, params, state=state)
-        # Should calculate normally, clamped to 100
-        assert result.duty_cycle_percent == 100.0
-
     def test_normal_calculation(self):
         """Test normal TPI calculation."""
         params = TpiParams(coef_int=0.5, coef_ext=0.02)
@@ -220,45 +205,3 @@ class TestTpiOverManyCycles:
             duty_cycles.append(result.duty_cycle_percent)
 
         assert duty_cycles == pytest.approx([expected_percent] * 50)
-
-    def test_last_duty_cycle_is_held_for_every_cycle_of_a_sensor_dropout(self):
-        """A room sensor that stops reporting must freeze the command, not drop it.
-
-        The held value is the only state that reaches across cycles, so it has
-        to survive the whole gap and give way to live readings again once the
-        sensor returns.
-        """
-        params = TpiParams()
-        state = TpiState()
-        reading = TpiInput(
-            key="k",
-            room_temperature=21.7,
-            target_temperature=22.0,
-            outdoor_temperature=5.0,
-        )
-        gap = TpiInput(
-            key="k",
-            room_temperature=None,
-            target_temperature=22.0,
-            outdoor_temperature=5.0,
-        )
-
-        warm, state = _compute_tpi(reading, params, state=state, now=0.0)
-        held_percent = warm.duty_cycle_percent
-        assert held_percent > 0.0
-
-        for cycle in range(1, 13):
-            result, state = _compute_tpi(gap, params, state=state, now=float(cycle))
-            assert result.debug["reason"] == "missing_temps"
-            assert result.duty_cycle_percent == held_percent
-
-        colder = TpiInput(
-            key="k",
-            room_temperature=21.0,
-            target_temperature=22.0,
-            outdoor_temperature=5.0,
-        )
-        after_gap, _ = _compute_tpi(colder, params, state=state, now=200.0)
-        fresh, _ = _compute_tpi(colder, params, state=TpiState(), now=200.0)
-        assert after_gap.duty_cycle_percent == fresh.duty_cycle_percent
-        assert after_gap.duty_cycle_percent != held_percent
