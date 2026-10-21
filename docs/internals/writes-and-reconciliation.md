@@ -82,8 +82,13 @@ writes one after the other, so each TRV and cooler write, and each
 write of a TRV's initialisation, checks the switch itself right before
 it goes out: a release that comes in while a cycle or an initialisation
 is under way ends the writes that follow, and a write already sent
-completes. Taking them back requests one control cycle, which writes the
-differences like any other.
+completes. The same holds inside a write: each attempt of the retry
+chain, the next valve channel, the mode an offset write restores, the
+preset or sensor selector a model quirk pairs with its command, the
+deferred close after a TRVZB valve bump, and the external temperature
+for the next TRV each check the switch before they go out. Taking them
+back requests one control cycle, which writes the differences like any
+other.
 
 ## The write budget
 
