@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from itertools import count
 import random
-from typing import Any
+from typing import Any, override
 
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_mod
 from custom_components.better_thermostat.utils.calibration.mpc import (
@@ -27,7 +27,7 @@ from custom_components.better_thermostat.utils.state_manager import (
     write_mpc_state,
 )
 
-from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
+from .base import BenchmarkContext, BenchmarkOutput, ControlCycleGate, ControllerFamily
 
 # Controller state is caller-owned; each adapter keeps its own ``all_states``
 # map so concurrent instances never share learned state.
@@ -40,7 +40,7 @@ _KEY_COUNTER = count()
 _MPC_RNG_SEED = 1_234_567
 
 
-class MpcAdapter:
+class MpcAdapter(ControlCycleGate):
     """Benchmark adapter for the production MPC controller."""
 
     name: str = "mpc"
@@ -82,6 +82,7 @@ class MpcAdapter:
         production ``deserialize_mpc`` path. Without ``prior`` the
         adapter cold-starts.
         """
+        self._held = None
         self._all_states.clear()
         if prior:
             for bucket_key, raw in prior.items():
@@ -101,7 +102,8 @@ class MpcAdapter:
         bucket = f"t{round(float(target_temperature) * 2.0) / 2.0:.1f}"
         return f"{self._key}:{bucket}"
 
-    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+    @override
+    def _compute(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one MPC step for the given benchmark context."""
         self._sim_time_s = ctx.t
         key = self._bucket_key(ctx.target_temperature)

@@ -9,7 +9,7 @@ EMA tick derives.
 from __future__ import annotations
 
 from itertools import count
-from typing import Any
+from typing import Any, override
 
 from custom_components.better_thermostat.utils.calibration import pid as pid_mod
 from custom_components.better_thermostat.utils.calibration.pid import (
@@ -22,14 +22,14 @@ from custom_components.better_thermostat.utils.state_manager import (
     write_pid_state,
 )
 
-from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
+from .base import BenchmarkContext, BenchmarkOutput, ControlCycleGate, ControllerFamily
 
 # Controller state is caller-owned; the adapter threads its own ``_state``
 # through compute_pid, so instances never share learned state.
 _KEY_COUNTER = count()
 
 
-class PidAdapter:
+class PidAdapter(ControlCycleGate):
     """Benchmark adapter for the production PID controller."""
 
     name: str = "pid"
@@ -57,10 +57,12 @@ class PidAdapter:
         ``deserialize_pid`` path. Without ``prior`` the adapter
         cold-starts.
         """
+        self._held = None
         self._state = deserialize_pid(prior) if prior else PIDState()
         self._sim_time_s = 0.0
 
-    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+    @override
+    def _compute(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one PID step for the given benchmark context."""
         self._sim_time_s = ctx.t
         self._virtualise_time()

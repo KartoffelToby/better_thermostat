@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
-from typing import Any, Literal, Protocol
+from typing import Any, ClassVar, Literal, Protocol
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,12 @@ class BenchmarkContext:
     # The TRV's internal measurement before it rounds its report; the TRV's
     # own regulation runs on it, Better Thermostat never sees it.
     trv_internal_temperature: float | None = None
+    # Whether Better Thermostat runs a control cycle at this step: an event
+    # requests one (first step, a committed room reading, a changed TRV
+    # report, a setpoint or window change), and the 300 s recompute tick
+    # adds one for the modes that register it.
+    control_event: bool = True
+    control_tick: bool = True
 
 
 @dataclass(frozen=True)
@@ -116,3 +122,26 @@ class ControllerAdapter(Protocol):
     def export_state(self) -> dict[str, Any]:
         """Return a serializable snapshot of current controller state."""
         ...
+
+
+class ControlCycleGate:
+    """Hold a production controller's output between control cycles.
+
+    Better Thermostat computes a controller only when a control cycle runs;
+    between cycles the TRV keeps the last command. A subclass implements
+    :meth:`_compute`, and its ``reset`` clears ``_held``.
+    """
+
+    # Whether the mode registers the 300 s recompute tick.
+    runs_on_tick: ClassVar[bool] = True
+    _held: BenchmarkOutput | None = None
+
+    def _compute(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+        raise NotImplementedError
+
+    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+        """Compute on a control cycle, otherwise repeat the last output."""
+        cycle = ctx.control_event or (self.runs_on_tick and ctx.control_tick)
+        if self._held is None or cycle:
+            self._held = self._compute(ctx)
+        return self._held

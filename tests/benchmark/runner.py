@@ -16,6 +16,8 @@ import sys
 from typing import Any, Protocol
 import zlib
 
+from custom_components.better_thermostat.core.watchdog import CONTROL_TICK_S
+
 from .actuator import Actuator, ActuatorParams, ActuatorProfile
 from .adapters.base import BenchmarkContext, ControllerAdapter
 from .adapters.baselines import BangBangAdapter, IdealOracleAdapter, LinearPAdapter
@@ -288,6 +290,10 @@ def _drive_adapter(
     t = 0.0
     last_valve_percent = 0.0
     restart_fired = False
+    # What the previous step showed; a change in any of them is an event
+    # that requests a control cycle.
+    seen: tuple[int, float | None, float, bool] | None = None
+    next_tick_t = 0.0
 
     while t <= duration_s + 1e-6:
         if (
@@ -310,6 +316,7 @@ def _drive_adapter(
                     stored = candidate
             adapter.reset(prior=stored)
             room_input.reset()
+            seen = None
             restart_fired = True
 
         target = scenario.setpoint_schedule(t)
@@ -335,6 +342,15 @@ def _drive_adapter(
         T_measured = room_input.room_temperature
         if T_measured is None:
             T_measured = facade.T_room
+        trv_report = trv_sensor_reading(
+            facade.T_room, facade.T_rad, scenario.trv_sensor_rad_fraction
+        )
+        now_seen = (room_input.commits, trv_report, target, window_open)
+        control_event = now_seen != seen
+        seen = now_seen
+        control_tick = t >= next_tick_t
+        if control_tick:
+            next_tick_t += CONTROL_TICK_S
 
         ctx = BenchmarkContext(
             t=t,
@@ -342,9 +358,7 @@ def _drive_adapter(
             target_temperature=target,
             room_temperature=T_measured,
             raw_room_temperature=facade.T_room,
-            trv_temperature=trv_sensor_reading(
-                facade.T_room, facade.T_rad, scenario.trv_sensor_rad_fraction
-            ),
+            trv_temperature=trv_report,
             outdoor_temperature=T_outdoor,
             window_open=window_open,
             solar_intensity=controller_solar,
@@ -358,6 +372,8 @@ def _drive_adapter(
                 scenario.trv_sensor_rad_fraction,
                 resolution_K=0.0,
             ),
+            control_event=control_event,
+            control_tick=control_tick,
         )
 
         out = adapter.step(ctx)

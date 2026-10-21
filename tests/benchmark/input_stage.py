@@ -56,6 +56,7 @@ class RoomTemperatureInput:
         self._commit_pending_at: float | None = None
         self._report: float | None = None
         self._outage_since: float | None = None
+        self.commits = 0
 
     def update(self, t: float, reading: float | None) -> None:
         """Advance to ``t`` with the sensor's current report.
@@ -164,6 +165,7 @@ class RoomTemperatureInput:
         self._slope_t = t
 
     def _commit(self, t: float, value: float) -> None:
+        self.commits += 1
         self.room_temperature = value
         self._filter(t, value)
         self._last_commit_t = t
