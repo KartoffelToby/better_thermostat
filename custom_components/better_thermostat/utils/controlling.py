@@ -411,6 +411,24 @@ def _stamp_heartbeat(self: BetterThermostat) -> None:
     )
 
 
+def _released_during_cycle(self: BetterThermostat, entity_id: str | None) -> bool:
+    """Return whether the devices are the user's at this write.
+
+    A cycle decides once and then writes device after device, awaiting each
+    write. The devices can be released meanwhile, and from then on nothing
+    is sent to them, whatever the cycle decided before. Every write of a
+    cycle asks this right before it goes out.
+    """
+    if not self.devices_released:
+        return False
+    _LOGGER.debug(
+        "better_thermostat %s: devices released during the cycle, leaving %s alone",
+        self.device_name,
+        entity_id,
+    )
+    return True
+
+
 # The calibration modes whose balance can drive the valve directly. Such a
 # balance is reported under the mode's own name as its source.
 _VALVE_BALANCE_MODES: Final[frozenset[CalibrationMode]] = frozenset(
@@ -1742,6 +1760,9 @@ async def _write_cooler_mode(
         )
         should_send_mode = False
 
+    if should_send_mode and _released_during_cycle(self, self.cooler_entity_id):
+        should_send_mode = False
+
     if should_send_mode:
         _LOGGER.debug(
             "better_thermostat %s: TO COOLER set_hvac_mode: %s from: %s to: %s",
@@ -2161,6 +2182,13 @@ async def control_cooler(
         )
         temperature_to_send = None
 
+    # Released devices are the user's; nothing is attempted, so the failure
+    # backoff below records nothing either.
+    if temperature_to_send is not None and _released_during_cycle(
+        self, self.cooler_entity_id
+    ):
+        temperature_to_send = None
+
     # The command the payload would carry, in °C, as the failure backoff
     # compares it: a rejected send leaves the send cache untouched, so the
     # attempted command is what tells a retry from a new command.
@@ -2336,8 +2364,11 @@ async def control_trv(
             if cycle is None:
                 cycle = compute_control_cycle(self)
             snapshot, desired = cycle
-            if desired.devices_released:
+            if desired.devices_released or _released_during_cycle(self, entity_id):
                 # The device is the user's: not commanded, and not missing.
+                # The live flag covers a release that came in after the
+                # decision, while this TRV waited for the lock; nothing is
+                # awaited from here to the valve write.
                 return True
             trv_desired = desired.trvs.get(entity_id)
 
@@ -2587,6 +2618,8 @@ async def control_trv(
                     _reported_hvac_mode,
                     _new_hvac_mode,
                 )
+                if _released_during_cycle(self, entity_id):
+                    return True
                 _commanded_before = self.real_trvs[entity_id].last_hvac_mode
                 self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
                 self.real_trvs[entity_id].withdrawn_hvac_mode = None
@@ -2727,6 +2760,8 @@ async def control_trv(
                         if _last_requested is None:
                             _last_requested = _last_sent
                         if float(_last_requested) != _calibration or _command_diverged:
+                            if _released_during_cycle(self, entity_id):
+                                return True
                             # A deferred offset re-derives on the next control cycle
                             # once the slot is free again.
                             if _consume_budget(self, entity_id, "offset"):
@@ -2808,6 +2843,8 @@ async def control_trv(
                     ),
                     _current_set_temperatures,
                 ):
+                    if _released_during_cycle(self, entity_id):
+                        return True
                     trv = self.real_trvs[entity_id]
                     # Everything but a safety-relevant write waits for the
                     # next slot and converges via the scheduled retry.

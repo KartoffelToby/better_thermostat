@@ -2678,6 +2678,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         remaining steps go, with defaults where the failed step would have
         read a value.
 
+        The init and the tweak write to the device, so neither starts once
+        the devices are released, also when the release comes in while an
+        earlier TRV or step is still under way. Such a TRV is left awaiting
+        its initialisation, which taking the devices back runs.
+
         Parameters
         ----------
         entity_ids : Iterable[str] | None
@@ -2699,6 +2704,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         for entity_id in entity_ids:
             trv = self.real_trvs[entity_id]
             self.all_entities[entity_id] = None
+            if self.devices_released:
+                trv.awaiting_initialization = True
+                continue
             _LOGGER.debug(
                 "better_thermostat %s: initializing TRV %s", self.device_name, entity_id
             )
@@ -2730,6 +2738,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     exc_info=True,
                 )
 
+            if self.devices_released:
+                trv.awaiting_initialization = True
+                continue
             try:
                 async with asyncio.timeout(INITIAL_TWEAK_BUDGET_S):
                     with command_cancellation_as_disconnect():
@@ -2943,6 +2954,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             finally:
                 self._trvs_initializing.discard(entity_id)
             if self.is_removed or self.real_trvs.get(entity_id) is not trv:
+                return
+            # Released while it was being set up, it is set up again once the
+            # devices are taken back.
+            if self.devices_released:
                 return
             if entity_id in failed:
                 trv.failed_initialization_attempts += 1

@@ -27,7 +27,7 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_ON,
 )
-from homeassistant.core import Context, CoreState, State
+from homeassistant.core import Context, CoreState, Event, State
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 import pytest
@@ -56,13 +56,19 @@ from .conftest import (
 )
 from .device_profiles import (
     COOLER_ID,
+    DUAL_ROLE,
     EXTERNAL_INPUT_TRVZB,
     GENERIC_HEAT_TRV,
     MQTT_OFFSET_TRV,
     ROOM_AC_COOLER,
     SEPARATE_COOLER,
     TRV_ID,
+    VALVE_GROUP,
+    VALVE_GROUP_COLD,
+    VALVE_GROUP_WARM,
+    VALVE_TRV,
 )
+from .write_hold import holding_next_write, poll_until
 
 ROOM = replace(
     SEPARATE_COOLER,
@@ -378,3 +384,203 @@ async def test_a_released_room_starts_while_its_trv_is_away(hass, fake_trv):
     assert bt.real_trvs[TRV_ID].awaiting_initialization is False
     assert hass.states.get(BT_ENTITY).state == HVACMode.HEAT
     assert setpoint_commands(events, TRV_ID)
+
+
+async def _release_during_held_write(hass, bt, held, events) -> list[Event]:
+    """Release the devices while ``held`` keeps a cycle inside a write.
+
+    Returns the bus events from the release on, once the cycle has ended.
+    """
+    await held.wait_reached(hass)
+    await hass.services.async_call(
+        "switch", "turn_on", {ATTR_ENTITY_ID: _release_switch(hass, bt)}, blocking=True
+    )
+    assert bt.devices_released is True
+    released_at = len(events)
+    held.release()
+    assert await poll_until(hass, lambda: bt.control_cycle_started_monotonic is None)
+    await _settle(hass)
+    return events[released_at:]
+
+
+async def test_a_cycle_under_way_sends_nothing_once_the_devices_are_released(hass):
+    """The release reaches a cycle that is already writing to the cooler.
+
+    The room is switched to heating and cooling with the air conditioner
+    and the TRV both off and a new cooling target, so its cycle switches the
+    cooler on, sets it and switches the TRV on, in that order. The devices
+    are released while the cooler is still taking its mode; the cooler gets
+    no setpoint and the TRV nothing.
+    """
+    _, cooler = await build_devices(hass, ROOM.trv, ROOM_AC_COOLER)
+    set_room_sensor(hass, WARM_ROOM)
+    entry = make_entry(ROOM)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await _call(hass, SERVICE_SET_HVAC_MODE, {"hvac_mode": HVACMode.OFF})
+    assert hass.states.get(TRV_ID).state == HVACMode.OFF
+    assert hass.states.get(COOLER_ID).state == HVACMode.OFF
+    await _call(
+        hass,
+        SERVICE_SET_TEMPERATURE,
+        {"target_temp_low": 20.0, "target_temp_high": 23.5},
+    )
+    assert hass.states.get(COOLER_ID).attributes["temperature"] != 23.5
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(cooler, "async_set_hvac_mode") as held:
+            await hass.services.async_call(
+                CLIMATE_DOMAIN,
+                SERVICE_SET_HVAC_MODE,
+                {ATTR_ENTITY_ID: BT_ENTITY, "hvac_mode": HVACMode.HEAT_COOL},
+                blocking=True,
+            )
+            after_release = await _release_during_held_write(hass, bt, held, events)
+
+    assert mode_commands(events, COOLER_ID) == [HVACMode.COOL]
+    assert _device_writes(after_release, bt) == []
+    assert hass.states.get(TRV_ID).state == HVACMode.OFF
+
+
+async def test_a_trv_write_under_way_is_the_last_one_once_released(hass, fake_trv):
+    """The release reaches a cycle between two writes to the same TRV.
+
+    The room is switched on with a new target, so its cycle switches the TRV
+    on and then sets it. The devices are released while the TRV is still
+    taking its mode; the setpoint is not sent.
+    """
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await _call(hass, SERVICE_SET_HVAC_MODE, {"hvac_mode": HVACMode.OFF})
+    await _call(hass, SERVICE_SET_TEMPERATURE, {"temperature": 24.0})
+    setpoint_before = hass.states.get(TRV_ID).attributes["temperature"]
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(fake_trv, "async_set_hvac_mode") as held:
+            await hass.services.async_call(
+                CLIMATE_DOMAIN,
+                SERVICE_SET_HVAC_MODE,
+                {ATTR_ENTITY_ID: BT_ENTITY, "hvac_mode": HVACMode.HEAT},
+                blocking=True,
+            )
+            after_release = await _release_during_held_write(hass, bt, held, events)
+
+    assert mode_commands(events, TRV_ID) == [HVACMode.HEAT]
+    assert _device_writes(after_release, bt) == []
+    assert hass.states.get(TRV_ID).attributes["temperature"] == setpoint_before
+
+
+async def test_a_device_heating_and_cooling_gets_no_mode_once_released(hass):
+    """A device that heats and cools takes its setpoint first, then its mode.
+
+    The devices are released while it is still taking the setpoint; the
+    mode is not sent.
+    """
+    (device,) = await build_devices(hass, DUAL_ROLE.trv)
+    set_room_sensor(hass, WARM_ROOM)
+    entry = make_entry(DUAL_ROLE)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await _call(hass, SERVICE_SET_HVAC_MODE, {"hvac_mode": HVACMode.OFF})
+    await _call(
+        hass,
+        SERVICE_SET_TEMPERATURE,
+        {"target_temp_low": 20.0, "target_temp_high": 23.5},
+    )
+    mode_before = hass.states.get(TRV_ID).state
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(device, "async_set_temperature") as held:
+            await hass.services.async_call(
+                CLIMATE_DOMAIN,
+                SERVICE_SET_HVAC_MODE,
+                {ATTR_ENTITY_ID: BT_ENTITY, "hvac_mode": HVACMode.HEAT_COOL},
+                blocking=True,
+            )
+            after_release = await _release_during_held_write(hass, bt, held, events)
+
+    assert setpoint_commands(events, TRV_ID) == [
+        {ATTR_ENTITY_ID: TRV_ID, "temperature": 23.5}
+    ]
+    assert _device_writes(after_release, bt) == []
+    assert hass.states.get(TRV_ID).state == mode_before
+
+
+async def test_a_head_waiting_for_its_turn_gets_nothing_once_released(hass):
+    """The heads of a room are written one after the other.
+
+    Both valves are opened for a higher target, and the devices are released
+    while the first head is still taking its valve position. Neither the
+    first head's setpoint nor anything for the second head is sent.
+    """
+    devices = await build_devices(hass, *VALVE_GROUP.profiles)
+    first = next(d for d in devices if d.profile is VALVE_GROUP_WARM)
+    assert first.valve_number is not None
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(VALVE_GROUP)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    with patch(WRITE_BUDGET, 0.0):
+        await _call(hass, SERVICE_SET_TEMPERATURE, {"temperature": 15.0})
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(
+            first.valve_number, "async_set_native_value"
+        ) as held:
+            await hass.services.async_call(
+                CLIMATE_DOMAIN,
+                SERVICE_SET_TEMPERATURE,
+                {ATTR_ENTITY_ID: BT_ENTITY, "temperature": 24.0},
+                blocking=True,
+            )
+            after_release = await _release_during_held_write(hass, bt, held, events)
+
+    assert _device_writes(events, bt) == [
+        (
+            "number",
+            "set_value",
+            {ATTR_ENTITY_ID: first.valve_number.entity_id, "value": 100.0},
+        )
+    ]
+    assert _device_writes(after_release, bt) == []
+    assert setpoint_commands(events, VALVE_GROUP_COLD.entity_id) == []
+
+
+@pytest.mark.parametrize("fake_trv", [VALVE_TRV], indirect=True, ids=profile_id)
+async def test_a_head_opened_before_the_release_is_not_switched_on(hass, fake_trv):
+    """A head driven by its valve takes the valve first, then its mode.
+
+    The room is switched on, and the devices are released while the head is
+    still taking its valve position; the mode is not sent.
+    """
+    assert fake_trv.valve_number is not None
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await _call(hass, SERVICE_SET_HVAC_MODE, {"hvac_mode": HVACMode.OFF})
+    await _call(hass, SERVICE_SET_TEMPERATURE, {"temperature": 24.0})
+    assert hass.states.get(TRV_ID).state == HVACMode.OFF
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(
+            fake_trv.valve_number, "async_set_native_value"
+        ) as held:
+            await hass.services.async_call(
+                CLIMATE_DOMAIN,
+                SERVICE_SET_HVAC_MODE,
+                {ATTR_ENTITY_ID: BT_ENTITY, "hvac_mode": HVACMode.HEAT},
+                blocking=True,
+            )
+            after_release = await _release_during_held_write(hass, bt, held, events)
+
+    assert [write[1] for write in _device_writes(events, bt)] == ["set_value"]
+    assert _device_writes(after_release, bt) == []
+    assert hass.states.get(TRV_ID).state == HVACMode.OFF

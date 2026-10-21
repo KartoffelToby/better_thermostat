@@ -3388,16 +3388,25 @@ async def _run_offset_cycle(
     reported_offset,
     set_calibration_offset=None,
     system_mode=None,
+    on_offset_read=None,
 ):
-    """Run one control_trv cycle for the offset-calibrated TRV."""
+    """Run one control_trv cycle for the offset-calibrated TRV.
+
+    ``on_offset_read`` runs when the cycle reads the device's offset, which
+    is the last thing the cycle awaits before it writes the offset.
+    """
+
+    def read_offset(*_args):
+        if on_offset_read is not None:
+            on_offset_read()
+        return reported_offset
+
     if set_calibration_offset is None:
         set_calibration_offset = AsyncMock(return_value=True)
     with (
         patch(_PATCHES["convert_outbound_states"]) as mock_convert,
         patch(
-            _PATCHES["get_calibration_offset"],
-            autospec=True,
-            return_value=reported_offset,
+            _PATCHES["get_calibration_offset"], autospec=True, side_effect=read_offset
         ) as mock_get_offset,
         patch(
             _PATCHES["set_calibration_offset"],
@@ -3479,6 +3488,25 @@ class TestOffsetWriteGate:
                 mock_self, desired_offset=-2.0, reported_offset=0.0
             )
         set_calibration_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+
+    @pytest.mark.asyncio
+    async def test_no_offset_is_written_once_the_devices_are_released(self):
+        """A release that comes in while the offset is read stops its write.
+
+        The cycle decided before the release, and the devices are the
+        user's from the release on.
+        """
+        mock_self = _make_offset_self(calibration_received=True, last_calibration=0.0)
+
+        def release():
+            mock_self.devices_released = True
+
+        set_calibration_offset, get_offset = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=0.0, on_offset_read=release
+        )
+
+        get_offset.assert_called_once()
+        set_calibration_offset.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_unconfirmed_offset_is_written_once_the_report_confirms(self):

@@ -14,6 +14,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.switch import (
     BetterThermostatReleaseDevicesSwitch,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerTracker,
     HeatLossTracker,
@@ -125,6 +126,97 @@ async def test_taking_the_devices_back_during_startup_leaves_them_to_it():
 
     bt._initialize_arrived_trvs.assert_not_awaited()
     bt.control_queue_task.put_nowait.assert_not_called()
+
+
+_FIRST_TRV = "climate.first_trv"
+_SECOND_TRV = "climate.second_trv"
+
+
+def _room_setting_up_two_trvs() -> ThermostatStandIn:
+    """A room about to initialise two TRVs, its devices not released."""
+    bt = ThermostatStandIn()
+    bt.device_name = "Test BT"
+    bt.devices_released = False
+    bt.hass = MagicMock()
+    bt.hass.states.get.return_value = None
+    bt.real_trvs = {
+        entity_id: Trv(entity_id=entity_id, calibration=None)
+        for entity_id in (_FIRST_TRV, _SECOND_TRV)
+    }
+    bt.all_entities = dict.fromkeys(bt.real_trvs)
+    bt._configured_temperature_step = None
+    bt.bt_target_temperature_step = None
+    return bt
+
+
+@pytest.mark.parametrize("released_in", ["init", "initial_tweak"])
+@pytest.mark.asyncio
+async def test_a_release_during_setup_stops_the_writes_that_follow(released_in):
+    """Setting a TRV up writes to it, and released devices get no writes.
+
+    The release comes in while the first TRV is being set up. No write of
+    its setup that comes after the release runs, nor any of the second
+    TRV's, and a TRV whose setup was cut short waits to be set up once the
+    devices are taken back.
+    """
+    bt = _room_setting_up_two_trvs()
+    steps: list[tuple[str, str]] = []
+
+    def step(name):
+        async def run(_bt, entity_id):
+            steps.append((name, entity_id))
+            if name == released_in:
+                bt.devices_released = True
+
+        return run
+
+    with (
+        patch(f"{_CLIMATE}.init", autospec=True, side_effect=step("init")),
+        patch(
+            f"{_CLIMATE}.initial_tweak",
+            autospec=True,
+            side_effect=step("initial_tweak"),
+        ),
+    ):
+        await BetterThermostat._initialize_trvs(bt)
+
+    assert (
+        steps
+        == [("init", _FIRST_TRV), ("initial_tweak", _FIRST_TRV)][
+            : 1 if released_in == "init" else 2
+        ]
+    )
+    assert bt.real_trvs[_FIRST_TRV].awaiting_initialization is (released_in == "init")
+    assert bt.real_trvs[_SECOND_TRV].awaiting_initialization is True
+
+
+@pytest.mark.asyncio
+async def test_a_trv_released_while_it_arrives_waits_for_the_take_back():
+    """A TRV set up when it reports again stays out once the release comes in.
+
+    It is set up again, and controlled, once the devices are taken back.
+    """
+    bt = _room_setting_up_two_trvs()
+    bt.is_removed = False
+    bt.in_maintenance = False
+    bt._trvs_initializing = set()
+    for trv in bt.real_trvs.values():
+        trv.awaiting_initialization = True
+
+    async def released_meanwhile(_entity_ids):
+        bt.devices_released = True
+        return set()
+
+    bt._initialize_trvs = AsyncMock(side_effect=released_meanwhile)
+    with (
+        patch(f"{_CLIMATE}.is_trv_available", return_value=True),
+        patch(f"{_CLIMATE}.request_control_cycle") as request,
+    ):
+        await BetterThermostat._initialize_arrived_trvs(bt)
+
+    bt._initialize_trvs.assert_awaited_once_with([_FIRST_TRV])
+    assert all(trv.awaiting_initialization for trv in bt.real_trvs.values())
+    request.assert_not_called()
 
 
 def _release_switch(
