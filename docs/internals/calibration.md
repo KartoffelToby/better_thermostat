@@ -103,8 +103,8 @@ paused controller keeps actuating on the values it holds:
   and performance-curve evidence, and restarts its learning interval
   every cycle,
 - MPC v2 holds the disturbance estimate and the error integral, records
-  paused samples that cut the re-identification buffer, starts no fit
-  and discards one that completes during the pause.
+  one paused sample per pause that cuts the re-identification buffer,
+  starts no fit and discards one that completes during the pause.
 
 State estimates (the EMA, the slope, the MPC virtual temperature, the
 MPC v2 observer, the PID measurement chain) keep tracking the room, so
