@@ -571,3 +571,74 @@ class TestTheModeRestoredAfterAnOffset:
 
         assert answer is True
         assert thermostat.real_trvs[ENTITY_ID].last_calibration_requested == 1.0
+
+
+class TestNothingIsSentOnceTheDevicesAreReleased:
+    """A write under way when the devices are released sends nothing further.
+
+    The write that is already out completes. A retry due after the release,
+    the next valve channel and the mode an offset write restores are writes
+    of their own, and none of them goes out.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel", CHANNELS)
+    async def test_a_retry_due_after_the_release_is_not_sent(self, channel):
+        """The backoff the release lands in is the last thing the write does."""
+        write = AsyncMock(side_effect=_unreachable())
+        thermostat = _thermostat(_adapter(**{channel: write}))
+
+        async def released_during_the_backoff(_seconds):
+            thermostat.devices_released = True
+
+        sleeps = AsyncMock(side_effect=released_during_the_backoff)
+        with patch(f"{_RETRY}.asyncio.sleep", new=sleeps):
+            answer = await _write(channel, thermostat)
+
+        assert write.await_count == 1
+        assert sleeps.await_count == 1
+        assert answer is (None if channel == "temperature" else False)
+        assert thermostat.real_trvs[ENTITY_ID].unreachable_write_channels == {}
+
+    @pytest.mark.asyncio
+    async def test_the_adapter_valve_channel_is_not_tried_after_the_release(self):
+        """A quirk that declines the position leaves nothing to the adapter."""
+
+        async def declined_while_released(_thermostat, _entity_id, _percent):
+            thermostat.devices_released = True
+            return False
+
+        quirks = SimpleNamespace(
+            override_set_valve=AsyncMock(side_effect=declined_while_released)
+        )
+        adapter = _adapter(valve=AsyncMock(return_value=None))
+        thermostat = _thermostat(adapter, quirks=quirks)
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 40)
+
+        assert answer is False
+        quirks.override_set_valve.assert_awaited_once()
+        adapter.set_valve.assert_not_awaited()
+        assert thermostat.real_trvs[ENTITY_ID].last_valve_percent is None
+
+    @pytest.mark.asyncio
+    async def test_the_mode_after_an_offset_is_not_restored_once_released(self):
+        """The head that left its mode is the user's by the time it is told."""
+        calls: list[str] = []
+
+        async def service_call(domain, service, data, **kwargs):
+            calls.append(domain)
+            if domain == "number":
+                thermostat.devices_released = True
+
+        thermostat = _thermostat_on(generic, service_call)
+        thermostat.hass.states.get = MagicMock(return_value=None)
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.local_temperature_calibration_entity = CALIBRATION_ENTITY
+        trv.last_hvac_mode = "heat"
+
+        with patch("asyncio.sleep", new=AsyncMock()):
+            answer = await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.0)
+
+        assert answer is True
+        assert calls == ["number"]
