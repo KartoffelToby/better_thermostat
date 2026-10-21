@@ -17,17 +17,8 @@ from tests.benchmark.scenarios import ALL_SCENARIOS
 _MAX_STEADY_STATE_VALVE_PCT = 90.0
 _SAMPLE_INTERVAL_S = 300
 
-# The synthetic winter weeks run the standard plant through cold snaps down
-# to about -15 °C, below what that plant is sized for; they saturate for
-# about a quarter of the week by design of the weather generator.
-_UNDERSIZED_BY_DESIGN = frozenset(
-    {"S37_winter_week_humid_continental", "S38_winter_week_semi_arid"}
-)
 
-
-@pytest.mark.parametrize(
-    "name", sorted(n for n in ALL_SCENARIOS if n not in _UNDERSIZED_BY_DESIGN)
-)
+@pytest.mark.parametrize("name", sorted(ALL_SCENARIOS))
 def test_oracle_can_hold_every_setpoint_of_the_scenario(name: str) -> None:
     """The steady-state valve stays below the headroom limit at every sample."""
     scenario = ALL_SCENARIOS[name]
@@ -45,8 +36,3 @@ def test_oracle_can_hold_every_setpoint_of_the_scenario(name: str) -> None:
     assert worst[0] <= _MAX_STEADY_STATE_VALVE_PCT, (
         f"{name} needs {worst[0]:.0f} % valve at t={worst[1] / 60:.0f} min"
     )
-
-
-def test_undersized_scenarios_still_exist() -> None:
-    """The allow-list names only scenarios that are still in the library."""
-    assert _UNDERSIZED_BY_DESIGN <= set(ALL_SCENARIOS)

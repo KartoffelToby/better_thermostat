@@ -346,8 +346,9 @@ or below 90 % at every setpoint and outdoor temperature the scenario
 visits (`test_scenario_feasibility.py`). A setpoint the plant cannot hold
 saturates every controller at a fully open valve and turns the run into a
 measure of the plant's capacity, in which a naive controller ties the
-oracle. The two synthetic winter weeks are the exception: their cold snaps
-undersize the standard plant for about a quarter of the week.
+oracle. The two synthetic winter weeks reach about −15 °C and therefore run
+on `PROFILE_COLD_CLIMATE`, whose radiator is sized for that design
+temperature; the standard plant needs more than 90 % valve below about −7 °C.
 
 ### H — Lifecycle & operational (real-world operation)
 
@@ -459,7 +460,7 @@ Read the matrix top-down with three anchors (full tables in
   scores 1.0 on every scenario by construction.
 * **BangBang ≈ 0.63** — the noise floor. A naive on/off controller;
   anything near it has a real problem.
-* **Production controllers ≈ 0.76–0.83** — the realistic band.
+* **Production controllers ≈ 0.77–0.84** — the realistic band.
 
 Then read *across* the dimension columns, not just `overall`:
 

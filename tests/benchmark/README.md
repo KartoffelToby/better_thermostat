@@ -26,11 +26,11 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
  *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   36
-  mpc_v2                0.934  0.075    0.969  0.071     0.840  0.223    0.986  0.033   36
-  tpi                   0.834  0.112    0.705  0.227     0.958  0.033    0.970  0.018   36
-  pid                   0.822  0.131    0.887  0.164     0.607  0.348    0.984  0.025   36
-  mpc                   0.762  0.134    0.906  0.133     0.378  0.368    0.981  0.025   36
-  bangbang              0.631  0.140    0.787  0.177     0.141  0.278    0.974  0.037   36
+  mpc_v2                0.937  0.071    0.978  0.035     0.837  0.222    0.986  0.033   36
+  tpi                   0.842  0.113    0.722  0.225     0.958  0.033    0.971  0.019   36
+  pid                   0.828  0.120    0.897  0.156     0.607  0.348    0.984  0.025   36
+  mpc                   0.768  0.126    0.917  0.118     0.378  0.368    0.981  0.025   36
+  bangbang              0.626  0.145    0.777  0.189     0.141  0.278    0.974  0.037   36
 ```
 
 Higher is better. Each dimension is **oracle-normalised**: `1.0` matches
@@ -121,7 +121,7 @@ a controller wins.
 * **BangBang ≈ 0.63** — noise floor. A deliberately naive on/off
   controller; anything close to BangBang has a real problem.
 * **Production controllers (`pid`, `tpi`, `mpc`, `heating_power`) ≈
-  0.76–0.83, `mpc_v2` ≈ 0.93.** That band is the realistic operating
+  0.77–0.84, `mpc_v2` ≈ 0.94.** That band is the realistic operating
   range. A controller above 0.80 is beating most of the field; near the
   BangBang floor means a clear weakness in at least one dimension.
 
@@ -171,10 +171,9 @@ and down while idle, then clamped to the TRV's range. The TRV's own sensor reads
 `T_room + trv_sensor_rad_fraction·(T_rad − T_room)`, 0.1 by default, and
 the inner controller sees that reading as its TRV temperature. The
 fraction is an estimate. Between 0.05 and 0.2, TPI stays first on the
-Bosch, Tuya and Sonoff presets; places swap only where two scores lie
-within 0.01 of each other (Tado and Bosch at 0.05), and absolute scores
-move by up to 0.08. The older `"heuristic"` and `"inversion"` mappings
-remain selectable.
+Tuya and Sonoff presets and MPC v2 on Tado; on Bosch, MPC v2 overtakes
+TPI at 0.2. Absolute scores move by up to 0.09. The older `"heuristic"`
+and `"inversion"` mappings remain selectable.
 
 `reports_valve_position` decides what the inner controller gets as the
 previous valve: off (the default for all four presets), its own
