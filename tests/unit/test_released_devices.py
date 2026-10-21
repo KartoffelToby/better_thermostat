@@ -78,8 +78,8 @@ async def test_releasing_gives_up_the_stretches_the_learners_follow():
     bt._loss_tracker.abort_cycle.assert_called_once()
     critical.assert_awaited_once_with(bt)
     bt.control_queue_task.put_nowait.assert_not_called()
-    bt._initialize_arrived_trvs.assert_not_awaited()
-    bt._external_temperature_keepalive.assert_not_awaited()
+    bt._initialize_arrived_trvs.assert_not_called()
+    bt._external_temperature_keepalive.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -130,8 +130,8 @@ async def test_taking_the_devices_back_during_startup_leaves_them_to_it():
     with patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()):
         await BetterThermostat.async_set_devices_released(bt, False)
 
-    bt._initialize_arrived_trvs.assert_not_awaited()
-    bt._external_temperature_keepalive.assert_not_awaited()
+    bt._initialize_arrived_trvs.assert_not_called()
+    bt._external_temperature_keepalive.assert_not_called()
     bt.control_queue_task.put_nowait.assert_not_called()
 
 
