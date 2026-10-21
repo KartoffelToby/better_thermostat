@@ -38,7 +38,7 @@ from custom_components.better_thermostat.events.temperature import (
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 SENSOR_ID = "sensor.external_temp"
 
@@ -302,7 +302,7 @@ class TestCommitTemperatureUpdate:
         """Call model_quirks.maybe_set_external_temperature() for each TRV."""
         quirks = _external_temperature_quirks()
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model_quirks=quirks)
+            "climate.trv1": trv_record(entity_id="climate.trv1", model_quirks=quirks)
         }
 
         await _commit_temperature_update(mock_bt, 21.0)
@@ -317,7 +317,7 @@ class TestCommitTemperatureUpdate:
         quirks = _external_temperature_quirks()
         mock_bt.devices_released = True
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model_quirks=quirks)
+            "climate.trv1": trv_record(entity_id="climate.trv1", model_quirks=quirks)
         }
 
         await _commit_temperature_update(mock_bt, 21.0)
@@ -337,7 +337,7 @@ class TestCommitTemperatureUpdate:
             )
         )
         mock_bt.real_trvs = {
-            entity_id: Trv(entity_id=entity_id, model_quirks=quirks)
+            entity_id: trv_record(entity_id=entity_id, model_quirks=quirks)
             for entity_id in ("climate.trv1", "climate.trv2")
         }
 
@@ -353,11 +353,11 @@ class TestCommitTemperatureUpdate:
     ):
         """A reading reaches only the TRVs that are initialized."""
         quirks = _external_temperature_quirks()
-        waiting = Trv(entity_id="climate.trv1", model_quirks=quirks)
+        waiting = trv_record(entity_id="climate.trv1", model_quirks=quirks)
         waiting.awaiting_initialization = True
         mock_bt.real_trvs = {
             "climate.trv1": waiting,
-            "climate.trv2": Trv(entity_id="climate.trv2", model_quirks=quirks),
+            "climate.trv2": trv_record(entity_id="climate.trv2", model_quirks=quirks),
         }
 
         await _commit_temperature_update(mock_bt, 21.0)
@@ -388,7 +388,7 @@ class TestCommitTemperatureUpdate:
         """
         quirks = _external_temperature_quirks(refusal)
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model_quirks=quirks)
+            "climate.trv1": trv_record(entity_id="climate.trv1", model_quirks=quirks)
         }
 
         await _commit_temperature_update(mock_bt, 21.0)
@@ -408,8 +408,10 @@ class TestCommitTemperatureUpdate:
         )
         answering = _external_temperature_quirks()
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model_quirks=refusing),
-            "climate.trv2": Trv(entity_id="climate.trv2", model_quirks=answering),
+            "climate.trv1": trv_record(entity_id="climate.trv1", model_quirks=refusing),
+            "climate.trv2": trv_record(
+                entity_id="climate.trv2", model_quirks=answering
+            ),
         }
 
         await _commit_temperature_update(mock_bt, 21.0)
@@ -436,8 +438,8 @@ class TestCommitTemperatureUpdate:
         )
         later = _external_temperature_quirks()
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model_quirks=first),
-            "climate.trv2": Trv(entity_id="climate.trv2", model_quirks=later),
+            "climate.trv1": trv_record(entity_id="climate.trv1", model_quirks=first),
+            "climate.trv2": trv_record(entity_id="climate.trv2", model_quirks=later),
         }
 
         await _commit_temperature_update(mock_bt, 21.0)
@@ -1165,7 +1167,7 @@ class TestConcurrentReadings:
     def _attach_trvs(mock_bt, quirks, entity_ids):
         """Give the thermostat TRVs that all share one quirks recorder."""
         mock_bt.real_trvs = {
-            entity_id: Trv(entity_id=entity_id, model_quirks=quirks)
+            entity_id: trv_record(entity_id=entity_id, model_quirks=quirks)
             for entity_id in entity_ids
         }
 
@@ -1516,7 +1518,7 @@ class TestArrivalOrder:
         _make_thermostat_checkable(mock_bt)
         quirks = _RecordingQuirks()
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model_quirks=quirks)
+            "climate.trv1": trv_record(entity_id="climate.trv1", model_quirks=quirks)
         }
         start = dt_util.now()
         mock_bt.last_external_sensor_change = start
@@ -1564,7 +1566,7 @@ class TestKeepaliveTick:
         quirks.gate = asyncio.Event()
         quirks.gated_writes = 1
         mock_bt.real_trvs = {
-            entity_id: Trv(entity_id=entity_id, model_quirks=quirks)
+            entity_id: trv_record(entity_id=entity_id, model_quirks=quirks)
             for entity_id in ("climate.trv1", "climate.trv2")
         }
 
@@ -1778,7 +1780,7 @@ class TestLadderSeesTheHandledReading:
         mock_bt._degraded_warning_emitted = False
         trv_entity_id = "climate.trv1"
         mock_bt.real_trvs = {
-            trv_entity_id: Trv(entity_id=trv_entity_id, current_temperature=21.0)
+            trv_entity_id: trv_record(entity_id=trv_entity_id, current_temperature=21.0)
         }
         live = {SENSOR_ID: State(SENSOR_ID, "unavailable")}
 

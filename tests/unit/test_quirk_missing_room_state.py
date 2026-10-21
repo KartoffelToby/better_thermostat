@@ -19,12 +19,11 @@ from importlib import import_module
 import pytest
 
 from custom_components.better_thermostat.model_fixes import TS0601, TS0601_thermostat
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     CalibrationMode,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 # Two of the modules carry a hyphen in the device name they are called
 # after, so they are reached by name rather than by an import statement.
@@ -48,7 +47,7 @@ def _thermostat(room_temperature, heat_target_temperature):
     bt.room_temperature = room_temperature
     bt.heat_target_temperature = heat_target_temperature
     bt.device_name = "test"
-    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}
+    bt.real_trvs = {ENTITY_ID: trv_record(entity_id=ENTITY_ID)}
     return bt
 
 

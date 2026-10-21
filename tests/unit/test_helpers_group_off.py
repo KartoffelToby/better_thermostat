@@ -21,6 +21,7 @@ from custom_components.better_thermostat.utils.helpers import (
     group_all_members_off,
     setpoint_at_minimum,
 )
+from tests.factories import trv_record
 
 
 def _member(
@@ -29,7 +30,7 @@ def _member(
     target_temp_step: float | None = None,
 ) -> Trv:
     """A Trv carrying what the helper reads; ``_fake_self`` sets its entity id."""
-    return Trv(
+    return trv_record(
         entity_id="climate.member",
         advanced={"no_off_system_mode": no_off},
         min_temp=min_temp,

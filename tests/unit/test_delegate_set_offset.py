@@ -15,8 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.better_thermostat.adapters.delegate import set_calibration_offset
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 ENTITY_ID = "climate.trv"
 # The retry decorator doubles a one-second base delay per attempt.
@@ -31,7 +30,7 @@ def bt():
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
-    trv = Trv(
+    trv = trv_record(
         entity_id=ENTITY_ID, min_local_calibration=-3.0, max_local_calibration=3.0
     )
     trv.adapter = MagicMock()

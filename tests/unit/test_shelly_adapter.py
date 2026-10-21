@@ -11,10 +11,14 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.adapters import shelly
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationOutput
 from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 ENTITY_ID = "climate.blu_trv"
 VALVE_ENTITY = "number.blu_trv_valve_position"
@@ -50,7 +54,7 @@ def _thermostat(calibration=None, head_attributes=None):
     }
     bt.hass.states.get = states.get
     advanced: TrvAdvanced = {} if calibration is None else {"calibration": calibration}
-    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, advanced=advanced)}
+    bt.real_trvs = {ENTITY_ID: trv_record(entity_id=ENTITY_ID, advanced=advanced)}
     return bt
 
 

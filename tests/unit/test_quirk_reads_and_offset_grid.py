@@ -19,14 +19,18 @@ import pytest
 
 from custom_components.better_thermostat.adapters import base, delegate, generic
 from custom_components.better_thermostat.model_fixes import SPZB0001, ZWA021
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.helpers import round_by_step
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 ENTITY_ID = "climate.trv"
 CALIBRATION_ENTITY = "select.trv_local_temperature_calibration"
@@ -60,7 +64,7 @@ def _host(unit=UnitOfTemperature.CELSIUS, state=None, advanced=None):
     host.hass.config.units.temperature_unit = unit
     host.hass.states.get = MagicMock(return_value=state)
     host.hass.services.async_call = AsyncMock(return_value=None)
-    trv = Trv(entity_id=ENTITY_ID)
+    trv = trv_record(entity_id=ENTITY_ID)
     trv.advanced = advanced or {}
     host.real_trvs = {ENTITY_ID: trv}
     return host

@@ -19,12 +19,11 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     local_calibration_shifts_setpoint,
 )
 from custom_components.better_thermostat.model_fixes.types import ModelQuirks
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_PROTECT_OVERHEATING,
     CalibrationMode,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 ENTITY_ID = "climate.me167"
 ROOM = 22.0
@@ -47,7 +46,7 @@ class SimulatedTrv:
 def _host(
     device: SimulatedTrv,
     *,
-    quirks: ModelQuirks | None = ME167,
+    quirks: ModelQuirks = ME167,
     step: float = 0.1,
     protect_overheating: bool = False,
     mode: CalibrationMode = CalibrationMode.DEFAULT,
@@ -62,7 +61,7 @@ def _host(
     bt.room_temperature = ROOM
     bt.heat_target_temperature = ROOM
     bt.real_trvs = {
-        ENTITY_ID: Trv(
+        ENTITY_ID: trv_record(
             entity_id=ENTITY_ID,
             advanced={
                 "calibration_mode": mode,

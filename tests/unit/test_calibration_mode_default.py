@@ -21,7 +21,6 @@ from custom_components.better_thermostat import (
     config_flow as config_flow_module,
 )
 from custom_components.better_thermostat.calibration import calculate_calibration_local
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils import (
     controlling as controlling_module,
     helpers as helpers_module,
@@ -35,7 +34,7 @@ from custom_components.better_thermostat.utils.helpers import (
     configured_calibration_mode,
     normalize_calibration_mode,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 _RUNTIME_MODULES = (calibration_module, controlling_module)
 
@@ -63,7 +62,7 @@ def _thermostat_inside_the_band(stored_mode: StoredChoice) -> ThermostatStandIn:
     )
 
     bt.real_trvs = {
-        "climate.trv": Trv(
+        "climate.trv": trv_record(
             entity_id="climate.trv",
             advanced={"calibration_mode": stored_mode},
             current_temperature=22.0,

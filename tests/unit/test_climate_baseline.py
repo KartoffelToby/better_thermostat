@@ -33,7 +33,7 @@ from custom_components.better_thermostat.utils.thermal_learning import (
     HeatLossTracker,
     Reading,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 # ---------------------------------------------------------------------------
 # Fixture
@@ -299,7 +299,7 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1", hvac_action=HVACAction.HEATING
             )
         }
@@ -311,7 +311,7 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", valve_position=50)
+            "climate.trv1": trv_record(entity_id="climate.trv1", valve_position=50)
         }
         assert self._call(mock_bt) == HVACAction.HEATING
 
@@ -321,7 +321,7 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", last_valve_percent=0.8)
+            "climate.trv1": trv_record(entity_id="climate.trv1", last_valve_percent=0.8)
         }
         assert self._call(mock_bt) == HVACAction.HEATING
 
@@ -331,7 +331,7 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.HEATING
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1", hvac_action=HVACAction.HEATING
             )
         }
@@ -344,7 +344,7 @@ class TestComputeHvacAction:
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.ignore_states = True
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1", hvac_action=HVACAction.HEATING
             )
         }
@@ -356,7 +356,7 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1",
                 hvac_action=HVACAction.HEATING,
                 ignore_trv_states=True,
@@ -370,7 +370,7 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1", hvac_action=HVACAction.HEATING
             )
         }
