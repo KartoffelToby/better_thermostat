@@ -9,6 +9,7 @@ combination — the class of bug a hand-picked example test misses.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from functools import partial
 import itertools
 
 import pytest
@@ -334,29 +335,29 @@ class TestMaintenanceSweep:
     DUES = (None, NOW_DT - timedelta(minutes=1), NOW_DT + timedelta(days=1))
 
     @pytest.mark.parametrize(
-        ("phase", "due", "window_open", "has_trvs"),
+        ("region", "due", "window_open", "has_trvs"),
         list(
             itertools.product(
-                tuple(mt.MaintenancePhase),
-                (None, NOW_DT - timedelta(minutes=1), NOW_DT + timedelta(days=1)),
+                (
+                    mt.MaintenanceIdle,
+                    mt.MaintenanceDue,
+                    partial(mt.MaintenanceRunning, running_since=NOW - 5.0),
+                ),
+                DUES,
                 (False, True),
                 (False, True),
             )
         ),
     )
-    def test_evaluate_tick_invariants(self, phase, due, window_open, has_trvs):
+    def test_evaluate_tick_invariants(self, region, due, window_open, has_trvs):
         """DUE only arms from an unblocked, due, idle schedule."""
-        state = mt.MaintenanceState(
-            phase=phase,
-            next_due=due,
-            running_since=NOW - 5.0 if phase == mt.MaintenancePhase.RUNNING else None,
-        )
+        state = region(next_due=due)
         result = mt.evaluate_tick(
             state, NOW_DT, window_open=window_open, has_enabled_trvs=has_trvs
         )
 
         # Only the IDLE phase reacts to the scheduler tick.
-        if phase != mt.MaintenancePhase.IDLE:
+        if not isinstance(state, mt.MaintenanceIdle):
             assert result == state
             return
         # A future schedule stays untouched.
@@ -365,29 +366,27 @@ class TestMaintenanceSweep:
             return
         # Blocked or TRV-less ticks postpone instead of arming.
         if window_open or not has_trvs:
-            assert result.phase == mt.MaintenancePhase.IDLE
+            assert isinstance(result, mt.MaintenanceIdle)
             assert result.next_due is not None and result.next_due > NOW_DT
         else:
-            assert result.phase == mt.MaintenancePhase.DUE
+            assert isinstance(result, mt.MaintenanceDue)
 
-    @pytest.mark.parametrize("phase", tuple(mt.MaintenancePhase))
-    def test_finish_run_always_returns_to_idle(self, phase):
+    @pytest.mark.parametrize(
+        "state",
+        [
+            mt.MaintenanceIdle(),
+            mt.MaintenanceDue(),
+            mt.MaintenanceRunning(running_since=NOW),
+        ],
+    )
+    def test_finish_run_always_returns_to_idle(self, state):
         """finish_run is unconditional — RUNNING can never be sticky."""
-        state = mt.MaintenanceState(
-            phase=phase,
-            running_since=NOW if phase == mt.MaintenancePhase.RUNNING else None,
-        )
         result = mt.finish_run(state, NOW_DT + timedelta(days=5))
-        assert result.phase == mt.MaintenancePhase.IDLE
-        assert result.running_since is None
+        assert result == mt.MaintenanceIdle(next_due=NOW_DT + timedelta(days=5))
 
     def test_overrunning_maintenance_stops_blocking(self):
         """A RUNNING phase past MAX_RUN_S is dead and no longer blocks."""
-        state = mt.MaintenanceState(
-            phase=mt.MaintenancePhase.RUNNING, running_since=NOW - mt.MAX_RUN_S
-        )
+        state = mt.MaintenanceRunning(running_since=NOW - mt.MAX_RUN_S)
         assert state.is_blocking(NOW) is False
-        fresh = mt.MaintenanceState(
-            phase=mt.MaintenancePhase.RUNNING, running_since=NOW - 10.0
-        )
+        fresh = mt.MaintenanceRunning(running_since=NOW - 10.0)
         assert fresh.is_blocking(NOW) is True

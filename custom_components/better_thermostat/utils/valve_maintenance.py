@@ -14,7 +14,6 @@ import logging
 from random import randint
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
@@ -25,7 +24,7 @@ from ..model_fixes.types import (
 from ..trv import Trv
 from .advanced_flags import advanced_flag
 from .const import CONF_VALVE_MAINTENANCE, CalibrationOutput
-from .helpers import configured_calibration_output, device_offers_mode
+from .helpers import configured_calibration_output, device_offers_mode, state_is_live
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -234,7 +233,7 @@ def build_trv_snapshots(
     infos: list[MaintenanceTrvInfo] = []
     for entity_id in trv_ids:
         trv_state = get_state(entity_id)
-        if trv_state is None or trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if not state_is_live(trv_state):
             _LOGGER.debug(
                 "better_thermostat %s: maintenance skip %s (reports %s, so it names "
                 "no state to restore afterwards)",

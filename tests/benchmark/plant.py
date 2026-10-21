@@ -298,20 +298,6 @@ PROFILE_DOE_MIDRISE_APT = PlantParams(
 )
 
 
-# Reverse-acting "cooling" plant — same RC structure, but the radiator
-# circuit carries chilled water (≈ 15 °C). At u > 0 the radiator cools
-# the room instead of heating it. Used by S26 to expose how the BT/PID
-# controllers behave when the system's sign is flipped relative to their
-# design assumption (heating only).
-PROFILE_COOLING = PlantParams(
-    tau_room_min=480.0,
-    tau_rad_min=15.0,
-    gain_heater=2.0,
-    coupling_rad_room=1.0,
-    T_water=15.0,
-)
-
-
 # Realistic profile: RC3 wall mass, equal-percentage-friendly gains, and
 # a moderate pipe transport delay. To use the equal-percentage actuator
 # with this plant, pass
@@ -360,6 +346,17 @@ class TwoStatePlant:
         # Step size captured when the delay buffer is sized; the modelled
         # transport delay is only correct while dt_s stays constant.
         self._delay_dt_s: float | None = None
+
+    @property
+    def heat_to_room_K_per_min(self) -> float:
+        """Heat the radiator currently delivers to the room, in room-K/min.
+
+        This is the radiator term of ``dT_room/dt``: the rate at which the
+        radiator alone would raise the room air temperature.
+        """
+        p = self.params
+        s = self.state
+        return p.coupling_rad_room * (s.T_rad - s.T_room) / p.tau_room_min
 
     def step(
         self, dt_s: float, u: float, T_outdoor: float, Q_K_per_min: float = 0.0

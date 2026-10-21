@@ -12,7 +12,7 @@ The registry and its entries are the production types from
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 import contextlib
 import itertools
 from typing import Any
@@ -83,7 +83,7 @@ def _host(registry: Any, advanced: TrvAdvanced | None = None) -> MagicMock:
 
 
 @contextlib.contextmanager
-def _registry_in_place(registry: Any) -> Iterator[None]:
+def _registry_in_place(registry: Any) -> Generator[None]:
     """Hand ``registry`` to every module under test; no device is registered."""
     device_registry = MagicMock(spec=dr.DeviceRegistry)
     device_registry.async_get.return_value = None

@@ -376,6 +376,28 @@ class TestCheckCriticalEntities:
         assert not mock_ir.async_create_issue.called
 
     @pytest.mark.asyncio
+    async def test_a_released_trv_going_away_raises_no_issue(self, mock_bt_instance):
+        """An outage of a released device is the user's business.
+
+        Neither the error list nor the repairs carry it, and the issue an
+        earlier outage raised is withdrawn.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_bt_instance.devices_released = True
+        mock_bt_instance.devices_errors = ["climate.trv_1"]
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            await check_critical_entities(mock_bt_instance)
+
+        assert mock_bt_instance.devices_errors == []
+        assert not mock_ir.async_create_issue.called
+        assert mock_ir.async_delete_issue.call_count == 2
+
+    @pytest.mark.asyncio
     async def test_no_issue_during_grace_period(self, mock_bt_instance):
         """Unavailable TRV during startup grace does not raise a repair issue."""
         from datetime import timedelta
@@ -1531,7 +1553,8 @@ class TestDegradedModeGracePeriod:
         assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert any("Exiting degraded mode" in r.message for r in caplog.records)
         assert mock_ir.async_delete_issue.called
-        assert mock_bt_instance._degraded_warning_emitted is False
+        warned: bool = mock_bt_instance._degraded_warning_emitted
+        assert warned is False
 
     @pytest.mark.asyncio
     async def test_no_double_warning(self, mock_bt_instance, caplog):
@@ -1655,7 +1678,8 @@ class TestCoolerDegradedMode:
         assert mock_bt_instance.unavailable_sensors == []
         assert any("Exiting degraded mode" in r.message for r in caplog.records)
         assert mock_ir.async_delete_issue.call_args.args[-1] == "entry_1_degraded_mode"
-        assert mock_bt_instance._degraded_warning_emitted is False
+        warned: bool = mock_bt_instance._degraded_warning_emitted
+        assert warned is False
 
     @pytest.mark.asyncio
     async def test_dead_cooler_is_not_a_critical_entity(self, mock_bt_instance):

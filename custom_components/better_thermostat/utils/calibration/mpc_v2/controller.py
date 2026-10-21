@@ -279,6 +279,7 @@ class MpcV2Controller:
         T_outdoor: float,
         T_rad: float | None = None,
         u_max: float | None = None,
+        learning_paused: bool = False,
     ) -> tuple[float, MpcV2Diagnostics]:
         """Run one control cycle. Returns (valve_fraction, diagnostics).
 
@@ -301,6 +302,13 @@ class MpcV2Controller:
             Highest valve fraction the caller will pass on this cycle, such as
             the user's maximum opening. The plan stays below it and the
             integral's anti-windup treats it as the upper rail.
+        learning_paused : bool, optional
+            Hold the disturbance estimate and the error integral. The room
+            does not answer the valve while learning is paused, so what the
+            observer corrects then is no load the room will carry after the
+            pause. The observer keeps tracking the room and the plan runs on
+            the held values; the integral counts at most one re-plan step
+            after the pause, so nothing is caught up.
 
         Between re-plans the cycle returns the command of the last plan. The
         applied input the caller confirms through :meth:`set_applied_u` feeds
@@ -335,7 +343,8 @@ class MpcV2Controller:
         x_hat = self.kalman.update(T_room, self._last_u, T_outdoor, dt_s=dt_s)
         # The disturbance observer takes the share of the residual the filter
         # moved its room estimate by, not the raw innovation.
-        self.dob.update(self.kalman.room_correction, dt_s)
+        if not learning_paused:
+            self.dob.update(self.kalman.room_correction, dt_s)
 
         # The governor runs behind the observer and judges which setpoints are
         # reachable on this cycle's fast estimate. The QP plans with the slow
@@ -359,7 +368,7 @@ class MpcV2Controller:
         # Hand over the time since the previous plan; the optimiser counts at
         # most one re-plan step of it. The first plan has no preceding
         # control interval.
-        if self._last_mpc_t_s is not None:
+        if self._last_mpc_t_s is not None and not learning_paused:
             self.optimiser.update_integral(
                 T_room=T_room,
                 T_sp=sp_for_opt,

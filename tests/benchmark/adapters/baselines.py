@@ -120,9 +120,8 @@ class IdealOracleAdapter:
     * **Reference ceiling** for tracking quality — a feedback controller
       with perfect plant knowledge. The feedforward inversion is exact
       for the RC2/RC3 plants driving a linear actuator; nonlinear valve
-      profiles and reverse-acting (cooling) plants are covered only by
-      the proportional feedback term, so on those scenarios the ceiling
-      is approximate rather than optimal.
+      profiles are covered only by the proportional feedback term, so on
+      those scenarios the ceiling is approximate rather than optimal.
     * **Stabilisation driver** in the benchmark runner — warms the
       plant to equilibrium before the test controller takes over.
     """
@@ -149,12 +148,13 @@ class IdealOracleAdapter:
         """No state to reset."""
         _ = prior
 
-    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
-        """Return steady-state valve percent plus aggressive feedback correction."""
-        p = self._plant
-        sp = ctx.target_temperature
-        T_out = ctx.outdoor_temperature
+    def steady_state_valve_percent(self, setpoint: float, T_outdoor: float) -> float:
+        """Return the valve percent that holds ``setpoint`` at ``T_outdoor``.
 
+        Clamped to ``[0, 100]``; ``100`` also stands for a setpoint the
+        plant cannot hold at that outdoor temperature.
+        """
+        p = self._plant
         # Steady-state inversion of the lumped-RC plant. Room balance:
         #   coupling * (T_rad_ss - sp) = loss_ss
         # where the steady-state envelope loss is (sp - T_out) in RC2 and
@@ -166,20 +166,28 @@ class IdealOracleAdapter:
         r_wall = getattr(p, "r_room_wall", 1.0)
         tau_wall = getattr(p, "tau_wall_min", 0.0)
         if tau_wall > 0.0:
-            loss_ss = r_wall * (sp - T_out) / (1.0 + r_wall)
+            loss_ss = r_wall * (setpoint - T_outdoor) / (1.0 + r_wall)
         else:
-            loss_ss = sp - T_out
-        T_rad_ss = sp + loss_ss / coupling
+            loss_ss = setpoint - T_outdoor
+        T_rad_ss = setpoint + loss_ss / coupling
         denom = p.gain_heater * (p.T_water - T_rad_ss)
         if denom <= 0.0:
-            u_ff_percent = 100.0  # cannot reach setpoint with this water temperature
-        else:
-            u_ff_percent = max(0.0, min(100.0, 100.0 * (T_rad_ss - sp) / denom))
+            return 100.0  # cannot reach setpoint with this water temperature
+        return max(0.0, min(100.0, 100.0 * (T_rad_ss - setpoint) / denom))
+
+    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+        """Return steady-state valve percent plus aggressive feedback correction."""
+        sp = ctx.target_temperature
+        u_ff_percent = self.steady_state_valve_percent(sp, ctx.outdoor_temperature)
 
         # Aggressive P-feedback so the oracle reacts to transients quickly.
         # Feed back on the plant truth: the oracle is the perfect-knowledge
-        # upper bound, so sensor lag/noise must not depress its ceiling.
-        error_K = sp - ctx.raw_room_temperature
+        # upper bound, so sensor lag/noise must not depress its ceiling. A
+        # sensor's calibration error (bias, drift) is the exception: no
+        # controller can observe it without a second reference, so the
+        # oracle reads it too and the candidates are scored only on what
+        # they add on top of it.
+        error_K = sp - (ctx.raw_room_temperature + ctx.sensor_calibration_error_K)
         u_fb_percent = max(
             -self._feedback_clamp,
             min(self._feedback_clamp, error_K * self._feedback_gain),

@@ -21,8 +21,7 @@ from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.maintenance import (
-    MaintenancePhase,
-    MaintenanceState,
+    MaintenanceDue,
     start_run,
 )
 from custom_components.better_thermostat.trv import Trv
@@ -38,7 +37,6 @@ def bt():
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.ignore_states = False
-    mock.next_valve_maintenance = None
     mock.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
     mock.clock = FakeClock(monotonic_value=1000.0)
     mock.kernel_state = KernelState()
@@ -57,10 +55,7 @@ def _snapshots():
 async def test_reentry_guard(bt):
     """A run while the region is RUNNING returns without doing work."""
     bt.kernel_state = replace(
-        bt.kernel_state,
-        maintenance=start_run(
-            MaintenanceState(phase=MaintenancePhase.DUE), now_monotonic=900.0
-        ),
+        bt.kernel_state, maintenance=start_run(MaintenanceDue(), now_monotonic=900.0)
     )
     with patch(f"{_CLIMATE}.build_trv_snapshots") as snap:
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
@@ -78,7 +73,7 @@ async def test_happy_path_resets_flags_and_reschedules(bt):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
     assert BetterThermostat.in_maintenance.__get__(bt) is False
     assert bt.ignore_states is False
-    assert bt.next_valve_maintenance == _NEXT
+    assert bt.kernel_state.maintenance.next_due == _NEXT
     bt.control_queue_task.put_nowait.assert_called_once_with(bt)
 
 
@@ -141,7 +136,8 @@ async def test_deferred_control_kicks_even_when_off(bt):
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
     bt.control_queue_task.put_nowait.assert_called_once_with(bt)
-    assert bt._control_needed_after_maintenance is False
+    still_needed: bool = bt._control_needed_after_maintenance
+    assert still_needed is False
 
 
 @pytest.mark.asyncio
@@ -301,3 +297,57 @@ async def test_service_reports_a_failed_run(bt, caplog):
     assert failed.value.translation_key == "valve_maintenance_failed"
     assert isinstance(failed.value.__cause__, RuntimeError)
     assert "adapter gone" in caplog.text
+
+
+def _exercise_every_channel():
+    """run_valve_maintenance stand-in that drives each write channel once."""
+
+    async def exercise(
+        infos, *, set_valve_fn, set_temperature_fn, set_hvac_mode_fn, **kwargs
+    ):
+        await set_valve_fn("climate.trv", 100)
+        await set_temperature_fn("climate.trv", 30.0)
+        await set_hvac_mode_fn("climate.trv", HVACMode.HEAT)
+
+    return AsyncMock(side_effect=exercise)
+
+
+@pytest.mark.parametrize(
+    ("released", "writes"),
+    [pytest.param(True, 0, id="released"), pytest.param(False, 1, id="held")],
+)
+@pytest.mark.asyncio
+async def test_a_run_writes_nothing_while_the_devices_are_released(
+    bt, released, writes
+):
+    """A run under way when the devices are released stops writing to them.
+
+    Its restore at the end is a write as well, and the devices are the
+    user's from the release on.
+    """
+    bt.devices_released = released
+    bt._temperature_lock = asyncio.Lock()
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", _exercise_every_channel()),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+        patch(f"{_CLIMATE}.adapter_set_valve", AsyncMock(return_value=True)) as valve,
+        patch(f"{_CLIMATE}.adapter_set_temperature", AsyncMock()) as setpoint,
+        patch(f"{_CLIMATE}.adapter_set_hvac_mode", AsyncMock()) as mode,
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+    assert (valve.await_count, setpoint.await_count, mode.await_count) == (
+        writes,
+        writes,
+        writes,
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_service_refuses_while_the_devices_are_released(bt):
+    """Valve maintenance on demand is refused while the devices are the user's."""
+    bt.devices_released = True
+    bt.in_maintenance = False
+    with pytest.raises(ServiceValidationError) as raised:
+        await BetterThermostat.run_valve_maintenance_service(bt)
+    assert raised.value.translation_key == "devices_released"

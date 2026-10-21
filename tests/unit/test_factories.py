@@ -99,12 +99,13 @@ def test_the_unique_id_answers_from_the_private_id():
     assert bt.unique_id == "entry_1"
 
 
-def test_the_stand_in_answers_state_it_was_given():
+@pytest.mark.parametrize("given", [True, False])
+def test_the_stand_in_answers_state_it_was_given(given):
     """State the test set reads back unchanged."""
     bt = ThermostatStandIn()
-    bt.call_for_heat = False
+    bt.call_for_heat = given
 
-    assert bt.call_for_heat is False
+    assert bt.call_for_heat is given
 
 
 def test_the_stand_in_still_mocks_methods():

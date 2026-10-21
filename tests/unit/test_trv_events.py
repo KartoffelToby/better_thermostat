@@ -180,8 +180,9 @@ def _make_event(bt, new_state=None, old_state=None, entity_id=ENTITY_ID):
 
 
 @pytest.mark.parametrize("request_cycle", [True, False])
+@pytest.mark.parametrize("devices_released", [True, False])
 async def test_valve_only_temperature_report_preserves_room_settings(
-    mock_bt, request_cycle
+    mock_bt, request_cycle, devices_released
 ):
     """Device temperature keeps BLU regulation current without adopting its settings."""
     trv = mock_bt.real_trvs[ENTITY_ID]
@@ -189,6 +190,7 @@ async def test_valve_only_temperature_report_preserves_room_settings(
     trv.valve_position_entity = "number.test_trv_valve"
     trv.valve_position_writable = True
     trv.advanced["calibration"] = CalibrationOutput.DIRECT_VALVE_BASED
+    mock_bt.devices_released = devices_released
     state = _make_state("off", {"current_temperature": 20.5, "temperature": 15.0})
     mock_bt.hass.states.get.return_value = state
     with patch(
@@ -198,9 +200,10 @@ async def test_valve_only_temperature_report_preserves_room_settings(
             mock_bt, _make_event(mock_bt, new_state=state), request_cycle=request_cycle
         )
     assert trv.current_temperature == 20.5
+    assert trv.hvac_mode == HVACMode.OFF
     assert mock_bt.heat_target_temperature == 19.0
     assert mock_bt.bt_hvac_mode == HVACMode.HEAT
-    if request_cycle:
+    if request_cycle and not devices_released:
         schedule.assert_called_once_with(mock_bt)
     else:
         schedule.assert_not_called()
@@ -778,7 +781,8 @@ class TestInternalTemperatureChange:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.real_trvs[ENTITY_ID].calibration_received is True
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        assert trv.calibration_received is True
 
     @pytest.mark.asyncio
     async def test_calibration_received_resets_main_change(self, mock_bt):
@@ -827,6 +831,7 @@ class TestInternalTemperatureChange:
         ):
             await trigger_trv_change(mock_bt, event)
 
+        trv = mock_bt.real_trvs[ENTITY_ID]
         assert trv.calibration_received is True
         assert trv.current_temperature == 20.0
         if cycle_running:
@@ -873,7 +878,8 @@ class TestInternalTemperatureChange:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.real_trvs[ENTITY_ID].calibration_received is True
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        assert trv.calibration_received is True
         if reads_offset:
             mock_offset.assert_awaited_once_with(mock_bt, ENTITY_ID)
             assert mock_bt.real_trvs[ENTITY_ID].last_calibration == 2.5
@@ -950,8 +956,10 @@ class TestInternalTemperatureChange:
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
+        detached: list[Trv] = []
+
         async def pop_entry_and_return_offset(bt, entity_id):
-            bt.real_trvs.pop(entity_id)
+            detached.append(bt.real_trvs.pop(entity_id))
             return 2.5
 
         with (
@@ -969,9 +977,11 @@ class TestInternalTemperatureChange:
 
         assert mock_bt.real_trvs == {}
         # Writes landed on the detached Trv object.
-        assert trv.calibration_received is True
-        assert trv.last_calibration == 2.5
-        assert trv.current_temperature == 20.0
+        (left_behind,) = detached
+        assert left_behind is trv
+        assert left_behind.calibration_received is True
+        assert left_behind.last_calibration == 2.5
+        assert left_behind.current_temperature == 20.0
 
     @pytest.mark.asyncio
     async def test_entry_removed_before_offset_read_skips_it(self, mock_bt):
@@ -994,8 +1004,10 @@ class TestInternalTemperatureChange:
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
+        detached: list[Trv] = []
+
         async def pop_entry(bt, entity_id, **_kwargs):
-            bt.real_trvs.pop(entity_id)
+            detached.append(bt.real_trvs.pop(entity_id))
 
         with (
             patch(
@@ -1012,8 +1024,10 @@ class TestInternalTemperatureChange:
         assert mock_bt.real_trvs == {}
         # The offset read was skipped; the flag still flipped on the
         # detached Trv object.
-        assert trv.calibration_received is True
-        assert trv.last_calibration == 0.0
+        (left_behind,) = detached
+        assert left_behind is trv
+        assert left_behind.calibration_received is True
+        assert left_behind.last_calibration == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -4622,6 +4636,7 @@ class TestInternalRereadAfterTheDebounce:
         await asyncio.sleep(0)
 
         assert [task.cancelled() for task in cancelled] == [True]
+        trv = mock_bt.real_trvs[ENTITY_ID]
         assert trv.internal_reread_pending is False
         mock_bt.task_manager = MagicMock()
         _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
@@ -5052,6 +5067,7 @@ class TestHeadsThatStayOffTheAir:
                 mock_bt, _make_event(mock_bt, new_state=unavailable)
             )
 
+        trv = mock_bt.real_trvs[ENTITY_ID]
         assert trv.current_temperature is None
         assert trv.accept_next_internal_temperature is True
         request.assert_called_once_with(mock_bt)
@@ -5259,3 +5275,63 @@ class TestOutboundForDevicesWithoutModes:
         assert result is not None
         assert result["temperature"] == mock_bt.heat_target_temperature
         assert result["system_mode"] is None
+
+
+# ---------------------------------------------------------------------------
+# Released devices
+# ---------------------------------------------------------------------------
+
+
+class TestReleasedTrv:
+    """While the devices are released, what a TRV reports stays the user's."""
+
+    @staticmethod
+    async def _switch_on_at_the_device(bt):
+        """Switch the TRV on at the device while the room is off."""
+        bt.bt_hvac_mode = HVACMode.OFF
+        trv = bt.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "off"
+        trv.last_hvac_mode = "off"
+        trv_state = _make_state(state_str="heat")
+        bt.hass.states.get.return_value = trv_state
+        event = _make_event(
+            bt, new_state=trv_state, old_state=_make_state(state_str="off")
+        )
+        await trigger_trv_change(bt, event)
+
+    @pytest.mark.asyncio
+    async def test_a_released_trv_switched_on_leaves_the_room_off(self, mock_bt):
+        """Switching a released TRV on does not switch the room on.
+
+        The device's mode is cached as reported, so once the devices are
+        taken back its next report reads as no change, not as a press.
+        """
+        mock_bt.devices_released = True
+
+        await self._switch_on_at_the_device(mock_bt)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_mode == "heat"
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_held_trv_switched_on_switches_the_room_on(self, mock_bt):
+        """The counterpart: a held TRV switched on at the device is a press."""
+        await self._switch_on_at_the_device(mock_bt)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    async def test_a_setpoint_turned_at_a_released_trv_stays_the_users(self, mock_bt):
+        """The room's target is not taken from a released TRV."""
+        mock_bt.devices_released = True
+        new_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        event = _make_event(mock_bt, new_state=new_state, old_state=_make_state())
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == 19.0
+        mock_bt.control_queue_task.put_nowait.assert_not_called()

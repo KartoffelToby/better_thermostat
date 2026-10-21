@@ -69,7 +69,8 @@ from custom_components.better_thermostat.core.fsm.lifecycle import (
 )
 from custom_components.better_thermostat.core.fsm.maintenance import (
     MAX_RUN_S,
-    MaintenancePhase,
+    MaintenanceDue,
+    MaintenanceRunning,
     evaluate_tick,
     finish_run,
     start_run,
@@ -637,7 +638,7 @@ class KernelMachine(RuleBasedStateMachine):
             ),
         )
 
-    @precondition(lambda self: self.kernel.maintenance.phase == MaintenancePhase.DUE)
+    @precondition(lambda self: isinstance(self.kernel.maintenance, MaintenanceDue))
     @rule()
     def maintenance_starts(self) -> None:
         """A due valve exercise starts."""
@@ -646,9 +647,7 @@ class KernelMachine(RuleBasedStateMachine):
         )
         self.model_maintenance_since = self.mono
 
-    @precondition(
-        lambda self: self.kernel.maintenance.phase == MaintenancePhase.RUNNING
-    )
+    @precondition(lambda self: isinstance(self.kernel.maintenance, MaintenanceRunning))
     @rule()
     def maintenance_finishes(self) -> None:
         """The valve exercise ends and reschedules."""
@@ -932,7 +931,7 @@ class KernelMachine(RuleBasedStateMachine):
         if not hasattr(self, "kernel"):
             return
         region = self.kernel.maintenance
-        if region.running_since is not None and region.is_blocking(self.mono):
+        if isinstance(region, MaintenanceRunning) and region.is_blocking(self.mono):
             assert self.mono - region.running_since < MAX_RUN_S
 
 

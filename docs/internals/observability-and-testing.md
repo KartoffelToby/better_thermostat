@@ -55,7 +55,7 @@ Four nets with distinct failure modes they catch:
    window → OFF, restore after restart, unload/reload, and the
    reconciler healing a dropped write.
 3. **The calibration benchmark** (`tests/benchmark/`) — a pure thermal
-   simulation comparing all controllers across ~37 scenarios. Seeded
+   simulation comparing all controllers across ~36 scenarios. Seeded
    and deterministic, so two runs are byte-identical: refactorings of
    the calibration code are proven behavior-preserving by diffing the
    benchmark output before and after.

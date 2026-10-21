@@ -41,7 +41,7 @@ from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode as _parse_mode,
 )
 from custom_components.better_thermostat.model_fixes import TRVZB, ZWA021
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import Trv, UnreadReport
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -52,7 +52,9 @@ from custom_components.better_thermostat.utils.controlling import (
     MIN_WRITE_INTERVAL_S,
     SETPOINT_RETRY_BACKOFF_MAX_S,
     SETPOINT_UNAPPLIED_WRITES_LIMIT,
+    TaskManager,
     _mode_switched_during_cycle,
+    _schedule_budget_retry,
     _setpoint_turned_during_cycle,
     check_calibration,
     check_target_temperature,
@@ -317,9 +319,8 @@ class TestControlTrvUnavailablePath:
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is True
-            assert (
-                mock_self.real_trvs["climate.trv1"].reachability_retry_pending is True
-            )
+            trv = mock_self.real_trvs["climate.trv1"]
+            assert trv.reachability_retry_pending is True
             assert mock_self.task_manager.create_task.called
 
     @pytest.mark.asyncio
@@ -1586,7 +1587,8 @@ class TestControlTrvIgnoreFlagReset:
             with pytest.raises(asyncio.CancelledError):
                 await task
 
-        assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
+        trv = mock_self.real_trvs["climate.trv1"]
+        assert trv.ignore_trv_states is False
 
     @pytest.mark.asyncio
     async def test_cancel_while_waiting_for_lock_keeps_holder_flag(self):
@@ -1629,7 +1631,8 @@ class TestControlTrvIgnoreFlagReset:
 
             holder = asyncio.create_task(control_trv(mock_self, "climate.trv1"))
             await asyncio.wait_for(entered_write.wait(), timeout=5)
-            assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is True
+            trv = mock_self.real_trvs["climate.trv1"]
+            assert trv.ignore_trv_states is True
 
             waiter = asyncio.create_task(control_trv(mock_self, "climate.trv1"))
             # Let the waiter run until it suspends on the held lock.
@@ -1646,7 +1649,8 @@ class TestControlTrvIgnoreFlagReset:
             with pytest.raises(asyncio.CancelledError):
                 await holder
 
-        assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
+        trv = mock_self.real_trvs["climate.trv1"]
+        assert trv.ignore_trv_states is False
 
 
 # ---------------------------------------------------------------------------
@@ -1977,7 +1981,8 @@ class TestOffIntentClosesTheValve:
         with patch("asyncio.sleep", new=AsyncMock()):
             await coro
         assert mock_self.control_queue_task.get_nowait() is mock_self
-        assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is False
+        trv = mock_self.real_trvs["climate.trv1"]
+        assert trv.budget_retry_pending is False
 
         # Close any other captured coroutines to avoid RuntimeWarning.
         for coro, name in captured:
@@ -2395,6 +2400,20 @@ class TestValveWriteResult:
             context=mock_self.context,
         )
         assert mock_self.real_trvs["climate.trv1"].last_valve_method == "override"
+
+
+class TestBudgetRetryOnARemovedThermostat:
+    """A thermostat being removed starts no follow-up cycle for a deferred write."""
+
+    def test_no_retry_is_recorded_once_the_task_manager_is_closed(self):
+        """The closed manager starts no task, so no retry is left pending."""
+        mock_self = _make_mock_self(real_trvs={"climate.trv1": _default_trv_config()})
+        mock_self.task_manager = TaskManager()
+        mock_self.task_manager.cancel_all()
+
+        _schedule_budget_retry(mock_self, "climate.trv1", 5.0)
+
+        assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is False
 
 
 # ---------------------------------------------------------------------------
@@ -3050,7 +3069,8 @@ class TestGroupedTrvCalibration:
             mock_set_calibration_offset.assert_awaited_once_with(
                 mock_bt_grouped, entity_id, 3.0
             )
-            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
+            trv = mock_bt_grouped.real_trvs[entity_id]
+            assert trv.calibration_received is False
 
     async def test_calibration_sent_when_received_true_and_differs(
         self, mock_bt_grouped
@@ -3091,7 +3111,8 @@ class TestGroupedTrvCalibration:
             mock_set_calibration_offset.assert_called_once_with(
                 mock_bt_grouped, entity_id, 3.0
             )
-            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
+            trv = mock_bt_grouped.real_trvs[entity_id]
+            assert trv.calibration_received is False
 
     async def test_missing_reference_calibration_skips_offset_write(
         self, mock_bt_grouped
@@ -3224,7 +3245,8 @@ class TestGroupedTrvCalibration:
 
             await control_trv(mock_bt_grouped, entity_id)
 
-            assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
+            trv = mock_bt_grouped.real_trvs[entity_id]
+            assert trv.calibration_received is False
 
 
 class TestControlTrvOnADualRoleEntity:
@@ -3391,16 +3413,25 @@ async def _run_offset_cycle(
     reported_offset,
     set_calibration_offset=None,
     system_mode=None,
+    on_offset_read=None,
 ):
-    """Run one control_trv cycle for the offset-calibrated TRV."""
+    """Run one control_trv cycle for the offset-calibrated TRV.
+
+    ``on_offset_read`` runs when the cycle reads the device's offset, which
+    is the last thing the cycle awaits before it writes the offset.
+    """
+
+    def read_offset(*_args):
+        if on_offset_read is not None:
+            on_offset_read()
+        return reported_offset
+
     if set_calibration_offset is None:
         set_calibration_offset = AsyncMock(return_value=True)
     with (
         patch(_PATCHES["convert_outbound_states"]) as mock_convert,
         patch(
-            _PATCHES["get_calibration_offset"],
-            autospec=True,
-            return_value=reported_offset,
+            _PATCHES["get_calibration_offset"], autospec=True, side_effect=read_offset
         ) as mock_get_offset,
         patch(
             _PATCHES["set_calibration_offset"],
@@ -3482,6 +3513,25 @@ class TestOffsetWriteGate:
                 mock_self, desired_offset=-2.0, reported_offset=0.0
             )
         set_calibration_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+
+    @pytest.mark.asyncio
+    async def test_no_offset_is_written_once_the_devices_are_released(self):
+        """A release that comes in while the offset is read stops its write.
+
+        The cycle decided before the release, and the devices are the
+        user's from the release on.
+        """
+        mock_self = _make_offset_self(calibration_received=True, last_calibration=0.0)
+
+        def release():
+            mock_self.devices_released = True
+
+        set_calibration_offset, get_offset = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=0.0, on_offset_read=release
+        )
+
+        get_offset.assert_called_once()
+        set_calibration_offset.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_unconfirmed_offset_is_written_once_the_report_confirms(self):
@@ -3847,6 +3897,7 @@ class TestOffsetWriteGate:
         with patch(f"{_CTRL}.get_calibration_offset", autospec=True, return_value=-2.0):
             assert await earlier_watchdog is True
 
+        trv = mock_self.real_trvs["climate.trv1"]
         assert trv.calibration_received is False
 
 
@@ -4206,6 +4257,7 @@ class TestSetpointWatchdogAcrossAFailingWrite:
             await control_trv(mock_self, "climate.trv1")
 
         assert set_temperature.await_count == 2
+        trv = mock_self.real_trvs["climate.trv1"]
         assert trv.target_temperature_received is True
         assert trv.confirmed_setpoint == 24.0
 
@@ -4604,9 +4656,11 @@ class TestPressesDuringACycle:
     def _pressed_trv(*, child_lock: bool = False, before: str = HVACMode.OFF):
         trv = _default_trv_config(last_hvac_mode=HVACMode.OFF, hvac_mode=HVACMode.OFF)
         trv.advanced = {**(trv.advanced or {}), "child_lock": child_lock}
-        trv.report_unread = True
-        trv.state_before_held_report = State(
-            "climate.trv1", before, attributes={"temperature": 20.0}
+        trv.unread_report = UnreadReport(
+            state_before=State(
+                "climate.trv1", before, attributes={"temperature": 20.0}
+            ),
+            hvac_mode_before=None,
         )
         return trv
 
@@ -5080,6 +5134,7 @@ class TestUnappliedSetpointRun:
         await self._cycle(mock_self)
         await self._cycle(mock_self)
 
+        trv = mock_self.real_trvs[self.HEAD]
         assert trv.setpoint_unapplied_reported is True
         assert get_device_errors(mock_self) == [self.HEAD]
         calls = self.registry.async_create_issue.call_args_list
@@ -5127,6 +5182,7 @@ class TestUnappliedSetpointRun:
         self.attributes["temperature"] = self.TARGET
         await self._cycle(mock_self)
 
+        trv = mock_self.real_trvs[self.HEAD]
         assert trv.setpoint_unapplied_reported is False
         assert trv.unapplied_setpoint_writes == 0
         assert get_device_errors(mock_self) == []
@@ -5221,6 +5277,7 @@ class TestUnappliedSetpointRun:
                 mock_self, self.HEAD, trv.last_setpoint_write_id, self.TARGET
             )
 
+        trv = mock_self.real_trvs[self.HEAD]
         assert trv.setpoint_unapplied_reported is False
         assert trv.unapplied_setpoint_writes == 0
 

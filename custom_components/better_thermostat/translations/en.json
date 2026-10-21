@@ -498,6 +498,9 @@
       }
     },
     "switch": {
+      "release_devices": {
+        "name": "Release devices"
+      },
       "pid_auto_tune": {
         "name": "{trv_name} PID Auto Tune"
       },
@@ -509,6 +512,12 @@
       },
       "child_lock_no_trv": {
         "name": "Child Lock"
+      },
+      "pause_learning": {
+        "name": "Pause Learning"
+      },
+      "window_detection": {
+        "name": "Window Detection"
       }
     },
     "sensor": {
@@ -622,6 +631,9 @@
     },
     "invalid_settings": {
       "message": "The stored settings of this Better Thermostat cannot be read: {reason}. Change them in its options, or remove it and add it again."
+    },
+    "devices_released": {
+      "message": "The devices of {device_name} are released. Turn off Release devices to let Better Thermostat control them again."
     }
   }
 }
