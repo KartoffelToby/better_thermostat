@@ -19,7 +19,7 @@ import zlib
 from custom_components.better_thermostat.core.watchdog import CONTROL_TICK_S
 
 from .actuator import Actuator, ActuatorParams, ActuatorProfile
-from .adapters.base import BenchmarkContext, ControllerAdapter
+from .adapters.base import BenchmarkContext, ControlCycleGate, ControllerAdapter
 from .adapters.baselines import BangBangAdapter, IdealOracleAdapter, LinearPAdapter
 from .adapters.heating_power_adapter import HeatingPowerAdapter
 from .adapters.indirect_trv import (
@@ -384,6 +384,9 @@ def _drive_adapter(
         valve_percent = (
             0.0 if window_open or out.valve_percent is None else out.valve_percent
         )
+        if isinstance(adapter, ControlCycleGate):
+            # BT writes a direct-valve command as a whole percent.
+            valve_percent = float(round(valve_percent))
         last_valve_percent = valve_percent
 
         t_s_list.append(t)

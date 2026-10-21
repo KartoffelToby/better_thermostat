@@ -159,3 +159,16 @@ def test_a_setpoint_change_raises_an_event() -> None:
     flags = _flags(scenario)
     assert flags[600.0][0] is True
     assert flags[630.0][0] is False
+
+
+def test_the_runner_writes_a_direct_valve_as_a_whole_percent() -> None:
+    controller = _FractionalValve()
+    result = run_scenario(controller, _QUIET_ROOM, step_s=30.0)
+    # 37.4 % rounds to 37 % over the whole 30 min.
+    assert result.metrics.integral_valve_percent_minutes == pytest.approx(37.0 * 30)
+
+
+class _FractionalValve(_CountingController):
+    @override
+    def _compute(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+        return BenchmarkOutput(valve_percent=37.4)
