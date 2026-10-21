@@ -26,7 +26,6 @@ from custom_components.better_thermostat.calibration import (
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.model_fixes.model_quirks import (
-    load_model_quirks,
     trv_report_is_unreadable,
 )
 from custom_components.better_thermostat.trv import UnreadReport
@@ -51,7 +50,6 @@ from custom_components.better_thermostat.utils.helpers import (
     cooling_owns_dual_role_report,
     device_offers_mode,
     dual_role_entity_id,
-    get_device_model,
     group_all_members_off,
     is_reasonable_temperature,
     mode_remap,
@@ -470,35 +468,6 @@ async def trigger_trv_change(
     # child lock switch and both guards below read the flag the same way.
     child_lock = advanced_flag(advanced, CONF_CHILD_LOCK)
 
-    # Dynamic model detection: only once (e.g. at startup), not on every event
-    try:
-        # Only check when the state carries hints
-        if not trv.model and (
-            "model_id" in _org_trv_state.attributes
-            or "device" in _org_trv_state.attributes
-        ):
-            detected = await get_device_model(
-                self, entity_id, configured_model=self.model
-            )
-            if isinstance(detected, str) and detected:
-                _LOGGER.info(
-                    "better_thermostat %s: TRV %s model detected: %s; loading quirks",
-                    self.device_name,
-                    entity_id,
-                    detected,
-                )
-                quirks = await load_model_quirks(self, detected, entity_id)
-                trv.model = detected
-                trv.model_quirks = quirks
-    except Exception as e:
-        _LOGGER.debug(
-            "better_thermostat %s: dynamic model detection failed for %s: %s",
-            self.device_name,
-            entity_id,
-            e,
-            exc_info=True,
-        )
-
     _new_current_temperature = attr_to_celsius(
         self, _org_trv_state, "current_temperature", None, "TRV_current_temp"
     )
@@ -594,18 +563,6 @@ async def trigger_trv_change(
             )
             _main_change = False
             if trv.calibration is CalibrationOutput.LOCAL_BASED:
-                # The awaits above (model detection, quirk loading) can
-                # outlive the entry: the offset read resolves the adapter
-                # through a raw real_trvs index, so skip it once the TRV
-                # is no longer tracked.
-                if entity_id not in self.real_trvs:
-                    _LOGGER.debug(
-                        "better_thermostat %s: TRV %s is no longer tracked, "
-                        "skipping offset read",
-                        self.device_name,
-                        entity_id,
-                    )
-                    return
                 trv.last_calibration = await get_calibration_offset(self, entity_id)
 
         # Under SENSOR_FALLBACK the TRV readings are the room temperature,
