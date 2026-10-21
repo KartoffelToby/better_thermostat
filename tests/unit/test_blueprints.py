@@ -27,6 +27,7 @@ from pathlib import Path
 from homeassistant.components.automation import config as automation_config
 from homeassistant.components.blueprint.models import Blueprint, BlueprintInputs
 from homeassistant.components.blueprint.schemas import BLUEPRINT_SCHEMA
+from homeassistant.core import ServiceCall
 import homeassistant.helpers.config_validation as cv
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -823,3 +824,150 @@ def test_presence_away_recheck_guards_the_away_call():
         and "not anyone_home_recheck" in str(step.get("value_template"))
     ]
     assert rechecks, "the away call is not guarded by the re-check in its own list"
+
+
+# ── Pause Learning blueprints ────────────────────────────────────────────────
+
+HEAT_SOURCE = BLUEPRINTS_DIR / "pause_learning_heat_source.yaml"
+FIREPLACE = BLUEPRINTS_DIR / "pause_learning_fireplace.yaml"
+_PAUSE_SWITCHES = ["switch.living_room_pause_learning", "switch.bedroom_pause_learning"]
+
+
+@pytest.fixture(name="switch_calls")
+async def switch_calls_fixture(hass):
+    """Capture every `switch.turn_on` and `switch.turn_off` call, in order."""
+    calls: list[tuple[str, list[str]]] = []
+
+    async def record(call: ServiceCall) -> None:
+        calls.append((call.service, list(call.data["entity_id"])))
+
+    for service in ("turn_on", "turn_off"):
+        hass.services.async_register("switch", service, record)
+    return calls
+
+
+async def _set_up_heat_source(hass, **inputs):
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "on")
+    await _set_up_blueprint(
+        hass,
+        HEAT_SOURCE,
+        {
+            "heat_source_entity": "binary_sensor.boiler_heats_radiators",
+            "pause_learning_switches": _PAUSE_SWITCHES,
+            **inputs,
+        },
+    )
+
+
+async def test_heat_source_pauses_learning_while_no_heat_flows(hass, switch_calls):
+    """Learning stops when the heat goes away and resumes when it is back."""
+    await _set_up_heat_source(hass)
+
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "off")
+    await hass.async_block_till_done()
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES)]
+
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "on")
+    await hass.async_block_till_done()
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES), ("turn_off", _PAUSE_SWITCHES)]
+
+
+async def test_heat_source_entity_reporting_the_outage_pauses_on_on(hass, switch_calls):
+    """A hot water indicator is on while the radiators get nothing."""
+    await _set_up_heat_source(hass, pause_state="on")
+
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "off")
+    await hass.async_block_till_done()
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "on")
+    await hass.async_block_till_done()
+
+    assert switch_calls == [("turn_off", _PAUSE_SWITCHES), ("turn_on", _PAUSE_SWITCHES)]
+
+
+async def test_heat_source_going_unavailable_leaves_the_switches_alone(
+    hass, switch_calls
+):
+    """A sensor that drops out says nothing about the heat source."""
+    await _set_up_heat_source(hass)
+
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "unavailable")
+    await hass.async_block_till_done()
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "unknown")
+    await hass.async_block_till_done()
+
+    assert switch_calls == []
+
+
+async def _set_up_fireplace(hass, **inputs):
+    hass.states.async_set("sensor.fireplace_temperature", "20")
+    await _set_up_blueprint(
+        hass,
+        FIREPLACE,
+        {
+            "fireplace_sensor": "sensor.fireplace_temperature",
+            "pause_learning_switches": _PAUSE_SWITCHES,
+            **inputs,
+        },
+    )
+
+
+async def test_fireplace_pauses_learning_until_it_has_cooled_down(
+    hass, freezer, switch_calls, preset_calls
+):
+    """Learning resumes only after the cool-down, and no preset is touched."""
+    await _set_up_fireplace(hass)
+
+    hass.states.async_set("sensor.fireplace_temperature", "120")
+    await _settle(hass)
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES)]
+
+    hass.states.async_set("sensor.fireplace_temperature", "30")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=29))
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES)]
+
+    await _advance(hass, freezer, timedelta(minutes=2))
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES), ("turn_off", _PAUSE_SWITCHES)]
+    assert _presets(preset_calls) == []
+
+
+async def test_fireplace_flaring_up_during_the_cool_down_keeps_the_pause(
+    hass, freezer, switch_calls
+):
+    """Wood added before the cool-down ends restarts it."""
+    await _set_up_fireplace(hass)
+
+    hass.states.async_set("sensor.fireplace_temperature", "120")
+    await _settle(hass)
+    hass.states.async_set("sensor.fireplace_temperature", "30")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=20))
+    hass.states.async_set("sensor.fireplace_temperature", "38")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=20))
+
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES)]
+
+
+async def test_fireplace_sets_the_chosen_preset_and_none_afterwards(
+    hass, freezer, switch_calls, preset_calls
+):
+    """The preset follows the fire, and the pause comes with it."""
+    await _set_up_fireplace(
+        hass,
+        fire_preset="eco",
+        thermostat_target={"entity_id": "climate.living_room"},
+        cool_down_minutes=0,
+    )
+
+    hass.states.async_set("sensor.fireplace_temperature", "120")
+    await _settle(hass)
+    assert _presets(preset_calls) == ["eco"]
+    assert preset_calls[0].data["entity_id"] == ["climate.living_room"]
+
+    hass.states.async_set("sensor.fireplace_temperature", "30")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(seconds=1))
+
+    assert _presets(preset_calls) == ["eco", "none"]
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES), ("turn_off", _PAUSE_SWITCHES)]

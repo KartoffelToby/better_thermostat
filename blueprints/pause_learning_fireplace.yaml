@@ -1,0 +1,155 @@
+blueprint:
+  name: "Better Thermostat: Pause learning while the fireplace burns"
+  description: >
+    Turns the Pause Learning switch of one or more Better Thermostat devices
+    on while a fireplace or stove warms the room, so the heat it gives off is
+    not learned as heat from the radiators. Learning resumes once the
+    fireplace has cooled down for a while. Optionally sets a preset on the
+    thermostats while the fire burns and sets None again afterwards; that
+    preset has to be enabled in the Better Thermostat configuration.
+  domain: automation
+  source_url: https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/pause_learning_fireplace.yaml
+  input:
+    fireplace_sensor:
+      name: Fireplace temperature sensor
+      description: A temperature sensor at the fireplace, its flue or its stove pipe.
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: temperature
+
+    burning_above:
+      name: Burning above
+      description: The fireplace counts as burning once the sensor rises above this value.
+      default: 40
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 1
+          mode: box
+
+    out_below:
+      name: Out below
+      description: The fireplace counts as out once the sensor has stayed below this value.
+      default: 35
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 1
+          mode: box
+
+    cool_down_minutes:
+      name: Cool-down time (minutes)
+      description: >
+        How long the sensor has to stay below "Out below" before learning
+        resumes, so the room loses the fireplace's heat first.
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 240
+          step: 5
+          unit_of_measurement: min
+
+    pause_learning_switches:
+      name: Pause Learning switches
+      description: >
+        The Pause Learning switch of the fireplace's room, and of every room
+        next door that it warms as well.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - integration: better_thermostat
+              domain: switch
+
+    fire_preset:
+      name: Preset while the fire burns (optional)
+      description: >
+        A preset to set on the thermostats below while the fire burns, for
+        example Eco. When the fire is out, they go back to None. Leave it at
+        "Keep the preset" to change nothing.
+      default: keep
+      selector:
+        select:
+          options:
+            - label: Keep the preset
+              value: keep
+            - label: Eco
+              value: eco
+            - label: Away
+              value: away
+            - label: Home
+              value: home
+            - label: Sleep
+              value: sleep
+            - label: Activity
+              value: activity
+
+    thermostat_target:
+      name: Thermostats for the preset (optional)
+      description: Only used when a preset is chosen above.
+      default: {}
+      selector:
+        target:
+          device:
+            integration: better_thermostat
+          entity:
+            integration: better_thermostat
+            domain: climate
+
+mode: queued
+max_exceeded: silent
+
+variables:
+  fire_preset: !input fire_preset
+
+trigger:
+  - platform: numeric_state
+    entity_id: !input fireplace_sensor
+    above: !input burning_above
+    id: burning
+  - platform: numeric_state
+    entity_id: !input fireplace_sensor
+    below: !input out_below
+    for:
+      minutes: !input cool_down_minutes
+    id: out
+
+condition: []
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: burning
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: !input pause_learning_switches
+          - if:
+              - condition: template
+                value_template: "{{ fire_preset != 'keep' }}"
+            then:
+              - service: climate.set_preset_mode
+                target: !input thermostat_target
+                data:
+                  preset_mode: "{{ fire_preset }}"
+      - conditions:
+          - condition: trigger
+            id: out
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input pause_learning_switches
+          - if:
+              - condition: template
+                value_template: "{{ fire_preset != 'keep' }}"
+            then:
+              - service: climate.set_preset_mode
+                target: !input thermostat_target
+                data:
+                  preset_mode: none

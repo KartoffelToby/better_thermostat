@@ -1,0 +1,77 @@
+blueprint:
+  name: "Better Thermostat: Pause learning while the heat source delivers no heat"
+  description: >
+    Turns the Pause Learning switch of one or more Better Thermostat devices
+    on while the boiler or heat pump sends no heat to the radiators, for
+    example while a combi boiler heats hot water, a heat pump defrosts or the
+    heat source is locked out, and off again once heat flows. Regulation
+    carries on and the valves stay where they are; only the learning stops.
+    Needs an entity that reports whether the heat source delivers heat, such
+    as a binary sensor from an eBUS, OpenTherm or heat pump integration.
+  domain: automation
+  source_url: https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/pause_learning_heat_source.yaml
+  input:
+    heat_source_entity:
+      name: Heat source entity
+      description: >
+        A `binary_sensor` or `input_boolean` that reports the heat source.
+        Only its `on` and `off` states count, so an entity that turns
+        `unavailable` changes nothing.
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+            - domain: input_boolean
+
+    pause_state:
+      name: Pause learning while the entity is
+      description: >
+        `off` for an entity that is on while heat reaches the radiators,
+        `on` for one that is on while it does not, such as a hot water
+        indicator.
+      default: "off"
+      selector:
+        select:
+          options:
+            - label: "Off (entity is on while heat reaches the radiators)"
+              value: "off"
+            - label: "On (entity is on while no heat reaches the radiators)"
+              value: "on"
+
+    pause_learning_switches:
+      name: Pause Learning switches
+      description: The Pause Learning switch of every room the heat source supplies.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - integration: better_thermostat
+              domain: switch
+
+mode: queued
+max_exceeded: silent
+
+variables:
+  pause_state: !input pause_state
+
+trigger:
+  - platform: state
+    entity_id: !input heat_source_entity
+    to:
+      - "on"
+      - "off"
+
+condition: []
+
+action:
+  - if:
+      - condition: template
+        value_template: "{{ trigger.to_state.state == pause_state }}"
+    then:
+      - service: switch.turn_on
+        target:
+          entity_id: !input pause_learning_switches
+    else:
+      - service: switch.turn_off
+        target:
+          entity_id: !input pause_learning_switches

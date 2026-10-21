@@ -1,17 +1,21 @@
 ---
 title: Automation Blueprints
 sidebar: 
-    order: 4
+    order: 5
 description: Ready-made Home Assistant automation blueprints for Better Thermostat's purpose-specific device triggers.
 ---
 
 # Automation Blueprints
 
-Better Thermostat ships a collection of **ready-made automation blueprints**. Most of
-them use Better Thermostat's purpose-specific device triggers; the night mode, presence
-and weekly schedule blueprints react to helpers, presence entities and the clock instead.  
+Better Thermostat ships a collection of **ready-made automation blueprints**. The first
+four use Better Thermostat's purpose-specific device triggers; the night mode, presence,
+weekly schedule and pause learning blueprints react to helpers, presence entities, sensors
+and the clock instead.  
 Each blueprint can be imported into Home Assistant with one click and customised through
-the standard UI – no YAML editing required.
+the standard UI, so no YAML editing is required.
+
+For situations no blueprint covers, [Automation recipes](/setup/automation-recipes/)
+has automations built on Better Thermostat's switches, numbers and presets.
 
 ---
 
@@ -224,6 +228,62 @@ All 8 BT presets are available per slot per day type: `none`, `eco`, `away`,
 | Notifications | Enable toggle · notify.* target |
 
 [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FKartoffelToby%2Fbetter_thermostat%2Fblob%2Fmaster%2Fblueprints%2Fweekly_heating_schedule.yaml)
+
+
+---
+
+### 8 · Pause learning while the heat source delivers no heat
+
+**File:** `blueprints/pause_learning_heat_source.yaml`
+
+Turns the **Pause Learning** switch of the selected rooms on while the boiler or
+heat pump sends no heat to the radiators, for example while a combi boiler heats
+hot water, a heat pump defrosts or a schedule locks the boiler out, and off again
+once heat flows. The valves stay where they are; only learning stops. See
+[Pausing learning](/setup/pause-learning/) for what the switch holds.
+
+The blueprint needs an entity that reports the heat source, such as a binary
+sensor built from an eBUS, OpenTherm or heat pump integration. Only its `on` and
+`off` states count, so an entity that becomes `unavailable` changes nothing.
+
+| Input | Description | Default |
+|---|---|---|
+| Heat source entity | `binary_sensor.*` or `input_boolean.*` that reports the heat source | – |
+| Pause learning while the entity is | `off` for an entity that is on while heat reaches the radiators, `on` for one that is on while it does not, such as a hot water indicator | `off` |
+| Pause Learning switches | The **Pause Learning** switch of every room the heat source supplies | – |
+
+[![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FKartoffelToby%2Fbetter_thermostat%2Fblob%2Fmaster%2Fblueprints%2Fpause_learning_heat_source.yaml)
+
+---
+
+### 9 · Pause learning while the fireplace burns
+
+**File:** `blueprints/pause_learning_fireplace.yaml`
+
+Turns the **Pause Learning** switch of the selected rooms on once a temperature
+sensor at the fireplace rises above a threshold, and off again once it has stayed
+below a second threshold for the cool-down time. Select the switch of the
+fireplace's room and of every room next door that the fire warms as well.
+
+Optionally it sets a preset, such as Eco, on the selected thermostats while the
+fire burns, and sets `none` once the fire is out. A preset chosen before the
+fire is not restored.
+
+> **Prerequisite:** A preset chosen here must be enabled in Better Thermostat's
+> configuration for each selected thermostat (see
+> [Presets](/setup/presets/#choosing-which-presets-appear)).
+
+| Input | Description | Default |
+|---|---|---|
+| Fireplace temperature sensor | `sensor.*` with the temperature device class, at the fireplace, its flue or stove pipe | – |
+| Burning above | The fireplace counts as burning above this value | `40` |
+| Out below | The fireplace counts as out below this value | `35` |
+| Cool-down time (min) | How long the sensor stays below *Out below* before learning resumes | `30` |
+| Pause Learning switches | The **Pause Learning** switches to turn on while the fire burns | – |
+| Preset while the fire burns | A preset to set while the fire burns, or *Keep the preset* | Keep the preset |
+| Thermostats for the preset | Better Thermostat devices / climate entities for the preset | – |
+
+[![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FKartoffelToby%2Fbetter_thermostat%2Fblob%2Fmaster%2Fblueprints%2Fpause_learning_fireplace.yaml)
 
 ---
 
