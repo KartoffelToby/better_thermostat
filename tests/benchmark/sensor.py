@@ -136,6 +136,10 @@ class Sensor:
             self._last_lag_update_t = t_s
         return self._lag_state
 
+    def calibration_error_K(self, t_s: float) -> float:
+        """Return the sensor's bias plus drift at ``t_s``, in K."""
+        return self.params.bias_K + self.params.drift_K_per_h * (t_s / 3600.0)
+
     def read(self, t_s: float, T_true: float) -> float | None:
         """Return the currently observed temperature, or None on dropout."""
         # The sensor body keeps tracking the room even while reporting is
@@ -144,7 +148,7 @@ class Sensor:
         if self.params.dropout_from_t_s <= t_s < self.params.dropout_until_t_s:
             return None
 
-        T_lagged += self.params.bias_K + self.params.drift_K_per_h * (t_s / 3600.0)
+        T_lagged += self.calibration_error_K(t_s)
 
         should_sample = (
             self._last_sample_t < 0.0

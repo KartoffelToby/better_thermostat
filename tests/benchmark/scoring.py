@@ -18,7 +18,8 @@ Failure thresholds are chosen so the score scale is interpretable:
   respectively — a single saturated component costs its weight
   (e.g. 1 K extra overshoot alone scores 0.6); comfort reaches 0 only
   when all three saturate
-* Actuator: a controller with ≥ 5× oracle's total valve travel scores ≤ 0
+* Actuator: a controller with ≥ 5× oracle's total valve travel scores ≤ 0;
+  below a small travel floor the excess is scored against the floor
 * Energy: symmetric — ≥ 2× oracle's integral is over-heating,
   ≤ 0× is under-heating; both directions score ≤ 0
 
@@ -188,13 +189,22 @@ def comfort_score(metrics: MetricValues, oracle: MetricValues) -> float:
     return 1.0 - penalty
 
 
+#: Valve travel (Σ|Δu|, percent) below which an oracle's run counts as
+#: practically idle. Excess travel is scored against this floor instead of
+#: the oracle's own travel, so the score stays continuous as the oracle's
+#: travel approaches zero: against an idle oracle a candidate reaches 0 at
+#: four floors (500 %), against a busy one at five times the oracle.
+_ACTUATOR_FLOOR_PCT = 125.0
+
+
 def actuator_score(metrics: MetricValues, oracle: MetricValues) -> float:
     """Score total valve travel relative to the oracle.
 
-    Failure threshold: 5× oracle's total travel. Cycle count is *not*
-    used directly — see DESIGN.md §5 (actuator metric): tracking-precise
-    controllers (oracle) cycle many small times; total travel is the
-    honest wear/battery proxy.
+    Failure threshold: 4× the larger of the oracle's travel and
+    ``_ACTUATOR_FLOOR_PCT`` in excess of the oracle's travel. Cycle count
+    is *not* used directly — see DESIGN.md §5 (actuator metric):
+    tracking-precise controllers (oracle) cycle many small times; total
+    travel is the honest wear/battery proxy.
 
     Parameters
     ----------
@@ -208,13 +218,11 @@ def actuator_score(metrics: MetricValues, oracle: MetricValues) -> float:
     float
         Actuator score in 0..1.
     """
-    if oracle.total_valve_travel_percent < 1.0:
-        # Oracle barely moved. Compare against a floor so a low-activity
-        # controller still scores around 1.0.
-        return _clamp_01(1.0 - metrics.total_valve_travel_percent / 500.0)
-    ratio = metrics.total_valve_travel_percent / oracle.total_valve_travel_percent
-    penalty = max(0.0, (ratio - 1.0) / 4.0)  # 1× → 0, 5× → 1
-    return _clamp_01(1.0 - penalty)
+    excess = max(
+        0.0, metrics.total_valve_travel_percent - oracle.total_valve_travel_percent
+    )
+    scale = 4.0 * max(oracle.total_valve_travel_percent, _ACTUATOR_FLOOR_PCT)
+    return _clamp_01(1.0 - excess / scale)
 
 
 #: Below this oracle integral the ratio is ill-conditioned (the scenario

@@ -25,12 +25,12 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 σ = population stdev across scenarios (lower = steadier per dimension).
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
- *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   37
-  mpc_v2                0.880  0.117    0.932  0.148     0.755  0.303    0.936  0.161   37
-  tpi                   0.795  0.154    0.693  0.234     0.889  0.218    0.910  0.158   37
-  pid                   0.787  0.144    0.850  0.209     0.583  0.359    0.936  0.159   37
-  mpc                   0.716  0.153    0.864  0.181     0.339  0.399    0.911  0.158   37
-  bangbang              0.576  0.156    0.760  0.193     0.159  0.308    0.740  0.175   37
+ *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   36
+  mpc_v2                0.930  0.073    0.969  0.071     0.840  0.223    0.967  0.039   36
+  tpi                   0.826  0.116    0.705  0.227     0.958  0.033    0.932  0.057   36
+  pid                   0.818  0.128    0.887  0.164     0.605  0.347    0.966  0.031   36
+  mpc                   0.751  0.137    0.906  0.133     0.378  0.368    0.926  0.049   36
+  bangbang              0.584  0.149    0.787  0.177     0.141  0.278    0.742  0.121   36
 ```
 
 Higher is better. Each dimension is **oracle-normalised**: `1.0` matches
@@ -79,8 +79,9 @@ same scenario.
 | 0.50–0.70 | Clear comfort violations on the harder scenarios. |
 | < 0.50 | Significant deviations, often a scenario the controller never converges on. |
 
-**actuator** — `1 − (excess valve travel) / (4× Oracle travel)`, where
-travel is `Σ|Δu_pct|` over the run.
+**actuator** — `1 − (excess valve travel) / (4 × max(Oracle travel, 125 %))`,
+where travel is `Σ|Δu_pct|` over the run. The 125 % floor keeps the score
+continuous on scenarios where the Oracle barely moves the valve.
 
 | Score | What it means in practice |
 |---|---|
@@ -116,7 +117,7 @@ a controller wins.
 * **BangBang ≈ 0.58** — noise floor. A deliberately naive on/off
   controller; anything close to BangBang has a real problem.
 * **Production controllers (`pid`, `tpi`, `mpc`, `heating_power`) ≈
-  0.71–0.80, `mpc_v2` ≈ 0.88.** That band is the realistic operating
+  0.75–0.83, `mpc_v2` ≈ 0.93.** That band is the realistic operating
   range. A controller above 0.80 is beating most of the field; near the
   BangBang floor means a clear weakness in at least one dimension.
 
