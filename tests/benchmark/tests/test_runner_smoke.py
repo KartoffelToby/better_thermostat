@@ -211,3 +211,20 @@ def test_open_window_closes_the_plant_valve_through_actuator_hysteresis():
     window = [ctx.window_open for ctx in adapter.seen]
     assert window == [False] * 5 + [True] * 5 + [False] * 6
     assert actuator.flows == [0.6] * 2 + [0.05] * 3 + [0.0] * 11
+
+
+def test_a_command_inside_the_actuator_deadband_delivers_no_heat():
+    """Energy follows the plant: a valve held shut by the deadband heats nothing.
+
+    The commanded valve integral still counts the 3 % command, while the
+    delivered heat matches a run with the valve closed.
+    """
+    scenario = replace(
+        _COLD_ROOM_WINDOW_OPEN,
+        window_open_schedule=None,
+        actuator_params=ActuatorParams(deadband_percent=5.0),
+    )
+    commanded = run_scenario(_ConstantValveAdapter(3.0), scenario).metrics
+    closed = run_scenario(_ConstantValveAdapter(0.0), scenario).metrics
+    assert commanded.integral_valve_percent_minutes > 0.0
+    assert commanded.delivered_heat_K == pytest.approx(closed.delivered_heat_K)

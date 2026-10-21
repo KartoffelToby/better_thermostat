@@ -242,3 +242,13 @@ def test_run_multi_trv_scenario_honors_scenario_stabilisation_override(monkeypat
         stabilisation_min=60.0,
     )
     assert seen["min"] == 7.0
+
+
+def test_heat_to_room_sums_every_radiator():
+    """Each radiator contributes its own coupling × excess temperature."""
+    params = replace(PROFILE_MULTI_SYMMETRIC, coupling_rad_room=[0.5, 1.0, 1.5])
+    plant = MultiTrvPlant(
+        params, MultiTrvPlantState(T_room=20.0, T_rads=[30.0, 40.0, 20.0])
+    )
+    expected = (0.5 * 10.0 + 1.0 * 20.0) / params.tau_room_min
+    assert plant.heat_to_room_K_per_min == pytest.approx(expected)
