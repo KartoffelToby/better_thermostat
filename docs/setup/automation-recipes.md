@@ -177,15 +177,16 @@ The thermostat keeps its target while it is off, so the second trigger can still
 
 ### Heat with the air conditioner while the sun provides the power
 
-When an air conditioner can heat the room more cheaply than the radiators while there is surplus solar power, set up two Better Thermostat devices for the room: one with the radiators' TRVs, one with the air conditioner as its thermostat. This automation keeps exactly one of them in `heat`. The air conditioner takes over once the surplus has been above 1.5 kW for ten minutes and it is warmer than 3 °C outside; the radiators take over again when the surplus has dropped below 0.8 kW for ten minutes or it gets colder than 3 °C outside:
+When an air conditioner can heat the room more cheaply than the radiators while there is surplus solar power, set up two Better Thermostat devices for the room: one with the radiators' TRVs, one with the air conditioner as its thermostat. This automation keeps exactly one of them in `heat`. The air conditioner takes over once the surplus has stayed above 1.5 kW for ten minutes while it is warmer than 3 °C outside; the radiators take over again when the surplus has dropped below 0.8 kW for ten minutes or it gets colder than 3 °C outside:
 
 ```yaml
 alias: Living room heats with surplus solar power
 mode: queued
 triggers:
-  - trigger: numeric_state
-    entity_id: sensor.solar_surplus_power
-    above: 1500
+  - trigger: template
+    value_template: >-
+      {{ states('sensor.solar_surplus_power') | float(0) > 1500
+         and states('sensor.outdoor_temperature') | float(-100) > 3 }}
     for:
       minutes: 10
     id: surplus
@@ -199,11 +200,6 @@ triggers:
     entity_id: sensor.outdoor_temperature
     below: 3
     id: no_surplus
-conditions:
-  - condition: template
-    value_template: >-
-      {{ trigger.id == 'no_surplus'
-         or states('sensor.outdoor_temperature') | float(-100) > 3 }}
 actions:
   - action: climate.set_hvac_mode
     target:
