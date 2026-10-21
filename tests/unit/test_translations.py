@@ -167,11 +167,13 @@ def test_all_keys_translated(lang: str):
     """Catalogs cover runtime keys except the reviewed English fallbacks."""
     english = _load(TRANSLATIONS / "en.json")
     translated = _load(TRANSLATIONS / f"{lang}.json")
-    # The BLU TRV review requests English only for this new error until
-    # translators supply it. Keep the exception limited to these two keys.
+    # The BLU TRV review requests English only for its new errors and repair
+    # until translators supply them. Other completeness checks still apply.
     pending_translation = {
         "config.error.valve_only_calibration_mode",
         "options.error.valve_only_calibration_mode",
+        "issues.invalid_valve_calibration.title",
+        "issues.invalid_valve_calibration.description",
     }
     missing = sorted(english.keys() - translated.keys() - pending_translation)
     assert not missing, f"{lang}.json is missing keys: {missing}"

@@ -31,6 +31,8 @@ quality steps down a ladder, one rung at a time:
    and the TRVs keep their last commanded state. Frost protection stays
    enforced on every write.
 
+For a device using its valve as the only actuator, such as a Shelly BLU TRV under Direct Valve Based control, HOLD instead requests 0%: its own thermostat cannot take over. Boost does not override this closure. BT uses the normal write and retry path and resumes regulation after the sensor-recovery stability period. The device must remain reachable for closure to succeed; this is not local frost protection or an automatic shutoff during a Home Assistant or network outage.
+
 TRVs that regulate on a room temperature Better Thermostat writes into
 them, such as the Sonoff TRVZB, stop receiving it while the room sensor
 gives no reading. Better Thermostat does not keep sending the sensor's last

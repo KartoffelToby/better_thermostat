@@ -83,6 +83,7 @@ from .utils.const import (
     DEFAULT_CALIBRATION_MODE,
     SIGNAL_CONFIG_CHANGED,
     TARGET_TEMP_BOUND_AUTO,
+    VALVE_CALIBRATION_MODES,
     CalibrationMode,
     CalibrationOutput,
     MpcV2PlantPreset,
@@ -413,14 +414,7 @@ def _valve_only_errors(
         context.valve_only
         and configured_calibration_output(advanced)
         == CalibrationOutput.DIRECT_VALVE_BASED
-        and configured_calibration_mode(advanced)
-        not in {
-            CalibrationMode.HEATING_POWER_CALIBRATION,
-            CalibrationMode.MPC_CALIBRATION,
-            CalibrationMode.MPC_V2_CALIBRATION,
-            CalibrationMode.PID_CALIBRATION,
-            CalibrationMode.TPI_CALIBRATION,
-        }
+        and configured_calibration_mode(advanced) not in VALVE_CALIBRATION_MODES
     ):
         return {CONF_CALIBRATION_MODE: "valve_only_calibration_mode"}
     return {}
@@ -1503,6 +1497,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             homematic=ctx.homematic,
                             has_auto=ctx.has_auto,
                             channels=ctx.channels,
+                            system_unit=self.hass.config.units.temperature_unit,
                         )
                     ),
                     errors=errors,
@@ -1705,6 +1700,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                             homematic=ctx.homematic,
                             has_auto=ctx.has_auto,
                             channels=ctx.channels,
+                            system_unit=self.hass.config.units.temperature_unit,
                         )
                     ),
                     errors=errors,

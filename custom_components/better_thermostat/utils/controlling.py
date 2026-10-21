@@ -75,6 +75,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_CHILD_LOCK,
     CONF_HOMEMATICIP,
     CONF_NO_OFF_SYSTEM_MODE,
+    VALVE_CALIBRATION_MODES,
     CalibrationMode,
     CalibrationOutput,
 )
@@ -126,6 +127,7 @@ from custom_components.better_thermostat.utils.snapshot import build_snapshot
 from custom_components.better_thermostat.utils.watcher import (
     UNAVAILABLE_OR_UNKNOWN_STATES,
     clear_unapplied_setpoint,
+    report_invalid_valve_calibration,
     report_unapplied_setpoint,
 )
 
@@ -473,19 +475,6 @@ def _released_during_cycle(self: BetterThermostat, entity_id: str | None) -> boo
     return True
 
 
-# The calibration modes whose balance can drive the valve directly. Such a
-# balance is reported under the mode's own name as its source.
-_VALVE_BALANCE_MODES: Final[frozenset[CalibrationMode]] = frozenset(
-    {
-        CalibrationMode.MPC_CALIBRATION,
-        CalibrationMode.MPC_V2_CALIBRATION,
-        CalibrationMode.TPI_CALIBRATION,
-        CalibrationMode.PID_CALIBRATION,
-        CalibrationMode.HEATING_POWER_CALIBRATION,
-    }
-)
-
-
 def _get_valve_control(
     self: BetterThermostat,
     snapshot: WorldSnapshot,
@@ -501,8 +490,9 @@ def _get_valve_control(
     (BT off, an open window or door, no call for heat) closes the valve
     wherever BT drives it, under a calibration mode that writes the valve
     or under boost: the controllers publish no valve command then, so the
-    valve would otherwise stay at its last opening. Under any other mode BT
-    would not reopen the valve, so it does not close it either.
+    valve would otherwise stay at its last opening. A valve-only device also
+    closes for an incompatible stored calibration mode or HOLD. Other devices
+    keep their existing behaviour when the mode produces no valve output.
 
     Returns a tuple of (valve_command, source_name).
     Returns (None, None) if no valve control should be applied.
@@ -512,10 +502,20 @@ def _get_valve_control(
     if calibration_output != CalibrationOutput.DIRECT_VALVE_BASED:
         return None, None
 
+    trv = self.real_trvs.get(entity_id)
+    valve_only = trv is not None and trv.uses_valve_only_control
+    if valve_only and calibration_mode not in VALVE_CALIBRATION_MODES:
+        # Stored configurations may predate the form validation. Neither
+        # boost nor an OFF intent may leave an invalid controller's valve open.
+        return {"valve_percent": 0, "apply_valve": True}, "invalid_calibration_mode"
+
     if hvac_mode == HvacMode.OFF:
-        if calibration_mode in _VALVE_BALANCE_MODES or is_boost_heating(snapshot):
+        if calibration_mode in VALVE_CALIBRATION_MODES or is_boost_heating(snapshot):
             return {"valve_percent": 0, "apply_valve": True}, "hvac_off"
         return None, None
+
+    if valve_only and self.kernel_state.control_mode.mode == ControlMode.HOLD:
+        return {"valve_percent": 0, "apply_valve": True}, "hold"
 
     if is_boost_heating(snapshot):
         _trv = self.real_trvs.get(entity_id)
@@ -532,7 +532,7 @@ def _get_valve_control(
         cal_bal is not None
         and cal_bal.get("apply_valve")
         and cal_bal.get("valve_percent") is not None
-        and calibration_mode in _VALVE_BALANCE_MODES
+        and calibration_mode in VALVE_CALIBRATION_MODES
     ):
         return cal_bal, calibration_mode.value
 
@@ -2427,6 +2427,7 @@ async def control_trv(
                 # decision, while this TRV waited for the lock; nothing is
                 # awaited from here to the valve write.
                 return True
+            report_invalid_valve_calibration(self, entity_id)
             trv_desired = desired.trvs.get(entity_id)
 
             # The kernel addresses only reachable TRVs (boost overrides the skip).
@@ -2496,12 +2497,13 @@ async def control_trv(
                 _calibration = None
 
             # Optional: set valve position if supported (e.g., MQTT/Z2M).
-            # HOLD writes no calibrated valve percentage; closing the valve
-            # for an OFF intent still applies there.
+            # In HOLD only a valve-only device must close: it has no device
+            # thermostat to take over. OFF closure still applies to all valves.
             try:
                 if (
                     self.kernel_state.control_mode.mode == ControlMode.HOLD
                     and trv_desired.hvac_mode != HvacMode.OFF
+                    and not self.real_trvs[entity_id].uses_valve_only_control
                 ):
                     valve_settings, _source = None, None
                 else:

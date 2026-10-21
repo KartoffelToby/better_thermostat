@@ -54,6 +54,7 @@ without changing the integration's Python logic.
 4. Run the translation tests before opening a pull request.
 
 The new `config.error.valve_only_calibration_mode` and
-`options.error.valve_only_calibration_mode` errors currently use the English
+`options.error.valve_only_calibration_mode` errors and the
+`issues.invalid_valve_calibration` repair currently use the English
 fallback, as requested in the BLU TRV review. Translators can add these keys
 without changing code; the other catalog completeness checks still apply.

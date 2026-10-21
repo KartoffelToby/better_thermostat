@@ -209,6 +209,17 @@ class CalibrationMode(StrEnum):
 # fallback, so a stored config without the key behaves like a fresh one.
 DEFAULT_CALIBRATION_MODE: Final = CalibrationMode.HEATING_POWER_CALIBRATION
 
+# Shared by configuration validation and the runtime valve command path.
+VALVE_CALIBRATION_MODES: Final[frozenset[CalibrationMode]] = frozenset(
+    {
+        CalibrationMode.HEATING_POWER_CALIBRATION,
+        CalibrationMode.MPC_CALIBRATION,
+        CalibrationMode.MPC_V2_CALIBRATION,
+        CalibrationMode.PID_CALIBRATION,
+        CalibrationMode.TPI_CALIBRATION,
+    }
+)
+
 
 # Plausibility bounds for incoming temperature readings (Celsius).
 # Values outside this window are treated as marker / garbage readings

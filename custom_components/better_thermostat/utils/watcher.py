@@ -39,13 +39,14 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
 from custom_components.better_thermostat.utils.helpers import (
     async_fire_logbook_entry,
     attr_to_celsius,
+    configured_calibration_mode,
     convert_to_float_celsius,
     entry_issue_id,
     is_reasonable_temperature,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
-from .const import DOMAIN
+from .const import CONF_CALIBRATION_MODE, DOMAIN, VALVE_CALIBRATION_MODES
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -596,6 +597,45 @@ def _displayed_temperature(self: BetterThermostat, celsius: float) -> str:
     unit = self.hass.config.units.temperature_unit
     value = TemperatureConverter.convert(celsius, UnitOfTemperature.CELSIUS, unit)
     return f"{round(value, 1)} {unit}"
+
+
+def report_invalid_valve_calibration(self: BetterThermostat, entity_id: str) -> None:
+    """Flag a stored controller that cannot drive the device's sole actuator.
+
+    Called before device writes in each control cycle, including the initial
+    startup cycle. The entry stays loaded so the ordinary valve path can close
+    it and retry failures; changing its options reloads it and removes the issue.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance.
+    entity_id : str
+        Entity id of the TRV whose stored controller is checked.
+    """
+    trv = self.real_trvs[entity_id]
+    if (
+        not trv.uses_valve_only_control
+        or configured_calibration_mode(trv.advanced) in VALVE_CALIBRATION_MODES
+    ):
+        return
+    ir.async_create_issue(
+        hass=self.hass,
+        domain=DOMAIN,
+        issue_id=entry_issue_id(
+            self._config_entry_id, "invalid_valve_calibration", entity_id
+        ),
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.ERROR,
+        learn_more_url="https://better-thermostat.org/working-devices/compatibility",
+        translation_key="invalid_valve_calibration",
+        translation_placeholders={
+            "name": self.device_name,
+            "entity": entity_id,
+            "mode": str(trv.advanced.get(CONF_CALIBRATION_MODE)),
+        },
+    )
 
 
 def report_unapplied_setpoint(
