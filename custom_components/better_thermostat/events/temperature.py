@@ -46,6 +46,9 @@ _LOGGER = logging.getLogger(__name__)
 # Accept sub-threshold changes if the new value stays stable for this window (seconds)
 PLATEAU_ACCEPT_WINDOW = 120
 
+# Default time constant of the room-temperature EMA, in seconds
+ROOM_TEMPERATURE_EMA_TAU_S = 300.0
+
 
 def _update_room_temperature_ema(
     self: BetterThermostat, rounded_temperature: float
@@ -58,9 +61,11 @@ def _update_room_temperature_ema(
     - `room_temperature_ema_tau_seconds` (float): time constant in seconds (e.g. 900=15min, 1800=30min)
     """
 
-    tau_seconds = float(self.room_temperature_ema_tau_seconds or 300.0)
+    tau_seconds = float(
+        self.room_temperature_ema_tau_seconds or ROOM_TEMPERATURE_EMA_TAU_S
+    )
     if tau_seconds <= 0:
-        tau_seconds = 300.0
+        tau_seconds = ROOM_TEMPERATURE_EMA_TAU_S
 
     now_m = monotonic()
     prev_ts = self._room_temperature_ema_monotonic

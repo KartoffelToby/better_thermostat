@@ -20,13 +20,16 @@ from __future__ import annotations
 import math
 
 from custom_components.better_thermostat.core.fsm.control_mode import LadderParams
-from custom_components.better_thermostat.events.temperature import PLATEAU_ACCEPT_WINDOW
+from custom_components.better_thermostat.events.temperature import (
+    PLATEAU_ACCEPT_WINDOW,
+    ROOM_TEMPERATURE_EMA_TAU_S,
+)
 
 # Thresholds of ``trigger_temperature_change``.
 SIGNIFICANCE_K = 0.11
 MIN_COMMIT_INTERVAL_S = 5.0
-# ``room_temperature_ema_tau_seconds`` and the period of the EMA tick.
-EMA_TAU_S = 300.0
+# The EMA's default time constant and the period of its tick.
+EMA_TAU_S = ROOM_TEMPERATURE_EMA_TAU_S
 EMA_TICK_S = 60.0
 # An outage that outlasts the ladder's downgrade debounce leaves OPTIMAL;
 # the reading that ends it restarts the filter.
