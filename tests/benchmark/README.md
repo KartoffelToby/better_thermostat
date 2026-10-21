@@ -26,11 +26,11 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
  *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   36
-  mpc_v2                0.937  0.071    0.978  0.035     0.837  0.222    0.986  0.033   36
-  tpi                   0.842  0.113    0.722  0.225     0.958  0.033    0.971  0.019   36
-  pid                   0.828  0.120    0.897  0.156     0.607  0.348    0.984  0.025   36
-  mpc                   0.768  0.126    0.917  0.118     0.378  0.368    0.981  0.025   36
-  bangbang              0.626  0.145    0.777  0.189     0.141  0.278    0.974  0.037   36
+  mpc_v2                0.853  0.098    0.965  0.039     0.577  0.313    0.988  0.026   36
+  tpi                   0.750  0.173    0.735  0.227     0.626  0.340    0.971  0.019   36
+  pid                   0.747  0.167    0.829  0.193     0.453  0.363    0.983  0.024   36
+  mpc                   0.697  0.148    0.837  0.182     0.277  0.298    0.977  0.025   36
+  bangbang              0.598  0.170    0.678  0.230     0.216  0.303    0.971  0.044   36
 ```
 
 Higher is better. Each dimension is **oracle-normalised**: `1.0` matches
@@ -118,16 +118,60 @@ a controller wins.
   normalises against the Oracle, so it scores itself 1.0 on every
   scenario, including the permanent-disturbance ones (diurnal outdoor,
   multi-day weather) where the disturbance cancels on both sides.
-* **BangBang ≈ 0.63** — noise floor. A deliberately naive on/off
-  controller; anything close to BangBang has a real problem.
+* **BangBang ≈ 0.60** — noise floor. A deliberately naive on/off
+  controller; anything close to BangBang has a problem.
 * **Production controllers (`pid`, `tpi`, `mpc`, `heating_power`) ≈
-  0.77–0.84, `mpc_v2` ≈ 0.94.** That band is the realistic operating
-  range. A controller above 0.80 is beating most of the field; near the
+  0.67–0.75, `mpc_v2` ≈ 0.85.** That band is the realistic operating
+  range. A controller above 0.75 is beating most of the field; near the
   BangBang floor means a clear weakness in at least one dimension.
 
 Rule of thumb: when a controller scores well below the Oracle, look at
 which dimension column dropped. A 0.92 comfort with 0.25 actuator means
 the controller tracks the setpoint by thrashing the valve.
+
+### Signal path
+
+Every controller sees the room through the signal path Better Thermostat
+runs in production, not through the plant's truth:
+
+* **Room sensor** (`REALISTIC_SENSOR_PARAMS`): sampled once a minute,
+  90 s thermal lag, 0.02 K noise, reported in 0.1 K steps whenever the
+  value changes by a tenth. A scenario can set its own sensor.
+* **Input stage** (`input_stage.py`): BT commits a reading only when it
+  moves the committed value by 0.11 K, when same-direction moves add up
+  to that, or when a smaller move holds for 120 s. Controllers see the
+  committed value; PID and MPC v1 also get its EMA (τ = 300 s) and the
+  slope of that EMA, as in production.
+* **TRV sensor**: the TRV reads the room plus a tenth of the radiator's
+  excess and reports in 0.1 K steps. The TRV's own regulation runs on the
+  unrounded value.
+* **Control cycles**: the production controllers compute only when BT
+  runs a cycle, on a committed reading, a changed TRV report, a setpoint
+  or window change, and on the 300 s tick (not for `heating_power`). In
+  between the TRV keeps the last command, written as a whole percent.
+
+The room sensor is the least certain part of that path. No measurement
+of a real Zigbee sensor stands behind 0.02 K: it lies between the high-
+and medium-repeatability modes of a Sensirion SHT3x (3σ = 0.04 / 0.08 K).
+Air turbulence adds nothing a 90 s sensor body would pass on. How often
+the sensor reports matters as much: Aqara documents reports on a 0.5 K
+change or hourly, Sonoff's SNZB-02 defaults to about 0.2 K. Mean overall
+score by noise and reporting threshold (balanced profile, 36 scenarios):
+
+| σ | threshold | mpc_v2 | tpi | pid | mpc | heating_power | bangbang |
+|---|---|---|---|---|---|---|---|
+| 0.00 K | 0.1 K | 0.862 | 0.807 | 0.752 | 0.697 | 0.723 | 0.597 |
+| **0.02 K** | **0.1 K** | **0.853** | **0.750** | **0.747** | **0.697** | **0.668** | **0.598** |
+| 0.05 K | 0.1 K | 0.822 | 0.661 | 0.730 | 0.685 | 0.570 | 0.602 |
+| 0.00 K | 0.5 K | 0.735 | 0.790 | 0.670 | 0.647 | 0.725 | 0.588 |
+| 0.02 K | 0.5 K | 0.745 | 0.781 | 0.674 | 0.659 | 0.721 | 0.583 |
+| 0.05 K | 0.5 K | 0.731 | 0.777 | 0.684 | 0.651 | 0.712 | 0.592 |
+
+Bold is the default; the 0.5 K rows add an hourly report. TPI and PID
+swap places around 0.02 K of noise, and a sensor that reports only every
+0.5 K moves MPC v2 behind TPI. Read the ranking of TPI, PID and
+`heating_power` as dependent on the sensor; MPC v2 leads as long as the
+sensor reports tenths.
 
 ### Multi-TRV (`--multi-trv`)
 
@@ -167,12 +211,13 @@ By default the wrapper maps the valve intent onto a setpoint the way
 `calibration.py` does for the controller modes
 (`setpoint_mapping="production"`): `T_trv + (T_max − T_trv)·u`, a
 setpoint below the TRV's reading at `u = 0`, rounded up while heating
-and down while idle, then clamped to the TRV's range. The TRV's own sensor reads
-`T_room + trv_sensor_rad_fraction·(T_rad − T_room)`, 0.1 by default, and
-the inner controller sees that reading as its TRV temperature. The
-fraction is an estimate. Between 0.05 and 0.2, TPI stays first on the
-Tuya and Sonoff presets and MPC v2 on Tado; on Bosch, MPC v2 overtakes
-TPI at 0.2. Absolute scores move by up to 0.09. The older `"heuristic"`
+and down while idle, then clamped to the TRV's range. The mapping starts
+from the TRV's own reading (see [Signal path](#signal-path)); the
+scenario's `trv_sensor_rad_fraction`, 0.1 by default, sets how much of
+the radiator's excess that reading picks up. The fraction is an
+estimate. Between 0.05 and 0.2, TPI stays first on the Tuya and Sonoff
+presets and MPC v2 on Tado; on Bosch, MPC v2 overtakes TPI at 0.2.
+Absolute scores move by up to 0.06. The older `"heuristic"`
 and `"inversion"` mappings remain selectable.
 
 `reports_valve_position` decides what the inner controller gets as the
@@ -267,7 +312,8 @@ Schedule shape generators (`step`, `ramp`, `pulse`, `piecewise_step`,
 tests/benchmark/
 ├── plant.py              RC2 / RC3 thermal plant + plant profiles
 ├── multi_trv_plant.py    N parallel radiators sharing one room
-├── sensor.py             Sampled-output sensor (lag, EMA, dropout, bias, drift, jitter)
+├── sensor.py             Room sensor (lag, resolution, reporting, faults) + TRV sensor
+├── input_stage.py        BT's acceptance gate, EMA and slope of the room temperature
 ├── actuator.py           Linear / threshold / quadratic / equal-percentage flow
 ├── schedules.py          Setpoint / outdoor / disturbance schedule builders
 ├── scenarios.py          ScenarioConfig library
@@ -310,7 +356,7 @@ uv run python -m pytest tests/benchmark/tests -p no:homeassistant
 ```
 
 `tests/test_regression_gate.py` runs `mpc`, `mpc_v2`, `pid`, `tpi` and
-`default` over five noise-free scenarios and holds each controller's mean
+`default` over five scenarios and holds each controller's mean
 score per dimension above a floor recorded in `_FLOORS`, about 0.02
 below the current value. A floor more than 0.04 below the measured mean
 fails as well, and the message names the value to record. A change that

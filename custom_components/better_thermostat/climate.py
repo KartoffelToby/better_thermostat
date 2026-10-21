@@ -115,6 +115,7 @@ from .events.cooler import COOLING_MODES, trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
     EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S,
+    ROOM_TEMPERATURE_EMA_TAU_S,
     _update_room_temperature_ema,
     temperature_filter_lock,
     trigger_temperature_change,
@@ -1347,7 +1348,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.temperature_slope = None
         # External temperature filter (anti-jitter for controllers like MPC)
         # 900s = 15min, 1800s = 30min
-        self.room_temperature_ema_tau_seconds = 300.0
+        self.room_temperature_ema_tau_seconds = ROOM_TEMPERATURE_EMA_TAU_S
         self.room_temperature_ema = None
         self._room_temperature_ema_monotonic: float | None = None
         self.room_temperature_filtered = None

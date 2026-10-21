@@ -10,7 +10,7 @@ relative to the simulator step.
 from __future__ import annotations
 
 from itertools import count
-from typing import Any
+from typing import Any, override
 
 from custom_components.better_thermostat.utils.calibration import tpi as tpi_mod
 from custom_components.better_thermostat.utils.calibration.tpi import (
@@ -24,14 +24,14 @@ from custom_components.better_thermostat.utils.state_manager import (
     write_tpi_state,
 )
 
-from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
+from .base import BenchmarkContext, BenchmarkOutput, ControlCycleGate, ControllerFamily
 
 # Controller state is caller-owned; the adapter threads its own ``_state``
 # through compute_tpi, so instances never share learned state.
 _KEY_COUNTER = count()
 
 
-class TpiAdapter:
+class TpiAdapter(ControlCycleGate):
     """Benchmark adapter for the production TPI controller."""
 
     name: str = "tpi"
@@ -59,10 +59,12 @@ class TpiAdapter:
         ``deserialize_tpi`` path. Without ``prior`` the adapter
         cold-starts.
         """
+        self._held = None
         self._state = deserialize_tpi(prior) if prior else _TpiState()
         self._sim_time_s = 0.0
 
-    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+    @override
+    def _compute(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one TPI step for the given benchmark context."""
         self._sim_time_s = ctx.t
         self._virtualise_time()

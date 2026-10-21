@@ -22,10 +22,9 @@ The default ``"production"`` mapping follows the setpoint channel of
 ``calculate_calibration_setpoint`` in ``calibration.py`` for the
 controller modes: ``T_trv + (T_max − T_trv)·u``, a setpoint pushed below
 the TRV's reading when ``u`` is zero, and rounding up while heating and
-down while idle. The TRV in that mapping reads
-``T_room + trv_sensor_rad_fraction·(T_rad − T_room)``: it sits on the
-radiator, so it reads warm, but far below the radiator itself. The
-inner controller sees that reading as its TRV temperature, as BT does.
+down while idle. The mapping starts from the TRV's own reading,
+``trv_temperature``: the TRV sits on the radiator, so it reads warm, but
+far below the radiator itself.
 
 The resulting ``valve_percent`` is what actually drives the plant's
 actuator. From the benchmark's point of view the wrapper looks like any
@@ -68,10 +67,6 @@ class IndirectTrvParams:
     # the maximum and pushes the setpoint no lower than the minimum.
     min_setpoint: float = 5.0
     max_setpoint: float = 30.0
-    # Share of the radiator's excess temperature the TRV's own sensor
-    # picks up. 0 reads the room, 1 reads the radiator. Used by
-    # ``"production"`` only.
-    trv_sensor_rad_fraction: float = 0.1
     # Whether BT learns the opening the TRV chose. Better Thermostat reads
     # it from a ``valve_position`` attribute on the TRV's climate entity.
     # With it the inner controller gets the plant's valve as the previous
@@ -87,9 +82,8 @@ class IndirectTrvParams:
             If ``setpoint_mapping`` is not one of ``"production"``,
             ``"heuristic"`` or ``"inversion"``, if ``setpoint_step_K`` or
             ``internal_p_gain`` is not positive, if a
-            hysteresis/headroom/latency field is negative, if the setpoint
-            range is empty, or if ``trv_sensor_rad_fraction`` lies outside
-            [0, 1].
+            hysteresis/headroom/latency field is negative, or if the
+            setpoint range is empty.
         """
         if self.setpoint_mapping not in ("production", "heuristic", "inversion"):
             raise ValueError(
@@ -100,11 +94,6 @@ class IndirectTrvParams:
             raise ValueError(
                 "IndirectTrvParams min_setpoint must be below max_setpoint, "
                 f"got {self.min_setpoint} and {self.max_setpoint}"
-            )
-        if not 0.0 <= self.trv_sensor_rad_fraction <= 1.0:
-            raise ValueError(
-                "IndirectTrvParams trv_sensor_rad_fraction must lie in [0, 1], "
-                f"got {self.trv_sensor_rad_fraction}"
             )
         if self.setpoint_step_K <= 0.0 or self.internal_p_gain <= 0.0:
             raise ValueError(
@@ -219,10 +208,9 @@ class IndirectTrvAdapter:
 
     def _trv_reading(self, ctx: BenchmarkContext) -> float:
         """Return the temperature the TRV's own sensor reports."""
-        room = ctx.raw_room_temperature
         if ctx.trv_temperature is None:
-            return room
-        return room + self.params.trv_sensor_rad_fraction * (ctx.trv_temperature - room)
+            return ctx.raw_room_temperature
+        return ctx.trv_temperature
 
     def _production_setpoint(
         self, ctx: BenchmarkContext, trv_reading: float, bt_valve_percent: float
@@ -255,7 +243,6 @@ class IndirectTrvAdapter:
         if production:
             inner_ctx = replace(
                 ctx,
-                trv_temperature=trv_reading,
                 last_valve_percent=(
                     ctx.last_valve_percent
                     if self.params.reports_valve_position
@@ -335,12 +322,15 @@ class IndirectTrvAdapter:
                 self._pending_setpoints.pop(0)
             applied_setpoint = self._pending_setpoints[0]
 
-        # TRV-internal P-loop against the temperature the TRV reports: its
-        # own radiator-warmed reading under ``"production"``, the room
-        # sensor reading under the other two mappings.
-        error_K = applied_setpoint - (
-            trv_reading if production else ctx.room_temperature
+        # TRV-internal P-loop against the TRV's own radiator-warmed
+        # measurement under ``"production"``, before it rounds its report;
+        # against the room sensor reading under the other two mappings.
+        internal = (
+            ctx.trv_internal_temperature
+            if ctx.trv_internal_temperature is not None
+            else trv_reading
         )
+        error_K = applied_setpoint - (internal if production else ctx.room_temperature)
         u_percent = max(0.0, min(100.0, self.params.internal_p_gain * error_K))
 
         return BenchmarkOutput(
