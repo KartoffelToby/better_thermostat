@@ -1513,9 +1513,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             _advanced: TrvAdvanced = trv.get("advanced", {})
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
             # The device registry names the model the quirks are loaded for;
-            # the thermostat's configured model stands in when it names none.
+            # the model configured for this TRV stands in when it names none.
             resolved_model = await get_device_model(
-                self, trv["trv"], configured_model=self.model
+                self, trv["trv"], configured_model=trv.get("model")
             )
             if resolved_model != trv.get("model"):
                 _LOGGER.info(
