@@ -23,6 +23,8 @@ Opening a window in winter with the heating on wastes energy, because the TRV fe
 
 Add a window sensor, or a group of window sensors. When it reports open, Better Thermostat turns the heating off; when every window is closed again, heating resumes. The two delays keep a short opening from switching anything. A door sensor works the same way with delays of its own. See [Window sensor](/faq/window-sensor/) and [Door sensor states](/faq/door-sensor/).
 
+To keep heating at a lower temperature instead of switching off, or to resume heating before the close delay has run out, turn the **Window Detection** switch off and use an automation of your own. See [Turning window detection off](/faq/window-sensor/#turning-window-detection-off).
+
 ## Heating only while it is cold outside
 
 In spring and autumn the heating does not need to run on a mild day.
@@ -52,6 +54,10 @@ One radiator heats much faster than the others in the house, or it is oversized 
 ## Children or guests turn the knob
 
 Enable **Ignore all inputs on the TRV like a child lock**. Better Thermostat then reverts any change made on the TRV and accepts changes only on its own thermostat entity. The *Child Lock* switch on the device turns this on and off, together with the TRV's own child lock where it has one.
+
+## Running a device yourself for a while
+
+An air conditioner's self-cleaning sequence, radiators held open while the heating system is filled, or an air conditioner run by hand: Better Thermostat would put each of them back. Turn on the **Release devices** switch for that time. Better Thermostat then leaves the room's devices alone until you turn it off again. See [Releasing the devices](/setup/releasing-devices/).
 
 ## TRVs that stick after the summer
 

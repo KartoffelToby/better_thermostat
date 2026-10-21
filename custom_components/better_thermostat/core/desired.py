@@ -40,7 +40,13 @@ class TrvDesired:
 
 @dataclass(frozen=True)
 class DesiredState:
-    """Complete intent of one control cycle."""
+    """Complete intent of one control cycle.
+
+    ``devices_released`` says the room's devices are the user's for this
+    cycle: the shell commands none of them, the cooler included, and the
+    cycle teaches the learners nothing.
+    """
 
     call_for_heat: bool = False
     trvs: Mapping[str, TrvDesired] = field(default_factory=dict)
+    devices_released: bool = False

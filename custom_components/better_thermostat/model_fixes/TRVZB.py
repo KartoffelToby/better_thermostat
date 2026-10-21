@@ -11,12 +11,7 @@ from collections.abc import Mapping
 import logging
 from typing import NamedTuple
 
-from homeassistant.const import (
-    ATTR_UNIT_OF_MEASUREMENT,
-    STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
-    UnitOfTemperature,
-)
+from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -31,7 +26,10 @@ from custom_components.better_thermostat.model_fixes.types import (
     ValveChannelQuirk,
     ValveQuirk,
 )
-from custom_components.better_thermostat.utils.helpers import is_sibling_entry
+from custom_components.better_thermostat.utils.helpers import (
+    is_sibling_entry,
+    state_is_live,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -295,8 +293,14 @@ async def maybe_set_sonoff_valve_percent(
     -------
     bool
             True when the requested position went out, False when no
-            number entity matched or the device refused one of the writes
+            number entity matched, the device refused one of the writes or
+            the devices are released
     """
+    # A position that follows an earlier write, the close after a bump or
+    # a fallback after a refused bump, is not sent once the devices are the
+    # user's. The opening and closing degree of one position go out together.
+    if self.devices_released:
+        return False
     try:
         candidates = _valve_number_candidates(self, entity_id)
         if candidates is None:
@@ -629,7 +633,7 @@ def _sensor_selector(self: ModelFixHost, entity_id: str) -> tuple[str, State] | 
         )
         return None
     state = self.hass.states.get(target)
-    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    if not state_is_live(state):
         # A selector that is not reporting names no option, and the device
         # behind it is in no state to take one either.
         return None
@@ -924,7 +928,10 @@ async def maybe_set_external_temperature(
             entity_id,
         )
         # The value just written only reaches the control loop of a device
-        # that is regulating on it.
+        # that is regulating on it. The selector is a write of its own, and
+        # none goes out once the devices are the user's.
+        if self.devices_released:
+            return True
         await maybe_select_external_sensor(self, entity_id)
         return True
     except (

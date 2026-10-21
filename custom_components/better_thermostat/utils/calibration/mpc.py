@@ -14,6 +14,11 @@ from typing import TYPE_CHECKING, Literal, NamedTuple, TypedDict, overload
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
+from custom_components.better_thermostat.utils.calibration.state_key import (
+    GROUP_KEY_SEGMENT,
+    StateKey,
+    bucket_tag_of,
+)
 
 if TYPE_CHECKING:
     from ...climate import BetterThermostat
@@ -114,6 +119,11 @@ class MpcInput:
     other_heat_power: float = 0.0
     solar_intensity: float = 0.0  # 0.0 to 1.0 (cloud coverage, etc.)
     max_opening_percent: float | None = None
+    # While set, the controller keeps regulating on what it has learned and
+    # learns nothing new: no adaptation, no forced loss calibration, no
+    # dead-zone or TRV-profile evidence, no performance-curve sample. Every
+    # learning interval restarts each cycle, so none straddles the pause.
+    learning_paused: bool = False
 
 
 class TrvProfile(StrEnum):
@@ -334,7 +344,7 @@ def _update_perf_curve(
     now: float,
     extra_debug: MpcDebugInfo,
 ) -> None:
-    if not inp.heating_allowed or inp.window_open:
+    if not inp.heating_allowed or inp.window_open or inp.learning_paused:
         state.last_room_temperature = inp.room_temperature
         state.last_room_temperature_ts = now
         return
@@ -411,24 +421,6 @@ def _update_perf_curve(
     state.last_room_temperature_ts = now
 
 
-def _split_mpc_key(key: str) -> tuple[str, str, str] | None:
-    try:
-        uid, entity, bucket = key.split(":", 2)
-    except ValueError:
-        return None
-    return uid, entity, bucket
-
-
-def _parse_bucket(bucket: str | None) -> float | None:
-    """Parse a target-temperature bucket label (``t21.0``) back into a float."""
-    if not bucket or not bucket.startswith("t"):
-        return None
-    try:
-        return float(bucket[1:])
-    except ValueError:
-        return None
-
-
 def _seed_state_from_siblings(
     key: str, state: _MpcState, params: MpcParams, all_states: Mapping[str, _MpcState]
 ) -> None:
@@ -454,24 +446,20 @@ def _seed_state_from_siblings(
     heals) is skipped for that field and the next-nearest sibling is
     tried, so seeding cannot re-poison a freshly sanitized state.
     """
-    own_parts = _split_mpc_key(key)
-    if own_parts is None:
+    own = StateKey.parse(key)
+    if own is None or own.bucket_tag is None:
         return
-    uid, entity, bucket = own_parts
-    if not uid or not entity:
+    if not own.unique_id or not own.segment:
         return
-    own_target = _parse_bucket(bucket)
+    own_target = own.bucket_temperature
     siblings: list[tuple[float, _MpcState]] = []
     for other_key, other_state in all_states.items():
         if other_key == key:
             continue
-        other_parts = _split_mpc_key(other_key)
-        if other_parts is None:
+        other = StateKey.parse(other_key)
+        if other is None or not other.is_bucket_of(own):
             continue
-        ouid, oentity, obucket = other_parts
-        if ouid != uid or oentity != entity:
-            continue
-        other_target = _parse_bucket(obucket)
+        other_target = other.bucket_temperature
         if own_target is not None and other_target is not None:
             distance = abs(other_target - own_target)
         else:
@@ -528,19 +516,11 @@ def build_mpc_key(bt: BetterThermostat, entity_id: str) -> str:
     For multi-TRV setups the caller should prefer ``build_mpc_group_key``
     so that all TRVs share a single MPC model.
     """
-
-    try:
-        target = bt.heat_target_temperature
-        bucket = (
-            f"t{round(float(target) * 2.0) / 2.0:.1f}"
-            if isinstance(target, (int, float))
-            else "tunknown"
+    return str(
+        StateKey(
+            resolve_unique_id(bt), entity_id, bucket_tag_of(bt.heat_target_temperature)
         )
-    except ValueError, OverflowError:
-        bucket = "tunknown"
-
-    uid = resolve_unique_id(bt)
-    return f"{uid}:{entity_id}:{bucket}"
+    )
 
 
 def build_mpc_group_key(bt: BetterThermostat) -> str:
@@ -549,19 +529,13 @@ def build_mpc_group_key(bt: BetterThermostat) -> str:
     All TRVs under the same BT instance share this key so that a single
     MPC model learns the room dynamics from the external sensor.
     """
-
-    try:
-        target = bt.heat_target_temperature
-        bucket = (
-            f"t{round(float(target) * 2.0) / 2.0:.1f}"
-            if isinstance(target, (int, float))
-            else "tunknown"
+    return str(
+        StateKey(
+            resolve_unique_id(bt),
+            GROUP_KEY_SEGMENT,
+            bucket_tag_of(bt.heat_target_temperature),
         )
-    except ValueError, OverflowError:
-        bucket = "tunknown"
-
-    uid = resolve_unique_id(bt)
-    return f"{uid}:group:{bucket}"
+    )
 
 
 # Compensation factor: additional valve-% per Kelvin that a TRV is colder
@@ -989,7 +963,11 @@ def compute_mpc(
         # Trigger: current >= target. Probability: decays with number of samples.
         # Action: Force valve closed until current < target - hysteresis.
         calib_hysteresis = 0.2
-        if state.is_calibration_active:
+        if inp.learning_paused:
+            # The forced closure exists only to sample the heat loss, so a
+            # paused controller neither starts one nor keeps one running.
+            state.is_calibration_active = False
+        elif state.is_calibration_active:
             if inp.room_temperature <= (inp.target_temperature - calib_hysteresis):
                 state.is_calibration_active = False
                 _LOGGER.info(
@@ -1126,8 +1104,10 @@ def _compute_predictive_percent(
     step_minutes = MPC_STEP_SECONDS / 60.0
     horizon = MPC_HORIZON_STEPS
 
+    adapt = params.mpc_adapt and not inp.learning_paused
+
     # Initialize estimates if missing
-    if params.mpc_adapt:
+    if adapt:
         if state.gain_est is None:
             state.gain_est = params.mpc_thermal_gain
         if state.loss_est is None:
@@ -1154,12 +1134,18 @@ def _compute_predictive_percent(
             state.last_learn_temperature = cost_room_temperature
             dt_last = 0.0
 
+    # A paused controller restarts its learning interval every cycle, so the
+    # first interval after the pause starts where the pause ended.
+    if inp.learning_paused:
+        state.last_learn_time = now
+        state.last_learn_temperature = cost_room_temperature
+        state.last_residual_time = None
+        state.u_integral = 0.0
+        state.time_integral = 0.0
+        dt_last = 0.0
+
     # Initialize ka_est if we have outdoor temperature context
-    if (
-        params.mpc_adapt
-        and inp.outdoor_temperature is not None
-        and state.ka_est is None
-    ):
+    if adapt and inp.outdoor_temperature is not None and state.ka_est is None:
         # Default ka guess from current loss_est
         _loss = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
         _delta = max(5.0, float(cost_room_temperature) - float(inp.outdoor_temperature))
@@ -1168,11 +1154,7 @@ def _compute_predictive_percent(
     # ---- ADAPTATION (rate-based identification) ----
     # Model: dT/dt ~= gain * u - loss, where gain/loss are in °C/min and u in [0..1]
     adapt_debug: MpcDebugInfo = {}
-    if (
-        params.mpc_adapt
-        and state.last_learn_temperature is not None
-        and dt_last >= 180.0
-    ):
+    if adapt and state.last_learn_temperature is not None and dt_last >= 180.0:
         try:
             if state.last_residual_time is None:
                 state.last_residual_time = state.last_learn_time or now
@@ -2026,14 +2008,15 @@ def _post_process_percent(
     else:
         trv_delta_K = inp.trv_temperature - state.last_trv_temperature
         time_delta = now - state.last_trv_temperature_ts
-        eval_after = max(params.deadzone_time_s, 1.0)
+        # A paused controller evaluates nothing and only moves the anchor
+        # below, so no evaluation spans the pause.
+        evaluate = (
+            time_delta >= max(params.deadzone_time_s, 1.0) and not inp.learning_paused
+        )
 
         # A threshold-like TRV is the case dead-zone learning exists for, so
         # evaluation continues once the profile is classified as one.
-        if time_delta >= eval_after and state.trv_profile in (
-            TrvProfile.UNKNOWN,
-            TrvProfile.THRESHOLD,
-        ):
+        if evaluate and state.trv_profile in (TrvProfile.UNKNOWN, TrvProfile.THRESHOLD):
             tol = max(inp.tolerance_K, 0.0)
             needs_heat = delta_kelvin is not None and delta_kelvin > tol
             small_command = 0 < percent_out <= params.deadzone_threshold_percent
@@ -2124,7 +2107,7 @@ def _post_process_percent(
             else:
                 state.dead_zone_hits = 0
 
-        elif time_delta >= eval_after and params.enable_min_effective_percent:
+        elif evaluate and params.enable_min_effective_percent:
             # A linear or exponential TRV counts no dead-zone hits, but a
             # minimum opening learned before it was classified still decays
             # while the TRV responds to it.

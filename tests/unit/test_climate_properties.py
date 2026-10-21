@@ -5,6 +5,7 @@ the configured min/max bounds, the cooler-dependent supported_features, and
 the outdoor-temperature read.
 """
 
+from dataclasses import replace
 import logging
 from unittest.mock import MagicMock
 
@@ -13,6 +14,7 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.decide import running_kernel_state
 from tests.factories import ThermostatStandIn
 
 _CLIMATE_LOGGER = "custom_components.better_thermostat.climate"
@@ -163,10 +165,44 @@ def test_features_target_range_with_cooler(bt):
         (True, True, True),
     ],
 )
-def test_contact_open_combines_window_and_door(bt, window_open, door_open, expected):
+def test_contact_sensed_open_combines_window_and_door(
+    bt, window_open, door_open, expected
+):
     bt.window_open = window_open
     bt.door_open = door_open
+    assert _prop("contact_sensed_open", bt) is expected
+
+
+@pytest.mark.parametrize(
+    ("window_detection", "sensed_open", "expected"),
+    [
+        (True, False, False),
+        (True, True, True),
+        (False, False, False),
+        (False, True, False),
+    ],
+)
+def test_contact_open_suppresses_heating_only_with_window_detection_on(
+    bt, window_detection, sensed_open, expected
+):
+    """An open contact gates the shell's control paths only while detection is on."""
+    bt.kernel_state = replace(running_kernel_state(), window_detection=window_detection)
+    bt.contact_sensed_open = sensed_open
     assert _prop("contact_open", bt) is expected
+
+
+@pytest.mark.parametrize(
+    ("window_sensor", "door_sensor", "expected"),
+    [
+        (None, None, False),
+        ("binary_sensor.window", None, True),
+        (None, "binary_sensor.door", True),
+    ],
+)
+def test_has_contact_sensor_names_either_kind(bt, window_sensor, door_sensor, expected):
+    bt.window_sensor_entity_id = window_sensor
+    bt.door_sensor_entity_id = door_sensor
+    assert _prop("has_contact_sensor", bt) is expected
 
 
 # --- _get_outdoor_temperature ------------------------------------------------------

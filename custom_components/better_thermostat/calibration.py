@@ -61,6 +61,7 @@ from custom_components.better_thermostat.utils.calibration.plant_preset import (
     DEFAULT_FLOW_TEMPERATURE,
     FLOW_TEMPERATURE_BOUNDS,
 )
+from custom_components.better_thermostat.utils.calibration.state_key import StateKey
 from custom_components.better_thermostat.utils.calibration.strategies import (
     BalanceCalibrator,
     BalanceStrategy,
@@ -466,6 +467,7 @@ def _compute_mpc_balance(
                 is_day=_is_day,
                 solar_intensity=_solar_intensity,
                 max_opening_percent=max_opening_percent,
+                learning_paused=self.learning_held,
             ),
             params,
             state=mpc_state,
@@ -606,11 +608,15 @@ def _lookup_mpc_v2_reid(
     result = state_mgr.get_mpc_v2_reid(reid_key)
     if result is not None:
         return result if fitted_under_this_flow(result) else None
-    uid_entity = mpc_key.rsplit(":", 1)[0]
+    own = StateKey.parse(mpc_key)
+    if own is None:
+        return None
     candidates = [
         data
         for key, data in state_mgr.state.mpc_v2_reid.items()
-        if key.rsplit(":", 1)[0] == uid_entity and fitted_under_this_flow(data)
+        if (stored := StateKey.parse(key)) is not None
+        and stored.is_bucket_of(own)
+        and fitted_under_this_flow(data)
     ]
     if not candidates:
         return None
@@ -641,16 +647,37 @@ def _record_mpc_v2_reid_sample(
     resulting recording pause leaves a time gap that the segmenter cuts
     on (``ReidConfig.max_gap_s``), keeping transients on either side of
     a degraded episode separate.
+
+    While learning is paused the first held cycle records a paused sample
+    instead, which cuts the buffer like an open contact, so no fitted
+    transient spans the pause however short it is; the later held cycles
+    record nothing, so a long pause does not push the real samples out. The
+    room temperature is the one the control law uses, so a pause under
+    SENSOR_FALLBACK also cuts the buffer.
     """
-    if self.kernel_state.control_mode.mode != ControlMode.OPTIMAL:
-        return
     state_mgr = self.state_mgr
     if state_mgr is None:
         return
-    room_temperature = self.room_temperature
+    room_temperature = effective_room_temperature(self)
     if room_temperature is None:
         return
     t_room = float(room_temperature)
+    if self.learning_held:
+        buffer = state_mgr.get_mpc_v2_reid_runtime(reid_key).buffer
+        # One paused sample cuts the run; more would only push real samples
+        # out of the bounded buffer during a long pause.
+        if not buffer.samples or not buffer.samples[-1].learning_paused:
+            buffer.append(
+                ReidSample(
+                    t_s=self.clock.monotonic(),
+                    T_room=t_room,
+                    u_frac=0.0,
+                    learning_paused=True,
+                )
+            )
+        return
+    if self.kernel_state.control_mode.mode != ControlMode.OPTIMAL:
+        return
     if applied_valve_percent is None:
         # A current MPC proposal is not evidence of a physical valve input:
         # the write can still be deferred, clamped, or fail.
@@ -669,7 +696,9 @@ def _record_mpc_v2_reid_sample(
             T_trv=trv_temperature
             if isinstance(trv_temperature, (int, float))
             else None,
-            window_open=self.contact_open,
+            # The fit learns the room's physics, so a window counts as open
+            # whether or not window detection acts on it.
+            window_open=self.contact_sensed_open,
         )
     )
 
@@ -702,7 +731,9 @@ def _maybe_start_mpc_v2_reid_fit(
     """Kick off an offline re-identification fit in the executor when due.
 
     At most one attempt per key per ``_MPC_V2_REID_INTERVAL_S``, only once
-    the buffer plausibly contains full transients, and never concurrently.
+    the buffer plausibly contains full transients, never concurrently and
+    never while learning is paused; a fit that completes during a pause is
+    discarded.
     The fit itself is pure CPU work; an accepted result is adopted through
     the state manager's bumpless path on the completion callback, so the
     event loop never blocks on the optimisation. Adoption bumplessly
@@ -714,6 +745,8 @@ def _maybe_start_mpc_v2_reid_fit(
         return
     state_mgr = self.state_mgr
     if state_mgr is None:
+        return
+    if self.learning_held:
         return
     runtime = state_mgr.get_mpc_v2_reid_runtime(reid_key)
     # Monotonic for the cadence gate and buffer timing (immune to wall-clock
@@ -754,6 +787,14 @@ def _maybe_start_mpc_v2_reid_fit(
         # final save is already written; adopting it would only hand its
         # store a write after that.
         if self.is_removed:
+            return
+        if self.learning_held:
+            _LOGGER.debug(
+                "better_thermostat %s: MPC v2 re-identification for %s finished "
+                "while learning is paused; result discarded",
+                device_name,
+                reid_key,
+            )
             return
         if (
             outcome.status == "accepted"
@@ -938,6 +979,7 @@ def _compute_mpc_v2_balance(
                 outdoor_temperature=outdoor_temperature,
                 max_opening_percent=max_opening_percent,
                 applied_valve_percent=controller_applied_percent,
+                learning_paused=self.learning_held,
             ),
             v2_params,
             state=mpc_v2_state,
@@ -1148,6 +1190,9 @@ def _compute_pid_balance(
     annunciate_health(self, entity_id, _pid_health)
 
     params = pid_cycle_params(loop, bucket)
+    if self.learning_held:
+        # The gains in use stay as they are; no bucket takes any.
+        params = replace(params, auto_tune=False)
     cycle = pid_cycle_state(loop, params, self.heat_target_temperature)
 
     _LOGGER.debug(
@@ -1172,6 +1217,7 @@ def _compute_pid_balance(
             max_opening_percent=_get_trv_max_opening(self, entity_id),
             state=cycle,
             now=self.clock.monotonic(),
+            learning_paused=self.learning_held,
         )
         state_mgr.set_pid(loop_key, settle_pid_cycle(loop, bucket, cycle, params))
         if params.auto_tune or _bucket_health != CalibratorHealth.HEALTHY:

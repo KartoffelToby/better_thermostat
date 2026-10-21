@@ -95,6 +95,19 @@ class MultiTrvPlant:
             T_room=initial.T_room, T_rads=list(initial.T_rads)
         )
 
+    @property
+    def heat_to_room_K_per_min(self) -> float:
+        """Heat all radiators currently deliver to the room, in room-K/min."""
+        p = self.params
+        s = self.state
+        return (
+            sum(
+                p.coupling_rad_room[i] * (s.T_rads[i] - s.T_room)
+                for i in range(p.n_trvs)
+            )
+            / p.tau_room_min
+        )
+
     def step(
         self,
         dt_s: float,

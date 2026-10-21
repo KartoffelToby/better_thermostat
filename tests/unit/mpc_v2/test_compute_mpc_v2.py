@@ -114,6 +114,7 @@ def _step_returning(fraction: float):
         T_outdoor: float,
         T_rad: float | None = None,
         u_max: float | None = None,
+        learning_paused: bool = False,
     ) -> tuple[float, MpcV2Diagnostics]:
         _u, diagnostics = real_step(
             self,
@@ -123,6 +124,7 @@ def _step_returning(fraction: float):
             T_outdoor=T_outdoor,
             T_rad=T_rad,
             u_max=u_max,
+            learning_paused=learning_paused,
         )
         return fraction, diagnostics
 

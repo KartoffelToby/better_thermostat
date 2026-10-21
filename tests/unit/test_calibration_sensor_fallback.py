@@ -111,6 +111,7 @@ def _make_bt(state_mgr: _StateStub, trv_temperature: float | None) -> Thermostat
     bt.window_open = False
     bt.door_open = False
     bt.contact_open = False
+    bt.contact_sensed_open = False
     bt.bt_hvac_mode = "heat"
     bt.outdoor_sensor_entity_id = None
     bt.weather_entity_id = None
@@ -280,6 +281,7 @@ def test_reid_sample_records_open_door_as_open_contact() -> None:
     bt.window_open = False
     bt.door_open = True
     bt.contact_open = bool(bt.window_open) or bool(bt.door_open)
+    bt.contact_sensed_open = bt.contact_open
 
     _record_mpc_v2_reid_sample(
         bt,
@@ -293,6 +295,32 @@ def test_reid_sample_records_open_door_as_open_contact() -> None:
     assert len(samples) == 1
     assert samples[0].window_open is True
     assert samples[0].T_room == 20.5
+
+
+def test_reid_sample_flags_an_open_window_with_window_detection_off() -> None:
+    """The fit cuts the segment of an open window that switched no heating off.
+
+    With window detection off the room heats with the window open, and the
+    sample still has to say the window was open.
+    """
+    state_mgr = _StateStub()
+    bt = _make_bt(state_mgr, trv_temperature=21.0)
+    bt.kernel_state = make_state(window_detection=False)
+    bt.room_temperature = 20.5
+    bt.window_open = True
+    bt.contact_open = False
+    bt.contact_sensed_open = True
+
+    _record_mpc_v2_reid_sample(
+        bt,
+        "key",
+        applied_valve_percent=40.0,
+        trv_temperature=21.0,
+        outdoor_temperature=5.0,
+    )
+
+    (sample,) = state_mgr.get_mpc_v2_reid_runtime("key").buffer.samples
+    assert sample.window_open is True
 
 
 def test_reid_sample_without_a_confirmed_valve_reading_records_nothing() -> None:
@@ -317,3 +345,27 @@ def test_reid_sample_without_a_confirmed_valve_reading_records_nothing() -> None
     )
 
     assert state_mgr.get_mpc_v2_reid_runtime("key").buffer.samples == []
+
+
+def test_a_pause_under_sensor_fallback_cuts_the_reid_buffer() -> None:
+    """A pause cuts the buffer while the room temperature comes from the TRVs.
+
+    Without the cut, a pause shorter than the segmenter's gap would leave the
+    samples before and after it in one segment.
+    """
+    state_mgr = _StateStub()
+    bt = _make_bt(state_mgr, trv_temperature=21.0)
+    bt.learning_held = True
+
+    _record_mpc_v2_reid_sample(
+        bt,
+        "key",
+        applied_valve_percent=40.0,
+        trv_temperature=21.0,
+        outdoor_temperature=5.0,
+    )
+
+    samples = state_mgr.get_mpc_v2_reid_runtime("key").buffer.samples
+    assert len(samples) == 1
+    assert samples[0].learning_paused is True
+    assert samples[0].T_room == 21.0

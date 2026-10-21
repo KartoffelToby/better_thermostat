@@ -13,13 +13,18 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 import math
-from typing import NamedTuple, TypedDict
+from typing import Final, NamedTuple, TypedDict
 
 from .decide import KernelState, decide
 from .desired import DesiredState, Suppression, TrvDesired
 from .fsm.control_mode import ControlMode, ControlModeState, PendingWindow
 from .fsm.lifecycle import LifecyclePhase, LifecycleState
-from .fsm.maintenance import MaintenancePhase, MaintenanceState
+from .fsm.maintenance import (
+    MaintenanceDue,
+    MaintenanceIdle,
+    MaintenanceRunning,
+    MaintenanceState,
+)
 from .fsm.mode import ModeState
 from .fsm.reachability import ReachabilityState
 from .fsm.window import WindowPhase, WindowState
@@ -144,13 +149,48 @@ def _datetime_or_none(value: Json) -> datetime | None:
     return datetime.fromisoformat(_str_of(value))
 
 
+# Exported ``phase`` tag of each maintenance region class.
+_MAINTENANCE_PHASE_TAGS: Final[Mapping[type[MaintenanceState], str]] = {
+    MaintenanceIdle: "idle",
+    MaintenanceDue: "due",
+    MaintenanceRunning: "running",
+}
+
+
+def _maintenance_asdict(state: MaintenanceState) -> dict[str, _Recordable]:
+    """Return the exported form of the maintenance region.
+
+    The phase class is written as a ``phase`` tag, and ``running_since``
+    is present for every phase, ``None`` outside RUNNING.
+
+    Parameters
+    ----------
+    state : MaintenanceState
+        The maintenance region to flatten.
+
+    Returns
+    -------
+    dict
+        Mapping with the keys ``phase``, ``next_due`` and ``running_since``.
+    """
+    running_since = (
+        state.running_since if isinstance(state, MaintenanceRunning) else None
+    )
+    return {
+        "phase": _MAINTENANCE_PHASE_TAGS[type(state)],
+        "next_due": state.next_due,
+        "running_since": running_since,
+    }
+
+
 def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
     """Return ``asdict``-equivalent output for a ``KernelState``.
 
     ``KernelState.reachability`` is a read-only ``MappingProxyType``,
     which :func:`dataclasses.asdict` cannot recurse into. The proxy is
-    converted to a plain ``dict`` of ``asdict``-ed entries; every other
-    field is a frozen region dataclass flattened by ``asdict``.
+    converted to a plain ``dict`` of ``asdict``-ed entries; the scalar
+    fields are taken as they are, and every other field is a frozen region
+    dataclass flattened by ``asdict``.
 
     Parameters
     ----------
@@ -165,13 +205,14 @@ def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
     return {
         "window": asdict(state.window),
         "door": asdict(state.door),
-        "maintenance": asdict(state.maintenance),
+        "maintenance": _maintenance_asdict(state.maintenance),
         "lifecycle": asdict(state.lifecycle),
         "mode": asdict(state.mode),
         "control_mode": asdict(state.control_mode),
         "reachability": {
             entity_id: asdict(entry) for entity_id, entry in state.reachability.items()
         },
+        "window_detection": state.window_detection,
         "last_control_monotonic": state.last_control_monotonic,
     }
 
@@ -280,6 +321,9 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
         call_for_heat=_bool_of(data["call_for_heat"]),
         window_open=_bool_or_none(data.get("window_open")),
         preset_mode=parse_preset(_str_or_none(data["preset_mode"])),
+        # An export from before the room could release its devices carries
+        # no such key; its devices were never released.
+        devices_released=_bool_of(data.get("devices_released", False)),
         tolerance=_float_or_default(data["tolerance"], 0.0),
         outdoor_temperature=_float_or_none(data["outdoor_temperature"]),
         is_day=_bool_of(data["is_day"]),
@@ -335,14 +379,19 @@ def _maintenance_of(raw: dict[str, Json]) -> MaintenanceState:
     blocked control, and IDLE is the consistent state that behaves the
     same way in ``decide()``.
     """
-    phase = MaintenancePhase(_str_of(raw["phase"]))
+    phase = _str_of(raw["phase"])
     next_due = _datetime_or_none(raw["next_due"])
     running_since = _float_or_none(raw["running_since"])
-    if phase != MaintenancePhase.RUNNING:
-        return MaintenanceState(phase=phase, next_due=next_due)
-    if running_since is None:
-        return MaintenanceState(next_due=next_due)
-    return MaintenanceState(phase=phase, next_due=next_due, running_since=running_since)
+    match phase:
+        case "idle":
+            return MaintenanceIdle(next_due=next_due)
+        case "due":
+            return MaintenanceDue(next_due=next_due)
+        case "running" if running_since is not None:
+            return MaintenanceRunning(running_since=running_since, next_due=next_due)
+        case "running":
+            return MaintenanceIdle(next_due=next_due)
+    raise ValueError(f"unknown maintenance phase {phase!r}")
 
 
 def state_from_dict(data: dict[str, Json]) -> KernelState:
@@ -396,6 +445,8 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
             pending=_pending_window_of(control_mode),
         ),
         reachability=reachability,
+        # An export without the flag was recorded with window detection on.
+        window_detection=_bool_of(data.get("window_detection", True)),
         last_control_monotonic=_float_or_none(data["last_control_monotonic"]),
     )
 
@@ -417,7 +468,11 @@ def desired_from_dict(data: dict[str, Json]) -> DesiredState:
                 else None
             ),
         )
-    return DesiredState(call_for_heat=_bool_of(data["call_for_heat"]), trvs=trvs)
+    return DesiredState(
+        call_for_heat=_bool_of(data["call_for_heat"]),
+        trvs=trvs,
+        devices_released=_bool_of(data.get("devices_released", False)),
+    )
 
 
 def replay(entry: ExportedDecision) -> tuple[bool, DesiredState]:

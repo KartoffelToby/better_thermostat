@@ -219,7 +219,7 @@ async def test_valve_maintenance_adds_its_own_tick_and_nothing_else():
     assert registered.intervals == _expected_intervals(
         bt, [("_maintenance_tick", timedelta(minutes=5))]
     )
-    assert isinstance(bt.next_valve_maintenance, datetime)
+    assert isinstance(bt.kernel_state.maintenance.next_due, datetime)
 
 
 @pytest.mark.asyncio

@@ -496,6 +496,9 @@
       }
     },
     "switch": {
+      "release_devices": {
+        "name": "Zwolnij urządzenia"
+      },
       "pid_auto_tune": {
         "name": "{trv_name} Automatyczne strojenie PID"
       },
@@ -507,6 +510,12 @@
       },
       "child_lock_no_trv": {
         "name": "Blokada rodzicielska"
+      },
+      "pause_learning": {
+        "name": "Wstrzymaj uczenie"
+      },
+      "window_detection": {
+        "name": "Wykrywanie okna"
       }
     },
     "sensor": {
@@ -620,6 +629,9 @@
     },
     "invalid_settings": {
       "message": "Nie można odczytać zapisanych ustawień tego Better Thermostat: {reason}. Zmień je w jego opcjach albo usuń go i dodaj ponownie."
+    },
+    "devices_released": {
+      "message": "Urządzenia {device_name} są zwolnione. Wyłącz Zwolnij urządzenia, aby Better Thermostat znów nimi sterował."
     }
   }
 }

@@ -1063,3 +1063,47 @@ class TestOffsetReconcileHandoff:
             await control_trv(bt, "climate.trv")
 
         set_off.assert_awaited_once_with(bt, "climate.trv", 2.0)
+
+
+class TestReleasedDevices:
+    """Released devices are neither re-converged nor commanded."""
+
+    @pytest.mark.asyncio
+    async def test_a_released_room_queues_no_cycle_for_its_diverging_cooler(self):
+        """A cooler the user runs diverges from the room by design."""
+        bt = _make_bt()
+        bt.devices_released = True
+        bt.cooler_entity_id = "climate.cooler"
+        with patch(f"{_CTRL}.cooler_mode_diverges", return_value=True):
+            await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_held_room_queues_a_cycle_for_its_diverging_cooler(self):
+        """The counterpart: a held cooler that diverges is put back."""
+        bt = _make_bt()
+        bt.devices_released = False
+        bt.cooler_entity_id = "climate.cooler"
+        with patch(f"{_CTRL}.cooler_mode_diverges", return_value=True):
+            await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_released_trv_is_not_commanded_and_not_missing(self):
+        """A released TRV is left alone without counting as unreachable.
+
+        No write goes out, and no reachability retry is scheduled for it.
+        """
+        bt = _control_bt()
+        bt.devices_released = True
+        with (
+            patch(f"{_CTRL}._schedule_reachability_retry") as retry,
+            patch(f"{_CTRL}.set_temperature", autospec=True) as set_temperature,
+            patch(f"{_CTRL}.set_hvac_mode", autospec=True) as set_hvac_mode,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            result = await control_trv(bt, "climate.trv")
+        assert result is True
+        retry.assert_not_called()
+        set_temperature.assert_not_called()
+        set_hvac_mode.assert_not_called()

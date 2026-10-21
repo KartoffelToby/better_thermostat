@@ -10,8 +10,8 @@ import logging
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.strategies import (
-    BalanceStrategy,
     annunciate_health,
+    build_balance_strategy,
 )
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from tests.factories import ThermostatStandIn
@@ -31,10 +31,8 @@ def _bt():
 def _strategy(percents):
     """Build a strategy whose compute emits the given percentages in order."""
     feed = iter(percents)
-    return BalanceStrategy(
-        mode=CalibrationMode.PID_CALIBRATION,
-        compute=lambda bt, eid: (next(feed), False),
-        percent_of=lambda result: result if isinstance(result, float) else None,
+    return build_balance_strategy(
+        CalibrationMode.PID_CALIBRATION, lambda bt, eid: (next(feed), False), float
     )
 
 

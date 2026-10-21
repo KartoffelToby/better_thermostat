@@ -138,16 +138,15 @@ class TestTaskManagerShutdown:
         """Work requested after the shutdown is dropped, not started."""
         manager = TaskManager()
         manager.cancel_all()
-        ran = False
+        ran = asyncio.Event()
 
         async def work():
-            nonlocal ran
-            ran = True
+            ran.set()
 
         coro = work()
         assert manager.create_task(coro) is None
         await asyncio.sleep(0)
 
-        assert ran is False
+        assert not ran.is_set()
         assert inspect.getcoroutinestate(coro) == inspect.CORO_CLOSED
         assert not manager.tasks
