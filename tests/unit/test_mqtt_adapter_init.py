@@ -234,11 +234,10 @@ async def test_every_calibration_a_configuration_can_name_reaches_the_reset(
     assert _preset_calls(bt) == [{"entity_id": ENTITY_ID, "preset_mode": "manual"}]
 
 
-_GET_INFO_FIND_VALVE = (
-    "custom_components.better_thermostat.adapters.mqtt.find_valve_entity"
-)
+_GET_INFO_FIND_VALVE = _FIND_VALVE
 _GET_INFO_FIND_CALIBRATION = (
-    "custom_components.better_thermostat.adapters.mqtt.find_local_calibration_entity"
+    "custom_components.better_thermostat.adapters.valve_entity."
+    "find_local_calibration_entity"
 )
 
 

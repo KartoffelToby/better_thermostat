@@ -17,7 +17,10 @@ from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
 import pytest
 
+from custom_components.better_thermostat import config_flow
+from custom_components.better_thermostat.adapters import valve_entity
 from custom_components.better_thermostat.adapters.base import DeviceChannels
+from custom_components.better_thermostat.adapters.conformance import ECOSYSTEM_ADAPTERS
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils import helpers
 from custom_components.better_thermostat.utils.const import CalibrationOutput
@@ -172,9 +175,13 @@ class TestAdapterGetInfo:
         mock_self = _make_self()
         with (
             patch.object(
-                adapter, "find_local_calibration_entity", AsyncMock(return_value=None)
+                valve_entity,
+                "find_local_calibration_entity",
+                AsyncMock(return_value=None),
             ),
-            patch.object(adapter, "find_valve_entity", AsyncMock(return_value=None)),
+            patch.object(
+                valve_entity, "find_valve_entity", AsyncMock(return_value=None)
+            ),
         ):
             info = await adapter.get_info(mock_self, "climate.trv1")
         assert info == DeviceChannels(offset_write=False, valve_write=False)
@@ -185,44 +192,16 @@ class TestAdapterGetInfo:
         mock_self = _make_self()
         with (
             patch.object(
-                adapter, "find_local_calibration_entity", AsyncMock(return_value=None)
+                valve_entity,
+                "find_local_calibration_entity",
+                AsyncMock(return_value=None),
             ),
             patch.object(
-                adapter,
+                valve_entity,
                 "find_valve_entity",
                 AsyncMock(
                     return_value={"entity_id": "number.trv1_valve", "writable": False}
                 ),
-            ),
-        ):
-            info = await adapter.get_info(mock_self, "climate.trv1")
-        assert info.valve_write is False
-
-    @pytest.mark.asyncio
-    async def test_quirk_model_reports_valve_without_number_entity(self):
-        """A ZWA021 reports valve support although it exposes no number helper."""
-        mock_self = _make_self()
-        with (
-            patch.object(
-                adapter, "find_local_calibration_entity", AsyncMock(return_value=None)
-            ),
-            patch.object(adapter, "find_valve_entity", AsyncMock(return_value=None)),
-            patch.object(adapter, "get_device_model", AsyncMock(return_value="ZWA021")),
-        ):
-            info = await adapter.get_info(mock_self, "climate.trv1")
-        assert info.valve_write is True
-
-    @pytest.mark.asyncio
-    async def test_other_model_without_valve_stays_unsupported(self):
-        """An unknown model without a writable helper reports no valve support."""
-        mock_self = _make_self()
-        with (
-            patch.object(
-                adapter, "find_local_calibration_entity", AsyncMock(return_value=None)
-            ),
-            patch.object(adapter, "find_valve_entity", AsyncMock(return_value=None)),
-            patch.object(
-                adapter, "get_device_model", AsyncMock(return_value="MT02650")
             ),
         ):
             info = await adapter.get_info(mock_self, "climate.trv1")
@@ -234,12 +213,12 @@ class TestAdapterGetInfo:
         mock_self = _make_self()
         with (
             patch.object(
-                adapter,
+                valve_entity,
                 "find_local_calibration_entity",
                 AsyncMock(return_value="number.trv1_calibration"),
             ),
             patch.object(
-                adapter,
+                valve_entity,
                 "find_valve_entity",
                 AsyncMock(
                     return_value={"entity_id": "number.trv1_valve", "writable": True}
@@ -248,6 +227,48 @@ class TestAdapterGetInfo:
         ):
             info = await adapter.get_info(mock_self, "climate.trv1")
         assert info == DeviceChannels(offset_write=True, valve_write=True)
+
+
+async def _channels_the_flow_offers(model):
+    """The channels the config flow offers a Z-Wave JS TRV of ``model``."""
+    flow = config_flow.ConfigFlow()
+    flow.hass = MagicMock()
+    imports = AsyncMock(side_effect=lambda _hass, name: importlib.import_module(name))
+    with (
+        patch.object(
+            valve_entity, "find_local_calibration_entity", AsyncMock(return_value=None)
+        ),
+        patch.object(valve_entity, "find_valve_entity", AsyncMock(return_value=None)),
+        patch.object(config_flow, "get_device_model", AsyncMock(return_value=model)),
+        patch.object(quirks, "async_import_module", imports),
+    ):
+        _loaded, channels = await config_flow._load_adapter_info(
+            flow,
+            "zwave_js",
+            "climate.trv1",
+            existing_adapter=ECOSYSTEM_ADAPTERS["zwave_js"],
+        )
+    return channels
+
+
+class TestTheQuirkOffersTheValveInTheConfigFlow:
+    """Direct valve control is offered for every model the ZWA021 quirk drives.
+
+    These devices expose no valve number, so the adapter reports no valve
+    channel of its own. The config flow asks the model quirk as well, and the
+    quirk's answer is what puts direct valve control on offer.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("model", ["ZWA021", "Spirit", "Z-TRV-V01"])
+    async def test_a_quirk_driven_model_is_offered_the_valve(self, model):
+        """The Spirit Z, the ZWA021 and the Z-TRV-V01 all get the valve channel."""
+        assert (await _channels_the_flow_offers(model)).valve_write is True
+
+    @pytest.mark.asyncio
+    async def test_another_model_without_a_valve_number_is_not(self):
+        """A model without a quirk of its own and without a number gets none."""
+        assert (await _channels_the_flow_offers("MT02650")).valve_write is False
 
 
 class TestAdapterSetValve:
@@ -329,21 +350,6 @@ class TestTheSpiritIsDrivenByTheZWA021Quirk:
             "custom_components.better_thermostat.model_fixes.ZWA021"
         )
 
-    @pytest.mark.asyncio
-    async def test_a_spirit_reports_valve_without_a_number_entity(self):
-        """Valve support is what puts direct valve control in the config flow."""
-        mock_self = _make_self()
-        with (
-            patch.object(
-                adapter, "find_local_calibration_entity", AsyncMock(return_value=None)
-            ),
-            patch.object(adapter, "find_valve_entity", AsyncMock(return_value=None)),
-            patch.object(adapter, "get_device_model", AsyncMock(return_value="Spirit")),
-        ):
-            info = await adapter.get_info(mock_self, "climate.trv1")
-
-        assert info.valve_write is True
-
 
 class TestTheZTrvV01IsDrivenByTheZWA021Quirk:
     """The ZVIDAR Z-TRV-V01 is a clone of the same device, under a third name.
@@ -372,23 +378,6 @@ class TestTheZTrvV01IsDrivenByTheZWA021Quirk:
         assert imported.await_args.args[1] == (
             "custom_components.better_thermostat.model_fixes.ZWA021"
         )
-
-    @pytest.mark.asyncio
-    async def test_a_z_trv_v01_reports_valve_without_a_number_entity(self):
-        """Valve support is what puts direct valve control in the config flow."""
-        mock_self = _make_self()
-        with (
-            patch.object(
-                adapter, "find_local_calibration_entity", AsyncMock(return_value=None)
-            ),
-            patch.object(adapter, "find_valve_entity", AsyncMock(return_value=None)),
-            patch.object(
-                adapter, "get_device_model", AsyncMock(return_value="Z-TRV-V01")
-            ),
-        ):
-            info = await adapter.get_info(mock_self, "climate.trv1")
-
-        assert info.valve_write is True
 
 
 class TestAnUnknownStateFromADrivenSpirit:
@@ -471,11 +460,8 @@ class TestConfigurationParametersAreNoCalibrationEntity:
     async def test_the_spirit_offset_parameter_is_not_adopted(self):
         """The TRV is reported without an offset channel."""
         host = self._host()
-        with (
-            patch.object(
-                helpers.er, "async_get", return_value=self._registry("3967.5-112-0-8")
-            ),
-            patch.object(adapter, "get_device_model", AsyncMock(return_value="Spirit")),
+        with patch.object(
+            helpers.er, "async_get", return_value=self._registry("3967.5-112-0-8")
         ):
             found = await helpers.find_local_calibration_entity(host, self.TRV)
             info = await adapter.get_info(host, self.TRV)

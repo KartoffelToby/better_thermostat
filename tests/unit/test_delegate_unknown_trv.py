@@ -13,7 +13,7 @@ import pytest
 
 from custom_components.better_thermostat.adapters.delegate import (
     AdapterNotLoadedError,
-    get_info,
+    get_calibration_offset,
     set_calibration_offset,
     set_hvac_mode,
 )
@@ -73,5 +73,5 @@ async def test_a_trv_without_an_adapter_names_the_missing_adapter(bt):
         patch("asyncio.sleep", AsyncMock()) as sleep,
         pytest.raises(AdapterNotLoadedError, match=KNOWN_TRV),
     ):
-        await get_info(bt, KNOWN_TRV)
+        await get_calibration_offset(bt, KNOWN_TRV)
     sleep.assert_not_awaited()
