@@ -36,12 +36,7 @@ from .entity import (
     current_trv_name,
     remove_unclaimed_registry_entries,
 )
-from .sensor import (
-    _ACTIVE_PID_NUMBERS,
-    _ACTIVE_PRESET_NUMBERS,
-    PidNumberRef,
-    PresetNumberRef,
-)
+from .tracked_entities import PidNumberRef, PresetNumberRef
 from .utils.calibration.pid import (
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
@@ -232,8 +227,9 @@ async def async_setup_entry(
     numbers.append(BetterThermostatToleranceNumber(bt_climate, entry, unit))
 
     # Track created number entities for cleanup
-    _ACTIVE_PRESET_NUMBERS[entry.entry_id] = preset_unique_ids
-    _ACTIVE_PID_NUMBERS[entry.entry_id] = pid_unique_ids
+    tracked = entry.runtime_data.tracked_entities
+    tracked.preset_numbers = preset_unique_ids
+    tracked.pid_numbers = pid_unique_ids
 
     _LOGGER.debug(
         "Better Thermostat %s: Created %d preset and %d PID number entities",

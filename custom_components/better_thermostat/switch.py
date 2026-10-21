@@ -27,7 +27,7 @@ from .entity import (
     last_available_state,
     remove_unclaimed_registry_entries,
 )
-from .sensor import _ACTIVE_SWITCH_ENTITIES, SwitchKind, SwitchRef
+from .tracked_entities import SwitchKind, SwitchRef
 from .utils.advanced_flags import advanced_flag
 from .utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
@@ -86,7 +86,7 @@ async def async_setup_entry(
         )
 
     # Track created switch entities for cleanup
-    _ACTIVE_SWITCH_ENTITIES[entry.entry_id] = switch_unique_ids
+    entry.runtime_data.tracked_entities.switches = switch_unique_ids
 
     _LOGGER.debug(
         "Better Thermostat %s: Created %d switch entities",
