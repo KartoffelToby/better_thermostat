@@ -510,6 +510,9 @@
       },
       "pause_learning": {
         "name": "Παύση εκμάθησης"
+      },
+      "window_detection": {
+        "name": "Ανίχνευση παραθύρου"
       }
     },
     "sensor": {

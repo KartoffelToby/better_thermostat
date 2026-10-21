@@ -510,6 +510,9 @@
       },
       "pause_learning": {
         "name": "Öğrenmeyi duraklat"
+      },
+      "window_detection": {
+        "name": "Pencere algılama"
       }
     },
     "sensor": {

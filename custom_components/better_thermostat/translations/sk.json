@@ -510,6 +510,9 @@
       },
       "pause_learning": {
         "name": "Pozastaviť učenie"
+      },
+      "window_detection": {
+        "name": "Detekcia okna"
       }
     },
     "sensor": {

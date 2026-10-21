@@ -65,6 +65,9 @@
         "state": {
           "on": "mdi:pause-circle"
         }
+      },
+      "window_detection": {
+        "default": "mdi:window-open-variant"
       }
     }
   },

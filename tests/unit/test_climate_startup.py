@@ -129,6 +129,7 @@ def bt():
     mock.humidity_sensor_entity_id = None
     mock.window_sensor_entity_id = None
     mock.door_sensor_entity_id = None
+    mock.has_contact_sensor = False
     mock.all_entities = dict[str, None]()
     mock.unavailable_sensors = list[str]()
     mock.degraded_mode = False

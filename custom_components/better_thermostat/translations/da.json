@@ -510,6 +510,9 @@
       },
       "pause_learning": {
         "name": "Sæt indlæring på pause"
+      },
+      "window_detection": {
+        "name": "Vinduesregistrering"
       }
     },
     "sensor": {

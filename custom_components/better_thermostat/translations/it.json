@@ -510,6 +510,9 @@
       },
       "pause_learning": {
         "name": "Sospendi apprendimento"
+      },
+      "window_detection": {
+        "name": "Rilevamento finestra"
       }
     },
     "sensor": {

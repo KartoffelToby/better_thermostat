@@ -68,6 +68,7 @@ ENTITY_TRANSLATION_KEYS = {
         "child_lock",
         "child_lock_no_trv",
         "pause_learning",
+        "window_detection",
     },
 }
 

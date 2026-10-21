@@ -510,6 +510,9 @@
       },
       "pause_learning": {
         "name": "Приостановить обучение"
+      },
+      "window_detection": {
+        "name": "Обнаружение окна"
       }
     },
     "sensor": {

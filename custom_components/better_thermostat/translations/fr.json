@@ -510,6 +510,9 @@
       },
       "pause_learning": {
         "name": "Suspendre l'apprentissage"
+      },
+      "window_detection": {
+        "name": "Détection de fenêtre"
       }
     },
     "sensor": {
