@@ -507,6 +507,9 @@
       },
       "child_lock_no_trv": {
         "name": "Sécurité enfant"
+      },
+      "window_detection": {
+        "name": "Détection de fenêtre"
       }
     },
     "sensor": {

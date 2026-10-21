@@ -48,6 +48,8 @@ Set them from an automation to change several devices at once, for example to fo
 
 **Child Lock** exists for every TRV. It turns the *Ignore all inputs on the TRV like a child lock* option on and off and, where the TRV has a child lock entity of its own, that one too. Better Thermostat looks for a switch or lock on the TRV's device named for the child lock first; only when there is none does it use one whose name merely contains "lock". The switch and the startup sync of the option pick the same entity.
 
+**Window Detection** exists for every device with a window or door sensor. It is on by default, and then an open window or door turns the heating off as described in [Window sensor](/faq/window-sensor/). Turned off, the window and door sensors no longer affect the heating, and a close delay that is still running is dropped, so heating resumes at once. The thermostat shows the setting in its `window_detection` attribute, and the switch keeps its state across restarts. See [Turning window detection off](/faq/window-sensor/#turning-window-detection-off).
+
 **PID Auto Tune** exists for each TRV that uses the PID Controller calibration mode. Turned on, the controller adjusts its gains itself; turned off, the gains the TRV uses at that moment stay as they are until you set them. The switch applies to the TRV at every target temperature, including one it has never run at.
 
 ## Sensors

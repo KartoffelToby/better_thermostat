@@ -318,6 +318,35 @@ def test_exported_online_flag_is_ignored_on_import():
     assert rebuilt.reachability["climate.b"].online is True
 
 
+def test_export_without_window_detection_loads_with_detection_on():
+    """A decision recorded before the switch existed ran with detection on."""
+    recorder = FlightRecorder()
+    state = replace(running_kernel_state(), window=WindowState(phase=WindowPhase.OPEN))
+    desired, _ = decide(_snapshot(), state)
+    recorder.record(_snapshot(), state, desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    del entry["state"]["window_detection"]
+
+    assert state_from_dict(_json_object(entry["state"])).window_detection is True
+    assert replay(entry)[0] is True
+
+
+def test_replay_reproduces_a_decision_with_window_detection_off():
+    """The switch is part of the recorded input, so the replay heats too."""
+    recorder = FlightRecorder()
+    state = replace(
+        running_kernel_state(),
+        window=WindowState(phase=WindowPhase.OPEN),
+        window_detection=False,
+    )
+    desired, _ = decide(_snapshot(), state)
+    recorder.record(_snapshot(), state, desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+
+    assert entry["state"]["window_detection"] is False
+    assert replay(entry) == (True, desired)
+
+
 def test_restored_running_maintenance_without_timestamp_never_blocks():
     """A deserialized RUNNING phase lacking its timestamp cannot block.
 
@@ -606,6 +635,7 @@ class TestRoundtripCompleteness:
                     offline_since=700.0, retry_count=2, retry_at=1100.0
                 )
             },
+            "window_detection": False,
             "last_control_monotonic": 990.0,
         }
         assert set(state_kwargs) == {f.name for f in fields(KernelState)}

@@ -23,6 +23,8 @@ Opening a window in winter with the heating on wastes energy, because the TRV fe
 
 Add a window sensor, or a group of window sensors. When it reports open, Better Thermostat turns the heating off; when every window is closed again, heating resumes. The two delays keep a short opening from switching anything. A door sensor works the same way with delays of its own. See [Window sensor](/faq/window-sensor/) and [Door sensor states](/faq/door-sensor/).
 
+To keep heating at a lower temperature instead of switching off, or to resume heating before the close delay has run out, turn the **Window Detection** switch off and use an automation of your own. See [Turning window detection off](/faq/window-sensor/#turning-window-detection-off).
+
 ## Heating only while it is cold outside
 
 In spring and autumn the heating does not need to run on a mild day.

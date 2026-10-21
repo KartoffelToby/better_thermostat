@@ -56,3 +56,7 @@ passages do not interrupt heating.
 Both contacts suppress heating on the same terms, and they combine: heating
 resumes only once *every* configured contact reports closed. See
 [Window sensor states](/faq/window-sensor) for the window side.
+
+The **Window Detection** switch covers doors as well: turned off, neither
+the window nor the door sensor affects the heating. See
+[Turning window detection off](/faq/window-sensor/#turning-window-detection-off).

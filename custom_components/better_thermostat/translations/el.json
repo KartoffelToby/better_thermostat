@@ -507,6 +507,9 @@
       },
       "child_lock_no_trv": {
         "name": "Παιδικό κλείδωμα"
+      },
+      "window_detection": {
+        "name": "Ανίχνευση παραθύρου"
       }
     },
     "sensor": {

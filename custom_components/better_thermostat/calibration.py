@@ -673,7 +673,9 @@ def _record_mpc_v2_reid_sample(
             T_trv=trv_temperature
             if isinstance(trv_temperature, (int, float))
             else None,
-            window_open=self.contact_open,
+            # The fit learns the room's physics, so a window counts as open
+            # whether or not window detection acts on it.
+            window_open=self.contact_sensed_open,
         )
     )
 
