@@ -441,5 +441,6 @@ async def test_a_manual_target_leaves_the_preset_in_the_kernel_too(hass, fake_tr
     await _set_target(hass, 23.0)
 
     assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "none"
-    assert bt.kernel_state.mode.preset is None
+    preset: Preset | None = bt.kernel_state.mode.preset
+    assert preset is None
     assert await _decided_presets(hass, bt) == (None, "none")
