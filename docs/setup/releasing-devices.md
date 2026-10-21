@@ -112,7 +112,7 @@ mode: single
 
 Turn the switches off again when the work is done; Better Thermostat then puts the radiators back on the room's targets.
 
-### Keep an air conditioner off at night
+### Run an air conditioner by hand at night
 
 An air conditioner with a Better Thermostat of its own is kept off at night by switching that thermostat off; that needs no release. Release it instead when you want to run it by hand at night without Better Thermostat interfering, and take it back in the morning:
 
