@@ -5,7 +5,11 @@ import math
 
 import pytest
 
-from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
+from custom_components.better_thermostat.core.desired import (
+    DesiredState,
+    HeatingBlock,
+    TrvDesired,
+)
 from custom_components.better_thermostat.core.safety import clamp
 from custom_components.better_thermostat.core.snapshot import (
     HvacMode,
@@ -52,6 +56,13 @@ def test_the_release_passes_the_hull(released):
     """The hull clamps numbers; whether the devices are released it keeps."""
     desired = DesiredState(call_for_heat=True, devices_released=released)
     assert clamp(desired, _snapshot()).devices_released is released
+
+
+@pytest.mark.parametrize("block", [*HeatingBlock, None])
+def test_the_heating_block_passes_the_hull(block):
+    """The block the kernel named reaches the shell unchanged."""
+    desired = DesiredState(call_for_heat=True, heating_blocked_by=block)
+    assert clamp(desired, _snapshot()).heating_blocked_by is block
 
 
 def test_setpoint_above_max_is_capped():

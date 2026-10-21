@@ -5,7 +5,8 @@ released the room's devices, the lifecycle and maintenance gate, the room's
 HVAC mode, the debounced window and door regions, the window detection
 switch over them, the snapshot's heat demand, and boost heating with one
 reachable and one unreachable TRV. Every cell compares the complete
-:class:`DesiredState` that ``decide()`` returns.
+:class:`DesiredState` that ``decide()`` returns, the block it names
+included.
 
 The expected values do not come from a second implementation of the
 cascade. They come from three tables written down as data:
@@ -14,7 +15,8 @@ cascade. They come from three tables written down as data:
   row reads on its own and no row depends on the order of the others.
   ``test_decision_table_covers_each_cell_once`` holds that property.
 * ``ADDRESSED`` says which TRVs receive an intent at all.
-* ``GATED`` says which lifecycle and maintenance phases hold control back.
+* ``GATED`` says which lifecycle and maintenance phases hold control back,
+  and which block names the hold.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ import pytest
 from custom_components.better_thermostat.core.decide import KernelState, decide
 from custom_components.better_thermostat.core.desired import (
     DesiredState,
+    HeatingBlock,
     Suppression,
     TrvDesired,
 )
@@ -98,26 +101,31 @@ RELEASED = {"held": False, "released": True}
 
 # --- Expected-outcome tables -----------------------------------------------
 
-# Which lifecycle and maintenance phases hold control back. A starting
-# entity inside its grace window already controls; a maintenance run past
-# its maximum runtime no longer holds control back.
+STARTUP = HeatingBlock.STARTUP
+VALVE_MAINTENANCE = HeatingBlock.VALVE_MAINTENANCE
+
+# Which lifecycle and maintenance phases hold control back, by the block
+# that names the hold; None lets control through. A starting entity inside
+# its grace window already controls; a maintenance run past its maximum
+# runtime no longer holds control back. A startup names the hold even while
+# a maintenance run blocks as well.
 GATED = {
-    ("initialising", "idle"): True,
-    ("initialising", "due"): True,
-    ("initialising", "running"): True,
-    ("initialising", "overrun"): True,
-    ("starting", "idle"): False,
-    ("starting", "due"): False,
-    ("starting", "running"): True,
-    ("starting", "overrun"): False,
-    ("running", "idle"): False,
-    ("running", "due"): False,
-    ("running", "running"): True,
-    ("running", "overrun"): False,
-    ("stopping", "idle"): False,
-    ("stopping", "due"): False,
-    ("stopping", "running"): True,
-    ("stopping", "overrun"): False,
+    ("initialising", "idle"): STARTUP,
+    ("initialising", "due"): STARTUP,
+    ("initialising", "running"): STARTUP,
+    ("initialising", "overrun"): STARTUP,
+    ("starting", "idle"): None,
+    ("starting", "due"): None,
+    ("starting", "running"): VALVE_MAINTENANCE,
+    ("starting", "overrun"): None,
+    ("running", "idle"): None,
+    ("running", "due"): None,
+    ("running", "running"): VALVE_MAINTENANCE,
+    ("running", "overrun"): None,
+    ("stopping", "idle"): None,
+    ("stopping", "due"): None,
+    ("stopping", "running"): VALVE_MAINTENANCE,
+    ("stopping", "overrun"): None,
 }
 
 # Which TRVs receive an intent once control is not held back. An unreachable
@@ -133,6 +141,7 @@ ANY = "*"
 KEEP = "keep"  # call_for_heat repeats the snapshot's heat demand
 ROOM_MODE = "room mode"  # the TRV is set to the room's own HVAC mode
 RELEASE = "release"  # no TRV receives an intent
+GATE = "gate"  # the block GATED names for the cell
 
 
 @dataclass(frozen=True)
@@ -151,6 +160,7 @@ class Rule:
     suppression: Suppression | None
     call_for_heat: bool | str
     devices_released: bool
+    blocked_by: HeatingBlock | str | None
 
     def matches(self, cell: Cell) -> bool:
         """Return whether ``cell`` falls under this row's pattern."""
@@ -159,7 +169,7 @@ class Rule:
             want in (ANY, have)
             for want, have in (
                 (self.released, RELEASED[cell.released]),
-                (self.gated, GATED[cell.lifecycle, cell.maintenance]),
+                (self.gated, GATED[cell.lifecycle, cell.maintenance] is not None),
                 (self.mode, mode),
                 (self.detection, cell.detection),
                 (self.window, cell.window),
@@ -171,16 +181,16 @@ class Rule:
 
 # fmt: off
 DECISION_TABLE = (
-    #     released gated  mode     detection window    door      demand  | trv mode      setpoint  suppression                    call_for_heat  released
-    Rule(True,     ANY,   ANY,     ANY,      ANY,      ANY,      ANY,      RELEASE,      None,     None,                          KEEP,          True),
-    Rule(False,    True,  ANY,     ANY,      ANY,      ANY,      ANY,      RELEASE,      None,     None,                          KEEP,          False),
-    Rule(False,    False, "off",   ANY,      ANY,      ANY,      ANY,      HvacMode.OFF, None,     None,                          False,         False),
-    Rule(False,    False, "other", "on",     "open",   ANY,      ANY,      HvacMode.OFF, None,     Suppression.WINDOW,            KEEP,          False),
-    Rule(False,    False, "other", "on",     "closed", "open",   ANY,      HvacMode.OFF, None,     Suppression.DOOR,              KEEP,          False),
-    Rule(False,    False, "other", "on",     "closed", "closed", False,    HvacMode.OFF, None,     Suppression.NO_CALL_FOR_HEAT,  False,         False),
-    Rule(False,    False, "other", "on",     "closed", "closed", True,     ROOM_MODE,    TARGET,   None,                          True,          False),
-    Rule(False,    False, "other", "off",    ANY,      ANY,      False,    HvacMode.OFF, None,     Suppression.NO_CALL_FOR_HEAT,  False,         False),
-    Rule(False,    False, "other", "off",    ANY,      ANY,      True,     ROOM_MODE,    TARGET,   None,                          True,          False),
+    #     released gated  mode     detection window    door      demand  | trv mode      setpoint  suppression                    call_for_heat  released  blocked by
+    Rule(True,     ANY,   ANY,     ANY,      ANY,      ANY,      ANY,      RELEASE,      None,     None,                          KEEP,          True,     HeatingBlock.DEVICES_RELEASED),
+    Rule(False,    True,  ANY,     ANY,      ANY,      ANY,      ANY,      RELEASE,      None,     None,                          KEEP,          False,    GATE),
+    Rule(False,    False, "off",   ANY,      ANY,      ANY,      ANY,      HvacMode.OFF, None,     None,                          False,         False,    HeatingBlock.HVAC_OFF),
+    Rule(False,    False, "other", "on",     "open",   ANY,      ANY,      HvacMode.OFF, None,     Suppression.WINDOW,            KEEP,          False,    HeatingBlock.WINDOW),
+    Rule(False,    False, "other", "on",     "closed", "open",   ANY,      HvacMode.OFF, None,     Suppression.DOOR,              KEEP,          False,    HeatingBlock.DOOR),
+    Rule(False,    False, "other", "on",     "closed", "closed", False,    HvacMode.OFF, None,     Suppression.NO_CALL_FOR_HEAT,  False,         False,    HeatingBlock.NO_CALL_FOR_HEAT),
+    Rule(False,    False, "other", "on",     "closed", "closed", True,     ROOM_MODE,    TARGET,   None,                          True,          False,    None),
+    Rule(False,    False, "other", "off",    ANY,      ANY,      False,    HvacMode.OFF, None,     Suppression.NO_CALL_FOR_HEAT,  False,         False,    HeatingBlock.NO_CALL_FOR_HEAT),
+    Rule(False,    False, "other", "off",    ANY,      ANY,      True,     ROOM_MODE,    TARGET,   None,                          True,          False,    None),
 )
 # fmt: on
 
@@ -282,9 +292,17 @@ def _expected(cell: Cell) -> DesiredState:
     demand = DEMAND[cell.demand]
     call_for_heat = demand if rule.call_for_heat == KEEP else rule.call_for_heat
     assert isinstance(call_for_heat, bool)
+    blocked_by = (
+        GATED[cell.lifecycle, cell.maintenance]
+        if rule.blocked_by == GATE
+        else rule.blocked_by
+    )
+    assert blocked_by is None or isinstance(blocked_by, HeatingBlock)
     if rule.trv_mode == RELEASE:
         return DesiredState(
-            call_for_heat=call_for_heat, devices_released=rule.devices_released
+            call_for_heat=call_for_heat,
+            devices_released=rule.devices_released,
+            heating_blocked_by=blocked_by,
         )
     trv_mode = MODES[cell.mode] if rule.trv_mode == ROOM_MODE else rule.trv_mode
     assert isinstance(trv_mode, HvacMode)
@@ -299,6 +317,7 @@ def _expected(cell: Cell) -> DesiredState:
             )
             for entity_id in ADDRESSED[cell.boost]
         },
+        heating_blocked_by=blocked_by,
     )
 
 
@@ -341,4 +360,29 @@ def test_gate_holds_control_back_in_the_listed_phases(lifecycle, maintenance):
     snapshot, state = cell.inputs()
     desired, _ = decide(snapshot, state)
     assert desired == _expected(cell)
-    assert (desired.trvs == {}) is GATED[lifecycle, maintenance]
+    assert (desired.trvs == {}) is (GATED[lifecycle, maintenance] is not None)
+
+
+def test_every_block_rules_some_cell():
+    """Each block of the closed list is reachable, and the heating rung names none.
+
+    The values are the public ``heating_blocked_by`` attribute: a block no
+    cell reaches would be a documented value the thermostat never shows.
+    """
+    named = {decide(*cell.inputs())[0].heating_blocked_by for cell in ALL_CELLS}
+    assert named == {*HeatingBlock, None}
+
+
+def test_a_suppressed_intent_names_its_block():
+    """Where the TRVs carry a suppression, the decision names the same word."""
+    named: dict[Suppression, set[HeatingBlock | None]] = {}
+    for cell in MATRIX:
+        desired, _ = decide(*cell.inputs())
+        for intent in desired.trvs.values():
+            if intent.suppression is not None:
+                named.setdefault(intent.suppression, set()).add(
+                    desired.heating_blocked_by
+                )
+    assert named == {
+        suppression: {HeatingBlock(suppression.value)} for suppression in Suppression
+    }

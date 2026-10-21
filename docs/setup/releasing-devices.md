@@ -15,7 +15,7 @@ The devices of the room are yours: every TRV and the cooler, if one is configure
 
 - Better Thermostat sends them nothing: no mode, no target temperature, no calibration offset, no valve position, no room temperature for a TRV that regulates on it, no valve maintenance run. A valve maintenance that is due waits until the switch is off again. The *Run valve maintenance now* action and the *Child Lock* switch refuse with a message, because both write to a device.
 - Nothing a device reports changes Better Thermostat's own mode or targets. Switching a TRV on at the device does not switch the room on.
-- Better Thermostat learns nothing from the room. The heating power and heat loss it is following are given up, because what the room does now is not the result of its control.
+- Better Thermostat learns nothing from the room, the same as with [Pause Learning](/setup/pause-learning/). The heating power and heat loss it is following are given up, because what the room does now is not the result of its control. The *Pause Learning* switch itself stays as it is, and the `learning_paused` attribute does not change.
 - A device that goes offline raises no repair issue. One that is already raised is withdrawn and comes back once the switch is off, if the device is still missing.
 
 The thermostat itself stays available and keeps its own mode, target temperatures and preset. You can still change them; they apply when the switch is turned off. Its HVAC action keeps showing whether the room calls for heat by those targets, whatever the released devices do. Its attribute `devices_released` is `true`, so a template or a condition can read it.
@@ -24,7 +24,7 @@ A TRV that takes the room temperature from Better Thermostat, such as a Sonoff T
 
 ## Turning the switch off
 
-Better Thermostat takes the devices back from the state they are in and brings them onto its own mode and targets with one control cycle. It does not take over what the devices were set to while they were released: a radiator held at 30 °C for a maintenance job or an air conditioner left in a cleaning mode is not where the room should stay.
+Better Thermostat takes the devices back from the state they are in and brings them onto its own mode and targets with one control cycle. That cycle still learns nothing, so no learning interval spans the time the devices were yours; learning resumes with the cycle after it, from the values held. Better Thermostat does not take over what the devices were set to while they were released: a radiator held at 30 °C for a maintenance job or an air conditioner left in a cleaning mode is not where the room should stay.
 
 The switch keeps its state over a restart. A Better Thermostat that starts with its devices released does not set them up and writes nothing to them; it does both when the switch is turned off. It also starts when none of its TRVs is online, on its saved mode and targets.
 
