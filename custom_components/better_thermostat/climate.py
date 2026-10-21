@@ -5354,8 +5354,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         The room's own mode, targets and preset stay what they were and can
         still be changed meanwhile. Taking the devices back resumes from what
         they hold then: a TRV startup left uninitialised is initialised, the
-        outage checks run again, and one control cycle brings the devices
-        onto the room's settings.
+        outage checks run again, the room temperature goes to the TRVs that
+        take an external one, and one control cycle brings the devices onto
+        the room's settings.
         """
         if released == self.devices_released:
             return
@@ -5373,6 +5374,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if released or self.startup_running:
             return
         await self._initialize_arrived_trvs()
+        await self._external_temperature_keepalive()
         request_control_cycle(self)
 
     async def run_valve_maintenance_service(self) -> None:

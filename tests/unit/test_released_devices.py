@@ -60,6 +60,7 @@ def _releasable_room() -> ThermostatStandIn:
     bt = _learning_room(released=False)
     bt.startup_running = False
     bt._initialize_arrived_trvs = AsyncMock()
+    bt._external_temperature_keepalive = AsyncMock()
     bt.control_queue_task = MagicMock()
     return bt
 
@@ -78,14 +79,17 @@ async def test_releasing_gives_up_the_stretches_the_learners_follow():
     critical.assert_awaited_once_with(bt)
     bt.control_queue_task.put_nowait.assert_not_called()
     bt._initialize_arrived_trvs.assert_not_awaited()
+    bt._external_temperature_keepalive.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_taking_the_devices_back_resumes_with_one_cycle():
     """The devices are taken back with one control cycle and nothing else.
 
-    A TRV startup left uninitialised is set up first, and the outage checks
-    run again; the learners have nothing to give up.
+    A TRV startup left uninitialised is set up first, the outage checks run
+    again and the TRVs that take an external temperature get the room's,
+    which an unchanged sensor would not send again before the keepalive;
+    the learners have nothing to give up.
     """
     bt = _releasable_room()
     bt.devices_released = True
@@ -95,6 +99,7 @@ async def test_taking_the_devices_back_resumes_with_one_cycle():
 
     assert bt.devices_released is False
     bt._initialize_arrived_trvs.assert_awaited_once()
+    bt._external_temperature_keepalive.assert_awaited_once_with()
     critical.assert_awaited_once_with(bt)
     bt.control_queue_task.put_nowait.assert_called_once_with(bt)
     bt._heating_tracker.abort_cycle.assert_not_called()
@@ -126,6 +131,7 @@ async def test_taking_the_devices_back_during_startup_leaves_them_to_it():
         await BetterThermostat.async_set_devices_released(bt, False)
 
     bt._initialize_arrived_trvs.assert_not_awaited()
+    bt._external_temperature_keepalive.assert_not_awaited()
     bt.control_queue_task.put_nowait.assert_not_called()
 
 
