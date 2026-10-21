@@ -494,7 +494,7 @@ Read the matrix top-down with three anchors (full tables in
   scores 1.0 on every scenario by construction.
 * **BangBang ≈ 0.60** — the noise floor. A naive on/off controller;
   anything near it has a real problem.
-* **Production controllers ≈ 0.67–0.75** — the realistic band.
+* **Production controllers ≈ 0.67–0.75, `mpc_v2` ≈ 0.85** — the realistic band.
 
 Then read *across* the dimension columns, not just `overall`:
 
