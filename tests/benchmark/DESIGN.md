@@ -342,8 +342,8 @@ ignores this hunts and wears the motor.
 not assume a hot, fast, instantly-responding radiator.
 
 Every scenario leaves the oracle headroom: its steady-state valve stays at
-or below 90 % at every setpoint and outdoor temperature the scenario
-visits (`test_scenario_feasibility.py`). A setpoint the plant cannot hold
+or below 90 % at every five-minute sample of the setpoint and outdoor
+temperature the scenario visits (`test_scenario_feasibility.py`). A setpoint the plant cannot hold
 saturates every controller at a fully open valve and turns the run into a
 measure of the plant's capacity, in which a naive controller ties the
 oracle. The two synthetic winter weeks reach about −15 °C and therefore run
