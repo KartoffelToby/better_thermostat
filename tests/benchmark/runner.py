@@ -345,12 +345,14 @@ def _drive_adapter(
         # On dropout the sensor returns None and the input stage holds its
         # last committed value rather than handing over the plant truth.
         room_input.update(t, sensor.read(t, facade.T_room))
-        T_measured = room_input.room_temperature
-        if T_measured is None:
-            T_measured = facade.T_room
         trv_report = trv_sensor_reading(
             facade.T_room, facade.T_rad, scenario.trv_sensor_rad_fraction
         )
+        # Before the first committed reading BT controls on the TRV's own
+        # temperature, as its sensor-fallback rung does.
+        T_measured = room_input.room_temperature
+        if T_measured is None:
+            T_measured = trv_report
         now_seen = (room_input.commits, trv_report, target, window_open)
         control_event = now_seen != seen
         seen = now_seen
