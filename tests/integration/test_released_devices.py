@@ -333,3 +333,48 @@ async def test_a_release_survives_a_restart_without_a_write(hass, fake_trv):
     assert hass.states.get(_release_switch(hass, bt)).state == STATE_OFF
     assert bt.real_trvs[TRV_ID].awaiting_initialization is False
     assert len(setpoint_commands(events, TRV_ID)) == 1
+
+
+async def test_a_released_room_starts_while_its_trv_is_away(hass, fake_trv):
+    """A room restarted with its devices released starts without them.
+
+    The TRV is off the air for the whole start, as a head with its batteries
+    taken out for the summer is. The room comes up on its saved mode and
+    target and writes nothing. Taken back while the TRV is still away, the
+    room has nothing to control; once the TRV reports again it is set up
+    and controlled.
+    """
+    mock_restore_cache(
+        hass,
+        [
+            State(
+                BT_ENTITY,
+                HVACMode.HEAT,
+                {"temperature": 22.5, "devices_released": True},
+            )
+        ],
+    )
+    fake_trv.set_available(False)
+    hass.states.async_set(SENSOR_ID, "19.5", {"unit_of_measurement": "°C"})
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+    with patch(CRITICAL_GRACE, timedelta(seconds=0)):
+        entry = make_entry(fake_trv.profile)
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+        await _let_minutes_pass(hass, 5)
+
+        published = hass.states.get(BT_ENTITY)
+        assert published.state == HVACMode.HEAT
+        assert published.attributes["temperature"] == 22.5
+        assert published.attributes["devices_released"] is True
+        assert _device_writes(events, bt) == []
+
+        await _set_release(hass, bt, False)
+        assert hass.states.get(BT_ENTITY).state == "unavailable"
+
+        fake_trv.set_available(True)
+        await _let_minutes_pass(hass, 5)
+
+    assert bt.real_trvs[TRV_ID].awaiting_initialization is False
+    assert hass.states.get(BT_ENTITY).state == HVACMode.HEAT
+    assert setpoint_commands(events, TRV_ID)

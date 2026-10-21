@@ -2000,8 +2000,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         takes over again as soon as it reports. A room with no TRV available
         keeps waiting: there is nothing to control, and the temperature
         range and the mode startup derives from the TRVs would have nothing
-        to be read from. Without its room sensor, a room also keeps waiting
-        until a TRV reports a plausible temperature to control on.
+        to be read from. A room whose devices are released controls none of
+        them and starts on its saved state once the window has closed, with
+        no TRV available as well. Without its room sensor, a room also keeps
+        waiting until a TRV reports a plausible temperature to control on.
 
         Returns True when startup can go ahead, False otherwise.
         """
@@ -2027,7 +2029,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         unavailable = self._unavailable_trvs()
         if not unavailable:
             return True
-        if in_grace or len(unavailable) == len(self.real_trvs):
+        if in_grace or (
+            len(unavailable) == len(self.real_trvs) and not self.devices_released
+        ):
             for entity_id in unavailable:
                 _LOGGER.info(
                     "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
