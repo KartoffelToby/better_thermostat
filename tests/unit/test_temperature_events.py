@@ -325,6 +325,29 @@ class TestCommitTemperatureUpdate:
         quirks.maybe_set_external_temperature.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_a_release_during_one_trvs_write_spares_the_next(self, mock_bt):
+        """The write under way completes; the TRVs after it get nothing."""
+
+        async def released_during_the_write(_bt, _entity_id, _value):
+            mock_bt.devices_released = True
+
+        quirks = SimpleNamespace(
+            maybe_set_external_temperature=AsyncMock(
+                side_effect=released_during_the_write
+            )
+        )
+        mock_bt.real_trvs = {
+            entity_id: Trv(entity_id=entity_id, model_quirks=quirks)
+            for entity_id in ("climate.trv1", "climate.trv2")
+        }
+
+        await _commit_temperature_update(mock_bt, 21.0)
+
+        quirks.maybe_set_external_temperature.assert_awaited_once_with(
+            mock_bt, "climate.trv1", 21.0
+        )
+
+    @pytest.mark.asyncio
     async def test_a_trv_awaiting_its_initialization_gets_no_external_temperature(
         self, mock_bt
     ):

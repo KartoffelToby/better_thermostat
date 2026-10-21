@@ -1849,8 +1849,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
                 for entity_id in trv_ids:
                     # A write can block for a while, and the sensor can go
-                    # away meanwhile; the TRVs after it then get nothing.
-                    if not _room_sensor_reads(self):
+                    # away or the devices can be released meanwhile; the
+                    # TRVs after it then get nothing.
+                    if not _room_sensor_reads(self) or self.devices_released:
                         return
                     try:
                         _mq_trv = self.real_trvs.get(entity_id)
