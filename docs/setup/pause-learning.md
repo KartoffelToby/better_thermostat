@@ -107,6 +107,11 @@ triggers:
   - trigger: state
     entity_id: climate.holiday_home
     attribute: preset_mode
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.to_state is not none
+         and trigger.to_state.state not in ['unavailable', 'unknown'] }}
 actions:
   - action: >-
       switch.turn_{{ 'on' if trigger.to_state.attributes.preset_mode == 'away' else 'off' }}
