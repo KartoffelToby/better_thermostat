@@ -271,14 +271,6 @@ class TestTriggerTrvChangeGuards:
         mock_bt.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_returns_early_none_temps(self, mock_bt):
-        """Return early when heat_target_temperature is None."""
-        mock_bt.heat_target_temperature = None
-        event = _make_event(mock_bt)
-        await trigger_trv_change(mock_bt, event)
-        mock_bt.async_write_ha_state.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_returns_early_none_room_temperature(self, mock_bt):
         """Return early when room_temperature is None."""
         mock_bt.room_temperature = None

@@ -25,6 +25,7 @@ def _snapshot(**trv_overrides) -> WorldSnapshot:
     return WorldSnapshot(
         now=datetime(2026, 1, 10, tzinfo=UTC),
         now_monotonic=0.0,
+        heat_target_temperature=21.0,
         trvs={"climate.trv": TrvReported(**defaults)},
     )
 
@@ -95,7 +96,10 @@ def test_non_finite_setpoint_is_withheld():
 def test_non_finite_setpoint_is_withheld_without_reported_state():
     """NaN/inf setpoints are rejected even for a TRV missing from the snapshot."""
     snapshot = WorldSnapshot(
-        now=datetime(2026, 1, 10, tzinfo=UTC), now_monotonic=0.0, trvs={}
+        now=datetime(2026, 1, 10, tzinfo=UTC),
+        now_monotonic=0.0,
+        heat_target_temperature=21.0,
+        trvs={},
     )
     for value in (float("nan"), float("inf"), float("-inf")):
         out = clamp(_desired(setpoint=value), snapshot)
@@ -106,7 +110,10 @@ def test_non_finite_offset_is_withheld():
     """NaN/inf offsets are rejected with and without reported bounds."""
     with_bounds = _snapshot(min_local_calibration=-7.0, max_local_calibration=7.0)
     without_trv = WorldSnapshot(
-        now=datetime(2026, 1, 10, tzinfo=UTC), now_monotonic=0.0, trvs={}
+        now=datetime(2026, 1, 10, tzinfo=UTC),
+        now_monotonic=0.0,
+        heat_target_temperature=21.0,
+        trvs={},
     )
     for snapshot in (with_bounds, without_trv):
         desired = DesiredState(
@@ -146,7 +153,10 @@ def test_non_finite_valve_is_withheld_under_the_jump_limiter():
 def test_unknown_trv_falls_back_to_conservative_bounds():
     """Without reported limits, fallback bounds still cap every channel."""
     snapshot = WorldSnapshot(
-        now=datetime(2026, 1, 10, tzinfo=UTC), now_monotonic=0.0, trvs={}
+        now=datetime(2026, 1, 10, tzinfo=UTC),
+        now_monotonic=0.0,
+        heat_target_temperature=21.0,
+        trvs={},
     )
     out = clamp(_desired(setpoint=42.0, valve=150.0), snapshot)
     assert out.trvs["climate.trv"].setpoint == 35.0
@@ -283,7 +293,10 @@ def test_offset_is_clamped_to_the_calibration_range():
 def test_offset_without_reported_state_falls_back_to_conservative_bounds():
     """A finite offset for an unknown TRV is capped by the fallback range."""
     snapshot = WorldSnapshot(
-        now=datetime(2026, 1, 10, tzinfo=UTC), now_monotonic=0.0, trvs={}
+        now=datetime(2026, 1, 10, tzinfo=UTC),
+        now_monotonic=0.0,
+        heat_target_temperature=21.0,
+        trvs={},
     )
     out = clamp(_desired(calibration_offset=40.0), snapshot)
     assert out.trvs["climate.trv"].calibration_offset == 12.0

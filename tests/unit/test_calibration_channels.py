@@ -89,12 +89,6 @@ def test_without_a_room_temperature_nothing_is_sent(calculate):
     assert calculate(_make_bt(room_temperature=None), ENTITY_ID) is None
 
 
-def test_the_setpoint_channel_without_a_target_sends_nothing():
-    bt = _make_bt(heat_target_temperature=None)
-
-    assert calculate_calibration_setpoint(bt, ENTITY_ID) is None
-
-
 def test_the_local_channel_without_a_trv_reading_sends_nothing(caplog):
     """An offset is the gap between two readings; with one missing it is unknown."""
     bt = _make_bt(trv_temperature=None)

@@ -2296,7 +2296,7 @@ class TestRestoreState:
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps({"comfort": 25.28}),
         }
         bt._saved_state = old
-        bt.heat_target_temperature = None
+        bt.heat_target_temperature = DEFAULT_TARGET_TEMP
         bt.cool_target_temperature = None
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
@@ -2330,7 +2330,7 @@ class TestRestoreState:
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps({"comfort": 33.0}),
         }
         bt._saved_state = old
-        bt.heat_target_temperature = None
+        bt.heat_target_temperature = DEFAULT_TARGET_TEMP
         bt.cool_target_temperature = None
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
@@ -2374,7 +2374,7 @@ class TestRestoreState:
             ),
         }
         bt._saved_state = old
-        bt.heat_target_temperature = None
+        bt.heat_target_temperature = DEFAULT_TARGET_TEMP
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2610,7 +2610,7 @@ class TestRestoreState:
     async def test_no_old_state_uses_trv_defaults(self, bt):
         """Without a stored state the target is taken from the TRV's setpoint."""
         bt._saved_state = None
-        bt.heat_target_temperature = None
+        bt.heat_target_temperature = DEFAULT_TARGET_TEMP
 
         states = [_make_trv_state(attrs={ATTR_TEMPERATURE: 20.0})]
         await BetterThermostat._restore_state(bt, states)

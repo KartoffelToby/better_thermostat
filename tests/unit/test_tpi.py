@@ -122,7 +122,7 @@ class TestTpiController:
         key = build_tpi_key(bt, "climate.test")
         assert key == "test_bt:climate.test:t22.5"
 
-        bt.heat_target_temperature = None
+        bt.heat_target_temperature = float("nan")
         key = build_tpi_key(bt, "climate.test")
         assert key == "test_bt:climate.test:tunknown"
 

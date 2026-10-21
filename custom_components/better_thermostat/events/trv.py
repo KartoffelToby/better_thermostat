@@ -405,11 +405,7 @@ async def trigger_trv_change(
         return
     if self.control_queue_task is None:
         return
-    if (
-        self.heat_target_temperature is None
-        or self.room_temperature is None
-        or self.tolerance is None
-    ):
+    if self.room_temperature is None or self.tolerance is None:
         return
     if self.bt_update_lock:
         return
