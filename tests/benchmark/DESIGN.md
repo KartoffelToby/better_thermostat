@@ -186,12 +186,19 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
 
 ### Energy
 
-* **integral_valve_percent_minutes** = ∫ valve% dt. A proxy for delivered heat.
+* **delivered_heat_K** = ∫ coupling·(T_rad − T_room) / tau_room dt, the heat
+  the radiators delivered to the room, expressed as the room-air
+  temperature rise it would cause without losses. Taken from the plant, so
+  deadband, stiction and pipe delay count as they act on the room.
   Scored *symmetrically* around the oracle's optimum (§6): under-heating
   (missed setpoint) costs the same as over-heating (waste). This is a
   deliberate neutrality — the benchmark does not assume the user prefers
   saving energy over comfort. If your application is asymmetric, read the
   energy column alongside comfort rather than the weighted overall.
+* **integral_valve_percent_minutes** = ∫ valve% dt of the commanded valve.
+  Reported as a diagnostic, *not* scored: it charges a valve the actuator
+  never opened, and it overstates a wide-open valve, because a hotter
+  radiator takes up less heat per valve percent.
 
 ### Diagnostics (measured, not scored)
 
@@ -222,11 +229,12 @@ arbitrary:
   the 125 % floor takes its place, so 500 % of travel scores 0 against an
   idle oracle and the score does not jump as the oracle's travel nears
   zero.
-* **Energy** = 1 − |ratio − 1|, symmetric. Failure at 2× the oracle's
-  integral (over-heating) or 0 (room never heated). When the oracle's
-  integral is below a small floor (the scenario barely heated), the
-  candidate's *excess* usage is scored against that floor — so a grossly
-  over-heating controller cannot escape via the edge case.
+* **Energy** = 1 − |ratio − 1| on delivered heat, symmetric. Failure at
+  2× the oracle's heat (over-heating) or 0 (room never heated). When the
+  oracle's heat is below a small floor (the scenario barely heated), the
+  candidate's absolute deviation from the oracle is scored against that
+  floor, so neither a grossly over-heating nor an under-heating
+  controller can escape via the edge case.
 
 The **overall** column is a weighted sum under a `UserProfile`. Four
 profiles bracket reasonable priorities — `balanced` (0.5 / 0.3 / 0.2),
@@ -449,9 +457,9 @@ Read the matrix top-down with three anchors (full tables in
 
 * **Oracle = 1.0** — the ceiling. It normalises against itself, so it
   scores 1.0 on every scenario by construction.
-* **BangBang ≈ 0.58** — the noise floor. A naive on/off controller;
+* **BangBang ≈ 0.63** — the noise floor. A naive on/off controller;
   anything near it has a real problem.
-* **Production controllers ≈ 0.75–0.83** — the realistic band.
+* **Production controllers ≈ 0.76–0.83** — the realistic band.
 
 Then read *across* the dimension columns, not just `overall`:
 

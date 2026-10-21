@@ -347,6 +347,17 @@ class TwoStatePlant:
         # transport delay is only correct while dt_s stays constant.
         self._delay_dt_s: float | None = None
 
+    @property
+    def heat_to_room_K_per_min(self) -> float:
+        """Heat the radiator currently delivers to the room, in room-K/min.
+
+        This is the radiator term of ``dT_room/dt``: the rate at which the
+        radiator alone would raise the room air temperature.
+        """
+        p = self.params
+        s = self.state
+        return p.coupling_rad_room * (s.T_rad - s.T_room) / p.tau_room_min
+
     def step(
         self, dt_s: float, u: float, T_outdoor: float, Q_K_per_min: float = 0.0
     ) -> PlantState:

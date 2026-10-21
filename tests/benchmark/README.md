@@ -26,11 +26,11 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
  *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   36
-  mpc_v2                0.930  0.073    0.969  0.071     0.840  0.223    0.967  0.039   36
-  tpi                   0.826  0.116    0.705  0.227     0.958  0.033    0.932  0.057   36
-  pid                   0.818  0.128    0.887  0.164     0.605  0.347    0.966  0.031   36
-  mpc                   0.751  0.137    0.906  0.133     0.378  0.368    0.926  0.049   36
-  bangbang              0.584  0.149    0.787  0.177     0.141  0.278    0.742  0.121   36
+  mpc_v2                0.934  0.075    0.969  0.071     0.840  0.223    0.986  0.033   36
+  tpi                   0.834  0.112    0.705  0.227     0.958  0.033    0.970  0.018   36
+  pid                   0.822  0.131    0.887  0.164     0.607  0.348    0.984  0.025   36
+  mpc                   0.762  0.134    0.906  0.133     0.378  0.368    0.981  0.025   36
+  bangbang              0.631  0.140    0.787  0.177     0.141  0.278    0.974  0.037   36
 ```
 
 Higher is better. Each dimension is **oracle-normalised**: `1.0` matches
@@ -91,9 +91,13 @@ continuous on scenarios where the Oracle barely moves the valve.
 | 0.20–0.40 | High wear; expect motor lifetime and battery hits. |
 | < 0.20 | Pathological cycling (BangBang territory). |
 
-**energy** — integral valve usage relative to the Oracle's optimum,
-symmetric around 1.0× so under-heating (missed setpoint) costs the same
-as over-heating (wasted energy).
+**energy** — heat the radiator delivered to the room, relative to the
+Oracle's optimum, symmetric around 1.0× so under-heating (missed
+setpoint) costs the same as over-heating (wasted energy). It follows the
+plant, not the command: a command that deadband or stiction holds back
+adds no heat over a closed valve, however often it is sent. Overshoot costs
+little here, since 0.3 K above the setpoint raises the losses by only a
+few per cent, so most controllers land between 0.95 and 1.00.
 
 | Score | What it means in practice |
 |---|---|
@@ -114,10 +118,10 @@ a controller wins.
   normalises against the Oracle, so it scores itself 1.0 on every
   scenario, including the permanent-disturbance ones (diurnal outdoor,
   multi-day weather) where the disturbance cancels on both sides.
-* **BangBang ≈ 0.58** — noise floor. A deliberately naive on/off
+* **BangBang ≈ 0.63** — noise floor. A deliberately naive on/off
   controller; anything close to BangBang has a real problem.
 * **Production controllers (`pid`, `tpi`, `mpc`, `heating_power`) ≈
-  0.75–0.83, `mpc_v2` ≈ 0.93.** That band is the realistic operating
+  0.76–0.83, `mpc_v2` ≈ 0.93.** That band is the realistic operating
   range. A controller above 0.80 is beating most of the field; near the
   BangBang floor means a clear weakness in at least one dimension.
 
