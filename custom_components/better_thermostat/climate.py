@@ -89,8 +89,7 @@ from .core.fsm.lifecycle import (
     stop as lifecycle_stop,
 )
 from .core.fsm.maintenance import (
-    MaintenancePhase,
-    MaintenanceState,
+    MaintenanceDue,
     evaluate_tick as maintenance_evaluate_tick,
     finish_run as maintenance_finish_run,
     start_run as maintenance_start_run,
@@ -3720,11 +3719,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # region.
         region = self.kernel_state.maintenance
         if region.next_due != self.next_valve_maintenance:
-            region = MaintenanceState(
-                phase=region.phase,
-                next_due=self.next_valve_maintenance,
-                running_since=region.running_since,
-            )
+            region = replace(region, next_due=self.next_valve_maintenance)
         region = maintenance_evaluate_tick(
             region,
             now,
@@ -3735,7 +3730,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if region.next_due is not None:
             self.next_valve_maintenance = region.next_due
 
-        if region.phase != MaintenancePhase.DUE:
+        if not isinstance(region, MaintenanceDue):
             return
 
         # Run maintenance asynchronously (don't block the tick)
@@ -3754,11 +3749,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         region = self.kernel_state.maintenance
         if region.is_blocking(self.clock.monotonic()):
             return
-        if region.phase != MaintenancePhase.DUE:
+        if not isinstance(region, MaintenanceDue):
             # Direct invocation (service call / tests): arm before starting.
-            region = MaintenanceState(
-                phase=MaintenancePhase.DUE, next_due=region.next_due
-            )
+            region = MaintenanceDue(next_due=region.next_due)
         self.kernel_state = replace(
             self.kernel_state,
             maintenance=maintenance_start_run(region, self.clock.monotonic()),

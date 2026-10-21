@@ -19,8 +19,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.maintenance import (
     MAX_RUN_S,
-    MaintenancePhase,
-    MaintenanceState,
+    MaintenanceRunning,
 )
 from tests.factories import ThermostatStandIn, make_trv
 
@@ -86,9 +85,7 @@ async def test_already_in_maintenance_returns(bt):
     """A tick during an in-flight maintenance run does nothing."""
     bt.kernel_state = replace(
         bt.kernel_state,
-        maintenance=MaintenanceState(
-            phase=MaintenancePhase.RUNNING, running_since=bt.clock.monotonic()
-        ),
+        maintenance=MaintenanceRunning(running_since=bt.clock.monotonic()),
     )
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
@@ -182,17 +179,15 @@ async def test_schedule_resync_keeps_running_since(bt):
 
     A RUNNING region older than MAX_RUN_S no longer blocks. When the
     legacy schedule attribute diverges from the region's next_due, the
-    resync has to carry running_since along — dropping it would recreate
-    a RUNNING region without a timestamp, which blocks unconditionally.
+    resync has to carry running_since along — restarting the clock would
+    turn the stale run back into a blocking one.
     """
     stale_now = MAX_RUN_S + 1.0
     bt.clock = FakeClock(now_value=_NOW, monotonic_value=stale_now)
     bt.kernel_state = replace(
         bt.kernel_state,
-        maintenance=MaintenanceState(
-            phase=MaintenancePhase.RUNNING,
-            next_due=_NOW - timedelta(hours=2),
-            running_since=0.0,
+        maintenance=MaintenanceRunning(
+            next_due=_NOW - timedelta(hours=2), running_since=0.0
         ),
     )
     bt.next_valve_maintenance = _NOW
@@ -206,6 +201,7 @@ async def test_schedule_resync_keeps_running_since(bt):
     ):
         await BetterThermostat._maintenance_tick(bt)
     region = bt.kernel_state.maintenance
+    assert isinstance(region, MaintenanceRunning)
     assert region.running_since == 0.0
     assert region.is_blocking(stale_now) is False
 

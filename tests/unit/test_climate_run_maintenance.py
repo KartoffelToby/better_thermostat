@@ -21,8 +21,7 @@ from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.maintenance import (
-    MaintenancePhase,
-    MaintenanceState,
+    MaintenanceDue,
     start_run,
 )
 from custom_components.better_thermostat.trv import Trv
@@ -57,10 +56,7 @@ def _snapshots():
 async def test_reentry_guard(bt):
     """A run while the region is RUNNING returns without doing work."""
     bt.kernel_state = replace(
-        bt.kernel_state,
-        maintenance=start_run(
-            MaintenanceState(phase=MaintenancePhase.DUE), now_monotonic=900.0
-        ),
+        bt.kernel_state, maintenance=start_run(MaintenanceDue(), now_monotonic=900.0)
     )
     with patch(f"{_CLIMATE}.build_trv_snapshots") as snap:
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
