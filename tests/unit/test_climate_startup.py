@@ -524,6 +524,8 @@ def owned_task_bt(bt, hass):
     bt.is_removed = False
     bt._owned_tasks = set()
     bt._final_flush_task = None
+    # A first start: Home Assistant saved no state for the thermostat.
+    bt.async_get_last_available_state = AsyncMock(return_value=None)
     bt._spawn_owned = lambda coro, *, name: BetterThermostat._spawn_owned(
         bt, coro, name=name
     )
