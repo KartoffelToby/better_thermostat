@@ -278,3 +278,11 @@ def test_a_missing_setpoint_or_minimum_is_not_at_the_minimum(setpoint, min_temp)
     assert (
         setpoint_at_minimum(setpoint, min_temp, step=None, whole_degrees=False) is False
     )
+
+
+@pytest.mark.parametrize(("setpoint", "at_minimum"), [(0.0, True), (0.5, False)])
+def test_a_negative_minimum_parks_on_the_grid_point_zero(setpoint, at_minimum):
+    """A minimum just below zero parks the device on 0.0, its first grid point."""
+    assert (
+        setpoint_at_minimum(setpoint, -0.3, step=0.5, whole_degrees=False) is at_minimum
+    )

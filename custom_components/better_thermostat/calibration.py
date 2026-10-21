@@ -1540,12 +1540,9 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
         _cal_rounding = Rounding.down
     else:
         _cal_rounding = Rounding.nearest
-    _rounded_calibration = round_by_step(
+    _new_trv_calibration = round_by_step(
         _new_trv_calibration, _calibration_step, _cal_rounding
     )
-    if _rounded_calibration is None:
-        return None
-    _new_trv_calibration = _rounded_calibration
 
     # The device's calibration range is enforced by the safety hull at
     # the command boundary (core/safety.py).
@@ -1778,12 +1775,9 @@ def calculate_calibration_setpoint(
         _step_rounding = Rounding.up
     else:
         _step_rounding = Rounding.nearest
-    _rounded_setpoint = round_by_step(
+    _calibrated_setpoint = round_by_step(
         _calibrated_setpoint, _trv_temperature_step, _step_rounding
     )
-    if _rounded_setpoint is None:
-        return None
-    _calibrated_setpoint = _rounded_setpoint
 
     # The TRV's min/max range is enforced by the safety hull at the
     # command boundary (core/safety.py).

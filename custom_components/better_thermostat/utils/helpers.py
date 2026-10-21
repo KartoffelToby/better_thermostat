@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict, overload
+from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -1518,8 +1518,6 @@ def on_cooler_grid(
             ),
             step,
         )
-        if on_grid is None:
-            return None
         return TemperatureConverter.convert(
             on_grid, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
         )
@@ -2452,7 +2450,7 @@ def setpoint_at_minimum(
         return False
     parked = min_temp
     if step:
-        parked = max(min_temp, round_by_step(min_temp, step, Rounding.up) or min_temp)
+        parked = max(min_temp, round_by_step(min_temp, step, Rounding.up))
     slack = SETPOINT_MATCH_TOLERANCE
     if whole_degrees:
         slack += _HALF_FAHRENHEIT_DEGREE
@@ -2491,25 +2489,9 @@ class Rounding:
 _STEP_GRID_SNAP = 0.005
 
 
-@overload
 def round_by_step(
     value: float, step: float, f_rounding: Callable[[float], float] = Rounding.nearest
-) -> float: ...
-
-
-@overload
-def round_by_step(
-    value: float | None,
-    step: float | None,
-    f_rounding: Callable[[float], float] = Rounding.nearest,
-) -> float | None: ...
-
-
-def round_by_step(
-    value: float | None,
-    step: float | None,
-    f_rounding: Callable[[float], float] = Rounding.nearest,
-) -> float | None:
+) -> float:
     """Round the value based on the allowed decimal 'step' size.
 
     A value closer than ``_STEP_GRID_SNAP`` to a grid point is taken as that
@@ -2530,12 +2512,6 @@ def round_by_step(
     float
             the rounded value
     """
-
-    if value is None or step is None:
-        return None
-    # Use default rounding function if none provided
-    if f_rounding is None:
-        f_rounding = Rounding.nearest
     # convert to integer number of steps for rounding, then convert back to decimal
     steps = value / step
     nearest = round(steps)

@@ -4909,7 +4909,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if value is None or not isinstance(step, float) or step <= 0:
             return value
         rounded = round_by_step(value, step)
-        if rounded is None or abs(rounded - value) < 1e-9:
+        if abs(rounded - value) < 1e-9:
             return value
         # Clear of the float noise the multiplication leaves: 21.2, not
         # 21.200000000000003.
