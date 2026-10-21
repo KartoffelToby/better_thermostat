@@ -116,6 +116,17 @@ during a learning pause, the take-back cycle included. The regions keep
 tracking meanwhile, so the first cycle after the release decides on the
 window, mode and targets that hold by then.
 
+Every tier above the heating intent also puts its own `heating_blocked_by`
+block into the desired state: `devices_released`, `startup`,
+`valve_maintenance`, `hvac_off`, `window`, `door` or `no_call_for_heat`.
+The heating intent names none. The shell publishes the block of each
+decision it commits as the thermostat attribute of the same name, and
+asks the kernel once more where a cascade input changes without a control
+cycle: when the devices are released or taken back, and when valve
+maintenance starts and ends. These words are the public values of that
+attribute; `window`, `door` and `no_call_for_heat` are also the suppression
+reasons below.
+
 OFF intents carry their **suppression reason** so the shell can choose
 between a literal OFF (window, no heat demand) and the device-specific
 remap of the user's OFF mode, without reading the kernel's internals.

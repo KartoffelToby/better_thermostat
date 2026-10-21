@@ -54,6 +54,7 @@ import pytest
 from custom_components.better_thermostat.core.decide import KernelState, decide
 from custom_components.better_thermostat.core.desired import (
     DesiredState,
+    HeatingBlock,
     Suppression,
     TrvDesired,
 )
@@ -693,8 +694,16 @@ class KernelMachine(RuleBasedStateMachine):
             self.model_maintenance_since is not None
             and self.mono - self.model_maintenance_since < MAX_RUN_S
         )
-        if self.model_initialising or maintenance_blocks:
-            return DesiredState(call_for_heat=self.call_for_heat)
+        if self.model_initialising:
+            return DesiredState(
+                call_for_heat=self.call_for_heat,
+                heating_blocked_by=HeatingBlock.STARTUP,
+            )
+        if maintenance_blocks:
+            return DesiredState(
+                call_for_heat=self.call_for_heat,
+                heating_blocked_by=HeatingBlock.VALVE_MAINTENANCE,
+            )
 
         boost = (
             self.model_preset == Preset.BOOST
@@ -712,18 +721,28 @@ class KernelMachine(RuleBasedStateMachine):
             }
 
         if self.model_mode == HvacMode.OFF:
-            return DesiredState(call_for_heat=False, trvs=off(None))
+            return DesiredState(
+                call_for_heat=False,
+                trvs=off(None),
+                heating_blocked_by=HeatingBlock.HVAC_OFF,
+            )
         if self.window.committed_open:
             return DesiredState(
-                call_for_heat=self.call_for_heat, trvs=off(Suppression.WINDOW)
+                call_for_heat=self.call_for_heat,
+                trvs=off(Suppression.WINDOW),
+                heating_blocked_by=HeatingBlock.WINDOW,
             )
         if self.door.committed_open:
             return DesiredState(
-                call_for_heat=self.call_for_heat, trvs=off(Suppression.DOOR)
+                call_for_heat=self.call_for_heat,
+                trvs=off(Suppression.DOOR),
+                heating_blocked_by=HeatingBlock.DOOR,
             )
         if not self.call_for_heat:
             return DesiredState(
-                call_for_heat=False, trvs=off(Suppression.NO_CALL_FOR_HEAT)
+                call_for_heat=False,
+                trvs=off(Suppression.NO_CALL_FOR_HEAT),
+                heating_blocked_by=HeatingBlock.NO_CALL_FOR_HEAT,
             )
         return DesiredState(
             call_for_heat=True,

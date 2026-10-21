@@ -301,6 +301,20 @@ definition = "Whether the learners hold what they learned: from the start of a p
 rejected = []
 note = "Each learner receives it in its own inputs under the name `learning_paused`."
 
+[[term]]
+name = "heating_blocked_by"
+zone = "C"
+definition = "The tier of the decision cascade that keeps the room from being heated, as the kernel's latest decision names it; None while the room is heated."
+rejected = []
+note = "A `HeatingBlock` value on `DesiredState`, published as `ATTR_STATE_HEATING_BLOCKED_BY`. The window, door and no-call-for-heat blocks share their word with the `Suppression` on the TRV intents."
+
+[[term]]
+name = "active_overrides"
+zone = "C"
+definition = "The switches the user holds away from their default: devices released, learning paused, window detection off."
+rejected = []
+note = "Published as `ATTR_STATE_ACTIVE_OVERRIDES`, a list of `Override` values, whatever the kernel decides."
+
 # ---------------------------------------------------------------------------
 # General
 # ---------------------------------------------------------------------------

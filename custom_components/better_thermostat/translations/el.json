@@ -400,6 +400,32 @@
     }
   },
   "entity": {
+    "climate": {
+      "better_thermostat": {
+        "state_attributes": {
+          "heating_blocked_by": {
+            "name": "Η θέρμανση εμποδίζεται από",
+            "state": {
+              "devices_released": "Συσκευές αποδεσμευμένες",
+              "startup": "Εκκίνηση",
+              "valve_maintenance": "Συντήρηση βαλβίδων",
+              "hvac_off": "Θερμοστάτης απενεργοποιημένος",
+              "window": "Παράθυρο ανοιχτό",
+              "door": "Πόρτα ανοιχτή",
+              "no_call_for_heat": "Καμία ανάγκη θέρμανσης"
+            }
+          },
+          "active_overrides": {
+            "name": "Ενεργές παρακάμψεις",
+            "state": {
+              "devices_released": "Συσκευές αποδεσμευμένες",
+              "learning_paused": "Εκμάθηση σε παύση",
+              "window_detection_off": "Ανίχνευση παραθύρου απενεργοποιημένη"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "pid_kp": {
         "name": "{trv_name} PID Kp (αναλογικό)"

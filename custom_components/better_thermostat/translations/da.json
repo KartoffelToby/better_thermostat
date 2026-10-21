@@ -400,6 +400,32 @@
     }
   },
   "entity": {
+    "climate": {
+      "better_thermostat": {
+        "state_attributes": {
+          "heating_blocked_by": {
+            "name": "Opvarmning blokeret af",
+            "state": {
+              "devices_released": "Enheder frigivet",
+              "startup": "Starter",
+              "valve_maintenance": "Ventilvedligeholdelse",
+              "hvac_off": "Termostat slukket",
+              "window": "Vindue åbent",
+              "door": "Dør åben",
+              "no_call_for_heat": "Intet varmebehov"
+            }
+          },
+          "active_overrides": {
+            "name": "Aktive tilsidesættelser",
+            "state": {
+              "devices_released": "Enheder frigivet",
+              "learning_paused": "Indlæring sat på pause",
+              "window_detection_off": "Vinduesregistrering slået fra"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "pid_kp": {
         "name": "{trv_name} PID Kp (proportional)"
