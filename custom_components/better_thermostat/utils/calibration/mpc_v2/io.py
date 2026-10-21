@@ -17,8 +17,8 @@ class MpcV2Input:
     """Inputs for one MPC v2 control cycle (v2's own I/O contract)."""
 
     key: str
-    target_temperature: float | None
-    room_temperature: float | None
+    target_temperature: float
+    room_temperature: float
     trv_temperature: float | None = None
     outdoor_temperature: float | None = None
     window_open: bool = False

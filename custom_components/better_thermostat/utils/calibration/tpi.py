@@ -41,8 +41,8 @@ class TpiInput:
     """Input parameters for TPI calibration calculation."""
 
     key: str
-    room_temperature: float | None
-    target_temperature: float | None
+    room_temperature: float
+    target_temperature: float
     outdoor_temperature: float | None = None
     window_open: bool = False
     heating_allowed: bool = True
@@ -51,7 +51,7 @@ class TpiInput:
 
 
 # Why a cycle skipped the TPI calculation.
-type TpiSkipReason = Literal["blocked", "missing_temps", "threshold_high"]
+type TpiSkipReason = Literal["blocked", "threshold_high"]
 
 # Debug information from one TPI cycle. The keys become state attributes, so
 # they stay as they are; the functional syntax keeps them as strings rather
@@ -126,7 +126,7 @@ def _round_dbg(v: float | None, d: int = 3) -> float | None:
 
 def compute_tpi(
     inp: TpiInput, params: TpiParams, *, state: _TpiState, now: float | None = None
-) -> tuple[TpiOutput | None, _TpiState]:
+) -> tuple[TpiOutput, _TpiState]:
     """Compute TPI duty cycle and on/off durations.
 
     Parameters
@@ -146,9 +146,8 @@ def compute_tpi(
 
     Returns
     -------
-    tuple[TpiOutput | None, _TpiState]
-        The duty-cycle recommendation (or ``None`` on early exit) **and**
-        the updated state object.
+    tuple[TpiOutput, _TpiState]
+        The duty-cycle recommendation **and** the updated state object.
     """
     if now is None:
         now = monotonic()
@@ -173,19 +172,13 @@ def compute_tpi(
         debug: TpiDebugInfo = {"reason": "blocked"}
         return _finalize_output(inp, params, state, now, duty_percent, None, debug)
 
-    if inp.room_temperature is None or inp.target_temperature is None:
-        # Reuse last percent if available
-        duty_percent = state.last_percent if state.last_percent is not None else 0.0
-        debug = {"reason": "missing_temps"}
-        return _finalize_output(inp, params, state, now, duty_percent, None, debug)
-
     # Error in Kelvin
-    error_K = float(inp.target_temperature) - float(inp.room_temperature)
+    error_K = inp.target_temperature - inp.room_temperature
 
     # Simple TPI calculation like in versatile_thermostat
     duty_percent = params.coef_int * error_K
     if inp.outdoor_temperature is not None:
-        delta_ext = float(inp.target_temperature) - float(inp.outdoor_temperature)
+        delta_ext = inp.target_temperature - inp.outdoor_temperature
         duty_percent += params.coef_ext * delta_ext
 
     # Convert to percentage (0-100)

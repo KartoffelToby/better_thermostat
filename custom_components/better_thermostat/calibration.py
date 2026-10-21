@@ -487,10 +487,6 @@ def _compute_mpc_balance(
         trv_state.calibration_balance = None
         return None, False
 
-    if mpc_output is None:
-        trv_state.calibration_balance = None
-        return None, False
-
     group_valve_percent = float(mpc_output.valve_percent)
 
     # --- Multi-TRV distribution ---
@@ -1079,10 +1075,6 @@ def _compute_tpi_balance(
         trv_state.calibration_balance = None
         return None, False
 
-    if tpi_output is None:
-        trv_state.calibration_balance = None
-        return None, False
-
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state.calibration_balance = TpiBalance(
         valve_percent=tpi_output.duty_cycle_percent,
@@ -1198,10 +1190,6 @@ def _compute_pid_balance(
             entity_id,
             err,
         )
-        trv_state.calibration_balance = None
-        return None, False
-
-    if percent is None:
         trv_state.calibration_balance = None
         return None, False
 

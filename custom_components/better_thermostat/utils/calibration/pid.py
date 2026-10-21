@@ -298,7 +298,7 @@ def _forget_stamps_from_a_previous_uptime(state: PIDState, now: float) -> None:
 def observe_standby(
     params: PIDParams,
     state: PIDState,
-    inp_room_temperature: float | None,
+    inp_room_temperature: float,
     now: float,
     inp_room_temperature_filtered: float | None = None,
 ) -> PIDState:
@@ -314,8 +314,6 @@ def observe_standby(
     room_temperature = inp_room_temperature
     if inp_room_temperature_filtered is not None:
         room_temperature = inp_room_temperature_filtered
-    if room_temperature is None:
-        return state
 
     _forget_stamps_from_a_previous_uptime(state, now)
     if params.d_on_measurement:
@@ -330,8 +328,8 @@ def observe_standby(
 
 def compute_pid(
     params: PIDParams,
-    inp_target_temperature: float | None,
-    inp_room_temperature: float | None,
+    inp_target_temperature: float,
+    inp_room_temperature: float,
     inp_trv_temperature: float | None,
     inp_temperature_slope_K_per_min: float | None,
     key: str,
@@ -392,8 +390,8 @@ def compute_pid(
     _LOGGER.debug(
         "better_thermostat PID: input for %s: target=%.1f current=%.1f trv=%.1f slope=%.3f kp=%.1f ki=%.3f kd=%.1f",
         key,
-        inp_target_temperature or 0.0,
-        inp_room_temperature or 0.0,
+        inp_target_temperature,
+        inp_room_temperature,
         inp_trv_temperature or 0.0,
         inp_temperature_slope_K_per_min or 0.0,
         st.pid_kp or 0.0,
@@ -407,12 +405,6 @@ def compute_pid(
         room_temperature = inp_room_temperature_filtered
 
     # Delta T
-    if inp_target_temperature is None or room_temperature is None:
-        # Without temperatures we can only keep the previous value
-        percent = 0.0
-        pid_dbg: PIDDebugInfo = {"mode": "pid", "error": "no_temps"}
-        return percent, pid_dbg, st
-
     delta_kelvin = inp_target_temperature - room_temperature
     e = delta_kelvin
 
@@ -423,20 +415,15 @@ def compute_pid(
     dt = _cycle_interval_s(st, now)
 
     # Initialize the learned gains once from the passed-in params
-    if st.pid_kp is None:
-        st.pid_kp = params.kp
-    if st.pid_ki is None:
-        st.pid_ki = params.ki
-    if st.pid_kd is None:
-        st.pid_kd = params.kd
+    kp = params.kp if st.pid_kp is None else st.pid_kp
+    ki = params.ki if st.pid_ki is None else st.pid_ki
+    kd = params.kd if st.pid_kd is None else st.pid_kd
+    st.pid_kp, st.pid_ki, st.pid_kd = kp, ki, kd
 
     # Remove duplicate integrator update - only use conditional anti-windup below
 
     # Derivative
     d_term = 0.0
-    p_term: float | None = None
-    i_term: float | None = None
-    u: float | None = None
     meas_now: float | None = None
     smoothed: float | None = None
     d_meas: float | None = None
@@ -448,14 +435,14 @@ def compute_pid(
         prev = st.pid_last_meas
         if prev is not None and st.pid_last_time > 0:
             d_meas = (smoothed - prev) / dt
-            d_term = -float(st.pid_kd) * d_meas
+            d_term = -kd * d_meas
         # The smoothed measurement is stored after the u calculation below
     # Derivative on error: use the previous cycle's stored error so a setpoint
     # change produces a derivative kick. This is what distinguishes the mode
     # from derivative-on-measurement above, where the setpoint term cancels.
     elif st.pid_last_error is not None:
         d_err = (e - st.pid_last_error) / dt
-        d_term = float(st.pid_kd) * d_err
+        d_term = kd * d_err
 
     # Update the slope EMA in PID mode too (for logging/diagnostics)
     s_in = inp_temperature_slope_K_per_min
@@ -466,14 +453,14 @@ def compute_pid(
             st.ema_slope = 0.6 * st.ema_slope + 0.4 * s_in
 
     # Proportional term
-    p_term = float(st.pid_kp) * e
+    p_term = kp * e
 
     # Conditional anti-windup: only integrate when not saturated
     aw_blocked = False
     i_relief = False
     i_prev = st.pid_integral
     # Proposed integrator update (tentative)
-    i_prop = i_prev + float(st.pid_ki) * e * dt
+    i_prop = i_prev + ki * e * dt
     # Clamp
     i_prop = max(params.i_min, min(params.i_max, i_prop))
     # Tentative control output before checking saturation
@@ -495,7 +482,7 @@ def compute_pid(
         st.last_error_sign is not None
         and st.last_error_sign != 0
         and cur_sign not in (0, st.last_error_sign)
-        and abs(delta_kelvin or 0.0) <= params.steady_state_band_K
+        and abs(delta_kelvin) <= params.steady_state_band_K
     ):
         decay = 0.8  # 20% relief
         i_term *= decay
@@ -544,6 +531,7 @@ def compute_pid(
     ):
         blocked_by_hold = True
 
+    percent: float
     if blocked_by_hold:
         percent = st.last_percent
     else:
@@ -591,7 +579,7 @@ def compute_pid(
     # Store debug values
     try:
         # Basic debug info (also for graphs)
-        pid_dbg = {
+        pid_dbg: PIDDebugInfo = {
             "mode": "pid",
             "dt_s": _r(dt, 2),
             "e_K": _r(e, 2),
@@ -599,9 +587,9 @@ def compute_pid(
             "i": _r(i_term, 2),
             "d": _r(d_term, 2),
             "u": _r(u, 2),
-            "kp": float(st.pid_kp) if st.pid_kp is not None else None,
-            "ki": float(st.pid_ki) if st.pid_ki is not None else None,
-            "kd": float(st.pid_kd) if st.pid_kd is not None else None,
+            "kp": st.pid_kp,
+            "ki": st.pid_ki,
+            "kd": st.pid_kd,
             # Anti-windup indicator
             "anti_windup_blocked": aw_blocked,
             "i_relief": i_relief,
@@ -627,8 +615,8 @@ def compute_pid(
         "better_thermostat PID: output for %s: percent=%.1f%%, p_term=%.2f, i_term=%.2f, d_term=%.2f, integral=%.2f",
         key,
         percent,
-        p_term or 0.0,
-        i_term or 0.0,
+        p_term,
+        i_term,
         d_term,
         st.pid_integral,
     )
