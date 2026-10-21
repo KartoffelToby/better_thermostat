@@ -104,7 +104,8 @@ async def test_the_held_child_lock_leaves_the_parsed_settings_alone(hass):
     )
 
     assert _held(bt) is True
-    assert parsed_trv["advanced"]["child_lock"] is False
+    (parsed_after,) = entry.runtime_data.settings["thermostat"]
+    assert parsed_after["advanced"]["child_lock"] is False
     (trv,) = bt.real_trvs.values()
     assert trv.advanced is not parsed_trv["advanced"]
 

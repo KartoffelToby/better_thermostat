@@ -217,6 +217,11 @@ class PlantFacade(Protocol):
         """Single-radiator view of the plant (mean over radiators if multi-TRV), in °C."""
         ...
 
+    @property
+    def heat_to_room_K_per_min(self) -> float:
+        """Heat all radiators currently deliver to the room, in room-K/min."""
+        ...
+
     def apply(
         self, dt_s: float, valve_percent: float, T_outdoor: float, Q_K_per_min: float
     ) -> None:
@@ -238,6 +243,10 @@ class _SingleTrvFacade:
     @property
     def T_rad(self) -> float:
         return self._plant.state.T_rad
+
+    @property
+    def heat_to_room_K_per_min(self) -> float:
+        return self._plant.heat_to_room_K_per_min
 
     def apply(
         self, dt_s: float, valve_percent: float, T_outdoor: float, Q_K_per_min: float
@@ -272,6 +281,7 @@ def _drive_adapter(
     T_room_list: list[float] = []
     T_setpoint_list: list[float] = []
     valve_percent_list: list[float] = []
+    heat_to_room_list: list[float] = []
 
     t = 0.0
     last_valve_percent = 0.0
@@ -335,6 +345,7 @@ def _drive_adapter(
             window_open=window_open,
             solar_intensity=controller_solar,
             last_valve_percent=last_valve_percent,
+            sensor_calibration_error_K=sensor.observed_calibration_error_K,
         )
 
         out = adapter.step(ctx)
@@ -351,6 +362,7 @@ def _drive_adapter(
         T_room_list.append(facade.T_room)
         T_setpoint_list.append(target)
         valve_percent_list.append(valve_percent)
+        heat_to_room_list.append(facade.heat_to_room_K_per_min)
 
         Q_solar = solar_intensity * scenario.solar_max_K_per_min
         Q_window = -scenario.window_loss_K_per_min if window_open else 0.0
@@ -362,6 +374,7 @@ def _drive_adapter(
         T_room=T_room_list,
         T_setpoint=T_setpoint_list,
         valve_percent=valve_percent_list,
+        heat_to_room_K_per_min=heat_to_room_list,
     )
 
 

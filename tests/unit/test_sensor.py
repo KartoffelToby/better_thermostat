@@ -19,12 +19,6 @@ import pytest
 
 from custom_components.better_thermostat import BetterThermostatData
 from custom_components.better_thermostat.sensor import (
-    _ACTIVE_ALGORITHM_ENTITIES,
-    _ACTIVE_PID_NUMBERS,
-    _ACTIVE_PRESET_NUMBERS,
-    _ACTIVE_SWITCH_ENTITIES,
-    _DISPATCHER_UNSUBSCRIBES,
-    _ENTITY_CLEANUP_CALLBACKS,
     BetterThermostatExternalTemp1hEMASensor,
     BetterThermostatExternalTempSensor,
     BetterThermostatHeatingPowerSensor,
@@ -40,10 +34,6 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatPidOutputSensor,
     BetterThermostatTempSlopeSensor,
     BetterThermostatVirtualTempSensor,
-    PidNumberRef,
-    PresetNumberRef,
-    SwitchKind,
-    SwitchRef,
     _BtMpcSensorBase,
     _BtSensorBase,
     _BtSimpleAttributeSensor,
@@ -55,9 +45,15 @@ from custom_components.better_thermostat.sensor import (
     _get_active_algorithms,
     _get_filtered_temperature,
     _handle_dynamic_entity_update,
-    _release_entry,
     _setup_algorithm_sensors,
     async_setup_entry,
+)
+from custom_components.better_thermostat.tracked_entities import (
+    PidNumberRef,
+    PresetNumberRef,
+    SwitchKind,
+    SwitchRef,
+    TrackedEntities,
 )
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
@@ -71,6 +67,7 @@ from tests.factories import (
     make_calibration_balance,
     make_entity_registry,
     make_registry_entry,
+    trv_record,
 )
 
 DOMAIN = "better_thermostat"
@@ -141,34 +138,11 @@ def _make_entity_registry():
 def _trvs_in_modes(*modes):
     """Build one real Trv per calibration mode, keyed trv_1, trv_2, ..."""
     return {
-        f"trv_{index}": Trv(
+        f"trv_{index}": trv_record(
             entity_id=f"trv_{index}", advanced={CONF_CALIBRATION_MODE: mode}
         )
         for index, mode in enumerate(modes, start=1)
     }
-
-
-# ---------------------------------------------------------------------------
-# Cleanup: reset module-level globals between tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _reset_globals():
-    """Reset module-level tracking dicts before each test."""
-    _ACTIVE_ALGORITHM_ENTITIES.clear()
-    _ENTITY_CLEANUP_CALLBACKS.clear()
-    _DISPATCHER_UNSUBSCRIBES.clear()
-    _ACTIVE_PRESET_NUMBERS.clear()
-    _ACTIVE_PID_NUMBERS.clear()
-    _ACTIVE_SWITCH_ENTITIES.clear()
-    yield
-    _ACTIVE_ALGORITHM_ENTITIES.clear()
-    _ENTITY_CLEANUP_CALLBACKS.clear()
-    _DISPATCHER_UNSUBSCRIBES.clear()
-    _ACTIVE_PRESET_NUMBERS.clear()
-    _ACTIVE_PID_NUMBERS.clear()
-    _ACTIVE_SWITCH_ENTITIES.clear()
 
 
 # ===========================================================================
@@ -478,7 +452,7 @@ class TestMpcSensorState:
 
     def _make_trv_with_debug(self, **debug_values):
         return {
-            "trv_1": Trv(
+            "trv_1": trv_record(
                 entity_id="trv_1",
                 calibration_balance=make_calibration_balance(
                     CalibrationMode.MPC_CALIBRATION, debug_values
@@ -518,7 +492,7 @@ class TestMpcSensorState:
 
     def test_no_calibration_balance_returns_none(self):
         """No calibration balance returns none."""
-        bt = _make_bt_climate(real_trvs={"trv_1": Trv(entity_id="trv_1")})
+        bt = _make_bt_climate(real_trvs={"trv_1": trv_record(entity_id="trv_1")})
         sensor = BetterThermostatVirtualTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
@@ -534,7 +508,7 @@ class TestMpcSensorState:
         """A PID payload under the same key leaves the sensor empty."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     calibration_balance=make_calibration_balance(
                         CalibrationMode.PID_CALIBRATION, {"mpc_gain": 0.05}
@@ -573,8 +547,8 @@ class TestMpcSensorState:
         """When multiple TRVs exist, the first with debug data should be used."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(entity_id="trv_1"),
-                "trv_2": Trv(
+                "trv_1": trv_record(entity_id="trv_1"),
+                "trv_2": trv_record(
                     entity_id="trv_2",
                     calibration_balance=make_calibration_balance(
                         CalibrationMode.MPC_CALIBRATION, {"mpc_virtual_temp": "23.000"}
@@ -592,7 +566,7 @@ class TestMpcV2SensorState:
 
     @staticmethod
     def _trv(name, controller, **debug):
-        return Trv(
+        return trv_record(
             entity_id=name,
             calibration_balance=make_calibration_balance(controller, debug),
         )
@@ -649,7 +623,7 @@ class TestMpcV2SensorState:
         """Heads without a balance, or on another controller, are passed over."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(entity_id="trv_1"),
+                "trv_1": trv_record(entity_id="trv_1"),
                 "trv_2": self._trv(
                     "trv_2", CalibrationMode.MPC_CALIBRATION, tau_room_min=1.0
                 ),
@@ -675,7 +649,7 @@ class TestPidSensorState:
 
     def _make_trv_with_debug(self, **debug_values):
         return {
-            "trv_1": Trv(
+            "trv_1": trv_record(
                 entity_id="trv_1",
                 calibration_balance=make_calibration_balance(
                     CalibrationMode.PID_CALIBRATION, {"mode": "pid", **debug_values}
@@ -745,7 +719,7 @@ class TestGetActiveAlgorithms:
         """Mpc calibration detected."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION},
                 )
@@ -758,7 +732,7 @@ class TestGetActiveAlgorithms:
         """String values should be auto-converted to CalibrationMode enum."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: "mpc_calibration"},
                 )
@@ -771,7 +745,7 @@ class TestGetActiveAlgorithms:
         """Invalid calibration mode skipped."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: "totally_invalid_mode"},
                 )
@@ -784,11 +758,11 @@ class TestGetActiveAlgorithms:
         """Multiple trvs different modes."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION},
                 ),
-                "trv_2": Trv(
+                "trv_2": trv_record(
                     entity_id="trv_2",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION},
                 ),
@@ -804,7 +778,9 @@ class TestGetActiveAlgorithms:
         """A stored ``None`` runs the default mode, so that mode is active."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(entity_id="trv_1", advanced={CONF_CALIBRATION_MODE: None})
+                "trv_1": trv_record(
+                    entity_id="trv_1", advanced={CONF_CALIBRATION_MODE: None}
+                )
             }
         )
         result = _get_active_algorithms(bt)
@@ -812,7 +788,7 @@ class TestGetActiveAlgorithms:
 
     def test_missing_advanced_key_reports_the_default_mode(self):
         """A TRV without advanced settings runs the default mode."""
-        bt = _make_bt_climate(real_trvs={"trv_1": Trv(entity_id="trv_1")})
+        bt = _make_bt_climate(real_trvs={"trv_1": trv_record(entity_id="trv_1")})
         result = _get_active_algorithms(bt)
         assert result == {DEFAULT_CALIBRATION_MODE}
 
@@ -820,7 +796,7 @@ class TestGetActiveAlgorithms:
         """A mis-cased mode name brings the sensors of the mode the calibration runs."""
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: "MPC_Calibration"},
                 )
@@ -852,7 +828,7 @@ class TestSetupAlgorithmSensors:
         entry = _make_entry(climate=None)
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION},
                 )
@@ -886,7 +862,7 @@ class TestSetupAlgorithmSensors:
         entry = _make_entry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION},
                 )
@@ -909,16 +885,16 @@ class TestSetupAlgorithmSensors:
         Cleanup removes what it tracks; an id without a sensor can never be
         removed, and a sensor without an id is never cleaned up.
         """
+        entry = _make_entry()
+        tracked = entry.runtime_data.tracked_entities
         bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
         with patch(
             "custom_components.better_thermostat.sensor.async_get_entity_registry",
             return_value=_make_entity_registry(),
         ):
-            sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+            sensors = await _setup_algorithm_sensors(MagicMock(), entry, bt)
 
-        tracked_ids = _ACTIVE_ALGORITHM_ENTITIES["entry_1"][
-            CalibrationMode.MPC_CALIBRATION
-        ]
+        tracked_ids = tracked.algorithm_sensors[CalibrationMode.MPC_CALIBRATION]
         assert sorted(tracked_ids) == sorted(_unique_ids(sensors))
 
     @pytest.mark.asyncio
@@ -928,12 +904,14 @@ class TestSetupAlgorithmSensors:
         The registry knows exactly the sensors setup created; removing all of
         them is a complete cleanup.
         """
+        entry = _make_entry()
+        tracked = entry.runtime_data.tracked_entities
         bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
         with patch(
             "custom_components.better_thermostat.sensor.async_get_entity_registry",
             return_value=_make_entity_registry(),
         ):
-            sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+            sensors = await _setup_algorithm_sensors(MagicMock(), entry, bt)
 
         registered = {s.unique_id: f"sensor.{s.unique_id}" for s in sensors}
         reg = _make_entity_registry()
@@ -946,13 +924,13 @@ class TestSetupAlgorithmSensors:
         ):
             await _cleanup_stale_algorithm_entities(
                 hass=MagicMock(),
-                entry_id="entry_1",
+                tracked=tracked,
                 bt_climate=bt,
                 current_algorithms=set(),
             )
 
         assert reg.async_remove.call_count == len(registered)
-        assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES
+        assert not tracked.algorithm_sensors
 
     @pytest.mark.asyncio
     async def test_mpc_and_mpc_v2_sensors_have_distinct_unique_ids(self):
@@ -1063,8 +1041,9 @@ class TestAsyncSetupEntry:
     async def test_a_setup_retried_after_a_failure_creates_the_algorithm_sensors(self):
         """A record left by a setup that failed part way does not hide sensors.
 
-        The first setup tracks the MPC sensors and then fails before the
-        entry registers its unload cleanup. The retry creates them again.
+        The first setup tracks the MPC sensors and then fails. Home Assistant
+        sets the entry up again with runtime data of its own, and that setup
+        creates them again.
         """
         bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
         hass = MagicMock()
@@ -1086,55 +1065,11 @@ class TestAsyncSetupEntry:
         ):
             with pytest.raises(RuntimeError):
                 await async_setup_entry(hass, entry, async_add_entities)
+            entry.runtime_data = BetterThermostatData(climate=bt)
             await async_setup_entry(hass, entry, async_add_entities)
 
         sensors = async_add_entities.call_args[0][0]
         assert sum(isinstance(s, BetterThermostatMpcGainSensor) for s in sensors) == 1
-
-
-# ===========================================================================
-# 9. _release_entry
-# ===========================================================================
-
-
-class TestReleaseEntry:
-    """Tests for _release_entry, which the entry's unload runs."""
-
-    def test_unsubscribes_dispatcher(self):
-        """Unsubscribes dispatcher."""
-        entry = _make_entry()
-        unsub = MagicMock()
-        _DISPATCHER_UNSUBSCRIBES["entry_1"] = unsub
-
-        _release_entry(entry.entry_id)
-        unsub.assert_called_once()
-        assert "entry_1" not in _DISPATCHER_UNSUBSCRIBES
-
-    def test_cleans_all_tracking_dicts(self):
-        """Cleans all tracking dicts."""
-        entry = _make_entry()
-        _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {
-            CalibrationMode.MPC_CALIBRATION: ["id1"]
-        }
-        _ENTITY_CLEANUP_CALLBACKS["entry_1"] = MagicMock()
-        _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid": PresetNumberRef("away")}
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid": PidNumberRef("trv_1", "kp")}
-        _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
-            "uid": SwitchRef("trv_1", SwitchKind.CHILD_LOCK)
-        }
-
-        _release_entry(entry.entry_id)
-
-        assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES
-        assert "entry_1" not in _ENTITY_CLEANUP_CALLBACKS
-        assert "entry_1" not in _ACTIVE_PRESET_NUMBERS
-        assert "entry_1" not in _ACTIVE_PID_NUMBERS
-        assert "entry_1" not in _ACTIVE_SWITCH_ENTITIES
-
-    def test_no_dispatcher_no_error(self):
-        """Unloading an entry without registered dispatcher should not fail."""
-        _release_entry("entry_1")
-        assert "entry_1" not in _DISPATCHER_UNSUBSCRIBES
 
 
 # ===========================================================================
@@ -1148,18 +1083,20 @@ class TestCleanupStaleAlgorithmEntities:
     @pytest.mark.asyncio
     async def test_no_tracked_returns_early(self):
         """If entry not tracked, should return without error."""
+        tracked = TrackedEntities()
         hass = MagicMock()
         bt = _make_bt_climate()
-        await _cleanup_stale_algorithm_entities(hass, "entry_1", bt, set())
+        await _cleanup_stale_algorithm_entities(hass, tracked, bt, set())
         # No exception → pass
 
     @pytest.mark.asyncio
     async def test_removes_stale_entities(self):
         """Entities for algorithms no longer active should be removed."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         reg.async_get_entity_id.return_value = "sensor.mpc_virtual_temp"
 
-        _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {
+        tracked.algorithm_sensors = {
             CalibrationMode.MPC_CALIBRATION: ["uid_1", "uid_2"]
         }
 
@@ -1171,22 +1108,21 @@ class TestCleanupStaleAlgorithmEntities:
             # current_algorithms is empty → MPC should be cleaned up
             await _cleanup_stale_algorithm_entities(
                 hass=MagicMock(),
-                entry_id="entry_1",
+                tracked=tracked,
                 bt_climate=bt,
                 current_algorithms=set(),
             )
 
         assert reg.async_remove.call_count == 2
         # Tracking should be cleaned up
-        assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES
+        assert not tracked.algorithm_sensors
 
     @pytest.mark.asyncio
     async def test_keeps_active_algorithms(self):
         """Entities for still-active algorithms should NOT be removed."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
-        _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {
-            CalibrationMode.MPC_CALIBRATION: ["uid_1"]
-        }
+        tracked.algorithm_sensors = {CalibrationMode.MPC_CALIBRATION: ["uid_1"]}
 
         with patch(
             "custom_components.better_thermostat.sensor.async_get_entity_registry",
@@ -1195,23 +1131,24 @@ class TestCleanupStaleAlgorithmEntities:
             bt = _make_bt_climate()
             await _cleanup_stale_algorithm_entities(
                 hass=MagicMock(),
-                entry_id="entry_1",
+                tracked=tracked,
                 bt_climate=bt,
                 current_algorithms={CalibrationMode.MPC_CALIBRATION},
             )
 
         reg.async_remove.assert_not_called()
         # Tracking should still exist
-        assert "entry_1" in _ACTIVE_ALGORITHM_ENTITIES
+        assert tracked.algorithm_sensors
 
     @pytest.mark.asyncio
     async def test_partial_removal_keeps_tracking(self):
         """A removal that failed keeps the algorithm tracked for the next cleanup."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         reg.async_get_entity_id.side_effect = ["sensor.first", "sensor.second"]
         reg.async_remove.side_effect = [None, RuntimeError("registry error")]
 
-        _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {
+        tracked.algorithm_sensors = {
             CalibrationMode.MPC_CALIBRATION: ["uid_1", "uid_2"]
         }
 
@@ -1222,16 +1159,14 @@ class TestCleanupStaleAlgorithmEntities:
             bt = _make_bt_climate()
             await _cleanup_stale_algorithm_entities(
                 hass=MagicMock(),
-                entry_id="entry_1",
+                tracked=tracked,
                 bt_climate=bt,
                 current_algorithms=set(),
             )
 
         assert reg.async_remove.call_count == 2
         # Only 1 of 2 was removed, so the algorithm stays tracked
-        assert CalibrationMode.MPC_CALIBRATION in _ACTIVE_ALGORITHM_ENTITIES.get(
-            "entry_1", {}
-        )
+        assert CalibrationMode.MPC_CALIBRATION in tracked.algorithm_sensors
 
     @pytest.mark.asyncio
     async def test_retry_after_partial_removal_clears_tracking(self):
@@ -1240,6 +1175,7 @@ class TestCleanupStaleAlgorithmEntities:
         The entity removed the first time is gone from the registry; once the
         remaining one is removed too, nothing of the algorithm is left to track.
         """
+        tracked = TrackedEntities()
         registered = {"uid_1": "sensor.first", "uid_2": "sensor.second"}
         reg = _make_entity_registry()
         reg.async_get_entity_id.side_effect = lambda _domain, _platform, unique_id: (
@@ -1257,7 +1193,7 @@ class TestCleanupStaleAlgorithmEntities:
 
         reg.async_remove.side_effect = remove
 
-        _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {
+        tracked.algorithm_sensors = {
             CalibrationMode.MPC_CALIBRATION: ["uid_1", "uid_2"]
         }
 
@@ -1269,24 +1205,23 @@ class TestCleanupStaleAlgorithmEntities:
             for _ in range(2):
                 await _cleanup_stale_algorithm_entities(
                     hass=MagicMock(),
-                    entry_id="entry_1",
+                    tracked=tracked,
                     bt_climate=bt,
                     current_algorithms=set(),
                 )
 
         assert registered == {}
-        assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES
+        assert not tracked.algorithm_sensors
 
     @pytest.mark.asyncio
     async def test_remove_exception_handled_gracefully(self, caplog):
         """A registry error during removal is logged with the entity, not raised."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         reg.async_get_entity_id.return_value = "sensor.entity"
         reg.async_remove.side_effect = RuntimeError("registry error")
 
-        _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {
-            CalibrationMode.MPC_CALIBRATION: ["uid_1"]
-        }
+        tracked.algorithm_sensors = {CalibrationMode.MPC_CALIBRATION: ["uid_1"]}
 
         with (
             patch(
@@ -1300,7 +1235,7 @@ class TestCleanupStaleAlgorithmEntities:
             bt = _make_bt_climate()
             await _cleanup_stale_algorithm_entities(
                 hass=MagicMock(),
-                entry_id="entry_1",
+                tracked=tracked,
                 bt_climate=bt,
                 current_algorithms=set(),
             )
@@ -1333,8 +1268,8 @@ class TestDynamicAlgorithmSensors:
         return reg
 
     @staticmethod
-    async def _config_change(bt, reg) -> list[SensorEntity]:
-        """Run one configuration change and return the entities it added."""
+    async def _config_change(bt, entry, reg) -> list[SensorEntity]:
+        """Run one configuration change of ``entry`` and return what it added."""
         async_add_entities = MagicMock()
         with (
             patch(
@@ -1346,7 +1281,7 @@ class TestDynamicAlgorithmSensors:
             ),
         ):
             await _handle_dynamic_entity_update(
-                MagicMock(), _make_entry(), bt, async_add_entities
+                MagicMock(), entry, bt, async_add_entities
             )
         if not async_add_entities.call_count:
             return []
@@ -1359,6 +1294,7 @@ class TestDynamicAlgorithmSensors:
         Heating power brings no sensors of its own, so it is never tracked;
         it is still the algorithm the thermostat ran before the change.
         """
+        entry = _make_entry()
         bt = _make_bt_climate(
             real_trvs=_trvs_in_modes(CalibrationMode.HEATING_POWER_CALIBRATION)
         )
@@ -1367,8 +1303,8 @@ class TestDynamicAlgorithmSensors:
         with caplog.at_level(
             logging.INFO, logger="custom_components.better_thermostat"
         ):
-            await self._config_change(bt, reg)
-            await self._config_change(bt, reg)
+            await self._config_change(bt, entry, reg)
+            await self._config_change(bt, entry, reg)
 
         assert "Algorithm configuration changed" not in caplog.text
 
@@ -1379,19 +1315,21 @@ class TestDynamicAlgorithmSensors:
         The MPC sensors stay registered and tracked; only the PID sensors are
         created.
         """
+        entry = _make_entry()
+        tracked = entry.runtime_data.tracked_entities
         bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
         with patch(
             "custom_components.better_thermostat.sensor.async_get_entity_registry",
             return_value=_make_entity_registry(),
         ):
-            mpc_sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+            mpc_sensors = await _setup_algorithm_sensors(MagicMock(), entry, bt)
         registered = {s.unique_id: f"sensor.{s.unique_id}" for s in mpc_sensors}
         reg = self._registry_of(registered)
 
         bt.real_trvs = _trvs_in_modes(
             CalibrationMode.MPC_CALIBRATION, CalibrationMode.PID_CALIBRATION
         )
-        added = await self._config_change(bt, reg)
+        added = await self._config_change(bt, entry, reg)
 
         reg.async_remove.assert_not_called()
         assert len(registered) == len(mpc_sensors)
@@ -1399,7 +1337,7 @@ class TestDynamicAlgorithmSensors:
             BetterThermostatPidOutputSensor,
             BetterThermostatPidErrorSensor,
         }
-        assert set(_ACTIVE_ALGORITHM_ENTITIES["entry_1"]) == {
+        assert set(tracked.algorithm_sensors) == {
             CalibrationMode.MPC_CALIBRATION,
             CalibrationMode.PID_CALIBRATION,
         }
@@ -1414,28 +1352,29 @@ class TestDynamicAlgorithmSensors:
         the fourth, which stays live. When a TRV uses MPC again, the three
         removed ones are created and the live one is not added a second time.
         """
+        entry = _make_entry()
+        tracked = entry.runtime_data.tracked_entities
         bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
         with patch(
             "custom_components.better_thermostat.sensor.async_get_entity_registry",
             return_value=_make_entity_registry(),
         ):
-            mpc_sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+            mpc_sensors = await _setup_algorithm_sensors(MagicMock(), entry, bt)
         mpc_ids = {s.unique_id for s in mpc_sensors}
         registered = {uid: f"sensor.{uid}" for uid in mpc_ids}
         refused_id = mpc_sensors[1].unique_id
         reg = self._registry_of(registered, failing={f"sensor.{refused_id}"})
 
         bt.real_trvs = dict[str, Trv]()
-        assert await self._config_change(bt, reg) == []
+        assert await self._config_change(bt, entry, reg) == []
         assert set(registered) == {refused_id}
 
         bt.real_trvs = _trvs_in_modes(CalibrationMode.MPC_CALIBRATION)
-        added = await self._config_change(bt, reg)
+        added = await self._config_change(bt, entry, reg)
 
         assert {s.unique_id for s in added} == mpc_ids - {refused_id}
         assert (
-            set(_ACTIVE_ALGORITHM_ENTITIES["entry_1"][CalibrationMode.MPC_CALIBRATION])
-            == mpc_ids
+            set(tracked.algorithm_sensors[CalibrationMode.MPC_CALIBRATION]) == mpc_ids
         )
 
 
@@ -1450,10 +1389,11 @@ class TestCleanupPresetNumberEntities:
     @pytest.mark.asyncio
     async def test_removes_disabled_preset_entities(self):
         """Removes disabled preset entities."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         reg.async_get_entity_id.return_value = "number.preset_away"
 
-        _ACTIVE_PRESET_NUMBERS["entry_1"] = {
+        tracked.preset_numbers = {
             "uid_away": PresetNumberRef("away"),
             "uid_home": PresetNumberRef("home"),
         }
@@ -1462,7 +1402,7 @@ class TestCleanupPresetNumberEntities:
         await _cleanup_preset_number_entities(
             hass=MagicMock(),
             entity_registry=reg,
-            entry_id="entry_1",
+            tracked=tracked,
             bt_climate=bt,
             current_presets={"home"},
         )
@@ -1472,13 +1412,14 @@ class TestCleanupPresetNumberEntities:
     @pytest.mark.asyncio
     async def test_none_unique_id_skipped(self):
         """Entries with None as unique_id should be skipped."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
-        _ACTIVE_PRESET_NUMBERS["entry_1"] = {None: PresetNumberRef("away")}
+        tracked.preset_numbers = {None: PresetNumberRef("away")}
         bt = _make_bt_climate()
         await _cleanup_preset_number_entities(
             hass=MagicMock(),
             entity_registry=reg,
-            entry_id="entry_1",
+            tracked=tracked,
             bt_climate=bt,
             current_presets=set(),
         )
@@ -1487,37 +1428,38 @@ class TestCleanupPresetNumberEntities:
     @pytest.mark.asyncio
     async def test_merges_new_presets_into_tracking(self):
         """Merges new presets into tracking."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         bt = _make_bt_climate()
         await _cleanup_preset_number_entities(
             hass=MagicMock(),
             entity_registry=reg,
-            entry_id="entry_1",
+            tracked=tracked,
             bt_climate=bt,
             current_presets={"comfort", "eco"},
         )
-        tracked = _ACTIVE_PRESET_NUMBERS["entry_1"]
-        assert f"{bt.unique_id}_preset_comfort" in tracked
-        assert f"{bt.unique_id}_preset_eco" in tracked
+        assert f"{bt.unique_id}_preset_comfort" in tracked.preset_numbers
+        assert f"{bt.unique_id}_preset_eco" in tracked.preset_numbers
 
     @pytest.mark.asyncio
     async def test_remove_failure_keeps_tracking(self):
         """On removal failure, tracking entry should remain for retry."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         reg.async_get_entity_id.return_value = "number.preset_away"
         reg.async_remove.side_effect = RuntimeError("fail")
 
-        _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid_away": PresetNumberRef("away")}
+        tracked.preset_numbers = {"uid_away": PresetNumberRef("away")}
         bt = _make_bt_climate()
         await _cleanup_preset_number_entities(
             hass=MagicMock(),
             entity_registry=reg,
-            entry_id="entry_1",
+            tracked=tracked,
             bt_climate=bt,
             current_presets=set(),
         )
         # Tracking should remain since removal failed
-        assert "uid_away" in _ACTIVE_PRESET_NUMBERS["entry_1"]
+        assert "uid_away" in tracked.preset_numbers
 
 
 # ===========================================================================
@@ -1531,90 +1473,95 @@ class TestCleanupPidNumberEntities:
     @pytest.mark.asyncio
     async def test_removes_pid_entities_for_non_pid_trv(self):
         """Removes pid entities for non pid trv."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         reg.async_get_entity_id.return_value = "number.pid_kp"
 
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": PidNumberRef("trv_1", "kp")}
+        tracked.pid_numbers = {"uid_kp": PidNumberRef("trv_1", "kp")}
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT},
                 )
             }
         )
         await _cleanup_pid_number_entities(
-            hass=MagicMock(), entity_registry=reg, entry_id="entry_1", bt_climate=bt
+            hass=MagicMock(), entity_registry=reg, tracked=tracked, bt_climate=bt
         )
         reg.async_remove.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_keeps_pid_entities_for_pid_trv(self):
         """Keeps pid entities for pid trv."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": PidNumberRef("trv_1", "kp")}
+        tracked.pid_numbers = {"uid_kp": PidNumberRef("trv_1", "kp")}
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION},
                 )
             }
         )
         await _cleanup_pid_number_entities(
-            hass=MagicMock(), entity_registry=reg, entry_id="entry_1", bt_climate=bt
+            hass=MagicMock(), entity_registry=reg, tracked=tracked, bt_climate=bt
         )
         reg.async_remove.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_merges_pid_tracking_for_current_trvs(self):
         """Merges pid tracking for current trvs."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION},
                 )
             }
         )
         await _cleanup_pid_number_entities(
-            hass=MagicMock(), entity_registry=reg, entry_id="entry_1", bt_climate=bt
+            hass=MagicMock(), entity_registry=reg, tracked=tracked, bt_climate=bt
         )
-        tracked = _ACTIVE_PID_NUMBERS["entry_1"]
+        tracked_pid_numbers = tracked.pid_numbers
         # Should have 3 entries for trv_1 (kp, ki, kd)
-        trv_entries = [v for v in tracked.values() if v.trv == "trv_1"]
+        trv_entries = [v for v in tracked_pid_numbers.values() if v.trv == "trv_1"]
         assert len(trv_entries) == 3
 
     @pytest.mark.asyncio
     async def test_no_real_trvs_returns_empty_pid_trvs(self):
         """If no real_trvs, no PID TRVs should be found."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
-        _ACTIVE_PID_NUMBERS["entry_1"] = {"uid_kp": PidNumberRef("trv_1", "kp")}
+        tracked.pid_numbers = {"uid_kp": PidNumberRef("trv_1", "kp")}
         bt = _make_bt_climate(real_trvs={})
         reg.async_get_entity_id.return_value = "number.pid_kp"
         await _cleanup_pid_number_entities(
-            hass=MagicMock(), entity_registry=reg, entry_id="entry_1", bt_climate=bt
+            hass=MagicMock(), entity_registry=reg, tracked=tracked, bt_climate=bt
         )
         reg.async_remove.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_invalid_calibration_mode_trv_skipped(self):
         """Invalid calibration mode trv skipped."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1", advanced={CONF_CALIBRATION_MODE: "totally_bogus"}
                 )
             }
         )
         await _cleanup_pid_number_entities(
-            hass=MagicMock(), entity_registry=reg, entry_id="entry_1", bt_climate=bt
+            hass=MagicMock(), entity_registry=reg, tracked=tracked, bt_climate=bt
         )
         # No PID TRVs found, nothing to merge
-        tracked = _ACTIVE_PID_NUMBERS["entry_1"]
-        assert not any(v.trv == "trv_1" for v in tracked.values())
+        tracked_pid_numbers = tracked.pid_numbers
+        assert not any(v.trv == "trv_1" for v in tracked_pid_numbers.values())
 
 
 # ===========================================================================
@@ -1628,99 +1575,98 @@ class TestCleanupPidSwitchEntities:
     @pytest.mark.asyncio
     async def test_removes_pid_autotune_for_non_pid_trv(self):
         """Removes pid autotune for non pid trv."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         reg.async_get_entity_id.return_value = "switch.pid_auto_tune"
 
-        _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
+        tracked.switches = {
             "uid_autotune": SwitchRef("trv_1", SwitchKind.PID_AUTO_TUNE)
         }
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT},
                 )
             }
         )
         await _cleanup_pid_switch_entities(
-            hass=MagicMock(), entity_registry=reg, entry_id="entry_1", bt_climate=bt
+            hass=MagicMock(), entity_registry=reg, tracked=tracked, bt_climate=bt
         )
         reg.async_remove.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_removes_child_lock_for_removed_trv(self):
         """Removes child lock for removed trv."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         reg.async_get_entity_id.return_value = "switch.child_lock"
 
-        _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
-            "uid_lock": SwitchRef("trv_removed", SwitchKind.CHILD_LOCK)
-        }
+        tracked.switches = {"uid_lock": SwitchRef("trv_removed", SwitchKind.CHILD_LOCK)}
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT},
                 )
             }
         )
         await _cleanup_pid_switch_entities(
-            hass=MagicMock(), entity_registry=reg, entry_id="entry_1", bt_climate=bt
+            hass=MagicMock(), entity_registry=reg, tracked=tracked, bt_climate=bt
         )
         reg.async_remove.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_keeps_child_lock_for_existing_trv(self):
         """Keeps child lock for existing trv."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
-        _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
-            "uid_lock": SwitchRef("trv_1", SwitchKind.CHILD_LOCK)
-        }
+        tracked.switches = {"uid_lock": SwitchRef("trv_1", SwitchKind.CHILD_LOCK)}
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT},
                 )
             }
         )
         await _cleanup_pid_switch_entities(
-            hass=MagicMock(), entity_registry=reg, entry_id="entry_1", bt_climate=bt
+            hass=MagicMock(), entity_registry=reg, tracked=tracked, bt_climate=bt
         )
         reg.async_remove.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_merges_switch_tracking(self):
         """Merges switch tracking."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         bt = _make_bt_climate(
             real_trvs={
-                "trv_1": Trv(
+                "trv_1": trv_record(
                     entity_id="trv_1",
                     advanced={CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION},
                 )
             }
         )
         await _cleanup_pid_switch_entities(
-            hass=MagicMock(), entity_registry=reg, entry_id="entry_1", bt_climate=bt
+            hass=MagicMock(), entity_registry=reg, tracked=tracked, bt_climate=bt
         )
-        tracked = _ACTIVE_SWITCH_ENTITIES["entry_1"]
+        tracked_switches = tracked.switches
         # Should have pid_auto_tune + child_lock for trv_1
-        kinds = {v.kind for v in tracked.values() if v.trv == "trv_1"}
+        kinds = {v.kind for v in tracked_switches.values() if v.trv == "trv_1"}
         assert kinds == {SwitchKind.PID_AUTO_TUNE, SwitchKind.CHILD_LOCK}
 
     @pytest.mark.asyncio
     async def test_child_lock_for_no_real_trvs(self):
         """When real_trvs missing, child lock for tracked TRV should be removed."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         reg.async_get_entity_id.return_value = "switch.child_lock"
 
-        _ACTIVE_SWITCH_ENTITIES["entry_1"] = {
-            "uid_lock": SwitchRef("trv_1", SwitchKind.CHILD_LOCK)
-        }
+        tracked.switches = {"uid_lock": SwitchRef("trv_1", SwitchKind.CHILD_LOCK)}
         bt = _make_bt_climate(real_trvs=None)
         await _cleanup_pid_switch_entities(
-            hass=MagicMock(), entity_registry=reg, entry_id="entry_1", bt_climate=bt
+            hass=MagicMock(), entity_registry=reg, tracked=tracked, bt_climate=bt
         )
         reg.async_remove.assert_called_once()
 
@@ -1755,35 +1701,37 @@ class TestEdgeCasesAndPotentialBugs:
 
     @pytest.mark.asyncio
     async def test_cleanup_stale_empty_entry_removed(self):
-        """After all algorithms removed, the entry_id key should be deleted."""
-        _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = dict[CalibrationMode, list[str]]()
-        # empty dict → should be cleaned up
+        """A cleanup with nothing tracked leaves nothing tracked."""
+        tracked = TrackedEntities()
         hass = MagicMock()
         bt = _make_bt_climate()
-        await _cleanup_stale_algorithm_entities(hass, "entry_1", bt, set())
-        # The function checks `if not _ACTIVE_ALGORITHM_ENTITIES[entry_id]`
-        # and deletes it → entry should be gone
-        assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES
+        await _cleanup_stale_algorithm_entities(hass, tracked, bt, set())
+        assert not tracked.algorithm_sensors
 
     @pytest.mark.asyncio
     async def test_cleanup_preset_entities_with_empty_tracking(self):
         """Cleaning up when there are no tracked presets should not fail."""
+        tracked = TrackedEntities()
         reg = _make_entity_registry()
         bt = _make_bt_climate()
         await _cleanup_preset_number_entities(
             hass=MagicMock(),
             entity_registry=reg,
-            entry_id="entry_1",
+            tracked=tracked,
             bt_climate=bt,
             current_presets={"comfort"},
         )
         # Should just merge without error
-        assert "entry_1" in _ACTIVE_PRESET_NUMBERS
+        assert tracked.preset_numbers == {
+            f"{bt.unique_id}_preset_comfort": PresetNumberRef("comfort")
+        }
 
     @pytest.mark.asyncio
     async def test_get_active_algorithms_with_empty_advanced(self):
         """A TRV with empty advanced settings runs the default mode."""
-        bt = _make_bt_climate(real_trvs={"trv_1": Trv(entity_id="trv_1", advanced={})})
+        bt = _make_bt_climate(
+            real_trvs={"trv_1": trv_record(entity_id="trv_1", advanced={})}
+        )
         result = _get_active_algorithms(bt)
         assert result == {DEFAULT_CALIBRATION_MODE}
 
@@ -1975,11 +1923,13 @@ class TestDynamicUpdateBelongsToTheEntry:
         entry.async_create_background_task = MagicMock(
             side_effect=lambda _hass, coro, name: coro.close()
         )
-        with patch.object(sensor_module, "async_dispatcher_connect", MagicMock()):
+        connect = MagicMock()
+        with patch.object(sensor_module, "async_dispatcher_connect", connect):
             await sensor_module._register_dynamic_entity_callback(
                 hass, entry, _make_bt_climate(), MagicMock()
             )
-        sensor_module._ENTITY_CLEANUP_CALLBACKS["entry_owned"]()
+        on_config_change = connect.call_args.args[2]
+        on_config_change()
 
         entry.async_create_background_task.assert_called_once()
         assert entry.async_create_background_task.call_args.args[0] is hass

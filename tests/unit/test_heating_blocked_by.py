@@ -21,7 +21,6 @@ from custom_components.better_thermostat.core.desired import DesiredState, Heati
 from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
 from custom_components.better_thermostat.core.snapshot import HvacMode
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import (
     compute_control_cycle,
     publish_heating_blocked_by,
@@ -32,6 +31,7 @@ from tests.factories import (
     make_snapshot,
     make_state,
     make_state_attributes_bt,
+    trv_record,
 )
 
 _CLIMATE = "custom_components.better_thermostat.climate"
@@ -241,7 +241,7 @@ def _maintained_room() -> ThermostatStandIn:
     bt.devices_released = False
     bt.ignore_states = False
     bt.next_valve_maintenance = None
-    bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+    bt.real_trvs = {"climate.trv": trv_record(entity_id="climate.trv")}
     bt.clock = FakeClock(monotonic_value=1000.0)
     bt.bt_hvac_mode = HVACMode.OFF
     bt._control_needed_after_maintenance = False

@@ -208,7 +208,8 @@ async def test_saving_the_options_sets_up_an_entry_setup_refused(
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert entry.state is ConfigEntryState.SETUP_ERROR
+    refused: ConfigEntryState = entry.state
+    assert refused is ConfigEntryState.SETUP_ERROR
 
     await click_through_the_options(hass, entry)
     await wait_for(hass, lambda: entry.state is ConfigEntryState.LOADED)
@@ -233,7 +234,8 @@ async def test_a_name_entered_in_the_options_sets_up_an_entry_refused_without_on
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert entry.state is ConfigEntryState.SETUP_ERROR
+    refused: ConfigEntryState = entry.state
+    assert refused is ConfigEntryState.SETUP_ERROR
 
     await click_through_the_options(hass, entry, name="BT Test")
     await wait_for(hass, lambda: entry.state is ConfigEntryState.LOADED)

@@ -20,7 +20,7 @@ enabled entry and none for a disabled one, as a running instance does.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Generator
 import contextlib
 from dataclasses import dataclass, field
 from typing import Any
@@ -43,9 +43,13 @@ from custom_components.better_thermostat.model_fixes import (
     default as default_quirk,
 )
 from custom_components.better_thermostat.switch import BetterThermostatChildLockSwitch
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils import helpers
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 TRV_ID = "climate.trv"
 TRV_DEVICE = "device_trv"
@@ -320,12 +324,12 @@ def _host(registry: Any, lookup: Lookup, candidate: str) -> MagicMock:
     host.sensor_entity_id = "sensor.room_temperature"
     host.hass.states.get = _state
     host.hass.services.async_call = AsyncMock(return_value=None)
-    host.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, model="TRVZB", advanced={})}
+    host.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID, model="TRVZB", advanced={})}
     return host
 
 
 @contextlib.contextmanager
-def _registry_in_place(registry: Any) -> Iterator[None]:
+def _registry_in_place(registry: Any) -> Generator[None]:
     """Hand ``registry`` to every module under test; no device is registered."""
     device_registry = MagicMock(spec=dr.DeviceRegistry)
     device_registry.async_get.return_value = None
@@ -536,7 +540,7 @@ def _runtime_host(helper: Any) -> MagicMock:
     host.hass.states.get = lambda entity_id: State(
         entity_id, "0", {"min": 0, "max": 100, "step": 1}
     )
-    record = Trv(entity_id=TRV_ID, model="generic", advanced={})
+    record = trv_record(entity_id=TRV_ID, model="generic", advanced={})
     record.model_quirks = MagicMock(spec=[])
     if helper.domain == "number" and "valve" in helper.entity_id:
         record.adapter = mqtt

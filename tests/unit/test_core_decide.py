@@ -266,11 +266,10 @@ class TestMaintenancePreempt:
 
     def _running_maintenance(self):
         from custom_components.better_thermostat.core.fsm.maintenance import (
-            MaintenancePhase,
-            MaintenanceState,
+            MaintenanceRunning,
         )
 
-        return MaintenanceState(phase=MaintenancePhase.RUNNING, running_since=900.0)
+        return MaintenanceRunning(running_since=900.0)
 
     def test_maintenance_produces_no_intent(self):
         """During maintenance no TRV is addressed."""
@@ -546,13 +545,10 @@ class TestRegionIntegration:
     def test_stale_maintenance_run_stops_blocking(self):
         """The maintenance liveness invariant reaches the kernel gate."""
         from custom_components.better_thermostat.core.fsm.maintenance import (
-            MaintenancePhase,
-            MaintenanceState,
+            MaintenanceRunning,
         )
 
-        running = MaintenanceState(
-            phase=MaintenancePhase.RUNNING, running_since=-10_000.0
-        )
+        running = MaintenanceRunning(running_since=-10_000.0)
         state = make_state(maintenance=running)
         desired, _ = decide(make_snapshot(), state)
         # running_since is 11000 s before now_monotonic=1000 -> stale -> not blocking
@@ -561,11 +557,10 @@ class TestRegionIntegration:
     def test_fresh_maintenance_run_blocks(self):
         """A live RUNNING maintenance region pre-empts control."""
         from custom_components.better_thermostat.core.fsm.maintenance import (
-            MaintenancePhase,
-            MaintenanceState,
+            MaintenanceRunning,
         )
 
-        running = MaintenanceState(phase=MaintenancePhase.RUNNING, running_since=900.0)
+        running = MaintenanceRunning(running_since=900.0)
         state = make_state(maintenance=running)
         desired, _ = decide(make_snapshot(), state)
         assert dict(desired.trvs) == {}

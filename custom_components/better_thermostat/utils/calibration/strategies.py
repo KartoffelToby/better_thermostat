@@ -1,7 +1,7 @@
 """Calibration strategies behind the core Calibrator contract.
 
-Each strategy wraps one balance computation (MPC, TPI, PID) plus the
-knowledge of how to read a valve percentage out of its result. The
+Each strategy wraps one balance computation (MPC, TPI, PID) together
+with the reading of a valve percentage out of its result. The
 shared dispatch in ``calibration.py`` resolves the configured mode to a
 strategy and applies identical valve-fraction mathematics afterwards,
 so the per-mode behavior stays exactly what it was.
@@ -33,15 +33,11 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# A balance computation yields either a controller-specific output object
-# (MPC/TPI) or a raw PID percentage, or ``None`` when no result was produced.
-BalanceResult = MpcOutput | MpcV2Output | TpiOutput | float
-# Each strategy's ``compute`` returns ``(result, use_valve)``.
-ComputeBalance = Callable[
-    ["BetterThermostat", str], tuple["BalanceResult | None", bool]
-]
-# Each strategy's ``percent_of`` reads a valve percentage out of a result.
-PercentOf = Callable[["BalanceResult"], float | None]
+# A balance computation returns ``(result, use_valve)``: its controller's
+# output, or ``None`` when it produced no result.
+type ComputeBalance[R] = Callable[[BetterThermostat, str], tuple[R | None, bool]]
+# A balance computation with its result read as a valve percentage.
+type ComputeBalancePercent = ComputeBalance[float]
 
 
 # Grades the controllers' sanitize steps own (and may clear again).
@@ -126,7 +122,6 @@ class ModeTraits:
     """
 
     balance: BalanceStrategy | None = None
-    needs_target: bool = True
     uses_tolerance_band: bool = True
     skip_post_adjustments: bool = False
     tolerance_delay: bool = True
@@ -135,26 +130,27 @@ class ModeTraits:
 
 @dataclass(frozen=True)
 class BalanceStrategy:
-    """One calibration mode's balance computation and result accessor."""
+    """One calibration mode's balance computation.
+
+    ``compute`` already reads the valve percentage out of the
+    controller's result; :func:`build_balance_strategy` binds the two
+    while the result type is still known.
+    """
 
     mode: CalibrationMode
-    compute: ComputeBalance
-    percent_of: PercentOf
+    compute: ComputeBalancePercent
 
     def run(self, bt: BetterThermostat, entity_id: str) -> tuple[float | None, bool]:
         """Run the balance computation.
 
         Returns ``(valve_percent, use_valve)``; the percentage is None
-        when the computation produced no usable result.
+        when the computation produced no result.
         """
-        result, use_valve = self.compute(bt, entity_id)
-        if result is None:
+        percent, use_valve = self.compute(bt, entity_id)
+        if percent is None:
             return None, use_valve
-        percent = self.percent_of(result)
-        if not isinstance(percent, (int, float)):
-            return None, use_valve
-        self._watch_oscillation(bt, entity_id, float(percent))
-        return float(percent), use_valve
+        self._watch_oscillation(bt, entity_id, percent)
+        return percent, use_valve
 
     def _watch_oscillation(
         self, bt: BetterThermostat, entity_id: str, percent: float
@@ -189,7 +185,6 @@ class BalanceStrategy:
         if (
             trv is None
             or effective_room_temperature(bt) is None
-            or bt.heat_target_temperature is None
             or trv.calibrator_health != CalibratorHealth.HEALTHY
         ):
             return CapabilityLevel.CONFIGURED
@@ -277,48 +272,73 @@ class BalanceCalibrator:
         return CalibratorHealth.HEALTHY
 
 
-def _percent_of_mpc(result: BalanceResult) -> float | None:
-    return result.valve_percent if isinstance(result, MpcOutput) else None
+def build_balance_strategy[R](
+    mode: CalibrationMode, compute: ComputeBalance[R], percent_of: Callable[[R], float]
+) -> BalanceStrategy:
+    """Build a strategy that reads ``compute``'s result with ``percent_of``.
+
+    Parameters
+    ----------
+    mode : CalibrationMode
+        The calibration mode the strategy serves.
+    compute : ComputeBalance[R]
+        The controller's balance computation.
+    percent_of : Callable[[R], float]
+        Reads the valve percentage out of the controller's result.
+
+    Returns
+    -------
+    BalanceStrategy
+        The strategy, whose ``compute`` yields the percentage.
+    """
+
+    def compute_percent(
+        bt: BetterThermostat, entity_id: str
+    ) -> tuple[float | None, bool]:
+        result, use_valve = compute(bt, entity_id)
+        if result is None:
+            return None, use_valve
+        return float(percent_of(result)), use_valve
+
+    return BalanceStrategy(mode=mode, compute=compute_percent)
 
 
-def _percent_of_mpc_v2(result: BalanceResult) -> float | None:
-    return result.valve_percent if isinstance(result, MpcV2Output) else None
+def _percent_of_mpc(result: MpcOutput) -> float:
+    return result.valve_percent
 
 
-def _percent_of_tpi(result: BalanceResult) -> float | None:
-    return result.duty_cycle_percent if isinstance(result, TpiOutput) else None
+def _percent_of_mpc_v2(result: MpcV2Output) -> float:
+    return result.valve_percent
 
 
-def _percent_of_pid(result: BalanceResult) -> float | None:
-    return result if isinstance(result, (int, float)) else None
+def _percent_of_tpi(result: TpiOutput) -> float:
+    return result.duty_cycle_percent
+
+
+def _percent_of_pid(result: float) -> float:
+    return result
 
 
 def build_strategy_registry(
-    compute_mpc_balance: ComputeBalance,
-    compute_mpc_v2_balance: ComputeBalance,
-    compute_tpi_balance: ComputeBalance,
-    compute_pid_balance: ComputeBalance,
+    compute_mpc_balance: ComputeBalance[MpcOutput],
+    compute_mpc_v2_balance: ComputeBalance[MpcV2Output],
+    compute_tpi_balance: ComputeBalance[TpiOutput],
+    compute_pid_balance: ComputeBalance[float],
 ) -> dict[CalibrationMode, BalanceStrategy]:
     """Build the mode-to-strategy registry from the balance callables."""
     return {
-        CalibrationMode.MPC_CALIBRATION: BalanceStrategy(
-            mode=CalibrationMode.MPC_CALIBRATION,
-            compute=compute_mpc_balance,
-            percent_of=_percent_of_mpc,
+        CalibrationMode.MPC_CALIBRATION: build_balance_strategy(
+            CalibrationMode.MPC_CALIBRATION, compute_mpc_balance, _percent_of_mpc
         ),
-        CalibrationMode.MPC_V2_CALIBRATION: BalanceStrategy(
-            mode=CalibrationMode.MPC_V2_CALIBRATION,
-            compute=compute_mpc_v2_balance,
-            percent_of=_percent_of_mpc_v2,
+        CalibrationMode.MPC_V2_CALIBRATION: build_balance_strategy(
+            CalibrationMode.MPC_V2_CALIBRATION,
+            compute_mpc_v2_balance,
+            _percent_of_mpc_v2,
         ),
-        CalibrationMode.TPI_CALIBRATION: BalanceStrategy(
-            mode=CalibrationMode.TPI_CALIBRATION,
-            compute=compute_tpi_balance,
-            percent_of=_percent_of_tpi,
+        CalibrationMode.TPI_CALIBRATION: build_balance_strategy(
+            CalibrationMode.TPI_CALIBRATION, compute_tpi_balance, _percent_of_tpi
         ),
-        CalibrationMode.PID_CALIBRATION: BalanceStrategy(
-            mode=CalibrationMode.PID_CALIBRATION,
-            compute=compute_pid_balance,
-            percent_of=_percent_of_pid,
+        CalibrationMode.PID_CALIBRATION: build_balance_strategy(
+            CalibrationMode.PID_CALIBRATION, compute_pid_balance, _percent_of_pid
         ),
     }

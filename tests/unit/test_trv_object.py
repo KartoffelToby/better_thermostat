@@ -13,10 +13,11 @@ from custom_components.better_thermostat.trv import (
     PendingSetpoint,
     Trv,
 )
+from tests.factories import trv_record
 
 
 def _make() -> Trv:
-    return Trv(entity_id="climate.trv", integration="mqtt", model="TRVZB")
+    return trv_record(entity_id="climate.trv", model="TRVZB")
 
 
 class TestTypedAccess:
@@ -36,14 +37,15 @@ class TestTypedAccess:
         assert trv.advanced == {}
         assert trv.extra == {}
 
-    def test_attribute_writes(self):
+    @pytest.mark.parametrize("ignoring", [True, False])
+    def test_attribute_writes(self, ignoring):
         """Fields are plain mutable attributes."""
         trv = _make()
         trv.current_temperature = 21.5
-        trv.ignore_trv_states = True
+        trv.ignore_trv_states = ignoring
         trv.hvac_action = HVACAction.HEATING
         assert trv.current_temperature == 21.5
-        assert trv.ignore_trv_states is True
+        assert trv.ignore_trv_states is ignoring
         assert trv.hvac_action == HVACAction.HEATING
 
 
@@ -62,7 +64,7 @@ class TestExtraScratchpad:
 
     def test_the_requested_calibration_is_a_typed_field(self):
         """The pre-clamp offset intent is a typed field, not a scratch key."""
-        trv = Trv(
+        trv = trv_record(
             entity_id="climate.trv",
             last_calibration=-3.0,
             last_calibration_requested=-5.0,
@@ -291,10 +293,10 @@ class TestEchoSetpoints:
 
     def test_the_writes_are_a_typed_field_with_its_own_default(self):
         """The list is a typed field like the rest, with its own default."""
-        seeded = Trv(
+        seeded = trv_record(
             entity_id="climate.trv", pending_setpoints=[PendingSetpoint(26.0, 1)]
         )
-        bare = Trv(entity_id="climate.trv")
+        bare = trv_record(entity_id="climate.trv")
         assert seeded.echo_setpoint_values() == [26.0]
         assert bare.echo_setpoint_values() == []
 

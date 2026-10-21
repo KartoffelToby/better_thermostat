@@ -16,7 +16,7 @@ def _bare_entity() -> BetterThermostat:
     """Entity shell with containers attached, without running __init__."""
     bare = object.__new__(BetterThermostat)
     bare.config = BtConfig(device_name="Test BT", tolerance=0.3)
-    bare.runtime = BtRuntime()
+    bare.runtime = BtRuntime(heat_target_temperature=21.0)
     return bare
 
 
@@ -88,6 +88,7 @@ class TestRuntimeAndLearnedBridges:
         bare.kernel_state = replace(
             bare.kernel_state, window=WindowState(phase=WindowPhase.OPEN)
         )
-        assert bare.window_open is True
+        window_open: bool = bare.window_open
+        assert window_open is True
         with pytest.raises(AttributeError):
             setattr(bare, "window_open", False)

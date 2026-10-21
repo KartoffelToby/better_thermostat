@@ -16,8 +16,7 @@ import pytest
 
 from custom_components.better_thermostat.adapters import deconz, tado
 from custom_components.better_thermostat.adapters.base import DeviceChannels
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 ENTITY_ID = "climate.trv"
 SERVICE_ADAPTERS = (deconz, tado)
@@ -54,7 +53,7 @@ def _host(state=None, unit=UnitOfTemperature.CELSIUS):
         side_effect=lambda requested: state if requested == ENTITY_ID else None
     )
     host.hass.services.async_call = AsyncMock(return_value=None)
-    host.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}
+    host.real_trvs = {ENTITY_ID: trv_record(entity_id=ENTITY_ID)}
     return host
 
 

@@ -28,6 +28,10 @@ class BenchmarkContext:
     window_open: bool = False
     solar_intensity: float = 0.0  # 0.0 - 1.0
     last_valve_percent: float = 0.0
+    # The bias plus drift inside ``room_temperature``, sampled and filtered
+    # like the reading; the noise-free part of the sensor's error that no
+    # controller can observe.
+    sensor_calibration_error_K: float = 0.0
 
 
 @dataclass(frozen=True)

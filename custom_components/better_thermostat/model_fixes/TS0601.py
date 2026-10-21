@@ -22,8 +22,8 @@ def fix_local_calibration(
 
     This function performs model-specific rounding/adjustment to avoid
     spurious values that would lead to incorrect behavior. The adjustment
-    compares the room temperature against the setpoint; without either of
-    them the offset is returned unchanged.
+    compares the room temperature against the setpoint; without a room
+    temperature the offset is returned unchanged.
 
     Parameters
     ----------
@@ -42,7 +42,7 @@ def fix_local_calibration(
     _cur_external_temperature = self.room_temperature
     _heat_target_temperature = self.heat_target_temperature
 
-    if _cur_external_temperature is None or _heat_target_temperature is None:
+    if _cur_external_temperature is None:
         return calibration_offset
 
     if (_cur_external_temperature + 0.1) >= _heat_target_temperature:

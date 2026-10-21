@@ -18,8 +18,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     LadderParams,
 )
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _WATCHER = "custom_components.better_thermostat.utils.watcher"
@@ -34,7 +33,7 @@ def bt():
     mock.device_name = "Test BT"
     mock.kernel_state = KernelState()
     mock.clock = FakeClock()
-    mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID)}
+    mock.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID)}
     mock.sensor_entity_id = SENSOR_ID
     mock.humidity_sensor_entity_id = None
     mock.window_sensor_entity_id = None
@@ -68,9 +67,10 @@ async def test_trigger_steps_ladder_while_trv_is_unavailable(bt):
         bt.clock.advance(LadderParams().down_debounce_seconds + 1)
         await BetterThermostat._trigger_time(bt, None)
 
-    assert bt.kernel_state.control_mode.mode != ControlMode.OPTIMAL
-    assert bt.kernel_state.control_mode.mode == ControlMode.HOLD
-    assert bt.kernel_state.control_mode.degraded is True
+    control_mode = bt.kernel_state.control_mode
+    assert control_mode.mode != ControlMode.OPTIMAL
+    assert control_mode.mode == ControlMode.HOLD
+    assert control_mode.degraded is True
     # The unavailable TRV is reported, and it does not end the tick: both
     # passes run the outdoor check.
     assert bt.devices_errors == [TRV_ID]

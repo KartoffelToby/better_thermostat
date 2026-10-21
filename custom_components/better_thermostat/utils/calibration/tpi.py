@@ -15,6 +15,10 @@ from typing import TYPE_CHECKING, Literal, TypedDict, overload
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
+from custom_components.better_thermostat.utils.calibration.state_key import (
+    StateKey,
+    bucket_tag_of,
+)
 
 if TYPE_CHECKING:
     from ...climate import BetterThermostat
@@ -41,8 +45,8 @@ class TpiInput:
     """Input parameters for TPI calibration calculation."""
 
     key: str
-    room_temperature: float | None
-    target_temperature: float | None
+    room_temperature: float
+    target_temperature: float
     outdoor_temperature: float | None = None
     window_open: bool = False
     heating_allowed: bool = True
@@ -51,7 +55,7 @@ class TpiInput:
 
 
 # Why a cycle skipped the TPI calculation.
-type TpiSkipReason = Literal["blocked", "missing_temps", "threshold_high"]
+type TpiSkipReason = Literal["blocked", "threshold_high"]
 
 # Debug information from one TPI cycle. The keys become state attributes, so
 # they stay as they are; the functional syntax keeps them as strings rather
@@ -126,7 +130,7 @@ def _round_dbg(v: float | None, d: int = 3) -> float | None:
 
 def compute_tpi(
     inp: TpiInput, params: TpiParams, *, state: _TpiState, now: float | None = None
-) -> tuple[TpiOutput | None, _TpiState]:
+) -> tuple[TpiOutput, _TpiState]:
     """Compute TPI duty cycle and on/off durations.
 
     Parameters
@@ -146,9 +150,8 @@ def compute_tpi(
 
     Returns
     -------
-    tuple[TpiOutput | None, _TpiState]
-        The duty-cycle recommendation (or ``None`` on early exit) **and**
-        the updated state object.
+    tuple[TpiOutput, _TpiState]
+        The duty-cycle recommendation **and** the updated state object.
     """
     if now is None:
         now = monotonic()
@@ -173,19 +176,13 @@ def compute_tpi(
         debug: TpiDebugInfo = {"reason": "blocked"}
         return _finalize_output(inp, params, state, now, duty_percent, None, debug)
 
-    if inp.room_temperature is None or inp.target_temperature is None:
-        # Reuse last percent if available
-        duty_percent = state.last_percent if state.last_percent is not None else 0.0
-        debug = {"reason": "missing_temps"}
-        return _finalize_output(inp, params, state, now, duty_percent, None, debug)
-
     # Error in Kelvin
-    error_K = float(inp.target_temperature) - float(inp.room_temperature)
+    error_K = inp.target_temperature - inp.room_temperature
 
     # Simple TPI calculation like in versatile_thermostat
     duty_percent = params.coef_int * error_K
     if inp.outdoor_temperature is not None:
-        delta_ext = float(inp.target_temperature) - float(inp.outdoor_temperature)
+        delta_ext = inp.target_temperature - inp.outdoor_temperature
         duty_percent += params.coef_ext * delta_ext
 
     # Convert to percentage (0-100)
@@ -244,16 +241,8 @@ def _finalize_output(
 
 def build_tpi_key(bt: BetterThermostat, entity_id: str) -> str:
     """Return a stable key for TPI state tracking (similar to MPC)."""
-
-    try:
-        target = bt.heat_target_temperature
-        bucket = (
-            f"t{round(float(target) * 2.0) / 2.0:.1f}"
-            if isinstance(target, (int, float))
-            else "tunknown"
+    return str(
+        StateKey(
+            resolve_unique_id(bt), entity_id, bucket_tag_of(bt.heat_target_temperature)
         )
-    except TypeError, ValueError:
-        bucket = "tunknown"
-
-    uid = resolve_unique_id(bt)
-    return f"{uid}:{entity_id}:{bucket}"
+    )

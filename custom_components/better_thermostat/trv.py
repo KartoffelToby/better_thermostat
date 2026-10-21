@@ -1,7 +1,7 @@
 """Per-TRV domain object.
 
 A :class:`Trv` bundles everything Better Thermostat knows about one
-thermostatic radiator valve: static configuration (integration, model,
+thermostatic radiator valve: static configuration (model,
 adapter, quirks), reported device state, and the write-tracking flags
 the control loop maintains. The entries of ``real_trvs`` are
 instances of this class, accessed via typed attributes.
@@ -73,6 +73,38 @@ class WithdrawnHvacMode:
     until: float
 
 
+@dataclass(frozen=True)
+class UnreadReport:
+    """What a report held off by a control cycle is read against.
+
+    Attributes
+    ----------
+    state_before : State | None
+        The state the report replaced, ``None`` when the device had none
+    hvac_mode_before : str | None
+        The mode the device is judged to have held before the report
+    """
+
+    state_before: State | None
+    hvac_mode_before: str | None
+
+
+@dataclass(frozen=True)
+class BudgetRetry:
+    """A follow-up control cycle for a write the write budget deferred.
+
+    Attributes
+    ----------
+    due_at : float
+        Monotonic time the cycle is due at
+    task : asyncio.Task[None]
+        The task sleeping until then
+    """
+
+    due_at: float
+    task: asyncio.Task[None] = field(repr=False, compare=False)
+
+
 @dataclass
 class PendingSetpoint:
     """A setpoint on the wire that the device has not confirmed yet.
@@ -110,14 +142,13 @@ class Trv:
     entity_id: str
 
     # -- Static configuration --------------------------------------------
-    integration: str | None = None
-    model: str | None = None
+    model: str
+    adapter: TrvAdapter
+    # The model-quirk module ``load_model_quirks`` imported for the model.
+    model_quirks: ModelQuirks
     # What BT writes to calibrate the TRV; None when the configuration
     # selects no calibration type.
     calibration: CalibrationOutput | None = None
-    adapter: TrvAdapter | None = None
-    # The model-quirk module ``load_model_quirks`` imported for the model.
-    model_quirks: ModelQuirks | None = None
     advanced: TrvAdvanced = field(default_factory=TrvAdvanced)
 
     # -- Reported device state -------------------------------------------
@@ -197,7 +228,6 @@ class Trv:
     # Whether that report is raised: the TRV is listed in the thermostat's
     # errors and carries a repair issue.
     setpoint_unapplied_reported: bool = False
-    last_valve_position: float | None = None
     last_hvac_mode: str | None = None
     # A mode command still on the wire that the room took back before the
     # device confirmed it. The device already held the mode the room wanted
@@ -207,19 +237,17 @@ class Trv:
     # it carries: a device gets as long to apply it as the mode watchdog gives
     # any command, and a report after that is the user's again.
     withdrawn_hvac_mode: WithdrawnHvacMode | None = None
-    # Whether the device reported something while a control cycle held the
-    # inbound handler off. The end of the cycle reads the device's state then,
-    # before a later cycle can write over a press nobody has read.
-    report_unread: bool = False
-    # The state the first of those held reports replaced. The end of the cycle
-    # judges the device's state against it, so a device that came back from
-    # ``unavailable`` inside the cycle is read as a return, not as a press.
-    state_before_held_report: State | None = None
-    # The mode cached for the device when that state was replaced. The end of
-    # the cycle settles the cache before it reads the held report, so the
-    # report is judged against this mode, as the handler judges it against the
-    # cache outside a cycle.
-    hvac_mode_before_held_report: str | None = None
+    # Set while the device has reported something that a control cycle held
+    # the inbound handler off from; ``None`` otherwise. The end of the cycle
+    # reads the device's state then, before a later cycle can write over a
+    # press nobody has read. It judges that state against the state the first
+    # of those held reports replaced, so a device that came back from
+    # ``unavailable`` inside the cycle is read as a return, not as a press,
+    # and against the mode cached for the device when that state was
+    # replaced: the end of the cycle settles the cache before it reads the
+    # held report, as the handler judges a report against the cache outside a
+    # cycle.
+    unread_report: UnreadReport | None = None
     # A held report whose internal temperature was taken while the cycle ran.
     # The value is applied as it arrives, so reading the report again at the
     # end of the cycle finds nothing new; this is what still asks for a cycle.
@@ -230,7 +258,6 @@ class Trv:
     # hides the turn from the state the end of the cycle reads, so the turn
     # is read first.
     held_turn: tuple[State, State] | None = None
-    last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually put on the
     # wire, after its own clamp to the device's declared offset range;
     # ``last_calibration_requested`` is the value asked for before that
@@ -248,13 +275,9 @@ class Trv:
     # channel's write cannot starve another channel's slot. A channel never
     # written to has no entry.
     last_write_monotonic: dict[WriteChannel, float] = field(default_factory=dict)
-    # Monotonic time the follow-up control cycle for a budget-deferred
-    # write is due at, and the task sleeping until then; None when no
+    # The follow-up control cycle for a budget-deferred write; None when no
     # retry is scheduled.
-    budget_retry_due_at: float | None = None
-    budget_retry_task: asyncio.Task[None] | None = field(
-        default=None, repr=False, compare=False
-    )
+    budget_retry: BudgetRetry | None = None
     # Whether a follow-up control cycle is already scheduled for this
     # TRV's next reachability-retry window.
     reachability_retry_pending: bool = False
@@ -296,7 +319,12 @@ class Trv:
     @property
     def budget_retry_pending(self) -> bool:
         """Whether a follow-up control cycle is scheduled for a deferred write."""
-        return self.budget_retry_due_at is not None
+        return self.budget_retry is not None
+
+    @property
+    def report_unread(self) -> bool:
+        """Whether a report held off by a control cycle is still to be read."""
+        return self.unread_report is not None
 
     def consume_accept_next_internal_temperature(self) -> bool:
         """Return and clear the one-shot accept-next-internal-temperature flag.
@@ -422,18 +450,13 @@ class Trv:
         offset_entity = self.local_temperature_calibration_entity is not None
         valve_entity = bool(self.valve_position_entity and self.valve_position_writable)
 
-        declared = self.adapter.CAPABILITIES if self.adapter is not None else None
-        if declared is None:
-            # A TRV without an adapter: the discovered surface rules.
-            offset_write = offset_entity
-            valve_write = valve_entity
-        else:
-            offset_write = declared.offset_write and (
-                offset_entity or not declared.offset_needs_entity
-            )
-            valve_write = declared.valve_write and (
-                valve_entity or not declared.valve_needs_entity
-            )
+        declared = self.adapter.CAPABILITIES
+        offset_write = declared.offset_write and (
+            offset_entity or not declared.offset_needs_entity
+        )
+        valve_write = declared.valve_write and (
+            valve_entity or not declared.valve_needs_entity
+        )
 
         # An unreported mode list counts as no-off: BT then sends min temperature
         # instead of an OFF the device may not support. The cached list holds

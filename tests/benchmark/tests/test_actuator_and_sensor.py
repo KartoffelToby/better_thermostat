@@ -175,6 +175,7 @@ def test_sensor_bias_and_drift_apply():
     later = s.read(3600.0, 20.0)
     assert later is not None
     assert abs(later - 20.6) < 1e-6
+    assert s.calibration_error_K(3600.0) == pytest.approx(0.6)
 
 
 def test_sensor_dropout_window_with_start():
@@ -251,3 +252,18 @@ def test_sensor_jitter_kick_is_bounded():
     for t in range(200):
         s.read(t * 60.0, 20.0)
         assert abs(s._next_sample_interval_s - 60.0) <= bound
+
+
+def test_observed_calibration_error_follows_the_reported_value():
+    """Between samples the reported drift is held, and the EMA filters it too."""
+    p = SensorParams(drift_K_per_h=0.6, sample_interval_s=600.0, ema_alpha=0.5)
+    s = Sensor(p)
+    s.read(0.0, 20.0)
+    assert s.observed_calibration_error_K == pytest.approx(0.0)
+    # Within the sample interval the reading and its drift are held.
+    s.read(300.0, 20.0)
+    assert s.observed_calibration_error_K == pytest.approx(0.0)
+    # The next sample blends 0.1 K of drift with the held 0.0 K.
+    reading = s.read(600.0, 20.0)
+    assert reading == pytest.approx(20.05)
+    assert s.observed_calibration_error_K == pytest.approx(0.05)

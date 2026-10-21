@@ -68,7 +68,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_report_is_unreadable,
     trv_state_unknown_as_available,
 )
-from custom_components.better_thermostat.trv import WithdrawnHvacMode
+from custom_components.better_thermostat.trv import BudgetRetry, WithdrawnHvacMode
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
 from custom_components.better_thermostat.utils.const import (
@@ -107,6 +107,7 @@ from custom_components.better_thermostat.utils.helpers import (
     read_setpoint_celsius,
     setpoint_echo_window,
     settle_cooler_reading,
+    state_is_live,
     state_temperature_unit,
     supports_single_target_temperature,
     supports_temperature_range,
@@ -378,25 +379,25 @@ def _schedule_budget_retry(
     trv = self.real_trvs[entity_id]
     delay = max(retry_in_seconds, 0.0)
     due_at = self.clock.monotonic() + delay
-    if trv.budget_retry_due_at is not None and trv.budget_retry_due_at <= due_at:
-        return
-    if trv.budget_retry_task is not None:
-        trv.budget_retry_task.cancel()
-    trv.budget_retry_due_at = due_at
+    scheduled = trv.budget_retry
+    if scheduled is not None:
+        if scheduled.due_at <= due_at:
+            return
+        scheduled.task.cancel()
+        trv.budget_retry = None
 
     async def _retry() -> None:
         try:
             await asyncio.sleep(delay)
         finally:
             # A replacement retry owns the bookkeeping from here on.
-            if trv.budget_retry_due_at == due_at:
-                trv.budget_retry_due_at = None
-                trv.budget_retry_task = None
+            if trv.budget_retry is not None and trv.budget_retry.due_at == due_at:
+                trv.budget_retry = None
         request_control_cycle(self)
 
-    trv.budget_retry_task = self.task_manager.create_task(
-        _retry(), name=f"bt_budget_retry_{entity_id}"
-    )
+    task = self.task_manager.create_task(_retry(), name=f"bt_budget_retry_{entity_id}")
+    if task is not None:
+        trv.budget_retry = BudgetRetry(due_at=due_at, task=task)
 
 
 def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None:
@@ -677,7 +678,7 @@ def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
     if trv.last_calibration is None or trv.calibration_received is not True:
         return False
     state = self.hass.states.get(trv.local_temperature_calibration_entity)
-    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    if not state_is_live(state):
         return False
     reported = convert_to_float(state.state, self.device_name, "reconcile()")
     if reported is None:
@@ -702,7 +703,7 @@ def _valve_diverges(self: BetterThermostat, trv: Trv) -> bool:
     if trv.last_valve_percent is None:
         return False
     state = self.hass.states.get(trv.valve_position_entity)
-    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    if not state_is_live(state):
         return False
     reported = convert_to_float(state.state, self.device_name, "reconcile()")
     if reported is None:
@@ -746,7 +747,7 @@ def desired_diverges(
         if trv is None:
             continue
         state = self.hass.states.get(entity_id)
-        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if not state_is_live(state):
             continue
         if cooling_owns_dual_role_device(self, entity_id):
             # The cooling channel drives this device, so the mode and setpoint
@@ -949,7 +950,7 @@ class TaskManager:
 class _UserIntent(NamedTuple):
     """The room targets a user sets."""
 
-    heat_target_temperature: float | None
+    heat_target_temperature: float
     cool_target_temperature: float | None
     hvac_mode: HVACMode | None
 
@@ -1282,13 +1283,12 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
         The Better Thermostat climate entity instance
     """
     for entity_id, trv in list(self.real_trvs.items()):
-        if not trv.report_unread:
+        unread = trv.unread_report
+        if unread is None:
             continue
-        trv.report_unread = False
-        previous = trv.state_before_held_report
-        trv.state_before_held_report = None
-        prior_hvac_mode = trv.hvac_mode_before_held_report
-        trv.hvac_mode_before_held_report = None
+        trv.unread_report = None
+        previous = unread.state_before
+        prior_hvac_mode = unread.hvac_mode_before
         temperature_moved = trv.temperature_moved_while_held
         trv.temperature_moved_while_held = False
         held_turn = trv.held_turn
@@ -1912,7 +1912,7 @@ async def control_cooler(
         return
     # Get current cooler state to avoid sending redundant commands
     cooler_state = self.hass.states.get(cooler_entity_id)
-    if cooler_state is None or cooler_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    if not state_is_live(cooler_state):
         _LOGGER.debug(
             "better_thermostat %s: cooler %s unavailable, skipping",
             self.device_name,
@@ -1973,22 +1973,16 @@ async def control_cooler(
     heat_target_temperature = snapshot.heat_target_temperature
     tolerance = snapshot.tolerance
 
-    if (
-        room_temperature is None
-        or cool_target_temperature is None
-        or tolerance is None
-        or heat_target_temperature is None
-    ):
+    if room_temperature is None or cool_target_temperature is None or tolerance is None:
         _LOGGER.debug(
             "better_thermostat %s: cooler %s one or more required values are None "
-            "(room_temperature=%s, cool_target_temperature=%s, tolerance=%s, heat_target_temperature=%s), "
+            "(room_temperature=%s, cool_target_temperature=%s, tolerance=%s), "
             "defaulting to OFF",
             self.device_name,
             self.cooler_entity_id,
             room_temperature,
             cool_target_temperature,
             tolerance,
-            heat_target_temperature,
         )
         desired_mode = HVACMode.OFF
     elif snapshot.hvac_mode == HVACMode.OFF:
@@ -3116,15 +3110,13 @@ def _setpoint_turned_during_cycle(self: BetterThermostat, entity_id: str) -> boo
     own setpoint, not a turn: the inbound handler takes neither as a press.
     """
     trv = self.real_trvs[entity_id]
-    if not trv.report_unread or advanced_flag(trv.advanced, CONF_CHILD_LOCK):
+    unread = trv.unread_report
+    if unread is None or advanced_flag(trv.advanced, CONF_CHILD_LOCK):
         return False
-    if (
-        trv.state_before_held_report is not None
-        and trv.state_before_held_report.state == HVACMode.OFF
-    ):
+    if unread.state_before is not None and unread.state_before.state == HVACMode.OFF:
         return False
     before = read_setpoint_celsius(
-        self, trv.state_before_held_report, TRV_SETPOINT_KEYS, "control_trv()"
+        self, unread.state_before, TRV_SETPOINT_KEYS, "control_trv()"
     )
     live = self.hass.states.get(entity_id)
     reported = read_setpoint_celsius(self, live, TRV_SETPOINT_KEYS, "control_trv()")
@@ -3144,14 +3136,15 @@ def _mode_switched_during_cycle(
     mode the inbound handler reads as heat or off counts: the end of the
     cycle ignores any other, so a write skipped for it would not follow.
     """
-    if not trv.report_unread or advanced_flag(trv.advanced, CONF_CHILD_LOCK):
+    unread = trv.unread_report
+    if unread is None or advanced_flag(trv.advanced, CONF_CHILD_LOCK):
         return False
     if mode_remap(self, entity_id, reported_mode, True) not in (
         HVACMode.OFF,
         HVACMode.HEAT,
     ):
         return False
-    before = trv.state_before_held_report
+    before = unread.state_before
     if before is None or before.state in UNAVAILABLE_OR_UNKNOWN_STATES:
         return False
     if reported_mode in UNAVAILABLE_OR_UNKNOWN_STATES:

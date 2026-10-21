@@ -31,7 +31,7 @@ from custom_components.better_thermostat.utils.helpers import (
     cooling_owns_dual_role_device,
     last_sent_cooler_temperature,
 )
-from tests.factories import ThermostatStandIn, make_snapshot
+from tests.factories import ThermostatStandIn, make_snapshot, trv_record
 
 
 def _mock_cooler_state(state=HVACMode.COOL):
@@ -2766,7 +2766,7 @@ class TestControlCoolerOnADualRoleEntity:
         mock_self, mock_hass, cooler_state = _make_cooler_setup(**kwargs)
         mock_self.cooler_entity_id = cls.SHARED_ID
         mock_self.real_trvs = {
-            cls.SHARED_ID: Trv(
+            cls.SHARED_ID: trv_record(
                 entity_id=cls.SHARED_ID,
                 hvac_modes=[
                     HVACMode.OFF,
@@ -2889,12 +2889,12 @@ class TestControlCoolerOnADualRoleEntity:
         mock_self, _, _ = self._make_shared_setup(
             cooler_state=HVACMode.HEAT, cooler_temperature_attr=30.0
         )
-        shared_trv = mock_self.real_trvs[self.SHARED_ID]
-        shared_trv.target_temperature_received = False
-        shared_trv.system_mode_received = False
+        mock_self.real_trvs[self.SHARED_ID].target_temperature_received = False
+        mock_self.real_trvs[self.SHARED_ID].system_mode_received = False
 
         await control_cooler(mock_self, self._cooling_snapshot())
 
+        shared_trv = mock_self.real_trvs[self.SHARED_ID]
         assert shared_trv.target_temperature_received is True
         assert shared_trv.system_mode_received is True
 
