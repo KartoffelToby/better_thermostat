@@ -511,6 +511,9 @@
       "child_lock_no_trv": {
         "name": "Sécurité enfant"
       },
+      "pause_learning": {
+        "name": "Suspendre l'apprentissage"
+      },
       "window_detection": {
         "name": "Détection de fenêtre"
       }

@@ -511,6 +511,9 @@
       "child_lock_no_trv": {
         "name": "Børnesikring"
       },
+      "pause_learning": {
+        "name": "Sæt indlæring på pause"
+      },
       "window_detection": {
         "name": "Vinduesregistrering"
       }

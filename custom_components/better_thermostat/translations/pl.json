@@ -511,6 +511,9 @@
       "child_lock_no_trv": {
         "name": "Blokada rodzicielska"
       },
+      "pause_learning": {
+        "name": "Wstrzymaj uczenie"
+      },
       "window_detection": {
         "name": "Wykrywanie okna"
       }

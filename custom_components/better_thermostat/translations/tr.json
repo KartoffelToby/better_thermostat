@@ -511,6 +511,9 @@
       "child_lock_no_trv": {
         "name": "Çocuk kilidi"
       },
+      "pause_learning": {
+        "name": "Öğrenmeyi duraklat"
+      },
       "window_detection": {
         "name": "Pencere algılama"
       }

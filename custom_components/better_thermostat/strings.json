@@ -511,6 +511,9 @@
       "child_lock_no_trv": {
         "name": "Child Lock"
       },
+      "pause_learning": {
+        "name": "Pause Learning"
+      },
       "window_detection": {
         "name": "Window Detection"
       }

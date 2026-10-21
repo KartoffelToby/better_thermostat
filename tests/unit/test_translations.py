@@ -68,6 +68,7 @@ ENTITY_TRANSLATION_KEYS = {
         "pid_auto_tune_no_trv",
         "child_lock",
         "child_lock_no_trv",
+        "pause_learning",
         "window_detection",
     },
 }
