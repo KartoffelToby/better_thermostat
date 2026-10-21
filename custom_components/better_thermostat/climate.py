@@ -734,7 +734,7 @@ def _cool_target_above(
 
 
 def _target_temperature_step_celsius(
-    state: State | None, device_name: str, system_unit: UnitOfTemperature | None
+    state: State | None, device_name: str, system_unit: UnitOfTemperature
 ) -> float | None:
     """Read a child's own setpoint step and return it as a Celsius delta.
 

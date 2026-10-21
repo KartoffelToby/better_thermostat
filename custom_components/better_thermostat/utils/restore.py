@@ -33,7 +33,8 @@ def mean_trv_target(
     states: list[State],
     device_name: str,
     context: str = "restore(target)",
-    system_unit: str | None = None,
+    *,
+    system_unit: str,
 ) -> float | None:
     """Mean of the valid TRV target temperatures, each converted to Celsius.
 
@@ -107,7 +108,7 @@ def saved_cooling_target(attributes: Mapping[str, object]) -> object:
 
 
 def _saved_celsius(
-    saved: object, device_name: str, context: str, system_unit: str | None
+    saved: object, device_name: str, context: str, system_unit: str
 ) -> float | None:
     """Convert a saved temperature to Celsius, or ``None`` if it is no number.
 
@@ -120,7 +121,7 @@ def _saved_celsius(
 
 
 def restore_cooling_target(
-    saved: object, device_name: str, system_unit: str | None = None
+    saved: object, device_name: str, system_unit: str
 ) -> float | None:
     """Return the saved cooling target in Celsius, or ``None`` if unusable."""
     return _saved_celsius(saved, device_name, "startup()", system_unit)
@@ -132,7 +133,7 @@ def restore_target_temperature(
     min_temp: float | None,
     max_temp: float | None,
     device_name: str,
-    system_unit: str | None = None,
+    system_unit: str,
 ) -> float | None:
     """Resolve the restored heating target.
 

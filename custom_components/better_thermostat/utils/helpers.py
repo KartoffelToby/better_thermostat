@@ -1199,8 +1199,8 @@ def convert_to_float_celsius(
 
 
 def state_temperature_unit(
-    attributes: Mapping[str, object] | None, system_unit: str | None
-) -> str | None:
+    attributes: Mapping[str, object] | None, system_unit: str
+) -> str:
     """Resolve the temperature unit of a state's attributes.
 
     ``climate`` entities report their temperatures in the Home Assistant system
@@ -1213,12 +1213,12 @@ def state_temperature_unit(
     ----------
     attributes : Mapping[str, object] | None
             the state attributes to inspect, or None when the state is missing
-    system_unit : str | None
+    system_unit : str
             the configured system temperature unit, used as fallback
 
     Returns
     -------
-    str | None
+    str
             the resolved temperature unit, or ``system_unit`` when no explicit
             unit attribute is present
     """
@@ -1399,7 +1399,7 @@ def normalize_step(value: float | int | str | None, fallback: float = 0.5) -> fl
 
 
 def reported_setpoint_step_celsius(
-    state: State | None, device_name: str, system_unit: str | None, log_source: str
+    state: State | None, device_name: str, system_unit: str, log_source: str
 ) -> float | None:
     """Return the setpoint step a state publishes, as a Celsius delta.
 
@@ -1422,7 +1422,7 @@ def reported_setpoint_step_celsius(
             None when the state is missing
     device_name : str
             the Better Thermostat instance name, for logging context
-    system_unit : str | None
+    system_unit : str
             the configured system temperature unit, used when the attributes
             name no unit of their own
     log_source : str
@@ -2214,7 +2214,7 @@ def read_bound_celsius(
 
 def bound_to_celsius(
     value: str | int | float | None,
-    unit: str | None,
+    unit: str,
     *,
     lower: bool,
     instance_name: str,
@@ -2339,7 +2339,7 @@ _PRECISION_ATTRIBUTES = (
 )
 
 
-def published_in_whole_fahrenheit(state: State | None, system_unit: str | None) -> bool:
+def published_in_whole_fahrenheit(state: State | None, system_unit: str) -> bool:
     """Whether Home Assistant publishes this climate state in whole degrees Fahrenheit.
 
     The state does not name the precision it was rounded to, so it is read
@@ -2359,7 +2359,7 @@ def published_in_whole_fahrenheit(state: State | None, system_unit: str | None) 
 
 
 def published_setpoint_grid(
-    step: float, state: State | None, system_unit: str | None
+    step: float, state: State | None, system_unit: str
 ) -> float:
     """Return the grid, as a °C delta, a setpoint is written to a device on.
 
@@ -2381,7 +2381,7 @@ def published_setpoint_grid(
             the device's setpoint step in °C
     state : State | None
             the device state the setpoint is published in
-    system_unit : str | None
+    system_unit : str
             the configured system temperature unit
 
     Returns
@@ -2395,7 +2395,7 @@ def published_setpoint_grid(
 
 
 def as_published_setpoint(
-    value: float | None, state: State | None, system_unit: str | None
+    value: float | None, state: State | None, system_unit: str
 ) -> float | None:
     """Return ``value`` the way Home Assistant publishes it back, in °C.
 
@@ -2413,7 +2413,7 @@ def as_published_setpoint(
             the setpoint in °C as the device holds it
     state : State | None
             the device state the setpoint is published in
-    system_unit : str | None
+    system_unit : str
             the configured system temperature unit
 
     Returns

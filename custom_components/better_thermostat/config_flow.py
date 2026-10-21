@@ -208,7 +208,7 @@ _MPC_V2_PLANT_PRESET_CHOICES: tuple[MpcV2PlantPreset, ...] = (
 )
 
 
-def _celsius_in_system_unit(celsius: float, system_unit: str | None) -> float:
+def _celsius_in_system_unit(celsius: float, system_unit: str) -> float:
     """Return a temperature given in °C in the system unit."""
     if system_unit == UnitOfTemperature.FAHRENHEIT:
         return TemperatureConverter.convert(
@@ -217,7 +217,7 @@ def _celsius_in_system_unit(celsius: float, system_unit: str | None) -> float:
     return celsius
 
 
-def _flow_temperature_selector(system_unit: str | None) -> selector.NumberSelector:
+def _flow_temperature_selector(system_unit: str) -> selector.NumberSelector:
     """Return the flow-temperature field, bounded and labelled in the system unit."""
     lower, upper = (
         _celsius_in_system_unit(bound, system_unit) for bound in FLOW_TEMPERATURE_BOUNDS
@@ -237,7 +237,7 @@ def _flow_temperature_selector(system_unit: str | None) -> selector.NumberSelect
     )
 
 
-def _flow_temperature_default(stored: object, system_unit: str | None) -> float:
+def _flow_temperature_default(stored: object, system_unit: str) -> float:
     """Return the flow temperature the form suggests, in the system unit.
 
     A stored value outside the range the field accepts, or one that is not a
@@ -505,7 +505,7 @@ def _stored_settings(
     return stored
 
 
-def _off_temperature_default(system_unit: str | None) -> int:
+def _off_temperature_default(system_unit: str) -> int:
     """Return the suggested outdoor threshold in the system unit, in whole degrees."""
     if system_unit == UnitOfTemperature.FAHRENHEIT:
         return round(
@@ -633,7 +633,7 @@ def _build_advanced_fields(
     homematic: bool,
     has_auto: bool,
     channels: DeviceChannels | None = None,
-    system_unit: str | None = None,
+    system_unit: str,
 ) -> OrderedDict[vol.Marker, object]:
     views = [_without_balance_mode(source) for source in sources if source is not None]
 
@@ -805,7 +805,7 @@ def _build_user_fields(
     mode: _FlowMode,
     current: Mapping[str, object],
     user_input: Mapping[str, object] | None = None,
-    system_unit: str | None = None,
+    system_unit: str,
     excluded_climates: Iterable[str] = (),
 ) -> OrderedDict[vol.Marker, object]:
     user_input = user_input or {}
@@ -1065,7 +1065,7 @@ def _normalize_user_submission(
     mode: _FlowMode,
     base: Mapping[str, object] | None = None,
     errors: dict[str, str] | None = None,
-    system_unit: str | None = None,
+    system_unit: str,
 ) -> _UserDraft:
     """Return the user step's settings from a submission on top of ``base``.
 

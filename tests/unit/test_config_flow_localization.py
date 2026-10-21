@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 
+from homeassistant.const import UnitOfTemperature
 import voluptuous as vol
 
 from custom_components.better_thermostat.config_flow import (
@@ -19,7 +20,9 @@ from custom_components.better_thermostat.utils.const import (
 def test_new_auto_target_temperature_step_is_preserved():
     """The translated Auto selector must persist the new empty-string value."""
     normalized = _normalize_user_submission(
-        {CONF_TARGET_TEMP_STEP: "auto"}, mode="create"
+        {CONF_TARGET_TEMP_STEP: "auto"},
+        mode="create",
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert normalized[CONF_TARGET_TEMP_STEP] == ""
@@ -28,7 +31,9 @@ def test_new_auto_target_temperature_step_is_preserved():
 def test_legacy_auto_target_temperature_step_is_preserved():
     """The legacy Auto selector must continue to persist 0.0."""
     normalized = _normalize_user_submission(
-        {CONF_TARGET_TEMP_STEP: "auto_legacy"}, mode="create"
+        {CONF_TARGET_TEMP_STEP: "auto_legacy"},
+        mode="create",
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert normalized[CONF_TARGET_TEMP_STEP] == "0.0"
@@ -36,14 +41,20 @@ def test_legacy_auto_target_temperature_step_is_preserved():
 
 def test_missing_target_temperature_step_uses_legacy_default():
     """A genuinely missing selector value must retain the existing fallback."""
-    normalized = _normalize_user_submission({}, mode="create")
+    normalized = _normalize_user_submission(
+        {}, mode="create", system_unit=UnitOfTemperature.CELSIUS
+    )
 
     assert normalized[CONF_TARGET_TEMP_STEP] == "0.0"
 
 
 def test_empty_target_temperature_step_uses_legacy_default():
     """An explicit empty selector value must use the legacy fallback."""
-    normalized = _normalize_user_submission({CONF_TARGET_TEMP_STEP: ""}, mode="create")
+    normalized = _normalize_user_submission(
+        {CONF_TARGET_TEMP_STEP: ""},
+        mode="create",
+        system_unit=UnitOfTemperature.CELSIUS,
+    )
 
     assert normalized[CONF_TARGET_TEMP_STEP] == "0.0"
 
@@ -66,6 +77,7 @@ def test_redisplayed_form_keeps_the_submitted_selector_token():
             mode="create",
             current={CONF_TARGET_TEMP_STEP: "0.1"},
             user_input={CONF_TARGET_TEMP_STEP: token},
+            system_unit=UnitOfTemperature.CELSIUS,
         )
 
         assert _target_step_default(fields) == token
@@ -75,7 +87,9 @@ def test_form_maps_stored_values_to_selector_tokens():
     """A freshly built form translates the stored value into its selector token."""
     for stored, token in (("", "auto"), ("0.0", "auto_legacy"), ("0.5", "step_0_5")):
         fields = _build_user_fields(
-            mode="update", current={CONF_TARGET_TEMP_STEP: stored}
+            mode="update",
+            current={CONF_TARGET_TEMP_STEP: stored},
+            system_unit=UnitOfTemperature.CELSIUS,
         )
 
         assert _target_step_default(fields) == token
@@ -91,7 +105,9 @@ def _bound_default(fields, key):
 
 def test_unset_target_temperature_bounds_stay_on_auto():
     """An entry that names no bounds keeps deriving them from its devices."""
-    normalized = _normalize_user_submission({}, mode="create")
+    normalized = _normalize_user_submission(
+        {}, mode="create", system_unit=UnitOfTemperature.CELSIUS
+    )
 
     assert normalized[CONF_TARGET_TEMP_MIN] == TARGET_TEMP_BOUND_AUTO
     assert normalized[CONF_TARGET_TEMP_MAX] == TARGET_TEMP_BOUND_AUTO
@@ -102,6 +118,7 @@ def test_selected_target_temperature_bounds_are_stored_as_degrees():
     normalized = _normalize_user_submission(
         {CONF_TARGET_TEMP_MIN: "min_max_16", CONF_TARGET_TEMP_MAX: "min_max_24"},
         mode="create",
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert normalized[CONF_TARGET_TEMP_MIN] == "16.0"
@@ -116,6 +133,7 @@ def test_form_maps_stored_bounds_to_selector_tokens():
             CONF_TARGET_TEMP_MIN: "16.0",
             CONF_TARGET_TEMP_MAX: TARGET_TEMP_BOUND_AUTO,
         },
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert _bound_default(fields, CONF_TARGET_TEMP_MIN) == "min_max_16"
@@ -131,6 +149,7 @@ def test_redisplayed_form_keeps_the_submitted_bound_tokens():
             CONF_TARGET_TEMP_MIN: "min_max_25",
             CONF_TARGET_TEMP_MAX: "min_max_20",
         },
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert _bound_default(fields, CONF_TARGET_TEMP_MIN) == "min_max_25"
@@ -145,6 +164,7 @@ def test_a_minimum_above_the_maximum_is_reported_on_the_minimum():
         {CONF_TARGET_TEMP_MIN: "min_max_25", CONF_TARGET_TEMP_MAX: "min_max_20"},
         mode="create",
         errors=errors,
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert errors == {CONF_TARGET_TEMP_MIN: "target_temp_min_above_max"}
@@ -158,6 +178,7 @@ def test_equal_target_temperature_bounds_are_accepted():
         {CONF_TARGET_TEMP_MIN: "min_max_21", CONF_TARGET_TEMP_MAX: "min_max_21"},
         mode="create",
         errors=errors,
+        system_unit=UnitOfTemperature.CELSIUS,
     )
 
     assert errors == {}
@@ -171,6 +192,11 @@ def test_a_bound_left_on_auto_never_conflicts_with_the_other():
     ):
         errors: dict[str, str] = {}
 
-        _normalize_user_submission(submission, mode="create", errors=errors)
+        _normalize_user_submission(
+            submission,
+            mode="create",
+            errors=errors,
+            system_unit=UnitOfTemperature.CELSIUS,
+        )
 
         assert errors == {}
