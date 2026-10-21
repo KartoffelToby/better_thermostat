@@ -245,6 +245,9 @@ once heat flows. The valves stay where they are; only learning stops. See
 The blueprint needs an entity that reports the heat source, such as a binary
 sensor built from an eBUS, OpenTherm or heat pump integration. Only its `on` and
 `off` states count, so an entity that becomes `unavailable` changes nothing.
+The blueprint also applies the entity's current state when Home Assistant starts
+and when automations are reloaded, so a heat source that is already off when you
+save the automation pauses learning at once.
 
 | Input | Description | Default |
 |---|---|---|
@@ -263,7 +266,9 @@ sensor built from an eBUS, OpenTherm or heat pump integration. Only its `on` and
 Turns the **Pause Learning** switch of the selected rooms on once a temperature
 sensor at the fireplace rises above a threshold, and off again once it has stayed
 below a second threshold for the cool-down time. Select the switch of the
-fireplace's room and of every room next door that the fire warms as well.
+fireplace's room and of every room next door that the fire warms as well. Both
+thresholds are in °C; a sensor that reports °F or K is converted before the
+comparison.
 
 Optionally it sets a preset, such as Eco, on the selected thermostats while the
 fire burns, and sets `none` once the fire is out. A preset chosen before the
@@ -276,12 +281,12 @@ fire is not restored.
 | Input | Description | Default |
 |---|---|---|
 | Fireplace temperature sensor | `sensor.*` with the temperature device class, at the fireplace, its flue or stove pipe | – |
-| Burning above | The fireplace counts as burning above this value | `40` |
-| Out below | The fireplace counts as out below this value | `35` |
+| Burning above | The fireplace counts as burning above this temperature, in °C | `40` |
+| Out below | The fireplace counts as out below this temperature, in °C | `35` |
 | Cool-down time (min) | How long the sensor stays below *Out below* before learning resumes | `30` |
 | Pause Learning switches | The **Pause Learning** switches to turn on while the fire burns | – |
 | Preset while the fire burns | A preset to set while the fire burns, or *Keep the preset* | Keep the preset |
-| Thermostats for the preset | Better Thermostat devices / climate entities for the preset | – |
+| Thermostats for the preset | Better Thermostat devices / climate entities for the preset; left empty, the devices of the selected Pause Learning switches | – |
 
 [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FKartoffelToby%2Fbetter_thermostat%2Fblob%2Fmaster%2Fblueprints%2Fpause_learning_fireplace.yaml)
 

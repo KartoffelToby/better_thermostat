@@ -16,7 +16,8 @@ blueprint:
       description: >
         A `binary_sensor` or `input_boolean` that reports the heat source.
         Only its `on` and `off` states count, so an entity that turns
-        `unavailable` changes nothing.
+        `unavailable` changes nothing. Its state is also applied when Home
+        Assistant starts and when automations are reloaded.
       selector:
         entity:
           filter:
@@ -53,6 +54,10 @@ max_exceeded: silent
 
 variables:
   pause_state: !input pause_state
+  heat_source_entity: !input heat_source_entity
+  heat_source_state: >-
+    {{ trigger.to_state.state if trigger.platform == 'state'
+       else states(heat_source_entity) }}
 
 trigger:
   - platform: state
@@ -60,13 +65,19 @@ trigger:
     to:
       - "on"
       - "off"
+  - platform: homeassistant
+    event: start
+  - platform: event
+    event_type: automation_reloaded
 
-condition: []
+condition:
+  - condition: template
+    value_template: "{{ heat_source_state in ['on', 'off'] }}"
 
 action:
   - if:
       - condition: template
-        value_template: "{{ trigger.to_state.state == pause_state }}"
+        value_template: "{{ heat_source_state == pause_state }}"
     then:
       - service: switch.turn_on
         target:

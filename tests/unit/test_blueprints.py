@@ -27,7 +27,9 @@ from pathlib import Path
 from homeassistant.components.automation import config as automation_config
 from homeassistant.components.blueprint.models import Blueprint, BlueprintInputs
 from homeassistant.components.blueprint.schemas import BLUEPRINT_SCHEMA
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import ServiceCall
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 import homeassistant.helpers.config_validation as cv
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -35,6 +37,7 @@ from homeassistant.util.yaml import loader as yaml_loader
 import jinja2
 import pytest
 from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
     async_fire_time_changed,
     async_mock_service,
 )
@@ -846,8 +849,8 @@ async def switch_calls_fixture(hass):
     return calls
 
 
-async def _set_up_heat_source(hass, **inputs):
-    hass.states.async_set("binary_sensor.boiler_heats_radiators", "on")
+async def _set_up_heat_source(hass, initial_state="on", **inputs):
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", initial_state)
     await _set_up_blueprint(
         hass,
         HEAT_SOURCE,
@@ -898,8 +901,31 @@ async def test_heat_source_going_unavailable_leaves_the_switches_alone(
     assert switch_calls == []
 
 
-async def _set_up_fireplace(hass, **inputs):
-    hass.states.async_set("sensor.fireplace_temperature", "20")
+@pytest.mark.parametrize("event", [EVENT_HOMEASSISTANT_STARTED, "automation_reloaded"])
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        ("off", [("turn_on", _PAUSE_SWITCHES)]),
+        ("on", [("turn_off", _PAUSE_SWITCHES)]),
+        ("unavailable", []),
+        ("unknown", []),
+    ],
+)
+async def test_heat_source_state_is_applied_on_start_and_reload(
+    hass, switch_calls, event, state, expected
+):
+    """A heat source that is already off pauses learning without changing."""
+    await _set_up_heat_source(hass, initial_state=state)
+
+    hass.bus.async_fire(event)
+    await hass.async_block_till_done()
+
+    assert switch_calls == expected
+
+
+async def _set_up_fireplace(hass, unit=None, **inputs):
+    attributes: dict[str, str] = {} if unit is None else {"unit_of_measurement": unit}
+    hass.states.async_set("sensor.fireplace_temperature", "20", attributes)
     await _set_up_blueprint(
         hass,
         FIREPLACE,
@@ -970,4 +996,79 @@ async def test_fireplace_sets_the_chosen_preset_and_none_afterwards(
     await _advance(hass, freezer, timedelta(seconds=1))
 
     assert _presets(preset_calls) == ["eco", "none"]
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES), ("turn_off", _PAUSE_SWITCHES)]
+
+
+@pytest.mark.parametrize(
+    ("unit", "room", "burning", "cooling"),
+    [("°F", "70", "150", "90"), ("K", "294", "340", "305")],
+)
+async def test_fireplace_thresholds_are_in_celsius_for_any_sensor_unit(
+    hass, freezer, switch_calls, unit, room, burning, cooling
+):
+    """Room temperature is not a fire, and a cooling stove counts as out."""
+    await _set_up_fireplace(hass, unit=unit)
+    attributes = {"unit_of_measurement": unit}
+
+    hass.states.async_set("sensor.fireplace_temperature", room, attributes)
+    await _settle(hass)
+    assert switch_calls == []
+
+    hass.states.async_set("sensor.fireplace_temperature", burning, attributes)
+    await _settle(hass)
+    hass.states.async_set("sensor.fireplace_temperature", cooling, attributes)
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=31))
+
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES), ("turn_off", _PAUSE_SWITCHES)]
+
+
+async def test_fireplace_sensor_dropping_out_keeps_the_pause(
+    hass, freezer, switch_calls
+):
+    """An unavailable sensor says nothing about the fire."""
+    await _set_up_fireplace(hass, unit="°F")
+
+    hass.states.async_set(
+        "sensor.fireplace_temperature", "150", {"unit_of_measurement": "°F"}
+    )
+    await _settle(hass)
+    hass.states.async_set("sensor.fireplace_temperature", "unavailable")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=31))
+
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES)]
+
+
+async def test_fireplace_preset_without_thermostats_goes_to_the_paused_devices(
+    hass, freezer, switch_calls, preset_calls
+):
+    """Left empty, the preset target is the devices of the Pause Learning switches."""
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    device_ids = []
+    for switch in _PAUSE_SWITCHES:
+        object_id = switch.split(".")[1]
+        device = dr.async_get(hass).async_get_or_create(
+            config_entry_id=entry.entry_id, identifiers={(DOMAIN, object_id)}
+        )
+        er.async_get(hass).async_get_or_create(
+            "switch",
+            DOMAIN,
+            object_id,
+            suggested_object_id=object_id,
+            config_entry=entry,
+            device_id=device.id,
+        )
+        device_ids.append(device.id)
+    await _set_up_fireplace(hass, fire_preset="eco", cool_down_minutes=0)
+
+    hass.states.async_set("sensor.fireplace_temperature", "120")
+    await _settle(hass)
+    hass.states.async_set("sensor.fireplace_temperature", "30")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(seconds=1))
+
+    assert _presets(preset_calls) == ["eco", "none"]
+    assert [call.data["device_id"] for call in preset_calls] == [device_ids] * 2
     assert switch_calls == [("turn_on", _PAUSE_SWITCHES), ("turn_off", _PAUSE_SWITCHES)]
