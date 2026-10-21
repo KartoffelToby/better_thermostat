@@ -396,6 +396,40 @@ class TestForcedZeroAddressesTheEntitysOwnDomain:
         }
 
 
+class TestNoZeroForReleasedDevices:
+    """The wait for the calibration helper takes up to 25 seconds.
+
+    The devices can be released meanwhile, and the zero that ends the wait
+    is not written to them then.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_release_during_the_wait_writes_no_zero(self):
+        """The helper never reported; released meanwhile, it is left alone."""
+        mock_self = _mock_self_with_select()
+        mock_self.hass.states.get = lambda requested: State(
+            CALIBRATION_ENTITY, "unavailable", {}
+        )
+        waits = 0
+
+        async def released_during_the_third_wait(_seconds):
+            nonlocal waits
+            waits += 1
+            if waits == 3:
+                mock_self.devices_released = True
+
+        with patch(
+            "custom_components.better_thermostat.adapters.base.asyncio.sleep",
+            AsyncMock(side_effect=released_during_the_third_wait),
+        ):
+            await base.wait_for_calibration_entity_or_timeout(
+                mock_self, ENTITY_ID, CALIBRATION_ENTITY
+            )
+
+        assert waits == 3
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+
 def _mock_self_reporting(hvac_mode, last_hvac_mode):
     """Build a thermostat whose TRV reports ``hvac_mode`` after the offset write.
 
