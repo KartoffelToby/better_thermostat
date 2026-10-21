@@ -508,6 +508,9 @@
       "child_lock_no_trv": {
         "name": "Детский замок"
       },
+      "pause_learning": {
+        "name": "Приостановить обучение"
+      },
       "window_detection": {
         "name": "Обнаружение окна"
       }

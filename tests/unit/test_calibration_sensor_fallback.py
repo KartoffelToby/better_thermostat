@@ -345,3 +345,27 @@ def test_reid_sample_without_a_confirmed_valve_reading_records_nothing() -> None
     )
 
     assert state_mgr.get_mpc_v2_reid_runtime("key").buffer.samples == []
+
+
+def test_a_pause_under_sensor_fallback_cuts_the_reid_buffer() -> None:
+    """A pause cuts the buffer while the room temperature comes from the TRVs.
+
+    Without the cut, a pause shorter than the segmenter's gap would leave the
+    samples before and after it in one segment.
+    """
+    state_mgr = _StateStub()
+    bt = _make_bt(state_mgr, trv_temperature=21.0)
+    bt.learning_held = True
+
+    _record_mpc_v2_reid_sample(
+        bt,
+        "key",
+        applied_valve_percent=40.0,
+        trv_temperature=21.0,
+        outdoor_temperature=5.0,
+    )
+
+    samples = state_mgr.get_mpc_v2_reid_runtime("key").buffer.samples
+    assert len(samples) == 1
+    assert samples[0].learning_paused is True
+    assert samples[0].T_room == 21.0

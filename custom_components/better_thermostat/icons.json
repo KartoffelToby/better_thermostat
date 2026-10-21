@@ -60,6 +60,12 @@
       "pid_auto_tune_no_trv": {
         "default": "mdi:magic-staff"
       },
+      "pause_learning": {
+        "default": "mdi:school",
+        "state": {
+          "on": "mdi:pause-circle"
+        }
+      },
       "window_detection": {
         "default": "mdi:window-open-variant"
       }

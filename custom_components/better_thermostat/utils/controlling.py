@@ -1420,6 +1420,7 @@ async def control_queue(self: BetterThermostat) -> None:
                     if controls_to_process is not None:
                         self.ignore_states = True
                         self.control_cycle_started_monotonic = self.clock.monotonic()
+                        pause_changes_before_learners = self.learning_pause_changes
 
                         # Calculate heating power once per cycle
                         try:
@@ -1518,6 +1519,14 @@ async def control_queue(self: BetterThermostat) -> None:
 
                         # Run all TRV controls in parallel
                         results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                        # Every learner has run on this cycle; a pause that
+                        # ended before it is over for the next one. A pause
+                        # that changed while the cycle ran stays held: its
+                        # learners ran before the change, so the next cycle
+                        # is the first to hold after it.
+                        if self.learning_pause_changes == pause_changes_before_learners:
+                            self.learning_held = self.learning_paused
 
                         failures: list[tuple[str, BaseException | bool]] = [
                             (controlled_trvs[i], res)

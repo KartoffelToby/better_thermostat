@@ -114,6 +114,11 @@ class MpcInput:
     other_heat_power: float = 0.0
     solar_intensity: float = 0.0  # 0.0 to 1.0 (cloud coverage, etc.)
     max_opening_percent: float | None = None
+    # While set, the controller keeps regulating on what it has learned and
+    # learns nothing new: no adaptation, no forced loss calibration, no
+    # dead-zone or TRV-profile evidence, no performance-curve sample. Every
+    # learning interval restarts each cycle, so none straddles the pause.
+    learning_paused: bool = False
 
 
 class TrvProfile(StrEnum):
@@ -336,7 +341,12 @@ def _update_perf_curve(
 ) -> None:
     if inp.room_temperature is None:
         return
-    if not inp.heating_allowed or inp.window_open or inp.target_temperature is None:
+    if (
+        not inp.heating_allowed
+        or inp.window_open
+        or inp.learning_paused
+        or inp.target_temperature is None
+    ):
         state.last_room_temperature = float(inp.room_temperature)
         state.last_room_temperature_ts = now
         return
@@ -1005,7 +1015,11 @@ def compute_mpc(
         # Trigger: current >= target. Probability: decays with number of samples.
         # Action: Force valve closed until current < target - hysteresis.
         calib_hysteresis = 0.2
-        if state.is_calibration_active:
+        if inp.learning_paused:
+            # The forced closure exists only to sample the heat loss, so a
+            # paused controller neither starts one nor keeps one running.
+            state.is_calibration_active = False
+        elif state.is_calibration_active:
             if inp.room_temperature <= (inp.target_temperature - calib_hysteresis):
                 state.is_calibration_active = False
                 _LOGGER.info(
@@ -1146,8 +1160,10 @@ def _compute_predictive_percent(
     step_minutes = MPC_STEP_SECONDS / 60.0
     horizon = MPC_HORIZON_STEPS
 
+    adapt = params.mpc_adapt and not inp.learning_paused
+
     # Initialize estimates if missing
-    if params.mpc_adapt:
+    if adapt:
         if state.gain_est is None:
             state.gain_est = params.mpc_thermal_gain
         if state.loss_est is None:
@@ -1174,12 +1190,18 @@ def _compute_predictive_percent(
             state.last_learn_temperature = cost_room_temperature
             dt_last = 0.0
 
+    # A paused controller restarts its learning interval every cycle, so the
+    # first interval after the pause starts where the pause ended.
+    if inp.learning_paused:
+        state.last_learn_time = now
+        state.last_learn_temperature = cost_room_temperature
+        state.last_residual_time = None
+        state.u_integral = 0.0
+        state.time_integral = 0.0
+        dt_last = 0.0
+
     # Initialize ka_est if we have outdoor temperature context
-    if (
-        params.mpc_adapt
-        and inp.outdoor_temperature is not None
-        and state.ka_est is None
-    ):
+    if adapt and inp.outdoor_temperature is not None and state.ka_est is None:
         # Default ka guess from current loss_est
         _loss = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
         _delta = max(5.0, float(cost_room_temperature) - float(inp.outdoor_temperature))
@@ -1188,11 +1210,7 @@ def _compute_predictive_percent(
     # ---- ADAPTATION (rate-based identification) ----
     # Model: dT/dt ~= gain * u - loss, where gain/loss are in °C/min and u in [0..1]
     adapt_debug: MpcDebugInfo = {}
-    if (
-        params.mpc_adapt
-        and state.last_learn_temperature is not None
-        and dt_last >= 180.0
-    ):
+    if adapt and state.last_learn_temperature is not None and dt_last >= 180.0:
         try:
             if state.last_residual_time is None:
                 state.last_residual_time = state.last_learn_time or now
@@ -2053,14 +2071,15 @@ def _post_process_percent(
     else:
         trv_delta_K = inp.trv_temperature - state.last_trv_temperature
         time_delta = now - state.last_trv_temperature_ts
-        eval_after = max(params.deadzone_time_s, 1.0)
+        # A paused controller evaluates nothing and only moves the anchor
+        # below, so no evaluation spans the pause.
+        evaluate = (
+            time_delta >= max(params.deadzone_time_s, 1.0) and not inp.learning_paused
+        )
 
         # A threshold-like TRV is the case dead-zone learning exists for, so
         # evaluation continues once the profile is classified as one.
-        if time_delta >= eval_after and state.trv_profile in (
-            TrvProfile.UNKNOWN,
-            TrvProfile.THRESHOLD,
-        ):
+        if evaluate and state.trv_profile in (TrvProfile.UNKNOWN, TrvProfile.THRESHOLD):
             tol = max(inp.tolerance_K, 0.0)
             needs_heat = delta_kelvin is not None and delta_kelvin > tol
             small_command = 0 < percent_out <= params.deadzone_threshold_percent
@@ -2151,7 +2170,7 @@ def _post_process_percent(
             else:
                 state.dead_zone_hits = 0
 
-        elif time_delta >= eval_after and params.enable_min_effective_percent:
+        elif evaluate and params.enable_min_effective_percent:
             # A linear or exponential TRV counts no dead-zone hits, but a
             # minimum opening learned before it was classified still decays
             # while the TRV responds to it.
