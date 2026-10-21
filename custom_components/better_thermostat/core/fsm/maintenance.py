@@ -5,65 +5,85 @@ invariant that motivated it: a maintenance run must never be able to
 block control permanently — ``is_blocking`` stops honoring a RUNNING
 phase once it exceeds the configured maximum runtime, and finishing a
 run always reschedules and returns to IDLE.
+
+Each phase is its own class, so only a RUNNING state carries a start
+timestamp and no state can be RUNNING without one.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from enum import StrEnum
 
 # A valve exercise takes a few minutes per TRV; an hour means it died.
 MAX_RUN_S = 3600.0
 
 
-class MaintenancePhase(StrEnum):
-    """Discrete phases of the maintenance region."""
+@dataclass(frozen=True)
+class MaintenanceIdle:
+    """Maintenance region waiting for ``next_due``."""
 
-    IDLE = "idle"
-    DUE = "due"
-    RUNNING = "running"
+    next_due: datetime | None = None
+
+    def is_blocking(
+        self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
+    ) -> bool:
+        """Whether this region currently pre-empts control; never while idle."""
+        return False
 
 
 @dataclass(frozen=True)
-class MaintenanceState:
-    """State of the maintenance region.
+class MaintenanceDue:
+    """Maintenance region with a run armed but not yet started."""
 
-    ``running_since`` is set exactly while the phase is RUNNING;
-    construction rejects any other combination, so a RUNNING phase
-    always has an age to measure against the maximum runtime.
+    next_due: datetime | None = None
+
+    def is_blocking(
+        self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
+    ) -> bool:
+        """Whether this region currently pre-empts control; never while armed."""
+        return False
+
+
+@dataclass(frozen=True)
+class MaintenanceRunning:
+    """Maintenance region with a valve exercise in progress.
+
+    ``running_since`` is the monotonic start of the run, the age that
+    ``is_blocking`` measures against the maximum runtime.
     """
 
-    phase: MaintenancePhase = MaintenancePhase.IDLE
+    running_since: float
     next_due: datetime | None = None
-    running_since: float | None = None
-
-    def __post_init__(self) -> None:
-        """Enforce that ``running_since`` is set exactly while RUNNING."""
-        if (self.phase == MaintenancePhase.RUNNING) != (self.running_since is not None):
-            raise ValueError("running_since is set exactly while RUNNING")
 
     def is_blocking(
         self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
     ) -> bool:
         """Whether this region currently pre-empts control.
 
-        A RUNNING phase older than ``max_run_seconds`` is treated as dead and
-        stops blocking, bounding how long maintenance can pre-empt
-        control.
+        A run older than ``max_run_seconds`` is treated as dead and stops
+        blocking, bounding how long maintenance can pre-empt control.
         """
-        if self.running_since is None:
-            return False
         return (now_monotonic - self.running_since) < max_run_seconds
 
 
+type MaintenanceState = MaintenanceIdle | MaintenanceDue | MaintenanceRunning
+
+
 def evaluate_tick(
-    state: MaintenanceState, now: datetime, *, window_open: bool, has_enabled_trvs: bool
+    state: MaintenanceState,
+    now: datetime,
+    *,
+    window_open: bool,
+    has_enabled_trvs: bool,
+    devices_released: bool = False,
 ) -> MaintenanceState:
     """Advance the region on a scheduler tick.
 
     An open window pushes the schedule out an hour, which terminates
-    because a window closes again. Without any maintenance-enabled TRV
+    because a window closes again. Released devices push it out an hour
+    as well: the exercise writes to them, and they are taken back sooner
+    or later. Without any maintenance-enabled TRV
     the next check moves a week out. Otherwise a due schedule arms DUE.
 
     HVAC mode is deliberately not a postpone reason. A valve held shut
@@ -80,21 +100,23 @@ def evaluate_tick(
         Whether a window is currently open.
     has_enabled_trvs : bool
         Whether any TRV has valve maintenance enabled.
+    devices_released : bool
+        Whether the user has the room's devices released.
 
     Returns
     -------
     MaintenanceState
         The advanced state (possibly DUE or with a postponed schedule).
     """
-    if state.phase != MaintenancePhase.IDLE:
+    if not isinstance(state, MaintenanceIdle):
         return state
     if state.next_due is not None and now < state.next_due:
         return state
-    if window_open:
-        return MaintenanceState(next_due=now + timedelta(hours=1))
+    if window_open or devices_released:
+        return MaintenanceIdle(next_due=now + timedelta(hours=1))
     if not has_enabled_trvs:
-        return MaintenanceState(next_due=now + timedelta(days=7))
-    return MaintenanceState(phase=MaintenancePhase.DUE, next_due=state.next_due)
+        return MaintenanceIdle(next_due=now + timedelta(days=7))
+    return MaintenanceDue(next_due=state.next_due)
 
 
 def start_run(state: MaintenanceState, now_monotonic: float) -> MaintenanceState:
@@ -112,16 +134,33 @@ def start_run(state: MaintenanceState, now_monotonic: float) -> MaintenanceState
     MaintenanceState
         RUNNING state when previously DUE, otherwise ``state`` unchanged.
     """
-    if state.phase != MaintenancePhase.DUE:
+    if not isinstance(state, MaintenanceDue):
         return state
-    return MaintenanceState(
-        phase=MaintenancePhase.RUNNING,
-        next_due=state.next_due,
-        running_since=now_monotonic,
-    )
+    return MaintenanceRunning(running_since=now_monotonic, next_due=state.next_due)
 
 
-def finish_run(state: MaintenanceState, next_due: datetime | None) -> MaintenanceState:
+def reschedule(state: MaintenanceState, next_due: datetime | None) -> MaintenanceState:
+    """Move the schedule to ``next_due``, keeping the phase.
+
+    A running exercise keeps its start, so rescheduling never changes
+    how long the run may still block control.
+
+    Parameters
+    ----------
+    state : MaintenanceState
+        Current maintenance state.
+    next_due : datetime | None
+        When the next maintenance check is due.
+
+    Returns
+    -------
+    MaintenanceState
+        ``state`` with ``next_due`` replaced.
+    """
+    return replace(state, next_due=next_due)
+
+
+def finish_run(state: MaintenanceState, next_due: datetime | None) -> MaintenanceIdle:
     """Return the region to IDLE with the new schedule.
 
     Finishing is unconditional so the region can never stay RUNNING.
@@ -135,7 +174,7 @@ def finish_run(state: MaintenanceState, next_due: datetime | None) -> Maintenanc
 
     Returns
     -------
-    MaintenanceState
+    MaintenanceIdle
         A fresh IDLE state carrying ``next_due``.
     """
-    return MaintenanceState(next_due=next_due)
+    return MaintenanceIdle(next_due=next_due)

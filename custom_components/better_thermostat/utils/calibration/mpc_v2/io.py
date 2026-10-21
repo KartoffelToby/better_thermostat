@@ -28,6 +28,9 @@ class MpcV2Input:
     # It is deliberately the previous applied input, not this cycle's MPC
     # recommendation: writes can be deferred or fail after computation.
     applied_valve_percent: float | None = None
+    # While set, the disturbance estimate and the error integral are held and
+    # the controller plans on them; the observer keeps tracking the room.
+    learning_paused: bool = False
     bt_name: str | None = None
     entity_id: str | None = None
 

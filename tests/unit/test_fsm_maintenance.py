@@ -2,13 +2,14 @@
 
 from datetime import UTC, datetime, timedelta
 
-import pytest
-
+from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.maintenance import (
-    MaintenancePhase,
-    MaintenanceState,
+    MaintenanceDue,
+    MaintenanceIdle,
+    MaintenanceRunning,
     evaluate_tick,
     finish_run,
+    reschedule,
     start_run,
 )
 
@@ -17,109 +18,114 @@ NOW = datetime(2026, 1, 10, 3, 0, tzinfo=UTC)
 
 def test_initial_state_idle_not_blocking():
     """A fresh region is idle and never blocks control."""
-    state = MaintenanceState()
-    assert state.phase == MaintenancePhase.IDLE
+    state = KernelState().maintenance
+    assert state == MaintenanceIdle()
     assert state.is_blocking(now_monotonic=0.0) is False
 
 
 def test_not_due_stays_idle():
     """Before the schedule, ticks change nothing."""
-    state = MaintenanceState(next_due=NOW + timedelta(hours=2))
+    state = MaintenanceIdle(next_due=NOW + timedelta(hours=2))
     out = evaluate_tick(state, NOW, window_open=False, has_enabled_trvs=True)
     assert out == state
 
 
 def test_due_arms_the_region():
     """A due schedule moves the region to DUE."""
-    state = MaintenanceState(next_due=NOW - timedelta(minutes=1))
+    state = MaintenanceIdle(next_due=NOW - timedelta(minutes=1))
     out = evaluate_tick(state, NOW, window_open=False, has_enabled_trvs=True)
-    assert out.phase == MaintenancePhase.DUE
+    assert isinstance(out, MaintenanceDue)
 
 
 def test_window_open_postpones_an_hour():
     """An open window postpones by one hour instead of arming."""
-    state = MaintenanceState(next_due=NOW - timedelta(minutes=1))
+    state = MaintenanceIdle(next_due=NOW - timedelta(minutes=1))
     out = evaluate_tick(state, NOW, window_open=True, has_enabled_trvs=True)
-    assert out.phase == MaintenancePhase.IDLE
+    assert isinstance(out, MaintenanceIdle)
+    assert out.next_due == NOW + timedelta(hours=1)
+
+
+def test_released_devices_postpone_an_hour():
+    """A due exercise waits while the devices are released.
+
+    It writes to them, and the release ends sooner or later; it does not run
+    in the same breath as the devices are taken back either.
+    """
+    state = MaintenanceIdle(next_due=NOW - timedelta(minutes=1))
+    out = evaluate_tick(
+        state, NOW, window_open=False, has_enabled_trvs=True, devices_released=True
+    )
+    assert isinstance(out, MaintenanceIdle)
     assert out.next_due == NOW + timedelta(hours=1)
 
 
 def test_hvac_off_does_not_postpone():
     """OFF mode arms the region: that is when a valve is most likely to seize."""
     out = evaluate_tick(
-        MaintenanceState(), NOW, window_open=False, has_enabled_trvs=True
+        MaintenanceIdle(), NOW, window_open=False, has_enabled_trvs=True
     )
-    assert out.phase == MaintenancePhase.DUE
+    assert isinstance(out, MaintenanceDue)
 
 
 def test_no_enabled_trvs_schedules_a_week_out():
     """Without maintenance-enabled TRVs the next check moves a week out."""
     out = evaluate_tick(
-        MaintenanceState(), NOW, window_open=False, has_enabled_trvs=False
+        MaintenanceIdle(), NOW, window_open=False, has_enabled_trvs=False
     )
-    assert out.phase == MaintenancePhase.IDLE
+    assert isinstance(out, MaintenanceIdle)
     assert out.next_due == NOW + timedelta(days=7)
 
 
 def test_start_requires_due():
     """start_run is a no-op unless the region is armed."""
-    idle = MaintenanceState()
+    idle = MaintenanceIdle()
     assert start_run(idle, now_monotonic=100.0) == idle
 
-    due = MaintenanceState(phase=MaintenancePhase.DUE)
+    due = MaintenanceDue()
     running = start_run(due, now_monotonic=100.0)
-    assert running.phase == MaintenancePhase.RUNNING
+    assert isinstance(running, MaintenanceRunning)
     assert running.running_since == 100.0
     assert running.is_blocking(now_monotonic=150.0) is True
 
 
 def test_no_double_start():
     """A RUNNING region cannot be started again."""
-    running = start_run(MaintenanceState(phase=MaintenancePhase.DUE), 100.0)
+    running = start_run(MaintenanceDue(), 100.0)
     assert start_run(running, 200.0) == running
 
 
 def test_finish_always_returns_to_idle():
     """finish_run unconditionally reschedules and idles the region."""
-    running = start_run(MaintenanceState(phase=MaintenancePhase.DUE), 100.0)
+    running = start_run(MaintenanceDue(), 100.0)
     out = finish_run(running, next_due=NOW + timedelta(days=14))
-    assert out.phase == MaintenancePhase.IDLE
+    assert isinstance(out, MaintenanceIdle)
     assert out.next_due == NOW + timedelta(days=14)
     assert out.is_blocking(now_monotonic=999.0) is False
 
 
 def test_running_cannot_block_forever():
     """Invariant: a stale RUNNING phase stops blocking after max_run_seconds."""
-    running = start_run(MaintenanceState(phase=MaintenancePhase.DUE), 100.0)
+    running = start_run(MaintenanceDue(), 100.0)
     assert running.is_blocking(now_monotonic=100.0 + 3599.0) is True
     assert running.is_blocking(now_monotonic=100.0 + 3600.0) is False
 
 
-@pytest.mark.parametrize(
-    ("phase", "running_since"),
-    [
-        (MaintenancePhase.RUNNING, None),
-        (MaintenancePhase.IDLE, 100.0),
-        (MaintenancePhase.DUE, 100.0),
-    ],
-)
-def test_start_timestamp_without_running_phase_is_rejected(phase, running_since):
-    """running_since is set exactly while RUNNING.
-
-    A RUNNING phase without a start timestamp has no age to measure, so
-    it could never hit the max_run_seconds bound and would block control
-    forever; a timestamp outside RUNNING has no meaning.
-    """
-    with pytest.raises(ValueError, match="exactly while RUNNING"):
-        MaintenanceState(phase=phase, running_since=running_since)
-
-
 def test_tick_leaves_non_idle_phases_alone():
     """evaluate_tick never advances a DUE or RUNNING region."""
-    due = MaintenanceState(phase=MaintenancePhase.DUE)
+    due = MaintenanceDue()
     out = evaluate_tick(due, NOW, window_open=True, has_enabled_trvs=False)
     assert out == due
 
-    running = start_run(MaintenanceState(phase=MaintenancePhase.DUE), 100.0)
+    running = start_run(MaintenanceDue(), 100.0)
     out = evaluate_tick(running, NOW, window_open=False, has_enabled_trvs=True)
     assert out == running
+
+
+def test_reschedule_keeps_the_phase_and_the_run_start():
+    """Rescheduling moves only next_due; a run keeps its start."""
+    running = start_run(MaintenanceDue(), 100.0)
+    out = reschedule(running, NOW + timedelta(days=3))
+    assert out == MaintenanceRunning(
+        running_since=100.0, next_due=NOW + timedelta(days=3)
+    )
+    assert reschedule(MaintenanceIdle(), NOW) == MaintenanceIdle(next_due=NOW)

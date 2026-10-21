@@ -47,6 +47,10 @@ async def _select_manual_preset(self: ModelFixHost, entity_id: str) -> None:
     entity_id : str
         Entity ID of the TRV to take off its schedule
     """
+    # The preset follows or precedes the command it belongs to, and it is
+    # not sent once the devices are the user's.
+    if self.devices_released:
+        return
     try:
         await self.hass.services.async_call(
             "climate",
@@ -136,9 +140,10 @@ async def override_set_temperature(
     -------
     bool
         True once the setpoint write went out, so the caller does not need
-        the generic adapter fallback. False when the device refused it: the
-        adapter write then carries the setpoint instead, with its own step
-        rounding and retry handling.
+        the generic adapter fallback, and also when the devices were
+        released during the preset write, which leaves the setpoint unsent.
+        False when the device refused it: the adapter write then carries the
+        setpoint instead, with its own step rounding and retry handling.
     """
     model = self.real_trvs[entity_id].model
     if model == "TV02-Zigbee":
@@ -148,6 +153,8 @@ async def override_set_temperature(
             entity_id,
         )
         await _select_manual_preset(self, entity_id)
+        if self.devices_released:
+            return True
 
     try:
         await self.hass.services.async_call(

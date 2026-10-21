@@ -1915,3 +1915,50 @@ class TestCoolerModeAgainstTheDecision:
         await trigger_cooler_change(off_bt, event)
 
         assert "hvac_mode_reported" not in off_bt._cooler_last_sent
+
+
+# ---------------------------------------------------------------------------
+# Released devices
+# ---------------------------------------------------------------------------
+
+
+class TestReleasedCooler:
+    """While the devices are released, the cooler is the user's."""
+
+    @pytest.mark.asyncio
+    async def test_a_setpoint_set_at_a_released_cooler_stays_the_users(self, mock_bt):
+        """The room's cooling target is not taken from a released cooler."""
+        mock_bt.devices_released = True
+        old_state = _make_state(attributes={"temperature": 25.0})
+        new_state = _make_state(attributes={"temperature": 27.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.cool_target_temperature == 25.0
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_released_cooler_coming_back_is_not_put_back(self, mock_bt):
+        """A cooler that returns while released asks for no control cycle.
+
+        Held devices get one, because no cycle reached the cooler while it
+        was away; a released cooler is not driven at all.
+        """
+        mock_bt.devices_released = True
+        old_state = _make_state(state_str=STATE_UNAVAILABLE)
+        event = _make_event(mock_bt, new_state=_make_state(), old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_held_cooler_coming_back_is_put_back(self, mock_bt):
+        """The counterpart: a held cooler that returns asks for a cycle."""
+        old_state = _make_state(state_str=STATE_UNAVAILABLE)
+        event = _make_event(mock_bt, new_state=_make_state(), old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        mock_bt.control_queue_task.put_nowait.assert_called_once()

@@ -20,6 +20,10 @@ class TimeSeries:
     T_room: Sequence[float]
     T_setpoint: Sequence[float]
     valve_percent: Sequence[float]
+    # Heat the radiators deliver to the room at each sample, in room-K/min
+    # (the radiator term of dT_room/dt), so energy follows the plant and
+    # not the command.
+    heat_to_room_K_per_min: Sequence[float]
 
     def __post_init__(self) -> None:
         """Validate the parallel-array invariants every metric relies on.
@@ -27,7 +31,7 @@ class TimeSeries:
         Raises
         ------
         ValueError
-            If the four sequences differ in length, contain non-finite
+            If the five sequences differ in length, contain non-finite
             values, or ``t_s`` is not strictly increasing.
         """
         lengths = {
@@ -35,10 +39,17 @@ class TimeSeries:
             len(self.T_room),
             len(self.T_setpoint),
             len(self.valve_percent),
+            len(self.heat_to_room_K_per_min),
         }
         if len(lengths) != 1:
             raise ValueError("TimeSeries fields must have the same length")
-        for name in ("t_s", "T_room", "T_setpoint", "valve_percent"):
+        for name in (
+            "t_s",
+            "T_room",
+            "T_setpoint",
+            "valve_percent",
+            "heat_to_room_K_per_min",
+        ):
             if any(not math.isfinite(v) for v in getattr(self, name)):
                 raise ValueError(f"TimeSeries.{name} must contain only finite values")
         if any(t2 <= t1 for t1, t2 in zip(self.t_s, self.t_s[1:])):
@@ -56,7 +67,8 @@ class MetricValues:
     * **Comfort**: max_overshoot_K, max_undershoot_K, rmse_tracking_K,
       steady_state_error_K, settling_time_min
     * **Actuator longevity**: valve_cycle_count, total_valve_travel_percent
-    * **Energy**: integral_valve_percent_minutes
+    * **Energy**: delivered_heat_K (integral_valve_percent_minutes is
+      the commanded-valve diagnostic)
     * **Resilience**: implicit in failure-mode metrics (settling=inf etc.)
     """
 
@@ -67,6 +79,9 @@ class MetricValues:
     rmse_tracking_K: float
     valve_cycle_count: int
     integral_valve_percent_minutes: float
+    # Heat delivered to the room over the whole run, expressed as the
+    # room-air temperature rise it would cause without losses, in K.
+    delivered_heat_K: float
     # Actuator-longevity proxy: Σ|Δu_pct| across the whole run, so small
     # wiggles add up even if they never reverse direction.
     total_valve_travel_percent: float
@@ -175,6 +190,33 @@ def _compute_integral_valve(series: TimeSeries) -> float:
     return total
 
 
+def _compute_delivered_heat(series: TimeSeries) -> float:
+    """Left-endpoint integral of heat_to_room_K_per_min over time (units: K).
+
+    Each sample holds the rate at the start of its step, which is the rate
+    the explicit-Euler plant applies for that whole step, so the sum equals
+    the heat the simulator delivered.
+
+    Parameters
+    ----------
+    series : TimeSeries
+        Recorded run whose ``heat_to_room_K_per_min`` samples are summed.
+
+    Returns
+    -------
+    float
+        Heat delivered to the room over the run, as the room-air
+        temperature rise it would cause without losses, in K.
+    """
+    if len(series.t_s) < 2:
+        return 0.0
+    total = 0.0
+    for i in range(1, len(series.t_s)):
+        dt_min = (series.t_s[i] - series.t_s[i - 1]) / 60.0
+        total += series.heat_to_room_K_per_min[i - 1] * dt_min
+    return total
+
+
 def _compute_setpoint_imbalance_K_h(
     series: TimeSeries, transient_start_s: float
 ) -> tuple[float, float]:
@@ -230,6 +272,7 @@ def compute_metrics(series: TimeSeries, transient_start_s: float) -> MetricValue
         rmse_tracking_K=_compute_rmse(series, transient_start_s),
         valve_cycle_count=_compute_valve_cycles(series),
         integral_valve_percent_minutes=_compute_integral_valve(series),
+        delivered_heat_K=_compute_delivered_heat(series),
         total_valve_travel_percent=_compute_total_valve_travel(series),
         time_above_setpoint_K_h=above_K_h,
         time_below_setpoint_K_h=below_K_h,

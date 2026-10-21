@@ -2,8 +2,9 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-from homeassistant.const import STATE_OFF
+from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import State
+from homeassistant.exceptions import ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.entity import (
@@ -177,3 +178,54 @@ def test_a_recorded_state_object_is_restored():
 def test_the_recorded_option_is_compared_as_it_was_saved(recorded, expected):
     """A recorded option that is not the configured bool lets the option hold."""
     assert _switch_state_wins("on", {"configured": recorded}, True) is expected
+
+
+@pytest.mark.parametrize(
+    ("released", "sends"), [pytest.param(True, 0, id="released"), (False, 1)]
+)
+@pytest.mark.asyncio
+async def test_a_restored_lock_is_not_sent_to_a_released_device(released, sends):
+    """The restored lock is kept as the setting and sent only to a held device."""
+    trv = Trv(entity_id=TRV_ID, advanced=_parsed_advanced("false"))
+    switch = _make_switch(trv)
+    switch._bt_climate.all_trvs = []
+    switch._bt_climate.devices_released = released
+    switch.async_get_last_available_state = AsyncMock(
+        return_value=State("switch.child_lock", STATE_ON)
+    )
+    switch.async_get_last_extra_data = AsyncMock(return_value=None)
+    switch._set_child_lock = AsyncMock()
+
+    await switch._restore_child_lock()
+
+    assert trv.advanced["child_lock"] is True
+    assert switch._set_child_lock.await_count == sends
+
+
+@pytest.mark.parametrize("turn_on", [True, False])
+@pytest.mark.asyncio
+async def test_the_lock_is_not_changed_while_the_devices_are_released(turn_on):
+    """A change would have to be written to a device that is the user's.
+
+    Accepting it without the write would leave the switch showing a lock
+    the device does not have.
+    """
+    trv = Trv(entity_id=TRV_ID, advanced={"child_lock": not turn_on})
+    bt_climate = ThermostatStandIn()
+    bt_climate.unique_id = "bt_1"
+    bt_climate.device_name = "Kitchen"
+    bt_climate.devices_released = True
+    bt_climate.real_trvs = {TRV_ID: trv}
+    switch = BetterThermostatChildLockSwitch(bt_climate, TRV_ID, show_trv_name=False)
+    switch.async_write_ha_state = MagicMock()
+    switch._set_child_lock = AsyncMock()
+
+    with pytest.raises(ServiceValidationError) as raised:
+        if turn_on:
+            await switch.async_turn_on()
+        else:
+            await switch.async_turn_off()
+
+    assert raised.value.translation_key == "devices_released"
+    assert trv.advanced["child_lock"] is (not turn_on)
+    switch._set_child_lock.assert_not_awaited()

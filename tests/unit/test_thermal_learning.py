@@ -512,6 +512,24 @@ class TestHeatLossTrackerIdle:
         t.update(20.5, HVACAction.IDLE, _ts(10))
         assert t.end is not None and t.end.temperature == 20.0  # still the lowest
 
+    def test_an_aborted_stretch_teaches_nothing(self):
+        """After an abort the stretch starts over at the next idle reading.
+
+        The drop before the abort is not part of what the heating restart
+        finalizes.
+        """
+        t = HeatLossTracker(heat_loss_rate=0.01)
+        t.update(21.0, HVACAction.IDLE, _NOW)
+        t.update(19.0, HVACAction.IDLE, _ts(30))
+        t.abort_cycle()
+        assert (t.start, t.end) == (None, None)
+
+        t.update(19.0, HVACAction.IDLE, _ts(31))
+        assert t.start == Reading(19.0, _ts(31))
+        result = t.update(19.0, HVACAction.HEATING, _ts(40))
+        assert result.cycle_result is not None
+        assert result.cycle_result.loss_changed is False
+
 
 class TestHeatLossTrackerFinalization:
     """Tests for heat loss tracker finalization."""

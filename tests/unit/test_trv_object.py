@@ -36,14 +36,15 @@ class TestTypedAccess:
         assert trv.advanced == {}
         assert trv.extra == {}
 
-    def test_attribute_writes(self):
+    @pytest.mark.parametrize("ignoring", [True, False])
+    def test_attribute_writes(self, ignoring):
         """Fields are plain mutable attributes."""
         trv = _make()
         trv.current_temperature = 21.5
-        trv.ignore_trv_states = True
+        trv.ignore_trv_states = ignoring
         trv.hvac_action = HVACAction.HEATING
         assert trv.current_temperature == 21.5
-        assert trv.ignore_trv_states is True
+        assert trv.ignore_trv_states is ignoring
         assert trv.hvac_action == HVACAction.HEATING
 
 

@@ -62,6 +62,7 @@ def mock_bt():
     bt.hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     bt.window_open = False
     bt.contact_open = False
+    bt.contact_sensed_open = False
     bt.ignore_states = False
     # Real kernel state: production updates it via dataclasses.replace,
     # which rejects a MagicMock stand-in.
@@ -433,6 +434,33 @@ class TestCalculateHeatingPower:
         assert mock_bt._heating_tracker.start == Reading(20.0, now)
 
     @pytest.mark.asyncio
+    async def test_heating_with_the_window_open_starts_no_cycle(self, mock_bt):
+        """With window detection off the room heats with the window open.
+
+        That heating says nothing about the radiator, so no cycle starts.
+        """
+        mock_bt.room_temperature = 20.0
+        mock_bt.heat_target_temperature = 22.0
+        mock_bt.tolerance = 0.5
+        mock_bt._hysteresis.last_action = HVACAction.IDLE
+        mock_bt.old_attr_hvac_action = HVACAction.IDLE
+        mock_bt._heating_tracker._prev_action = HVACAction.IDLE
+        mock_bt.hvac_mode = HVACMode.HEAT
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.window_open = True
+        mock_bt.contact_open = False
+        mock_bt.contact_sensed_open = True
+        mock_bt._should_heat_with_tolerance = lambda prev, tol: (
+            BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
+        )
+
+        mock_bt.clock = FakeClock(now_value=datetime(2025, 1, 1, 12, 0, tzinfo=UTC))
+        await self._call(mock_bt)
+
+        assert mock_bt._heating_tracker._prev_action == HVACAction.HEATING
+        assert mock_bt._heating_tracker.start is None
+
+    @pytest.mark.asyncio
     async def test_heating_stop_sets_end(self, mock_bt):
         """Transition from HEATING → IDLE sets end_temperature/timestamp."""
         now = datetime(2025, 1, 1, 12, 10, 0, tzinfo=UTC)
@@ -707,6 +735,7 @@ class TestCalculateHeatLoss:
         """Window open → all tracking values reset."""
         mock_bt.window_open = True
         mock_bt.contact_open = True
+        mock_bt.contact_sensed_open = True
         mock_bt._loss_tracker.start = Reading(21.0, datetime(2025, 1, 1, tzinfo=UTC))
         mock_bt._loss_tracker.end = Reading(20.5, datetime(2025, 1, 1, tzinfo=UTC))
         mock_bt._should_heat_with_tolerance = lambda prev, tol: (
@@ -718,6 +747,30 @@ class TestCalculateHeatLoss:
 
         assert mock_bt._loss_tracker.start is None
         assert mock_bt._loss_tracker.end is None
+
+    @pytest.mark.asyncio
+    async def test_an_idle_room_with_the_window_open_learns_no_loss(self, mock_bt):
+        """An open window drives the cooling though it switches no heating off.
+
+        With window detection off the window does not turn the heating off,
+        and an idle stretch while it is open still teaches no heat loss.
+        """
+        mock_bt.room_temperature = 22.0
+        mock_bt.heat_target_temperature = 22.0
+        mock_bt.tolerance = 0.5
+        mock_bt._hysteresis.last_action = HVACAction.IDLE
+        mock_bt._loss_tracker.start = None
+        mock_bt.window_open = True
+        mock_bt.contact_open = False
+        mock_bt.contact_sensed_open = True
+        mock_bt._should_heat_with_tolerance = lambda prev, tol: (
+            BetterThermostat._should_heat_with_tolerance(mock_bt, prev, tol)
+        )
+
+        mock_bt.clock = FakeClock(now_value=datetime(2025, 1, 1, 12, 0, tzinfo=UTC))
+        await self._call(mock_bt)
+
+        assert mock_bt._loss_tracker.start is None
 
     @pytest.mark.asyncio
     async def test_idle_starts_tracking(self, mock_bt):

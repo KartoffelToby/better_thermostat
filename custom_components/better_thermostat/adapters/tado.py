@@ -9,8 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Final
 
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-
+from ..utils.helpers import state_is_live
 from .base import AdapterCapabilities, DeviceChannels
 from .generic import (
     set_hvac_mode as generic_set_hvac_mode,
@@ -62,7 +61,7 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> No
 async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Get current offset."""
     state = self.hass.states.get(entity_id)
-    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    if not state_is_live(state):
         return 0.0
     try:
         return float(str(state.attributes.get("offset_celsius", 0)))

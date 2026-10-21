@@ -69,8 +69,8 @@ decide(snapshot, state) -> (desired, state')
   cycle (temperatures, modes, environment, per-TRV reported state).
 - `desired.py` — `DesiredState` / `TrvDesired`: the intent per TRV
   (mode, setpoint, valve percent, offset). Intent, not commands.
-- `decide.py` — the precedence cascade: lifecycle & maintenance gate →
-  mode OFF → open window or door → call-for-heat → heating. Reachability
+- `decide.py` — the precedence cascade: released devices → lifecycle &
+  maintenance gate → mode OFF → open window or door → call-for-heat → heating. Reachability
   is an address filter applied across it rather than a cascade tier;
   unreachable TRVs are dropped from the commanded set. `decide()` never
   mutates its input state, it returns a successor state.

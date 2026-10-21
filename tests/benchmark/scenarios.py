@@ -19,7 +19,7 @@ from . import schedules
 from .actuator import ActuatorParams, ActuatorProfile
 from .plant import (
     PROFILE_BOILER_LIMITED,
-    PROFILE_COOLING,
+    PROFILE_COLD_CLIMATE,
     PROFILE_STANDARD,
     PROFILE_UNDERFLOOR,
     PlantParams,
@@ -172,12 +172,12 @@ S06_SETPOINT_DURING_HEATING = ScenarioConfig(
 
 S07_OUTDOOR_STEP_COLD = ScenarioConfig(
     name="S07_outdoor_step_cold",
-    description="Outdoor temperature step 5 → -10 °C while holding setpoint 21",
+    description="Outdoor temperature step 5 → -5 °C while holding setpoint 21",
     duration_minutes=300,
     initial=InitialConditions(T_room=21.0, T_rad=37.0),
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
-    outdoor_schedule=schedules.step(60 * 60.0, 5.0, -10.0),
+    outdoor_schedule=schedules.step(60 * 60.0, 5.0, -5.0),
     transient_start_s=60 * 60.0,
 )
 
@@ -271,7 +271,7 @@ S05_SLOW_RADIATOR = ScenarioConfig(
     initial=InitialConditions(T_room=20.0, T_rad=20.0),
     plant=PROFILE_UNDERFLOOR,
     setpoint_schedule=schedules.step(30 * 60.0, 20.0, 21.0),
-    outdoor_schedule=schedules.constant(5.0),
+    outdoor_schedule=schedules.constant(8.0),
     transient_start_s=30 * 60.0,
 )
 
@@ -499,7 +499,9 @@ def _build_synthetic_weather_scenario(
         ),
         duration_minutes=duration_h * 60,
         initial=InitialConditions(T_room=setpoint, T_rad=setpoint + 8.0),
-        plant=PROFILE_STANDARD,
+        # The winter slices reach about -15 °C, so the radiator is sized
+        # for that design temperature.
+        plant=PROFILE_COLD_CLIMATE,
         setpoint_schedule=schedules.constant(setpoint),
         outdoor_schedule=outdoor,
         solar_intensity_schedule=solar,
@@ -574,7 +576,7 @@ S29_HEATPUMP_STEADY_STATE = ScenarioConfig(
     plant=PROFILE_BOILER_LIMITED,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.sinus_diurnal(
-        min_value=4.0, max_value=12.0, phase_min_h=6.0
+        min_value=9.0, max_value=15.0, phase_min_h=6.0
     ),
     transient_start_s=0.0,
 )
@@ -669,18 +671,6 @@ S27_PIPE_FILL_AFTER_IDLE = ScenarioConfig(
 )
 
 
-S26_COOLING_MODE = ScenarioConfig(
-    name="S26_cooling_mode",
-    description="Hot day (outdoor 28 °C) on a reverse-acting chilled-water plant",
-    duration_minutes=8 * 60,
-    initial=InitialConditions(T_room=22.0, T_rad=22.0),
-    plant=PROFILE_COOLING,
-    setpoint_schedule=schedules.constant(22.0),
-    outdoor_schedule=schedules.constant(28.0),
-    transient_start_s=30 * 60.0,
-)
-
-
 S22_DIURNAL_OUTDOOR = ScenarioConfig(
     name="S22_diurnal_outdoor",
     description="Constant 21 °C setpoint under a 24 h diurnal outdoor cycle (-5..+3 °C)",
@@ -721,7 +711,6 @@ ALL_SCENARIOS: dict[str, ScenarioConfig] = {
     S23_BOILER_LIMITED.name: S23_BOILER_LIMITED,
     S24_CONTROLLER_RESTART.name: S24_CONTROLLER_RESTART,
     S25_DEMAND_RESPONSE.name: S25_DEMAND_RESPONSE,
-    S26_COOLING_MODE.name: S26_COOLING_MODE,
     S27_PIPE_FILL_AFTER_IDLE.name: S27_PIPE_FILL_AFTER_IDLE,
     S31_BOILER_CYCLE_STRESS.name: S31_BOILER_CYCLE_STRESS,
     S35_SAMPLE_JITTER.name: S35_SAMPLE_JITTER,

@@ -159,6 +159,17 @@ PROFILE_STANDARD = PlantParams(
     T_water=65.0,
 )
 
+# STANDARD with a radiator sized for a -15 °C design outdoor temperature:
+# 1.4x the radiator-to-room coupling holds 21 °C at -15 °C with the valve
+# about 70 % open; STANDARD needs more than 90 % below about -7 °C.
+PROFILE_COLD_CLIMATE = PlantParams(
+    tau_room_min=480.0,
+    tau_rad_min=15.0,
+    gain_heater=2.0,
+    coupling_rad_room=1.4,
+    T_water=65.0,
+)
+
 PROFILE_LARGE_SLOW = PlantParams(
     tau_room_min=720.0,
     tau_rad_min=25.0,
@@ -298,20 +309,6 @@ PROFILE_DOE_MIDRISE_APT = PlantParams(
 )
 
 
-# Reverse-acting "cooling" plant — same RC structure, but the radiator
-# circuit carries chilled water (≈ 15 °C). At u > 0 the radiator cools
-# the room instead of heating it. Used by S26 to expose how the BT/PID
-# controllers behave when the system's sign is flipped relative to their
-# design assumption (heating only).
-PROFILE_COOLING = PlantParams(
-    tau_room_min=480.0,
-    tau_rad_min=15.0,
-    gain_heater=2.0,
-    coupling_rad_room=1.0,
-    T_water=15.0,
-)
-
-
 # Realistic profile: RC3 wall mass, equal-percentage-friendly gains, and
 # a moderate pipe transport delay. To use the equal-percentage actuator
 # with this plant, pass
@@ -360,6 +357,17 @@ class TwoStatePlant:
         # Step size captured when the delay buffer is sized; the modelled
         # transport delay is only correct while dt_s stays constant.
         self._delay_dt_s: float | None = None
+
+    @property
+    def heat_to_room_K_per_min(self) -> float:
+        """Heat the radiator currently delivers to the room, in room-K/min.
+
+        This is the radiator term of ``dT_room/dt``: the rate at which the
+        radiator alone would raise the room air temperature.
+        """
+        p = self.params
+        s = self.state
+        return p.coupling_rad_room * (s.T_rad - s.T_room) / p.tau_room_min
 
     def step(
         self, dt_s: float, u: float, T_outdoor: float, Q_K_per_min: float = 0.0

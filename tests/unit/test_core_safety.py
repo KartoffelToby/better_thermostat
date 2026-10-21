@@ -47,6 +47,13 @@ def _desired(
     )
 
 
+@pytest.mark.parametrize("released", [True, False])
+def test_the_release_passes_the_hull(released):
+    """The hull clamps numbers; whether the devices are released it keeps."""
+    desired = DesiredState(call_for_heat=True, devices_released=released)
+    assert clamp(desired, _snapshot()).devices_released is released
+
+
 def test_setpoint_above_max_is_capped():
     """A controller output above the device max is capped to it."""
     out = clamp(_desired(setpoint=42.0), _snapshot())

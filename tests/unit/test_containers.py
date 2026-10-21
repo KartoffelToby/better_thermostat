@@ -88,6 +88,7 @@ class TestRuntimeAndLearnedBridges:
         bare.kernel_state = replace(
             bare.kernel_state, window=WindowState(phase=WindowPhase.OPEN)
         )
-        assert bare.window_open is True
+        window_open: bool = bare.window_open
+        assert window_open is True
         with pytest.raises(AttributeError):
             setattr(bare, "window_open", False)

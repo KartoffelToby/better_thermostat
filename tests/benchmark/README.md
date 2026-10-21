@@ -25,12 +25,12 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 σ = population stdev across scenarios (lower = steadier per dimension).
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
- *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   37
-  mpc_v2                0.880  0.117    0.932  0.148     0.755  0.303    0.936  0.161   37
-  tpi                   0.795  0.154    0.693  0.234     0.889  0.218    0.910  0.158   37
-  pid                   0.787  0.144    0.850  0.209     0.583  0.359    0.936  0.159   37
-  mpc                   0.716  0.153    0.864  0.181     0.339  0.399    0.911  0.158   37
-  bangbang              0.576  0.156    0.760  0.193     0.159  0.308    0.740  0.175   37
+ *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   36
+  mpc_v2                0.937  0.071    0.978  0.035     0.837  0.222    0.986  0.033   36
+  tpi                   0.842  0.113    0.722  0.225     0.958  0.033    0.971  0.019   36
+  pid                   0.828  0.120    0.897  0.156     0.607  0.348    0.984  0.025   36
+  mpc                   0.768  0.126    0.917  0.118     0.378  0.368    0.981  0.025   36
+  bangbang              0.626  0.145    0.777  0.189     0.141  0.278    0.974  0.037   36
 ```
 
 Higher is better. Each dimension is **oracle-normalised**: `1.0` matches
@@ -79,8 +79,9 @@ same scenario.
 | 0.50–0.70 | Clear comfort violations on the harder scenarios. |
 | < 0.50 | Significant deviations, often a scenario the controller never converges on. |
 
-**actuator** — `1 − (excess valve travel) / (4× Oracle travel)`, where
-travel is `Σ|Δu_pct|` over the run.
+**actuator** — `1 − (excess valve travel) / (4 × max(Oracle travel, 125 %))`,
+where travel is `Σ|Δu_pct|` over the run. The 125 % floor keeps the score
+continuous on scenarios where the Oracle barely moves the valve.
 
 | Score | What it means in practice |
 |---|---|
@@ -90,9 +91,13 @@ travel is `Σ|Δu_pct|` over the run.
 | 0.20–0.40 | High wear; expect motor lifetime and battery hits. |
 | < 0.20 | Pathological cycling (BangBang territory). |
 
-**energy** — integral valve usage relative to the Oracle's optimum,
-symmetric around 1.0× so under-heating (missed setpoint) costs the same
-as over-heating (wasted energy).
+**energy** — heat the radiator delivered to the room, relative to the
+Oracle's optimum, symmetric around 1.0× so under-heating (missed
+setpoint) costs the same as over-heating (wasted energy). It follows the
+plant, not the command: a command that deadband or stiction holds back
+adds no heat over a closed valve, however often it is sent. Overshoot costs
+little here, since 0.3 K above the setpoint raises the losses by only a
+few per cent, so most controllers land between 0.95 and 1.00.
 
 | Score | What it means in practice |
 |---|---|
@@ -113,10 +118,10 @@ a controller wins.
   normalises against the Oracle, so it scores itself 1.0 on every
   scenario, including the permanent-disturbance ones (diurnal outdoor,
   multi-day weather) where the disturbance cancels on both sides.
-* **BangBang ≈ 0.58** — noise floor. A deliberately naive on/off
+* **BangBang ≈ 0.63** — noise floor. A deliberately naive on/off
   controller; anything close to BangBang has a real problem.
 * **Production controllers (`pid`, `tpi`, `mpc`, `heating_power`) ≈
-  0.71–0.80, `mpc_v2` ≈ 0.88.** That band is the realistic operating
+  0.77–0.84, `mpc_v2` ≈ 0.94.** That band is the realistic operating
   range. A controller above 0.80 is beating most of the field; near the
   BangBang floor means a clear weakness in at least one dimension.
 
@@ -166,10 +171,9 @@ and down while idle, then clamped to the TRV's range. The TRV's own sensor reads
 `T_room + trv_sensor_rad_fraction·(T_rad − T_room)`, 0.1 by default, and
 the inner controller sees that reading as its TRV temperature. The
 fraction is an estimate. Between 0.05 and 0.2, TPI stays first on the
-Bosch, Tuya and Sonoff presets; places swap only where two scores lie
-within 0.01 of each other (Tado and Bosch at 0.05), and absolute scores
-move by up to 0.08. The older `"heuristic"` and `"inversion"` mappings
-remain selectable.
+Tuya and Sonoff presets and MPC v2 on Tado; on Bosch, MPC v2 overtakes
+TPI at 0.2. Absolute scores move by up to 0.09. The older `"heuristic"`
+and `"inversion"` mappings remain selectable.
 
 `reports_valve_position` decides what the inner controller gets as the
 previous valve: off (the default for all four presets), its own
@@ -304,3 +308,11 @@ inspect what shape `fit_plant` expects.
 ```sh
 uv run python -m pytest tests/benchmark/tests -p no:homeassistant
 ```
+
+`tests/test_regression_gate.py` runs `mpc`, `mpc_v2`, `pid`, `tpi` and
+`default` over five noise-free scenarios and holds each controller's mean
+score per dimension above a floor recorded in `_FLOORS`, about 0.02
+below the current value. A floor more than 0.04 below the measured mean
+fails as well, and the message names the value to record. A change that
+moves a controller therefore updates `_FLOORS` in the same pull request,
+downward with a reason or upward to lock in the gain.
