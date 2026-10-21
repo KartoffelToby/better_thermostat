@@ -55,7 +55,7 @@ actions:
         {{ state_attr('climate.living_room', 'active_overrides') | join(', ') }}.
 ```
 
-A template reads the block the same way, for example `{{ state_attr('climate.living_room', 'heating_blocked_by') == 'window' }}` to show a card only while an open window holds the heating off. Automations compare against the values in both tables, so they are kept as they are; a later version may add a value but does not rename one.
+A template reads the block the same way, for example `{{ state_attr('climate.living_room', 'heating_blocked_by') == 'window' }}` to show a card only while an open window holds the heating off. Automations compare against the values in both tables, so the values stay as they are; a later version may add a value but does not rename one.
 
 ## Numbers
 
