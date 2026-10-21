@@ -90,6 +90,7 @@ class TestPublishedValue:
             if held
         ]
         overrides = _extra_state_attributes(bt)["active_overrides"]
+        assert isinstance(overrides, list)
         assert overrides == expected
         assert all(type(word) is str for word in overrides)
 
