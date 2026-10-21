@@ -223,4 +223,5 @@ async def test_a_thermostat_saved_with_its_devices_released_starts_held(hass):
     )
 
     assert await wait_for(hass, lambda: bt.learning_held is False)
-    assert bt.devices_released is False
+    released: bool = bt.devices_released
+    assert released is False

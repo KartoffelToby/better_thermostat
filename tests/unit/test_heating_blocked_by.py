@@ -233,7 +233,8 @@ class TestRelease:
         ):
             await BetterThermostat.async_set_devices_released(bt, False)
 
-        assert bt.heating_blocked_by is None
+        blocked_by: HeatingBlock | None = bt.heating_blocked_by
+        assert blocked_by is None
 
 
 def _maintained_room() -> ThermostatStandIn:
