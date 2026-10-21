@@ -46,12 +46,14 @@ def _thermostat() -> ThermostatStandIn:
     return bt
 
 
-def _idle_room() -> ThermostatStandIn:
+def _idle_room(
+    *, ignore_states: bool = False, in_maintenance: bool = False
+) -> ThermostatStandIn:
     """Build a room whose loop is free to take the next request."""
     bt = _thermostat()
     bt.device_name = "test_thermostat"
-    bt.in_maintenance = False
-    bt.ignore_states = False
+    bt.in_maintenance = in_maintenance
+    bt.ignore_states = ignore_states
     bt.startup_running = False
     bt.calculate_heating_power = AsyncMock()
     bt.cooler_entity_id = None
@@ -324,8 +326,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_finally_block_resets_ignore_states(self):
         """Stopping the loop releases a hold on inbound reports."""
-        mock_self = _idle_room()
-        mock_self.ignore_states = True
+        mock_self = _idle_room(ignore_states=True)
         mock_self.control_queue_task = asyncio.Queue()
 
         with _HeldPolls() as polls:
@@ -342,9 +343,7 @@ class TestControlQueue:
         The maintenance run set ``ignore_states`` itself and releases it when
         it ends.
         """
-        mock_self = _idle_room()
-        mock_self.ignore_states = True
-        mock_self.in_maintenance = True
+        mock_self = _idle_room(ignore_states=True, in_maintenance=True)
         mock_self.control_queue_task = asyncio.Queue()
 
         with _HeldPolls() as polls:

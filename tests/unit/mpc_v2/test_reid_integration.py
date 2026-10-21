@@ -720,6 +720,7 @@ def test_a_fit_already_running_starts_no_second_one(monkeypatch) -> None:
     cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
 
     assert started == []
+    runtime = bt.state_mgr.get_mpc_v2_reid_runtime(key)
     assert runtime.fit_inflight is True
 
 

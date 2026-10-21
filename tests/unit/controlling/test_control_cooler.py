@@ -2889,12 +2889,12 @@ class TestControlCoolerOnADualRoleEntity:
         mock_self, _, _ = self._make_shared_setup(
             cooler_state=HVACMode.HEAT, cooler_temperature_attr=30.0
         )
-        shared_trv = mock_self.real_trvs[self.SHARED_ID]
-        shared_trv.target_temperature_received = False
-        shared_trv.system_mode_received = False
+        mock_self.real_trvs[self.SHARED_ID].target_temperature_received = False
+        mock_self.real_trvs[self.SHARED_ID].system_mode_received = False
 
         await control_cooler(mock_self, self._cooling_snapshot())
 
+        shared_trv = mock_self.real_trvs[self.SHARED_ID]
         assert shared_trv.target_temperature_received is True
         assert shared_trv.system_mode_received is True
 

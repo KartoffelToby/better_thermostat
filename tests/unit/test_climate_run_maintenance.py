@@ -141,7 +141,8 @@ async def test_deferred_control_kicks_even_when_off(bt):
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
     bt.control_queue_task.put_nowait.assert_called_once_with(bt)
-    assert bt._control_needed_after_maintenance is False
+    still_needed: bool = bt._control_needed_after_maintenance
+    assert still_needed is False
 
 
 @pytest.mark.asyncio

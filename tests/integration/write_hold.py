@@ -21,7 +21,7 @@ open for as long as the test needs.
 """
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 import contextlib
 from dataclasses import dataclass, field
 from typing import Literal
@@ -96,7 +96,7 @@ class HeldWrite:
 @contextlib.asynccontextmanager
 async def holding_next_write(
     device: SimulatedClimate | SimulatedOffsetNumber, method: WriteMethod
-) -> AsyncIterator[HeldWrite]:
+) -> AsyncGenerator[HeldWrite]:
     """Hold the next write ``device`` receives through ``method``.
 
     Only the first write is held; every later one, including a press the test
@@ -130,7 +130,7 @@ async def holding_next_write(
 @contextlib.asynccontextmanager
 async def deferring_next_write(
     device: SimulatedClimate | SimulatedOffsetNumber, method: WriteMethod
-) -> AsyncIterator[DeferredWrite]:
+) -> AsyncGenerator[DeferredWrite]:
     """Accept the next write ``device`` receives through ``method``, apply it later.
 
     The service call returns at once without touching the device, and the

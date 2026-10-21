@@ -30,9 +30,14 @@ DISTINCTIVE = 'value = compute_the_annunciation(entry_id, "%s")'
 OTHER_DISTINCTIVE = 'result = resolve_the_selector(bundle, "external")'
 
 
+def _marker(index: int) -> str:
+    """Return the distinctive line numbered ``index``."""
+    return DISTINCTIVE % index
+
+
 def _body(count: int, start: int = 0) -> str:
     """Return a file body of ``count`` distinctive lines."""
-    return "".join(f"{DISTINCTIVE % index}\n" for index in range(start, start + count))
+    return "".join(f"{_marker(index)}\n" for index in range(start, start + count))
 
 
 def _falling_length(index: int) -> str:
@@ -217,11 +222,11 @@ def test_prose_inside_a_docstring_is_not_a_marker(lines):
         "    and it has exactly one way to come up empty. Nothing else separates\n"
         "    an armed automation from one attached to nothing at all.\n"
         '    """\n'
-        f"    {DISTINCTIVE % 0}\n",
+        f"    {_marker(0)}\n",
     )
     maintenance_commit = line.commit("test: refuse the device")
 
-    assert set(script.markers_of(maintenance_commit)) == {DISTINCTIVE % 0}
+    assert set(script.markers_of(maintenance_commit)) == {_marker(0)}
 
 
 @pytest.mark.parametrize(
@@ -523,11 +528,11 @@ def test_prose_inside_a_docstring_with_code_punctuation_is_not_a_marker(lines):
         "    The platform truncates onto that grid (``int(value / step)``): a\n"
         "    written 6.3 becomes 62 counts = 6.2 {reported}.\n"
         '    """\n'
-        f"    {DISTINCTIVE % 0}\n",
+        f"    {_marker(0)}\n",
     )
     maintenance_commit = line.commit("fix: widen the window")
 
-    assert script.markers_of(maintenance_commit) == [DISTINCTIVE % 0]
+    assert script.markers_of(maintenance_commit) == [_marker(0)]
 
 
 def _fix_with_tests(line, *, production_on_develop: bool, tests_on_develop: bool):

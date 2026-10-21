@@ -69,7 +69,8 @@ async def test_the_switch_pauses_and_resumes_learning(hass):
 
     assert hass.states.get(switch).state == STATE_ON
     assert _published_pause(hass) is True
-    assert bt.learning_held is True
+    held: bool = bt.learning_held
+    assert held is True
 
     await hass.services.async_call(
         "switch", "turn_off", {"entity_id": switch}, blocking=True

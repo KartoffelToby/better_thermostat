@@ -349,7 +349,8 @@ class TestReportsHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         handler.assert_not_awaited()
-        assert thermostat.real_trvs[ENTITY_ID].report_unread is False
+        trv = thermostat.real_trvs[ENTITY_ID]
+        assert trv.report_unread is False
 
     @pytest.mark.asyncio
     async def test_a_failing_read_leaves_the_control_loop_running(self, thermostat):

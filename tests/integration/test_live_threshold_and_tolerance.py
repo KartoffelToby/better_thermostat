@@ -106,7 +106,8 @@ async def _options_form_default(hass, entry, key: str):
 async def test_lowering_the_threshold_stops_the_heating_without_a_reload(hass):
     """15 °C outside heats below 20 °C and stops at a threshold of 10 °C."""
     entry, bt, device = await _room(hass, outdoor=15.0, off_temperature=20)
-    assert bt.call_for_heat is True
+    heating: bool = bt.call_for_heat
+    assert heating is True
     threshold = _number_id(hass, entry, "off_temperature")
     assert _shown(hass, threshold) == 20.0
 

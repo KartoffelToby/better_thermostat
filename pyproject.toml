@@ -17,6 +17,7 @@ dev = [
     "ruff>=0.16.10",
     "yamllint>=1.38.0",
     "hypothesis>=6.168.4",
+    "types-pyyaml>=6.0.12.20260906",  # lets pyrefly check the YAML-reading tests
 ]
 
 [tool.uv]
