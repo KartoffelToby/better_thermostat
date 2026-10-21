@@ -67,6 +67,7 @@
   "custom_components/better_thermostat/number.py": 99.3,
   "custom_components/better_thermostat/sensor.py": 96.1,
   "custom_components/better_thermostat/switch.py": 100.0,
+  "custom_components/better_thermostat/tracked_entities.py": 100.0,
   "custom_components/better_thermostat/trv.py": 100.0,
   "custom_components/better_thermostat/utils/__init__.py": 100.0,
   "custom_components/better_thermostat/utils/advanced_flags.py": 100.0,
