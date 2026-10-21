@@ -9,6 +9,7 @@ from custom_components.better_thermostat.core.fsm.maintenance import (
     MaintenanceRunning,
     evaluate_tick,
     finish_run,
+    reschedule,
     start_run,
 )
 
@@ -104,3 +105,13 @@ def test_tick_leaves_non_idle_phases_alone():
     running = start_run(MaintenanceDue(), 100.0)
     out = evaluate_tick(running, NOW, window_open=False, has_enabled_trvs=True)
     assert out == running
+
+
+def test_reschedule_keeps_the_phase_and_the_run_start():
+    """Rescheduling moves only next_due; a run keeps its start."""
+    running = start_run(MaintenanceDue(), 100.0)
+    out = reschedule(running, NOW + timedelta(days=3))
+    assert out == MaintenanceRunning(
+        running_since=100.0, next_due=NOW + timedelta(days=3)
+    )
+    assert reschedule(MaintenanceIdle(), NOW) == MaintenanceIdle(next_due=NOW)

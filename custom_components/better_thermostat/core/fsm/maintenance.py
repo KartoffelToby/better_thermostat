@@ -12,7 +12,7 @@ timestamp and no state can be RUNNING without one.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 # A valve exercise takes a few minutes per TRV; an hour means it died.
@@ -128,6 +128,27 @@ def start_run(state: MaintenanceState, now_monotonic: float) -> MaintenanceState
     if not isinstance(state, MaintenanceDue):
         return state
     return MaintenanceRunning(running_since=now_monotonic, next_due=state.next_due)
+
+
+def reschedule(state: MaintenanceState, next_due: datetime | None) -> MaintenanceState:
+    """Move the schedule to ``next_due``, keeping the phase.
+
+    A running exercise keeps its start, so rescheduling never changes
+    how long the run may still block control.
+
+    Parameters
+    ----------
+    state : MaintenanceState
+        Current maintenance state.
+    next_due : datetime | None
+        When the next maintenance check is due.
+
+    Returns
+    -------
+    MaintenanceState
+        ``state`` with ``next_due`` replaced.
+    """
+    return replace(state, next_due=next_due)
 
 
 def finish_run(state: MaintenanceState, next_due: datetime | None) -> MaintenanceIdle:
