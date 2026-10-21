@@ -48,7 +48,9 @@ All randomness (sensor noise, sample jitter, stochastic windows,
 synthetic weather) flows from explicit seeds. The sensor RNG is seeded
 per scenario (derived from the scenario name via a stable CRC, not
 Python's salted `hash`) so noise realisations are decorrelated across
-scenarios yet reproducible run to run.
+scenarios yet reproducible run to run. `ScenarioConfig.noise_seed` draws
+an independent realisation, and `--seeds N` averages every cell over N
+of them.
 
 ### Functional decomposition: plant / sensor / actuator / controller
 

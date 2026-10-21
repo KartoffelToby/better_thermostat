@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
+from dataclasses import replace
 import sys
 from typing import Any, Protocol
 import zlib
@@ -61,6 +62,7 @@ from .plant import (
 from .reporter import (
     ScenarioResult,
     ScoredResult,
+    average_over_seeds,
     render_per_scenario,
     render_plant_sweep,
     render_score_matrix,
@@ -276,7 +278,12 @@ def _drive_adapter(
     # decorrelated across scenarios while staying fully reproducible.
     # ``zlib.crc32`` is used over the built-in ``hash`` because the latter
     # is salted per process (PYTHONHASHSEED) and would break determinism.
-    sensor = Sensor(sensor_params, seed=zlib.crc32(scenario.name.encode()))
+    seed_key = (
+        scenario.name
+        if scenario.noise_seed == 0
+        else f"{scenario.name}#{scenario.noise_seed}"
+    )
+    sensor = Sensor(sensor_params, seed=zlib.crc32(seed_key.encode()))
     room_input = RoomTemperatureInput()
     adapter.reset()
 
@@ -572,6 +579,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--seeds",
+        type=int,
+        default=1,
+        help=(
+            "Average every controller × scenario cell over this many sensor "
+            "noise realisations (default 1). With --per-scenario, a second "
+            "table shows each cell's spread (max − min) across them."
+        ),
+    )
+    parser.add_argument(
         "--multi-trv",
         action="store_true",
         help=(
@@ -587,6 +604,14 @@ def main(argv: list[str] | None = None) -> int:
     profile = PROFILES[args.profile]
     if args.step_s <= 0.0:
         print("--step-s must be > 0", file=sys.stderr)
+        return 2
+    if args.seeds < 1:
+        print("--seeds must be >= 1", file=sys.stderr)
+        return 2
+    if args.seeds > 1 and (args.plant or args.plant_sweep):
+        print(
+            "--seeds cannot be combined with --plant or --plant-sweep", file=sys.stderr
+        )
         return 2
 
     controllers = args.controller or list(ADAPTER_FACTORIES.keys())
@@ -734,6 +759,21 @@ def main(argv: list[str] | None = None) -> int:
             print(render_score_matrix(scored, profile))
             if args.per_scenario:
                 print(render_per_scenario(scored, profile))
+    elif args.seeds > 1:
+        scored, spread = _score_over_seeds(
+            controllers, scenarios, args, profile, oracle_by_label, grouped
+        )
+        print(f"\n[single-TRV, mean of {args.seeds} noise seeds]")
+        print(render_score_matrix(scored, profile))
+        if args.per_scenario:
+            print(render_per_scenario(scored, profile))
+            print(
+                render_per_scenario(
+                    spread,
+                    profile,
+                    title=f"Per-scenario spread (max − min) over {args.seeds} seeds",
+                )
+            )
     else:
         scored = score_results(grouped, oracle_by_label, profile)
         print("\n[single-TRV]")
@@ -745,6 +785,50 @@ def main(argv: list[str] | None = None) -> int:
         _run_multi_trv_block(controllers, scenarios, args, profile)
 
     return 0
+
+
+def _score_over_seeds(
+    controllers: list[str],
+    scenarios: list[str],
+    args: argparse.Namespace,
+    profile: UserProfile,
+    oracle_by_label: dict[tuple[str, str], MetricValues],
+    grouped: dict[str, list[ScenarioResult]],
+) -> tuple[list[ScoredResult], list[ScoredResult]]:
+    """Score every cell over ``args.seeds`` noise seeds.
+
+    Seed 0 is the run already in ``grouped``; each further seed reruns the
+    oracle and every controller on an independent noise realisation.
+
+    Returns
+    -------
+    tuple of list of ScoredResult
+        The per-cell mean scores, and per-cell spreads (max − min) carried
+        in the same shape.
+    """
+    per_seed = [score_results(grouped, oracle_by_label, profile)]
+    for seed in range(1, args.seeds):
+        oracles: dict[tuple[str, str], MetricValues] = {}
+        block: list[ScenarioResult] = []
+        for s in scenarios:
+            scen = replace(ALL_SCENARIOS[s], noise_seed=seed)
+            oracles[("scenario default", s)] = run_scenario(
+                IdealOracleAdapter(plant_params=scen.plant),
+                scen,
+                step_s=args.step_s,
+                stabilisation_min=args.stabilisation_min,
+            ).metrics
+            block.extend(
+                run_scenario(
+                    _make_adapter(c, scen.plant),
+                    scen,
+                    step_s=args.step_s,
+                    stabilisation_min=args.stabilisation_min,
+                )
+                for c in controllers
+            )
+        per_seed.append(score_results({"scenario default": block}, oracles, profile))
+    return average_over_seeds(per_seed)
 
 
 def _run_multi_trv_block(

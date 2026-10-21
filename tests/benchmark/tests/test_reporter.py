@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from tests.benchmark.metrics import MetricValues
 from tests.benchmark.reporter import (
     ScenarioResult,
     ScoredResult,
     _mean,
     _stdev,
+    average_over_seeds,
     format_metric,
     render_per_scenario,
     render_plant_sweep,
@@ -228,3 +231,23 @@ def test_plant_sweep_ranks_full_coverage_first():
     assert row_low < row_high
     assert "2/2" in lines[row_low]
     assert "1/2" in lines[row_high]
+
+
+def test_average_over_seeds_takes_the_mean_and_spread_per_cell():
+    """Each cell's scores average over the seeds; the spread is max − min."""
+    seed0 = [_scored("pid", "S01", 0.8, comfort=0.9), _scored("tpi", "S01", 0.6)]
+    seed1 = [_scored("pid", "S01", 0.6, comfort=0.7), _scored("tpi", "S01", 0.6)]
+    means, spreads = average_over_seeds([seed0, seed1])
+    mean = {sr.controller: sr.scores for sr in means}
+    spread = {sr.controller: sr.scores for sr in spreads}
+    assert mean["pid"].overall == pytest.approx(0.7)
+    assert mean["pid"].comfort == pytest.approx(0.8)
+    assert spread["pid"].overall == pytest.approx(0.2)
+    assert spread["tpi"].overall == pytest.approx(0.0)
+
+
+def test_render_per_scenario_takes_a_title():
+    out = render_per_scenario(
+        [_scored("pid", "S01", 0.1)], PROFILES["balanced"], title="Spread"
+    )
+    assert "Spread — profile: balanced" in out

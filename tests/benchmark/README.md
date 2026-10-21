@@ -57,8 +57,16 @@ the four vendor presets, so they aggregate more runs than direct rows.
 | `uv run python -m tests.benchmark.runner --controller mpc --scenario S01_setpoint_step_small` | One controller × one scenario |
 | `uv run python -m tests.benchmark.runner --profile longevity_first` | Re-weight toward actuator wear |
 | `uv run python -m tests.benchmark.runner --per-scenario` | Add per-scenario detail table |
+| `uv run python -m tests.benchmark.runner --per-scenario --seeds 5` | Average every cell over five sensor-noise seeds, plus each cell's spread |
 | `uv run python -m tests.benchmark.runner --multi-trv` | Add multi-TRV matrices (parallel radiators sharing one room) |
 | `uv run python -m tests.benchmark.runner --plant-sweep` | Realistic + DOE envelope classes, cross-plant summary |
+
+Each scenario draws its sensor noise from a fixed seed, so every run is
+reproducible. A single seed is one realisation, though: across five
+seeds the controller means move by at most 0.014, but a single
+scenario cell moves by up to 0.31 (PID), and the better of two
+controllers changes in 47 of 360 scenario × pair cells. Read the
+matrix from one seed; read `--per-scenario` with `--seeds`.
 
 Run `uv run python -m tests.benchmark.runner --help` for the full flag list.
 
