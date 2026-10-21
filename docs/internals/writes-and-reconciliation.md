@@ -77,8 +77,13 @@ TRV nor runs the cooling channel, and the reconciler queues nothing. The
 writes outside the control cycle stand down as well: the external room
 temperature and its keepalive, the steps of a valve maintenance run, the
 child lock, and the initialisation of a TRV at startup, which waits for
-the devices to be taken back. Taking them back requests one control
-cycle, which writes the differences like any other.
+the devices to be taken back. A cycle decides once and then awaits its
+writes one after the other, so each TRV and cooler write, and each
+write of a TRV's initialisation, checks the switch itself right before
+it goes out: a release that comes in while a cycle or an initialisation
+is under way ends the writes that follow, and a write already sent
+completes. Taking them back requests one control cycle, which writes the
+differences like any other.
 
 ## The write budget
 

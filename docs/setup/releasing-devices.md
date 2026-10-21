@@ -26,7 +26,7 @@ A TRV that takes the room temperature from Better Thermostat, such as a Sonoff T
 
 Better Thermostat takes the devices back from the state they are in and brings them onto its own mode and targets with one control cycle. It does not take over what the devices were set to while they were released: a radiator held at 30 °C for a maintenance job or an air conditioner left in a cleaning mode is not where the room should stay.
 
-The switch keeps its state over a restart. A Better Thermostat that starts with its devices released does not set them up and writes nothing to them; it does both when the switch is turned off.
+The switch keeps its state over a restart. A Better Thermostat that starts with its devices released does not set them up and writes nothing to them; it does both when the switch is turned off. It also starts when none of its TRVs is online, on its saved mode and targets.
 
 ## Examples
 
