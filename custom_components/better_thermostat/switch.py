@@ -369,8 +369,9 @@ class BetterThermostatChildLockSwitch(
             return
         held = advanced_flag(trv.advanced, CONF_CHILD_LOCK)
         trv.advanced[CONF_CHILD_LOCK] = restored
-        # Released devices are not written to; the startup that takes them
-        # back sends the lock with the TRV's initialisation.
+        # Released devices are not written to. The restored lock is the
+        # setting from here on; the initialisation that follows taking them
+        # back syncs it where the TRV's model quirk does.
         if restored != held and not self._bt_climate.devices_released:
             # The device may still report the state from before a command
             # the startup sent, so the restored one is sent regardless.
