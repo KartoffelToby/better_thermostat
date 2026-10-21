@@ -34,6 +34,7 @@ from tests.benchmark.scenarios import (
     InitialConditions,
     ScenarioConfig,
 )
+from tests.benchmark.sensor import SensorParams
 
 
 def test_mpc_against_s01_runs_to_completion():
@@ -228,3 +229,18 @@ def test_a_command_inside_the_actuator_deadband_delivers_no_heat():
     closed = run_scenario(_ConstantValveAdapter(0.0), scenario).metrics
     assert commanded.integral_valve_percent_minutes > 0.0
     assert commanded.delivered_heat_K == pytest.approx(closed.delivered_heat_K)
+
+
+def test_the_context_carries_the_calibration_error_of_the_held_reading():
+    """Between sensor reports the oracle sees the drift the candidate sees."""
+    scenario = replace(
+        _COLD_ROOM_WINDOW_OPEN,
+        window_open_schedule=None,
+        sensor_params=SensorParams(sample_interval_s=600.0, drift_K_per_h=0.6),
+    )
+    adapter = _ConstantValveAdapter(0.0)
+    run_scenario(adapter, scenario, step_s=60.0)
+    seen = {round(ctx.t / 60.0): ctx.sensor_calibration_error_K for ctx in adapter.seen}
+    # Reports at minutes 0 and 10; minute 5 still holds the minute-0 drift.
+    assert seen[5] == pytest.approx(0.0)
+    assert seen[10] == pytest.approx(0.1)

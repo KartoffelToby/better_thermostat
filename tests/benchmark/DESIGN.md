@@ -232,8 +232,9 @@ arbitrary:
 * **Energy** = 1 − |ratio − 1| on delivered heat, symmetric. Failure at
   2× the oracle's heat (over-heating) or 0 (room never heated). When the
   oracle's heat is below a small floor (the scenario barely heated), the
-  candidate's *excess* usage is scored against that floor — so a grossly
-  over-heating controller cannot escape via the edge case.
+  candidate's absolute deviation from the oracle is scored against that
+  floor, so neither a grossly over-heating nor an under-heating
+  controller can escape via the edge case.
 
 The **overall** column is a weighted sum under a `UserProfile`. Four
 profiles bracket reasonable priorities — `balanced` (0.5 / 0.3 / 0.2),

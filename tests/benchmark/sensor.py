@@ -108,6 +108,9 @@ class Sensor:
         self._last_lag_update_t: float = -1.0
         # Next sample's effective interval (jitter mode).
         self._next_sample_interval_s: float = params.sample_interval_s
+        # Calibration error carried by the reported value: sampled, held and
+        # EMA-filtered exactly like the reading itself.
+        self._observed_calibration_error_K: float = 0.0
 
     def _noise(self) -> float:
         if self.params.noise_std_K <= 0.0:
@@ -140,6 +143,11 @@ class Sensor:
         """Return the sensor's bias plus drift at ``t_s``, in K."""
         return self.params.bias_K + self.params.drift_K_per_h * (t_s / 3600.0)
 
+    @property
+    def observed_calibration_error_K(self) -> float:
+        """Return the bias plus drift contained in the last reported value, in K."""
+        return self._observed_calibration_error_K
+
     def read(self, t_s: float, T_true: float) -> float | None:
         """Return the currently observed temperature, or None on dropout."""
         # The sensor body keeps tracking the room even while reporting is
@@ -148,7 +156,8 @@ class Sensor:
         if self.params.dropout_from_t_s <= t_s < self.params.dropout_until_t_s:
             return None
 
-        T_lagged += self.calibration_error_K(t_s)
+        calibration_error_K = self.calibration_error_K(t_s)
+        T_lagged += calibration_error_K
 
         should_sample = (
             self._last_sample_t < 0.0
@@ -167,8 +176,13 @@ class Sensor:
                 )
             if self._filtered is None:
                 self._filtered = raw
+                self._observed_calibration_error_K = calibration_error_K
             else:
                 a = self.params.ema_alpha
                 self._filtered = a * raw + (1.0 - a) * self._filtered
+                self._observed_calibration_error_K = (
+                    a * calibration_error_K
+                    + (1.0 - a) * self._observed_calibration_error_K
+                )
             self._last_sample_t = t_s
         return self._filtered
