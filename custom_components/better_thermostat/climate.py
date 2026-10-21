@@ -230,6 +230,7 @@ from .utils.helpers import (
     resolve_inbound_setpoint,
     room_mode_intent,
     round_by_step,
+    state_is_live,
     state_temperature_unit,
 )
 from .utils.hvac_action import (
@@ -411,7 +412,7 @@ def _seed_contact_region_at_startup(
     self.all_entities[entity_id] = None
     state = self.hass.states.get(entity_id)
 
-    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+    if not state_is_live(state):
         _LOGGER.debug(
             "better_thermostat %s: %s sensor unavailable, assuming closed",
             self.device_name,

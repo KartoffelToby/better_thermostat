@@ -11,12 +11,11 @@ from homeassistant.components.number.const import SERVICE_SET_VALUE, NumberDevic
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
-    STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
     UnitOfTemperature,
 )
 from homeassistant.core import State
 
+from ..utils.helpers import state_is_live
 from .types import AdapterHost
 
 _LOGGER = logging.getLogger(__name__)
@@ -288,7 +287,7 @@ async def wait_for_calibration_entity_or_timeout(
     _retry_count = 0
     while True:
         _state = self.hass.states.get(calibration_entity)
-        if _state is None or _state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if not state_is_live(_state):
             _LOGGER.info(
                 "better_thermostat %s: waiting for local_temperature_calibration entity with id '%s' to become fully available...",
                 self.device_name,

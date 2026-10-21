@@ -107,6 +107,7 @@ from custom_components.better_thermostat.utils.helpers import (
     read_setpoint_celsius,
     setpoint_echo_window,
     settle_cooler_reading,
+    state_is_live,
     state_temperature_unit,
     supports_single_target_temperature,
     supports_temperature_range,
@@ -626,7 +627,7 @@ def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
     if trv.last_calibration is None or trv.calibration_received is not True:
         return False
     state = self.hass.states.get(trv.local_temperature_calibration_entity)
-    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    if not state_is_live(state):
         return False
     reported = convert_to_float(state.state, self.device_name, "reconcile()")
     if reported is None:
@@ -651,7 +652,7 @@ def _valve_diverges(self: BetterThermostat, trv: Trv) -> bool:
     if trv.last_valve_percent is None:
         return False
     state = self.hass.states.get(trv.valve_position_entity)
-    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    if not state_is_live(state):
         return False
     reported = convert_to_float(state.state, self.device_name, "reconcile()")
     if reported is None:
@@ -695,7 +696,7 @@ def desired_diverges(
         if trv is None:
             continue
         state = self.hass.states.get(entity_id)
-        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if not state_is_live(state):
             continue
         if cooling_owns_dual_role_device(self, entity_id):
             # The cooling channel drives this device, so the mode and setpoint
@@ -1824,7 +1825,7 @@ async def control_cooler(
         return
     # Get current cooler state to avoid sending redundant commands
     cooler_state = self.hass.states.get(cooler_entity_id)
-    if cooler_state is None or cooler_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    if not state_is_live(cooler_state):
         _LOGGER.debug(
             "better_thermostat %s: cooler %s unavailable, skipping",
             self.device_name,

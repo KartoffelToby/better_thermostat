@@ -15,7 +15,6 @@ import math
 from time import monotonic
 from typing import TYPE_CHECKING
 
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
@@ -31,6 +30,7 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     entry_issue_id,
     is_reasonable_temperature,
+    state_is_live,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.watcher import room_sensor_reading
@@ -366,7 +366,7 @@ async def trigger_temperature_change(
         return
 
     new_state = event.data.get("new_state")
-    if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+    if not state_is_live(new_state):
         return
 
     _incoming_temperature = convert_to_float_celsius(
