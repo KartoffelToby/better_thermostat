@@ -123,17 +123,16 @@ async def test_the_tick_writes_nothing_while_the_devices_are_released():
 @pytest.mark.asyncio
 async def test_a_release_during_the_tick_stops_the_writes_after_it():
     """The write under way completes; the TRVs after it get nothing."""
-    bt = None
+    quirks = MagicMock()
+    bt = _bt_with_two_trvs(quirks)
 
     async def released_during_the_write(_bt, _entity_id, _value):
         bt.devices_released = True
         return True
 
-    quirks = MagicMock()
     quirks.maybe_set_external_temperature = AsyncMock(
         side_effect=released_during_the_write
     )
-    bt = _bt_with_two_trvs(quirks)
 
     await BetterThermostat._external_temperature_keepalive(bt)
 
