@@ -299,3 +299,20 @@ def test_a_restart_clears_the_input_stage():
     assert first.t == 600.0
     assert first.temperature_slope_K_per_min is None
     assert first.room_temperature_filtered == first.room_temperature
+
+
+def test_without_a_committed_reading_the_controller_sees_the_trv():
+    """A sensor that is out from the start leaves the controller on the TRV."""
+    scenario = replace(
+        _COLD_ROOM_WINDOW_OPEN,
+        window_open_schedule=None,
+        # A warm radiator, so the TRV reads well above the room.
+        initial=InitialConditions(T_room=17.0, T_rad=40.0),
+        sensor_params=SensorParams(dropout_from_t_s=0.0, dropout_until_t_s=300.0),
+    )
+    adapter = _ConstantValveAdapter(100.0)
+    run_scenario(adapter, scenario, step_s=60.0)
+    first = adapter.seen[0]
+    assert first.trv_temperature is not None
+    assert first.trv_temperature > first.raw_room_temperature + 1.0
+    assert first.room_temperature == first.trv_temperature
