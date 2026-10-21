@@ -117,7 +117,7 @@ a controller wins.
 
 ### Anchor points
 
-* **Oracle = 1.0** — the ceiling by construction. Every dimension
+* **Oracle = 1.0** — the reference by construction. Every dimension
   normalises against the Oracle, so it scores itself 1.0 on every
   scenario, including the permanent-disturbance ones (diurnal outdoor,
   multi-day weather) where the disturbance cancels on both sides.
@@ -237,10 +237,12 @@ Thermostat passes it to MPC v2 when the TRV's climate entity carries a
   states). Real buildings have distributed wall mass, infiltration,
   multi-zone coupling, and occupant behaviour. Trust the *relative
   ranking* across controllers more than the absolute scores.
-* **The Oracle cheats.** The reference controller is plant-aware — it
+* **The Oracle cheats.** The reference controller is plant-aware: it
   knows the simulator's exact parameters and inverts them. That is not
   a real controller, just a definition of "what's achievable with
-  perfect knowledge". Read it as an asymptote, not a target.
+  perfect knowledge". It is not an upper bound either: candidates beat
+  its discomfort in about a quarter of the runs, and their score then
+  stops at 1.0.
 * **Scoring weights are opinionated.** A controller can win
   `balanced` and lose `longevity_first`. The four profiles bracket
   reasonable user priorities, but if your application is asymmetric

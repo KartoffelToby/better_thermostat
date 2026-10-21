@@ -6,7 +6,8 @@ under a chosen ``UserProfile``.
 
 Each dimension is normalised against the IdealOracle:
 
-* Oracle's value → ``1.0`` (best physically reachable)
+* Oracle's value → ``1.0`` (the reference; a candidate that beats it
+  also scores ``1.0``)
 * Controller value ≥ "failure" threshold → ``0.0``
 * Linear interpolation in between
 

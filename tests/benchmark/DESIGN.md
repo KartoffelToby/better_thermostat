@@ -106,26 +106,34 @@ entirely on the house and the disturbance — 0.3 K on a fast small room in
 a gentle step is poor; 0.3 K on a leaky house during a −15 K cold snap is
 excellent. Comparing raw metrics across scenarios is meaningless.
 
-So every scenario is *also* run by an **`IdealOracle`** — a controller
-that knows the plant's exact parameters and inverts them to deliver the
-physically best-achievable response. Its metrics define the per-scenario
-reference:
+So every scenario is *also* run by an **`IdealOracle`**, a controller
+that knows the plant's exact parameters, inverts them for its
+feedforward and adds proportional feedback on the true room
+temperature. Its metrics define the per-scenario reference:
 
-* Oracle's value → score **1.0** (the asymptote of perfect knowledge)
+* Oracle's value → score **1.0**
 * A controller at the **failure threshold** (§6) → score **0.0**
 * Linear interpolation in between, clamped to `[0, 1]`
 
 This makes scores comparable *across* scenarios and houses: 0.85 always
-means "85 % of the way from catastrophic to physically perfect, in this
+means "85 % of the way from the failure threshold to the oracle, in this
 specific situation". The oracle normalises against itself, so it scores
-**1.0** by construction — a real controller approaching 1.0 is matching
-the perfect-knowledge bound. Read the oracle as a ceiling, not a target:
-it cheats by knowing the plant exactly, which no deployable controller can.
-It feeds back on the true room temperature, so sensor lag and noise do not
-lower the ceiling. A sensor's calibration error (bias, drift) is the one
-fault it shares with the candidates: nothing can observe it without a
-second reference, so the fault scenarios score what a controller adds on
-top of it.
+**1.0** by construction.
+
+The oracle is a strong reference, not an upper bound. Its feedforward
+does not see sun, open windows or a non-linear valve, and its feedback
+is proportional only, so those disturbances leave it a steady-state
+error. Candidates beat its discomfort in about a quarter of the runs
+(59 of 216 for `mpc_v2`, `tpi`, `pid`, `mpc`, `heating_power` and
+BangBang); the clamp then scores them 1.0, so a 1.0 means "at least as
+good as the oracle", not "perfect". An integral term would not sharpen
+the reference: it removes little discomfort (4.9 → 4.7 K·h on average)
+and multiplies the oracle's valve travel, which only loosens the
+actuator yardstick. The oracle feeds back on the true room temperature,
+so sensor lag and noise do not weaken the reference. A sensor's
+calibration error (bias, drift) is the one fault it shares with the
+candidates: nothing can observe it without a second reference, so the
+fault scenarios score what a controller adds on top of it.
 
 ---
 
@@ -480,7 +488,7 @@ quantisation model real valve imperfections (the §7-F family).
 Read the matrix top-down with three anchors (full tables in
 [`README.md`](README.md#how-to-read-the-results)):
 
-* **Oracle = 1.0** — the ceiling. It normalises against itself, so it
+* **Oracle = 1.0** — the reference. It normalises against itself, so it
   scores 1.0 on every scenario by construction.
 * **BangBang ≈ 0.60** — the noise floor. A naive on/off controller;
   anything near it has a real problem.
@@ -504,7 +512,8 @@ Then read *across* the dimension columns, not just `overall`:
   have distributed mass, infiltration, and multi-zone coupling. Trust the
   *relative ranking* far more than the absolute scores.
 * **The oracle cheats.** It is a definition of "achievable with perfect
-  knowledge", not a deployable controller. It is an asymptote.
+  knowledge", not a deployable controller, and a reference rather than
+  an upper bound: candidates beat it on some runs.
 * **Scoring is opinionated.** A controller can win `balanced` and lose
   `longevity_first`. There is no profile-free "best".
 * **Energy scores over-heating only.** Under-heating is charged once, in
