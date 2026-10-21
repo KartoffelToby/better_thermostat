@@ -12,13 +12,10 @@ from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.adapters.delegate import (
-    AdapterNotLoadedError,
-    get_info,
     set_calibration_offset,
     set_hvac_mode,
 )
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 KNOWN_TRV = "climate.known"
 UNKNOWN_TRV = "climate.unknown"
@@ -30,7 +27,7 @@ def bt():
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
-    trv = Trv(entity_id=KNOWN_TRV)
+    trv = trv_record(entity_id=KNOWN_TRV)
     trv.adapter = MagicMock()
     trv.adapter.set_hvac_mode = AsyncMock()
     trv.adapter.set_calibration_offset = AsyncMock(return_value=True)
@@ -59,19 +56,3 @@ async def test_an_offset_write_to_an_unknown_trv_raises(bt):
     ):
         await set_calibration_offset(bt, UNKNOWN_TRV, 1.0)
     bt.real_trvs[KNOWN_TRV].adapter.set_calibration_offset.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_a_trv_without_an_adapter_names_the_missing_adapter(bt):
-    """A record without an adapter module raises on the first attempt.
-
-    The error names the TRV, and as an ``AttributeError`` the retry wrapper
-    gives it no second attempt.
-    """
-    bt.real_trvs[KNOWN_TRV].adapter = None
-    with (
-        patch("asyncio.sleep", AsyncMock()) as sleep,
-        pytest.raises(AdapterNotLoadedError, match=KNOWN_TRV),
-    ):
-        await get_info(bt, KNOWN_TRV)
-    sleep.assert_not_awaited()

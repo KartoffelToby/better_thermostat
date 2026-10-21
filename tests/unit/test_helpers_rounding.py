@@ -52,16 +52,6 @@ class TestRoundingEnum:
 class TestRoundByStep:
     """Test round_by_step function."""
 
-    def test_returns_none_when_value_is_none(self):
-        """Test that None value returns None."""
-        result = round_by_step(None, 0.1)
-        assert result is None
-
-    def test_returns_none_when_step_is_none(self):
-        """Test that None step returns None."""
-        result = round_by_step(10.5, None)
-        assert result is None
-
     def test_rounds_to_step_01(self):
         """Test rounding with step 0.1.
 

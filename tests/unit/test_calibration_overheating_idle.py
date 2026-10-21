@@ -16,10 +16,9 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_setpoint,
 )
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.state_manager import StateManager
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 ENTITY_ID = "climate.trv"
 TARGET_TEMP = 19.0
@@ -69,7 +68,7 @@ def build_bt(
     )
 
     bt.real_trvs = {
-        ENTITY_ID: Trv(
+        ENTITY_ID: trv_record(
             entity_id=ENTITY_ID,
             advanced={
                 "calibration_mode": calibration_mode,

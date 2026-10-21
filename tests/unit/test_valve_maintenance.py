@@ -45,7 +45,7 @@ from custom_components.better_thermostat.utils.valve_maintenance import (
     run_valve_maintenance,
     wake_step,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 _MAINTENANCE_LOGGER = "custom_components.better_thermostat.utils.valve_maintenance"
 
@@ -57,13 +57,13 @@ def _trv(
     maintenance: bool = False,
     max_temp: float = 30,
     min_temp: float = 5,
-    quirks: ModelQuirks | None = None,
+    quirks: ModelQuirks = default_quirk,
     valve_entity: str | None = None,
     valve_writable: bool = True,
     calibration: str | None = None,
 ) -> Trv:
     """Build a ``real_trvs[entity_id]`` entry for testing."""
-    return Trv(
+    return trv_record(
         entity_id="climate.trv",
         advanced={"valve_maintenance": maintenance, "calibration": calibration},
         max_temp=max_temp,
@@ -207,12 +207,12 @@ class TestCollectMaintenanceTrvs:
             }
         )
         advanced = settings["thermostat"][0].get("advanced", {})
-        trvs = {"trv1": Trv(entity_id="trv1", advanced=advanced)}
+        trvs = {"trv1": trv_record(entity_id="trv1", advanced=advanced)}
         assert collect_maintenance_trvs(trvs) == (["trv1"] if enabled else [])
 
     def test_missing_advanced_key(self):
         """TRV dict without 'advanced' should not crash."""
-        trvs = {"trv1": Trv(entity_id="trv1", max_temp=30)}
+        trvs = {"trv1": trv_record(entity_id="trv1", max_temp=30)}
         assert collect_maintenance_trvs(trvs) == []
 
 
@@ -254,6 +254,18 @@ class TestComputeNextMaintenance:
         result = compute_next_maintenance(trvs, ["trv1", "trv2"], now=now)
         delta_h = (result - now).total_seconds() / 3600
         # Should use 12h (minimum)
+        assert 12 <= delta_h <= 12 + 12 * 0.07 + 1
+
+    def test_a_trv_whose_quirks_set_no_interval_leaves_the_others_to_decide(self):
+        """A TRV whose quirks name no interval counts with the default one."""
+        q12 = SimpleNamespace(VALVE_MAINTENANCE_INTERVAL_HOURS=12)
+        trvs = {
+            "trv1": _trv(maintenance=True, quirks=SimpleNamespace()),
+            "trv2": _trv(maintenance=True, quirks=q12),
+        }
+        now = datetime(2026, 1, 1)
+        result = compute_next_maintenance(trvs, ["trv1", "trv2"], now=now)
+        delta_h = (result - now).total_seconds() / 3600
         assert 12 <= delta_h <= 12 + 12 * 0.07 + 1
 
 
@@ -618,7 +630,7 @@ class TestRunValveMaintenance:
         bt = ThermostatStandIn()
         bt.device_name = "Test"
         bt.bt_target_temperature_step = 0.5
-        trv = Trv(entity_id="climate.trv1", min_temp=5.0, max_temp=30.0)
+        trv = trv_record(entity_id="climate.trv1", min_temp=5.0, max_temp=30.0)
         trv.adapter = MagicMock()
         trv.adapter.set_temperature = AsyncMock(return_value=True)
         trv.remember_setpoint_written(21.0)

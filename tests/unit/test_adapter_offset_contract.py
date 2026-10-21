@@ -30,9 +30,8 @@ from custom_components.better_thermostat.adapters import (
 from custom_components.better_thermostat.adapters.base import (
     wait_for_calibration_entity_or_timeout,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationOutput
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 ENTITY_ID = "climate.trv"
 CALIBRATION_ENTITY = "number.trv_local_temperature_calibration"
@@ -77,7 +76,7 @@ def _mock_self(calibration_entity=CALIBRATION_ENTITY):
         if requested == CALIBRATION_ENTITY
         else State(ENTITY_ID, "heat", {"offset": 0.0, "offset_celsius": 0.0})
     )
-    trv = Trv(entity_id=ENTITY_ID, calibration=CalibrationOutput.LOCAL_BASED)
+    trv = trv_record(entity_id=ENTITY_ID, calibration=CalibrationOutput.LOCAL_BASED)
     trv.local_temperature_calibration_entity = calibration_entity
     trv.min_local_calibration = -5.0
     trv.max_local_calibration = 5.0
@@ -165,7 +164,7 @@ def _mock_self_with_select(options=SELECT_OPTIONS, reported="0.0k"):
         if requested == SELECT_CALIBRATION_ENTITY
         else State(ENTITY_ID, "heat", {})
     )
-    trv = Trv(entity_id=ENTITY_ID, calibration=CalibrationOutput.LOCAL_BASED)
+    trv = trv_record(entity_id=ENTITY_ID, calibration=CalibrationOutput.LOCAL_BASED)
     trv.local_temperature_calibration_entity = SELECT_CALIBRATION_ENTITY
     mock_self.real_trvs = {ENTITY_ID: trv}
     return mock_self

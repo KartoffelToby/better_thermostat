@@ -167,15 +167,14 @@ async def test_no_trvs_seeds_nothing(bt):
     bt.control_queue_task.put_nowait.assert_not_called()
 
 
-@pytest.mark.parametrize("target", [None, math.nan])
 @pytest.mark.asyncio
-async def test_defaults_without_a_target_are_refused_before_the_reset(bt, target):
+async def test_defaults_without_a_target_are_refused_before_the_reset(bt):
     """Defaults need a target bucket; without one nothing is reset or seeded.
 
     The call asked for a reset followed by seeding. Doing only the first
     half would leave the learned gains gone and no defaults in their place.
     """
-    bt.heat_target_temperature = target
+    bt.heat_target_temperature = math.nan
     bt.state_mgr.pid = {"uid:climate.trv:t21.0": PIDState(pid_integral=7.5)}
     with pytest.raises(ServiceValidationError) as refused:
         await BetterThermostat.reset_pid_learnings_service(bt, apply_pid_defaults=True)

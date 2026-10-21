@@ -15,12 +15,11 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.watcher import (
     check_critical_entities,
     should_report_unavailable_trvs,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 GUARD_ID = "binary_sensor.heat_pump_powered"
 TRV_ID = "climate.wall_thermostat"
@@ -72,7 +71,7 @@ def thermostat() -> ThermostatStandIn:
     bt = ThermostatStandIn()
     bt.hass = MagicMock()
     bt.device_name = "Wall BT"
-    bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID)}
+    bt.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID)}
     bt.devices_errors = list[str]()
     bt.devices_states = dict[str, dict[str, str | None]](
         {TRV_ID: {"battery": None, "battery_id": None}}

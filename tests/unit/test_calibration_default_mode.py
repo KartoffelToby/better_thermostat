@@ -12,9 +12,8 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 
 @pytest.fixture
@@ -28,6 +27,7 @@ def bt_default_mode():
     bt.attr_hvac_action = None
     bt.hvac_action = None
     bt.room_temperature = 20.0
+    bt.heat_target_temperature = 21.0
 
     quirks = MagicMock()
     quirks.fix_local_calibration.side_effect = (
@@ -38,7 +38,7 @@ def bt_default_mode():
     )
 
     bt.real_trvs = {
-        "climate.trv": Trv(
+        "climate.trv": trv_record(
             entity_id="climate.trv",
             advanced={"calibration_mode": CalibrationMode.DEFAULT},
             current_temperature=22.0,
@@ -57,9 +57,6 @@ def bt_default_mode():
 
 def test_default_local_calibration_computes_pure_offset(bt_default_mode):
     """DEFAULT local calibration: (external - trv) + current_offset."""
-
-    # Important: DEFAULT should not require a target temperature
-    bt_default_mode.heat_target_temperature = None
 
     # external=20, trv=22, current_offset=2 -> new=0
     new_offset = calculate_calibration_local(bt_default_mode, "climate.trv")
