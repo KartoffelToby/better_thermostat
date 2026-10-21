@@ -189,6 +189,14 @@ class Trv:
     # without stopping its watchdog, so two can run at once and answer out of
     # order; the later command wins whichever answers last.
     confirmed_write_id: int = 0
+    # Control-path setpoint writes since the device was last seen holding
+    # what Better Thermostat wants or last wrote. Each further write of such
+    # a run waits longer than the one before, and a run that reaches its
+    # limit is reported as a device error until the device holds the value.
+    unapplied_setpoint_writes: int = 0
+    # Whether that report is raised: the TRV is listed in the thermostat's
+    # errors and carries a repair issue.
+    setpoint_unapplied_reported: bool = False
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
     # A mode command still on the wire that the room took back before the

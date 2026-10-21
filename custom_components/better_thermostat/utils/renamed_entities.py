@@ -23,6 +23,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
+    CONF_AVAILABILITY_GUARD,
     CONF_COOLER,
     CONF_DOOR_SENSORS,
     CONF_HUMIDITY_SENSOR,
@@ -49,6 +50,7 @@ ENTITY_SETTINGS: Final = (
     CONF_DOOR_SENSORS,
     CONF_OUTDOOR_SENSOR,
     CONF_WEATHER,
+    CONF_AVAILABILITY_GUARD,
 )
 
 

@@ -20,6 +20,8 @@
           "door_off_delay_after": "Ritardo prima che il termostato si riaccenda quando la porta viene chiusa",
           "outdoor_sensor": "Se hai un sensore esterno, puoi usarlo per ottenere la temperatura esterna",
           "weather": "La tua entità meteo per ottenere la temperatura esterna",
+          "availability_guard": "Guardia di disponibilità",
+          "availability_guard_grace_seconds": "Periodo di tolleranza dopo l'accensione della guardia di disponibilità",
           "target_temp_min": "Temperatura target minima",
           "target_temp_max": "Temperatura target massima",
           "target_temp_step": "Passo della temperatura target",
@@ -41,6 +43,8 @@
           "door_off_delay_after": "Per quanto tempo tutte le porte devono restare chiuse prima che il riscaldamento riprenda.",
           "outdoor_sensor": "Facoltativo. Fornisce la temperatura esterna per la soglia esterna e ha la precedenza sull'entità meteo.",
           "weather": "Facoltativo. Fornisce la temperatura esterna quando non è scelto un sensore esterno.",
+          "availability_guard": "Facoltativo. Un sensore binario, un interruttore o un input boolean che è acceso finché i termostati sono alimentati. Finché è spento, un termostato non disponibile non genera né avvisi né riparazioni.",
+          "availability_guard_grace_seconds": "Per quanto tempo un termostato può restare non disponibile dopo l'accensione della guardia di disponibilità prima di essere segnalato.",
           "target_temp_min": "L'obiettivo più basso impostabile. Auto usa l'intervallo indicato dai tuoi dispositivi.",
           "target_temp_max": "L'obiettivo più alto impostabile. Auto usa l'intervallo indicato dai tuoi dispositivi.",
           "target_temp_step": "Di quanto cambia l'obiettivo a ogni passo. Auto usa il passo più grossolano dei tuoi termostati.",
@@ -58,7 +62,8 @@
           "calibration": "Tipo di calibrazione",
           "calibration_mode": "Modalità di calibrazione",
           "no_off_system_mode": "Usa la temperatura minima invece di 'off'",
-          "mpc_v2_plant_preset": "MPC v2 dimensione della stanza"
+          "mpc_v2_plant_preset": "MPC v2 dimensione della stanza",
+          "mpc_v2_flow_temperature": "MPC v2 temperatura di mandata"
         },
         "data_description": {
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
@@ -69,7 +74,8 @@
           "calibration": "Come viene applicata la calibrazione sul TRV\n***Basato sulla temperatura obiettivo***: Applica la calibrazione alla temperatura obiettivo.\n***Basato sull’offset***: Applica la calibrazione all'offset di temperatura. Disponibile solo se il TRV ha un offset di temperatura scrivibile.\n***Controllo diretto della valvola***: Imposta direttamente l'apertura della valvola. Disponibile solo se il TRV ha una posizione della valvola scrivibile. Le modalità di calibrazione che non calcolano un'apertura della valvola inviano invece una temperatura obiettivo.",
           "calibration_mode": "Come viene calcolata la calibrazione\n***IA basata sul tempo (predefinito)***: Impara nel tempo la potenza di riscaldamento della stanza e ne ricava la calibrazione.\n***Solo offset sensore esterno***: Corregge il sensore interno del TRV con il tuo sensore di temperatura esterno. Nessun regolatore lavora in aggiunta.\n***MPC predittivo (beta)***: Prevede la temperatura della stanza e ne calcola un'apertura della valvola. Impara il comportamento termico della stanza.\n***(IA) MPC v2 (QP + Kalman, sperimentale)***: Stima lo stato della stanza con un filtro di Kalman e calcola un'apertura della valvola con un regolatore predittivo basato su modello. L'impostazione MPC v2 dimensione della stanza sceglie il modello della stanza: appreso dalla stanza (Automatico) o fisso per una dimensione (piccola, media, grande).\n***Aggressivo***: Aggiunge una spinta alla calibrazione mentre la stanza si riscalda e salta il ritardo di tolleranza, così il TRV inizia a scaldare prima. Utile se la stanza si scalda lentamente.\n***Controller TPI***: Calcola la durata di accensione dei cicli di riscaldamento dalla differenza di temperatura.\n***Controller PID***: Calcola un'apertura della valvola dall'errore di temperatura con un termine proporzionale, integrale e derivativo.\n***Nessuna calibrazione***: Invia la temperatura obiettivo al TRV senza modificarla e non applica alcuna correzione.",
           "no_off_system_mode": "Con questa opzione, Better Thermostat invia al TRV la sua temperatura minima invece di 'off'. Un TRV che riporta la sua temperatura minima conta come spento: quando tutti i TRV della stanza sono spenti, la stanza si spegne, e ruotando una manopola verso l'alto si riaccende. Conta anche una rotazione mentre una finestra o una porta è aperta; il riscaldamento attende allora che tutte le finestre e le porte siano chiuse. Un TRV senza modalità 'off' riceve la sua temperatura minima anche senza questa opzione. Attivala per un TRV la cui modalità 'off' non funziona, o per un TRV senza modalità 'off' la cui manopola deve accendere e spegnere Better Thermostat.",
-          "mpc_v2_plant_preset": "Usato solo dalla modalità di calibrazione MPC v2.\n***Automatico***: Ricava il modello della stanza da ciò che Better Thermostat ha appreso sulla stanza, ad esempio il suo tasso di dispersione termica.\n***Stanza piccola, media o grande***: Parte da un modello fisso per quella dimensione della stanza."
+          "mpc_v2_plant_preset": "Usato solo dalla modalità di calibrazione MPC v2.\n***Automatico***: Ricava il modello della stanza da ciò che Better Thermostat ha appreso sulla stanza, ad esempio il suo tasso di dispersione termica.\n***Stanza piccola, media o grande***: Parte da un modello fisso per quella dimensione della stanza.",
+          "mpc_v2_flow_temperature": "Usato solo dalla modalità di calibrazione MPC v2. La temperatura dell'acqua di riscaldamento che arriva ai radiatori. Lascia 65 °C (149 °F) per una caldaia con curva di riscaldamento fissa. Per una pompa di calore o una caldaia con compensazione climatica, inserisci un valore tipico della stagione di riscaldamento, ad esempio da 35 a 45 °C (da 95 a 113 °F). Dopo una modifica, MPC v2 riapprende il modello della stanza con il nuovo valore."
         }
       },
       "confirm": {
@@ -116,6 +122,8 @@
           "door_off_delay_after": "Ritardo prima che il termostato si riaccenda quando la porta viene chiusa",
           "outdoor_sensor": "Se hai un sensore esterno, puoi usarlo per ottenere la temperatura esterna",
           "weather": "La tua entità meteo per ottenere la temperatura esterna",
+          "availability_guard": "Guardia di disponibilità",
+          "availability_guard_grace_seconds": "Periodo di tolleranza dopo l'accensione della guardia di disponibilità",
           "target_temp_min": "Temperatura target minima",
           "target_temp_max": "Temperatura target massima",
           "target_temp_step": "Passo della temperatura target",
@@ -137,6 +145,8 @@
           "door_off_delay_after": "Per quanto tempo tutte le porte devono restare chiuse prima che il riscaldamento riprenda.",
           "outdoor_sensor": "Facoltativo. Fornisce la temperatura esterna per la soglia esterna e ha la precedenza sull'entità meteo.",
           "weather": "Facoltativo. Fornisce la temperatura esterna quando non è scelto un sensore esterno.",
+          "availability_guard": "Facoltativo. Un sensore binario, un interruttore o un input boolean che è acceso finché i termostati sono alimentati. Finché è spento, un termostato non disponibile non genera né avvisi né riparazioni.",
+          "availability_guard_grace_seconds": "Per quanto tempo un termostato può restare non disponibile dopo l'accensione della guardia di disponibilità prima di essere segnalato.",
           "target_temp_min": "L'obiettivo più basso impostabile. Auto usa l'intervallo indicato dai tuoi dispositivi.",
           "target_temp_max": "L'obiettivo più alto impostabile. Auto usa l'intervallo indicato dai tuoi dispositivi.",
           "target_temp_step": "Di quanto cambia l'obiettivo a ogni passo. Auto usa il passo più grossolano dei tuoi termostati.",
@@ -155,7 +165,8 @@
           "calibration": "Tipo di calibrazione che vuoi usare",
           "calibration_mode": "Modalità di calibrazione",
           "no_off_system_mode": "Usa la temperatura minima invece di 'off'",
-          "mpc_v2_plant_preset": "MPC v2 dimensione della stanza"
+          "mpc_v2_plant_preset": "MPC v2 dimensione della stanza",
+          "mpc_v2_flow_temperature": "MPC v2 temperatura di mandata"
         },
         "data_description": {
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
@@ -166,7 +177,8 @@
           "calibration": "Come viene applicata la calibrazione sul TRV\n***Basato sulla temperatura obiettivo***: Applica la calibrazione alla temperatura obiettivo.\n***Basato sull’offset***: Applica la calibrazione all'offset di temperatura. Disponibile solo se il TRV ha un offset di temperatura scrivibile.\n***Controllo diretto della valvola***: Imposta direttamente l'apertura della valvola. Disponibile solo se il TRV ha una posizione della valvola scrivibile. Le modalità di calibrazione che non calcolano un'apertura della valvola inviano invece una temperatura obiettivo.",
           "calibration_mode": "Come viene calcolata la calibrazione\n***IA basata sul tempo (predefinito)***: Impara nel tempo la potenza di riscaldamento della stanza e ne ricava la calibrazione.\n***Solo offset sensore esterno***: Corregge il sensore interno del TRV con il tuo sensore di temperatura esterno. Nessun regolatore lavora in aggiunta.\n***MPC predittivo (beta)***: Prevede la temperatura della stanza e ne calcola un'apertura della valvola. Impara il comportamento termico della stanza.\n***(IA) MPC v2 (QP + Kalman, sperimentale)***: Stima lo stato della stanza con un filtro di Kalman e calcola un'apertura della valvola con un regolatore predittivo basato su modello. L'impostazione MPC v2 dimensione della stanza sceglie il modello della stanza: appreso dalla stanza (Automatico) o fisso per una dimensione (piccola, media, grande).\n***Aggressivo***: Aggiunge una spinta alla calibrazione mentre la stanza si riscalda e salta il ritardo di tolleranza, così il TRV inizia a scaldare prima. Utile se la stanza si scalda lentamente.\n***Controller TPI***: Calcola la durata di accensione dei cicli di riscaldamento dalla differenza di temperatura.\n***Controller PID***: Calcola un'apertura della valvola dall'errore di temperatura con un termine proporzionale, integrale e derivativo.\n***Nessuna calibrazione***: Invia la temperatura obiettivo al TRV senza modificarla e non applica alcuna correzione.",
           "no_off_system_mode": "Con questa opzione, Better Thermostat invia al TRV la sua temperatura minima invece di 'off'. Un TRV che riporta la sua temperatura minima conta come spento: quando tutti i TRV della stanza sono spenti, la stanza si spegne, e ruotando una manopola verso l'alto si riaccende. Conta anche una rotazione mentre una finestra o una porta è aperta; il riscaldamento attende allora che tutte le finestre e le porte siano chiuse. Un TRV senza modalità 'off' riceve la sua temperatura minima anche senza questa opzione. Attivala per un TRV la cui modalità 'off' non funziona, o per un TRV senza modalità 'off' la cui manopola deve accendere e spegnere Better Thermostat.",
-          "mpc_v2_plant_preset": "Usato solo dalla modalità di calibrazione MPC v2.\n***Automatico***: Ricava il modello della stanza da ciò che Better Thermostat ha appreso sulla stanza, ad esempio il suo tasso di dispersione termica.\n***Stanza piccola, media o grande***: Parte da un modello fisso per quella dimensione della stanza."
+          "mpc_v2_plant_preset": "Usato solo dalla modalità di calibrazione MPC v2.\n***Automatico***: Ricava il modello della stanza da ciò che Better Thermostat ha appreso sulla stanza, ad esempio il suo tasso di dispersione termica.\n***Stanza piccola, media o grande***: Parte da un modello fisso per quella dimensione della stanza.",
+          "mpc_v2_flow_temperature": "Usato solo dalla modalità di calibrazione MPC v2. La temperatura dell'acqua di riscaldamento che arriva ai radiatori. Lascia 65 °C (149 °F) per una caldaia con curva di riscaldamento fissa. Per una pompa di calore o una caldaia con compensazione climatica, inserisci un valore tipico della stagione di riscaldamento, ad esempio da 35 a 45 °C (da 95 a 113 °F). Dopo una modifica, MPC v2 riapprende il modello della stanza con il nuovo valore."
         }
       }
     },
@@ -206,6 +218,10 @@
     "shared_trv": {
       "title": "BT: {trv} è controllato da più di un Better Thermostat",
       "description": "Il termostato {trv} appartiene a questi Better Thermostat: {entries}. Gli inviano temperature obiettivo e modalità in conflitto. Rimuovilo da tutti tranne uno nelle loro impostazioni; poi questo problema scompare da solo."
+    },
+    "setpoint_not_applied": {
+      "title": "BT: {name} - {entity} non accetta la temperatura obiettivo",
+      "description": "Better Thermostat scrive ripetutamente la temperatura obiettivo {wanted} su {entity}, ma il termostato continua a riportare {held}. La stanza non viene riscaldata come previsto da Better Thermostat.\n\nCause comuni:\n- Il termostato ha un proprio limite del setpoint inferiore al massimo che pubblica, ad esempio `max_heat_setpoint_limit` in Zigbee2MQTT.\n- Il termostato è in una modalità o in un preset in cui ignora le temperature obiettivo, come una modalità programmata.\n- Il termostato ha perso la connessione radio o la batteria è scarica.\n\nBetter Thermostat continua a scrivere la temperatura obiettivo, al massimo una volta all'ora. Questo problema si risolve da solo non appena il termostato riporta la temperatura obiettivo."
     }
   },
   "services": {
@@ -471,6 +487,12 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Apertura massima della valvola"
+      },
+      "off_temperature": {
+        "name": "Soglia temperatura esterna"
+      },
+      "tolerance": {
+        "name": "Tolleranza"
       }
     },
     "switch": {
@@ -488,6 +510,9 @@
       },
       "child_lock_no_trv": {
         "name": "Blocco bambini"
+      },
+      "window_detection": {
+        "name": "Rilevamento finestra"
       }
     },
     "sensor": {

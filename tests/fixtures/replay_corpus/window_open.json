@@ -96,6 +96,7 @@
     "window": {
       "pending_since": null,
       "phase": "open"
-    }
+    },
+    "window_detection": true
   }
 }

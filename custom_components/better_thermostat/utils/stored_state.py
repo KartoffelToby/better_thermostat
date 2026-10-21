@@ -83,6 +83,7 @@ StoredMpcV2Reid = TypedDict(  # noqa: UP013
         "n_segments": int,
         "rmse_prior_K": float,
         "rmse_fit_K": float,
+        "flow_temperature": float,
     },
 )
 

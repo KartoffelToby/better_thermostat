@@ -20,6 +20,8 @@
           "door_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu drzwi",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
+          "availability_guard": "Strażnik dostępności",
+          "availability_guard_grace_seconds": "Okres karencji po włączeniu strażnika dostępności",
           "target_temp_min": "Minimalna temperatura docelowa",
           "target_temp_max": "Maksymalna temperatura docelowa",
           "target_temp_step": "Krok temperatury docelowej",
@@ -41,6 +43,8 @@
           "door_off_delay_after": "Jak długo wszystkie drzwi muszą być zamknięte, zanim ogrzewanie wznowi pracę.",
           "outdoor_sensor": "Opcjonalne. Dostarcza temperaturę zewnętrzną dla progu zewnętrznego i ma pierwszeństwo przed encją pogody.",
           "weather": "Opcjonalne. Dostarcza temperaturę zewnętrzną, gdy nie wybrano czujnika zewnętrznego.",
+          "availability_guard": "Opcjonalnie. Czujnik binarny, przełącznik lub input boolean, który jest włączony, dopóki termostaty mają zasilanie. Gdy jest wyłączony, niedostępny termostat nie wywołuje ani ostrzeżenia, ani naprawy.",
+          "availability_guard_grace_seconds": "Jak długo termostat może pozostać niedostępny po włączeniu strażnika dostępności, zanim zostanie zgłoszony.",
           "target_temp_min": "Najniższy cel, jaki można ustawić. Auto przyjmuje zakres zgłaszany przez urządzenia.",
           "target_temp_max": "Najwyższy cel, jaki można ustawić. Auto przyjmuje zakres zgłaszany przez urządzenia.",
           "target_temp_step": "O ile zmienia się cel na krok. Auto przyjmuje najgrubszy krok zgłaszany przez termostaty.",
@@ -58,7 +62,8 @@
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Użyj temperatury minimalnej zamiast 'wyłączony'",
-          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia"
+          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia",
+          "mpc_v2_flow_temperature": "MPC v2 temperatura zasilania"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
@@ -69,7 +74,8 @@
           "calibration": "Jak kalibracja jest stosowana w TRV\n***Na podstawie temperatury docelowej***: Zastosuj kalibrację do temperatury docelowej.\n***Na podstawie przesunięcia***: Zastosuj kalibrację do przesunięcia temperatury. Dostępne tylko, gdy TRV ma zapisywalne przesunięcie temperatury.\n***Bezpośrednie sterowanie zaworem***: Ustaw otwarcie zaworu bezpośrednio. Dostępne tylko, gdy TRV ma zapisywalną pozycję zaworu. Tryby kalibracji, które nie wyznaczają otwarcia zaworu, wysyłają zamiast tego temperaturę docelową.",
           "calibration_mode": "Jak obliczana jest kalibracja\n***AI na podstawie czasu (domyślne)***: Z czasem uczy się mocy grzewczej pomieszczenia i wyznacza z niej kalibrację.\n***Tylko przesunięcie czujnika zewnętrznego***: Koryguje wewnętrzny czujnik TRV za pomocą zewnętrznego czujnika temperatury. Żaden regulator nie działa dodatkowo.\n***Predykcyjne MPC (beta)***: Przewiduje temperaturę pomieszczenia i oblicza z niej otwarcie zaworu. Uczy się zachowania cieplnego pomieszczenia.\n***(AI) MPC v2 (QP + Kalman, eksperymentalne)***: Szacuje stan pomieszczenia filtrem Kalmana i oblicza otwarcie zaworu regulatorem predykcyjnym z modelem. Ustawienie MPC v2 wielkość pomieszczenia wybiera model pomieszczenia: wyuczony w pomieszczeniu (Automatycznie) lub stały dla danej wielkości (małe, średnie, duże).\n***Agresywne***: Podbija kalibrację, gdy pomieszczenie się nagrzewa, i pomija opóźnienie tolerancji, aby TRV zaczął grzać wcześniej. Przydatne, gdy pomieszczenie nagrzewa się powoli.\n***Regulator TPI***: Oblicza czas załączenia cykli grzewczych na podstawie różnicy temperatur.\n***Regulator PID***: Oblicza otwarcie zaworu z uchybu temperatury za pomocą członu proporcjonalnego, całkującego i różniczkującego.\n***Bez kalibracji***: Wysyła temperaturę docelową do TRV bez zmian i nie stosuje żadnej korekty.",
           "no_off_system_mode": "Przy tej opcji Better Thermostat wysyła do TRV jego temperaturę minimalną zamiast 'wyłączony'. TRV, który zgłasza swoją temperaturę minimalną, uznaje się za wyłączony: gdy wszystkie TRV w pomieszczeniu są wyłączone, pomieszczenie się wyłącza, a podkręcenie pokrętła włącza je ponownie. Liczy się też obrót przy otwartym oknie lub drzwiach; ogrzewanie czeka wtedy, aż wszystkie okna i drzwi zostaną zamknięte. TRV bez trybu wyłączenia otrzymuje swoją temperaturę minimalną także bez tej opcji. Włącz ją dla TRV, którego tryb wyłączenia nie działa, albo dla TRV bez trybu wyłączenia, którego pokrętło ma włączać i wyłączać Better Thermostat.",
-          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia."
+          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia.",
+          "mpc_v2_flow_temperature": "Używane tylko przez tryb kalibracji MPC v2. Temperatura wody grzewczej płynącej do grzejników. Pozostaw 65 °C (149 °F) dla kotła ze stałą krzywą grzewczą. Dla pompy ciepła lub kotła sterowanego pogodowo wpisz typową wartość dla sezonu grzewczego, na przykład od 35 do 45 °C (od 95 do 113 °F). Po zmianie MPC v2 uczy się modelu pomieszczenia od nowa przy nowej wartości."
         }
       },
       "confirm": {
@@ -116,6 +122,8 @@
           "door_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu drzwi",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
+          "availability_guard": "Strażnik dostępności",
+          "availability_guard_grace_seconds": "Okres karencji po włączeniu strażnika dostępności",
           "target_temp_min": "Minimalna temperatura docelowa",
           "target_temp_max": "Maksymalna temperatura docelowa",
           "target_temp_step": "Krok temperatury docelowej",
@@ -137,6 +145,8 @@
           "door_off_delay_after": "Jak długo wszystkie drzwi muszą być zamknięte, zanim ogrzewanie wznowi pracę.",
           "outdoor_sensor": "Opcjonalne. Dostarcza temperaturę zewnętrzną dla progu zewnętrznego i ma pierwszeństwo przed encją pogody.",
           "weather": "Opcjonalne. Dostarcza temperaturę zewnętrzną, gdy nie wybrano czujnika zewnętrznego.",
+          "availability_guard": "Opcjonalnie. Czujnik binarny, przełącznik lub input boolean, który jest włączony, dopóki termostaty mają zasilanie. Gdy jest wyłączony, niedostępny termostat nie wywołuje ani ostrzeżenia, ani naprawy.",
+          "availability_guard_grace_seconds": "Jak długo termostat może pozostać niedostępny po włączeniu strażnika dostępności, zanim zostanie zgłoszony.",
           "target_temp_min": "Najniższy cel, jaki można ustawić. Auto przyjmuje zakres zgłaszany przez urządzenia.",
           "target_temp_max": "Najwyższy cel, jaki można ustawić. Auto przyjmuje zakres zgłaszany przez urządzenia.",
           "target_temp_step": "O ile zmienia się cel na krok. Auto przyjmuje najgrubszy krok zgłaszany przez termostaty.",
@@ -155,7 +165,8 @@
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Użyj temperatury minimalnej zamiast 'wyłączony'",
-          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia"
+          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia",
+          "mpc_v2_flow_temperature": "MPC v2 temperatura zasilania"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
@@ -166,7 +177,8 @@
           "calibration": "Jak kalibracja jest stosowana w TRV\n***Na podstawie temperatury docelowej***: Zastosuj kalibrację do temperatury docelowej.\n***Na podstawie przesunięcia***: Zastosuj kalibrację do przesunięcia temperatury. Dostępne tylko, gdy TRV ma zapisywalne przesunięcie temperatury.\n***Bezpośrednie sterowanie zaworem***: Ustaw otwarcie zaworu bezpośrednio. Dostępne tylko, gdy TRV ma zapisywalną pozycję zaworu. Tryby kalibracji, które nie wyznaczają otwarcia zaworu, wysyłają zamiast tego temperaturę docelową.",
           "calibration_mode": "Jak obliczana jest kalibracja\n***AI na podstawie czasu (domyślne)***: Z czasem uczy się mocy grzewczej pomieszczenia i wyznacza z niej kalibrację.\n***Tylko przesunięcie czujnika zewnętrznego***: Koryguje wewnętrzny czujnik TRV za pomocą zewnętrznego czujnika temperatury. Żaden regulator nie działa dodatkowo.\n***Predykcyjne MPC (beta)***: Przewiduje temperaturę pomieszczenia i oblicza z niej otwarcie zaworu. Uczy się zachowania cieplnego pomieszczenia.\n***(AI) MPC v2 (QP + Kalman, eksperymentalne)***: Szacuje stan pomieszczenia filtrem Kalmana i oblicza otwarcie zaworu regulatorem predykcyjnym z modelem. Ustawienie MPC v2 wielkość pomieszczenia wybiera model pomieszczenia: wyuczony w pomieszczeniu (Automatycznie) lub stały dla danej wielkości (małe, średnie, duże).\n***Agresywne***: Podbija kalibrację, gdy pomieszczenie się nagrzewa, i pomija opóźnienie tolerancji, aby TRV zaczął grzać wcześniej. Przydatne, gdy pomieszczenie nagrzewa się powoli.\n***Regulator TPI***: Oblicza czas załączenia cykli grzewczych na podstawie różnicy temperatur.\n***Regulator PID***: Oblicza otwarcie zaworu z uchybu temperatury za pomocą członu proporcjonalnego, całkującego i różniczkującego.\n***Bez kalibracji***: Wysyła temperaturę docelową do TRV bez zmian i nie stosuje żadnej korekty.",
           "no_off_system_mode": "Przy tej opcji Better Thermostat wysyła do TRV jego temperaturę minimalną zamiast 'wyłączony'. TRV, który zgłasza swoją temperaturę minimalną, uznaje się za wyłączony: gdy wszystkie TRV w pomieszczeniu są wyłączone, pomieszczenie się wyłącza, a podkręcenie pokrętła włącza je ponownie. Liczy się też obrót przy otwartym oknie lub drzwiach; ogrzewanie czeka wtedy, aż wszystkie okna i drzwi zostaną zamknięte. TRV bez trybu wyłączenia otrzymuje swoją temperaturę minimalną także bez tej opcji. Włącz ją dla TRV, którego tryb wyłączenia nie działa, albo dla TRV bez trybu wyłączenia, którego pokrętło ma włączać i wyłączać Better Thermostat.",
-          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia."
+          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia.",
+          "mpc_v2_flow_temperature": "Używane tylko przez tryb kalibracji MPC v2. Temperatura wody grzewczej płynącej do grzejników. Pozostaw 65 °C (149 °F) dla kotła ze stałą krzywą grzewczą. Dla pompy ciepła lub kotła sterowanego pogodowo wpisz typową wartość dla sezonu grzewczego, na przykład od 35 do 45 °C (od 95 do 113 °F). Po zmianie MPC v2 uczy się modelu pomieszczenia od nowa przy nowej wartości."
         }
       }
     },
@@ -206,6 +218,10 @@
     "shared_trv": {
       "title": "BT: {trv} jest sterowany przez więcej niż jeden Better Thermostat",
       "description": "Termostat {trv} należy do tych Better Thermostat: {entries}. Zapisują do niego sprzeczne temperatury docelowe i tryby. Usuń go w ustawieniach ze wszystkich oprócz jednego; potem ten problem zniknie sam."
+    },
+    "setpoint_not_applied": {
+      "title": "BT: {name} - {entity} nie przyjmuje temperatury docelowej",
+      "description": "Better Thermostat wielokrotnie zapisuje temperaturę docelową {wanted} do {entity}, ale termostat nadal zgłasza {held}. Pomieszczenie nie jest ogrzewane tak, jak zamierza Better Thermostat.\n\nCzęste przyczyny:\n- Termostat ma własny limit nastawy niższy niż publikowane maksimum, na przykład `max_heat_setpoint_limit` w Zigbee2MQTT.\n- Termostat jest w trybie lub presecie, w którym ignoruje temperatury docelowe, na przykład w trybie harmonogramu.\n- Termostat utracił połączenie radiowe lub ma słabą baterię.\n\nBetter Thermostat nadal zapisuje temperaturę docelową, najwyżej raz na godzinę. Ten problem znika sam, gdy termostat zgłosi temperaturę docelową."
     }
   },
   "services": {
@@ -471,6 +487,12 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Maksymalne otwarcie zaworu"
+      },
+      "off_temperature": {
+        "name": "Próg temperatury zewnętrznej"
+      },
+      "tolerance": {
+        "name": "Tolerancja"
       }
     },
     "switch": {
@@ -488,6 +510,9 @@
       },
       "child_lock_no_trv": {
         "name": "Blokada rodzicielska"
+      },
+      "window_detection": {
+        "name": "Wykrywanie okna"
       }
     },
     "sensor": {

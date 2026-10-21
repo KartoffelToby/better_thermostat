@@ -38,11 +38,19 @@ The Min number replaces the plain preset number, so a device with a cooler has *
 
 **Valve Max Opening** exists for each TRV whose calibration type is *Direct Valve Based*. It caps the valve opening Better Thermostat writes to that TRV, from 0 to 100 %. The default is 100 %.
 
+### Outdoor Temperature Threshold and Tolerance
+
+**Outdoor Temperature Threshold** exists while an outdoor sensor or a weather entity is configured, and **Tolerance** exists for every device. They hold the *outdoor temperature when the thermostat should turn off* and the *tolerance* from the device's settings: the number and the settings show the same value, and a change in either shows in the other and takes effect at once, without restarting the device. Both are in your system's temperature unit; the tolerance is a temperature difference. The threshold is stored in whole degrees, as the settings store it, so a value between two degrees is rounded. The tolerance goes from 0 to 10 °C (18 °F).
+
+Set them from an automation to change several devices at once, for example to follow an `input_number` helper. See [Configuration](/configuration/#first-step) for what the two values do and [Summer mode](/deep-explanations/summer-mode/#changing-the-threshold) for an example.
+
 ## Switches
 
 **Release devices** exists for every device. Turned on, it hands the room's TRVs and cooler to you: Better Thermostat writes nothing to them, takes over nothing they report and learns nothing until it is turned off, which brings them back onto the thermostat's own settings with one control cycle. It keeps its state over a restart. See [Releasing the devices](/setup/releasing-devices/).
 
 **Child Lock** exists for every TRV. It turns the *Ignore all inputs on the TRV like a child lock* option on and off and, where the TRV has a child lock entity of its own, that one too. While the devices are released it cannot be changed. Better Thermostat looks for a switch or lock on the TRV's device named for the child lock first; only when there is none does it use one whose name merely contains "lock". The switch and the startup sync of the option pick the same entity.
+
+**Window Detection** exists for every device with a window or door sensor. It is on by default, and then an open window or door turns the heating off as described in [Window sensor](/faq/window-sensor/). Turned off, the window and door sensors no longer affect the heating, and a close delay that is still running is dropped, so heating resumes at once. The thermostat shows the setting in its `window_detection` attribute, and the switch keeps its state across restarts. See [Turning window detection off](/faq/window-sensor/#turning-window-detection-off).
 
 **PID Auto Tune** exists for each TRV that uses the PID Controller calibration mode. Turned on, the controller adjusts its gains itself; turned off, the gains the TRV uses at that moment stay as they are until you set them. The switch applies to the TRV at every target temperature, including one it has never run at.
 

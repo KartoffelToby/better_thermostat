@@ -81,6 +81,7 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_QUANTIZATION_TOLERANCE_K,
     COOLER_SETPOINT_KEYS,
+    SETPOINT_MATCH_TOLERANCE,
     TRV_SETPOINT_KEYS,
     CoolerCommand,
     CoolerFailureRun,
@@ -123,6 +124,8 @@ from custom_components.better_thermostat.utils.scheduler import request_control_
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
 from custom_components.better_thermostat.utils.watcher import (
     UNAVAILABLE_OR_UNKNOWN_STATES,
+    clear_unapplied_setpoint,
+    report_unapplied_setpoint,
 )
 
 if TYPE_CHECKING:
@@ -229,6 +232,39 @@ TRV_STATE_SETTLE_S = 3.0
 # every channel.
 WRITE_CONFIRM_TIMEOUT_S = 360
 
+# A setpoint the device has not taken is written again by the next control
+# cycle that finds the device holding another value. While the device keeps
+# not taking it, each further write of the run waits this factor longer than
+# the one before, starting at the channel's write interval: a write lost on
+# the air is repeated at the normal pace, and a device that refuses the value
+# is not written every cycle for as long as it refuses.
+SETPOINT_RETRY_BACKOFF_FACTOR = 2.0
+# Ceiling of that wait. A device that refuses the value is still written once
+# an hour, so one that starts taking it again converges without a change of
+# target.
+SETPOINT_RETRY_BACKOFF_MAX_S = 3600.0
+# Longest run the backoff tells apart; past it the wait is pinned at the
+# ceiling anyway, and the exponent stays finite on a device that refuses
+# every write for weeks.
+SETPOINT_RETRY_BACKOFF_MAX_RUN = 1 + math.ceil(
+    math.log(
+        SETPOINT_RETRY_BACKOFF_MAX_S / MIN_WRITE_INTERVAL_S,
+        SETPOINT_RETRY_BACKOFF_FACTOR,
+    )
+)
+# Writes in a run, the first one and five retries, after which a device that
+# still does not hold the value is reported as a device error. At the normal
+# write interval the run has lasted a quarter of an hour by then, far longer
+# than a sleeping device takes to wake and answer.
+SETPOINT_UNAPPLIED_WRITES_LIMIT = 6
+
+
+def _user_changed_since_setpoint_write(self: BetterThermostat, trv: Trv) -> bool:
+    """Whether the user changed the room's target or mode since the last setpoint write."""
+    user_change = self.last_user_change_monotonic
+    last_write = trv.last_write_monotonic.get("setpoint")
+    return user_change is not None and (last_write is None or last_write < user_change)
+
 
 def _write_interval_seconds(
     self: BetterThermostat, trv: Trv, channel: WriteChannel
@@ -239,18 +275,25 @@ def _write_interval_seconds(
     mode goes out at the normal pace on a HomematicIP head too: the user
     expects the head to follow within the normal interval, and a flurry of
     changes still coalesces on it. That write consumes the exemption.
+
+    A setpoint the device has not taken backs off from that interval with
+    every further write of the run, up to ``SETPOINT_RETRY_BACKOFF_MAX_S``.
+    A user change since the last write is exempt from the backoff as well:
+    the value the user asked for may be one the device takes.
     """
-    if not advanced_flag(trv.advanced, CONF_HOMEMATICIP):
+    homematicip = advanced_flag(trv.advanced, CONF_HOMEMATICIP)
+    interval = HOMEMATICIP_MIN_WRITE_INTERVAL_S if homematicip else MIN_WRITE_INTERVAL_S
+    if channel != "setpoint":
+        return interval
+    run = min(trv.unapplied_setpoint_writes, SETPOINT_RETRY_BACKOFF_MAX_RUN)
+    if run <= 1 and not homematicip:
+        return interval
+    if _user_changed_since_setpoint_write(self, trv):
         return MIN_WRITE_INTERVAL_S
-    user_change = self.last_user_change_monotonic
-    last_write = trv.last_write_monotonic.get("setpoint")
-    if (
-        channel == "setpoint"
-        and user_change is not None
-        and (last_write is None or last_write < user_change)
-    ):
-        return MIN_WRITE_INTERVAL_S
-    return HOMEMATICIP_MIN_WRITE_INTERVAL_S
+    if run <= 1:
+        return interval
+    backoff = interval * SETPOINT_RETRY_BACKOFF_FACTOR ** (run - 1)
+    return max(interval, min(backoff, SETPOINT_RETRY_BACKOFF_MAX_S))
 
 
 def _budget_open(
@@ -2846,11 +2889,16 @@ async def control_trv(
                     if _released_during_cycle(self, entity_id):
                         return True
                     trv = self.real_trvs[entity_id]
+                    _follow_unapplied_setpoint(
+                        self, entity_id, _trv, _temperature, _current_set_temperatures
+                    )
                     # Everything but a safety-relevant write waits for the
                     # next slot and converges via the scheduled retry.
                     if _consume_budget(
                         self, entity_id, "setpoint", bypass=_safety_relevant_setpoint
                     ):
+                        if _current_set_temperatures:
+                            trv.unapplied_setpoint_writes += 1
                         old = trv.commanded_setpoint
                         _LOGGER.debug(
                             "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
@@ -2908,6 +2956,7 @@ async def control_trv(
                     # land on the setpoint the room asks for once it heats
                     # again. That value is BT's own from here on.
                     self.real_trvs[entity_id].remember_setpoint_held(_temperature)
+                    clear_unapplied_setpoint(self, entity_id)
 
         # Watchdog heartbeat: the control loop demonstrably ran.
         _stamp_heartbeat(self)
@@ -2918,6 +2967,96 @@ async def control_trv(
     finally:
         if _suppression_owned:
             self.real_trvs[entity_id].ignore_trv_states = False
+
+
+def _setpoint_held_within_step(
+    self: BetterThermostat,
+    entity_id: str,
+    state: State,
+    value: float | None,
+    reported: set[float],
+) -> bool:
+    """Whether the device reports ``value`` within one of its setpoint steps.
+
+    A device that truncates a write onto its step, or snaps it onto a grid
+    of its own, reports a value it took up to one step away from the one
+    written. Such a report is the write taken, not refused.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity id of the TRV
+    state : State
+        The TRV's state the report was read from
+    value : float | None
+        The setpoint in °C, None when there is none to look for
+    reported : set[float]
+        The setpoints in °C the device reports
+
+    Returns
+    -------
+    bool
+        True when a reported setpoint lies within a step of ``value``
+    """
+    if value is None:
+        return False
+    trv = self.real_trvs[entity_id]
+    step = normalize_step(trv.target_temp_step or self.bt_target_temperature_step)
+    return matches_any_setpoint(
+        as_published_setpoint(value, state, self.hass.config.units.temperature_unit),
+        reported,
+        tolerance=step + SETPOINT_MATCH_TOLERANCE,
+    )
+
+
+def _follow_unapplied_setpoint(
+    self: BetterThermostat,
+    entity_id: str,
+    state: State,
+    wanted: float,
+    reported: set[float],
+) -> None:
+    """Follow the run of setpoint writes a device has not taken.
+
+    Called when a control cycle finds the device off the setpoint it wants.
+    A device that holds, within a step, the value wanted or the one last
+    written has taken the writes so far, and the run ends. A device off both
+    is still in the run, and a run that has reached its limit is reported.
+    An unreadable report tells neither.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity id of the TRV
+    state : State
+        The TRV's state the report was read from
+    wanted : float
+        The setpoint in °C the cycle wants, on the device's grid
+    reported : set[float]
+        The setpoints in °C the device reports
+    """
+    if not reported:
+        return
+    trv = self.real_trvs[entity_id]
+    if _setpoint_held_within_step(
+        self, entity_id, state, wanted, reported
+    ) or _setpoint_held_within_step(
+        self, entity_id, state, trv.commanded_setpoint, reported
+    ):
+        clear_unapplied_setpoint(self, entity_id)
+        return
+    if trv.unapplied_setpoint_writes >= SETPOINT_UNAPPLIED_WRITES_LIMIT:
+        report_unapplied_setpoint(
+            self,
+            entity_id,
+            wanted,
+            min(reported),
+            _write_interval_seconds(self, trv, "setpoint"),
+        )
 
 
 def _setpoint_turned_during_cycle(self: BetterThermostat, entity_id: str) -> bool:
@@ -3028,7 +3167,8 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the system mode change "
-                "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
+                "after %ss (wrote=%s, last reported=%s); a control cycle that "
+                "finds it off the command writes it again",
                 self.device_name,
                 entity_id,
                 WRITE_CONFIRM_TIMEOUT_S,
@@ -3129,6 +3269,8 @@ async def check_target_temperature(
             _current_set_temperatures,
         ):
             trv.remember_setpoint_confirmed(_awaited_setpoint, _awaited_write_id)
+            if trv.last_setpoint_write_id == _awaited_write_id:
+                clear_unapplied_setpoint(self, entity_id)
             _timeout = 0
             break
         if trv.last_setpoint_write_id != _awaited_write_id:
@@ -3142,7 +3284,8 @@ async def check_target_temperature(
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the target temperature "
-                "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
+                "after %ss (wrote=%s, last reported=%s); a control cycle that "
+                "finds it off the command writes it again",
                 self.device_name,
                 entity_id,
                 WRITE_CONFIRM_TIMEOUT_S,
@@ -3258,7 +3401,8 @@ async def check_calibration(
             if _timeout > WRITE_CONFIRM_TIMEOUT_S:
                 _LOGGER.warning(
                     "better_thermostat %s: TRV %s did not confirm the calibration offset "
-                    "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
+                    "after %ss (wrote=%s, last reported=%s); a control cycle that "
+                    "finds it off the command writes it again",
                     self.device_name,
                     entity_id,
                     WRITE_CONFIRM_TIMEOUT_S,

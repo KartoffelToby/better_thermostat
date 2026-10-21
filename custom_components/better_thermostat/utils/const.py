@@ -26,6 +26,11 @@ DOMAIN: Final = "better_thermostat"
 
 DEFAULT_NAME: Final = "Better Thermostat"
 
+# How long a TRV may stay unavailable after the availability guard turns on
+# before it is reported. Thermostats powered from the heating system boot and
+# rejoin their network in that time.
+DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS: Final = 600
+
 # ``hass.data`` key holding, per entry and platform, the thermostat name the
 # entity ids were last built from. It outlives the reload it describes and is
 # dropped when the entry is removed.
@@ -66,6 +71,8 @@ CONF_WINDOW_OFF_DELAY_AFTER: Final = "window_off_delay_after"
 CONF_DOOR_OFF_DELAY: Final = "door_off_delay"
 CONF_DOOR_OFF_DELAY_AFTER: Final = "door_off_delay_after"
 CONF_OUTDOOR_SENSOR: Final = "outdoor_sensor"
+CONF_AVAILABILITY_GUARD: Final = "availability_guard"
+CONF_AVAILABILITY_GUARD_GRACE_SECONDS: Final = "availability_guard_grace_seconds"
 CONF_VALVE_MAINTENANCE: Final = "valve_maintenance"
 CONF_MIN_TEMP: Final = "min_temp"
 CONF_MAX_TEMP: Final = "max_temp"
@@ -75,6 +82,7 @@ CONF_CHILD_LOCK: Final = "child_lock"
 CONF_PROTECT_OVERHEATING: Final = "protect_overheating"
 CONF_CALIBRATION_MODE: Final = "calibration_mode"
 CONF_MPC_V2_PLANT_PRESET: Final = "mpc_v2_plant_preset"
+CONF_MPC_V2_FLOW_TEMPERATURE: Final = "mpc_v2_flow_temperature"
 CONF_HEAT_AUTO_SWAPPED: Final = "heat_auto_swapped"
 CONF_MODEL: Final = "model"
 CONF_HOMEMATICIP: Final = "homematicip"
@@ -102,6 +110,7 @@ SUPPORT_FLAGS: Final = (
 
 ATTR_STATE_WINDOW_OPEN: Final = "window_open"
 ATTR_STATE_DOOR_OPEN: Final = "door_open"
+ATTR_STATE_WINDOW_DETECTION: Final = "window_detection"
 ATTR_STATE_CALL_FOR_HEAT: Final = "call_for_heat"
 ATTR_STATE_DEVICES_RELEASED: Final = "devices_released"
 ATTR_STATE_PRESET_TEMPERATURE: Final = "preset_temperature"

@@ -106,6 +106,20 @@ device rejected after the budget was spent schedules the same catch-up
 cycle. The follow-up is needed because the reconciler compares against
 the last value actually written, which the device still matches.
 
+The setpoint write decision compares the intent with the setpoint the
+device **reports**, not with the last value sent, so a setpoint the device
+did not take is written again by the next cycle. A device that keeps
+reporting something else would be written on every cycle, so the setpoint
+channel backs off: the writes since the device was last seen holding,
+within one of its steps, the intended or the last written value form a
+run. The second write of a run follows at the channel's interval, and every
+further one waits twice as long as the one before, up to one hour.
+A user change of target or mode since the last write skips the backoff
+once. After six writes of a run the TRV is listed in the thermostat's
+`errors` attribute and gets a `setpoint_not_applied` repair issue; both go
+away when the device is seen holding the value. A report without a
+readable setpoint neither extends nor ends a run.
+
 ## The reconciler
 
 Every five minutes, `reconcile_tick` runs the same observe-decide step

@@ -149,8 +149,9 @@ def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
 
     ``KernelState.reachability`` is a read-only ``MappingProxyType``,
     which :func:`dataclasses.asdict` cannot recurse into. The proxy is
-    converted to a plain ``dict`` of ``asdict``-ed entries; every other
-    field is a frozen region dataclass flattened by ``asdict``.
+    converted to a plain ``dict`` of ``asdict``-ed entries; the scalar
+    fields are taken as they are, and every other field is a frozen region
+    dataclass flattened by ``asdict``.
 
     Parameters
     ----------
@@ -172,6 +173,7 @@ def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
         "reachability": {
             entity_id: asdict(entry) for entity_id, entry in state.reachability.items()
         },
+        "window_detection": state.window_detection,
         "last_control_monotonic": state.last_control_monotonic,
     }
 
@@ -399,6 +401,8 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
             pending=_pending_window_of(control_mode),
         ),
         reachability=reachability,
+        # An export without the flag was recorded with window detection on.
+        window_detection=_bool_of(data.get("window_detection", True)),
         last_control_monotonic=_float_or_none(data["last_control_monotonic"]),
     )
 

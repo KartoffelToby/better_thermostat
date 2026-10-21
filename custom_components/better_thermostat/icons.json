@@ -65,6 +65,9 @@
       },
       "pid_auto_tune_no_trv": {
         "default": "mdi:magic-staff"
+      },
+      "window_detection": {
+        "default": "mdi:window-open-variant"
       }
     }
   },

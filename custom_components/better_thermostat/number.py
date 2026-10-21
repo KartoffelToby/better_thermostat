@@ -25,8 +25,9 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.util.unit_conversion import TemperatureConverter
 
-from . import BetterThermostatConfigEntry
+from . import BetterThermostatConfigEntry, store_live_setting
 from .entity import (
     ControlsOneTrv,
     FollowsThermostat,
@@ -53,7 +54,12 @@ from .utils.calibration.pid import (
     pid_loop_state,
     set_pid_gain,
 )
-from .utils.const import CalibrationMode, CalibrationOutput
+from .utils.const import (
+    CONF_OFF_TEMPERATURE,
+    CONF_TOLERANCE,
+    CalibrationMode,
+    CalibrationOutput,
+)
 from .utils.helpers import (
     async_normalize_bt_entity_ids,
     configured_calibration_mode,
@@ -117,6 +123,19 @@ _PID_GAIN_SETTINGS: Final[dict[PidGain, _GainSetting]] = {
     "ki": _GainSetting(*PID_GAIN_LIMITS["ki"], step=0.001, default=DEFAULT_PID_KI),
     "kd": _GainSetting(*PID_GAIN_LIMITS["kd"], step=1.0, default=DEFAULT_PID_KD),
 }
+
+
+# The outdoor thresholds the thermostat reads as one, in the system unit: it
+# ignores a stored threshold outside -100 to 150, and the options flow stores
+# whole degrees.
+_OFF_TEMPERATURE_MIN: Final = -99.0
+_OFF_TEMPERATURE_MAX: Final = 149.0
+_OFF_TEMPERATURE_STEP: Final = 1.0
+
+# The widest tolerance the number offers, in kelvin. The thermostat reads a
+# wider one too but warns that it makes the control sluggish.
+_TOLERANCE_MAX_KELVIN: Final = 10.0
+_TOLERANCE_STEP: Final = 0.1
 
 
 def _is_usable_setting(
@@ -206,6 +225,11 @@ async def async_setup_entry(
                     bt_climate, trv_entity_id, has_multiple_trvs
                 )
             )
+
+    unit = hass.config.units.temperature_unit
+    if bt_climate.outdoor_sensor_entity_id or bt_climate.weather_entity_id:
+        numbers.append(BetterThermostatOffTemperatureNumber(bt_climate, entry, unit))
+    numbers.append(BetterThermostatToleranceNumber(bt_climate, entry, unit))
 
     # Track created number entities for cleanup
     _ACTIVE_PRESET_NUMBERS[entry.entry_id] = preset_unique_ids
@@ -698,4 +722,158 @@ class BetterThermostatValveMaxOpeningNumber(
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
         self._set_value(value)
+        self.async_write_ha_state()
+
+
+class BetterThermostatOffTemperatureNumber(FollowsThermostat, NumberEntity):
+    """The outdoor temperature at which the thermostat stops heating.
+
+    The value lives in the entry's settings, the ones the options flow edits.
+    The number shows the threshold the thermostat runs on and writes a new one
+    to the settings, which the thermostat takes without a reload.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "off_temperature"
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_min_value = _OFF_TEMPERATURE_MIN
+    _attr_native_max_value = _OFF_TEMPERATURE_MAX
+    _attr_native_step = _OFF_TEMPERATURE_STEP
+
+    def __init__(
+        self,
+        bt_climate: BetterThermostat,
+        entry: BetterThermostatConfigEntry,
+        unit: UnitOfTemperature,
+    ) -> None:
+        """Initialize the number.
+
+        Parameters
+        ----------
+        bt_climate : BetterThermostat
+            The thermostat the threshold belongs to.
+        entry : BetterThermostatConfigEntry
+            The config entry the threshold is stored in.
+        unit : UnitOfTemperature
+            The system unit, the one the threshold is stored in.
+        """
+        self._bt_climate = bt_climate
+        self._entry = entry
+        self._unit = unit
+        self._attr_unique_id = f"{bt_climate.unique_id}_off_temperature"
+        self._attr_native_unit_of_measurement = unit
+
+    # See BetterThermostatPresetNumber.device_class.
+    @property
+    @override
+    def device_class(self) -> NumberDeviceClass:
+        """Return the temperature device class."""
+        return NumberDeviceClass.TEMPERATURE
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        self._follow_thermostat()
+
+    @property
+    @override
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return self._bt_climate.device_info
+
+    @property
+    @override
+    def native_value(self) -> float | None:
+        """Return the threshold the thermostat runs on, in the system unit."""
+        celsius = self._bt_climate.off_temperature
+        if celsius is None:
+            return None
+        return round(
+            TemperatureConverter.convert(
+                celsius, UnitOfTemperature.CELSIUS, self._unit
+            ),
+            1,
+        )
+
+    @override
+    async def async_set_native_value(self, value: float) -> None:
+        """Store a new threshold, in whole degrees as the options flow does."""
+        if not _is_usable_setting(self._bt_climate, value, "outdoor threshold"):
+            return
+        store_live_setting(self.hass, self._entry, CONF_OFF_TEMPERATURE, round(value))
+        self.async_write_ha_state()
+
+
+class BetterThermostatToleranceNumber(FollowsThermostat, NumberEntity):
+    """The tolerance the room drops below its target before heating resumes.
+
+    The tolerance is a temperature difference, so Home Assistant converts it
+    between units as one. Like the outdoor threshold, it lives in the entry's
+    settings and applies without a reload.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "tolerance"
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_min_value = 0.0
+    _attr_native_step = _TOLERANCE_STEP
+
+    def __init__(
+        self,
+        bt_climate: BetterThermostat,
+        entry: BetterThermostatConfigEntry,
+        unit: UnitOfTemperature,
+    ) -> None:
+        """Initialize the number.
+
+        Parameters
+        ----------
+        bt_climate : BetterThermostat
+            The thermostat the tolerance belongs to.
+        entry : BetterThermostatConfigEntry
+            The config entry the tolerance is stored in.
+        unit : UnitOfTemperature
+            The system unit, the one the tolerance is stored in.
+        """
+        self._bt_climate = bt_climate
+        self._entry = entry
+        self._attr_unique_id = f"{bt_climate.unique_id}_tolerance"
+        self._attr_native_unit_of_measurement = unit
+        self._per_kelvin = 1.8 if unit == UnitOfTemperature.FAHRENHEIT else 1.0
+        self._attr_native_max_value = _TOLERANCE_MAX_KELVIN * self._per_kelvin
+
+    # See BetterThermostatPresetNumber.device_class.
+    @property
+    @override
+    def device_class(self) -> NumberDeviceClass:
+        """Return the temperature difference device class."""
+        return NumberDeviceClass.TEMPERATURE_DELTA
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        self._follow_thermostat()
+
+    @property
+    @override
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return self._bt_climate.device_info
+
+    @property
+    @override
+    def native_value(self) -> float:
+        """Return the tolerance the thermostat runs on, in the system unit."""
+        return round(self._bt_climate.tolerance * self._per_kelvin, 2)
+
+    @override
+    async def async_set_native_value(self, value: float) -> None:
+        """Store a new tolerance."""
+        if not _is_usable_setting(self._bt_climate, value, "tolerance"):
+            return
+        store_live_setting(self.hass, self._entry, CONF_TOLERANCE, round(value, 2))
         self.async_write_ha_state()

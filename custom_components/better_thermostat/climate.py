@@ -126,7 +126,7 @@ from .model_fixes.model_quirks import (
     trv_report_is_unreadable,
 )
 from .model_fixes.types import ExternalTemperatureQuirk
-from .switch import restored_child_lock
+from .switch import restored_child_lock, restored_window_detection
 from .trv import Trv
 from .utils.advanced_flags import advanced_flag
 from .utils.calibration.pid import (
@@ -152,7 +152,10 @@ from .utils.const import (
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_ROOM_TEMPERATURE_FILTERED,
+    ATTR_STATE_WINDOW_DETECTION,
     ATTR_STATE_WINDOW_OPEN,
+    CONF_AVAILABILITY_GUARD,
+    CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
     CONF_CHILD_LOCK,
     CONF_COOLER,
     CONF_DOOR_OFF_DELAY,
@@ -173,6 +176,7 @@ from .utils.const import (
     CONF_WINDOW_OFF_DELAY,
     CONF_WINDOW_OFF_DELAY_AFTER,
     CONF_WINDOW_SENSORS,
+    DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
     DEFAULT_MAX_TEMP,
     DEFAULT_MIN_TEMP,
     DEFAULT_TARGET_TEMP,
@@ -284,9 +288,11 @@ from .utils.watcher import (
     await_optional_sensors,
     check_and_update_degraded_mode,
     check_critical_entities,
+    get_device_errors,
     is_entity_available,
     is_trv_available,
     room_sensor_reading,
+    unavailable_trvs_reportable,
 )
 from .utils.weather import DampedSource, check_ambient_air_temperature, check_weather
 
@@ -517,6 +523,32 @@ def _configured_delay(value: str | float | None, device_name: str, field: str) -
     return 0.0
 
 
+def _configured_availability_guard_grace(
+    value: str | float | None, device_name: str
+) -> float:
+    """Return the configured availability guard grace period in seconds.
+
+    An entry that carries none takes the default. One that does not read as
+    a finite number, or a negative one, is logged and takes the default too.
+    """
+    if value is None or value == "":
+        return float(DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS)
+    try:
+        grace = float(value)
+    except ValueError:
+        grace = math.nan
+    if math.isfinite(grace) and grace >= 0:
+        return grace
+    _LOGGER.warning(
+        "better_thermostat %s: invalid %s '%s', using %d seconds",
+        device_name,
+        CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
+        value,
+        DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
+    )
+    return float(DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS)
+
+
 def _configured_temperature_bound(
     value: str | float | None, device_name: str, field: str
 ) -> float | None:
@@ -667,6 +699,10 @@ def _configured_bt_config(settings: BtSettings, unit: UnitOfTemperature) -> BtCo
             settings.get(CONF_OFF_TEMPERATURE), name, unit
         ),
         tolerance=_configured_tolerance(settings.get(CONF_TOLERANCE), name, unit),
+        availability_guard_entity_id=settings.get(CONF_AVAILABILITY_GUARD) or None,
+        availability_guard_grace_seconds=_configured_availability_guard_grace(
+            settings.get(CONF_AVAILABILITY_GUARD_GRACE_SECONDS), name
+        ),
     )
 
 
@@ -850,6 +886,55 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     def tolerance(self) -> float:
         """Return the configured tolerance in Kelvin."""
         return self.config.tolerance
+
+    def apply_live_settings(self, settings: BtSettings) -> None:
+        """Take the outdoor threshold and the tolerance from ``settings``.
+
+        Both are read the way setup reads them, and both take effect without
+        a reload. A changed threshold runs the outdoor check again, which
+        requests a control cycle when its decision flips; a changed tolerance
+        requests a control cycle. While the startup sequence runs, its own
+        checks and its first cycle read the new values.
+
+        Parameters
+        ----------
+        settings : BtSettings
+            The entry's settings, parsed.
+        """
+        config = replace(
+            self.config,
+            off_temperature=_configured_off_temperature(
+                settings.get(CONF_OFF_TEMPERATURE), self.device_name, self._unit
+            ),
+            tolerance=_configured_tolerance(
+                settings.get(CONF_TOLERANCE), self.device_name, self._unit
+            ),
+        )
+        if config == self.config:
+            return
+        threshold_changed = config.off_temperature != self.config.off_temperature
+        tolerance_changed = config.tolerance != self.config.tolerance
+        self.config = config
+        self.async_write_ha_state()
+        if self.startup_running:
+            return
+        if threshold_changed:
+            self._spawn_owned(
+                self._trigger_check_weather(self.clock.utcnow()),
+                name=f"bt_outdoor_threshold_{self.device_name}",
+            )
+        if tolerance_changed and self.bt_hvac_mode != HVACMode.OFF:
+            request_control_cycle(self)
+
+    @property
+    def availability_guard_entity_id(self) -> str | None:
+        """Return the entity that says whether the TRVs have power."""
+        return self.config.availability_guard_entity_id
+
+    @property
+    def availability_guard_grace_seconds(self) -> float:
+        """Return how long a TRV may stay away after the guard turns on."""
+        return self.config.availability_guard_grace_seconds
 
     @property
     def room_temperature(self) -> float | None:
@@ -1089,6 +1174,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.all_trvs: list[TrvSettings] = trv_configs
         # Static configuration and live runtime values each get a container;
         # the flat attribute names delegate into them via properties.
+        # apply_live_settings replaces the configuration as a whole.
         self.config = config
         self.runtime = BtRuntime()
         self._unique_id = unique_id
@@ -1099,6 +1185,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.map_on_hvac_mode = HVACMode.HEAT
         self.clock: Clock = SystemClock()
         self.kernel_state = KernelState()
+        # The contact state the window and door settle workers last
+        # announced, keyed by contact kind.
+        self.announced_contact_open: dict[str, bool] = {}
         self.flight_recorder = FlightRecorder()
         self.next_valve_maintenance: datetime | None = self.clock.now() + timedelta(
             hours=randint(1, 24 * 5)
@@ -1372,6 +1461,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self._saved_state is not None
             and self._saved_state.attributes.get(ATTR_STATE_DEVICES_RELEASED) is True
         )
+        # The window detection switch is set up after the thermostat, and
+        # control must not run on the default before it restores.
+        if self.has_contact_sensor and (
+            restored_window_detection(self.hass, self.unique_id) is False
+        ):
+            self.kernel_state = replace(self.kernel_state, window_detection=False)
 
         self._control_task = self.hass.async_create_background_task(
             control_queue(self), name=f"bt_control_queue_{self.device_name}"
@@ -1871,6 +1966,18 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     async def _trigger_door_change(self, event: Event[EventStateChangedData]) -> None:
         await self._trigger_contact_change(event, trigger_door_change, "door")
 
+    async def _trigger_availability_guard_change(
+        self, event: Event[EventStateChangedData]
+    ) -> None:
+        """Report or withdraw TRV outages as the availability guard changes.
+
+        A guard that turns off withdraws the reports of the TRVs that are
+        away, and one that stops answering reports them. One that turns on
+        reports them once its grace period has passed, which the ladder tick
+        notices: it checks the TRVs every minute.
+        """
+        await check_critical_entities(self)
+
     async def _trigger_cooler_change(self, event: Event[EventStateChangedData]) -> None:
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
@@ -2039,8 +2146,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     entity_id,
                 )
             return False
+        # A TRV the availability guard does not expect to be reachable is no
+        # fault, so starting without it is no warning either.
+        level = logging.WARNING if unavailable_trvs_reportable(self) else logging.INFO
         for entity_id in unavailable:
-            _LOGGER.warning(
+            _LOGGER.log(
+                level,
                 "better_thermostat %s: TRV/climate entity '%s' is still unavailable "
                 "after the startup grace window; starting without it, it is "
                 "initialised as soon as it reports again",
@@ -3461,6 +3572,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     self._trigger_outdoor_change,
                 )
             )
+        if self.availability_guard_entity_id is not None:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    [self.availability_guard_entity_id],
+                    self._trigger_availability_guard_change,
+                )
+            )
         # One keepalive right away, so a TRV that mirrors the room temperature
         # has it before the first interval elapses.
         try:
@@ -3932,6 +4051,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             heat_target_temperature=self.heat_target_temperature,
             outdoor_temperature=outdoor_temperature,
         )
+        if self.contact_sensed_open:
+            # A cycle that heats against an open window teaches nothing about
+            # the radiator. With window detection off the heating runs on
+            # while the window is open.
+            self._heating_tracker.abort_cycle()
 
         if result.action_changed:
             self.old_attr_hvac_action = result.current_action
@@ -3957,7 +4081,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.room_temperature,
             current_action,
             self.clock.utcnow(),
-            window_open=self.contact_open,
+            window_open=self.contact_sensed_open,
         )
 
         if result.cycle_result is not None:
@@ -3991,12 +4115,31 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     def contact_open(self) -> bool:
-        """Return True when a window or door contact is confirmed open.
+        """Return True when an open window or door suppresses heating.
 
         Both sensor kinds suppress heating once their debounce delay has
-        passed; this is the combined flag the control logic gates on.
+        passed, as long as window detection is on; this is the combined
+        flag the control logic gates on, the same one ``decide()`` reads.
+        """
+        return self.kernel_state.window_detection and self.contact_sensed_open
+
+    @property
+    def contact_sensed_open(self) -> bool:
+        """Return True when a window or door contact is confirmed open.
+
+        Unlike :attr:`contact_open` it holds with window detection off as
+        well: an open window still drives the room's temperature, so
+        learning reads this one.
         """
         return self.window_open or self.door_open
+
+    @property
+    def has_contact_sensor(self) -> bool:
+        """Return whether a window or a door sensor is configured."""
+        return (
+            self.window_sensor_entity_id is not None
+            or self.door_sensor_entity_id is not None
+        )
 
     def _minute_tick_attributes(self) -> tuple[float | None, float | None]:
         """Return the published values the minute EMA tick moves.
@@ -4036,7 +4179,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # where they are published.
             ATTR_STATE_HEATING_POWER: round(self.heating_power, 4),
             ATTR_STATE_HEAT_LOSS: round(self.heat_loss_rate, 5),
-            ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
+            ATTR_STATE_ERRORS: json.dumps(get_device_errors(self)),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
             ATTR_STATE_ROOM_TEMPERATURE_FILTERED: self.room_temperature_filtered,
             # Degraded mode: thermostat running with some sensors unavailable
@@ -4068,6 +4211,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if self.next_valve_maintenance is not None:
             dev_specific["next_valve_maintenance"] = (
                 self.next_valve_maintenance.isoformat()
+            )
+        if self.has_contact_sensor:
+            dev_specific[ATTR_STATE_WINDOW_DETECTION] = (
+                self.kernel_state.window_detection
             )
 
         # Optional: summarize last valve method per TRV (adapter vs override)

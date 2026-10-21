@@ -265,6 +265,8 @@ _CONSTRUCTOR_DEFAULTED = (
     "_temperature_filter_lock",
     "control_cycle_started_monotonic",
     "devices_released",
+    "announced_contact_open",
+    "last_user_change_monotonic",
 )
 _CONSTRUCTOR_LITERALS = _constructor_literals()
 STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
@@ -273,11 +275,12 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
         for name in _CONSTRUCTOR_DEFAULTED
     },
     # Built from config the constructor takes; these are the values of a
-    # thermostat configured without a temperature step and before Home
-    # Assistant assigned it a unique id.
+    # thermostat configured without a temperature step and without an
+    # availability guard, before Home Assistant assigned it a unique id.
     "flight_recorder": FlightRecorder,
     "task_manager": TaskManager,
     "bt_target_temperature_step": lambda: None,
+    "availability_guard_entity_id": lambda: None,
     "_unique_id": lambda: None,
 }
 
@@ -427,6 +430,7 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
     bt._preset_cool_temperature = None
     bt.preset_mgr = PresetManager(temperatures={})
     bt.door_open = False
+    bt.has_contact_sensor = False
     bt.kernel_state = running_kernel_state()
     bt.clock = FakeClock()
     bt.temperature_slope = None

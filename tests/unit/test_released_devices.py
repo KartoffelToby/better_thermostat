@@ -32,6 +32,7 @@ def _learning_room(*, released: bool) -> ThermostatStandIn:
     bt.room_temperature = 20.0
     bt.heat_target_temperature = 21.0
     bt.contact_open = False
+    bt.contact_sensed_open = False
     bt.clock = FakeClock()
     bt._compute_hvac_action = MagicMock(return_value=HVACAction.HEATING)
     bt._get_outdoor_temperature = MagicMock(return_value=None)

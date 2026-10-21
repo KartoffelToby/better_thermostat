@@ -7,6 +7,10 @@ independent and can be pending at the same time; only the behavior around
 them is shared. This module implements that behavior once, and
 :mod:`events.window` and :mod:`events.door` bind it to the entity
 attributes and the kernel region of their kind.
+
+The window detection switch masks both regions in the control law. The
+regions keep following their sensors while it is off, without delays, so
+the thermostat still knows the window is open for everything but control.
 """
 
 from __future__ import annotations
@@ -165,7 +169,14 @@ def _issue_id(self: BetterThermostat, role: ContactRole) -> str:
 
 
 def _contact_params(self: BetterThermostat, role: ContactRole) -> WindowParams:
-    """Debounce delays from the entity configuration."""
+    """Debounce delays from the entity configuration.
+
+    The delays keep a short flap from switching the heating. With window
+    detection off the regions switch nothing, so they follow the sensor
+    without delay.
+    """
+    if not self.kernel_state.window_detection:
+        return WindowParams()
     return WindowParams(
         open_delay_seconds=float(role.open_delay_of(self) or 0),
         close_delay_seconds=float(role.close_delay_of(self) or 0),
@@ -329,28 +340,34 @@ async def _settle_contact_region(self: BetterThermostat, role: ContactRole) -> N
                 remaining,
             )
             await asyncio.sleep(remaining)
-        sensor_entity_id = role.entity_id_of(self)
-        sensor = (
-            self.hass.states.get(sensor_entity_id)
-            if sensor_entity_id is not None
-            else None
-        )
-        # A non-active sensor (missing / unavailable / unknown) counts as
-        # closed, mirroring the live event handler; so does no sensor at all.
-        sensor_open = sensor is not None and sensor.state in OPEN_WORDS
         self.kernel_state = role.with_region(
             self.kernel_state,
             window_step(
                 role.region_of(self.kernel_state),
-                sensor_open=sensor_open,
+                sensor_open=_sensor_reads_open(self, role),
                 now=self.clock.monotonic(),
                 params=_contact_params(self, role),
             ),
         )
 
 
-async def _announce_contact_change(self: BetterThermostat, role: ContactRole) -> None:
-    """Fire the side effects of a committed contact change."""
+def _sensor_reads_open(self: BetterThermostat, role: ContactRole) -> bool:
+    """Return whether the contact sensor reads open right now.
+
+    A non-active sensor (missing / unavailable / unknown) counts as closed,
+    mirroring the live event handler; so does no sensor at all.
+    """
+    sensor_entity_id = role.entity_id_of(self)
+    sensor = (
+        self.hass.states.get(sensor_entity_id) if sensor_entity_id is not None else None
+    )
+    return sensor is not None and sensor.state in OPEN_WORDS
+
+
+async def _fire_contact_logbook_entry(
+    self: BetterThermostat, role: ContactRole
+) -> None:
+    """Log that the contact switched the heating off or back on."""
     if role.region_of(self.kernel_state).effective_open:
         await async_fire_logbook_entry(
             self, f"{role.kind}_open", f"turned off because a {role.kind} was opened"
@@ -361,6 +378,10 @@ async def _announce_contact_change(self: BetterThermostat, role: ContactRole) ->
             f"{role.kind}_close",
             f"resumed heating because a {role.kind} was closed",
         )
+
+
+def _request_control(self: BetterThermostat) -> None:
+    """Publish the contact state and run a control cycle on it."""
     self.async_write_ha_state()
     if self.in_maintenance:
         # Keep state up to date during maintenance, but defer control
@@ -368,6 +389,65 @@ async def _announce_contact_change(self: BetterThermostat, role: ContactRole) ->
         self._control_needed_after_maintenance = True
     else:
         request_control_cycle(self, replace_pending=True)
+
+
+async def _announce_contact_change(self: BetterThermostat, role: ContactRole) -> None:
+    """Fire the side effects of a committed contact change.
+
+    With window detection off the change switches no heating, so nothing
+    goes to the logbook; the state is still published.
+    """
+    if self.kernel_state.window_detection:
+        await _fire_contact_logbook_entry(self, role)
+    _request_control(self)
+
+
+async def set_window_detection(self: BetterThermostat, enabled: bool) -> None:
+    """Turn window detection on or off for both contact kinds.
+
+    Each region starts over from closed and takes the sensor's current
+    reading. Off, there are no delays, so every delay still running is
+    dropped and a window that was just closed stops holding the heating
+    off. On, the configured delays apply, so a window that is open waits
+    out the open delay before it turns the heating off.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        the thermostat whose window detection changes
+    enabled : bool
+        whether open windows and doors turn the heating off
+    """
+    if self.kernel_state.window_detection == enabled:
+        return
+    self.kernel_state = replace(self.kernel_state, window_detection=enabled)
+    for role in CONTACT_ROLES:
+        if role.entity_id_of(self) is None:
+            continue
+        region = window_step(
+            WindowState(),
+            sensor_open=_sensor_reads_open(self, role),
+            now=self.clock.monotonic(),
+            params=_contact_params(self, role),
+        )
+        self.kernel_state = role.with_region(self.kernel_state, region)
+        # The settle worker compares later commits against this state, so a
+        # window that opens fully after the delay is announced.
+        self.announced_contact_open[role.kind] = region.effective_open
+        if enabled and region.effective_open:
+            await _fire_contact_logbook_entry(self, role)
+        if region.pending_since is not None:
+            try:
+                role.queue_of(self).put_nowait(region.effective_open)
+            except asyncio.QueueFull:
+                # A settle run is already pending; it re-reads the region.
+                pass
+    _LOGGER.debug(
+        "better_thermostat %s: window detection turned %s",
+        self.device_name,
+        "on" if enabled else "off",
+    )
+    _request_control(self)
 
 
 async def contact_queue(self: BetterThermostat, role: ContactRole) -> None:
@@ -378,6 +458,8 @@ async def contact_queue(self: BetterThermostat, role: ContactRole) -> None:
     from the settled region: only a flip of the effective state against
     the announced state fires the logbook entry and control kick, so
     several queued items sharing one commit announce it exactly once.
+    The announced state lives on the entity, because turning window
+    detection on or off moves the regions outside this worker.
 
     Parameters
     ----------
@@ -392,20 +474,19 @@ async def contact_queue(self: BetterThermostat, role: ContactRole) -> None:
     None
         the worker runs until it is cancelled
     """
-    announced: bool | None = None
+    announced = self.announced_contact_open
     try:
         while True:
             queue = role.queue_of(self)
             queued = await queue.get()
             try:
                 if queued is not None:
-                    if announced is None:
-                        announced = queued
+                    announced.setdefault(role.kind, queued)
                     await _settle_contact_region(self, role)
                     effective = role.region_of(self.kernel_state).effective_open
-                    if effective != announced:
+                    if effective != announced[role.kind]:
+                        announced[role.kind] = effective
                         await _announce_contact_change(self, role)
-                        announced = effective
             except asyncio.CancelledError:
                 _LOGGER.debug(
                     "better_thermostat %s: %s queue processing cancelled",

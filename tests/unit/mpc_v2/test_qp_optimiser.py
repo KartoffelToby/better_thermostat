@@ -74,6 +74,23 @@ def test_warm_room_above_a_setpoint_beyond_the_water_backs_the_valve_off(
     assert u == pytest.approx(0.5 - QpParams().delta_u_max)
 
 
+def test_setpoint_above_the_supply_water_never_reads_opening_as_cooling() -> None:
+    """A setpoint above the supply water keeps the valve gain non-negative.
+
+    The hottest radiator a fully open valve holds at a 26 °C room is above
+    24 °C water, where the bilinear valve term turns negative. A room on the
+    setpoint must not be planned shut on that sign: the plan moves toward
+    the open valve the unreachable setpoint asks for.
+    """
+    plant_params = PlantParams(coupling_rad_room=3.0, T_water=24.0)
+    opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
+    assert opt.plant.hottest_radiator_temperature(26.0) > plant_params.T_water
+
+    u = opt.solve(np.array([26.0, 26.0]), 26.0, 5.0, u_last=0.5)
+
+    assert u >= 0.5
+
+
 def test_warm_room_above_target_commands_zero() -> None:
     """A room above target commands little to no heat."""
     opt = _make_optimiser()

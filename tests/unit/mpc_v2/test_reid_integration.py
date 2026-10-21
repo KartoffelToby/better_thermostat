@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 import json
 from types import SimpleNamespace
 from typing import Any, override
@@ -10,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State
+import pytest
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -18,9 +20,18 @@ from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Input,
     MpcV2Params,
+    PlantParams,
     ReidConfig,
     ReidSample,
     compute_mpc_v2,
+    export_mpc_v2_state,
+    import_mpc_v2_state,
+)
+from custom_components.better_thermostat.utils.calibration.mpc_v2.state import (
+    _plant_signature_of,
+)
+from custom_components.better_thermostat.utils.calibration.plant_preset import (
+    DEFAULT_FLOW_TEMPERATURE,
 )
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -161,6 +172,7 @@ def _make_bt(preset: StoredChoice = MpcV2PlantPreset.AUTO) -> Any:
         tolerance=0.0,
         window_open=False,
         contact_open=False,
+        contact_sensed_open=False,
         kernel_state=SimpleNamespace(
             control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL)
         ),
@@ -215,6 +227,7 @@ def test_out_of_band_stored_prior_never_reaches_the_controller() -> None:
             "n_segments": 3,
             "rmse_prior_K": 0.5,
             "rmse_fit_K": 0.3,
+            "flow_temperature": 65.0,
         }
     }
     mgr._state = _deserialize(json.loads(json.dumps(raw)))
@@ -382,8 +395,14 @@ class _FakeFuture:
         cb(self)
 
 
+# The configuration a hass double carries: a metric system.
+_METRIC_CONFIG = SimpleNamespace(units=SimpleNamespace(temperature_unit="°C"))
+
+
 class _FakeHass:
     """hass double whose executor runs the job inline."""
+
+    config = _METRIC_CONFIG
 
     def async_add_executor_job(self, func, *args: object) -> _FakeFuture:
         """Run ``func`` synchronously and hand back a resolved future."""
@@ -607,7 +626,9 @@ def test_prior_lookup_prefers_shared_key_over_bucket_entries() -> None:
     bt.state_mgr.adopt_mpc_v2_reid("bt:climate.x:t21.0", legacy)
     bt.state_mgr.adopt_mpc_v2_reid("bt:reid", _REID)
 
-    found = _lookup_mpc_v2_reid(bt, "bt:reid", "bt:climate.x:t21.0")
+    found = _lookup_mpc_v2_reid(
+        bt, "bt:reid", "bt:climate.x:t21.0", DEFAULT_FLOW_TEMPERATURE
+    )
     assert found is _REID
 
 
@@ -625,7 +646,9 @@ def test_prior_lookup_picks_freshest_legacy_bucket_entry() -> None:
     bt.state_mgr.adopt_mpc_v2_reid("bt:climate.x:t19.0", stale)
     bt.state_mgr.adopt_mpc_v2_reid("bt:climate.x:t21.0", fresh)
 
-    found = _lookup_mpc_v2_reid(bt, "bt:reid", "bt:climate.x:t22.0")
+    found = _lookup_mpc_v2_reid(
+        bt, "bt:reid", "bt:climate.x:t22.0", DEFAULT_FLOW_TEMPERATURE
+    )
     assert found is fresh
 
 
@@ -758,7 +781,9 @@ def test_a_fit_finishing_after_the_removal_is_not_adopted(monkeypatch) -> None:
     )
     pending = _PendingFuture(outcome)
     bt = _make_bt()
-    bt.hass = SimpleNamespace(async_add_executor_job=lambda func, *args: pending)
+    bt.hass = SimpleNamespace(
+        async_add_executor_job=lambda func, *args: pending, config=_METRIC_CONFIG
+    )
     key, runtime = _due_fit(bt)
     bt.schedule_save_state.reset_mock()
 
@@ -777,7 +802,8 @@ def test_a_fit_that_crashes_frees_the_next_attempt(caplog) -> None:
 
     bt = _make_bt()
     bt.hass = SimpleNamespace(
-        async_add_executor_job=lambda func, *args: _RaisingFuture(None)
+        async_add_executor_job=lambda func, *args: _RaisingFuture(None),
+        config=_METRIC_CONFIG,
     )
     key, runtime = _due_fit(bt)
 
@@ -795,7 +821,7 @@ def test_a_fit_that_cannot_be_scheduled_frees_the_next_attempt(caplog) -> None:
         raise RuntimeError("executor shut down")
 
     bt = _make_bt()
-    bt.hass = SimpleNamespace(async_add_executor_job=_refuse)
+    bt.hass = SimpleNamespace(async_add_executor_job=_refuse, config=_METRIC_CONFIG)
     key, runtime = _due_fit(bt)
 
     cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
@@ -815,7 +841,12 @@ def test_reid_helpers_without_a_state_store_do_nothing() -> None:
     bt.hass = _FakeHass()
     bt.state_mgr = None
 
-    assert cal._lookup_mpc_v2_reid(bt, "bt:reid", "bt:climate.x:t21.0") is None
+    assert (
+        cal._lookup_mpc_v2_reid(
+            bt, "bt:reid", "bt:climate.x:t21.0", DEFAULT_FLOW_TEMPERATURE
+        )
+        is None
+    )
     cal._record_mpc_v2_reid_sample(
         bt,
         "bt:reid",
@@ -824,3 +855,261 @@ def test_reid_helpers_without_a_state_store_do_nothing() -> None:
         outdoor_temperature=5.0,
     )
     cal._maybe_start_mpc_v2_reid_fit(bt, "bt:reid", MpcV2Params())
+
+
+# -- Configured flow temperature ----------------------------------------------
+
+
+def _hass_in(unit: str) -> SimpleNamespace:
+    """Return a hass double whose system unit is ``unit``."""
+    return SimpleNamespace(
+        config=SimpleNamespace(units=SimpleNamespace(temperature_unit=unit)),
+        async_add_executor_job=lambda func, *args: _FakeFuture(func(*args)),
+    )
+
+
+def _live_controller(bt: Any) -> Any:
+    """Return the one live MPC v2 controller the dispatch built."""
+    (live,) = bt.state_mgr._mpc_v2_live.values()
+    assert live.controller is not None
+    return live.controller
+
+
+@pytest.mark.parametrize(
+    ("stored", "unit", "flow_temperature"),
+    [
+        (40.0, "°C", 40.0),
+        (104.0, "°F", 40.0),
+        ("45", "°C", 45.0),
+        (149.0, "°C", DEFAULT_FLOW_TEMPERATURE),
+        (20.0, "°C", DEFAULT_FLOW_TEMPERATURE),
+        ("warm", "°C", DEFAULT_FLOW_TEMPERATURE),
+        (True, "°C", DEFAULT_FLOW_TEMPERATURE),
+        (None, "°C", DEFAULT_FLOW_TEMPERATURE),
+    ],
+    ids=[
+        "celsius",
+        "fahrenheit",
+        "text",
+        "above_the_range",
+        "below_the_range",
+        "not_a_number",
+        "flag",
+        "null",
+    ],
+)
+def test_the_controller_models_the_configured_flow_temperature(
+    stored: object, unit: str, flow_temperature: float
+) -> None:
+    """The flow temperature the TRV stores, in °C, is the plant's supply water.
+
+    It is stored in the system unit; a value the flows could not have
+    written leaves the room on the default.
+    """
+    bt = _make_bt()
+    bt.hass = _hass_in(unit)
+    bt.real_trvs["climate.x"].advanced["mpc_v2_flow_temperature"] = stored
+
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert out is not None
+    controller = _live_controller(bt)
+    assert controller.plant_coarse.params.T_water == pytest.approx(flow_temperature)
+    assert controller.plant_fine.params.T_water == pytest.approx(flow_temperature)
+
+
+def test_a_thermostat_without_a_flow_temperature_models_the_default() -> None:
+    """An entry written before the setting existed runs on 65 °C supply water."""
+    bt = _make_bt()
+    assert "mpc_v2_flow_temperature" not in bt.real_trvs["climate.x"].advanced
+
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert out is not None
+    assert _live_controller(bt).plant_coarse.params.T_water == 65.0
+
+
+@pytest.mark.parametrize("preset", list(MpcV2PlantPreset))
+def test_every_plant_preset_models_the_configured_flow_temperature(
+    preset: MpcV2PlantPreset,
+) -> None:
+    """The flow temperature applies whichever room model the preset picks."""
+    bt = _make_bt(preset)
+    bt.real_trvs["climate.x"].advanced["mpc_v2_flow_temperature"] = 38.0
+
+    _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert _live_controller(bt).plant_coarse.params.T_water == 38.0
+
+
+def test_an_accepted_fit_records_the_flow_temperature_it_was_fitted_under(
+    monkeypatch,
+) -> None:
+    """The stored result names the supply water its heater gain belongs to."""
+    from custom_components.better_thermostat import calibration as cal
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import ReidOutcome
+
+    bt = _make_bt()
+    bt.hass = _FakeHass()
+    key, _runtime = _due_fit(bt)
+    priors: list[PlantParams] = []
+
+    def _fake_fit(samples, prior):
+        priors.append(prior)
+        return ReidOutcome(
+            status="accepted",
+            tau_room_min=_REID.tau_room_minutes,
+            gain_heater=_REID.gain_heater,
+            rmse_prior_K=0.4,
+            rmse_fit_K=0.1,
+            n_segments=4,
+            n_samples=300,
+        )
+
+    monkeypatch.setattr(cal, "run_reid_fit", _fake_fit)
+
+    cal._maybe_start_mpc_v2_reid_fit(
+        bt, key, MpcV2Params(plant=PlantParams(T_water=42.0))
+    )
+
+    assert [prior.T_water for prior in priors] == [42.0]
+    adopted = bt.state_mgr.get_mpc_v2_reid(key)
+    assert adopted is not None
+    assert adopted.flow_temperature == 42.0
+
+
+@pytest.mark.parametrize("shared", [True, False], ids=["shared_key", "bucket_key"])
+@pytest.mark.parametrize(
+    ("fitted", "configured", "applies"),
+    [(65.0, 65.0, True), (40.0, 40.0, True), (65.0, 40.0, False)],
+    ids=["default_flow", "same_low_flow", "other_flow"],
+)
+def test_a_fit_seeds_the_prior_only_under_its_own_flow_temperature(
+    shared: bool, fitted: float, configured: float, applies: bool
+) -> None:
+    """A gain fitted under one flow temperature misstates the room under another.
+
+    A result seeds the prior while the flow temperature it was fitted under
+    is configured, and the plant models that flow temperature with it. Under
+    another one the room runs on the heat-loss prior until a fit under the
+    new value is adopted, wherever the old result is stored.
+    """
+    from custom_components.better_thermostat import calibration as cal
+
+    bt = _make_bt()
+    bt.real_trvs["climate.x"].advanced["mpc_v2_flow_temperature"] = configured
+    key = cal._build_mpc_v2_reid_key(bt) if shared else "bt:climate.x:t21.0"
+    bt.state_mgr.adopt_mpc_v2_reid(key, replace(_REID, flow_temperature=fitted))
+
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert out is not None
+    plant = _live_controller(bt).plant_coarse.params
+    assert plant.T_water == configured
+    assert (plant.tau_room_min == _REID.tau_room_minutes) is applies
+    assert (plant.gain_heater == _REID.gain_heater) is applies
+    debug = bt.real_trvs["climate.x"].calibration_balance["debug"]
+    assert (debug["reid_gain"] == _REID.gain_heater) is applies
+
+
+def test_a_stored_fit_without_a_flow_temperature_was_fitted_under_the_default() -> None:
+    """Results stored before the field existed were all fitted under 65 °C."""
+    restored = deserialize_mpc_v2_reid(
+        {"tau_room_min": 300.0, "gain_heater": 2.5, "fitted_ts": 1.0}
+    )
+
+    assert restored is not None
+    assert restored.flow_temperature == DEFAULT_FLOW_TEMPERATURE
+
+
+def test_the_recorded_flow_temperature_survives_a_restart() -> None:
+    """The flow temperature of a fit is stored with it and read back."""
+    mgr = _make_manager()
+    mgr.adopt_mpc_v2_reid("k", replace(_REID, flow_temperature=38.5))
+
+    restored = _deserialize(_serialize(mgr.state))
+
+    assert restored.mpc_v2_reid["k"].flow_temperature == 38.5
+
+
+def test_a_flow_temperature_change_never_rebuilds_a_running_controller() -> None:
+    """The flow temperature is no part of the plant signature.
+
+    A new flow temperature arrives with the entry reload an options change
+    triggers, never on a running controller.
+    """
+    assert _plant_signature_of(
+        MpcV2Params(plant=PlantParams(T_water=40.0))
+    ) == _plant_signature_of(MpcV2Params(plant=PlantParams(T_water=65.0)))
+
+
+def test_the_reload_after_a_flow_temperature_change_keeps_the_observer_state() -> None:
+    """The controller rebuilt on reload models the new supply water.
+
+    What the observer learned about the room, the Kalman estimate, the
+    disturbance reading, the error integral, the governor and the command
+    history, comes back from the snapshot the unload stored.
+    """
+    mgr = _make_manager()
+    _warm(mgr, "k", MpcV2Params())
+    old = mgr.get_mpc_v2_live("k", MpcV2Params())
+    assert old.controller is not None
+    payload = export_mpc_v2_state(old)
+    assert payload is not None
+
+    reloaded = import_mpc_v2_state(
+        payload, MpcV2Params(plant=PlantParams(T_water=40.0)), key="k"
+    )
+
+    assert reloaded.controller is not None
+    assert reloaded.controller.plant_coarse.params.T_water == 40.0
+    assert reloaded.controller.export_snapshot() == old.controller.export_snapshot()
+
+
+def test_a_fit_under_a_new_flow_temperature_replaces_the_old_result(
+    monkeypatch,
+) -> None:
+    """One result per thermostat: going back only helps before the next fit.
+
+    Under a new flow temperature the stored result stays put and applies
+    again when its own flow temperature comes back. The next accepted fit is
+    stored under the same key with the new flow temperature, and from then
+    on the old one finds nothing.
+    """
+    from custom_components.better_thermostat import calibration as cal
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import ReidOutcome
+
+    bt = _make_bt()
+    bt.hass = _FakeHass()
+    key, _runtime = _due_fit(bt)
+    mpc_key = "bt:climate.x:t21.0"
+    bt.state_mgr.adopt_mpc_v2_reid(key, replace(_REID, flow_temperature=65.0))
+
+    assert cal._lookup_mpc_v2_reid(bt, key, mpc_key, 40.0) is None
+    back = cal._lookup_mpc_v2_reid(bt, key, mpc_key, 65.0)
+    assert back is not None
+    assert back.flow_temperature == 65.0
+
+    def _fake_fit(samples, prior):
+        return ReidOutcome(
+            status="accepted",
+            tau_room_min=180.0,
+            gain_heater=1.5,
+            rmse_prior_K=0.4,
+            rmse_fit_K=0.1,
+            n_segments=4,
+            n_samples=300,
+        )
+
+    monkeypatch.setattr(cal, "run_reid_fit", _fake_fit)
+    cal._maybe_start_mpc_v2_reid_fit(
+        bt, key, MpcV2Params(plant=PlantParams(T_water=40.0))
+    )
+
+    assert [
+        data.flow_temperature for data in bt.state_mgr.state.mpc_v2_reid.values()
+    ] == [40.0]
+    assert cal._lookup_mpc_v2_reid(bt, key, mpc_key, 65.0) is None
+    fitted = cal._lookup_mpc_v2_reid(bt, key, mpc_key, 40.0)
+    assert fitted is not None
+    assert fitted.gain_heater == 1.5
