@@ -23,7 +23,6 @@ from custom_components.better_thermostat.calibration import (
 )
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_module
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
@@ -54,7 +53,7 @@ from custom_components.better_thermostat.utils.thermal_learning import (
     HeatLossTracker,
     ema_smooth,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_record
 from tests.unit.controlling.test_control_queue import _idle_room, _stop, _wait_until
 from tests.unit.test_contact_gates_controllers import _bt, _valve_trv
 
@@ -313,7 +312,7 @@ def _pid_bt(*, paused: bool) -> ThermostatStandIn:
     bt.learning_held = paused
     bt.clock = FakeClock(monotonic_value=1300.0)
     bt.kernel_state = make_state()
-    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, valve_max_opening=100.0)}
+    bt.real_trvs = {ENTITY_ID: trv_record(entity_id=ENTITY_ID, valve_max_opening=100.0)}
     bt.real_trvs[ENTITY_ID].advanced = {}
     bt.state_mgr = MagicMock()
     bt.state_mgr.state.pid = {build_pid_loop_key(bt, ENTITY_ID): _tuned_state()}
@@ -670,7 +669,7 @@ async def test_a_pause_within_a_running_cycle_holds_the_next_cycle():
     after that learns again.
     """
     bt = _idle_room()
-    bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}
+    bt.real_trvs = {ENTITY_ID: trv_record(entity_id=ENTITY_ID)}
     bt.async_write_ha_state = MagicMock()
     queue: asyncio.Queue[object] = asyncio.Queue(maxsize=1)
     bt.control_queue_task = queue

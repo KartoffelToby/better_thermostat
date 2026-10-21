@@ -23,12 +23,16 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.model_fixes import default as default_quirk
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.entry_schema import (
     TrvAdvanced,
     _parse_advanced,
 )
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 ENTITY_ID = "climate.trv"
 DEVICE_ID = "device-1"
@@ -75,7 +79,9 @@ def _thermostat(child_lock: bool | None = None, states=None):
         State(requested, states[requested]) if requested in states else None
     )
     advanced: TrvAdvanced = {} if child_lock is None else {"child_lock": child_lock}
-    thermostat.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, advanced=advanced)}
+    thermostat.real_trvs = {
+        ENTITY_ID: trv_record(entity_id=ENTITY_ID, advanced=advanced)
+    }
     return thermostat
 
 

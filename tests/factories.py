@@ -40,7 +40,10 @@ from custom_components.better_thermostat.core.snapshot import (
 )
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.const import CalibrationMode
+from custom_components.better_thermostat.utils.const import (
+    GENERIC_MODEL,
+    CalibrationMode,
+)
 from custom_components.better_thermostat.utils.controlling import TaskManager
 from custom_components.better_thermostat.utils.preset_manager import PresetManager
 from custom_components.better_thermostat.utils.telemetry import CalibrationBalance
@@ -50,6 +53,7 @@ from custom_components.better_thermostat.utils.thermal_learning import (
     LossCycle,
     LossStats,
 )
+from tests import stub_adapter
 
 DEFAULT_TRV_ID = "climate.trv"
 DEFAULT_CONFIG_ENTRY_ID = "config_entry_1"
@@ -102,6 +106,13 @@ def make_snapshot(**overrides) -> WorldSnapshot:
     return WorldSnapshot(**defaults)
 
 
+# A TRV record of the generic model whose device takes every write; a test
+# names the fields it is about.
+trv_record = functools.partial(
+    Trv, model=GENERIC_MODEL, adapter=stub_adapter, model_quirks=default_quirk
+)
+
+
 def make_trv(entity_id: str = DEFAULT_TRV_ID) -> Trv:
     """Return a Trv with the default model quirks.
 
@@ -119,7 +130,7 @@ def make_trv(entity_id: str = DEFAULT_TRV_ID) -> Trv:
     Trv
         A TRV with the default quirks and the factory's defaults.
     """
-    return Trv(
+    return trv_record(
         entity_id=entity_id,
         current_temperature=21.0,
         last_calibration=0.0,
@@ -129,7 +140,6 @@ def make_trv(entity_id: str = DEFAULT_TRV_ID) -> Trv:
         target_temp_step=0.1,
         min_temp=5.0,
         max_temp=30.0,
-        model_quirks=default_quirk,
     )
 
 

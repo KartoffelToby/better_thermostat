@@ -21,6 +21,7 @@ from custom_components.better_thermostat.utils.helpers import (
     group_all_members_off,
     setpoint_at_minimum,
 )
+from tests.factories import trv_record
 
 
 def _member(
@@ -29,7 +30,7 @@ def _member(
     target_temp_step: float | None = None,
 ) -> Trv:
     """A Trv carrying what the helper reads; ``_fake_self`` sets its entity id."""
-    return Trv(
+    return trv_record(
         entity_id="climate.member",
         advanced={"no_off_system_mode": no_off},
         min_temp=min_temp,
@@ -277,4 +278,12 @@ def test_a_missing_setpoint_or_minimum_is_not_at_the_minimum(setpoint, min_temp)
     """Without both values there is nothing to say the head is at its minimum."""
     assert (
         setpoint_at_minimum(setpoint, min_temp, step=None, whole_degrees=False) is False
+    )
+
+
+@pytest.mark.parametrize(("setpoint", "at_minimum"), [(0.0, True), (0.5, False)])
+def test_a_negative_minimum_parks_on_the_grid_point_zero(setpoint, at_minimum):
+    """A minimum just below zero parks the device on 0.0, its first grid point."""
+    assert (
+        setpoint_at_minimum(setpoint, -0.3, step=0.5, whole_degrees=False) is at_minimum
     )

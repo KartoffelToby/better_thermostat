@@ -13,7 +13,7 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 
 @pytest.fixture
@@ -40,7 +40,9 @@ def test_non_trv_entry_skipped(bt):
 def test_cached_action_used(bt):
     """A cached hvac_action is used directly, without reading the live state."""
     bt.real_trvs = {
-        "climate.trv": Trv(entity_id="climate.trv", hvac_action=HVACAction.HEATING)
+        "climate.trv": trv_record(
+            entity_id="climate.trv", hvac_action=HVACAction.HEATING
+        )
     }
     bt.hass.states.get.return_value = State(
         "climate.trv", "heat", attributes={"hvac_action": "idle"}
@@ -52,7 +54,7 @@ def test_cached_action_used(bt):
 
 def test_fallback_to_hass_hvac_action_and_caches(bt):
     """Without a cached value, the live hvac_action is read and cached."""
-    info = Trv(entity_id="climate.trv")
+    info = trv_record(entity_id="climate.trv")
     bt.real_trvs = {"climate.trv": info}
     bt.hass.states.get.return_value = State(
         "climate.trv", "heat", attributes={"hvac_action": "idle"}
@@ -64,7 +66,7 @@ def test_fallback_to_hass_hvac_action_and_caches(bt):
 
 def test_fallback_to_legacy_action_attribute(bt):
     """The legacy 'action' attribute is used when 'hvac_action' is absent."""
-    bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+    bt.real_trvs = {"climate.trv": trv_record(entity_id="climate.trv")}
     bt.hass.states.get.return_value = State(
         "climate.trv", "heat", attributes={"action": "heating"}
     )
@@ -74,7 +76,7 @@ def test_fallback_to_legacy_action_attribute(bt):
 @pytest.mark.parametrize("reported", ["HEATING", " heating "])
 def test_live_action_is_matched_regardless_of_case_and_whitespace(bt, reported):
     """A live action in another spelling still names the HVAC action."""
-    bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+    bt.real_trvs = {"climate.trv": trv_record(entity_id="climate.trv")}
     bt.hass.states.get.return_value = State(
         "climate.trv", "heat", attributes={"hvac_action": reported}
     )
@@ -83,7 +85,7 @@ def test_live_action_is_matched_regardless_of_case_and_whitespace(bt, reported):
 
 def test_live_value_that_names_no_action_yields_none(bt):
     """A live action attribute carrying no HVAC action leaves the action unknown."""
-    info = Trv(entity_id="climate.trv")
+    info = trv_record(entity_id="climate.trv")
     bt.real_trvs = {"climate.trv": info}
     bt.hass.states.get.return_value = State(
         "climate.trv", "heat", attributes={"action": "lock"}
@@ -94,14 +96,14 @@ def test_live_value_that_names_no_action_yields_none(bt):
 
 def test_no_reported_action_yields_none_action(bt):
     """No cached value and a live state without an action -> hvac_action None."""
-    bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+    bt.real_trvs = {"climate.trv": trv_record(entity_id="climate.trv")}
     assert _snaps(bt)[0].hvac_action is None
 
 
 def test_snapshot_carries_valve_fields(bt):
     """Valve fields pass through to the snapshot."""
     bt.real_trvs = {
-        "climate.trv": Trv(
+        "climate.trv": trv_record(
             entity_id="climate.trv",
             hvac_action=HVACAction.IDLE,
             ignore_trv_states=True,
@@ -122,13 +124,13 @@ def test_a_trv_that_is_gone_leaves_no_snapshot(bt, gone_state):
     Its cached action and valve position stay on the record for when it
     returns, but the room's action is built only from TRVs that report.
     """
-    gone = Trv(
+    gone = trv_record(
         entity_id="climate.gone",
         hvac_action=HVACAction.HEATING,
         valve_position=40,
         last_valve_percent=40,
     )
-    present = Trv(entity_id="climate.present", hvac_action=HVACAction.IDLE)
+    present = trv_record(entity_id="climate.present", hvac_action=HVACAction.IDLE)
     bt.real_trvs = {"climate.gone": gone, "climate.present": present}
     states = {"climate.present": State("climate.present", "heat")}
     if gone_state is not None:

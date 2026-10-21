@@ -17,8 +17,7 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.adapters import base, generic
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 ENTITY_ID = "climate.trv"
 SELECT_ENTITY = "select.trv_local_temperature_calibration"
@@ -52,7 +51,7 @@ def _host(calibration_entity=SELECT_ENTITY, calibration_state=None):
     )
     host.hass.services.async_call = AsyncMock(return_value=None)
     host.real_trvs = {
-        ENTITY_ID: Trv(
+        ENTITY_ID: trv_record(
             entity_id=ENTITY_ID, local_temperature_calibration_entity=calibration_entity
         )
     }

@@ -28,9 +28,8 @@ from custom_components.better_thermostat.climate import (
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.control_mode import LADDER_TICK_S
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -72,7 +71,9 @@ def _startup_bt(advanced: TrvAdvanced | None = None, **overrides):
     mock._degraded_grace_until = None
     mock.bt_hvac_mode = HVACMode.HEAT
     mock.real_trvs = {
-        TRV_ID: Trv(entity_id=TRV_ID, advanced={} if advanced is None else advanced)
+        TRV_ID: trv_record(
+            entity_id=TRV_ID, advanced={} if advanced is None else advanced
+        )
     }
     mock.entity_ids = [TRV_ID]
     mock.all_trvs = None

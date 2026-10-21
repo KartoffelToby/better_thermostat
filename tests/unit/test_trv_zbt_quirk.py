@@ -14,9 +14,13 @@ from homeassistant.helpers import device_registry as dr
 import pytest
 
 from custom_components.better_thermostat.model_fixes import model_quirks as quirks
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.helpers import find_valve_entity
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 TRV_ZBT_MODULE = "custom_components.better_thermostat.model_fixes.TRV-ZBT"
 trv_zbt = importlib.import_module(TRV_ZBT_MODULE)
@@ -57,7 +61,7 @@ def _make_self(selector_state="internal"):
     mock_self.context = MagicMock()
     mock_self.sensor_entity_id = "sensor.room_temperature"
     mock_self.hass.services.async_call = AsyncMock()
-    mock_self.real_trvs = {ENTITY: Trv(entity_id=ENTITY, model="TRV-ZBT")}
+    mock_self.real_trvs = {ENTITY: trv_record(entity_id=ENTITY, model="TRV-ZBT")}
     mock_self._registry = make_entity_registry(*_trv_zbt_entries())
 
     mock_self.hass.states.get.return_value = State(

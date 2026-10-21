@@ -41,7 +41,7 @@ from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode as _parse_mode,
 )
 from custom_components.better_thermostat.model_fixes import TRVZB, ZWA021
-from custom_components.better_thermostat.trv import Trv, UnreadReport
+from custom_components.better_thermostat.trv import UnreadReport
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -62,7 +62,13 @@ from custom_components.better_thermostat.utils.controlling import (
 )
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
 from custom_components.better_thermostat.utils.watcher import get_device_errors
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests import stub_adapter
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
 # *controlling* module level because that is where they are imported.
@@ -185,7 +191,7 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
 def _default_trv_config(**overrides):
     """Return a default real_trvs entry (a Trv) for a single TRV."""
     return replace(
-        Trv(
+        trv_record(
             entity_id="climate.trv1",
             ignore_trv_states=False,
             hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -212,7 +218,9 @@ def _with_valve_channel(trv):
     """Give ``trv`` a writable valve number entity to take valve positions."""
     trv.valve_position_entity = "number.trv1_valve_opening_degree"
     trv.valve_position_writable = True
-    trv.adapter = SimpleNamespace(CAPABILITIES=None, set_valve=AsyncMock())
+    trv.adapter = SimpleNamespace(
+        CAPABILITIES=stub_adapter.CAPABILITIES, set_valve=AsyncMock()
+    )
     return trv
 
 
@@ -1709,7 +1717,7 @@ class TestOffIntentClosesTheValve:
         mock_self.bt_max_temp = 30.0
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1",
                 ignore_trv_states=False,
                 max_temp=30.0,
@@ -2098,7 +2106,7 @@ class TestOffIntentClosesTheValve:
         mock_self.bt_max_temp = 30.0
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1",
                 ignore_trv_states=False,
                 max_temp=30.0,
@@ -2313,7 +2321,9 @@ class TestValveWriteResult:
         trv = mock_self.real_trvs["climate.trv1"]
         trv.model = "TRVZB"
         trv.model_quirks = TRVZB
-        trv.adapter = SimpleNamespace(CAPABILITIES=None, set_valve=AsyncMock())
+        trv.adapter = SimpleNamespace(
+            CAPABILITIES=stub_adapter.CAPABILITIES, set_valve=AsyncMock()
+        )
         trv.valve_position_entity = None
         trv.valve_position_writable = None
         entries = [make_registry_entry("climate.trv1", device_id="trvzb")]
@@ -2490,7 +2500,7 @@ class TestRaceConditionLockCoverage:
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1",
                 ignore_trv_states=False,
                 hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -2507,7 +2517,7 @@ class TestRaceConditionLockCoverage:
                     "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 },
             ),
-            "climate.trv2": Trv(
+            "climate.trv2": trv_record(
                 entity_id="climate.trv2",
                 ignore_trv_states=False,
                 hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -2684,7 +2694,7 @@ class TestRaceConditionLockCoverage:
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1",
                 ignore_trv_states=False,
                 hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -2700,7 +2710,7 @@ class TestRaceConditionLockCoverage:
                     "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 },
             ),
-            "climate.trv2": Trv(
+            "climate.trv2": trv_record(
                 entity_id="climate.trv2",
                 ignore_trv_states=False,
                 hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -2793,7 +2803,7 @@ class TestRaceConditionLockCoverage:
         mock_self.window_open = False
         mock_self.call_for_heat = True
         mock_self.real_trvs = {
-            "climate.trv1": Trv(
+            "climate.trv1": trv_record(
                 entity_id="climate.trv1",
                 ignore_trv_states=False,
                 hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -2976,7 +2986,7 @@ def mock_bt_grouped():
     bt.kernel_state = _kernel_state_for(bt)
     bt.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     bt.real_trvs = {
-        "climate.trv_1": Trv(
+        "climate.trv_1": trv_record(
             entity_id="climate.trv_1",
             calibration_received=True,
             last_calibration=2.0,
@@ -2990,7 +3000,7 @@ def mock_bt_grouped():
                 "calibration_mode": 0,  # DEFAULT
             },
         ),
-        "climate.trv_2": Trv(
+        "climate.trv_2": trv_record(
             entity_id="climate.trv_2",
             calibration_received=True,
             last_calibration=2.0,
@@ -3001,7 +3011,7 @@ def mock_bt_grouped():
             ignore_trv_states=False,
             advanced={"calibration": 0, "calibration_mode": 0},
         ),
-        "climate.trv_3": Trv(
+        "climate.trv_3": trv_record(
             entity_id="climate.trv_3",
             calibration_received=False,  # Stuck at False!
             last_calibration=2.0,
@@ -3262,7 +3272,7 @@ class TestControlTrvOnADualRoleEntity:
     @classmethod
     def _make_shared_self(cls, device_modes, *, heat_auto_swapped=False):
         """Build a mock whose cooler is also the controlled thermostat."""
-        trv = Trv(
+        trv = trv_record(
             entity_id=cls.SHARED_ID,
             ignore_trv_states=False,
             hvac_modes=device_modes,
@@ -3371,7 +3381,7 @@ class TestControlTrvOnADualRoleEntity:
 def _offset_trv_config(**overrides):
     """Return a Trv configured for offset (LOCAL_BASED) calibration."""
     return replace(
-        Trv(
+        trv_record(
             entity_id="climate.trv1",
             ignore_trv_states=False,
             hvac_modes=[HVACMode.HEAT, HVACMode.OFF],
@@ -4400,7 +4410,7 @@ class TestSetpointWatchdogAcrossAFailingWrite:
 
 def _paced_trv(entity_id, *, homematicip):
     """Return a TRV holding 20 °C whose config marks it HomematicIP or not."""
-    return Trv(
+    return trv_record(
         entity_id=entity_id,
         ignore_trv_states=False,
         hvac_modes=[HVACMode.HEAT, HVACMode.OFF],

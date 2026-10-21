@@ -24,8 +24,7 @@ from custom_components.better_thermostat.core.fsm.maintenance import (
     MaintenanceDue,
     start_run,
 )
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_record
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _NEXT = datetime(2026, 1, 8, 12, 0, tzinfo=UTC)
@@ -37,7 +36,7 @@ def bt():
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.ignore_states = False
-    mock.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+    mock.real_trvs = {"climate.trv": trv_record(entity_id="climate.trv")}
     mock.clock = FakeClock(monotonic_value=1000.0)
     mock.kernel_state = KernelState()
     mock.bt_hvac_mode = HVACMode.HEAT
@@ -284,7 +283,7 @@ async def test_service_reports_a_failed_run(bt, caplog):
     """A run that fails surfaces as an error and leaves its cause in the log."""
     bt.in_maintenance = False
     bt.real_trvs = {
-        "climate.trv": Trv(
+        "climate.trv": trv_record(
             entity_id="climate.trv", advanced={"valve_maintenance": True}
         )
     }
