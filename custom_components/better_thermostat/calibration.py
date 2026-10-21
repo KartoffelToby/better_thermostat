@@ -61,6 +61,7 @@ from custom_components.better_thermostat.utils.calibration.plant_preset import (
     DEFAULT_FLOW_TEMPERATURE,
     FLOW_TEMPERATURE_BOUNDS,
 )
+from custom_components.better_thermostat.utils.calibration.state_key import StateKey
 from custom_components.better_thermostat.utils.calibration.strategies import (
     BalanceCalibrator,
     BalanceStrategy,
@@ -611,11 +612,15 @@ def _lookup_mpc_v2_reid(
     result = state_mgr.get_mpc_v2_reid(reid_key)
     if result is not None:
         return result if fitted_under_this_flow(result) else None
-    uid_entity = mpc_key.rsplit(":", 1)[0]
+    own = StateKey.parse(mpc_key)
+    if own is None:
+        return None
     candidates = [
         data
         for key, data in state_mgr.state.mpc_v2_reid.items()
-        if key.rsplit(":", 1)[0] == uid_entity and fitted_under_this_flow(data)
+        if (stored := StateKey.parse(key)) is not None
+        and stored.is_bucket_of(own)
+        and fitted_under_this_flow(data)
     ]
     if not candidates:
         return None

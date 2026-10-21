@@ -89,6 +89,7 @@
   "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/smith.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/pid.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/plant_preset.py": 100.0,
+  "custom_components/better_thermostat/utils/calibration/state_key.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/strategies.py": 98.3,
   "custom_components/better_thermostat/utils/calibration/tpi.py": 96.3,
   "custom_components/better_thermostat/utils/clock.py": 100.0,
