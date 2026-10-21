@@ -306,9 +306,7 @@ def _onto_device_grid(
     step = 0.5
     try:
         step = setpoint_write_step(self, entity_id)
-        stepped = round_by_step(float(t), step)
-        # The rounding answers None only for a missing argument.
-        rounded = t if stepped is None else stepped
+        rounded = round_by_step(float(t), step)
     except TypeError, ValueError, OverflowError:
         rounded = float(t)
 

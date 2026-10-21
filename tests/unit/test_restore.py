@@ -47,31 +47,58 @@ class TestMeanTrvTarget:
 
     def test_empty_list_returns_none(self):
         """No states → None."""
-        assert mean_trv_target([], DEV) is None
+        assert mean_trv_target([], DEV, system_unit=UnitOfTemperature.CELSIUS) is None
 
     def test_single_trv(self):
         """One TRV target is returned unchanged."""
-        assert mean_trv_target([_trv(21.0)], DEV) == 21.0
+        assert (
+            mean_trv_target([_trv(21.0)], DEV, system_unit=UnitOfTemperature.CELSIUS)
+            == 21.0
+        )
 
     def test_multiple_trvs_averaged(self):
         """Multiple targets are averaged."""
-        assert mean_trv_target([_trv(20.0), _trv(24.0)], DEV) == 22.0
+        assert (
+            mean_trv_target(
+                [_trv(20.0), _trv(24.0)], DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == 22.0
+        )
 
     def test_missing_target_attr_skipped(self):
         """A TRV without a target temperature is ignored."""
-        assert mean_trv_target([_trv(20.0), _trv(None)], DEV) == 20.0
+        assert (
+            mean_trv_target(
+                [_trv(20.0), _trv(None)], DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == 20.0
+        )
 
     def test_all_missing_returns_none(self):
         """No usable targets → None."""
-        assert mean_trv_target([_trv(None), _trv(None)], DEV) is None
+        assert (
+            mean_trv_target(
+                [_trv(None), _trv(None)], DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            is None
+        )
 
     def test_non_numeric_skipped(self):
         """A non-numeric target is skipped, not crashing."""
-        assert mean_trv_target([_trv("bad"), _trv(21.0)], DEV) == 21.0
+        assert (
+            mean_trv_target(
+                [_trv("bad"), _trv(21.0)], DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == 21.0
+        )
 
     def test_fahrenheit_converted_to_celsius(self):
         """A Fahrenheit target is converted before averaging."""
-        result = mean_trv_target([_trv(68.0, unit=UnitOfTemperature.FAHRENHEIT)], DEV)
+        result = mean_trv_target(
+            [_trv(68.0, unit=UnitOfTemperature.FAHRENHEIT)],
+            DEV,
+            system_unit=UnitOfTemperature.CELSIUS,
+        )
         assert result == pytest.approx(20.0)
 
     def test_unit_of_measurement_fallback_key(self):
@@ -84,7 +111,9 @@ class TestMeanTrvTarget:
                 "unit_of_measurement": UnitOfTemperature.FAHRENHEIT,
             },
         )
-        assert mean_trv_target([s], DEV) == pytest.approx(20.0)
+        assert mean_trv_target(
+            [s], DEV, system_unit=UnitOfTemperature.CELSIUS
+        ) == pytest.approx(20.0)
 
     def test_no_unit_attr_uses_system_unit(self):
         """Without a unit attribute the passed system unit decides the reading."""
@@ -107,7 +136,9 @@ class TestMeanTrvTarget:
             "heat_cool",
             attributes={ATTR_TARGET_TEMP_LOW: 22.0, ATTR_TARGET_TEMP_HIGH: 26.0},
         )
-        assert mean_trv_target([ranged, _trv(20.0)], DEV) == pytest.approx(21.0)
+        assert mean_trv_target(
+            [ranged, _trv(20.0)], DEV, system_unit=UnitOfTemperature.CELSIUS
+        ) == pytest.approx(21.0)
 
     def test_range_trv_low_setpoint_converted_to_celsius(self):
         """A range TRV's Fahrenheit heating setpoint is read in Celsius."""
@@ -120,7 +151,9 @@ class TestMeanTrvTarget:
                 "temperature_unit": UnitOfTemperature.FAHRENHEIT,
             },
         )
-        assert mean_trv_target([ranged], DEV) == pytest.approx(20.0)
+        assert mean_trv_target(
+            [ranged], DEV, system_unit=UnitOfTemperature.CELSIUS
+        ) == pytest.approx(20.0)
 
 
 # ---------------------------------------------------------------------------
@@ -206,53 +239,115 @@ class TestRestoreTargetTemperature:
 
     def test_saved_in_range_passthrough(self):
         """An in-range saved value is returned unchanged."""
-        assert restore_target_temperature(22.0, [], 5.0, 30.0, DEV) == 22.0
+        assert (
+            restore_target_temperature(
+                22.0, [], 5.0, 30.0, DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == 22.0
+        )
 
     def test_saved_below_min_clamped(self):
         """A saved value below min is clamped up."""
-        assert restore_target_temperature(2.0, [], 5.0, 30.0, DEV) == 5.0
+        assert (
+            restore_target_temperature(
+                2.0, [], 5.0, 30.0, DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == 5.0
+        )
 
     def test_saved_above_max_clamped(self):
         """A saved value above max is clamped down."""
-        assert restore_target_temperature(35.0, [], 5.0, 30.0, DEV) == 30.0
+        assert (
+            restore_target_temperature(
+                35.0, [], 5.0, 30.0, DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == 30.0
+        )
 
     def test_saved_at_boundaries_unchanged(self):
         """Values exactly on the bounds are not altered."""
-        assert restore_target_temperature(5.0, [], 5.0, 30.0, DEV) == 5.0
-        assert restore_target_temperature(30.0, [], 5.0, 30.0, DEV) == 30.0
+        assert (
+            restore_target_temperature(
+                5.0, [], 5.0, 30.0, DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == 5.0
+        )
+        assert (
+            restore_target_temperature(
+                30.0, [], 5.0, 30.0, DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == 30.0
+        )
 
     def test_none_bounds_use_defaults(self):
         """None bounds fall back to 5.0 / 30.0."""
-        assert restore_target_temperature(2.0, [], None, None, DEV) == 5.0
-        assert restore_target_temperature(99.0, [], None, None, DEV) == 30.0
+        assert (
+            restore_target_temperature(
+                2.0, [], None, None, DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == 5.0
+        )
+        assert (
+            restore_target_temperature(
+                99.0, [], None, None, DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == 30.0
+        )
 
     def test_saved_string_parsed(self):
         """A numeric string saved value is parsed."""
-        assert restore_target_temperature("21.5", [], 5.0, 30.0, DEV) == 21.5
+        assert (
+            restore_target_temperature(
+                "21.5", [], 5.0, 30.0, DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == 21.5
+        )
 
     def test_no_saved_falls_back_to_trv_mean(self):
         """Without a saved value the TRV mean is used."""
         assert (
-            restore_target_temperature(None, [_trv(20.0), _trv(22.0)], 5.0, 30.0, DEV)
+            restore_target_temperature(
+                None,
+                [_trv(20.0), _trv(22.0)],
+                5.0,
+                30.0,
+                DEV,
+                system_unit=UnitOfTemperature.CELSIUS,
+            )
             == 21.0
         )
 
     def test_no_saved_no_trv_returns_none(self):
         """No saved value and no TRV target → None."""
-        assert restore_target_temperature(None, [], 5.0, 30.0, DEV) is None
+        assert (
+            restore_target_temperature(
+                None, [], 5.0, 30.0, DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            is None
+        )
 
     def test_malformed_saved_falls_back_to_trv_mean(self):
         """A non-numeric saved value falls back to the TRV mean instead of raising."""
         assert (
             restore_target_temperature(
-                "unknown", [_trv(20.0), _trv(22.0)], 5.0, 30.0, DEV
+                "unknown",
+                [_trv(20.0), _trv(22.0)],
+                5.0,
+                30.0,
+                DEV,
+                system_unit=UnitOfTemperature.CELSIUS,
             )
             == 21.0
         )
 
     def test_malformed_saved_no_trv_returns_none(self):
         """A non-numeric saved value with no TRV target → None, not a crash."""
-        assert restore_target_temperature("n/a", [], 5.0, 30.0, DEV) is None
+        assert (
+            restore_target_temperature(
+                "n/a", [], 5.0, 30.0, DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            is None
+        )
 
     def test_saved_fahrenheit_converted_to_celsius(self):
         """A saved value in Fahrenheit is converted to Celsius on restoration."""
@@ -351,7 +446,12 @@ class TestRestoredValuesThatAreNotScalars:
     def test_target_falls_back_to_the_trv_mean(self, saved, caplog):
         """A non-scalar saved target warns and takes the TRV mean."""
         result = restore_target_temperature(
-            saved, [_trv(20.0), _trv(22.0)], 5.0, 30.0, DEV
+            saved,
+            [_trv(20.0), _trv(22.0)],
+            5.0,
+            30.0,
+            DEV,
+            system_unit=UnitOfTemperature.CELSIUS,
         )
 
         assert result == 21.0
@@ -360,17 +460,32 @@ class TestRestoredValuesThatAreNotScalars:
     @pytest.mark.parametrize("saved", _NON_SCALARS)
     def test_target_without_a_trv_is_none(self, saved):
         """A non-scalar saved target with no TRV target yields None."""
-        assert restore_target_temperature(saved, [], 5.0, 30.0, DEV) is None
+        assert (
+            restore_target_temperature(
+                saved, [], 5.0, 30.0, DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            is None
+        )
 
     @pytest.mark.parametrize(("saved", "expected"), [(True, 5.0), (False, 5.0)])
     def test_target_bool_is_read_as_its_number(self, saved, expected):
         """A bool saved target reads as 1 or 0 and is clamped to the minimum."""
-        assert restore_target_temperature(saved, [], 5.0, 30.0, DEV) == expected
+        assert (
+            restore_target_temperature(
+                saved, [], 5.0, 30.0, DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == expected
+        )
 
     @pytest.mark.parametrize("saved", _NON_SCALARS)
     def test_trv_mean_skips_a_non_scalar_target(self, saved):
         """A TRV publishing a non-scalar target contributes nothing."""
-        assert mean_trv_target([_trv(saved), _trv(22.0)], DEV) == 22.0
+        assert (
+            mean_trv_target(
+                [_trv(saved), _trv(22.0)], DEV, system_unit=UnitOfTemperature.CELSIUS
+            )
+            == 22.0
+        )
 
     @pytest.mark.parametrize("raw", _NON_SCALARS)
     def test_heating_power_falls_back_to_the_default(self, raw):
@@ -410,7 +525,10 @@ class TestRestoreCoolingTarget:
     )
     def test_saved_value(self, saved, expected):
         """A number or numeric string is read; anything else yields None."""
-        assert restore_cooling_target(saved, DEV) == expected
+        assert (
+            restore_cooling_target(saved, DEV, system_unit=UnitOfTemperature.CELSIUS)
+            == expected
+        )
 
     def test_fahrenheit_converted_to_celsius(self):
         """A saved value in Fahrenheit comes back as Celsius."""
