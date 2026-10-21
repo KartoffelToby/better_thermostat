@@ -108,6 +108,19 @@ async def test_the_tick_skips_a_trv_that_still_awaits_its_initialization():
 
 
 @pytest.mark.asyncio
+async def test_the_tick_writes_nothing_while_the_devices_are_released():
+    """Released devices are kept alive by nobody; each falls back on its own."""
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    bt.devices_released = True
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirks) == []
+
+
+@pytest.mark.asyncio
 async def test_the_tick_writes_nothing_without_a_room_temperature():
     """No reading means no value to keep alive."""
     bt = ThermostatStandIn()

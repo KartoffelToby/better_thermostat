@@ -312,6 +312,19 @@ class TestCommitTemperatureUpdate:
         )
 
     @pytest.mark.asyncio
+    async def test_a_released_trv_gets_no_external_temperature(self, mock_bt):
+        """A reading is written to no TRV while the devices are released."""
+        quirks = _external_temperature_quirks()
+        mock_bt.devices_released = True
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv(entity_id="climate.trv1", model_quirks=quirks)
+        }
+
+        await _commit_temperature_update(mock_bt, 21.0)
+
+        quirks.maybe_set_external_temperature.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_a_trv_awaiting_its_initialization_gets_no_external_temperature(
         self, mock_bt
     ):
