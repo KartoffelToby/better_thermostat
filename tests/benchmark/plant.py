@@ -298,20 +298,6 @@ PROFILE_DOE_MIDRISE_APT = PlantParams(
 )
 
 
-# Reverse-acting "cooling" plant — same RC structure, but the radiator
-# circuit carries chilled water (≈ 15 °C). At u > 0 the radiator cools
-# the room instead of heating it. Used by S26 to expose how the BT/PID
-# controllers behave when the system's sign is flipped relative to their
-# design assumption (heating only).
-PROFILE_COOLING = PlantParams(
-    tau_room_min=480.0,
-    tau_rad_min=15.0,
-    gain_heater=2.0,
-    coupling_rad_room=1.0,
-    T_water=15.0,
-)
-
-
 # Realistic profile: RC3 wall mass, equal-percentage-friendly gains, and
 # a moderate pipe transport delay. To use the equal-percentage actuator
 # with this plant, pass

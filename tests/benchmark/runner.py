@@ -335,6 +335,7 @@ def _drive_adapter(
             window_open=window_open,
             solar_intensity=controller_solar,
             last_valve_percent=last_valve_percent,
+            sensor_calibration_error_K=sensor.calibration_error_K(t),
         )
 
         out = adapter.step(ctx)
