@@ -1,4 +1,4 @@
-"""Sensor model: thermal lag + sampling + EMA filter + optional noise/dropout.
+"""Sensor model: thermal lag + sampling + resolution + optional noise/dropout.
 
 Two distinct time-domain effects are modelled here:
 
@@ -10,8 +10,16 @@ Two distinct time-domain effects are modelled here:
 
 2. **Sampling** — sensors only emit values every ``sample_interval_s``
    (typical 1–5 min for Zigbee). Between samples the previous reading
-   is returned. An optional EMA filter smooths the sample stream
-   (matches BT's own periodic EMA in `events/temperature.py`).
+   is returned. An optional EMA (``ema_alpha``) models a sensor that
+   smooths its own samples; Better Thermostat's EMA is a separate stage
+   (``input_stage``).
+
+3. **Resolution and reporting** — the reported value lands on a
+   ``resolution_K`` grid, as Home Assistant sensors report in tenths. A
+   sample is reported only when it moves at least ``report_threshold_K``
+   from the last report, or when ``heartbeat_s`` has passed since it; in
+   between the last report stands. A report that repeats the previous
+   value is no state change for Home Assistant.
 
 Noise is deterministic (LCG seeded fixed) for reproducible benchmarks.
 """
@@ -57,6 +65,13 @@ class SensorParams:
     # sqrt(7) * jitter_std_s; the result is clipped to >= 5 s). Models the
     # async sensor-report behaviour of Zigbee TRVs that report on change.
     jitter_std_s: float = 0.0
+    # Grid the reported value lands on; ``0`` reports it unrounded.
+    resolution_K: float = 0.0
+    # Smallest move from the last report that the sensor reports; ``0``
+    # reports every sample. ``heartbeat_s`` reports a sample anyway once
+    # that long has passed since the last report; ``0`` never does.
+    report_threshold_K: float = 0.0
+    heartbeat_s: float = 0.0
 
     def __post_init__(self) -> None:
         """Reject physically invalid sensor parameters.
@@ -65,7 +80,8 @@ class SensorParams:
         ------
         ValueError
             If the sampling interval is negative, the EMA factor is
-            outside (0, 1], or a noise/lag/jitter magnitude is negative.
+            outside (0, 1], or a noise/lag/jitter/resolution/reporting
+            magnitude is negative.
         """
         # 0 is valid and means "sample on every step"; only negatives are rejected.
         if self.sample_interval_s < 0.0:
@@ -80,12 +96,33 @@ class SensorParams:
             self.noise_std_K < 0.0
             or self.thermal_lag_s < 0.0
             or self.jitter_std_s < 0.0
+            or self.resolution_K < 0.0
+            or self.report_threshold_K < 0.0
+            or self.heartbeat_s < 0.0
         ):
             raise ValueError(
-                "SensorParams noise_std_K, thermal_lag_s and jitter_std_s must be "
-                f">= 0, got noise_std_K={self.noise_std_K}, "
-                f"thermal_lag_s={self.thermal_lag_s}, jitter_std_s={self.jitter_std_s}"
+                "SensorParams noise_std_K, thermal_lag_s, jitter_std_s, "
+                "resolution_K, report_threshold_K and heartbeat_s must be >= 0, "
+                f"got noise_std_K={self.noise_std_K}, "
+                f"thermal_lag_s={self.thermal_lag_s}, jitter_std_s={self.jitter_std_s}, "
+                f"resolution_K={self.resolution_K}, "
+                f"report_threshold_K={self.report_threshold_K}, "
+                f"heartbeat_s={self.heartbeat_s}"
             )
+
+
+# The room sensor every scenario runs with unless it sets its own: a
+# Zigbee-class sensor sampled once a minute, reporting every change of a
+# tenth. 0.02 K noise sits between the high- and medium-repeatability
+# modes of an SHT3x (3σ = 0.04 / 0.08 K); 90 s of thermal lag stands for
+# the housing.
+REALISTIC_SENSOR_PARAMS = SensorParams(
+    sample_interval_s=60.0,
+    noise_std_K=0.02,
+    thermal_lag_s=90.0,
+    resolution_K=0.1,
+    report_threshold_K=0.1,
+)
 
 
 # Share of the radiator's excess temperature a TRV's own sensor picks up
@@ -146,9 +183,12 @@ class Sensor:
         self._last_lag_update_t: float = -1.0
         # Next sample's effective interval (jitter mode).
         self._next_sample_interval_s: float = params.sample_interval_s
-        # Calibration error carried by the reported value: sampled, held and
-        # EMA-filtered exactly like the reading itself.
+        # Calibration error carried by the reported value: sampled, held,
+        # EMA-filtered and reported exactly like the reading itself.
+        self._sampled_calibration_error_K: float = 0.0
         self._observed_calibration_error_K: float = 0.0
+        self._reported: float | None = None
+        self._last_report_t: float = -1.0
 
     def _noise(self) -> float:
         if self.params.noise_std_K <= 0.0:
@@ -214,13 +254,32 @@ class Sensor:
                 )
             if self._filtered is None:
                 self._filtered = raw
-                self._observed_calibration_error_K = calibration_error_K
+                self._sampled_calibration_error_K = calibration_error_K
             else:
                 a = self.params.ema_alpha
                 self._filtered = a * raw + (1.0 - a) * self._filtered
-                self._observed_calibration_error_K = (
+                self._sampled_calibration_error_K = (
                     a * calibration_error_K
-                    + (1.0 - a) * self._observed_calibration_error_K
+                    + (1.0 - a) * self._sampled_calibration_error_K
                 )
             self._last_sample_t = t_s
-        return self._filtered
+            self._report(t_s, self._quantise(self._filtered))
+        return self._reported
+
+    def _quantise(self, value: float) -> float:
+        resolution = self.params.resolution_K
+        if resolution <= 0.0:
+            return value
+        return round(round(value / resolution) * resolution, 6)
+
+    def _report(self, t_s: float, value: float) -> None:
+        last = self._reported
+        heartbeat = self.params.heartbeat_s
+        if (
+            last is None
+            or abs(value - last) >= self.params.report_threshold_K - 1e-9
+            or (heartbeat > 0.0 and t_s - self._last_report_t >= heartbeat)
+        ):
+            self._reported = value
+            self._last_report_t = t_s
+            self._observed_calibration_error_K = self._sampled_calibration_error_K

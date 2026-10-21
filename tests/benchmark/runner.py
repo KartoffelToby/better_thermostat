@@ -54,7 +54,6 @@ from .plant import (
     PROFILE_STANDARD,
     PROFILE_STANDARD_RC3,
     PROFILE_UNDERFLOOR,
-    REALISTIC_SENSOR_PARAMS,
     PlantParams,
     PlantState,
     TwoStatePlant,
@@ -69,7 +68,7 @@ from .reporter import (
 )
 from .scenarios import ALL_SCENARIOS, ScenarioConfig
 from .scoring import PROFILES, UserProfile
-from .sensor import Sensor, SensorParams, trv_sensor_reading
+from .sensor import REALISTIC_SENSOR_PARAMS, Sensor, trv_sensor_reading
 
 ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     "mpc": MpcAdapter,
@@ -272,7 +271,7 @@ def _drive_adapter(
     only difference between the two is *how* the valve command reaches
     the plant, which the facade encapsulates.
     """
-    sensor_params = scenario.sensor_params or SensorParams(sample_interval_s=60.0)
+    sensor_params = scenario.sensor_params or REALISTIC_SENSOR_PARAMS
     # Derive a stable per-scenario seed so sensor noise/jitter is
     # decorrelated across scenarios while staying fully reproducible.
     # ``zlib.crc32`` is used over the built-in ``hash`` because the latter

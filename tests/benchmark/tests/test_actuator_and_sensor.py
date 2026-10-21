@@ -279,3 +279,51 @@ def test_trv_sensor_reports_in_tenths():
     """The reading lands on the 0.1 K grid TRVs report on."""
     assert trv_sensor_reading(20.0, 40.4) == 22.0
     assert trv_sensor_reading(20.0, 40.6) == 22.1
+
+
+def test_sensor_reports_on_its_resolution_grid():
+    """A sensor with a resolution reports multiples of it."""
+    sensor = Sensor(SensorParams(sample_interval_s=0.0, resolution_K=0.1))
+    assert sensor.read(0.0, 20.04) == pytest.approx(20.0)
+    assert sensor.read(30.0, 20.06) == pytest.approx(20.1)
+
+
+def test_sensor_rejects_a_negative_resolution():
+    with pytest.raises(ValueError):
+        SensorParams(resolution_K=-0.1)
+
+
+def test_sensor_holds_its_report_below_the_threshold():
+    """A move smaller than the reporting threshold leaves the report standing."""
+    sensor = Sensor(SensorParams(sample_interval_s=0.0, report_threshold_K=0.5))
+    assert sensor.read(0.0, 20.0) == pytest.approx(20.0)
+    assert sensor.read(30.0, 20.4) == pytest.approx(20.0)
+    assert sensor.read(60.0, 20.5) == pytest.approx(20.5)
+
+
+def test_sensor_heartbeat_reports_a_small_move():
+    """After the heartbeat the sensor reports a sample however small its move."""
+    sensor = Sensor(
+        SensorParams(sample_interval_s=0.0, report_threshold_K=0.5, heartbeat_s=3600.0)
+    )
+    sensor.read(0.0, 20.0)
+    assert sensor.read(1800.0, 20.2) == pytest.approx(20.0)
+    assert sensor.read(3600.0, 20.2) == pytest.approx(20.2)
+
+
+def test_sensor_reports_the_calibration_error_of_its_report():
+    """The calibration error follows the report, not the unreported sample."""
+    sensor = Sensor(
+        SensorParams(sample_interval_s=0.0, report_threshold_K=0.5, drift_K_per_h=0.2)
+    )
+    sensor.read(0.0, 20.0)
+    sensor.read(3600.0, 20.0)
+    assert sensor.observed_calibration_error_K == pytest.approx(0.0)
+    sensor.read(9000.0, 20.0)
+    assert sensor.observed_calibration_error_K == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("field", ["report_threshold_K", "heartbeat_s"])
+def test_sensor_rejects_negative_reporting_settings(field):
+    with pytest.raises(ValueError):
+        SensorParams(**{field: -1.0})

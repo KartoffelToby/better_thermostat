@@ -22,6 +22,7 @@ from tests.benchmark.scenarios import (
     InitialConditions,
     ScenarioConfig,
 )
+from tests.benchmark.sensor import SensorParams
 
 
 class _CountingController(ControlCycleGate):
@@ -129,6 +130,8 @@ _QUIET_ROOM = ScenarioConfig(
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(21.0),
     stabilisation_min=0.0,
+    # A noise-free sensor, so the still room reports one value throughout.
+    sensor_params=SensorParams(),
 )
 
 

@@ -271,7 +271,9 @@ def test_the_context_carries_the_trv_sensor_reading(fraction: float):
 
 def test_the_context_carries_the_filter_and_slope_after_the_first_ticks():
     """The EMA and its slope reach the controllers from the minute ticks on."""
-    scenario = replace(_COLD_ROOM_WINDOW_OPEN, window_open_schedule=None)
+    scenario = replace(
+        _COLD_ROOM_WINDOW_OPEN, window_open_schedule=None, sensor_params=SensorParams()
+    )
     adapter = _ConstantValveAdapter(100.0)
     run_scenario(adapter, scenario, step_s=30.0)
     by_t = {ctx.t: ctx for ctx in adapter.seen}

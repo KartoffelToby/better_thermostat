@@ -48,11 +48,11 @@ _DIMENSIONS = ("overall", "comfort", "actuator", "energy")
 # Mean balanced score per dimension over _SCENARIOS, recorded about 0.02
 # below the measured value and rounded down to the hundredth.
 _FLOORS: dict[str, dict[str, float]] = {
-    "mpc": {"overall": 0.69, "comfort": 0.87, "actuator": 0.21, "energy": 0.95},
-    "mpc_v2": {"overall": 0.92, "comfort": 0.96, "actuator": 0.82, "energy": 0.97},
-    "pid": {"overall": 0.82, "comfort": 0.79, "actuator": 0.78, "energy": 0.97},
-    "tpi": {"overall": 0.73, "comfort": 0.53, "actuator": 0.94, "energy": 0.94},
-    "default": {"overall": 0.64, "comfort": 0.38, "actuator": 0.94, "energy": 0.85},
+    "mpc": {"overall": 0.67, "comfort": 0.80, "actuator": 0.25, "energy": 0.96},
+    "mpc_v2": {"overall": 0.88, "comfort": 0.95, "actuator": 0.72, "energy": 0.97},
+    "pid": {"overall": 0.75, "comfort": 0.74, "actuator": 0.63, "energy": 0.96},
+    "tpi": {"overall": 0.69, "comfort": 0.53, "actuator": 0.79, "energy": 0.94},
+    "default": {"overall": 0.63, "comfort": 0.38, "actuator": 0.91, "energy": 0.85},
 }
 
 # A floor further than this below the measured mean is stale and has to
