@@ -240,7 +240,7 @@ Turns the **Pause Learning** switch of the selected rooms on while the boiler or
 heat pump sends no heat to the radiators, for example while a combi boiler heats
 hot water, a heat pump defrosts or a schedule locks the boiler out, and off again
 once heat flows. The valves stay where they are; only learning stops. See
-[Pausing learning](/setup/pause-learning/) for what the switch holds.
+[Pausing learning](/setup/pause-learning/) for what the switch does.
 
 The blueprint needs an entity that reports the heat source, such as a binary
 sensor built from an eBUS, OpenTherm or heat pump integration. Only its `on` and
