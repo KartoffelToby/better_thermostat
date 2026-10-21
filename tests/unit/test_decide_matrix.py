@@ -37,7 +37,9 @@ from custom_components.better_thermostat.core.fsm.lifecycle import (
 )
 from custom_components.better_thermostat.core.fsm.maintenance import (
     MAX_RUN_S,
-    MaintenancePhase,
+    MaintenanceDue,
+    MaintenanceIdle,
+    MaintenanceRunning,
     MaintenanceState,
 )
 from custom_components.better_thermostat.core.fsm.mode import ModeState
@@ -64,15 +66,11 @@ LIFECYCLE = {
     "stopping": LifecycleState(phase=LifecyclePhase.STOPPING),
 }
 
-MAINTENANCE = {
-    "idle": MaintenanceState(),
-    "due": MaintenanceState(phase=MaintenancePhase.DUE),
-    "running": MaintenanceState(
-        phase=MaintenancePhase.RUNNING, running_since=NOW_MONOTONIC - 100.0
-    ),
-    "overrun": MaintenanceState(
-        phase=MaintenancePhase.RUNNING, running_since=NOW_MONOTONIC - MAX_RUN_S - 1.0
-    ),
+MAINTENANCE: dict[str, MaintenanceState] = {
+    "idle": MaintenanceIdle(),
+    "due": MaintenanceDue(),
+    "running": MaintenanceRunning(running_since=NOW_MONOTONIC - 100.0),
+    "overrun": MaintenanceRunning(running_since=NOW_MONOTONIC - MAX_RUN_S - 1.0),
 }
 
 MODES = {

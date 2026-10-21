@@ -89,10 +89,11 @@ from .core.fsm.lifecycle import (
     stop as lifecycle_stop,
 )
 from .core.fsm.maintenance import (
-    MaintenancePhase,
-    MaintenanceState,
+    MaintenanceDue,
+    MaintenanceIdle,
     evaluate_tick as maintenance_evaluate_tick,
     finish_run as maintenance_finish_run,
+    reschedule as maintenance_reschedule,
     start_run as maintenance_start_run,
 )
 from .core.fsm.mode import (
@@ -1182,14 +1183,15 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self._hvac_list = [HVACMode.HEAT, HVACMode.OFF]
         self.map_on_hvac_mode = HVACMode.HEAT
         self.clock: Clock = SystemClock()
-        self.kernel_state = KernelState()
+        self.kernel_state = KernelState(
+            maintenance=MaintenanceIdle(
+                next_due=self.clock.now() + timedelta(hours=randint(1, 24 * 5))
+            )
+        )
         # The contact state the window and door settle workers last
         # announced, keyed by contact kind.
         self.announced_contact_open: dict[str, bool] = {}
         self.flight_recorder = FlightRecorder()
-        self.next_valve_maintenance: datetime | None = self.clock.now() + timedelta(
-            hours=randint(1, 24 * 5)
-        )
         self.room_temperature = None
         self._current_humidity: float | None = None
         # A configured bound overrides what the controlled entities report, so
@@ -3471,8 +3473,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             maint_trvs: list[str] = []
 
         if maint_trvs:
-            self.next_valve_maintenance = compute_initial_maintenance(
-                self.real_trvs, maint_trvs
+            first_due = compute_initial_maintenance(self.real_trvs, maint_trvs)
+            self.kernel_state = replace(
+                self.kernel_state,
+                maintenance=maintenance_reschedule(
+                    self.kernel_state.maintenance, first_due
+                ),
             )
             self.async_on_remove(
                 async_track_time_interval(
@@ -3488,7 +3494,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             _LOGGER.debug(
                 "better_thermostat %s: valve maintenance tick enabled (5min), first run at %s",
                 self.device_name,
-                self.next_valve_maintenance,
+                first_due,
             )
         else:
             _LOGGER.debug(
@@ -3792,27 +3798,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # Check if any TRV actually has maintenance enabled
         trvs_to_service = collect_maintenance_trvs(self.real_trvs)
 
-        # Adopt the schedule the entity attribute carries, then advance the
-        # region.
-        region = self.kernel_state.maintenance
-        if region.next_due != self.next_valve_maintenance:
-            region = MaintenanceState(
-                phase=region.phase,
-                next_due=self.next_valve_maintenance,
-                running_since=region.running_since,
-            )
         region = maintenance_evaluate_tick(
-            region,
+            self.kernel_state.maintenance,
             now,
             window_open=self.contact_open,
             has_enabled_trvs=bool(trvs_to_service),
             devices_released=self.devices_released,
         )
         self.kernel_state = replace(self.kernel_state, maintenance=region)
-        if region.next_due is not None:
-            self.next_valve_maintenance = region.next_due
 
-        if region.phase != MaintenancePhase.DUE:
+        if not isinstance(region, MaintenanceDue):
             return
 
         # Run maintenance asynchronously (don't block the tick)
@@ -3831,11 +3826,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         region = self.kernel_state.maintenance
         if region.is_blocking(self.clock.monotonic()):
             return
-        if region.phase != MaintenancePhase.DUE:
+        if not isinstance(region, MaintenanceDue):
             # Direct invocation (service call / tests): arm before starting.
-            region = MaintenanceState(
-                phase=MaintenancePhase.DUE, next_due=region.next_due
-            )
+            region = MaintenanceDue(next_due=region.next_due)
         self.kernel_state = replace(
             self.kernel_state,
             maintenance=maintenance_start_run(region, self.clock.monotonic()),
@@ -3924,11 +3917,17 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     pass
 
             # Schedule next run
-            self.next_valve_maintenance = compute_next_maintenance(self.real_trvs, trvs)
+            next_due = compute_next_maintenance(self.real_trvs, trvs)
+            self.kernel_state = replace(
+                self.kernel_state,
+                maintenance=maintenance_reschedule(
+                    self.kernel_state.maintenance, next_due
+                ),
+            )
             _LOGGER.info(
                 "better_thermostat %s: next valve maintenance at %s",
                 self.device_name,
-                self.next_valve_maintenance,
+                next_due,
             )
         finally:
             control_needed = self._control_needed_after_maintenance
@@ -3936,7 +3935,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.kernel_state = replace(
                 self.kernel_state,
                 maintenance=maintenance_finish_run(
-                    self.kernel_state.maintenance, self.next_valve_maintenance
+                    self.kernel_state.maintenance,
+                    self.kernel_state.maintenance.next_due,
                 ),
             )
             # Release every TRV guard even if maintenance raised before the
@@ -4261,10 +4261,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             ),
         }
         # Optional: next scheduled valve maintenance (ISO8601)
-        if self.next_valve_maintenance is not None:
-            dev_specific["next_valve_maintenance"] = (
-                self.next_valve_maintenance.isoformat()
-            )
+        next_due = self.kernel_state.maintenance.next_due
+        if next_due is not None:
+            dev_specific["next_valve_maintenance"] = next_due.isoformat()
         if self.has_contact_sensor:
             dev_specific[ATTR_STATE_WINDOW_DETECTION] = (
                 self.kernel_state.window_detection
@@ -5407,7 +5406,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 translation_placeholders={"device_name": self.device_name},
             )
         # force immediate run
-        self.next_valve_maintenance = self.clock.now()
+        self.kernel_state = replace(
+            self.kernel_state,
+            maintenance=maintenance_reschedule(
+                self.kernel_state.maintenance, self.clock.now()
+            ),
+        )
         # The run belongs to the thermostat, not to the service call, so
         # unloading or removing the thermostat stops it, and it puts the TRVs
         # back on the way out. The call waits for it either way; a run the
