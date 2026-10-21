@@ -1,7 +1,7 @@
 ---
 title: Releasing the devices
 sidebar:
-    order: 6
+    order: 9
 description: The Release devices switch hands a room's TRVs and cooler to you or an automation, and how Better Thermostat takes them back.
 ---
 

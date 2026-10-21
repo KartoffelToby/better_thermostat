@@ -1,7 +1,7 @@
 ---
 title: Upgrading from 1.9 to 2.0
 sidebar:
-    order: 5
+    order: 7
 description: What carries over from Better Thermostat 1.9, what you may need to change, and how 2.0 behaves differently.
 ---
 

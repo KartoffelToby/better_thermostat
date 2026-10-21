@@ -1,7 +1,7 @@
 ---
 title: Removing Better Thermostat
 sidebar:
-    order: 7
+    order: 10
 description: How to remove one Better Thermostat or the whole integration, and what is left on your devices afterwards.
 ---
 
