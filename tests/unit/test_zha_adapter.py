@@ -16,8 +16,12 @@ import pytest
 
 from custom_components.better_thermostat.adapters import delegate, generic, zha
 from custom_components.better_thermostat.adapters.base import DeviceChannels
-from custom_components.better_thermostat.trv import Trv
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 ENTITY_ID = "climate.bosch_trv"
 DEVICE_ID = "bosch_trv_device"
@@ -69,7 +73,7 @@ def _host():
     host.context = None
     host.hass = MagicMock()
     host.hass.services.async_call = AsyncMock(return_value=None)
-    host.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, adapter=zha)}
+    host.real_trvs = {ENTITY_ID: trv_record(entity_id=ENTITY_ID, adapter=zha)}
     return host
 
 
