@@ -400,6 +400,32 @@
     }
   },
   "entity": {
+    "climate": {
+      "better_thermostat": {
+        "state_attributes": {
+          "heating_blocked_by": {
+            "name": "Chauffage bloqué par",
+            "state": {
+              "devices_released": "Appareils libérés",
+              "startup": "Démarrage",
+              "valve_maintenance": "Entretien des vannes",
+              "hvac_off": "Thermostat éteint",
+              "window": "Fenêtre ouverte",
+              "door": "Porte ouverte",
+              "no_call_for_heat": "Aucun besoin de chauffage"
+            }
+          },
+          "active_overrides": {
+            "name": "Dérogations actives",
+            "state": {
+              "devices_released": "Appareils libérés",
+              "learning_paused": "Apprentissage suspendu",
+              "window_detection_off": "Détection de fenêtre désactivée"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "pid_kp": {
         "name": "{trv_name} PID Kp (proportionnel)"

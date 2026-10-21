@@ -11,7 +11,14 @@ import re
 import pytest
 import yaml
 
+from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.desired import HeatingBlock
 from custom_components.better_thermostat.utils.calibration.pid import PIDParams
+from custom_components.better_thermostat.utils.const import (
+    ATTR_STATE_ACTIVE_OVERRIDES,
+    ATTR_STATE_HEATING_BLOCKED_BY,
+    Override,
+)
 
 ROOT = Path(__file__).parents[2]
 COMPONENT = ROOT / "custom_components" / "better_thermostat"
@@ -22,6 +29,7 @@ ALL_LANGUAGES = sorted(path.stem for path in TRANSLATIONS.glob("*.json"))
 LANGUAGES = [language for language in ALL_LANGUAGES if language != "en"]
 
 ENTITY_TRANSLATION_KEYS = {
+    "climate": {"better_thermostat"},
     "sensor": {
         "external_temp_ema",
         "external_temp_ema_1h",
@@ -192,6 +200,32 @@ def test_entity_translation_catalog_covers_platform_keys():
         actual_keys = set(_section(english_entities.get(platform, {})))
         missing = expected_keys - actual_keys
         assert not missing, f"entity.{platform} is missing translation keys: {missing}"
+
+
+@pytest.mark.parametrize("lang", ALL_LANGUAGES)
+def test_climate_attribute_values_are_translated(lang: str):
+    """Each published word of the closed attribute lists has a label.
+
+    The thermostat's translation key reaches the catalog entry, and the
+    entry names exactly the values the code can publish.
+    """
+    attributes = _section(
+        _load_json(TRANSLATIONS / f"{lang}.json"),
+        "entity",
+        "climate",
+        str(object.__new__(BetterThermostat).translation_key),
+        "state_attributes",
+    )
+    assert set(attributes) == {
+        ATTR_STATE_HEATING_BLOCKED_BY,
+        ATTR_STATE_ACTIVE_OVERRIDES,
+    }
+    assert set(_section(attributes, ATTR_STATE_HEATING_BLOCKED_BY, "state")) == {
+        block.value for block in HeatingBlock
+    }
+    assert set(_section(attributes, ATTR_STATE_ACTIVE_OVERRIDES, "state")) == {
+        override.value for override in Override
+    }
 
 
 def _is_attr_name_target(target: ast.expr) -> bool:

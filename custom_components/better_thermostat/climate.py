@@ -83,6 +83,7 @@ from .adapters.delegate import (
 from .core.clock import Clock
 from .core.containers import BtConfig, BtRuntime
 from .core.decide import KernelState
+from .core.desired import HeatingBlock
 from .core.fsm.control_mode import LADDER_TICK_S, ControlMode, start_on_rung
 from .core.fsm.lifecycle import (
     startup_finished as lifecycle_startup_finished,
@@ -137,6 +138,7 @@ from .utils.calibration.pid import (
 )
 from .utils.clock import SystemClock
 from .utils.const import (
+    ATTR_STATE_ACTIVE_OVERRIDES,
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_DEGRADED_FOR_SECONDS,
@@ -144,6 +146,7 @@ from .utils.const import (
     ATTR_STATE_DOOR_OPEN,
     ATTR_STATE_ERRORS,
     ATTR_STATE_HEAT_LOSS,
+    ATTR_STATE_HEATING_BLOCKED_BY,
     ATTR_STATE_HEATING_POWER,
     ATTR_STATE_LEARNING_PAUSED,
     ATTR_STATE_MAIN_MODE,
@@ -187,6 +190,7 @@ from .utils.const import (
     VERSION,
     CalibrationMode,
     CalibrationOutput,
+    Override,
 )
 from .utils.controlling import (
     TaskManager,
@@ -194,6 +198,7 @@ from .utils.controlling import (
     control_queue,
     control_trv,
     cooler_send_cache,
+    publish_kernel_verdict,
     reconcile_tick,
 )
 from .utils.entry_schema import (
@@ -773,6 +778,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     _attr_has_entity_name = True
     _attr_name = None
+    # Names the catalog entry that translates the thermostat's own attributes;
+    # the entity keeps the device's name.
+    _attr_translation_key = "better_thermostat"
     # ``degraded_for_seconds`` counts up on every write while degraded; the
     # recorded ``control_mode`` already says when the degradation began. The
     # filtered room temperature changes with nearly every reading, and the
@@ -1227,6 +1235,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # writes nothing to them, takes over nothing they report and learns
         # nothing until they are taken back.
         self.devices_released = False
+        # The block the kernel named in its latest decision, published as
+        # ``heating_blocked_by``. The thermostat is unavailable until the
+        # first decision at the end of the startup sets it.
+        self.heating_blocked_by: HeatingBlock | None = None
         self.ignore_states = False
         self.version = VERSION
         # Monotonic time of the user's last change of the room target or mode.
@@ -3846,6 +3858,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.ignore_states = True
 
         try:
+            publish_kernel_verdict(self)
             # Set per-TRV guard
             for entity_id in trvs:
                 try:
@@ -3955,6 +3968,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # If we restore a previous True here, the control_queue loop can get
             # stuck sleeping forever and never consume queued control actions.
             self.ignore_states = False
+            publish_kernel_verdict(self)
 
             # A TRV startup went ahead without that came back meanwhile was
             # left alone, and it does not necessarily report again soon.
@@ -4230,6 +4244,23 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             ATTR_STATE_OFF_TEMPERATURE: self.off_temperature,
             CONF_TOLERANCE: self.tolerance,
             ATTR_STATE_LEARNING_PAUSED: self.learning_paused,
+            ATTR_STATE_HEATING_BLOCKED_BY: (
+                None
+                if self.heating_blocked_by is None
+                else str(self.heating_blocked_by)
+            ),
+            ATTR_STATE_ACTIVE_OVERRIDES: [
+                str(override)
+                for override, active in (
+                    (Override.DEVICES_RELEASED, self.devices_released),
+                    (Override.LEARNING_PAUSED, self.learning_paused),
+                    (
+                        Override.WINDOW_DETECTION_OFF,
+                        not self.kernel_state.window_detection,
+                    ),
+                )
+                if active
+            ],
             # The learned rates carry full precision; they are rounded here,
             # where they are published.
             ATTR_STATE_HEATING_POWER: round(self.heating_power, 4),
@@ -5370,6 +5401,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self._heating_tracker.abort_cycle()
             self._loss_tracker.abort_cycle()
         await check_critical_entities(self)
+        publish_kernel_verdict(self)
         self.async_write_ha_state()
         if released or self.startup_running:
             return
