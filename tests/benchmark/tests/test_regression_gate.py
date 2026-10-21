@@ -2,8 +2,8 @@
 
 The benchmark's headline output is a 0..1 score matrix. Beyond the unit
 tests of individual components, this test turns the matrix itself into a
-guard: it runs the production controllers over a representative,
-noise-free scenario set and asserts the invariants that must always hold
+guard: it runs the production controllers over a representative
+scenario set, each with its seeded sensor noise, and asserts the invariants that must always hold
 if the plant, metrics, scoring and controllers are wired up correctly.
 
 Each controller holds a recorded floor per dimension, about 0.02 below

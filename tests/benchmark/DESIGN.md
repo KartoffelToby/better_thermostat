@@ -69,6 +69,11 @@ controller ───────────────► actuator ──► P
 * **Sensor** (`sensor.py`) — converts the plant's true temperature into
   what the controller actually *sees*: sampled, lagged, optionally noisy,
   biased, drifting, or dropped out. This is where "garbage in" enters.
+* **Input stage** (`input_stage.py`) — what Better Thermostat makes of
+  the sensor reports before a controller sees them: the 0.11 K
+  acceptance gate, the EMA and its slope, as `events/temperature.py`
+  keeps them. The runner also models the TRV's own sensor and runs the
+  production controllers only on BT's control cycles.
 * **Actuator** (`actuator.py`) — converts the controller's commanded
   valve-% into the *delivered* flow the plant receives (a non-linear flow
   curve, deadband, stiction, quantisation). This is where "intent ≠
@@ -433,9 +438,20 @@ Two time-domain effects plus fault injection:
 * **Thermal lag** — a first-order filter (time constant 30 s – 3 min): the
   sensor body has its own thermal mass and approaches the air temperature
   gradually. This is the dominant physical lag in residential sensors.
-* **Sampling + EMA** — sensors only emit every `sample_interval_s`
-  (1–5 min for Zigbee), optionally smoothed by an EMA matching BT's own
-  periodic filter.
+* **Sampling, resolution, reporting** — sensors only emit every
+  `sample_interval_s` (1–5 min for Zigbee), on a `resolution_K` grid,
+  and only when the value moved `report_threshold_K` since the last
+  report or `heartbeat_s` has passed. An optional EMA (`ema_alpha`)
+  models a sensor that smooths its own samples.
+* **Default** — `REALISTIC_SENSOR_PARAMS`: 60 s, 90 s lag, 0.02 K noise,
+  0.1 K resolution and threshold. The noise lies between the high- and
+  medium-repeatability modes of a Sensirion SHT3x (3σ = 0.04 / 0.08 K);
+  room-air turbulence (0.2–1.2 Hz in a DTU field study of 19 rooms) is
+  filtered out by the sensor body. The README tabulates how the scores
+  move with noise and reporting threshold.
+* **TRV sensor** — `T_room + f·(T_rad − T_room)` with `f = 0.1`,
+  reported in 0.1 K steps; the TRV's own regulation uses the unrounded
+  value.
 * **Faults** — noise, bias, drift, dropout, sample jitter (the §7-E
   family), all deterministic from the per-scenario seed.
 
@@ -458,9 +474,9 @@ Read the matrix top-down with three anchors (full tables in
 
 * **Oracle = 1.0** — the ceiling. It normalises against itself, so it
   scores 1.0 on every scenario by construction.
-* **BangBang ≈ 0.63** — the noise floor. A naive on/off controller;
+* **BangBang ≈ 0.60** — the noise floor. A naive on/off controller;
   anything near it has a real problem.
-* **Production controllers ≈ 0.77–0.84** — the realistic band.
+* **Production controllers ≈ 0.67–0.75** — the realistic band.
 
 Then read *across* the dimension columns, not just `overall`:
 
