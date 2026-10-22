@@ -35,7 +35,6 @@ if TYPE_CHECKING:
 
     from custom_components.better_thermostat.climate import BetterThermostat
 
-    from .base import DeviceChannels
     from .types import AdapterHost, AdapterProbeHost
 
 _LOGGER = logging.getLogger(__name__)
@@ -154,12 +153,6 @@ async def init(self: AdapterHost, entity_id: str) -> None:
     is invoked under a 30 s outer budget in ``_initialize_trvs``.
     """
     return await _adapter(self, entity_id).init(self, entity_id)
-
-
-@async_retry(retries=5)
-async def get_info(self: AdapterHost, entity_id: str) -> DeviceChannels:
-    """Get info."""
-    return await _adapter(self, entity_id).get_info(self, entity_id)
 
 
 @async_retry(retries=5)

@@ -32,6 +32,8 @@ def _zero_metrics(**overrides) -> MetricValues:
         time_above_setpoint_K_h=0.0,
         time_below_setpoint_K_h=0.0,
         valve_sweet_spot_residency_percent=0.0,
+        discomfort_K_h=0.0,
+        transient_duration_h=8.0,
     )
     return replace(base, **overrides)
 
@@ -73,22 +75,45 @@ def test_comfort_score_overshoot_penalty():
     """Extra overshoot drops the comfort score proportionally."""
     oracle = _zero_metrics()
     candidate = _zero_metrics(max_overshoot_K=1.0)
-    # 1 K excess overshoot → comfort drops by 0.4 (weight in comfort)
-    assert comfort_score(candidate, oracle) == pytest.approx(0.6, abs=0.01)
+    # 1 K excess overshoot → comfort drops by 0.25 (weight in comfort)
+    assert comfort_score(candidate, oracle) == pytest.approx(0.75, abs=0.01)
 
 
 def test_comfort_score_inf_settling_penalised():
-    """Inf settling drives comfort below 0.6 (most of the 0.4 settling penalty)."""
+    """Inf settling costs the full 0.25 settling weight."""
     oracle = _zero_metrics()
     candidate = _zero_metrics(settling_time_min=math.inf)
-    assert comfort_score(candidate, oracle) < 0.7
+    assert comfort_score(candidate, oracle) == pytest.approx(0.75)
+
+
+def test_comfort_score_discomfort_penalty():
+    """Excess discomfort costs its share of the 0.5 weight."""
+    oracle = _zero_metrics(discomfort_K_h=0.5)
+    # 2 K·h beyond the oracle over 8 h = 0.25 K mean, half the 0.5 K
+    # failure threshold → penalty 0.25.
+    candidate = _zero_metrics(discomfort_K_h=2.5)
+    assert comfort_score(candidate, oracle) == pytest.approx(0.75)
+
+
+def test_comfort_score_discomfort_averages_over_at_least_four_hours():
+    """A short run is averaged over four hours, so a brief event still weighs."""
+    oracle = _zero_metrics(transient_duration_h=1.0)
+    candidate = _zero_metrics(discomfort_K_h=1.0, transient_duration_h=1.0)
+    # 1 K·h over 4 h = 0.25 K → penalty 0.5 · 0.5.
+    assert comfort_score(candidate, oracle) == pytest.approx(0.75)
+
+
+def test_comfort_score_less_discomfort_than_oracle_scores_one():
+    oracle = _zero_metrics(discomfort_K_h=1.0)
+    candidate = _zero_metrics(discomfort_K_h=0.2)
+    assert comfort_score(candidate, oracle) == pytest.approx(1.0)
 
 
 def test_comfort_score_clamps_to_zero():
-    """Catastrophic comfort fails (overshoot + settling + ss_err) clamp at 0."""
+    """Catastrophic comfort fails (discomfort + overshoot + settling) clamp at 0."""
     oracle = _zero_metrics()
     candidate = _zero_metrics(
-        max_overshoot_K=10.0, settling_time_min=math.inf, steady_state_error_K=5.0
+        max_overshoot_K=10.0, settling_time_min=math.inf, discomfort_K_h=40.0
     )
     assert comfort_score(candidate, oracle) == pytest.approx(0.0)
 
@@ -177,27 +202,25 @@ def test_energy_score_low_oracle_penalises_gross_overuse():
     assert energy_score(candidate, oracle) == pytest.approx(0.0)
 
 
-def test_energy_score_low_oracle_penalises_underheating():
-    """Under-heating in the low-oracle path is penalised symmetrically (not 1.0)."""
+def test_energy_score_low_oracle_leaves_underheating_to_comfort():
+    """Heating less than a barely-heating oracle costs no energy score."""
     oracle = _zero_metrics(delivered_heat_K=0.08)
     candidate = _zero_metrics(delivered_heat_K=0.0)
-    # Deviation of 0.08 K against the 0.1 K floor → score 0.2.
-    assert energy_score(candidate, oracle) == pytest.approx(1.0 - 0.08 / 0.1)
+    assert energy_score(candidate, oracle) == pytest.approx(1.0)
 
 
-def test_energy_score_undershoot_penalised_symmetrically():
-    """Heating *less* than the oracle is under-heating, not legitimate saving."""
+def test_energy_score_leaves_underheating_to_comfort():
+    """Heating less than the oracle is a missed setpoint, which comfort scores."""
     oracle = _zero_metrics(delivered_heat_K=5.0)
-    candidate = _zero_metrics(delivered_heat_K=3.0)
-    # ratio = 0.6 → |0.6 - 1| = 0.4 → score 0.6
-    assert energy_score(candidate, oracle) == pytest.approx(0.6)
+    for heat in (3.0, 0.0):
+        candidate = _zero_metrics(delivered_heat_K=heat)
+        assert energy_score(candidate, oracle) == pytest.approx(1.0)
 
 
-def test_energy_score_zero_heat_scores_zero():
-    """Not heating at all when oracle would heat scores 0."""
+def test_energy_score_charges_excess_heat_proportionally():
     oracle = _zero_metrics(delivered_heat_K=5.0)
-    candidate = _zero_metrics(delivered_heat_K=0.0)
-    assert energy_score(candidate, oracle) == pytest.approx(0.0)
+    candidate = _zero_metrics(delivered_heat_K=6.0)
+    assert energy_score(candidate, oracle) == pytest.approx(0.8)
 
 
 def test_energy_score_ignores_the_commanded_valve_integral():

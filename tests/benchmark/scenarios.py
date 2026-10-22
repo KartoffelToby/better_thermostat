@@ -100,6 +100,9 @@ class ScenarioConfig:
     # ``export_state()`` and rehydrated through ``reset(prior=...)``;
     # in-RAM-only state is lost.
     controller_restart_t_s: float | None = None
+    # Realisation of the sensor's noise and jitter. ``0`` is the
+    # scenario's own; other values draw an independent one.
+    noise_seed: int = 0
 
 
 # --- Schedule helpers ---

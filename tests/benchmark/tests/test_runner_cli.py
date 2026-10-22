@@ -8,6 +8,7 @@ manageable by restricting the controller/scenario set.
 from __future__ import annotations
 
 import contextlib
+from dataclasses import replace
 import io
 
 import pytest
@@ -270,3 +271,49 @@ def test_main_multi_trv_excludes_restart_scenarios():
     assert rc == 0
     assert "[multi-TRV]" not in out
     assert "no eligible scenarios" in out
+
+
+def test_main_seeds_prints_the_mean_and_the_spread():
+    rc, out = _run(
+        [
+            "--controller",
+            "linear_p",
+            "--scenario",
+            "S01_setpoint_step_small",
+            "--stabilisation-min",
+            "0",
+            "--step-s",
+            "60",
+            "--seeds",
+            "2",
+            "--per-scenario",
+        ]
+    )
+    assert rc == 0
+    assert "mean of 2 noise seeds" in out
+    assert "Per-scenario spread (max − min) over 2 seeds" in out
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--seeds", "0"],
+        ["--seeds", "2", "--plant", "standard"],
+        ["--seeds", "2", "--multi-trv"],
+    ],
+)
+def test_main_rejects_unusable_seeds(extra: list[str]):
+    rc, out = _run(["--controller", "linear_p", *extra])
+    assert rc == 2
+    assert "--seeds" in out
+
+
+def test_a_noise_seed_draws_another_realisation():
+    """Seed 0 is the scenario's own noise; another seed changes it."""
+    base = run_scenario(LinearPAdapter(), S01_SETPOINT_STEP_SMALL, step_s=60.0)
+    again = run_scenario(LinearPAdapter(), S01_SETPOINT_STEP_SMALL, step_s=60.0)
+    other = run_scenario(
+        LinearPAdapter(), replace(S01_SETPOINT_STEP_SMALL, noise_seed=1), step_s=60.0
+    )
+    assert again.metrics == base.metrics
+    assert other.metrics != base.metrics
