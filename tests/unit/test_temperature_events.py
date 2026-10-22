@@ -1702,19 +1702,6 @@ class TestPendingReadingAfterTheDebounce:
 
         commit.assert_not_awaited()
 
-    @pytest.mark.asyncio
-    async def test_a_room_without_a_sensor_has_withdrawn_the_reading(self, mock_bt):
-        """Without a room sensor no reading is still reported, so none is applied."""
-        callback = self._arm(mock_bt)
-        mock_bt.sensor_entity_id = None
-        with patch(
-            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
-            new=AsyncMock(),
-        ) as commit:
-            await self._fire(mock_bt, callback)
-
-        commit.assert_not_awaited()
-
     def test_nothing_pending_arms_no_timer(self, mock_bt):
         """Without a pending reading there is nothing to apply later."""
         mock_bt.pending_temperature = None

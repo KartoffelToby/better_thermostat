@@ -18,7 +18,7 @@ value lives in exactly one container.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 
 
 @dataclass(frozen=True)
@@ -27,12 +27,12 @@ class BtConfig:
 
     The outdoor threshold and the tolerance apply without a reload, so a
     change of either replaces the whole container; no field is written in
-    place.
+    place. The room temperature sensor is required, so it has no default.
     """
 
+    sensor_entity_id: str = field(kw_only=True)
     device_name: str = ""
     model: str | None = None
-    sensor_entity_id: str | None = None
     humidity_sensor_entity_id: str | None = None
     cooler_entity_id: str | None = None
     window_sensor_entity_id: str | None = None

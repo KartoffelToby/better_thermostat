@@ -452,11 +452,7 @@ def _room_sensor_reads(self: BetterThermostat) -> bool:
     while it does; a skipped tick is logged.
     """
     sensor_entity_id = self.sensor_entity_id
-    if (
-        sensor_entity_id is not None
-        and room_sensor_reading(self, self.hass.states.get(sensor_entity_id))
-        is not None
-    ):
+    if room_sensor_reading(self, self.hass.states.get(sensor_entity_id)) is not None:
         return True
     _LOGGER.debug(
         "better_thermostat %s: external_temperature keepalive skipped (room sensor %s gives no reading)",
@@ -681,7 +677,7 @@ def _configured_bt_config(settings: BtSettings, unit: UnitOfTemperature) -> BtCo
     return BtConfig(
         device_name=name,
         model=settings.get(CONF_MODEL),
-        sensor_entity_id=settings.get(CONF_TEMPERATURE_SENSOR) or None,
+        sensor_entity_id=settings[CONF_TEMPERATURE_SENSOR],
         humidity_sensor_entity_id=settings.get(CONF_HUMIDITY_SENSOR) or None,
         cooler_entity_id=settings.get(CONF_COOLER) or None,
         window_sensor_entity_id=settings.get(CONF_WINDOW_SENSORS) or None,
@@ -831,7 +827,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         return self.config.model
 
     @property
-    def sensor_entity_id(self) -> str | None:
+    def sensor_entity_id(self) -> str:
         """Return the room temperature sensor entity id."""
         return self.config.sensor_entity_id
 
@@ -2043,16 +2039,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.version,
             )
 
-            # The external room sensor is a required configuration field.
-            if self.sensor_entity_id is None:
-                _LOGGER.error(
-                    "better_thermostat %s: no room temperature sensor configured "
-                    "(the required 'temperature_sensor' option is missing from "
-                    "the config entry); aborting startup, the entity stays "
-                    "unavailable",
-                    self.device_name,
-                )
-                return
             sensor_state = self.hass.states.get(self.sensor_entity_id)
             if not self._check_entities_ready(sensor_state):
                 # This loop waits for as long as it takes, and nothing
@@ -2348,8 +2334,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     def _initialize_sensors(self, sensor_state: State | None) -> None:
         """Set up room temperature, humidity, window and door sensors."""
-        if self.sensor_entity_id is not None:
-            self.all_entities[self.sensor_entity_id] = None
+        self.all_entities[self.sensor_entity_id] = None
 
         # Handle room temperature sensor with TRV fallback
         room_candidate = room_sensor_reading(self, sensor_state)
@@ -3499,15 +3484,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.device_name,
             )
 
-        # The external room sensor is a required configuration field.
-        if self.sensor_entity_id is None:
-            _LOGGER.error(
-                "better_thermostat %s: no room temperature sensor configured "
-                "(the required 'temperature_sensor' option is missing from "
-                "the config entry); skipping listener registration",
-                self.device_name,
-            )
-            return
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self.sensor_entity_id], self._trigger_temperature_change
@@ -3674,8 +3650,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         hands one over, behind any reading the listener has already queued.
         """
         sensor_entity_id = self.sensor_entity_id
-        if sensor_entity_id is None:
-            return
         sensor_state = self.hass.states.get(sensor_entity_id)
         reading = room_sensor_reading(self, sensor_state)
         if sensor_state is None or reading is None:

@@ -42,6 +42,7 @@ from tests.factories import ThermostatStandIn
 _STORED: dict[str, object] = {
     "name": "Living room",
     "thermostat": [{"trv": "climate.trv", "integration": "zha"}],
+    "temperature_sensor": "sensor.room_temperature",
     "outdoor_sensor": "sensor.outdoor",
     "off_temperature": 20,
     "tolerance": 0.3,
@@ -71,7 +72,12 @@ def _thermostat(
 ) -> _Shell:
     """Return a thermostat shell running on the stored settings."""
     bt = object.__new__(BetterThermostat)
-    bt.config = BtConfig(device_name="Living room", off_temperature=20.0, tolerance=0.3)
+    bt.config = BtConfig(
+        sensor_entity_id="sensor.room_temperature",
+        device_name="Living room",
+        off_temperature=20.0,
+        tolerance=0.3,
+    )
     bt._unit = unit
     bt.kernel_state = KernelState(lifecycle=LifecycleState(phase=phase))
     bt.bt_hvac_mode = hvac_mode

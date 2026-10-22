@@ -2086,6 +2086,7 @@ class TestControlCoolerLatchOfAFreshThermostat:
         """
         thermostat = BetterThermostat(
             config=BtConfig(
+                sensor_entity_id="sensor.room_temperature",
                 device_name="cooler band",
                 model="generic",
                 cooler_entity_id="climate.cooler",
