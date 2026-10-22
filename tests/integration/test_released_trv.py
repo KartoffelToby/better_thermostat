@@ -72,10 +72,7 @@ BY_HAND, CONTROLLED = (profile.entity_id for profile in TWO_HEADS.profiles)
 
 NARROW_BY_HAND = GroupScenario(
     name="narrow_head_by_hand",
-    profiles=(
-        replace(TWO_HEADS.profiles[0], max_temp=24.0),
-        TWO_HEADS.profiles[1],
-    ),
+    profiles=(replace(TWO_HEADS.profiles[0], max_temp=24.0), TWO_HEADS.profiles[1]),
 )
 """Two heads, the one the tests release reaching only up to 24 °C."""
 
@@ -497,9 +494,7 @@ async def test_a_restart_takes_no_target_from_a_released_trv(hass, trv_group):
     assert hass.states.get(BY_HAND).attributes["temperature"] == 28.0
 
 
-@pytest.mark.parametrize(
-    "trv_group", [NARROW_BY_HAND], indirect=True, ids=profile_id
-)
+@pytest.mark.parametrize("trv_group", [NARROW_BY_HAND], indirect=True, ids=profile_id)
 async def test_a_released_trv_does_not_bound_the_room_range(hass, trv_group):
     """The range follows the TRVs the room controls.
 
