@@ -153,6 +153,7 @@ from .utils.const import (
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
+    ATTR_STATE_RELEASED_TRVS,
     ATTR_STATE_ROOM_TEMPERATURE_FILTERED,
     ATTR_STATE_WINDOW_DETECTION,
     ATTR_STATE_WINDOW_OPEN,
@@ -218,9 +219,11 @@ from .utils.helpers import (
     configured_calibration_output,
     convert_to_float,
     convert_to_float_celsius,
+    device_released,
     device_setpoint_step,
     dual_role_entity_id,
     entry_settings,
+    every_trv_released,
     find_battery_entity,
     get_cool_temperature_bounds,
     get_cool_temperature_range,
@@ -1234,6 +1237,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # writes nothing to them, takes over nothing they report and learns
         # nothing until they are taken back.
         self.devices_released = False
+        # The TRVs the user has released one by one, by entity id. Each is
+        # left alone like an unreachable TRV while the others are controlled.
+        self.released_trvs: set[str] = set()
         # The block the kernel named in its latest decision, published as
         # ``heating_blocked_by``. The thermostat is unavailable until the
         # first decision at the end of the startup sets it.
@@ -1485,6 +1491,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self._saved_state is not None
             and self._saved_state.attributes.get(ATTR_STATE_DEVICES_RELEASED) is True
         )
+        self.released_trvs = self._restored_released_trvs()
         # The pause belongs to the "Pause learning" switch, whose platform is
         # set up after climate, so it comes back from the thermostat's own
         # state. It is read here, before the switch exists and before the
@@ -1494,7 +1501,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.learning_paused = (
                 self._saved_state.attributes.get(ATTR_STATE_LEARNING_PAUSED) is True
             )
-            self.learning_held = self.learning_paused or self.devices_released
+            self.learning_held = (
+                self.learning_paused
+                or self.devices_released
+                or bool(self.released_trvs)
+            )
         # The window detection switch is set up after the thermostat, and
         # control must not run on the default before it restores.
         if self.has_contact_sensor and (
@@ -1847,9 +1858,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 for entity_id in trv_ids:
                     # A write can block for a while, and the sensor can go
                     # away or the devices can be released meanwhile; the
-                    # TRVs after it then get nothing.
+                    # TRVs after it then get nothing. A released TRV gets
+                    # nothing either.
                     if not _room_sensor_reads(self) or self.devices_released:
                         return
+                    if device_released(self, entity_id):
+                        continue
                     try:
                         _mq_trv = self.real_trvs.get(entity_id)
                         if _mq_trv is not None and _mq_trv.awaiting_initialization:
@@ -2127,9 +2141,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         takes over again as soon as it reports. A room with no TRV available
         keeps waiting: there is nothing to control, and the temperature
         range and the mode startup derives from the TRVs would have nothing
-        to be read from. A room whose devices are released controls none of
-        them and starts on its saved state once the window has closed, with
-        no TRV available as well. Without its room sensor, a room also keeps
+        to be read from. A room whose devices are released, or whose TRVs
+        are each released on their own, controls none of them and starts on
+        its saved state once the window has closed, with no TRV available as
+        well. Without its room sensor, a room also keeps
         waiting until a TRV reports a plausible temperature to control on.
 
         Returns True when startup can go ahead, False otherwise.
@@ -2157,7 +2172,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if not unavailable:
             return True
         if in_grace or (
-            len(unavailable) == len(self.real_trvs) and not self.devices_released
+            len(unavailable) == len(self.real_trvs)
+            and not every_trv_released(self, self.real_trvs)
         ):
             for entity_id in unavailable:
                 _LOGGER.info(
@@ -2836,7 +2852,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         for entity_id in entity_ids:
             trv = self.real_trvs[entity_id]
             self.all_entities[entity_id] = None
-            if self.devices_released:
+            if device_released(self, entity_id):
                 trv.awaiting_initialization = True
                 continue
             _LOGGER.debug(
@@ -2870,7 +2886,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     exc_info=True,
                 )
 
-            if self.devices_released:
+            if device_released(self, entity_id):
                 trv.awaiting_initialization = True
                 continue
             try:
@@ -3049,8 +3065,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         Nothing is set up while valve maintenance runs: the initialisation
         writes to the TRV's device, and maintenance holds the devices for the
         exercise. Maintenance looks again once it has ended. Nothing is set
-        up while the devices are released either; taking them back looks
-        again.
+        up while the devices are released either, nor for a TRV released on
+        its own; taking them back looks again.
         """
         if self.devices_released:
             return
@@ -3063,6 +3079,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 not trv.awaiting_initialization
                 or entity_id in self._trvs_initializing
                 or not is_trv_available(self, entity_id)
+                or device_released(self, entity_id)
             ):
                 continue
             self._trvs_initializing.add(entity_id)
@@ -3087,10 +3104,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self._trvs_initializing.discard(entity_id)
             if self.is_removed or self.real_trvs.get(entity_id) is not trv:
                 return
-            # Released while it was being set up, it is set up again once the
-            # devices are taken back.
-            if self.devices_released:
-                return
+            # Released while it was being set up, it is set up again once it
+            # is taken back.
+            if device_released(self, entity_id):
+                continue
             if entity_id in failed:
                 trv.failed_initialization_attempts += 1
                 if (
@@ -3792,15 +3809,21 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if self.kernel_state.maintenance.is_blocking(self.clock.monotonic()):
             return
 
-        # Check if any TRV actually has maintenance enabled
-        trvs_to_service = collect_maintenance_trvs(self.real_trvs)
+        # Check if any TRV actually has maintenance enabled. A released TRV
+        # is not exercised; a run that would exercise released TRVs only
+        # waits for them like one of a released room.
+        enabled = collect_maintenance_trvs(self.real_trvs)
+        trvs_to_service = [
+            entity_id for entity_id in enabled if not device_released(self, entity_id)
+        ]
 
         region = maintenance_evaluate_tick(
             self.kernel_state.maintenance,
             now,
             window_open=self.contact_open,
             has_enabled_trvs=bool(trvs_to_service),
-            devices_released=self.devices_released,
+            devices_released=self.devices_released
+            or (bool(enabled) and not trvs_to_service),
         )
         self.kernel_state = replace(self.kernel_state, maintenance=region)
 
@@ -3865,10 +3888,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                         pass
 
             # Bind adapter callbacks to self. A run under way when the
-            # devices are released goes on without writing: from then on
-            # the devices are the user's, its restore at the end included.
+            # devices or one TRV are released goes on without writing to
+            # them: from then on they are the user's, the restore at the end
+            # included.
             async def _set_valve(entity_id: str, percent: int) -> bool:
-                if self.devices_released:
+                if device_released(self, entity_id):
                     return False
                 try:
                     ok = await adapter_set_valve(self, entity_id, percent)
@@ -3888,12 +3912,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 # sent back from the TRV once its call returns. Taking the
                 # control lock keeps a maintenance setpoint out of that window.
                 async with self._temperature_lock:
-                    if self.devices_released:
+                    if device_released(self, entity_id):
                         return
                     await adapter_set_temperature(self, entity_id, temperature)
 
             async def _set_mode(entity_id: str, mode: str) -> None:
-                if self.devices_released:
+                if device_released(self, entity_id):
                     return
                 await adapter_set_hvac_mode(self, entity_id, mode)
 
@@ -4218,6 +4242,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             ATTR_STATE_DOOR_OPEN: self.door_open,
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
             ATTR_STATE_DEVICES_RELEASED: self.devices_released,
+            ATTR_STATE_RELEASED_TRVS: sorted(self.released_trvs),
             ATTR_STATE_PRESET_TEMPERATURE: self.preset_mgr.saved_temperature,
             ATTR_STATE_PRESET_COOL_TEMPERATURE: self._preset_cool_temperature,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
@@ -4233,6 +4258,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 str(override)
                 for override, active in (
                     (Override.DEVICES_RELEASED, self.devices_released),
+                    (Override.TRVS_RELEASED, bool(self.released_trvs)),
                     (Override.LEARNING_PAUSED, self.learning_paused),
                     (
                         Override.WINDOW_DETECTION_OFF,
@@ -4310,7 +4336,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         one of its TRVs is: a room whose sensors fail keeps controlling in
         degraded mode, while a room without any TRV has nothing to control.
         A room whose devices are released controls none of them and stays
-        available with its own settings, whatever the devices do.
+        available with its own settings, whatever the devices do. A TRV
+        released on its own keeps the room available in the same way.
 
         Returns
         -------
@@ -4319,7 +4346,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """
         return self._available and (
             self.devices_released
-            or any(is_trv_available(self, entity_id) for entity_id in self.real_trvs)
+            or any(
+                entity_id in self.released_trvs or is_trv_available(self, entity_id)
+                for entity_id in self.real_trvs
+            )
         )
 
     @property
@@ -5388,6 +5418,76 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         await self._external_temperature_keepalive()
         request_control_cycle(self)
 
+    async def async_set_trv_released(self, entity_id: str, released: bool) -> None:
+        """Hand one TRV to the user, or take it back.
+
+        A released TRV is left alone like one that is unreachable: the
+        decision kernel commands it nothing, nothing it reports becomes the
+        room's mode or target, and an outage of it raises no repair issue.
+        The room's other TRVs and its cooler stay under control. The room's
+        response is then partly the user's doing, so the learners are held
+        while any TRV is released, as while the devices are released.
+
+        Taking it back resumes as taking the devices back does: an
+        initialisation startup left for it is run, its outage check runs
+        again, the room temperature goes to it if it takes an external one,
+        and one control cycle brings it onto the room's settings. Nothing
+        it held while released becomes the room's.
+
+        Parameters
+        ----------
+        entity_id : str
+            The TRV to release or take back
+        released : bool
+            Whether the TRV is the user's from now on
+        """
+        if entity_id not in self.real_trvs or released == (
+            entity_id in self.released_trvs
+        ):
+            return
+        if released:
+            self.released_trvs.add(entity_id)
+        else:
+            self.released_trvs.discard(entity_id)
+        self.learning_pause_changes += 1
+        _LOGGER.info(
+            "better_thermostat %s: TRV %s %s",
+            self.device_name,
+            entity_id,
+            "released to the user" if released else "taken back",
+        )
+        if released:
+            self.learning_held = True
+            self._heating_tracker.abort_cycle()
+            self._loss_tracker.abort_cycle()
+        await check_critical_entities(self)
+        publish_kernel_verdict(self)
+        self.async_write_ha_state()
+        if released or self.startup_running or self.devices_released:
+            return
+        await self._initialize_arrived_trvs()
+        await self._external_temperature_keepalive()
+        request_control_cycle(self)
+
+    def _restored_released_trvs(self) -> set[str]:
+        """Return the TRVs the saved state names as released one by one.
+
+        Read with the saved state, before the startup that would otherwise
+        initialise them and write to them. A TRV no longer configured for
+        this thermostat drops out.
+        """
+        if self._saved_state is None:
+            return set()
+        saved = self._saved_state.attributes.get(ATTR_STATE_RELEASED_TRVS)
+        if not isinstance(saved, list):
+            return set()
+        configured = {trv["trv"] for trv in self.all_trvs}
+        return {
+            entity_id
+            for entity_id in saved
+            if isinstance(entity_id, str) and entity_id in configured
+        }
+
     async def run_valve_maintenance_service(self) -> None:
         """Entity service: run valve maintenance immediately (ignores schedule).
 
@@ -5395,7 +5495,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         ------
         ServiceValidationError
             when a run is already in progress, no valve of this thermostat
-            has valve maintenance enabled, or the devices are released
+            has valve maintenance enabled, the devices are released, or every
+            valve with valve maintenance enabled is released on its own
         HomeAssistantError
             when the run fails
         """
@@ -5411,12 +5512,26 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 translation_key="devices_released",
                 translation_placeholders={"device_name": self.device_name},
             )
-        trvs_to_service = collect_maintenance_trvs(self.real_trvs)
-        if not trvs_to_service:
+        enabled = collect_maintenance_trvs(self.real_trvs)
+        if not enabled:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="valve_maintenance_not_enabled",
                 translation_placeholders={"device_name": self.device_name},
+            )
+        # A released TRV is not exercised. A run that would exercise only
+        # released TRVs is refused, as it is for a released room.
+        trvs_to_service = [
+            entity_id for entity_id in enabled if entity_id not in self.released_trvs
+        ]
+        if not trvs_to_service:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="trv_released",
+                translation_placeholders={
+                    "device_name": self.device_name,
+                    "entity": ", ".join(enabled),
+                },
             )
         # force immediate run
         self.kernel_state = replace(

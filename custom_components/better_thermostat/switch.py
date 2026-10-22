@@ -43,6 +43,7 @@ from .utils.const import CONF_CHILD_LOCK, DOMAIN, CalibrationMode
 from .utils.helpers import (
     async_normalize_bt_entity_ids,
     configured_calibration_mode,
+    device_released,
     find_child_lock_entity,
 )
 
@@ -87,6 +88,14 @@ async def async_setup_entry(
         switches.append(child_lock_switch)
         switch_unique_ids[child_lock_switch._attr_unique_id] = SwitchRef(
             trv_entity_id, SwitchKind.CHILD_LOCK
+        )
+
+        release_switch = BetterThermostatReleaseTrvSwitch(
+            bt_climate, trv_entity_id, has_multiple_trvs
+        )
+        switches.append(release_switch)
+        switch_unique_ids[release_switch._attr_unique_id] = SwitchRef(
+            trv_entity_id, SwitchKind.RELEASE_TRV
         )
 
     if bt_climate.has_contact_sensor:
@@ -157,6 +166,67 @@ class BetterThermostatReleaseDevicesSwitch(FollowsThermostat, SwitchEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Take the devices back."""
         await self._bt_climate.async_set_devices_released(False)
+        self.async_write_ha_state()
+
+
+class BetterThermostatReleaseTrvSwitch(FollowsThermostat, TrvNamedEntity, SwitchEntity):
+    """Switch that hands one TRV to the user while it is on.
+
+    The thermostat holds the setting and publishes it in the
+    ``released_trvs`` attribute, which it restores after a restart before
+    its startup writes to any device; the switch shows and sets it.
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        bt_climate: BetterThermostat,
+        trv_entity_id: str,
+        show_trv_name: bool = True,
+    ) -> None:
+        """Initialize the switch."""
+        self._bt_climate = bt_climate
+        self._trv_entity_id = trv_entity_id
+        self._attr_unique_id = f"{bt_climate.unique_id}_{trv_entity_id}_release"
+        if show_trv_name:
+            self._attr_translation_key = "release_trv"
+            self._attr_translation_placeholders = {
+                "trv_name": current_trv_name(bt_climate.hass, trv_entity_id)
+            }
+        else:
+            self._attr_translation_key = "release_trv_no_trv"
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        self._follow_trv_name()
+        self._follow_thermostat()
+
+    @property
+    @override
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return self._bt_climate.device_info
+
+    @property
+    @override
+    def is_on(self) -> bool:
+        """Return whether the TRV is released on its own."""
+        return self._trv_entity_id in self._bt_climate.released_trvs
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Release the TRV."""
+        await self._bt_climate.async_set_trv_released(self._trv_entity_id, True)
+        self.async_write_ha_state()
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Take the TRV back."""
+        await self._bt_climate.async_set_trv_released(self._trv_entity_id, False)
         self.async_write_ha_state()
 
 
@@ -505,7 +575,9 @@ class BetterThermostatChildLockSwitch(
         # Released devices are not written to. The restored lock is the
         # setting from here on; the initialisation that follows taking them
         # back syncs it where the TRV's model quirk does.
-        if restored != held and not self._bt_climate.devices_released:
+        if restored != held and not device_released(
+            self._bt_climate, self._trv_entity_id
+        ):
             # The device may still report the state from before a command
             # the startup sent, so the restored one is sent regardless.
             await self._set_child_lock(restored, force=True)
@@ -540,17 +612,27 @@ class BetterThermostatChildLockSwitch(
         await self._set_child_lock(False)
 
     def _refuse_while_released(self) -> None:
-        """Refuse a change of the lock while the devices are released.
+        """Refuse a change of the lock while the device is released.
 
-        The lock is written to the device, and released devices are the
-        user's. A change accepted without the write would leave the switch
-        showing a lock the device does not have.
+        The lock is written to the device, and a released device is the
+        user's, with the room's devices or on its own. A change accepted
+        without the write would leave the switch showing a lock the device
+        does not have.
         """
         if self._bt_climate.devices_released:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="devices_released",
                 translation_placeholders={"device_name": self._bt_climate.device_name},
+            )
+        if self._trv_entity_id in self._bt_climate.released_trvs:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="trv_released",
+                translation_placeholders={
+                    "device_name": self._bt_climate.device_name,
+                    "entity": self._trv_entity_id,
+                },
             )
 
     def _update_state(self, state: bool) -> None:

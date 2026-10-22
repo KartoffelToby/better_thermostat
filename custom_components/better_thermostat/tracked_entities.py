@@ -40,6 +40,7 @@ class SwitchKind(StrEnum):
 
     PID_AUTO_TUNE = "pid_auto_tune"
     CHILD_LOCK = "child_lock"
+    RELEASE_TRV = "release_trv"
 
 
 @dataclass(frozen=True, slots=True)

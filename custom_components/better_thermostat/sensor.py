@@ -566,7 +566,7 @@ async def _cleanup_pid_switch_entities(
     tracked: TrackedEntities,
     bt_climate: BetterThermostat,
 ) -> None:
-    """Remove PID switch and child lock entities for TRVs that changed or were removed."""
+    """Remove the per-TRV switch entities of TRVs that changed or were removed."""
     tracked_switches = tracked.switches
     current_pid_trvs = _get_pid_trvs(bt_climate)
 
@@ -578,8 +578,8 @@ async def _cleanup_pid_switch_entities(
         if ref.kind is SwitchKind.PID_AUTO_TUNE:
             if ref.trv not in current_pid_trvs:
                 should_remove = True
-        elif ref.kind is SwitchKind.CHILD_LOCK:
-            # Remove child lock switches for TRVs that no longer exist
+        elif ref.kind in (SwitchKind.CHILD_LOCK, SwitchKind.RELEASE_TRV):
+            # Remove the switches of TRVs that no longer exist
             if not bt_climate.real_trvs or ref.trv not in bt_climate.real_trvs:
                 should_remove = True
 

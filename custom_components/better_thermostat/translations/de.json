@@ -419,6 +419,7 @@
             "name": "Aktive Übersteuerungen",
             "state": {
               "devices_released": "Geräte freigegeben",
+              "trvs_released": "TRVs freigegeben",
               "learning_paused": "Lernen pausiert",
               "window_detection_off": "Fenstererkennung aus"
             }
@@ -524,6 +525,12 @@
     "switch": {
       "release_devices": {
         "name": "Geräte freigeben"
+      },
+      "release_trv": {
+        "name": "{trv_name} freigeben"
+      },
+      "release_trv_no_trv": {
+        "name": "TRV freigeben"
       },
       "pid_auto_tune": {
         "name": "{trv_name} PID Auto-Tuning"
@@ -658,6 +665,9 @@
     },
     "devices_released": {
       "message": "Die Geräte von {device_name} sind freigegeben. Schalte „Geräte freigeben“ aus, damit Better Thermostat sie wieder steuert."
+    },
+    "trv_released": {
+      "message": "Diese TRVs von {device_name} sind freigegeben: {entity}. Schalte ihren Freigabe-Schalter aus, damit Better Thermostat sie wieder steuert."
     }
   }
 }

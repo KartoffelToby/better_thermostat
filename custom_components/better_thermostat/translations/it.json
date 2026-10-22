@@ -419,6 +419,7 @@
             "name": "Override attivi",
             "state": {
               "devices_released": "Dispositivi rilasciati",
+              "trvs_released": "TRV rilasciati",
               "learning_paused": "Apprendimento sospeso",
               "window_detection_off": "Rilevamento finestra disattivato"
             }
@@ -524,6 +525,12 @@
     "switch": {
       "release_devices": {
         "name": "Rilascia dispositivi"
+      },
+      "release_trv": {
+        "name": "Rilascia {trv_name}"
+      },
+      "release_trv_no_trv": {
+        "name": "Rilascia TRV"
       },
       "pid_auto_tune": {
         "name": "{trv_name} Autotuning PID"
@@ -658,6 +665,9 @@
     },
     "devices_released": {
       "message": "I dispositivi di {device_name} sono rilasciati. Disattiva Rilascia dispositivi perché Better Thermostat li controlli di nuovo."
+    },
+    "trv_released": {
+      "message": "Questi TRV di {device_name} sono rilasciati: {entity}. Disattiva il loro interruttore di rilascio perché Better Thermostat li controlli di nuovo."
     }
   }
 }

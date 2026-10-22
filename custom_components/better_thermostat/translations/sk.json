@@ -419,6 +419,7 @@
             "name": "Aktívne prepísania",
             "state": {
               "devices_released": "Zariadenia uvoľnené",
+              "trvs_released": "TRV uvoľnené",
               "learning_paused": "Učenie pozastavené",
               "window_detection_off": "Detekcia okna vypnutá"
             }
@@ -524,6 +525,12 @@
     "switch": {
       "release_devices": {
         "name": "Uvoľniť zariadenia"
+      },
+      "release_trv": {
+        "name": "Uvoľniť {trv_name}"
+      },
+      "release_trv_no_trv": {
+        "name": "Uvoľniť TRV"
       },
       "pid_auto_tune": {
         "name": "{trv_name} PID Auto Tune"
@@ -658,6 +665,9 @@
     },
     "devices_released": {
       "message": "Zariadenia {device_name} sú uvoľnené. Vypnite Uvoľniť zariadenia, aby ich Better Thermostat znova ovládal."
+    },
+    "trv_released": {
+      "message": "Tieto TRV {device_name} sú uvoľnené: {entity}. Vypnite ich prepínač uvoľnenia, aby ich Better Thermostat znova ovládal."
     }
   }
 }

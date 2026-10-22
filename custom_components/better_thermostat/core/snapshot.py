@@ -77,6 +77,9 @@ class TrvReported:
 
     entity_id: str
     available: bool = True
+    # The user has released this TRV on its own: it is not commanded until
+    # it is taken back, whether it is reachable or not.
+    released: bool = False
     hvac_mode: HvacMode | None = None
     current_temperature: float | None = None
     setpoint: float | None = None

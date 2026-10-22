@@ -49,6 +49,8 @@ def _fake_self(
 ) -> BetterThermostat:
     self_ = object.__new__(BetterThermostat)
     self_.config = BtConfig(device_name="Test")
+    self_.devices_released = False
+    self_.released_trvs = set()
     self_.real_trvs = {
         entity_id: replace(member, entity_id=entity_id)
         for entity_id, member in members.items()

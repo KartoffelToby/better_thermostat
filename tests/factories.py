@@ -275,6 +275,7 @@ _CONSTRUCTOR_DEFAULTED = (
     "_temperature_filter_lock",
     "control_cycle_started_monotonic",
     "devices_released",
+    "released_trvs",
     "heating_blocked_by",
     "announced_contact_open",
     "last_user_change_monotonic",

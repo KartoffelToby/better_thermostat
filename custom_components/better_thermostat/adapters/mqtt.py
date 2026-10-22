@@ -10,6 +10,7 @@ import asyncio
 import logging
 from typing import Final
 
+from ..utils.helpers import device_released
 from .base import AdapterCapabilities
 from .generic import (
     discover_calibration_entity,
@@ -104,9 +105,9 @@ async def init(self: AdapterHost, entity_id: str) -> None:
 
     await discover_calibration_entity(self, entity_id)
 
-    # The discovery can wait for a while, and the devices can be released
-    # meanwhile; the preset is not sent to them then.
-    if not resets_preset or self.devices_released:
+    # The discovery can wait for a while, and the device can be released
+    # meanwhile; the preset is not sent to it then.
+    if not resets_preset or device_released(self, entity_id):
         return
 
     state = self.hass.states.get(entity_id)
