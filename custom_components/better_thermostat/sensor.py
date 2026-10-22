@@ -26,6 +26,12 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from . import BetterThermostatConfigEntry
 from .entity import remove_unclaimed_registry_entries
+from .number import BetterThermostatPIDNumber, BetterThermostatPresetNumber
+from .switch import (
+    BetterThermostatChildLockSwitch,
+    BetterThermostatPIDAutoTuneSwitch,
+    BetterThermostatReleaseTrvSwitch,
+)
 from .tracked_entities import (
     PidNumberRef,
     PresetNumberRef,
@@ -213,7 +219,7 @@ async def _setup_algorithm_sensors(
 def _track_algorithm_sensors(
     tracked: TrackedEntities,
     algorithm: CalibrationMode,
-    sensors: Sequence[SensorEntity],
+    sensors: Sequence[_BtSensorBase],
 ) -> list[SensorEntity]:
     """Record the unique_ids of one algorithm's sensors, return the untracked ones.
 
@@ -226,7 +232,7 @@ def _track_algorithm_sensors(
     untracked: list[SensorEntity] = []
     for sensor in sensors:
         unique_id = sensor.unique_id
-        if unique_id is not None and unique_id not in tracked_unique_ids:
+        if unique_id not in tracked_unique_ids:
             tracked_unique_ids.append(unique_id)
             untracked.append(sensor)
     return untracked
@@ -244,7 +250,7 @@ def _adopt_shared_mpc_v2_registry_entries(
     """
     registry = async_get_entity_registry(hass)
     for sensor in sensors:
-        if not isinstance(sensor, _BtMpcV2SensorBase) or sensor.unique_id is None:
+        if not isinstance(sensor, _BtMpcV2SensorBase):
             continue
         shared_unique_id = (
             f"{sensor._bt_climate.unique_id}_{sensor._shared_unique_id_suffix}"
@@ -467,8 +473,6 @@ async def _cleanup_preset_number_entities(
     # Remove entities from registry – only delete tracking key on success
     removed_count = 0
     for preset_unique_id, preset_name in entities_to_remove:
-        if preset_unique_id is None:
-            continue
         entity_id = entity_registry.async_get_entity_id(
             "number", DOMAIN, preset_unique_id
         )
@@ -494,7 +498,7 @@ async def _cleanup_preset_number_entities(
 
     # Merge new entries for current presets without wiping failed removals
     for preset in current_presets:
-        uid = f"{bt_climate.unique_id}_preset_{preset}"
+        uid = BetterThermostatPresetNumber.build_unique_id(bt_climate.unique_id, preset)
         tracked_presets[uid] = PresetNumberRef(preset)
 
     if removed_count > 0:
@@ -524,8 +528,6 @@ async def _cleanup_pid_number_entities(
     # Remove entities from registry – only delete tracking key on success
     removed_count = 0
     for pid_unique_id in entities_to_remove:
-        if pid_unique_id is None:
-            continue
         entity_id = entity_registry.async_get_entity_id("number", DOMAIN, pid_unique_id)
         if entity_id:
             try:
@@ -549,7 +551,9 @@ async def _cleanup_pid_number_entities(
     # Merge new entries for current PID TRVs without wiping failed removals
     for trv_entity_id in current_pid_trvs:
         for gain in PID_GAIN_LIMITS:
-            uid = f"{bt_climate.unique_id}_{trv_entity_id}_pid_{gain}"
+            uid = BetterThermostatPIDNumber.build_unique_id(
+                bt_climate.unique_id, trv_entity_id, gain
+            )
             tracked_pid_numbers[uid] = PidNumberRef(trv_entity_id, gain)
 
     if removed_count > 0:
@@ -589,8 +593,6 @@ async def _cleanup_pid_switch_entities(
     # Remove entities from registry – only delete tracking key on success
     removed_count = 0
     for switch_unique_id in entities_to_remove:
-        if switch_unique_id is None:
-            continue
         entity_id = entity_registry.async_get_entity_id(
             "switch", DOMAIN, switch_unique_id
         )
@@ -616,15 +618,21 @@ async def _cleanup_pid_switch_entities(
     # Merge new entries without wiping failed removals
     # Add PID Auto-Tune switches for current PID TRVs
     for trv_entity_id in current_pid_trvs:
-        uid = f"{bt_climate.unique_id}_{trv_entity_id}_pid_auto_tune"
+        uid = BetterThermostatPIDAutoTuneSwitch.build_unique_id(
+            bt_climate.unique_id, trv_entity_id
+        )
         tracked_switches[uid] = SwitchRef(trv_entity_id, SwitchKind.PID_AUTO_TUNE)
 
     # Add the Child Lock and Release switches (always present for all TRVs)
     if bt_climate.real_trvs:
         for trv_entity_id in bt_climate.real_trvs:
-            uid = f"{bt_climate.unique_id}_{trv_entity_id}_child_lock"
+            uid = BetterThermostatChildLockSwitch.build_unique_id(
+                bt_climate.unique_id, trv_entity_id
+            )
             tracked_switches[uid] = SwitchRef(trv_entity_id, SwitchKind.CHILD_LOCK)
-            uid = f"{bt_climate.unique_id}_{trv_entity_id}_release"
+            uid = BetterThermostatReleaseTrvSwitch.build_unique_id(
+                bt_climate.unique_id, trv_entity_id
+            )
             tracked_switches[uid] = SwitchRef(trv_entity_id, SwitchKind.RELEASE_TRV)
 
     if removed_count > 0:
@@ -679,8 +687,13 @@ class _BtSensorBase(SensorEntity):
     def __init__(self, bt_climate: BetterThermostat) -> None:
         """Initialize the sensor."""
         self._bt_climate = bt_climate
-        self._attr_unique_id = f"{bt_climate.unique_id}_{self._unique_id_suffix}"
         self._attr_device_info = bt_climate.device_info
+
+    @property
+    @override
+    def unique_id(self) -> str:
+        """Return the thermostat's unique id joined with the sensor's suffix."""
+        return f"{self._bt_climate.unique_id}_{self._unique_id_suffix}"
 
     @override
     async def async_added_to_hass(self) -> None:

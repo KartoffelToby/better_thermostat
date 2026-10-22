@@ -157,7 +157,7 @@ class TestExternalTempSensor:
         """Unique id."""
         bt = _make_bt_climate()
         sensor = BetterThermostatExternalTempSensor(bt)
-        assert sensor._attr_unique_id == "test_bt_123_external_temp_ema"
+        assert sensor.unique_id == "test_bt_123_external_temp_ema"
 
     def test_update_from_room_temperature_filtered(self):
         """Update from the filtered room temperature."""
@@ -207,7 +207,7 @@ class TestExternalTemp1hEMASensor:
         """Unique id."""
         bt = _make_bt_climate()
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
-        assert sensor._attr_unique_id == "test_bt_123_external_temp_ema_1h"
+        assert sensor.unique_id == "test_bt_123_external_temp_ema_1h"
 
     def test_first_update_sets_ema_directly(self):
         """First update sets ema directly."""
@@ -1410,22 +1410,6 @@ class TestCleanupPresetNumberEntities:
         reg.async_remove.assert_called_once_with("number.preset_away")
 
     @pytest.mark.asyncio
-    async def test_none_unique_id_skipped(self):
-        """Entries with None as unique_id should be skipped."""
-        tracked = TrackedEntities()
-        reg = _make_entity_registry()
-        tracked.preset_numbers = {None: PresetNumberRef("away")}
-        bt = _make_bt_climate()
-        await _cleanup_preset_number_entities(
-            hass=MagicMock(),
-            entity_registry=reg,
-            tracked=tracked,
-            bt_climate=bt,
-            current_presets=set(),
-        )
-        reg.async_get_entity_id.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_merges_new_presets_into_tracking(self):
         """Merges new presets into tracking."""
         tracked = TrackedEntities()
@@ -1803,7 +1787,7 @@ class TestBtSensorBase:
         """Init sets unique id from suffix."""
         bt = _make_bt_climate()
         sensor = BetterThermostatTempSlopeSensor(bt)
-        assert sensor._attr_unique_id == "test_bt_123_temp_slope"
+        assert sensor.unique_id == "test_bt_123_temp_slope"
 
     def test_init_stores_bt_climate(self):
         """Init stores bt climate."""
