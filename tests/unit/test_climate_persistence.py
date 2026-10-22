@@ -61,8 +61,25 @@ def test_a_filter_never_updated_is_saved_without_a_time():
     bt.state_mgr.record_filters.assert_called_once_with(FilterState())
 
 
-def test_record_runtime_without_store_is_a_noop():
-    """Without a StateManager the record step does nothing."""
+def test_no_save_is_scheduled_before_the_stored_state_is_loaded():
+    """A save before the load would write the empty state over the store."""
     bt = ThermostatStandIn()
-    bt.state_mgr = None
-    BetterThermostat._record_runtime_to_state(bt)
+    bt.state_mgr = MagicMock()
+    bt.state_loaded = False
+
+    BetterThermostat.schedule_save_state(bt)
+
+    bt.state_mgr.schedule_delay_save.assert_not_called()
+
+
+def test_a_save_is_scheduled_once_the_stored_state_is_loaded():
+    """Once loaded, a save records the runtime values when it writes."""
+    bt = ThermostatStandIn()
+    bt.state_mgr = MagicMock()
+    bt.state_loaded = True
+
+    BetterThermostat.schedule_save_state(bt, delay_seconds=3.0)
+
+    bt.state_mgr.schedule_delay_save.assert_called_once_with(
+        pre_save=bt._record_runtime_to_state, delay_seconds=3.0
+    )

@@ -8,16 +8,19 @@ Usage in climate.py
 -------------------
 ::
 
+    # async_setup_entry hands the manager to the entity:
+    BetterThermostat(..., state_mgr=StateManager(hass, entry.entry_id))
+
     async def async_added_to_hass(self) -> None:
-        self.state_mgr = StateManager(self.hass, self.config_entry.entry_id)
         await self.state_mgr.load()
+        self.state_loaded = True
 
     # After calibration updates:
     self.state_mgr.mark_dirty()
 
-    async def async_will_remove_from_hass(self) -> None:
-        self.state_mgr.close()
-        await self.state_mgr.flush()
+    # On removal, once the state is loaded:
+    self.state_mgr.close()
+    await self.state_mgr.flush()
 
 Schema migration
 ----------------
@@ -1145,7 +1148,7 @@ def deserialize_tpi(
 
 
 def _stored_section(
-    raw: Mapping[str, object], section: StoreSection, poisoned: list[str] | None
+    raw: Mapping[str, object], section: StoreSection, poisoned: list[str]
 ) -> Mapping[str, object]:
     """Return one section of the store, or an empty one when it has none.
 
@@ -1162,13 +1165,12 @@ def _stored_section(
         "start from defaults",
         section,
     )
-    if poisoned is not None:
-        poisoned.append(section)
+    poisoned.append(section)
     return {}
 
 
 def _stored_entries(
-    raw: Mapping[str, object], section: StoreSection, poisoned: list[str] | None
+    raw: Mapping[str, object], section: StoreSection, poisoned: list[str]
 ) -> list[tuple[str, Mapping[str, object]]]:
     """Return the entries of one keyed section that are mappings.
 
@@ -1186,8 +1188,7 @@ def _stored_entries(
             section,
             key,
         )
-        if poisoned is not None:
-            poisoned.append(f"{section}:{key}")
+        poisoned.append(f"{section}:{key}")
     return entries
 
 
@@ -1221,8 +1222,11 @@ def _deserialize(
     *poisoned* collects the section, or the section and key, of every part
     of the store whose stored values are discarded as a whole: an entry a
     non-finite number reset, a re-identification result outside its
-    plausible band, and a section or entry of the wrong shape.
+    plausible band, and a section or entry of the wrong shape. Without it
+    they are named in the log only.
     """
+    if poisoned is None:
+        poisoned = []
     state = RuntimeState(version=_stored_version(raw, CURRENT_VERSION))
 
     for key, entry in _stored_entries(raw, "mpc", poisoned):

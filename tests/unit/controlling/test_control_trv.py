@@ -64,9 +64,11 @@ from custom_components.better_thermostat.utils.helpers import resolve_inbound_se
 from custom_components.better_thermostat.utils.watcher import get_device_errors
 from tests import stub_adapter
 from tests.factories import (
+    RELEASE_SCOPES,
     ThermostatStandIn,
     make_entity_registry,
     make_registry_entry,
+    release_device,
     trv_record,
 )
 
@@ -3124,17 +3126,17 @@ class TestGroupedTrvCalibration:
             trv = mock_bt_grouped.real_trvs[entity_id]
             assert trv.calibration_received is False
 
-    async def test_missing_reference_calibration_skips_offset_write(
+    async def test_unreadable_device_offset_writes_against_the_stored_command(
         self, mock_bt_grouped
     ):
-        """No reference calibration skips the offset write without aborting.
+        """An unparseable device offset leaves the stored command as reference.
 
-        With no stored last_calibration and an unparseable device offset
-        there is nothing to compare against; the cycle still performs the
-        setpoint write instead of failing.
+        The report neither confirms nor contradicts the last command, so
+        the new offset is compared with the stored one and written, and
+        the cycle still performs the setpoint write.
         """
         entity_id = "climate.trv_1"
-        mock_bt_grouped.real_trvs[entity_id].last_calibration = None
+        mock_bt_grouped.real_trvs[entity_id].last_calibration = 0.0
 
         mock_trv_state = MagicMock()
         mock_trv_state.state = "heat"
@@ -3171,7 +3173,9 @@ class TestGroupedTrvCalibration:
             result = await control_trv(mock_bt_grouped, entity_id)
 
             assert result is True
-            mock_set_calibration_offset.assert_not_called()
+            mock_set_calibration_offset.assert_called_once_with(
+                mock_bt_grouped, entity_id, 3.0
+            )
             mock_set_temperature.assert_awaited_once_with(
                 mock_bt_grouped, entity_id, 21.0
             )
@@ -3524,8 +3528,9 @@ class TestOffsetWriteGate:
             )
         set_calibration_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
 
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
     @pytest.mark.asyncio
-    async def test_no_offset_is_written_once_the_devices_are_released(self):
+    async def test_no_offset_is_written_once_the_devices_are_released(self, scope):
         """A release that comes in while the offset is read stops its write.
 
         The cycle decided before the release, and the devices are the
@@ -3534,7 +3539,7 @@ class TestOffsetWriteGate:
         mock_self = _make_offset_self(calibration_received=True, last_calibration=0.0)
 
         def release():
-            mock_self.devices_released = True
+            release_device(mock_self, "climate.trv1", scope)
 
         set_calibration_offset, get_offset = await _run_offset_cycle(
             mock_self, desired_offset=-2.0, reported_offset=0.0, on_offset_read=release

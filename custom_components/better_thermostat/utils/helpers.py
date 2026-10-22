@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict, TypeGuard
+from typing import (
+    TYPE_CHECKING,
+    Final,
+    NamedTuple,
+    Protocol,
+    TypedDict,
+    TypeGuard,
+    overload,
+)
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -76,7 +84,7 @@ class _CalibrationConfiguredTrv(Protocol):
     """The per-TRV record a calibration-mode question reads."""
 
     @property
-    def advanced(self) -> Mapping[str, object] | None:
+    def advanced(self) -> Mapping[str, object]:
         """Per-TRV advanced options, keyed by option name."""
         ...
 
@@ -106,6 +114,46 @@ class _DeviceModelHost(_RegistryHost, Protocol):
     def device_name(self) -> str:
         """The Better Thermostat instance name, for logging context."""
         ...
+
+
+class ReleaseHost(Protocol):
+    """The instance surface a release question reads."""
+
+    @property
+    def devices_released(self) -> bool:
+        """Whether the user has released every device of the room."""
+        ...
+
+    @property
+    def released_trvs(self) -> Set[str]:
+        """The TRVs the user has released one by one, by entity id."""
+        ...
+
+
+def device_released(host: ReleaseHost, entity_id: str | None) -> bool:
+    """Return whether Better Thermostat leaves the device ``entity_id`` alone.
+
+    A device is the user's while the whole room is released, or while it is
+    a TRV released on its own. A cooler that is also one of the room's TRVs
+    is released with that TRV, since both roles write to the same device.
+    """
+    return host.devices_released or (
+        entity_id is not None and entity_id in host.released_trvs
+    )
+
+
+def every_trv_released(host: ReleaseHost, trv_ids: Iterable[str]) -> bool:
+    """Return whether no TRV among ``trv_ids`` is left for Better Thermostat.
+
+    True while the whole room is released, or while each of the TRVs is
+    released on its own. A room without TRVs has none released.
+    """
+    if host.devices_released:
+        return True
+    trv_ids = list(trv_ids)
+    return bool(trv_ids) and all(
+        entity_id in host.released_trvs for entity_id in trv_ids
+    )
 
 
 def entry_settings(entry: BetterThermostatConfigEntry) -> dict[str, object]:
@@ -463,7 +511,7 @@ def normalize_calibration_mode(
 
 
 def configured_calibration_mode(
-    advanced: Mapping[str, object] | None,
+    advanced: Mapping[str, object],
 ) -> CalibrationMode | None:
     """Return the calibration mode a TRV's advanced settings select.
 
@@ -476,7 +524,7 @@ def configured_calibration_mode(
     runs the passive cascade, and no mode-specific entity or controller is
     set up.
     """
-    mode = (advanced or {}).get(CONF_CALIBRATION_MODE)
+    mode = advanced.get(CONF_CALIBRATION_MODE)
     if isinstance(mode, str):
         return normalize_calibration_mode(mode)
     normalized = (
@@ -488,7 +536,7 @@ def configured_calibration_mode(
 
 
 def configured_calibration_output(
-    advanced: Mapping[str, object] | None,
+    advanced: Mapping[str, object],
 ) -> CalibrationOutput | None:
     """Return the calibration type a TRV's advanced settings select.
 
@@ -496,7 +544,7 @@ def configured_calibration_output(
     setting returns ``None``: Better Thermostat then sends the room target
     to the TRV unchanged and looks for no offset or valve channel.
     """
-    output = (advanced or {}).get(CONF_CALIBRATION)
+    output = advanced.get(CONF_CALIBRATION)
     if not isinstance(output, str):
         return None
     try:
@@ -512,9 +560,7 @@ def entity_uses_calibration_mode(
 
     try:
         _trv = bt.real_trvs.get(entity_id)
-        advanced: Mapping[str, object] = (
-            _trv.advanced if _trv is not None else {}
-        ) or {}
+        advanced: Mapping[str, object] = _trv.advanced if _trv is not None else {}
     except AttributeError:
         return False
     return configured_calibration_mode(advanced) == expected
@@ -960,12 +1006,19 @@ def group_all_members_off(self: BetterThermostat) -> bool:
     Gates group-wide "switch off" adoptions so a single valve entering frost
     protection (reported as ``off`` in HA) or a single ``no_off_system_mode``
     valve dropping to its minimum temperature cannot turn the whole room off.
-    With at most one TRV there is no group to disagree, so the gate is open.
+    With at most one TRV under control there is no group to disagree, so the
+    gate is open.
 
     What makes one member count as off is :func:`member_counts_as_off`, which
     the startup path reads too so the two cannot drift apart.
     """
-    trv_ids = list(self.real_trvs.keys())
+    # A released TRV is the user's, and what it reports decides nothing
+    # about the room, like a member that is not there.
+    trv_ids = [
+        entity_id
+        for entity_id in self.real_trvs
+        if not device_released(self, entity_id)
+    ]
     if len(trv_ids) <= 1:
         return True
 
@@ -1481,6 +1534,18 @@ def device_setpoint_step(
     return step
 
 
+@overload
+def on_cooler_grid(
+    self: BetterThermostat, cooler_state: State, value: float
+) -> float: ...
+
+
+@overload
+def on_cooler_grid(
+    self: BetterThermostat, cooler_state: State, value: float | None
+) -> float | None: ...
+
+
 def on_cooler_grid(
     self: BetterThermostat, cooler_state: State, value: float | None
 ) -> float | None:
@@ -1493,7 +1558,8 @@ def on_cooler_grid(
     for that unit, and on a Celsius system is rounded onto the step its
     reports are compared with. A cooler published in whole degrees
     Fahrenheit reports a finer step back rounded, so it is written on whole
-    degrees whatever its step.
+    degrees whatever its step. A value that is None, such as a cooling
+    target not set yet, stays None.
     """
     if value is None:
         return None
@@ -1780,7 +1846,7 @@ CoolerSendCache = TypedDict(  # noqa: UP013
 
 
 def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
-    """Return the cooler send-cache, creating it on first use.
+    """Return the cooler send-cache.
 
     Holds the last successfully sent command per channel as a
     :class:`SentCommand` for the resend throttle, with no send time once the
@@ -1788,8 +1854,7 @@ def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     channel, the mode the last cycle decided on for the hysteresis band, each
     channel's :class:`CoolerFailureRun`, the monotonic time the cooler last
     reported a mode change of its own, and whether the last mode command went
-    out ahead of the resend throttle. Created lazily
-    because only cooler-equipped instances need it.
+    out ahead of the resend throttle.
 
     Parameters
     ----------
@@ -1801,14 +1866,7 @@ def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     CoolerSendCache
             the cache, which the caller mutates in place
     """
-    try:
-        last_sent: CoolerSendCache | None = self._cooler_last_sent
-    except AttributeError:
-        last_sent = None
-    if not isinstance(last_sent, dict):
-        last_sent = CoolerSendCache()
-        self._cooler_last_sent = last_sent
-    return last_sent
+    return self._cooler_last_sent
 
 
 def last_sent_cooler_temperature(self: BetterThermostat) -> float | None:

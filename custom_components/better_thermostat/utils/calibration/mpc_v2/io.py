@@ -23,7 +23,7 @@ class MpcV2Input:
     outdoor_temperature: float | None = None
     window_open: bool = False
     heating_allowed: bool = True
-    max_opening_percent: float | None = None
+    max_opening_percent: float = 100.0
     # Last valve opening confirmed by the adapter or reported by the device.
     # It is deliberately the previous applied input, not this cycle's MPC
     # recommendation: writes can be deferred or fail after computation.
@@ -31,6 +31,10 @@ class MpcV2Input:
     # While set, the disturbance estimate and the error integral are held and
     # the controller plans on them; the observer keeps tracking the room.
     learning_paused: bool = False
+    # Set while the room sensor has failed and ``room_temperature`` is the
+    # mean of the TRVs' own readings. Their steps say nothing about the room
+    # sensor's reporting threshold, so each such reading counts as fresh.
+    room_temperature_from_trvs: bool = False
     bt_name: str | None = None
     entity_id: str | None = None
 

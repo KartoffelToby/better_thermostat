@@ -139,36 +139,19 @@ def _settled_run(case: _Case) -> tuple[list[int], list[float]]:
 
 
 # A setpoint between two 0.5 K readings leaves every reading 0.2 or 0.3 K off
-# it, so the valve cycles between the two readings. The bounds are what the
-# controller did before free heat entered its plan (up to 192 moves, a 57 %
-# span over outdoor 0..+10 °C); the planning reading of the disturbance
-# follows that cycle and widens the span to 85..88 %.
+# it, so the valve cycles between the two readings. The weight against valve
+# moves grows with the learned reporting threshold and keeps that cycle to
+# about 110 moves and a 24 % span over the settled day.
 _OFF_QUANTUM_CASES = {
     f"quantum0.5-setpoint{setpoint:.1f}-outdoor+0": _Case(
-        PlantParams(), PlantParams(), 0.0, 0.0, 0.5, 192, 57, 0.25, setpoint=setpoint
+        PlantParams(), PlantParams(), 0.0, 0.0, 0.5, 150, 35, 0.25, setpoint=setpoint
     )
     for setpoint in (21.2, 21.3)
 }
 _CASES.update(_OFF_QUANTUM_CASES)
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        pytest.param(
-            name,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="the planning reading of the disturbance follows the "
-                "cycle between two quantised readings and widens the valve "
-                "span beyond what the controller showed without it",
-            ),
-        )
-        if name in _OFF_QUANTUM_CASES
-        else name
-        for name in _CASES
-    ],
-)
+@pytest.mark.parametrize("name", list(_CASES))
 def test_valve_stays_calm_on_a_noisy_sensor_or_a_mismatched_model(name: str) -> None:
     """The settled valve neither hunts nor wanders while the room holds.
 

@@ -509,6 +509,59 @@ class TestReportsHeldDuringACycle:
         assert trv.current_temperature == 19.5
         request.assert_called_once_with(thermostat)
 
+    def test_the_end_of_a_cycle_leaves_a_released_trvs_cache_alone(
+        self, thermostat, reported_states
+    ):
+        """A released TRV was commanded nothing the cache could wait for.
+
+        A controlled head reporting off after the cycle commanded heat is
+        cached as heating, so its next report reads as the change; a
+        released one keeps the mode it reported last.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "off"
+        thermostat.released_trvs = {ENTITY_ID}
+        reported_states[ENTITY_ID] = _reported_state("off")
+
+        refresh_cached_trv_modes(thermostat)
+
+        assert trv.hvac_mode == "off"
+
+    @pytest.mark.asyncio
+    async def test_a_released_head_switched_on_during_a_cycle_asks_for_nothing(
+        self, thermostat, reported_states
+    ):
+        """What a released head reports inside a cycle moves nothing a cycle acts on.
+
+        Its mode is cached as reported and the room keeps its target; no
+        cycle is requested for it.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "off"
+        trv.last_hvac_mode = "heat"
+        thermostat.released_trvs = {ENTITY_ID}
+        previous = _reported_state("off")
+        reported_states[ENTITY_ID] = _reported_state("heat", setpoint=23.0)
+        event = MagicMock()
+        event.data = {
+            "old_state": previous,
+            "new_state": reported_states[ENTITY_ID],
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()
+        thermostat.control_queue_task = MagicMock()
+
+        thermostat.ignore_states = True
+        await trigger_trv_change(thermostat, event)
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert trv.hvac_mode == "heat"
+        assert thermostat.heat_target_temperature == 19.0
+        request.assert_not_called()
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize("commanded", ["heat", None])
     async def test_a_head_switched_on_during_a_cycle_keeps_the_room_target(

@@ -157,6 +157,40 @@ def test_a_long_propagation_equals_its_euler_substeps(n_steps: int) -> None:
     np.testing.assert_allclose(x, reference, rtol=1e-9)
 
 
+@pytest.mark.parametrize("n_steps", [1, 7, 120])
+def test_a_propagation_under_a_disturbance_equals_its_euler_substeps(
+    n_steps: int,
+) -> None:
+    """A disturbance rate propagates as the Euler steps that carry it do."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    x0 = np.array([19.0, 24.0])
+
+    x = plant.propagate(x0, 0.6, 5.0, n_steps * plant.dt_s, disturbance_rate=0.02)
+
+    reference = x0
+    for _ in range(n_steps):
+        reference = plant.discrete_step(reference, 0.6, 5.0, D_K_per_min=0.02)
+    np.testing.assert_allclose(x, reference, rtol=1e-9)
+    assert float(x[0]) > float(plant.propagate(x0, 0.6, 5.0, n_steps * 30.0)[0])
+
+
+def test_a_disturbance_shifts_the_settled_room_by_its_rate_times_tau() -> None:
+    """Across the settling time a load shifts the room by ``rate·τ_room``.
+
+    With the valve closed the radiator settles on the room, so only the
+    room's loss to outdoors balances the load, and a long interval holds the
+    room at that offset instead of letting it run away.
+    """
+    p = PlantParams()
+    plant = PlantModelRC2(p, dt_s=30.0)
+    x0 = np.array([5.0, 5.0])
+    gap_s = 2.0 * plant.settling_time_s
+
+    x = plant.propagate(x0, 0.0, 5.0, gap_s, disturbance_rate=0.01)
+
+    assert float(x[0]) - 5.0 == pytest.approx(0.01 * p.tau_room_min, rel=1e-6)
+
+
 def _plant_lines_run(work: Callable[[], Any]) -> int:
     """Return how many lines of the plant module ``work`` executes."""
     plant_source = Path(_plant.__file__).resolve()

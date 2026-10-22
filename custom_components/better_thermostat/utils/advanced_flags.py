@@ -49,14 +49,14 @@ def as_bool(value: object, default: bool = False) -> bool:
 
 
 def advanced_flag(
-    advanced: Mapping[str, object] | None, key: str, default: bool = False
+    advanced: Mapping[str, object], key: str, default: bool = False
 ) -> bool:
     """Return one boolean option of a TRV's ``advanced`` mapping.
 
     Parameters
     ----------
-    advanced : Mapping[str, object] | None
-        The TRV's ``advanced`` options; ``None`` reads as empty.
+    advanced : Mapping[str, object]
+        The TRV's ``advanced`` options.
     key : str
         The option, for example ``CONF_VALVE_MAINTENANCE``.
     default : bool
@@ -67,6 +67,4 @@ def advanced_flag(
     bool
         The option read with :func:`as_bool`.
     """
-    if advanced is None:
-        return default
     return as_bool(advanced.get(key), default)

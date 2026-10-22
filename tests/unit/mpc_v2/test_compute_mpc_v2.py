@@ -47,7 +47,7 @@ def _baseline_input(
     outdoor_temperature: float | None = 5.0,
     heating_allowed: bool = True,
     window_open: bool = False,
-    max_opening_percent: float | None = None,
+    max_opening_percent: float = 100.0,
     applied_valve_percent: float | None = None,
 ) -> MpcV2Input:
     """Build a baseline MpcV2Input with optional field overrides."""
@@ -113,8 +113,9 @@ def _step_returning(fraction: float):
         T_target: float,
         T_outdoor: float,
         T_rad: float | None = None,
-        u_max: float | None = None,
+        u_max: float = 1.0,
         learning_paused: bool = False,
+        room_reading_from_trvs: bool = False,
     ) -> tuple[float, MpcV2Diagnostics]:
         _u, diagnostics = real_step(
             self,
@@ -125,6 +126,7 @@ def _step_returning(fraction: float):
             T_rad=T_rad,
             u_max=u_max,
             learning_paused=learning_paused,
+            room_reading_from_trvs=room_reading_from_trvs,
         )
         return fraction, diagnostics
 
@@ -885,13 +887,13 @@ def test_governor_uses_the_disturbance_estimate_of_the_current_cycle(
         seen.append(D_hat_K_per_min)
         return governor_update(D_hat_K_per_min=D_hat_K_per_min, **kwargs)
 
-    def _observe(innovation_K: float, dt_s: float) -> float:
+    def _follow(estimate_K_per_min: float, dt_s: float) -> float:
         controller.dob.D_hat_K_per_min = 0.05
         return 0.05
 
     controller.dob.D_hat_K_per_min = -99.0
     monkeypatch.setattr(controller.governor, "update", _record)
-    monkeypatch.setattr(controller.dob, "update", _observe)
+    monkeypatch.setattr(controller.dob, "follow", _follow)
     controller.step(t_s=300.0, T_room=20.0, T_target=21.0, T_outdoor=5.0)
 
     assert seen == [0.05]
@@ -1042,7 +1044,7 @@ def test_wrong_shaped_covariance_is_ignored_on_restore() -> None:
         {
             "v": SNAPSHOT_VERSION,
             "x_hat": [20.0, 21.0, 22.0],  # wrong length
-            "kalman_P": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            "kalman_P": np.eye(4).tolist(),
             "last_u": 0.4,
         }
     )
@@ -1296,10 +1298,11 @@ def _radiator_estimate_after_gap(gap_s: float) -> float:
 def test_a_half_year_gap_costs_one_bounded_prediction(monkeypatch) -> None:
     """The first step after 180 days predicts once, over a bounded span.
 
-    The observer's plant is asked for one transition and one propagation, and
-    the propagation covers no more sub-steps than its settling time holds:
-    beyond that the state is on its fixed point, so a year-long gap lands on
-    the same estimate.
+    The observer's plant is asked for one transition and two propagations,
+    one under the disturbance and one under a unit-higher rate for its column
+    of the transition. Each covers no more sub-steps than the settling time
+    holds: beyond that the state is on its fixed point, so a year-long gap
+    lands on the same estimate.
     """
     controller = MpcV2Controller(MpcV2Params())
     controller.step(t_s=1_000.0, T_room=21.0, T_target=21.0, T_outdoor=5.0)
@@ -1326,7 +1329,7 @@ def test_a_half_year_gap_costs_one_bounded_prediction(monkeypatch) -> None:
     settled_steps = math.ceil(plant.settling_time_s / plant.dt_s)
     assert settled_steps < 180 * 86_400.0 / plant.dt_s / 20
     assert calls["linearised_system"] == 1
-    assert calls["propagate"] == 1
+    assert calls["propagate"] == 2
     assert calls["euler"] <= settled_steps
     assert diag.T_rad_hat == _radiator_estimate_after_gap(365 * 86_400.0)
     assert 21.0 < diag.T_rad_hat < plant.params.T_water
@@ -1390,7 +1393,7 @@ def _hold_room_with_feedback(
     start: tuple[float, np.ndarray, float],
     cycles: int,
     disturbance: float = 0.0,
-    max_opening_percent: float | None = None,
+    max_opening_percent: float = 100.0,
     target: float = 21.0,
     outdoor: float = 0.0,
 ) -> tuple[MpcV2State, tuple[float, np.ndarray, float], list[int], list[float]]:

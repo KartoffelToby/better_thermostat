@@ -1,16 +1,11 @@
 """Tests for the calibrator contract: capability nesting, strategies, healing."""
 
-from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.core.calibrator import (
     Calibrator,
     CalibratorHealth,
     CapabilityLevel,
-)
-from custom_components.better_thermostat.core.fsm.control_mode import (
-    ControlMode,
-    ControlModeState,
 )
 from custom_components.better_thermostat.number import _PID_GAIN_SETTINGS
 from custom_components.better_thermostat.utils.calibration.mpc import MpcOutput
@@ -198,55 +193,17 @@ class TestStrategyRegistry:
         strategy = registry[CalibrationMode.MPC_CALIBRATION]
 
         bt = ThermostatStandIn()
-        bt.room_temperature = 20.0
-        bt.heat_target_temperature = 21.0
-        bt.kernel_state = make_state()
         bt.real_trvs = {"climate.trv": trv_record(entity_id="climate.trv")}
+        trv = bt.real_trvs["climate.trv"]
 
-        cap = strategy.capability(bt, "climate.trv")
-        assert cap == CapabilityLevel.HEALTHY
+        trv.calibrator_health = CalibratorHealth.OSCILLATING
+        assert strategy.capability(bt, "climate.trv") == CapabilityLevel.CONFIGURED
 
-        bt.real_trvs["climate.trv"].calibration_balance = _balance(40.0)
-        cap = strategy.capability(bt, "climate.trv")
-        assert cap == CapabilityLevel.READY
+        trv.calibrator_health = CalibratorHealth.HEALTHY
+        assert strategy.capability(bt, "climate.trv") == CapabilityLevel.HEALTHY
 
-        bt.room_temperature = None
-        cap = strategy.capability(bt, "climate.trv")
-        assert cap == CapabilityLevel.CONFIGURED
-
-    def test_capability_healthy_under_sensor_fallback(self):
-        """SENSOR_FALLBACK keeps the strategy healthy on the TRV mean.
-
-        The control law computes on ``effective_room_temperature`` (TRV-internal
-        mean) when the room sensor is dead; the capability report must
-        judge the same input instead of flagging the calibrator unhealthy
-        while it is actively controlling.
-        """
-        registry = self._registry()
-        strategy = registry[CalibrationMode.MPC_CALIBRATION]
-
-        bt = ThermostatStandIn()
-        bt.device_name = "Test BT"
-        bt.room_temperature = None
-        bt.heat_target_temperature = 21.0
-        bt.kernel_state = make_state(
-            control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
-        )
-        bt.real_trvs = {
-            "climate.trv": trv_record(entity_id="climate.trv", current_temperature=20.5)
-        }
-        bt.hass.states.get.side_effect = lambda entity_id: State(
-            entity_id, "heat", {"current_temperature": 20.5}
-        )
-        bt.hass.config.units.temperature_unit = "°C"
-
-        cap = strategy.capability(bt, "climate.trv")
-        assert cap >= CapabilityLevel.HEALTHY
-
-        # Without any TRV temperature either, the fallback has no input.
-        bt.real_trvs["climate.trv"].current_temperature = None
-        cap = strategy.capability(bt, "climate.trv")
-        assert cap == CapabilityLevel.CONFIGURED
+        trv.calibration_balance = _balance(40.0)
+        assert strategy.capability(bt, "climate.trv") == CapabilityLevel.READY
 
 
 class TestBalanceCalibrator:
@@ -299,8 +256,6 @@ class TestBalanceCalibrator:
         """Capability comes from the strategy's report on the live entity."""
         adapter, bt = self._adapter(balance=_balance(40.0))
         assert adapter.capability() == CapabilityLevel.READY
-        bt.room_temperature = None
-        assert adapter.capability() == CapabilityLevel.CONFIGURED
 
     def test_readiness_means_a_finite_observed_result(self):
         """is_ready() gates actuation on a usable observed result.

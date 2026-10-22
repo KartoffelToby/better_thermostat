@@ -107,6 +107,36 @@ def test_delta_u_constraint_clamps_first_step() -> None:
     assert 0.0 <= u <= 0.05 + 1e-6
 
 
+@pytest.mark.parametrize("factor", [0.5, 4.0, 25.0])
+def test_move_suppression_factor_scales_the_smoothing_weight(factor: float) -> None:
+    """A factor on the plan is the same plan as a weight scaled by it."""
+    plant = PlantModelRC2(PlantParams(), dt_s=300.0)
+    x_pred = np.array([20.4, 30.0])
+    scaled = QpOptimiser(plant, QpParams()).solve(
+        x_pred, 21.0, 5.0, u_last=0.2, move_suppression_factor=factor
+    )
+    weighted = QpOptimiser(
+        plant, QpParams(w_smooth=QpParams().w_smooth * factor)
+    ).solve(x_pred, 21.0, 5.0, u_last=0.2)
+
+    assert scaled == pytest.approx(weighted)
+
+
+def test_a_larger_move_suppression_factor_moves_the_valve_less() -> None:
+    """The same room error asks for a smaller first step under a larger factor."""
+    plant = PlantModelRC2(PlantParams(), dt_s=300.0)
+    x_pred = np.array([20.4, 30.0])
+    steps = [
+        QpOptimiser(plant, QpParams()).solve(
+            x_pred, 21.0, 5.0, u_last=0.2, move_suppression_factor=factor
+        )
+        - 0.2
+        for factor in (1.0, 25.0, 100.0)
+    ]
+
+    assert steps[0] > steps[1] > steps[2] > 0.0
+
+
 @pytest.mark.parametrize("solver", ["daqp", "portable"])
 def test_box_constraint_bounds_the_whole_horizon(monkeypatch, solver) -> None:
     """Every planned step stays inside the valve box, and a cold room reaches it.
@@ -191,6 +221,20 @@ def test_a_valve_held_at_the_user_maximum_does_not_wind_the_integral_up() -> Non
     # Below the cap the valve still has room to open, so the error counts.
     opt.update_integral(T_room=21.6, T_sp=22.0, u_applied=0.30, dt_s=300.0, u_max=0.44)
     assert opt.e_integral_K_min == pytest.approx(-2.0)
+
+
+def test_without_a_cycle_limit_the_valve_may_open_fully() -> None:
+    """With no cap for the cycle the rail is the fully open valve.
+
+    A valve just short of fully open still has room to add heat, so its error
+    counts, and a cold room gets the fully open valve.
+    """
+    opt = _make_optimiser()
+    opt.update_integral(T_room=21.6, T_sp=22.0, u_applied=0.95, dt_s=300.0)
+    assert opt.e_integral_K_min == pytest.approx(-2.0)
+
+    u = opt.solve(np.array([16.0, 16.0]), T_sp=22.0, T_outdoor=5.0, u_last=1.0)
+    assert u == pytest.approx(1.0, abs=1e-6)
 
 
 def test_the_plan_stays_below_the_cycle_limit() -> None:

@@ -1,7 +1,7 @@
 """Tests for control_cooler function in utils/controlling.py."""
 
 import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import (
     PRESET_NONE,
@@ -31,6 +31,7 @@ from custom_components.better_thermostat.utils.helpers import (
     cooling_owns_dual_role_device,
     last_sent_cooler_temperature,
 )
+from custom_components.better_thermostat.utils.state_manager import StateManager
 from tests.factories import ThermostatStandIn, make_snapshot, trv_record
 
 
@@ -452,7 +453,6 @@ def _make_cooler_setup(
     mock_self.cool_target_temperature = cool_target_temperature
     mock_self.heat_target_temperature = heat_target_temperature
     mock_self.tolerance = 0.5
-    mock_self._cooler_last_sent = None
     return mock_self, mock_hass, mock_cooler_state
 
 
@@ -2086,6 +2086,7 @@ class TestControlCoolerLatchOfAFreshThermostat:
         """
         thermostat = BetterThermostat(
             config=BtConfig(
+                sensor_entity_id="sensor.room_temperature",
                 device_name="cooler band",
                 model="generic",
                 cooler_entity_id="climate.cooler",
@@ -2098,6 +2099,7 @@ class TestControlCoolerLatchOfAFreshThermostat:
             enabled_presets=None,
             unit=UnitOfTemperature.CELSIUS,
             unique_id="cooler_band",
+            state_mgr=StateManager(MagicMock(), "cooler_band"),
             device_class=None,
             state_class=None,
         )

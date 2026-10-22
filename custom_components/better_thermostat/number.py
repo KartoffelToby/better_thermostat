@@ -200,7 +200,7 @@ async def async_setup_entry(
         if not trv_entity_id:
             continue
 
-        advanced = trv_config.get("advanced")
+        advanced = trv_config.get("advanced", {})
         calibration_mode = configured_calibration_mode(advanced)
         calibration_output = configured_calibration_output(advanced)
 
@@ -559,7 +559,7 @@ class BetterThermostatPIDNumber(
     def native_value(self) -> float | None:
         """Return the value of the number."""
         state_mgr = self._bt_climate.state_mgr
-        if state_mgr is None:
+        if not self._bt_climate.state_loaded:
             return _PID_GAIN_SETTINGS[self._parameter].default
         states = state_mgr.state.pid
         bucket_key = build_pid_key(self._bt_climate, self._trv_entity_id)
@@ -581,7 +581,7 @@ class BetterThermostatPIDNumber(
         ):
             return
         state_mgr = self._bt_climate.state_mgr
-        if state_mgr is None:
+        if not self._bt_climate.state_loaded:
             _LOGGER.debug(
                 "Cannot set PID %s for %s: state manager not ready",
                 self._parameter,

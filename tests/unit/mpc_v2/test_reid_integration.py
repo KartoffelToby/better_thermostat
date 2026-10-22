@@ -414,6 +414,7 @@ def test_fit_scheduling_adopts_accepted_outcome(monkeypatch) -> None:
     """A due fit runs via the executor and adopts an accepted result once."""
     from custom_components.better_thermostat import calibration as cal
     from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+        ReidFit,
         ReidOutcome,
         ReidSample,
     )
@@ -438,12 +439,14 @@ def test_fit_scheduling_adopts_accepted_outcome(monkeypatch) -> None:
         calls.append(len(samples))
         return ReidOutcome(
             status="accepted",
-            tau_room_min=_REID.tau_room_minutes,
-            gain_heater=_REID.gain_heater,
-            rmse_prior_K=0.4,
-            rmse_fit_K=0.1,
             n_segments=4,
             n_samples=300,
+            fit=ReidFit(
+                tau_room_min=_REID.tau_room_minutes,
+                gain_heater=_REID.gain_heater,
+                rmse_prior_K=0.4,
+                rmse_fit_K=0.1,
+            ),
         )
 
     monkeypatch.setattr(cal, "run_reid_fit", _fake_fit)
@@ -453,6 +456,9 @@ def test_fit_scheduling_adopts_accepted_outcome(monkeypatch) -> None:
     adopted = bt.state_mgr.get_mpc_v2_reid(key)
     assert adopted is not None
     assert adopted.tau_room_minutes == _REID.tau_room_minutes
+    assert adopted.gain_heater == _REID.gain_heater
+    assert (adopted.rmse_prior_kelvin, adopted.rmse_fit_kelvin) == (0.4, 0.1)
+    assert adopted.n_segments == 4
     assert runtime.fit_inflight is False
     bt.schedule_save_state.assert_called()
 
@@ -469,6 +475,7 @@ def test_accepted_fit_is_stamped_on_the_wall_clock(monkeypatch) -> None:
     """
     from custom_components.better_thermostat import calibration as cal
     from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+        ReidFit,
         ReidOutcome,
         ReidSample,
     )
@@ -488,12 +495,14 @@ def test_accepted_fit_is_stamped_on_the_wall_clock(monkeypatch) -> None:
         "run_reid_fit",
         lambda samples, prior: ReidOutcome(
             status="accepted",
-            tau_room_min=_REID.tau_room_minutes,
-            gain_heater=_REID.gain_heater,
-            rmse_prior_K=0.4,
-            rmse_fit_K=0.1,
             n_segments=4,
             n_samples=300,
+            fit=ReidFit(
+                tau_room_min=_REID.tau_room_minutes,
+                gain_heater=_REID.gain_heater,
+                rmse_prior_K=0.4,
+                rmse_fit_K=0.1,
+            ),
         ),
     )
 
@@ -726,7 +735,10 @@ def test_a_fit_already_running_starts_no_second_one(monkeypatch) -> None:
 
 def test_a_rejected_fit_leaves_the_prior_alone(monkeypatch) -> None:
     from custom_components.better_thermostat import calibration as cal
-    from custom_components.better_thermostat.utils.calibration.mpc_v2 import ReidOutcome
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+        ReidFit,
+        ReidOutcome,
+    )
 
     bt = _make_bt()
     bt.hass = _FakeHass()
@@ -735,7 +747,15 @@ def test_a_rejected_fit_leaves_the_prior_alone(monkeypatch) -> None:
         cal,
         "run_reid_fit",
         lambda samples, prior: ReidOutcome(
-            status="rejected", n_segments=2, n_samples=300
+            status="rejected",
+            n_segments=4,
+            n_samples=300,
+            fit=ReidFit(
+                tau_room_min=_REID.tau_room_minutes,
+                gain_heater=_REID.gain_heater,
+                rmse_prior_K=0.4,
+                rmse_fit_K=0.38,
+            ),
         ),
     )
 
@@ -770,16 +790,21 @@ def test_a_fit_finishing_after_the_removal_is_not_adopted(monkeypatch) -> None:
     result belongs to a thermostat whose final save is already written.
     """
     from custom_components.better_thermostat import calibration as cal
-    from custom_components.better_thermostat.utils.calibration.mpc_v2 import ReidOutcome
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+        ReidFit,
+        ReidOutcome,
+    )
 
     outcome = ReidOutcome(
         status="accepted",
-        tau_room_min=_REID.tau_room_minutes,
-        gain_heater=_REID.gain_heater,
-        rmse_prior_K=0.4,
-        rmse_fit_K=0.1,
         n_segments=4,
         n_samples=300,
+        fit=ReidFit(
+            tau_room_min=_REID.tau_room_minutes,
+            gain_heater=_REID.gain_heater,
+            rmse_prior_K=0.4,
+            rmse_fit_K=0.1,
+        ),
     )
     pending = _PendingFuture(outcome)
     bt = _make_bt()
@@ -833,30 +858,6 @@ def test_a_fit_that_cannot_be_scheduled_frees_the_next_attempt(caplog) -> None:
 
 
 # -- Missing state store ------------------------------------------------------
-
-
-def test_reid_helpers_without_a_state_store_do_nothing() -> None:
-    """Every re-ID helper is a no-op until the state store exists."""
-    from custom_components.better_thermostat import calibration as cal
-
-    bt = _make_bt()
-    bt.hass = _FakeHass()
-    bt.state_mgr = None
-
-    assert (
-        cal._lookup_mpc_v2_reid(
-            bt, "bt:reid", "bt:climate.x:t21.0", DEFAULT_FLOW_TEMPERATURE
-        )
-        is None
-    )
-    cal._record_mpc_v2_reid_sample(
-        bt,
-        "bt:reid",
-        applied_valve_percent=40.0,
-        trv_temperature=21.0,
-        outdoor_temperature=5.0,
-    )
-    cal._maybe_start_mpc_v2_reid_fit(bt, "bt:reid", MpcV2Params())
 
 
 # -- Configured flow temperature ----------------------------------------------
@@ -949,7 +950,10 @@ def test_an_accepted_fit_records_the_flow_temperature_it_was_fitted_under(
 ) -> None:
     """The stored result names the supply water its heater gain belongs to."""
     from custom_components.better_thermostat import calibration as cal
-    from custom_components.better_thermostat.utils.calibration.mpc_v2 import ReidOutcome
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+        ReidFit,
+        ReidOutcome,
+    )
 
     bt = _make_bt()
     bt.hass = _FakeHass()
@@ -960,12 +964,14 @@ def test_an_accepted_fit_records_the_flow_temperature_it_was_fitted_under(
         priors.append(prior)
         return ReidOutcome(
             status="accepted",
-            tau_room_min=_REID.tau_room_minutes,
-            gain_heater=_REID.gain_heater,
-            rmse_prior_K=0.4,
-            rmse_fit_K=0.1,
             n_segments=4,
             n_samples=300,
+            fit=ReidFit(
+                tau_room_min=_REID.tau_room_minutes,
+                gain_heater=_REID.gain_heater,
+                rmse_prior_K=0.4,
+                rmse_fit_K=0.1,
+            ),
         )
 
     monkeypatch.setattr(cal, "run_reid_fit", _fake_fit)
@@ -1079,7 +1085,10 @@ def test_a_fit_under_a_new_flow_temperature_replaces_the_old_result(
     on the old one finds nothing.
     """
     from custom_components.better_thermostat import calibration as cal
-    from custom_components.better_thermostat.utils.calibration.mpc_v2 import ReidOutcome
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+        ReidFit,
+        ReidOutcome,
+    )
 
     bt = _make_bt()
     bt.hass = _FakeHass()
@@ -1095,12 +1104,11 @@ def test_a_fit_under_a_new_flow_temperature_replaces_the_old_result(
     def _fake_fit(samples, prior):
         return ReidOutcome(
             status="accepted",
-            tau_room_min=180.0,
-            gain_heater=1.5,
-            rmse_prior_K=0.4,
-            rmse_fit_K=0.1,
             n_segments=4,
             n_samples=300,
+            fit=ReidFit(
+                tau_room_min=180.0, gain_heater=1.5, rmse_prior_K=0.4, rmse_fit_K=0.1
+            ),
         )
 
     monkeypatch.setattr(cal, "run_reid_fit", _fake_fit)
@@ -1121,16 +1129,21 @@ def test_a_fit_under_a_new_flow_temperature_replaces_the_old_result(
 
 
 def _accepted_outcome() -> Any:
-    from custom_components.better_thermostat.utils.calibration.mpc_v2 import ReidOutcome
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+        ReidFit,
+        ReidOutcome,
+    )
 
     return ReidOutcome(
         status="accepted",
-        tau_room_min=_REID.tau_room_minutes,
-        gain_heater=_REID.gain_heater,
-        rmse_prior_K=0.4,
-        rmse_fit_K=0.1,
         n_segments=4,
         n_samples=300,
+        fit=ReidFit(
+            tau_room_min=_REID.tau_room_minutes,
+            gain_heater=_REID.gain_heater,
+            rmse_prior_K=0.4,
+            rmse_fit_K=0.1,
+        ),
     )
 
 

@@ -29,9 +29,11 @@ from custom_components.better_thermostat.utils.controlling import (
     reconcile_tick,
 )
 from tests.factories import (
+    RELEASE_SCOPES,
     ThermostatStandIn,
     make_entity_registry,
     make_registry_entry,
+    release_device,
     trv_record,
 )
 
@@ -1093,13 +1095,36 @@ class TestReleasedDevices:
         bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_a_released_trv_is_not_commanded_and_not_missing(self):
+    async def test_a_cooler_that_is_a_released_trv_queues_no_cycle(self):
+        """A device wired as TRV and as cooler, released on its own, is the user's."""
+        bt = _make_bt()
+        bt.devices_released = False
+        bt.cooler_entity_id = "climate.trv"
+        bt.released_trvs = {"climate.trv"}
+        with patch(f"{_CTRL}.cooler_mode_diverges", return_value=True):
+            await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_trv_released_on_its_own_does_not_hold_back_the_cooler(self):
+        """The counterpart: another TRV's release leaves the cooler controlled."""
+        bt = _make_bt()
+        bt.devices_released = False
+        bt.cooler_entity_id = "climate.cooler"
+        bt.released_trvs = {"climate.trv"}
+        with patch(f"{_CTRL}.cooler_mode_diverges", return_value=True):
+            await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_a_released_trv_is_not_commanded_and_not_missing(self, scope):
         """A released TRV is left alone without counting as unreachable.
 
         No write goes out, and no reachability retry is scheduled for it.
         """
         bt = _control_bt()
-        bt.devices_released = True
+        release_device(bt, "climate.trv", scope)
         with (
             patch(f"{_CTRL}._schedule_reachability_retry") as retry,
             patch(f"{_CTRL}.set_temperature", autospec=True) as set_temperature,

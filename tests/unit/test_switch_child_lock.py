@@ -21,7 +21,7 @@ from custom_components.better_thermostat.utils.entry_schema import (
     TrvSettings,
     parse_settings,
 )
-from tests.factories import ThermostatStandIn, trv_record
+from tests.factories import ThermostatStandIn, release_device, trv_record
 
 TRV_ID = "climate.trv_kitchen"
 
@@ -38,6 +38,7 @@ def _parsed_trv(child_lock: object) -> TrvSettings:
                     "advanced": {"child_lock": child_lock},
                 }
             ],
+            "temperature_sensor": "sensor.room_temperature",
         }
     )
     return settings["thermostat"][0]
@@ -105,6 +106,14 @@ def test_the_configured_option_reads_a_stored_spelling(stored, expected):
     switch._bt_climate.all_trvs = [_parsed_trv(stored)]
 
     assert switch._configured_child_lock() is expected
+
+
+def test_an_entry_without_advanced_options_configures_no_lock():
+    """A thermostat entry that stores no advanced options reads as unlocked."""
+    switch = _make_switch(trv_record(entity_id=TRV_ID))
+    switch._bt_climate.all_trvs = [TrvSettings(trv=TRV_ID, integration="generic")]
+
+    assert switch._configured_child_lock() is False
 
 
 @pytest.mark.asyncio
@@ -181,15 +190,24 @@ def test_the_recorded_option_is_compared_as_it_was_saved(recorded, expected):
 
 
 @pytest.mark.parametrize(
-    ("released", "sends"), [pytest.param(True, 0, id="released"), (False, 1)]
+    ("released", "released_trvs", "sends"),
+    [
+        pytest.param(True, set(), 0, id="released"),
+        pytest.param(False, {TRV_ID}, 0, id="trv_released"),
+        pytest.param(False, {"climate.other"}, 1, id="other_trv_released"),
+        (False, set(), 1),
+    ],
 )
 @pytest.mark.asyncio
-async def test_a_restored_lock_is_not_sent_to_a_released_device(released, sends):
+async def test_a_restored_lock_is_not_sent_to_a_released_device(
+    released, released_trvs, sends
+):
     """The restored lock is kept as the setting and sent only to a held device."""
     trv = trv_record(entity_id=TRV_ID, advanced=_parsed_advanced("false"))
     switch = _make_switch(trv)
     switch._bt_climate.all_trvs = []
     switch._bt_climate.devices_released = released
+    switch._bt_climate.released_trvs = released_trvs
     switch.async_get_last_available_state = AsyncMock(
         return_value=State("switch.child_lock", STATE_ON)
     )
@@ -202,9 +220,15 @@ async def test_a_restored_lock_is_not_sent_to_a_released_device(released, sends)
     assert switch._set_child_lock.await_count == sends
 
 
+@pytest.mark.parametrize(
+    ("scope", "translation_key"),
+    [("room", "devices_released"), ("trv", "trv_released")],
+)
 @pytest.mark.parametrize("turn_on", [True, False])
 @pytest.mark.asyncio
-async def test_the_lock_is_not_changed_while_the_devices_are_released(turn_on):
+async def test_the_lock_is_not_changed_while_the_devices_are_released(
+    turn_on, scope, translation_key
+):
     """A change would have to be written to a device that is the user's.
 
     Accepting it without the write would leave the switch showing a lock
@@ -214,7 +238,7 @@ async def test_the_lock_is_not_changed_while_the_devices_are_released(turn_on):
     bt_climate = ThermostatStandIn()
     bt_climate.unique_id = "bt_1"
     bt_climate.device_name = "Kitchen"
-    bt_climate.devices_released = True
+    release_device(bt_climate, TRV_ID, scope)
     bt_climate.real_trvs = {TRV_ID: trv}
     switch = BetterThermostatChildLockSwitch(bt_climate, TRV_ID, show_trv_name=False)
     switch.async_write_ha_state = MagicMock()
@@ -226,6 +250,6 @@ async def test_the_lock_is_not_changed_while_the_devices_are_released(turn_on):
         else:
             await switch.async_turn_off()
 
-    assert raised.value.translation_key == "devices_released"
+    assert raised.value.translation_key == translation_key
     assert trv.advanced["child_lock"] is (not turn_on)
     switch._set_child_lock.assert_not_awaited()

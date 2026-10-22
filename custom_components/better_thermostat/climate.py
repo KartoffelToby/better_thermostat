@@ -6,7 +6,7 @@ import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 import json
 import logging
@@ -153,6 +153,7 @@ from .utils.const import (
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
+    ATTR_STATE_RELEASED_TRVS,
     ATTR_STATE_ROOM_TEMPERATURE_FILTERED,
     ATTR_STATE_WINDOW_DETECTION,
     ATTR_STATE_WINDOW_OPEN,
@@ -218,9 +219,11 @@ from .utils.helpers import (
     configured_calibration_output,
     convert_to_float,
     convert_to_float_celsius,
+    device_released,
     device_setpoint_step,
     dual_role_entity_id,
     entry_settings,
+    every_trv_released,
     find_battery_entity,
     get_cool_temperature_bounds,
     get_cool_temperature_range,
@@ -390,6 +393,7 @@ async def async_setup_entry(
         enabled_presets=settings.get(CONF_PRESETS),
         unit=unit,
         unique_id=entry.entry_id,
+        state_mgr=StateManager(hass, entry.entry_id),
         device_class="better_thermostat",
         state_class="better_thermostat_state",
     )
@@ -445,6 +449,20 @@ def _contact_reads_open(state: State | None) -> bool:
     return state is not None and state.state in OPEN_WORDS
 
 
+def _read_at_startup(self: BetterThermostat, entity_id: str) -> bool:
+    """Return whether the startup takes the room's state from this device.
+
+    A TRV released on its own is the user's, and its setpoint, mode and
+    temperature say nothing about the room, as an unreachable TRV's say
+    nothing. It is read once it is taken back. A room whose TRVs are all
+    released has nothing else to read and starts from them, as a room
+    whose devices are released does.
+    """
+    return entity_id not in self.released_trvs or every_trv_released(
+        self, self.real_trvs
+    )
+
+
 def _room_sensor_reads(self: BetterThermostat) -> bool:
     """Return whether the room sensor gives a reading right now.
 
@@ -452,11 +470,7 @@ def _room_sensor_reads(self: BetterThermostat) -> bool:
     while it does; a skipped tick is logged.
     """
     sensor_entity_id = self.sensor_entity_id
-    if (
-        sensor_entity_id is not None
-        and room_sensor_reading(self, self.hass.states.get(sensor_entity_id))
-        is not None
-    ):
+    if room_sensor_reading(self, self.hass.states.get(sensor_entity_id)) is not None:
         return True
     _LOGGER.debug(
         "better_thermostat %s: external_temperature keepalive skipped (room sensor %s gives no reading)",
@@ -486,23 +500,60 @@ def _restored_attribute(old_state: State, name: str) -> object:
     return value
 
 
-def _arm_degraded_grace(self: BetterThermostat) -> None:
+async def _refresh_trv_model(self: BetterThermostat, entity_id: str) -> None:
+    """Take up the model the device registry names for a TRV by now.
+
+    The model is resolved when the entity is added, and a device whose
+    integration registers it later is then known by its configured model
+    or as generic. The initialisation is what derives everything the
+    model's quirks decide, so the model is resolved again right before
+    it. A registry that still names no model leaves the TRV on the model
+    it has.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The thermostat holding the TRV.
+    entity_id : str
+        The TRV about to be initialised.
+    """
+    trv = self.real_trvs[entity_id]
+    resolved_model = await get_device_model(self, entity_id, configured_model=trv.model)
+    if resolved_model == trv.model:
+        return
+    _LOGGER.info(
+        "better_thermostat %s: device registry now names model '%s' for %s "
+        "(was '%s'); loading its model quirks",
+        self.device_name,
+        resolved_model,
+        entity_id,
+        trv.model,
+    )
+    trv.model_quirks = await load_model_quirks(self, resolved_model, entity_id)
+    trv.model = resolved_model
+
+
+def _arm_degraded_grace(self: BetterThermostat) -> datetime:
     """Arm the degraded-mode annunciation grace window once.
 
     Stores the deadline on the entity and mirrors it into the lifecycle
     region, so every degraded-mode check that runs while startup is still in
     progress already sees the grace window. A deadline that is already armed
     is kept unchanged.
+
+    Returns the armed deadline.
     """
     if self._degraded_grace_until is not None:
-        return
-    self._degraded_grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
+        return self._degraded_grace_until
+    grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
+    self._degraded_grace_until = grace_until
     self.kernel_state = replace(
         self.kernel_state,
         lifecycle=replace(
             self.kernel_state.lifecycle, grace_until=self._degraded_grace_until
         ),
     )
+    return grace_until
 
 
 def _configured_delay(value: str | float | None, device_name: str, field: str) -> float:
@@ -681,7 +732,7 @@ def _configured_bt_config(settings: BtSettings, unit: UnitOfTemperature) -> BtCo
     return BtConfig(
         device_name=name,
         model=settings.get(CONF_MODEL),
-        sensor_entity_id=settings.get(CONF_TEMPERATURE_SENSOR) or None,
+        sensor_entity_id=settings[CONF_TEMPERATURE_SENSOR],
         humidity_sensor_entity_id=settings.get(CONF_HUMIDITY_SENSOR) or None,
         cooler_entity_id=settings.get(CONF_COOLER) or None,
         window_sensor_entity_id=settings.get(CONF_WINDOW_SENSORS) or None,
@@ -795,13 +846,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         }
     )
 
-    # Per-channel cooler send bookkeeping: the last successfully sent command,
-    # the settled reading of each written channel, the mode the last cycle
-    # decided on, and each channel's run of consecutive send failures.
-    # ``cooler_send_cache()`` creates it on first use, and every reader reaches
-    # it through that helper.
-    _cooler_last_sent: CoolerSendCache
-
     async def reset_heating_power(self) -> None:
         """Reset heating power to default value."""
         self._heating_tracker.reset_power()
@@ -831,7 +875,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         return self.config.model
 
     @property
-    def sensor_entity_id(self) -> str | None:
+    def sensor_entity_id(self) -> str:
         """Return the room temperature sensor entity id."""
         return self.config.sensor_entity_id
 
@@ -945,12 +989,28 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         return self.config.availability_guard_grace_seconds
 
     @property
-    def room_temperature(self) -> float | None:
-        """Return the current room temperature."""
-        return self.runtime.room_temperature
+    def room_temperature(self) -> float:
+        """Return the room temperature the thermostat regulates on.
+
+        Startup sets it before it starts anything that reads it. Home
+        Assistant's own reads go through ``current_temperature``, which
+        answers ``None`` until then.
+
+        Raises
+        ------
+        RuntimeError
+            when read before startup has set it
+        """
+        value = self.runtime.room_temperature
+        if value is None:
+            raise RuntimeError(
+                f"better_thermostat {self.device_name}: room temperature read "
+                "before startup set it"
+            )
+        return value
 
     @room_temperature.setter
-    def room_temperature(self, value: float | None) -> None:
+    def room_temperature(self, value: float) -> None:
         """Set the current room temperature."""
         self.runtime.room_temperature = value
 
@@ -1146,6 +1206,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         enabled_presets: list[str] | None,
         unit: UnitOfTemperature,
         unique_id: str,
+        state_mgr: StateManager,
         device_class: str | None,
         state_class: str | None,
     ) -> None:
@@ -1172,6 +1233,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             Temperature unit of the Home Assistant system.
         unique_id : str
             Unique id of the config entry.
+        state_mgr : StateManager
+            Persistence of the entry's learned state; the entity loads it
+            when it is added.
         device_class : str | None
             Device class of the climate entity.
         state_class : str | None
@@ -1201,7 +1265,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # announced, keyed by contact kind.
         self.announced_contact_open: dict[str, bool] = {}
         self.flight_recorder = FlightRecorder()
-        self.room_temperature = None
         self._current_humidity: float | None = None
         # A configured bound overrides what the controlled entities report, so
         # it is kept apart from the resolved ``bt_min_temp`` / ``bt_max_temp``.
@@ -1221,6 +1284,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.cool_min_temperature: float | None = None
         self.cool_max_temperature: float | None = None
         self.cool_target_temperature = None
+        # Per-channel cooler send bookkeeping: the last successfully sent
+        # command, the settled reading of each written channel, the mode the
+        # last cycle decided on, and each channel's run of consecutive send
+        # failures. Every reader reaches it through ``cooler_send_cache()``.
+        self._cooler_last_sent: CoolerSendCache = {}
         # The state saved before the last stop, read when the entity is added.
         self._saved_state: State | None = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
@@ -1234,6 +1302,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # writes nothing to them, takes over nothing they report and learns
         # nothing until they are taken back.
         self.devices_released = False
+        # The TRVs the user has released one by one, by entity id. Each is
+        # left alone like an unreachable TRV while the others are controlled.
+        self.released_trvs: set[str] = set()
         # The block the kernel named in its latest decision, published as
         # ``heating_blocked_by``. The thermostat is unavailable until the
         # first decision at the end of the startup sets it.
@@ -1316,17 +1387,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self._degraded_grace_until: datetime | None = None
         self._degraded_warning_emitted: bool = False
         # Startup grace period before an unavailable TRV raises a
-        # ``missing_entity`` repair; armed when startup begins.
-        self._critical_grace_until: datetime | None = None
-        self.control_queue_task: asyncio.Queue[BetterThermostat | None] = asyncio.Queue(
+        # ``missing_entity`` repair; armed when startup begins. Until then it
+        # is an instant every clock has passed.
+        self._critical_grace_until: datetime = datetime.min.replace(tzinfo=UTC)
+        self.control_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
             maxsize=1
         )
         if self.window_sensor_entity_id is not None:
-            self.window_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(
-                maxsize=1
-            )
+            self.window_queue_task: asyncio.Queue[bool] = asyncio.Queue(maxsize=1)
         if self.door_sensor_entity_id is not None:
-            self.door_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(maxsize=1)
+            self.door_queue_task: asyncio.Queue[bool] = asyncio.Queue(maxsize=1)
         self._control_task: asyncio.Task[None] | None = None
         self._window_task: asyncio.Task[None] | None = None
         self._door_task: asyncio.Task[None] | None = None
@@ -1352,10 +1422,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.room_temperature_ema = None
         self._room_temperature_ema_monotonic: float | None = None
         self.room_temperature_filtered = None
-        # Unified state persistence (replaces per-controller stores)
-        self.state_mgr: StateManager | None = None
+        # Unified state persistence (replaces per-controller stores). It holds
+        # the stored state, and the entity saves through it, once
+        # ``state_loaded`` is set: after the load, and only for an entity that
+        # was not removed meanwhile.
+        self.state_mgr = state_mgr
+        self.state_loaded = False
 
-        self.last_known_external_temperature: float | None = None
         self._slope_periodic_last_ts: float | None = None
 
         # Anti-flicker state; the timer applies a pending reading later, at
@@ -1485,6 +1558,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self._saved_state is not None
             and self._saved_state.attributes.get(ATTR_STATE_DEVICES_RELEASED) is True
         )
+        self.released_trvs = self._restored_released_trvs()
         # The pause belongs to the "Pause learning" switch, whose platform is
         # set up after climate, so it comes back from the thermostat's own
         # state. It is read here, before the switch exists and before the
@@ -1494,7 +1568,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.learning_paused = (
                 self._saved_state.attributes.get(ATTR_STATE_LEARNING_PAUSED) is True
             )
-            self.learning_held = self.learning_paused or self.devices_released
+            self.learning_held = (
+                self.learning_paused
+                or self.devices_released
+                or bool(self.released_trvs)
+            )
         # The window detection switch is set up after the thermostat, and
         # control must not run on the default before it restores.
         if self.has_contact_sensor and (
@@ -1580,7 +1658,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # state the next start reads back. async_will_remove_from_hass
             # awaits it instead, so the unload, and a removal that deletes the
             # stores after it, follow the write.
-            if self.state_mgr is not None:
+            if self.state_loaded:
                 self.state_mgr.close()
                 try:
                     self._record_runtime_to_state()
@@ -1598,7 +1676,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # a copy of the stored payload is taken here: in the final write
             # the Store writes at once, so the copy is confirmed before the
             # state replaces the payload.
-            if self.state_mgr is not None and self.state_mgr.copy_pending:
+            if self.state_loaded and self.state_mgr.copy_pending:
                 self._record_runtime_to_state()
                 await self.state_mgr.flush()
 
@@ -1615,10 +1693,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         )
 
         # Unified state persistence. The stored state is read under the
-        # entry's lock, and the manager becomes the entity's only once the
-        # renames recorded meanwhile are applied: a rename either finds the
-        # state in memory here or leaves the move for this load.
-        state_mgr = StateManager(self.hass, self._config_entry_id)
+        # entry's lock, and ``state_loaded`` is set only once the renames
+        # recorded meanwhile are applied: a rename either finds the state in
+        # memory here or leaves the move for this load.
+        state_mgr = self.state_mgr
         async with stored_state_lock(self.hass, self._config_entry_id):
             try:
                 await state_mgr.load()
@@ -1643,7 +1721,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     self.hass, self._config_entry_id, state_mgr
                 )
                 state_mgr.forget_thermostats_except([*self.entity_ids, *moved_to])
-                self.state_mgr = state_mgr
+                self.state_loaded = True
         self._hydrate_thermal_from_state()
 
         @callback
@@ -1817,12 +1895,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         try:
             async with temperature_filter_lock(self):
                 cur = self.room_temperature
-                if cur is None:
-                    _LOGGER.debug(
-                        "better_thermostat %s: external_temperature keepalive skipped (room_temperature is None)",
-                        self.device_name,
-                    )
-                    return
                 if not _room_sensor_reads(self):
                     return
 
@@ -1847,9 +1919,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 for entity_id in trv_ids:
                     # A write can block for a while, and the sensor can go
                     # away or the devices can be released meanwhile; the
-                    # TRVs after it then get nothing.
+                    # TRVs after it then get nothing. A released TRV gets
+                    # nothing either.
                     if not _room_sensor_reads(self) or self.devices_released:
                         return
+                    if device_released(self, entity_id):
+                        continue
                     try:
                         _mq_trv = self.real_trvs.get(entity_id)
                         if _mq_trv is not None and _mq_trv.awaiting_initialization:
@@ -2012,8 +2087,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     def _set_trv_calibration_defaults(self, trv: str) -> None:
         """Set default calibration values for TRV."""
-        if self.real_trvs[trv].last_calibration is None:
-            self.real_trvs[trv].last_calibration = 0
         if self.real_trvs[trv].min_local_calibration is None:
             self.real_trvs[trv].min_local_calibration = -7
         if self.real_trvs[trv].max_local_calibration is None:
@@ -2043,16 +2116,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.version,
             )
 
-            # The external room sensor is a required configuration field.
-            if self.sensor_entity_id is None:
-                _LOGGER.error(
-                    "better_thermostat %s: no room temperature sensor configured "
-                    "(the required 'temperature_sensor' option is missing from "
-                    "the config entry); aborting startup, the entity stays "
-                    "unavailable",
-                    self.device_name,
-                )
-                return
             sensor_state = self.hass.states.get(self.sensor_entity_id)
             if not self._check_entities_ready(sensor_state):
                 # This loop waits for as long as it takes, and nothing
@@ -2127,15 +2190,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         takes over again as soon as it reports. A room with no TRV available
         keeps waiting: there is nothing to control, and the temperature
         range and the mode startup derives from the TRVs would have nothing
-        to be read from. A room whose devices are released controls none of
-        them and starts on its saved state once the window has closed, with
-        no TRV available as well. Without its room sensor, a room also keeps
+        to be read from. A TRV released on its own counts as none: it is
+        neither controlled nor read. A room whose devices are released, or whose TRVs
+        are each released on their own, controls none of them and starts on
+        its saved state once the window has closed, with no TRV available as
+        well. Without its room sensor, a room also keeps
         waiting until a TRV reports a plausible temperature to control on.
 
         Returns True when startup can go ahead, False otherwise.
         """
-        grace_until = self._critical_grace_until
-        in_grace = grace_until is not None and self.clock.now() < grace_until
+        in_grace = self.clock.now() < self._critical_grace_until
 
         if room_sensor_reading(self, sensor_state) is None:
             if in_grace or self._first_plausible_trv_temperature() is None:
@@ -2156,8 +2220,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         unavailable = self._unavailable_trvs()
         if not unavailable:
             return True
+        # A TRV released on its own is not one the room starts on.
+        controlled_available = any(
+            entity_id not in unavailable and not device_released(self, entity_id)
+            for entity_id in self.real_trvs
+        )
         if in_grace or (
-            len(unavailable) == len(self.real_trvs) and not self.devices_released
+            not controlled_available and not every_trv_released(self, self.real_trvs)
         ):
             for entity_id in unavailable:
                 _LOGGER.info(
@@ -2190,7 +2259,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             ``None`` when no available TRV reports a plausible one.
         """
         for entity_id in self.real_trvs:
-            if not is_trv_available(self, entity_id):
+            if not is_trv_available(self, entity_id) or not _read_at_startup(
+                self, entity_id
+            ):
                 continue
             trv_state = self.hass.states.get(entity_id)
             if trv_state is None:
@@ -2225,17 +2296,23 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         A TRV still awaiting its initialisation is left out: it was
         unavailable when startup read the others, and its state carries none
-        of the values read from these states.
+        of the values read from these states. A TRV released on its own is
+        left out as well, unless every TRV is; it is read once it is taken
+        back and set up.
         """
         states = [
             state
             for entity_id, trv in self.real_trvs.items()
             if not trv.awaiting_initialization
+            and _read_at_startup(self, entity_id)
             and (state := self.hass.states.get(entity_id)) is not None
         ]
 
-        # The cooler's state carries the bounds of the cooling channel.
-        if self.cooler_entity_id is not None:
+        # The cooler's state carries the bounds of the cooling channel. A
+        # device that is also a TRV released on its own is left out with it.
+        if self.cooler_entity_id is not None and _read_at_startup(
+            self, self.cooler_entity_id
+        ):
             cooler_state = self.hass.states.get(self.cooler_entity_id)
             if cooler_state is not None and cooler_state.state not in (
                 STATE_UNAVAILABLE,
@@ -2348,8 +2425,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     def _initialize_sensors(self, sensor_state: State | None) -> None:
         """Set up room temperature, humidity, window and door sensors."""
-        if self.sensor_entity_id is not None:
-            self.all_entities[self.sensor_entity_id] = None
+        self.all_entities[self.sensor_entity_id] = None
 
         # Handle room temperature sensor with TRV fallback
         room_candidate = room_sensor_reading(self, sensor_state)
@@ -2363,42 +2439,38 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
 
         if room_candidate is not None:
-            self.room_temperature = room_candidate
+            room_temperature = room_candidate
+        elif (trv_reading := self._first_plausible_trv_temperature()) is not None:
+            entity_id, room_temperature = trv_reading
+            _LOGGER.info(
+                "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
+                self.device_name,
+                entity_id,
+                room_temperature,
+            )
         else:
-            self.room_temperature = None
-            trv_reading = self._first_plausible_trv_temperature()
-            if trv_reading is not None:
-                entity_id, self.room_temperature = trv_reading
-                _LOGGER.info(
-                    "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
-                    self.device_name,
-                    entity_id,
-                    self.room_temperature,
-                )
-            if self.room_temperature is None:
-                self.room_temperature = DEFAULT_FALLBACK_TEMPERATURE
-                _LOGGER.warning(
-                    "better_thermostat %s: No temperature available, using default %.1f°C",
-                    self.device_name,
-                    DEFAULT_FALLBACK_TEMPERATURE,
-                )
+            room_temperature = DEFAULT_FALLBACK_TEMPERATURE
+            _LOGGER.warning(
+                "better_thermostat %s: No temperature available, using default %.1f°C",
+                self.device_name,
+                DEFAULT_FALLBACK_TEMPERATURE,
+            )
+        self.room_temperature = room_temperature
 
         # Initialize EMA with current temperature at startup
-        if self.room_temperature is not None:
-            self.last_known_external_temperature = self.room_temperature
-            try:
-                _update_room_temperature_ema(self, float(self.room_temperature))
-                _LOGGER.debug(
-                    "better_thermostat %s: initialized room_temperature_ema at startup with %.2f",
-                    self.device_name,
-                    self.room_temperature,
-                )
-            except (ValueError, TypeError) as e:
-                _LOGGER.warning(
-                    "better_thermostat %s: failed to initialize room_temperature_ema at startup: %s",
-                    self.device_name,
-                    e,
-                )
+        try:
+            _update_room_temperature_ema(self, float(room_temperature))
+            _LOGGER.debug(
+                "better_thermostat %s: initialized room_temperature_ema at startup with %.2f",
+                self.device_name,
+                room_temperature,
+            )
+        except (ValueError, TypeError) as e:
+            _LOGGER.warning(
+                "better_thermostat %s: failed to initialize room_temperature_ema at startup: %s",
+                self.device_name,
+                e,
+            )
 
         # The startup humidity is read here and nowhere else, so the guard
         # below is the only one deciding what the entity publishes until the
@@ -2646,11 +2718,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # authority. The restored attributes only fill in when the
             # store carries nothing — a one-time migration fallback for
             # upgrades from versions that persisted via RestoreEntity.
-            stored_thermal = (
-                self.state_mgr.clamped_thermal()
-                if self.state_mgr is not None
-                else ThermalStats()
-            )
+            stored_thermal = self.state_mgr.clamped_thermal()
             if (
                 stored_thermal.heating_power is None
                 and old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None
@@ -2804,7 +2872,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     async def _initialize_trvs(
         self, entity_ids: Iterable[str] | None = None
     ) -> set[str]:
-        """Initialize TRVs: init, tweak, calibration offsets, attributes.
+        """Initialize TRVs: model, init, tweak, calibration offsets, attributes.
 
         A step that fails is logged and the TRV is initialised as far as the
         remaining steps go, with defaults where the failed step would have
@@ -2836,7 +2904,21 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         for entity_id in entity_ids:
             trv = self.real_trvs[entity_id]
             self.all_entities[entity_id] = None
-            if self.devices_released:
+            # The refresh writes nothing to the device and may yield while a
+            # quirk module is imported, so it runs before the release check
+            # that guards the writes.
+            try:
+                await _refresh_trv_model(self, entity_id)
+            except Exception as exc:
+                failed.add(entity_id)
+                _LOGGER.error(
+                    "better_thermostat %s: Error refreshing the model of TRV %s: %s",
+                    self.device_name,
+                    entity_id,
+                    exc,
+                    exc_info=True,
+                )
+            if device_released(self, entity_id):
                 trv.awaiting_initialization = True
                 continue
             _LOGGER.debug(
@@ -2870,7 +2952,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     exc_info=True,
                 )
 
-            if self.devices_released:
+            if device_released(self, entity_id):
                 trv.awaiting_initialization = True
                 continue
             try:
@@ -2943,7 +3025,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     )
                     self._set_trv_calibration_defaults(entity_id)
             else:
-                trv.last_calibration = 0
                 trv.min_local_calibration = -7
                 trv.max_local_calibration = 7
                 trv.local_calibration_step = 0.5
@@ -3049,8 +3130,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         Nothing is set up while valve maintenance runs: the initialisation
         writes to the TRV's device, and maintenance holds the devices for the
         exercise. Maintenance looks again once it has ended. Nothing is set
-        up while the devices are released either; taking them back looks
-        again.
+        up while the devices are released either, nor for a TRV released on
+        its own; taking them back looks again.
         """
         if self.devices_released:
             return
@@ -3063,6 +3144,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 not trv.awaiting_initialization
                 or entity_id in self._trvs_initializing
                 or not is_trv_available(self, entity_id)
+                or device_released(self, entity_id)
             ):
                 continue
             self._trvs_initializing.add(entity_id)
@@ -3087,10 +3169,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self._trvs_initializing.discard(entity_id)
             if self.is_removed or self.real_trvs.get(entity_id) is not trv:
                 return
-            # Released while it was being set up, it is set up again once the
-            # devices are taken back.
-            if self.devices_released:
-                return
+            # Released while it was being set up, it is set up again once it
+            # is taken back.
+            if device_released(self, entity_id):
+                continue
             if entity_id in failed:
                 trv.failed_initialization_attempts += 1
                 if (
@@ -3120,17 +3202,27 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 )
             trv.failed_initialization_attempts = 0
             trv.awaiting_initialization = False
-            self._resolve_temperature_range(self._collect_trv_states())
-            self.heat_target_temperature = self._bound_target_to_range(
-                self.heat_target_temperature
-            )
-            if self.cool_target_temperature is not None:
-                self.cool_target_temperature = self._bound_cool_target_to_range(
-                    self.cool_target_temperature
-                )
-                self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
+            self._refresh_temperature_range()
             self.async_write_ha_state()
             request_control_cycle(self)
+
+    def _refresh_temperature_range(self) -> None:
+        """Bound the room's range by the devices it reads, and its targets by that.
+
+        The range is the one :meth:`_resolve_temperature_range` derives from
+        the states :meth:`_collect_trv_states` collects, so a TRV that joins
+        or leaves that set widens or narrows it. Both targets are then
+        brought into the new range.
+        """
+        self._resolve_temperature_range(self._collect_trv_states())
+        self.heat_target_temperature = self._bound_target_to_range(
+            self.heat_target_temperature
+        )
+        if self.cool_target_temperature is not None:
+            self.cool_target_temperature = self._bound_cool_target_to_range(
+                self.cool_target_temperature
+            )
+            self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
 
     async def _startup_control_trvs(self) -> None:
         """Write the initial mode/setpoint/calibration to every TRV.
@@ -3177,7 +3269,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     async def _post_grace_recheck(
         self,
-        grace_until: datetime | None,
+        grace_until: datetime,
         recheck: Callable[[BetterThermostat], Awaitable[object]],
     ) -> None:
         """Re-run an availability check once a startup grace window elapses.
@@ -3190,16 +3282,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         Parameters
         ----------
-        grace_until : datetime | None
-            End of the grace window; ``None`` or a past instant runs the
-            recheck immediately.
+        grace_until : datetime
+            End of the grace window; a past instant runs the recheck
+            immediately.
         recheck : Callable[[BetterThermostat], Awaitable[object]]
             Availability check coroutine function, invoked with this
             thermostat instance.
         """
-        remaining = (
-            (grace_until - self.clock.now()).total_seconds() if grace_until else 0.0
-        )
+        remaining = (grace_until - self.clock.now()).total_seconds()
         if remaining > 0:
             await asyncio.sleep(remaining)
         if self.is_removed:
@@ -3218,7 +3308,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # The degraded-mode grace window is normally armed at the top of
         # startup(); arming here as well keeps the deadline in place before
         # the triggers below run their degraded checks.
-        _arm_degraded_grace(self)
+        degraded_grace_until = _arm_degraded_grace(self)
         # Likewise give critical (TRV) entities a short grace before raising
         # ``missing_entity`` repairs; cloud-backed valves (Tado, etc.) can lag
         # behind HA startup and would otherwise produce dismissable noise.
@@ -3357,7 +3447,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         self._spawn_owned(
             self._post_grace_recheck(
-                self._degraded_grace_until, check_and_update_degraded_mode
+                degraded_grace_until, check_and_update_degraded_mode
             ),
             name=f"bt_post_grace_degraded_{self.device_name}",
         )
@@ -3499,15 +3589,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.device_name,
             )
 
-        # The external room sensor is a required configuration field.
-        if self.sensor_entity_id is None:
-            _LOGGER.error(
-                "better_thermostat %s: no room temperature sensor configured "
-                "(the required 'temperature_sensor' option is missing from "
-                "the config entry); skipping listener registration",
-                self.device_name,
-            )
-            return
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self.sensor_entity_id], self._trigger_temperature_change
@@ -3674,15 +3755,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         hands one over, behind any reading the listener has already queued.
         """
         sensor_entity_id = self.sensor_entity_id
-        if sensor_entity_id is None:
-            return
         sensor_state = self.hass.states.get(sensor_entity_id)
         reading = room_sensor_reading(self, sensor_state)
         if sensor_state is None or reading is None:
             return
-        if self.room_temperature is not None and round(reading, 2) == round(
-            self.room_temperature, 2
-        ):
+        if round(reading, 2) == round(self.room_temperature, 2):
             return
         await self._trigger_temperature_change(
             Event(
@@ -3792,15 +3869,21 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if self.kernel_state.maintenance.is_blocking(self.clock.monotonic()):
             return
 
-        # Check if any TRV actually has maintenance enabled
-        trvs_to_service = collect_maintenance_trvs(self.real_trvs)
+        # Check if any TRV actually has maintenance enabled. A released TRV
+        # is not exercised; a run that would exercise released TRVs only
+        # waits for them like one of a released room.
+        enabled = collect_maintenance_trvs(self.real_trvs)
+        trvs_to_service = [
+            entity_id for entity_id in enabled if not device_released(self, entity_id)
+        ]
 
         region = maintenance_evaluate_tick(
             self.kernel_state.maintenance,
             now,
             window_open=self.contact_open,
             has_enabled_trvs=bool(trvs_to_service),
-            devices_released=self.devices_released,
+            devices_released=self.devices_released
+            or (bool(enabled) and not trvs_to_service),
         )
         self.kernel_state = replace(self.kernel_state, maintenance=region)
 
@@ -3865,10 +3948,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                         pass
 
             # Bind adapter callbacks to self. A run under way when the
-            # devices are released goes on without writing: from then on
-            # the devices are the user's, its restore at the end included.
+            # devices or one TRV are released goes on without writing to
+            # them: from then on they are the user's, the restore at the end
+            # included.
             async def _set_valve(entity_id: str, percent: int) -> bool:
-                if self.devices_released:
+                if device_released(self, entity_id):
                     return False
                 try:
                     ok = await adapter_set_valve(self, entity_id, percent)
@@ -3888,12 +3972,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 # sent back from the TRV once its call returns. Taking the
                 # control lock keeps a maintenance setpoint out of that window.
                 async with self._temperature_lock:
-                    if self.devices_released:
+                    if device_released(self, entity_id):
                         return
                     await adapter_set_temperature(self, entity_id, temperature)
 
             async def _set_mode(entity_id: str, mode: str) -> None:
-                if self.devices_released:
+                if device_released(self, entity_id):
                     return
                 await adapter_set_hvac_mode(self, entity_id, mode)
 
@@ -3987,7 +4071,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         The StateManager is the persistence authority; the RestoreEntity
         attributes only serve as a one-time migration fallback.
         """
-        if self.state_mgr is None:
+        if not self.state_loaded:
             return
         stored_thermal = self.state_mgr.clamped_thermal()
         if stored_thermal.heating_power is not None:
@@ -4017,8 +4101,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     def _record_runtime_to_state(self) -> None:
         """Push the entity-held thermal stats and filters into the StateManager."""
-        if self.state_mgr is None:
-            return
         self.state_mgr.record_thermal(
             ThermalStats(
                 heating_power=self.heating_power, heat_loss_rate=self.heat_loss_rate
@@ -4045,7 +4127,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         Assistant's final-write event (normal shutdown), and repeated
         triggers cannot starve the write.
         """
-        if self.state_mgr is None:
+        if not self.state_loaded:
             return
         self.state_mgr.schedule_delay_save(
             pre_save=self._record_runtime_to_state, delay_seconds=delay_seconds
@@ -4056,9 +4138,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         Delegates to :class:`HeatingPowerTracker` and handles HA side-effects.
         """
-        if self.room_temperature is None:
-            return
-
         current_action = self._compute_hvac_action()
         outdoor_temperature = self._get_outdoor_temperature()
 
@@ -4090,9 +4169,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         Delegates to :class:`HeatLossTracker` and handles HA side-effects.
         """
-        if self.room_temperature is None:
-            return
-
         current_action = self._compute_hvac_action()
 
         result = self._loss_tracker.update(
@@ -4218,6 +4294,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             ATTR_STATE_DOOR_OPEN: self.door_open,
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
             ATTR_STATE_DEVICES_RELEASED: self.devices_released,
+            ATTR_STATE_RELEASED_TRVS: sorted(self.released_trvs),
             ATTR_STATE_PRESET_TEMPERATURE: self.preset_mgr.saved_temperature,
             ATTR_STATE_PRESET_COOL_TEMPERATURE: self._preset_cool_temperature,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
@@ -4233,6 +4310,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 str(override)
                 for override, active in (
                     (Override.DEVICES_RELEASED, self.devices_released),
+                    (Override.TRVS_RELEASED, bool(self.released_trvs)),
                     (Override.LEARNING_PAUSED, self.learning_paused),
                     (
                         Override.WINDOW_DETECTION_OFF,
@@ -4310,7 +4388,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         one of its TRVs is: a room whose sensors fail keeps controlling in
         degraded mode, while a room without any TRV has nothing to control.
         A room whose devices are released controls none of them and stays
-        available with its own settings, whatever the devices do.
+        available with its own settings, whatever the devices do. A TRV
+        released on its own keeps the room available in the same way.
 
         Returns
         -------
@@ -4319,7 +4398,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """
         return self._available and (
             self.devices_released
-            or any(is_trv_available(self, entity_id) for entity_id in self.real_trvs)
+            or any(
+                entity_id in self.released_trvs or is_trv_available(self, entity_id)
+                for entity_id in self.real_trvs
+            )
         )
 
     @property
@@ -4407,7 +4489,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     @override
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
-        return self.room_temperature
+        return self.runtime.room_temperature
 
     @property
     @override
@@ -4421,7 +4503,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         return self._bt_hvac_mode
 
     @bt_hvac_mode.setter
-    def bt_hvac_mode(self, value: HVACMode | None) -> None:
+    def bt_hvac_mode(self, value: HVACMode) -> None:
         """Set the BT-internal HVAC mode and advance the mode region."""
         self._bt_hvac_mode = value
         self.kernel_state = replace(
@@ -4470,8 +4552,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self, previous_action: HVACAction | None, tol: float
     ) -> bool:
         """Apply hysteresis so heating restarts only below target - tolerance."""
-        if self.room_temperature is None:
-            return False
         return should_heat_with_tolerance(
             self.room_temperature, self.heat_target_temperature, tol, previous_action
         )
@@ -5388,6 +5468,79 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         await self._external_temperature_keepalive()
         request_control_cycle(self)
 
+    async def async_set_trv_released(self, entity_id: str, released: bool) -> None:
+        """Hand one TRV to the user, or take it back.
+
+        A released TRV is left alone like one that is unreachable: the
+        decision kernel commands it nothing, nothing it reports becomes the
+        room's mode or target, and an outage of it raises no repair issue.
+        The room's other TRVs and its cooler stay under control. The room's
+        response is then partly the user's doing, so the learners are held
+        while any TRV is released, as while the devices are released. The
+        room's temperature range is bounded by the TRVs it still reads, so a
+        released TRV's narrower range does not cap the others.
+
+        Taking it back resumes as taking the devices back does: an
+        initialisation startup left for it is run, its outage check runs
+        again, the room temperature goes to it if it takes an external one,
+        and one control cycle brings it onto the room's settings. Nothing
+        it held while released becomes the room's.
+
+        Parameters
+        ----------
+        entity_id : str
+            The TRV to release or take back
+        released : bool
+            Whether the TRV is the user's from now on
+        """
+        if entity_id not in self.real_trvs or released == (
+            entity_id in self.released_trvs
+        ):
+            return
+        if released:
+            self.released_trvs.add(entity_id)
+        else:
+            self.released_trvs.discard(entity_id)
+        self.learning_pause_changes += 1
+        _LOGGER.info(
+            "better_thermostat %s: TRV %s %s",
+            self.device_name,
+            entity_id,
+            "released to the user" if released else "taken back",
+        )
+        if released:
+            self.learning_held = True
+            self._heating_tracker.abort_cycle()
+            self._loss_tracker.abort_cycle()
+        self._refresh_temperature_range()
+        await check_critical_entities(self)
+        publish_kernel_verdict(self)
+        self.async_write_ha_state()
+        if released or self.startup_running or self.devices_released:
+            return
+        await self._initialize_arrived_trvs()
+        await self._external_temperature_keepalive()
+        request_control_cycle(self)
+
+    def _restored_released_trvs(self) -> set[str]:
+        """Return the TRVs the saved state names as released one by one.
+
+        Read with the saved state, before the startup that would otherwise
+        initialise them and write to them. A TRV no longer configured for
+        this thermostat drops out.
+        """
+        if self._saved_state is None:
+            return set()
+        saved = self._saved_state.attributes.get(ATTR_STATE_RELEASED_TRVS)
+        if not isinstance(saved, list):
+            return set()
+        configured = {trv["trv"] for trv in self.all_trvs}
+        return {
+            entity_id
+            for entity_id in saved
+            if isinstance(entity_id, str) and entity_id in configured
+        }
+
     async def run_valve_maintenance_service(self) -> None:
         """Entity service: run valve maintenance immediately (ignores schedule).
 
@@ -5395,7 +5548,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         ------
         ServiceValidationError
             when a run is already in progress, no valve of this thermostat
-            has valve maintenance enabled, or the devices are released
+            has valve maintenance enabled, the devices are released, or every
+            valve with valve maintenance enabled is released on its own
         HomeAssistantError
             when the run fails
         """
@@ -5411,12 +5565,26 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 translation_key="devices_released",
                 translation_placeholders={"device_name": self.device_name},
             )
-        trvs_to_service = collect_maintenance_trvs(self.real_trvs)
-        if not trvs_to_service:
+        enabled = collect_maintenance_trvs(self.real_trvs)
+        if not enabled:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="valve_maintenance_not_enabled",
                 translation_placeholders={"device_name": self.device_name},
+            )
+        # A released TRV is not exercised. A run that would exercise only
+        # released TRVs is refused, as it is for a released room.
+        trvs_to_service = [
+            entity_id for entity_id in enabled if entity_id not in self.released_trvs
+        ]
+        if not trvs_to_service:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="trv_released",
+                translation_placeholders={
+                    "device_name": self.device_name,
+                    "entity": ", ".join(enabled),
+                },
             )
         # force immediate run
         self.kernel_state = replace(
@@ -5667,11 +5835,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             when startup has not loaded the learned state yet, or the reset
             fails
         ServiceValidationError
-            when defaults are asked for but there is no numeric target to
-            pick the bucket; nothing is reset then
+            when defaults are asked for but the target is not finite, so it
+            picks no bucket; nothing is reset then
         """
         state_mgr = self.state_mgr
-        if state_mgr is None:
+        if not self.state_loaded:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="pid_state_not_ready",
@@ -5680,11 +5848,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         buckets: list[str] = []
         if apply_pid_defaults:
             target = self.heat_target_temperature
-            if (
-                isinstance(target, bool)
-                or not isinstance(target, (int, float))
-                or not math.isfinite(target)
-            ):
+            if not math.isfinite(target):
                 raise ServiceValidationError(
                     translation_domain=DOMAIN,
                     translation_key="pid_defaults_without_target",
@@ -5754,62 +5918,56 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.device_name,
         )
 
-        last_raw = self.last_known_external_temperature
-        if last_raw is not None:
-            try:
-                _LOGGER.debug(
-                    "better_thermostat %s: updating EMA with last_raw=%s",
-                    self.device_name,
-                    last_raw,
-                )
-
-                published_before = self._minute_tick_attributes()
-
-                # Calculate slope from EMA change
-                old_ema = self.room_temperature_ema
-                old_ts = self._slope_periodic_last_ts
-                now_ts = self.clock.monotonic()
-
-                new_ema = _update_room_temperature_ema(self, float(last_raw))
-
-                if old_ema is not None and old_ts is not None:
-                    elapsed_minutes = (now_ts - old_ts) / 60.0
-                    if elapsed_minutes > 0.1:  # Avoid division by zero or tiny steps
-                        delta_kelvin = new_ema - old_ema
-                        slope = delta_kelvin / elapsed_minutes
-                        self.temperature_slope = slope
-                        _LOGGER.debug(
-                            "better_thermostat %s: periodic slope calc: old_ema=%.3f new_ema=%.3f dt=%.2fmin -> slope=%.4f K/min",
-                            self.device_name,
-                            old_ema,
-                            new_ema,
-                            elapsed_minutes,
-                            slope,
-                        )
-
-                self._slope_periodic_last_ts = now_ts
-
-                _LOGGER.debug(
-                    "better_thermostat %s: periodic EMA result=%.3f",
-                    self.device_name,
-                    new_ema,
-                )
-                # The EMA sensors read the filter from this entity and update
-                # on its state changes, so a write is what publishes the tick.
-                # A tick that moves no published value writes nothing.
-                if self._minute_tick_attributes() != published_before:
-                    self.async_write_ha_state()
-            except Exception as e:
-                _LOGGER.error(
-                    "better_thermostat %s: error in _async_update_ema_periodic: %s",
-                    self.device_name,
-                    e,
-                    exc_info=True,
-                )
-        else:
+        last_raw = self.room_temperature
+        try:
             _LOGGER.debug(
-                "better_thermostat %s: _async_update_ema_periodic skipped (no last_known_external_temperature)",
+                "better_thermostat %s: updating EMA with last_raw=%s",
                 self.device_name,
+                last_raw,
+            )
+
+            published_before = self._minute_tick_attributes()
+
+            # Calculate slope from EMA change
+            old_ema = self.room_temperature_ema
+            old_ts = self._slope_periodic_last_ts
+            now_ts = self.clock.monotonic()
+
+            new_ema = _update_room_temperature_ema(self, float(last_raw))
+
+            if old_ema is not None and old_ts is not None:
+                elapsed_minutes = (now_ts - old_ts) / 60.0
+                if elapsed_minutes > 0.1:  # Avoid division by zero or tiny steps
+                    delta_kelvin = new_ema - old_ema
+                    slope = delta_kelvin / elapsed_minutes
+                    self.temperature_slope = slope
+                    _LOGGER.debug(
+                        "better_thermostat %s: periodic slope calc: old_ema=%.3f new_ema=%.3f dt=%.2fmin -> slope=%.4f K/min",
+                        self.device_name,
+                        old_ema,
+                        new_ema,
+                        elapsed_minutes,
+                        slope,
+                    )
+
+            self._slope_periodic_last_ts = now_ts
+
+            _LOGGER.debug(
+                "better_thermostat %s: periodic EMA result=%.3f",
+                self.device_name,
+                new_ema,
+            )
+            # The EMA sensors read the filter from this entity and update
+            # on its state changes, so a write is what publishes the tick.
+            # A tick that moves no published value writes nothing.
+            if self._minute_tick_attributes() != published_before:
+                self.async_write_ha_state()
+        except Exception as e:
+            _LOGGER.error(
+                "better_thermostat %s: error in _async_update_ema_periodic: %s",
+                self.device_name,
+                e,
+                exc_info=True,
             )
 
     @override
@@ -5876,7 +6034,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         ``None`` before the stored state is loaded and once the entity is
         removed, when its final save is under way or done.
         """
-        return None if self.is_removed else self.state_mgr
+        if self.is_removed or not self.state_loaded:
+            return None
+        return self.state_mgr
 
     async def wait_for_final_save(self) -> None:
         """Wait for the save the removal started, if one is under way."""

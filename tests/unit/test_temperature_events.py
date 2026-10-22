@@ -61,7 +61,6 @@ def mock_bt():
     bt.room_temperature = 20.0
     bt.prev_stable_temperature = 20.0
     bt.last_change_direction = 0
-    bt.last_known_external_temperature = 20.0
     bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
 
     # EMA state
@@ -325,6 +324,46 @@ class TestCommitTemperatureUpdate:
         quirks.maybe_set_external_temperature.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_a_trv_released_on_its_own_is_passed_over(self, mock_bt):
+        """The reading goes to every TRV but the one released on its own."""
+        quirks = _external_temperature_quirks()
+        mock_bt.released_trvs = {"climate.trv1"}
+        mock_bt.real_trvs = {
+            entity_id: trv_record(entity_id=entity_id, model_quirks=quirks)
+            for entity_id in ("climate.trv1", "climate.trv2")
+        }
+
+        await _commit_temperature_update(mock_bt, 21.0)
+
+        quirks.maybe_set_external_temperature.assert_awaited_once_with(
+            mock_bt, "climate.trv2", 21.0
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_trv_released_during_an_earlier_write_gets_nothing(self, mock_bt):
+        """A TRV released while the one before it is written is passed over."""
+
+        async def second_released_during_the_write(_bt, _entity_id, _value):
+            mock_bt.released_trvs = {"climate.trv2"}
+
+        quirks = SimpleNamespace(
+            maybe_set_external_temperature=AsyncMock(
+                side_effect=second_released_during_the_write
+            )
+        )
+        mock_bt.real_trvs = {
+            entity_id: trv_record(entity_id=entity_id, model_quirks=quirks)
+            for entity_id in ("climate.trv1", "climate.trv2", "climate.trv3")
+        }
+
+        await _commit_temperature_update(mock_bt, 21.0)
+
+        assert [
+            call.args[1]
+            for call in quirks.maybe_set_external_temperature.await_args_list
+        ] == ["climate.trv1", "climate.trv3"]
+
+    @pytest.mark.asyncio
     async def test_a_release_during_one_trvs_write_spares_the_next(self, mock_bt):
         """The write under way completes; the TRVs after it get nothing."""
 
@@ -419,35 +458,6 @@ class TestCommitTemperatureUpdate:
         answering.maybe_set_external_temperature.assert_awaited_once_with(
             mock_bt, "climate.trv2", 21.0
         )
-
-    @pytest.mark.asyncio
-    async def test_a_reading_withdrawn_mid_round_is_not_written_on(self, mock_bt):
-        """Heads still waiting for their write get no reading once it is gone.
-
-        The write goes out head by head. A room temperature withdrawn while
-        an earlier head is being written leaves nothing to mirror into the
-        later ones.
-        """
-
-        async def _withdraw(*_args):
-            mock_bt.room_temperature = None
-            return True
-
-        first = SimpleNamespace(
-            maybe_set_external_temperature=AsyncMock(side_effect=_withdraw)
-        )
-        later = _external_temperature_quirks()
-        mock_bt.real_trvs = {
-            "climate.trv1": trv_record(entity_id="climate.trv1", model_quirks=first),
-            "climate.trv2": trv_record(entity_id="climate.trv2", model_quirks=later),
-        }
-
-        await _commit_temperature_update(mock_bt, 21.0)
-
-        first.maybe_set_external_temperature.assert_awaited_once_with(
-            mock_bt, "climate.trv1", 21.0
-        )
-        later.maybe_set_external_temperature.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_a_missing_trv_map_still_starts_a_control_cycle(
@@ -608,17 +618,6 @@ class TestTemperatureAcceptance:
     on both the "significant" and "accumulated" paths, debounce is properly
     enforced for all changes.
     """
-
-    @pytest.mark.asyncio
-    async def test_first_temperature_accepted_when_cur_is_none(self, mock_bt):
-        """Accept the first temperature reading when room_temperature is None."""
-        mock_bt.room_temperature = None
-        event = _make_event(State(SENSOR_ID, "21.0"))
-
-        await trigger_temperature_change(mock_bt, event)
-
-        mock_bt.control_queue_task.put_nowait.assert_called_once()
-        assert mock_bt.room_temperature == 21.0
 
     @pytest.mark.asyncio
     async def test_significant_change_accepted_after_interval(self, mock_bt):
@@ -933,7 +932,6 @@ class TestEdgeCasesAndRobustness:
     @pytest.mark.asyncio
     async def test_minus_50_exactly_accepted(self, mock_bt):
         """Temperature exactly -50.0 is on the inclusive lower bound."""
-        mock_bt.room_temperature = None
         event = _make_event(State(SENSOR_ID, "-50.0"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -1011,7 +1009,6 @@ class TestEdgeCasesAndRobustness:
     @pytest.mark.asyncio
     async def test_60_exactly_accepted(self, mock_bt):
         """Temperature exactly 60.0 is on the inclusive upper bound."""
-        mock_bt.room_temperature = None
         event = _make_event(State(SENSOR_ID, "60.0"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -1021,7 +1018,6 @@ class TestEdgeCasesAndRobustness:
     async def test_control_queue_none_no_crash_in_apply(self, mock_bt):
         """No crash when control_queue_task is None during _commit_temperature_update."""
         mock_bt.control_queue_task = None
-        mock_bt.room_temperature = None
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -1030,7 +1026,6 @@ class TestEdgeCasesAndRobustness:
     @pytest.mark.asyncio
     async def test_ema_failure_does_not_block_update(self, mock_bt):
         """EMA calculation failure should not prevent temperature update."""
-        mock_bt.room_temperature = None
         # Force EMA to fail by making tau_seconds non-numeric
         mock_bt.room_temperature_ema_tau_seconds = "invalid"
         event = _make_event(State(SENSOR_ID, "21.0"))
@@ -1201,7 +1196,7 @@ class TestConcurrentReadings:
             ("climate.trv1", 22.0),
             ("climate.trv2", 22.0),
         ]
-        assert mock_bt.last_known_external_temperature == 22.0
+        assert mock_bt.room_temperature == 22.0
         assert mock_bt.accum_delta == 0.0
         assert mock_bt.pending_temperature is None
 
@@ -1217,7 +1212,7 @@ class TestConcurrentReadings:
 
         assert quirks.max_in_flight == 1
         assert quirks.writes == [("climate.trv1", 21.0), ("climate.trv1", 22.0)]
-        assert mock_bt.last_known_external_temperature == 22.0
+        assert mock_bt.room_temperature == 22.0
 
     @pytest.mark.asyncio
     async def test_cancelled_update_lets_the_next_one_through(self, mock_bt):
@@ -1238,7 +1233,7 @@ class TestConcurrentReadings:
         await queued
 
         assert quirks.writes == [("climate.trv1", 22.0)]
-        assert mock_bt.last_known_external_temperature == 22.0
+        assert mock_bt.room_temperature == 22.0
 
     async def _arm_plateau_timer(self, mock_bt, quirks):
         """Leave 20.05 pending and return the plateau timer it arms.
@@ -1480,7 +1475,6 @@ def _make_thermostat_checkable(mock_bt):
     mock_bt.devices_errors = list[str]()
     mock_bt.devices_states = dict[str, dict[str, str | None]]()
     mock_bt.unavailable_sensors = list[str]()
-    mock_bt._critical_grace_until = None
     mock_bt.kernel_state = KernelState()
     mock_bt.clock = FakeClock()
     # The first of the two readings announces that degraded mode has
@@ -1547,7 +1541,7 @@ class TestArrivalOrder:
             await asyncio.gather(*handlers)
 
         assert quirks.writes == [("climate.trv1", 21.0), ("climate.trv1", 22.0)]
-        assert mock_bt.last_known_external_temperature == 22.0
+        assert mock_bt.room_temperature == 22.0
 
 
 class TestKeepaliveTick:
@@ -1587,7 +1581,7 @@ class TestKeepaliveTick:
             ("climate.trv1", 22.0),
             ("climate.trv2", 22.0),
         ]
-        assert mock_bt.last_known_external_temperature == 22.0
+        assert mock_bt.room_temperature == 22.0
 
 
 class TestPendingReadingAfterTheDebounce:
@@ -1694,19 +1688,6 @@ class TestPendingReadingAfterTheDebounce:
         """
         callback = self._arm(mock_bt)
         mock_bt.hass.states.get.return_value = State(SENSOR_ID, "unavailable")
-        with patch(
-            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
-            new=AsyncMock(),
-        ) as commit:
-            await self._fire(mock_bt, callback)
-
-        commit.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_a_room_without_a_sensor_has_withdrawn_the_reading(self, mock_bt):
-        """Without a room sensor no reading is still reported, so none is applied."""
-        callback = self._arm(mock_bt)
-        mock_bt.sensor_entity_id = None
         with patch(
             "custom_components.better_thermostat.events.temperature._commit_temperature_update",
             new=AsyncMock(),

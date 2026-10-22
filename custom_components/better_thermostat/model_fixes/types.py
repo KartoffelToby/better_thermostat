@@ -21,7 +21,7 @@ provide is an error rather than a promise nobody checks.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine, Mapping
+from collections.abc import Coroutine, Mapping, Set
 from typing import TYPE_CHECKING, Any, Final, Protocol, TypedDict, runtime_checkable
 
 if TYPE_CHECKING:
@@ -115,6 +115,11 @@ class ModelFixHost(Protocol):
         ...
 
     @property
+    def released_trvs(self) -> Set[str]:
+        """The TRVs the user has released one by one; nothing is sent to them."""
+        ...
+
+    @property
     def device_name(self) -> str:
         """Name of the Better Thermostat instance, for log lines."""
         ...
@@ -134,8 +139,8 @@ class ModelFixHost(Protocol):
         ...
 
     @property
-    def sensor_entity_id(self) -> str | None:
-        """Entity id of the room temperature sensor, None when none is set."""
+    def sensor_entity_id(self) -> str:
+        """Entity id of the room temperature sensor."""
         ...
 
     @property

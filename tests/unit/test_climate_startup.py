@@ -60,7 +60,11 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.entry_schema import TrvSettings
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
-from custom_components.better_thermostat.utils.state_manager import ThermalStats
+from custom_components.better_thermostat.utils.state_manager import (
+    FilterState,
+    StateManager,
+    ThermalStats,
+)
 from custom_components.better_thermostat.utils.watcher import BatteryReading
 from tests.factories import ThermostatStandIn, make_trv, trv_record
 
@@ -100,7 +104,9 @@ def bt():
     mock.clock = FakeClock()
     mock.kernel_state = KernelState()
     mock._degraded_grace_until = None
-    mock.state_mgr = None
+    # The learned state is loaded, from a store that holds none yet.
+    mock.state_mgr = StateManager(MagicMock(), "test_entry")
+    mock.state_loaded = True
     mock.hass = MagicMock()
     # climate entities publish no unit attribute, so every temperature read off
     # a child state resolves through the system unit.
@@ -137,13 +143,11 @@ def bt():
     mock._configured_temperature_step = None
     mock.cool_target_temperature = None
     mock.bt_hvac_mode = None
-    mock.room_temperature = None
     mock.room_temperature_filtered = None
     mock.room_temperature_ema = None
     mock._room_temperature_ema_monotonic = None
     mock.room_temperature_ema_tau_seconds = 300.0
     mock.temperature_slope = None
-    mock.last_known_external_temperature = None
     mock._current_humidity = None
     mock.window_open = None
     mock.contact_open = None
@@ -186,6 +190,9 @@ def bt():
     mock._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(
         mock, value
     )
+    mock._refresh_temperature_range = lambda: (
+        BetterThermostat._refresh_temperature_range(mock)
+    )
     mock._applied_target = lambda value, **kwargs: BetterThermostat._applied_target(
         mock, value, **kwargs
     )
@@ -217,6 +224,9 @@ def plateau_bt(bt, hass):
     bt.in_maintenance = False
     bt._control_needed_after_maintenance = False
     bt.last_external_sensor_change = dt_util.now() - timedelta(hours=2)
+    # Startup left the room on a temperature the baseline reading moves
+    # significantly away from.
+    bt.room_temperature = 19.0
     bt.prev_stable_temperature = None
     bt.last_change_direction = 0
     bt.accum_delta = 0.0
@@ -712,6 +722,8 @@ class TestOwnedBackgroundTasks:
         owned_task_bt._unique_id = "uid"
         owned_task_bt._config_entry_id = "entry"
         owned_task_bt.entity_id = "climate.bt_test"
+        owned_task_bt.state_mgr = state_mgr
+        owned_task_bt.state_loaded = False
 
         async def idle_worker(_entity):
             await asyncio.Event().wait()
@@ -719,7 +731,6 @@ class TestOwnedBackgroundTasks:
         module = "custom_components.better_thermostat.climate"
         with (
             patch(f"{module}.control_queue", side_effect=idle_worker),
-            patch(f"{module}.StateManager", return_value=state_mgr),
             patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
         ):
             assert owned_task_bt.task_manager.hass is None
@@ -744,6 +755,8 @@ class TestOwnedBackgroundTasks:
         owned_task_bt._unique_id = "uid"
         owned_task_bt._config_entry_id = "entry"
         owned_task_bt.entity_id = "climate.bt_test"
+        owned_task_bt.state_mgr = state_mgr
+        owned_task_bt.state_loaded = False
 
         async def idle_worker(_entity):
             await asyncio.Event().wait()
@@ -751,7 +764,6 @@ class TestOwnedBackgroundTasks:
         module = "custom_components.better_thermostat.climate"
         with (
             patch(f"{module}.control_queue", side_effect=idle_worker),
-            patch(f"{module}.StateManager", return_value=state_mgr),
             patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
         ):
             await BetterThermostat.async_added_to_hass(owned_task_bt)
@@ -790,6 +802,8 @@ class TestOwnedBackgroundTasks:
         owned_task_bt._unique_id = "uid"
         owned_task_bt._config_entry_id = "entry"
         owned_task_bt.entity_id = "climate.bt_test"
+        owned_task_bt.state_mgr = state_mgr
+        owned_task_bt.state_loaded = False
 
         async def idle_worker(_entity):
             await asyncio.Event().wait()
@@ -797,7 +811,6 @@ class TestOwnedBackgroundTasks:
         module = "custom_components.better_thermostat.climate"
         with (
             patch(f"{module}.control_queue", side_effect=idle_worker),
-            patch(f"{module}.StateManager", return_value=state_mgr),
             patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
         ):
             await BetterThermostat.async_added_to_hass(owned_task_bt)
@@ -817,6 +830,114 @@ class TestOwnedBackgroundTasks:
             if name in {"close", "flush"}
         ]
         assert lifecycle == ["close", "flush"]
+
+
+class TestLoadingTheStoredState:
+    """The entity takes over the learned state only once it is loaded."""
+
+    @staticmethod
+    def _loading(bt, during_load=None):
+        """Wire the entity to a store whose load runs ``during_load`` first."""
+        state_mgr = MagicMock()
+        state_mgr.clamped_thermal.return_value = ThermalStats(heating_power=0.05)
+        state_mgr.filters = FilterState()
+
+        async def load():
+            if during_load is not None:
+                during_load()
+
+        state_mgr.load = AsyncMock(side_effect=load)
+        state_mgr.flush = AsyncMock()
+        bt.all_trvs = list[TrvSettings]()
+        bt._unique_id = "uid"
+        bt._config_entry_id = "entry"
+        bt.entity_id = "climate.bt_test"
+        bt.state_mgr = state_mgr
+        bt.state_loaded = False
+        bt.heating_power = 0.01
+        bt._hydrate_thermal_from_state = lambda: (
+            BetterThermostat._hydrate_thermal_from_state(bt)
+        )
+        return state_mgr
+
+    @staticmethod
+    def _on_remove(bt):
+        return next(
+            call.args[0]
+            for call in bt.async_on_remove.call_args_list
+            if getattr(call.args[0], "__name__", "") == "on_remove"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_rename_finds_the_state_in_memory_only_after_the_load(
+        self, hass, owned_task_bt
+    ):
+        """Before the load a rename is left to it; after the load it is not."""
+        bt = owned_task_bt
+        seen_during_load = []
+        state_mgr = self._loading(
+            bt,
+            during_load=lambda: seen_during_load.append(
+                BetterThermostat.state_in_memory.__get__(bt)
+            ),
+        )
+
+        assert BetterThermostat.state_in_memory.__get__(bt) is None
+        with patch(
+            "custom_components.better_thermostat.climate.migrate_v0_stores",
+            new=AsyncMock(),
+        ):
+            await BetterThermostat.async_added_to_hass(bt)
+
+        assert seen_during_load == [None]
+        assert bt.state_loaded is True
+        assert BetterThermostat.state_in_memory.__get__(bt) is state_mgr
+        assert bt.heating_power == 0.05
+        await BetterThermostat.async_will_remove_from_hass(bt)
+        await hass.async_block_till_done()
+
+    @pytest.mark.asyncio
+    async def test_a_removal_during_the_load_saves_nothing(self, hass, owned_task_bt):
+        """The load of a removed entity is closed and neither saved nor applied."""
+        bt = owned_task_bt
+
+        def remove_during_load():
+            self._on_remove(bt)()
+
+        state_mgr = self._loading(bt, during_load=remove_during_load)
+        with patch(
+            "custom_components.better_thermostat.climate.migrate_v0_stores",
+            new=AsyncMock(),
+        ):
+            await BetterThermostat.async_added_to_hass(bt)
+        await hass.async_block_till_done()
+
+        assert bt.state_loaded is False
+        assert BetterThermostat.state_in_memory.__get__(bt) is None
+        state_mgr.close.assert_called_once_with()
+        state_mgr.flush.assert_not_awaited()
+        state_mgr.forget_thermostats_except.assert_not_called()
+        assert bt._final_flush_task is None
+        assert bt.heating_power == 0.01
+
+    @pytest.mark.asyncio
+    async def test_a_removal_after_the_load_saves_the_state(self, hass, owned_task_bt):
+        """Once the state is loaded, the removal writes it and lets go of it."""
+        bt = owned_task_bt
+        state_mgr = self._loading(bt)
+        with patch(
+            "custom_components.better_thermostat.climate.migrate_v0_stores",
+            new=AsyncMock(),
+        ):
+            await BetterThermostat.async_added_to_hass(bt)
+
+        await BetterThermostat.async_will_remove_from_hass(bt)
+        self._on_remove(bt)()
+        await hass.async_block_till_done()
+
+        assert BetterThermostat.state_in_memory.__get__(bt) is None
+        state_mgr.close.assert_called_once_with()
+        state_mgr.flush.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -965,6 +1086,61 @@ class TestCheckEntitiesReady:
         assert BetterThermostat._check_entities_ready(bt, sensor) is False
 
     @pytest.mark.parametrize(
+        ("released_trvs", "ready"),
+        [
+            pytest.param(set(), True, id="none_released"),
+            pytest.param({TRV_ID}, False, id="only_the_available_trv_released"),
+            pytest.param({TRV_ID, TRV_ID_2}, True, id="every_trv_released"),
+        ],
+    )
+    def test_a_released_trv_is_not_one_the_room_starts_on(
+        self, bt, released_trvs, ready
+    ):
+        """Past the window, the room needs a TRV it controls, or none to control.
+
+        The first TRV reports and the second is gone. Released, the first
+        leaves no TRV to start on, and the room waits as one whose TRVs are
+        all gone does; with both released it starts.
+        """
+        sensor = _make_sensor_state()
+        _arm_grace(bt, remaining=timedelta(seconds=-1))
+        _two_trvs_second_gone(bt)
+        bt.released_trvs = released_trvs
+
+        assert BetterThermostat._check_entities_ready(bt, sensor) is ready
+
+    @pytest.mark.parametrize(
+        ("devices_released", "released_trvs", "ready"),
+        [
+            pytest.param(False, {TRV_ID}, False, id="one_trv_released"),
+            pytest.param(False, {TRV_ID, TRV_ID_2}, True, id="every_trv_released"),
+            pytest.param(True, set(), True, id="devices_released"),
+        ],
+    )
+    def test_a_room_with_every_trv_released_starts_without_them(
+        self, bt, devices_released, released_trvs, ready
+    ):
+        """A room that controls no TRV does not wait for one after the window.
+
+        With a TRV still under control the room waits for it, as above;
+        with every TRV released, one by one or with the room's devices, it
+        starts on its saved state.
+        """
+        sensor = _make_sensor_state()
+        _arm_grace(bt, remaining=timedelta(seconds=-1))
+        bt.real_trvs = {
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
+        }
+        bt.devices_released = devices_released
+        bt.released_trvs = released_trvs
+        bt.hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, STATE_UNAVAILABLE
+        )
+
+        assert BetterThermostat._check_entities_ready(bt, sensor) is ready
+
+    @pytest.mark.parametrize(
         "sensor",
         [None, State(SENSOR_ID, STATE_UNAVAILABLE), State(SENSOR_ID, STATE_UNKNOWN)],
         ids=["absent", "unavailable", "unknown"],
@@ -1057,6 +1233,71 @@ def _two_trvs_second_gone(bt) -> None:
 
 class TestCollectTrvStates:
     """Tests for _collect_trv_states."""
+
+    @pytest.mark.parametrize(
+        ("released_trvs", "read"),
+        [
+            pytest.param(set(), [TRV_ID, TRV_ID_2, COOLER_ID], id="none_released"),
+            pytest.param({TRV_ID}, [TRV_ID_2, COOLER_ID], id="one_released"),
+            pytest.param(
+                {TRV_ID, TRV_ID_2}, [TRV_ID, TRV_ID_2, COOLER_ID], id="every_released"
+            ),
+        ],
+    )
+    def test_a_trv_released_on_its_own_is_not_read(self, bt, released_trvs, read):
+        """Startup takes nothing from a TRV the user has, unless all of them are.
+
+        With every TRV released the room reads them, as a room whose devices
+        are released does. The separate cooler is read either way.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.real_trvs = {
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
+        }
+        bt.released_trvs = released_trvs
+        bt.hass.states.get.side_effect = _make_trv_state
+
+        result = BetterThermostat._collect_trv_states(bt)
+
+        assert [state.entity_id for state in result] == read
+
+    def test_a_cooler_that_is_a_released_trv_is_not_read(self, bt):
+        """A device wired as TRV and as cooler, released, is left out in both roles."""
+        bt.cooler_entity_id = TRV_ID
+        bt.real_trvs = {
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
+        }
+        bt.released_trvs = {TRV_ID}
+        bt.hass.states.get.side_effect = _make_trv_state
+
+        result = BetterThermostat._collect_trv_states(bt)
+
+        assert [state.entity_id for state in result] == [TRV_ID_2]
+
+    @pytest.mark.parametrize(
+        ("released_trvs", "taken"),
+        [
+            pytest.param({TRV_ID}, (TRV_ID_2, 18.0), id="one_released"),
+            pytest.param({TRV_ID, TRV_ID_2}, (TRV_ID, 23.0), id="every_released"),
+        ],
+    )
+    def test_the_temperature_stand_in_skips_a_released_trv(
+        self, bt, released_trvs, taken
+    ):
+        """Without a room sensor, the room starts on a TRV it controls."""
+        bt.real_trvs = {
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
+        }
+        bt.released_trvs = released_trvs
+        readings = {TRV_ID: 23.0, TRV_ID_2: 18.0}
+        bt.hass.states.get.side_effect = lambda entity_id: _make_trv_state(
+            entity_id, attrs={"current_temperature": readings[entity_id]}
+        )
+
+        assert BetterThermostat._first_plausible_trv_temperature(bt) == taken
 
     def test_collects_single_trv(self, bt):
         """Collect state for a single TRV."""
@@ -1351,9 +1592,9 @@ class TestInitializeSensors:
         sensor = _make_sensor_state("21.5")
         with patch(
             "custom_components.better_thermostat.climate._update_room_temperature_ema"
-        ):
+        ) as update_ema:
             BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.last_known_external_temperature is not None
+        update_ema.assert_called_once_with(bt, 21.5)
 
 
 # ---------------------------------------------------------------------------

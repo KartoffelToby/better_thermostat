@@ -71,10 +71,11 @@ def _thermostat() -> ThermostatStandIn:
     bt.hass = MagicMock()
     bt.device_name = "drift-guard"
     bt.sensor_entity_id = _SENSOR
-    bt.room_temperature = None
+    # Startup takes the sensor's reading as the room temperature, so the
+    # handler only ever sees readings after that first one.
+    bt.room_temperature = _SEQUENCE[0][1]
     bt.prev_stable_temperature = None
     bt.last_change_direction = 0
-    bt.last_known_external_temperature = None
     bt.last_external_sensor_change = None
     bt.room_temperature_ema_tau_seconds = ROOM_TEMPERATURE_EMA_TAU_S
     bt._room_temperature_ema_monotonic = None

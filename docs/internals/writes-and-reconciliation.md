@@ -90,6 +90,16 @@ for the next TRV each check the switch before they go out. Taking them
 back requests one control cycle, which writes the differences like any
 other.
 
+A TRV released on its own goes through the same checks, keyed by its
+entity id: every write above asks whether the room's devices or this TRV
+are released (`device_released()`), so a cycle and the writes outside it
+pass the released TRV over and serve the others. The kernel drops the TRV
+from its intents, the control queue does not dispatch it, the mode cache
+refresh at the end of a cycle and the reading of reports held during it
+leave it alone, and the reconciler, which compares only addressed TRVs,
+never sees it. A cooler that is also one of the room's TRVs is released
+with it.
+
 ## The write budget
 
 Non-safety writes to one TRV keep a minimum spacing of 30 seconds,

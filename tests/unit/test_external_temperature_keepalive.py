@@ -157,18 +157,35 @@ async def test_a_release_while_the_tick_waits_for_its_turn_sends_nothing():
 
 
 @pytest.mark.asyncio
-async def test_the_tick_writes_nothing_without_a_room_temperature():
-    """No reading means no value to keep alive."""
-    bt = ThermostatStandIn()
-    bt.device_name = "Test BT"
-    bt.room_temperature = None
+async def test_the_tick_passes_over_a_trv_released_on_its_own():
+    """A TRV released on its own falls back on its own; the other is kept alive."""
     quirks = MagicMock()
-    quirks.maybe_set_external_temperature = AsyncMock()
-    bt.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID, model_quirks=quirks)}
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    bt.released_trvs = {TRV_ID}
 
     await BetterThermostat._external_temperature_keepalive(bt)
 
-    quirks.maybe_set_external_temperature.assert_not_awaited()
+    assert _written_values(quirks) == [(TRV_ID_2, ROOM_TEMPERATURE)]
+
+
+@pytest.mark.asyncio
+async def test_a_trv_released_during_the_tick_gets_nothing():
+    """The second TRV is released while the first is written, and is passed over."""
+    quirks = MagicMock()
+    bt = _bt_with_two_trvs(quirks)
+
+    async def second_released_during_the_write(_bt, _entity_id, _value):
+        bt.released_trvs = {TRV_ID_2}
+        return True
+
+    quirks.maybe_set_external_temperature = AsyncMock(
+        side_effect=second_released_during_the_write
+    )
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirks) == [(TRV_ID, ROOM_TEMPERATURE)]
 
 
 @pytest.mark.parametrize(
@@ -218,19 +235,6 @@ async def test_a_sensor_lost_during_the_tick_stops_the_writes_after_it():
     await BetterThermostat._external_temperature_keepalive(bt)
 
     assert quirks.maybe_set_external_temperature.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_the_tick_writes_nothing_without_a_room_sensor():
-    """A room without a sensor has no measured temperature to mirror."""
-    quirks = MagicMock()
-    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
-    bt = _bt_with_two_trvs(quirks)
-    bt.sensor_entity_id = None
-
-    await BetterThermostat._external_temperature_keepalive(bt)
-
-    quirks.maybe_set_external_temperature.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

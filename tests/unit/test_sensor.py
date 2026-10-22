@@ -1616,6 +1616,29 @@ class TestCleanupPidSwitchEntities:
         )
         reg.async_remove.assert_called_once()
 
+    @pytest.mark.parametrize(
+        ("trv", "removed"), [("trv_removed", True), ("trv_1", False)]
+    )
+    @pytest.mark.asyncio
+    async def test_the_release_switch_goes_with_its_trv(self, trv, removed):
+        """A TRV's release switch is removed with the TRV and kept while it stays."""
+        tracked = TrackedEntities()
+        reg = _make_entity_registry()
+        reg.async_get_entity_id.return_value = "switch.release"
+        tracked.switches = {"uid_release": SwitchRef(trv, SwitchKind.RELEASE_TRV)}
+        bt = _make_bt_climate(
+            real_trvs={
+                "trv_1": trv_record(
+                    entity_id="trv_1",
+                    advanced={CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT},
+                )
+            }
+        )
+        await _cleanup_pid_switch_entities(
+            hass=MagicMock(), entity_registry=reg, tracked=tracked, bt_climate=bt
+        )
+        assert reg.async_remove.called is removed
+
     @pytest.mark.asyncio
     async def test_keeps_child_lock_for_existing_trv(self):
         """Keeps child lock for existing trv."""
@@ -1652,9 +1675,13 @@ class TestCleanupPidSwitchEntities:
             hass=MagicMock(), entity_registry=reg, tracked=tracked, bt_climate=bt
         )
         tracked_switches = tracked.switches
-        # Should have pid_auto_tune + child_lock for trv_1
+        # Should have pid_auto_tune + child_lock + release for trv_1
         kinds = {v.kind for v in tracked_switches.values() if v.trv == "trv_1"}
-        assert kinds == {SwitchKind.PID_AUTO_TUNE, SwitchKind.CHILD_LOCK}
+        assert kinds == {
+            SwitchKind.PID_AUTO_TUNE,
+            SwitchKind.CHILD_LOCK,
+            SwitchKind.RELEASE_TRV,
+        }
 
     @pytest.mark.asyncio
     async def test_child_lock_for_no_real_trvs(self):

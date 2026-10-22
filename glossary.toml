@@ -309,9 +309,16 @@ rejected = []
 note = "A `HeatingBlock` value on `DesiredState`, published as `ATTR_STATE_HEATING_BLOCKED_BY`. The window, door and no-call-for-heat blocks share their word with the `Suppression` on the TRV intents."
 
 [[term]]
+name = "released_trvs"
+zone = "C"
+definition = "The TRVs the user has released one by one, by entity id: Better Thermostat leaves each alone like an unreachable TRV while the room's other TRVs are controlled."
+rejected = []
+note = "Published and restored as `ATTR_STATE_RELEASED_TRVS`; reaches the kernel as `TrvReported.released`. `device_released()` answers for one device, with the room's `devices_released` included."
+
+[[term]]
 name = "active_overrides"
 zone = "C"
-definition = "The switches the user holds away from their default: devices released, learning paused, window detection off."
+definition = "The switches the user holds away from their default: devices released, TRVs released on their own, learning paused, window detection off."
 rejected = []
 note = "Published as `ATTR_STATE_ACTIVE_OVERRIDES`, a list of `Override` values, whatever the kernel decides."
 

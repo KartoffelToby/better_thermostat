@@ -13,6 +13,8 @@ from collections.abc import Awaitable, Callable, Mapping
 import contextlib
 from dataclasses import dataclass, replace
 from datetime import timedelta
+import importlib
+import logging
 import time
 from unittest.mock import MagicMock, patch
 
@@ -27,7 +29,11 @@ from homeassistant.components.weather import (
 )
 from homeassistant.const import EVENT_CALL_SERVICE
 from homeassistant.core import Context, HomeAssistant, SupportsResponse
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_registry as er,
+    issue_registry as ir,
+)
 from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -36,10 +42,15 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.better_thermostat import climate as climate_module
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.watchdog import WATCHDOG_MAX_AGE_S
-from custom_components.better_thermostat.model_fixes import TRVZB, ZWA021
+from custom_components.better_thermostat.model_fixes import (
+    TRVZB,
+    ZWA021,
+    default as default_quirks,
+)
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
 )
@@ -1277,6 +1288,209 @@ async def test_a_head_that_arrives_after_the_room_started_follows_the_room(
 
     for head in trv_group.entities:
         assert_write_is(head.set_temperature_calls[-1], 23.0, head.profile)
+
+
+SHTRV_01 = importlib.import_module(
+    "custom_components.better_thermostat.model_fixes.SHTRV-01"
+)
+"""A quirk module whose lowest setpoint lies one step above the published one.
+
+The lowest setpoint is read when a head is initialised, so it shows whether
+the initialisation ran on the quirks of the model or on the ones before.
+"""
+
+SHTRV_01_LOWEST_SETPOINT_STEP = 0.5
+"""How far above the published minimum the SHTRV-01 quirk puts the lowest one."""
+
+
+def registered_pair(model: str | None) -> GroupScenario:
+    """Return two plain heads whose devices are in the device registry.
+
+    ``model`` is what the registry entry of each device reports at boot.
+    """
+    return GroupScenario(
+        name=f"registered_pair_{model or 'unnamed'}",
+        profiles=tuple(
+            replace(profile, has_device_registry_entry=True, model=model)
+            for profile in GROUP_OF_THREE.profiles[:2]
+        ),
+    )
+
+
+def name_device_model(hass, head: SimulatedClimate, model: str | None) -> None:
+    """Let the device registry report ``model`` for the device of ``head``."""
+    registry_entry = er.async_get(hass).async_get(head.entity_id)
+    assert registry_entry is not None
+    assert registry_entry.device_id is not None
+    dr.async_get(hass).async_update_device(registry_entry.device_id, model=model)
+
+
+def model_refreshes(caplog) -> list[str]:
+    """Return the log lines that announce a head taking up a newer model."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.INFO
+        and "device registry now names model" in record.getMessage()
+    ]
+
+
+@pytest.mark.parametrize(
+    "trv_group", [registered_pair(None)], indirect=True, ids=profile_id
+)
+async def test_a_head_the_registry_names_after_the_room_started_gets_its_quirks(
+    hass, trv_group, caplog
+):
+    """A head whose model is known only once it arrives runs on that model.
+
+    The model is resolved when the room is added, and the integration of a
+    head that is not there yet may not have named its device's model by
+    then. The head is initialised once it arrives, and it is initialised as
+    the model the registry names by then, with that model's quirks deciding
+    what the initialisation derives. The head that was there from the start
+    keeps the model it was initialised as.
+    """
+    caplog.set_level(logging.INFO, logger="custom_components.better_thermostat")
+    present, absent = trv_group.entities
+    with patch(CRITICAL_GRACE, NO_GRACE):
+        bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
+        bt = await wait_for_startup(hass, entry)
+    late = bt.real_trvs[absent.entity_id]
+    assert (late.model, late.model_quirks) == ("Generic", default_quirks)
+
+    name_device_model(hass, absent, "SHTRV-01")
+    absent.set_available(True)
+
+    assert await wait_for(hass, lambda: not late.awaiting_initialization)
+    assert late.model == "SHTRV-01"
+    assert late.model_quirks is SHTRV_01
+    assert late.min_temp == pytest.approx(
+        absent.profile.min_temp + SHTRV_01_LOWEST_SETPOINT_STEP
+    )
+    assert model_refreshes(caplog) == [
+        f"better_thermostat {bt.device_name}: device registry now names model "
+        f"'SHTRV-01' for {absent.entity_id} (was 'Generic'); loading its model "
+        "quirks"
+    ]
+    first = bt.real_trvs[present.entity_id]
+    assert (first.model, first.model_quirks) == ("Generic", default_quirks)
+    assert first.min_temp == pytest.approx(present.profile.min_temp)
+
+
+@pytest.mark.parametrize(
+    "trv_group", [registered_pair(None)], indirect=True, ids=profile_id
+)
+async def test_a_head_the_registry_names_while_the_room_waits_gets_its_quirks(
+    hass, trv_group, caplog
+):
+    """A head named while startup still waits for it starts on that model.
+
+    Inside the grace window the room waits for every head, and the model of
+    a head that is not there yet may be named meanwhile. Startup initialises
+    it as the model the registry names when it does.
+    """
+    caplog.set_level(logging.INFO, logger="custom_components.better_thermostat")
+    absent = trv_group[1]
+    bt, entry = await boot_with_heads_gone(
+        hass, trv_group, [absent], grace=STARTUP_GRACE
+    )
+    assert bt.startup_running
+    late = bt.real_trvs[absent.entity_id]
+    assert (late.model, late.model_quirks) == ("Generic", default_quirks)
+
+    name_device_model(hass, absent, "SHTRV-01")
+    absent.set_available(True)
+    bt = await wait_for_startup(hass, entry)
+
+    assert late.model == "SHTRV-01"
+    assert late.model_quirks is SHTRV_01
+    assert late.min_temp == pytest.approx(
+        absent.profile.min_temp + SHTRV_01_LOWEST_SETPOINT_STEP
+    )
+    assert len(model_refreshes(caplog)) == 1
+
+
+@pytest.mark.parametrize(
+    "trv_group", [registered_pair(None)], indirect=True, ids=profile_id
+)
+async def test_a_head_whose_new_quirks_fail_to_load_keeps_its_model(
+    hass, trv_group, caplog
+):
+    """A head whose newly named model cannot be loaded starts as it was.
+
+    Loading the quirks of the model the registry names by then is one step of
+    the initialisation; when it fails, the head keeps the model and the
+    quirks it was added with, and startup goes on with it and the other head.
+    """
+    absent = trv_group[1]
+    load_model_quirks = climate_module.load_model_quirks
+
+    async def refuse_the_new_model(bt, model, entity_id):
+        if model == "SHTRV-01":
+            raise RuntimeError("quirk module failed to import")
+        return await load_model_quirks(bt, model, entity_id)
+
+    with patch(
+        "custom_components.better_thermostat.climate.load_model_quirks",
+        autospec=True,
+        side_effect=refuse_the_new_model,
+    ):
+        bt, entry = await boot_with_heads_gone(
+            hass, trv_group, [absent], grace=STARTUP_GRACE
+        )
+        late = bt.real_trvs[absent.entity_id]
+        name_device_model(hass, absent, "SHTRV-01")
+        absent.set_available(True)
+        bt = await wait_for_startup(hass, entry)
+
+    assert not bt.startup_running
+    assert (late.model, late.model_quirks) == ("Generic", default_quirks)
+    assert late.min_temp == pytest.approx(absent.profile.min_temp)
+    assert any(
+        "Error refreshing the model of TRV" in record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.ERROR
+    )
+
+
+@pytest.mark.parametrize(
+    ("trv_group", "model_at_arrival", "model"),
+    [
+        pytest.param(registered_pair(None), None, "Generic", id="never_named"),
+        pytest.param(
+            registered_pair("SHTRV-01"), "SHTRV-01", "SHTRV-01", id="named_the_same"
+        ),
+        pytest.param(
+            registered_pair("SHTRV-01"), None, "SHTRV-01", id="no_longer_named"
+        ),
+    ],
+    indirect=["trv_group"],
+)
+async def test_a_head_whose_model_the_registry_does_not_change_keeps_its_quirks(
+    hass, trv_group, model_at_arrival, model, caplog
+):
+    """A head arriving as the model it was resolved as is not resolved again.
+
+    That is a registry that names the model it named when the room was
+    added, and a registry that names no model, whether it never named one or
+    no longer does: the head keeps the model and the quirks it has.
+    """
+    caplog.set_level(logging.INFO, logger="custom_components.better_thermostat")
+    absent = trv_group[1]
+    with patch(CRITICAL_GRACE, NO_GRACE):
+        bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
+        bt = await wait_for_startup(hass, entry)
+    late = bt.real_trvs[absent.entity_id]
+    quirks = late.model_quirks
+    assert late.model == model
+
+    name_device_model(hass, absent, model_at_arrival)
+    absent.set_available(True)
+
+    assert await wait_for(hass, lambda: not late.awaiting_initialization)
+    assert late.model == model
+    assert late.model_quirks is quirks
+    assert model_refreshes(caplog) == []
 
 
 MAINTENANCE_EXERCISE = (

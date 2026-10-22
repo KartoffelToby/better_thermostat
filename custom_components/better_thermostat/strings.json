@@ -425,6 +425,7 @@
             "name": "Active overrides",
             "state": {
               "devices_released": "Devices released",
+              "trvs_released": "TRVs released",
               "learning_paused": "Learning paused",
               "window_detection_off": "Window detection off"
             }
@@ -530,6 +531,12 @@
     "switch": {
       "release_devices": {
         "name": "Release devices"
+      },
+      "release_trv": {
+        "name": "{trv_name} Release"
+      },
+      "release_trv_no_trv": {
+        "name": "TRV Release"
       },
       "pid_auto_tune": {
         "name": "{trv_name} PID Auto Tune"
@@ -664,6 +671,9 @@
     },
     "devices_released": {
       "message": "The devices of {device_name} are released. Turn off Release devices to let Better Thermostat control them again."
+    },
+    "trv_released": {
+      "message": "These TRVs of {device_name} are released: {entity}. Turn off their release switch to let Better Thermostat control them again."
     }
   }
 }

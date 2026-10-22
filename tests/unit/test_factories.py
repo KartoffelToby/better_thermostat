@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.climate.const import HVACAction
+from homeassistant.const import UnitOfTemperature
 import pytest
 
 from custom_components.better_thermostat.calibration import (
@@ -10,9 +11,12 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_setpoint,
 )
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.containers import BtConfig, BtRuntime
 from custom_components.better_thermostat.core.decide import decide
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
+from custom_components.better_thermostat.utils.state_manager import StateManager
 from tests.factories import (
     DEFAULT_TRV_ID,
     STAND_IN_DEFAULTS,
@@ -74,12 +78,31 @@ def test_the_stand_in_answers_constructor_bookkeeping():
     bt = ThermostatStandIn()
 
     assert bt.unavailable_sensors == []
-    assert bt._critical_grace_until is None
+    assert bt._critical_grace_until < FakeClock().now()
     assert bt._outdoor_check_lock is None
     assert bt.flight_recorder.export() == []
     assert bt.task_manager.tasks == set()
     assert bt.task_manager.hass is None
     assert bt.unique_id is None
+
+
+def test_the_stand_in_answers_the_unarmed_critical_grace_as_constructed():
+    """The grace deadline a stand-in answers is the one a new thermostat holds."""
+    thermostat = BetterThermostat(
+        config=BtConfig(sensor_entity_id="sensor.room_temperature"),
+        trv_configs=[],
+        min_target_temperature=None,
+        max_target_temperature=None,
+        target_temperature_step=None,
+        enabled_presets=None,
+        unit=UnitOfTemperature.CELSIUS,
+        unique_id="stand_in_defaults",
+        state_mgr=StateManager(MagicMock(), "stand_in_defaults"),
+        device_class=None,
+        state_class=None,
+    )
+
+    assert ThermostatStandIn()._critical_grace_until == thermostat._critical_grace_until
 
 
 def test_each_stand_in_gets_its_own_defaults():
@@ -97,6 +120,16 @@ def test_the_unique_id_answers_from_the_private_id():
     bt._unique_id = "entry_1"
 
     assert bt.unique_id == "entry_1"
+
+
+def test_the_current_temperature_answers_from_the_room_temperature():
+    """``current_temperature`` publishes the room temperature, as the property does."""
+    thermostat = BetterThermostat.__new__(BetterThermostat)
+    thermostat.runtime = BtRuntime(heat_target_temperature=21.0, room_temperature=20.5)
+    bt = ThermostatStandIn()
+    bt.room_temperature = 20.5
+
+    assert bt.current_temperature == thermostat.current_temperature == 20.5
 
 
 @pytest.mark.parametrize("given", [True, False])

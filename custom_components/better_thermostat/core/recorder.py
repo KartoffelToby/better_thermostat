@@ -283,6 +283,9 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
         trvs[entity_id] = TrvReported(
             entity_id=_str_of(raw["entity_id"]),
             available=_bool_of(raw["available"]),
+            # An export from before a TRV could be released on its own
+            # carries no such key; none of its TRVs was.
+            released=_bool_of(raw.get("released", False)),
             hvac_mode=parse_hvac_mode(_str_or_none(raw["hvac_mode"])),
             current_temperature=_float_or_none(raw["current_temperature"]),
             setpoint=_float_or_none(raw["setpoint"]),

@@ -238,6 +238,7 @@ async def _worst_case_write_ladder_seconds():
     host = SimpleNamespace(
         device_name="Test BT",
         devices_released=False,
+        released_trvs=set(),
         real_trvs={"climate.trv": SimpleNamespace(unreachable_write_channels={})},
     )
     write = AsyncMock(side_effect=HomeAssistantError("device unreachable"))

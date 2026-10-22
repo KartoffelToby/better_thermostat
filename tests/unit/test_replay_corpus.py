@@ -95,6 +95,30 @@ def _scenarios() -> dict[str, tuple[WorldSnapshot, KernelState]]:
                 }
             ),
         ),
+        "trv_released": (
+            make_snapshot(
+                trvs={
+                    "climate.trv1": TrvReported(
+                        entity_id="climate.trv1", released=True
+                    ),
+                    "climate.trv2": TrvReported(entity_id="climate.trv2"),
+                }
+            ),
+            make_state(),
+        ),
+        "every_trv_released": (
+            make_snapshot(
+                trvs={
+                    "climate.trv1": TrvReported(
+                        entity_id="climate.trv1", released=True
+                    ),
+                    "climate.trv2": TrvReported(
+                        entity_id="climate.trv2", available=False, released=True
+                    ),
+                }
+            ),
+            make_state(),
+        ),
         "hold_rung": (
             make_snapshot(room_temperature=None),
             make_state(

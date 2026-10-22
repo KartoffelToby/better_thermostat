@@ -27,6 +27,7 @@ from custom_components.better_thermostat.model_fixes.types import (
     ValveQuirk,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    device_released,
     is_sibling_entry,
     state_is_live,
 )
@@ -294,12 +295,12 @@ async def maybe_set_sonoff_valve_percent(
     bool
             True when the requested position went out, False when no
             number entity matched, the device refused one of the writes or
-            the devices are released
+            the device is released
     """
     # A position that follows an earlier write, the close after a bump or
-    # a fallback after a refused bump, is not sent once the devices are the
+    # a fallback after a refused bump, is not sent once the device is the
     # user's. The opening and closing degree of one position go out together.
-    if self.devices_released:
+    if device_released(self, entity_id):
         return False
     try:
         candidates = _valve_number_candidates(self, entity_id)
@@ -873,7 +874,7 @@ async def maybe_set_external_temperature(
         # A room sensor on the TRV's own device is the TRV's reading: mirroring
         # it back would freeze it at the value of the first write. A selector
         # an earlier write left on the remote option is moved back.
-        room_sensor = entity_registry.async_get(self.sensor_entity_id or "")
+        room_sensor = entity_registry.async_get(self.sensor_entity_id)
         if (
             room_sensor is not None
             and room_sensor.device_id is not None
@@ -929,8 +930,8 @@ async def maybe_set_external_temperature(
         )
         # The value just written only reaches the control loop of a device
         # that is regulating on it. The selector is a write of its own, and
-        # none goes out once the devices are the user's.
-        if self.devices_released:
+        # none goes out once the device is the user's.
+        if device_released(self, entity_id):
             return True
         await maybe_select_external_sensor(self, entity_id)
         return True

@@ -204,6 +204,7 @@ class TestCollectMaintenanceTrvs:
                         "advanced": {"valve_maintenance": stored},
                     }
                 ],
+                "temperature_sensor": "sensor.room_temperature",
             }
         )
         advanced = settings["thermostat"][0].get("advanced", {})

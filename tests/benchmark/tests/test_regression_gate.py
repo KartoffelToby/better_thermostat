@@ -49,7 +49,7 @@ _DIMENSIONS = ("overall", "comfort", "actuator", "energy")
 # below the measured value and rounded down to the hundredth.
 _FLOORS: dict[str, dict[str, float]] = {
     "mpc": {"overall": 0.68, "comfort": 0.83, "actuator": 0.25, "energy": 0.98},
-    "mpc_v2": {"overall": 0.89, "comfort": 0.96, "actuator": 0.72, "energy": 0.97},
+    "mpc_v2": {"overall": 0.89, "comfort": 0.97, "actuator": 0.72, "energy": 0.97},
     "pid": {"overall": 0.77, "comfort": 0.77, "actuator": 0.63, "energy": 0.97},
     "tpi": {"overall": 0.76, "comfort": 0.65, "actuator": 0.79, "energy": 0.98},
     "default": {"overall": 0.59, "comfort": 0.25, "actuator": 0.91, "energy": 0.98},

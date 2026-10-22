@@ -12,6 +12,7 @@ from typing import Any, Literal
 from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACMode
+import pytest
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -28,7 +29,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
 from custom_components.better_thermostat.utils.telemetry import MpcV2Balance
-from tests.factories import make_calibration_balance, trv_record
+from tests.factories import trv_record
 
 
 class _FakeStateManager:
@@ -254,44 +255,6 @@ def test_hvac_off_returns_none() -> None:
     assert real_trvs["climate.x"].calibration_balance is None
 
 
-def test_dispatch_without_a_state_store_publishes_no_valve() -> None:
-    """Before the store is loaded there is no controller state to run on.
-
-    A valve intent from an earlier cycle must not outlive the missing store.
-    """
-    real_trvs = {
-        "climate.x": _make_trv(
-            "climate.x", current_temperature=19.0, supports_valve=True
-        )
-    }
-    real_trvs["climate.x"].calibration_balance = make_calibration_balance(
-        CalibrationMode.MPC_V2_CALIBRATION, valve_percent=80, apply_valve=True
-    )
-    bt = _make_bt(real_trvs=real_trvs)
-    bt.state_mgr = None
-
-    out, supports = _compute_mpc_v2_balance(bt, "climate.x")
-
-    assert out is None
-    assert supports is False
-    assert real_trvs["climate.x"].calibration_balance is None
-
-
-def test_missing_room_temperature_returns_none() -> None:
-    """A missing BT room temperature short-circuits the dispatch."""
-    real_trvs = {
-        "climate.x": _make_trv(
-            "climate.x", current_temperature=19.0, supports_valve=True
-        )
-    }
-    bt = _make_bt(real_trvs=real_trvs)
-    bt.room_temperature = None
-
-    out, supports = _compute_mpc_v2_balance(bt, "climate.x")
-    assert out is None
-    assert supports is False
-
-
 def test_daqp_absence_uses_portable_solver(monkeypatch) -> None:
     """MPC v2 keeps dispatching through the portable solver without DAQP."""
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
@@ -411,3 +374,27 @@ def test_a_late_position_report_does_not_revert_the_written_opening(
 
     assert second is not None
     assert second.valve_percent == first.valve_percent
+
+
+@pytest.mark.parametrize(
+    ("mode", "from_trvs"),
+    [(ControlMode.OPTIMAL, False), (ControlMode.SENSOR_FALLBACK, True)],
+)
+def test_the_controller_learns_whether_the_room_reading_is_the_trvs_substitute(
+    monkeypatch, mode: ControlMode, from_trvs: bool
+) -> None:
+    """Under the sensor fallback the controller is told its reading comes from the TRVs."""
+    seen = _capture_controller_input(monkeypatch)
+    monkeypatch.setattr(
+        "custom_components.better_thermostat.calibration.reachable_trv_temperature",
+        lambda _bt, _entity_id: 19.0,
+    )
+    trv = _make_trv("climate.x", current_temperature=19.0, supports_valve=True)
+    bt = _make_bt(real_trvs={"climate.x": trv})
+    bt.kernel_state.control_mode.mode = mode
+
+    _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert len(seen) == 1
+    assert seen[0].room_temperature_from_trvs is from_trvs
+    assert seen[0].room_temperature == (19.0 if from_trvs else bt.room_temperature)

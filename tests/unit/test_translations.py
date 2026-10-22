@@ -73,6 +73,8 @@ ENTITY_TRANSLATION_KEYS = {
     },
     "switch": {
         "release_devices",
+        "release_trv",
+        "release_trv_no_trv",
         "pid_auto_tune",
         "pid_auto_tune_no_trv",
         "child_lock",

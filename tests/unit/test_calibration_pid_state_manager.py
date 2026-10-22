@@ -127,18 +127,6 @@ def test_pid_healed_bucket_gains_are_persisted_when_compute_raises() -> None:
     assert state_mgr.pid[key].pid_kp is None
 
 
-def test_pid_balance_without_a_state_store_publishes_no_valve() -> None:
-    """Before the store is loaded there is no state to run the controller on."""
-    bt = _make_bt(_PidStateStub())
-    bt.state_mgr = None
-
-    payload, supports_valve = _compute_pid_balance(bt, "climate.trv")
-
-    assert payload is None
-    assert supports_valve is False
-    assert bt.real_trvs["climate.trv"].calibration_balance is None
-
-
 def test_pid_failed_compute_on_a_healthy_state_leaves_the_store_alone() -> None:
     """Only a healed state is written back after a failed compute."""
     state_mgr = _PidStateStub()

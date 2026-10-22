@@ -77,7 +77,6 @@ def mock_bt_instance(mock_hass):
     )
     bt._next_battery_read = dict[str, float]()
     bt._degraded_warning_emitted = False
-    bt._critical_grace_until = None
     bt.is_removed = False
     bt.kernel_state = KernelState()
     bt.clock = FakeClock()
@@ -396,6 +395,32 @@ class TestCheckCriticalEntities:
         assert mock_bt_instance.devices_errors == []
         assert not mock_ir.async_create_issue.called
         assert mock_ir.async_delete_issue.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_only_the_trv_released_on_its_own_raises_no_issue(
+        self, mock_bt_instance
+    ):
+        """An outage of a TRV released on its own is the user's business.
+
+        Both TRVs go away. The released one leaves the error list and its
+        earlier issue is withdrawn; the other one is reported as before.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_bt_instance.released_trvs = {"climate.trv_1"}
+        mock_bt_instance.devices_errors = ["climate.trv_1"]
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            await check_critical_entities(mock_bt_instance)
+
+        assert mock_bt_instance.devices_errors == ["climate.trv_2"]
+        (created,) = mock_ir.async_create_issue.call_args_list
+        assert created.kwargs["translation_placeholders"]["entity"] == "climate.trv_2"
+        (withdrawn,) = mock_ir.async_delete_issue.call_args_list
+        assert withdrawn.args[2].endswith("_missing_entity_climate.trv_1")
 
     @pytest.mark.asyncio
     async def test_no_issue_during_grace_period(self, mock_bt_instance):
@@ -1096,27 +1121,6 @@ class TestCheckAndUpdateDegradedMode:
 
         assert result is True
         assert "sensor.room_temp" in mock_bt_instance.unavailable_sensors
-
-    @pytest.mark.asyncio
-    async def test_a_missing_room_sensor_is_neither_looked_up_nor_listed(
-        self, mock_bt_instance
-    ):
-        """Without a configured room sensor, no state lookup and no list entry."""
-        from custom_components.better_thermostat.utils.watcher import (
-            check_and_update_degraded_mode,
-        )
-
-        mock_bt_instance.sensor_entity_id = None
-        mock_bt_instance.hass.states.get.side_effect = _answers_with("20.0")
-
-        with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            await check_and_update_degraded_mode(mock_bt_instance)
-
-        looked_up = [
-            call.args[0] for call in mock_bt_instance.hass.states.get.call_args_list
-        ]
-        assert None not in looked_up
-        assert None not in mock_bt_instance.unavailable_sensors
 
     # The fixture configures four optional sensors plus the room sensor.
     WATCHED_SENSORS = (

@@ -113,6 +113,7 @@ ATTR_STATE_DOOR_OPEN: Final = "door_open"
 ATTR_STATE_WINDOW_DETECTION: Final = "window_detection"
 ATTR_STATE_CALL_FOR_HEAT: Final = "call_for_heat"
 ATTR_STATE_DEVICES_RELEASED: Final = "devices_released"
+ATTR_STATE_RELEASED_TRVS: Final = "released_trvs"
 ATTR_STATE_PRESET_TEMPERATURE: Final = "preset_temperature"
 ATTR_STATE_PRESET_COOL_TEMPERATURE: Final = "preset_cool_temperature"
 ATTR_STATE_PRESET_COOL_TEMPERATURES: Final = "preset_cool_temperatures"
@@ -195,6 +196,7 @@ class Override(StrEnum):
     """
 
     DEVICES_RELEASED = "devices_released"
+    TRVS_RELEASED = "trvs_released"
     LEARNING_PAUSED = "learning_paused"
     WINDOW_DETECTION_OFF = "window_detection_off"
 

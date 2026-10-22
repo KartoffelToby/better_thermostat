@@ -48,7 +48,12 @@ from custom_components.better_thermostat.utils.helpers import (
     SentCommand,
     mode_remap,
 )
-from tests.factories import ThermostatStandIn, trv_record
+from tests.factories import (
+    RELEASE_SCOPES,
+    ThermostatStandIn,
+    release_device,
+    trv_record,
+)
 
 ENTITY_ID = "climate.test_trv"
 PEER_ID = "climate.test_trv_peer"
@@ -295,14 +300,6 @@ class TestTriggerTrvChangeGuards:
     async def test_returns_early_no_queue(self, mock_bt):
         """Return early when control_queue_task is None."""
         mock_bt.control_queue_task = None
-        event = _make_event(mock_bt)
-        await trigger_trv_change(mock_bt, event)
-        mock_bt.async_write_ha_state.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_returns_early_none_room_temperature(self, mock_bt):
-        """Return early when room_temperature is None."""
-        mock_bt.room_temperature = None
         event = _make_event(mock_bt)
         await trigger_trv_change(mock_bt, event)
         mock_bt.async_write_ha_state.assert_not_called()
@@ -4413,7 +4410,7 @@ def _prepare_outage_room(bt, *, with_peer: bool):
     bt.in_maintenance = False
     bt.devices_errors = list[str]()
     bt.devices_states = dict[str, dict[str, object]]()
-    bt._critical_grace_until = None
+    bt.clock = FakeClock()
     # The entity has subscribed to its TRVs' state changes.
     bt._async_unsub_state_changed = MagicMock()
     # The listener looks for TRVs startup went ahead without before it reads
@@ -5137,14 +5134,15 @@ class TestReleasedTrv:
         )
         await trigger_trv_change(bt, event)
 
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
     @pytest.mark.asyncio
-    async def test_a_released_trv_switched_on_leaves_the_room_off(self, mock_bt):
+    async def test_a_released_trv_switched_on_leaves_the_room_off(self, mock_bt, scope):
         """Switching a released TRV on does not switch the room on.
 
         The device's mode is cached as reported, so once the devices are
         taken back its next report reads as no change, not as a press.
         """
-        mock_bt.devices_released = True
+        release_device(mock_bt, ENTITY_ID, scope)
 
         await self._switch_on_at_the_device(mock_bt)
 
@@ -5152,17 +5150,29 @@ class TestReleasedTrv:
         assert mock_bt.real_trvs[ENTITY_ID].hvac_mode == "heat"
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "released_trvs", [set(), {"climate.other"}], ids=["none", "another_trv"]
+    )
     @pytest.mark.asyncio
-    async def test_a_held_trv_switched_on_switches_the_room_on(self, mock_bt):
-        """The counterpart: a held TRV switched on at the device is a press."""
+    async def test_a_held_trv_switched_on_switches_the_room_on(
+        self, mock_bt, released_trvs
+    ):
+        """The counterpart: a held TRV switched on at the device is a press.
+
+        So it is while another TRV of the room is released on its own.
+        """
+        mock_bt.released_trvs = released_trvs
         await self._switch_on_at_the_device(mock_bt)
 
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
 
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
     @pytest.mark.asyncio
-    async def test_a_setpoint_turned_at_a_released_trv_stays_the_users(self, mock_bt):
+    async def test_a_setpoint_turned_at_a_released_trv_stays_the_users(
+        self, mock_bt, scope
+    ):
         """The room's target is not taken from a released TRV."""
-        mock_bt.devices_released = True
+        release_device(mock_bt, ENTITY_ID, scope)
         new_state = _make_state(
             attributes={"temperature": 22.0, "current_temperature": 18.0}
         )

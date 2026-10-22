@@ -88,6 +88,7 @@ def make_bt(
     """Build a BetterThermostat shell carrying the state weather.py touches."""
     bt = object.__new__(BetterThermostat)
     bt.config = BtConfig(
+        sensor_entity_id="sensor.room_temperature",
         device_name="Test BT",
         weather_entity_id=weather_entity_id,
         outdoor_sensor_entity_id=outdoor_sensor_entity_id,

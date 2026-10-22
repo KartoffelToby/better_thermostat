@@ -171,22 +171,12 @@ class BalanceStrategy:
     def capability(self, bt: BetterThermostat, entity_id: str) -> CapabilityLevel:
         """Report the capability level for this TRV (annunciation only).
 
-        A strategy is configured when selected, healthy when its inputs
-        are present, and ready once a balance result exists. The
-        temperature input is the fail-soft effective room temperature —
-        under SENSOR_FALLBACK the strategies compute on the TRV mean, so
-        the capability judges the same input the control law uses.
+        A strategy is configured when selected, healthy while the TRV's
+        calibrator is, and ready once a balance result exists. Its room
+        temperature input is always present once startup has run.
         """
-        # Runtime import: calibration.py builds the strategy registry from
-        # this module, so a module-level import would be circular.
-        from ...calibration import effective_room_temperature  # noqa: PLC0415
-
         trv = bt.real_trvs.get(entity_id)
-        if (
-            trv is None
-            or effective_room_temperature(bt) is None
-            or trv.calibrator_health != CalibratorHealth.HEALTHY
-        ):
+        if trv is None or trv.calibrator_health != CalibratorHealth.HEALTHY:
             return CapabilityLevel.CONFIGURED
         if trv.calibration_balance is None:
             return CapabilityLevel.HEALTHY

@@ -24,7 +24,7 @@ from typing import Final
 # whole rather than to one thermostat.
 GROUP_KEY_SEGMENT: Final = "group"
 
-# The bucket tag of a state keyed while the target was not a number.
+# The bucket tag of a state keyed while the target was not finite.
 UNKNOWN_BUCKET_TAG: Final = "tunknown"
 
 
@@ -60,23 +60,20 @@ def format_bucket(bucket: float) -> str:
     return f"t{bucket:.1f}"
 
 
-def bucket_tag_of(target: object) -> str:
+def bucket_tag_of(target: float) -> str:
     """Return the bucket tag a state for ``target`` is keyed under.
 
     Parameters
     ----------
-    target : object
-        The thermostat's target temperature in °C, or whatever stands in
-        for it while there is none.
+    target : float
+        The thermostat's target temperature in °C.
 
     Returns
     -------
     str
         The tag of the target's 0.5 °C bucket, or
-        :data:`UNKNOWN_BUCKET_TAG` when the target is not a finite number.
+        :data:`UNKNOWN_BUCKET_TAG` when the target is not finite.
     """
-    if not isinstance(target, (int, float)):
-        return UNKNOWN_BUCKET_TAG
     try:
         return format_bucket(round_to_bucket(target))
     except ValueError, OverflowError:

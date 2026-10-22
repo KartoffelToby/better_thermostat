@@ -280,14 +280,14 @@ class QpOptimiser:
         """Clear the accumulated integral tracking error."""
         self.e_integral_K_min = 0.0
 
-    def upper_bound(self, u_max: float | None = None) -> float:
+    def upper_bound(self, u_max: float) -> float:
         """Return the highest valve fraction this cycle may command.
 
         ``u_max`` is a further limit for the cycle, such as the maximum
         opening the user set for the valve; the configured ``u_max`` still
         applies. The bound never drops below ``u_min``.
         """
-        upper = self.params.u_max if u_max is None else min(self.params.u_max, u_max)
+        upper = min(self.params.u_max, u_max)
         return max(self.params.u_min, upper)
 
     def update_integral(
@@ -296,7 +296,7 @@ class QpOptimiser:
         T_sp: float,
         u_applied: float,
         dt_s: float,
-        u_max: float | None = None,
+        u_max: float = 1.0,
     ) -> None:
         """Accumulate the tracking error with anti-windup and clipping.
 
@@ -329,7 +329,8 @@ class QpOptimiser:
         T_outdoor: float,
         u_last: float,
         D_hat_K_per_min: float = 0.0,
-        u_max: float | None = None,
+        u_max: float = 1.0,
+        move_suppression_factor: float = 1.0,
     ) -> float:
         """Solve the horizon QP and return the first valve command ``u_0``.
 
@@ -342,6 +343,9 @@ class QpOptimiser:
         above that bound, left from before the bound was lowered, anchors the
         rate limit at the bound: the limit is a hard one, and the first step
         down to it is not rate limited.
+
+        ``move_suppression_factor`` scales the weight against valve moves
+        (``w_smooth``) for this plan.
         """
         u_min = self.params.u_min
         u_max = self.upper_bound(u_max)
@@ -401,7 +405,7 @@ class QpOptimiser:
 
         w_c = self.params.w_comfort
         w_e = self.params.w_effort
-        w_du = self.params.w_smooth
+        w_du = self.params.w_smooth * move_suppression_factor
         w_i = self.params.w_integral
 
         dt_min = self.plant.dt_min

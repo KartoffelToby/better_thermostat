@@ -95,6 +95,8 @@ actions:
         - switch.dining_room_pause_learning
 ```
 
+The thresholds are in the unit of the sensor's state in Home Assistant, because `numeric_state` compares that state and converts nothing. When the state is in °F, use 104 instead of 40 and 95 instead of 35. A state in kelvin needs a template sensor that converts it to °C first. The *Pause learning while the fireplace burns* [blueprint](/setup/automation-blueprints/) converts a sensor in °F or K to °C itself.
+
 The second room is the one next door that the fireplace warms as well. The half hour before learning resumes lets the room cool off from the fire first. Better Thermostat keeps regulating meanwhile and closes the valves while the room is warm enough. The *Pause learning while the fireplace burns* [blueprint](/setup/automation-blueprints/) sets up the same automation from the UI and can also set a preset, such as Eco, while the fire burns.
 
 ### Away or frost protection for weeks
@@ -121,7 +123,7 @@ actions:
 
 When you arrive and switch the preset back, learning resumes from the heating power the room had before you left.
 
-Without an Away preset, pause learning while the target is at frost protection, here below 15 °C:
+Without an Away preset, pause learning while the target is at frost protection, here below 15 °C. The target is in your system's temperature unit; with Fahrenheit, use 59 instead of 15:
 
 ```yaml
 alias: Pause learning at frost protection
@@ -141,7 +143,7 @@ actions:
 
 ### Several reasons for one room
 
-Each recipe above turns the switch off when its own reason ends, even if another reason still holds. When a room has more than one reason to pause, combine them in a template binary sensor and drive the switch from that sensor alone. The fireplace first becomes a sensor of its own, with the same thresholds and delay as its recipe above:
+Each recipe above turns the switch off when its own reason ends, even if another reason still holds, and so do the two pause-learning blueprints. When a room has more than one reason to pause, combine them in a template binary sensor and drive the switch from that sensor alone. The fireplace first becomes a sensor of its own, with the same thresholds and delay as its recipe above:
 
 ```yaml
 template:
@@ -167,7 +169,7 @@ template:
              or is_state('binary_sensor.fireplace_burning', 'on') }}
 ```
 
-The fireplace sensor only changes when one of its triggers fires, so it stays on until the fireplace has been below 35 °C for 30 minutes, and it keeps its state across a restart. The combined sensor is unavailable while the boiler sensor is, and this automation then leaves the switch alone:
+The fireplace sensor only changes when one of its triggers fires, so it stays on until the fireplace has been below 35 °C for 30 minutes, and it keeps its state across a restart. As in the recipe, use 104 and 95 when the sensor's state is in °F, and convert a state in kelvin to °C first. The combined sensor is unavailable while the boiler sensor is unknown or unavailable, and this automation then leaves the switch alone:
 
 ```yaml
 alias: Pause learning in the living room

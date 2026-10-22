@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 import functools
 import inspect
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
@@ -270,17 +270,18 @@ def _constructor_literals() -> dict[str, object]:
 # takes, so it hides no state the test forgot.
 _CONSTRUCTOR_DEFAULTED = (
     "unavailable_sensors",
-    "_critical_grace_until",
     "_outdoor_check_lock",
     "_temperature_filter_lock",
     "control_cycle_started_monotonic",
     "devices_released",
+    "released_trvs",
     "heating_blocked_by",
     "announced_contact_open",
     "last_user_change_monotonic",
     "learning_paused",
     "learning_held",
     "learning_pause_changes",
+    "_cooler_last_sent",
 )
 _CONSTRUCTOR_LITERALS = _constructor_literals()
 STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
@@ -288,6 +289,8 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
         name: functools.partial(copy.copy, _CONSTRUCTOR_LITERALS[name])
         for name in _CONSTRUCTOR_DEFAULTED
     },
+    # The constructor arms no critical grace window: its end has passed.
+    "_critical_grace_until": lambda: datetime.min.replace(tzinfo=UTC),
     # Built from config the constructor takes; these are the values of a
     # thermostat configured without a temperature step and without an
     # availability guard, before Home Assistant assigned it a unique id.
@@ -299,8 +302,13 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
 }
 
 # Names that only repeat another attribute, answered from it: the property
-# ``unique_id`` and the config entry id the constructor copies from it.
-_PROPERTY_SOURCES = {"unique_id": "_unique_id", "_config_entry_id": "_unique_id"}
+# ``unique_id`` and the config entry id the constructor copies from it, and
+# ``current_temperature``, which publishes the room temperature.
+_PROPERTY_SOURCES = {
+    "unique_id": "_unique_id",
+    "_config_entry_id": "_unique_id",
+    "current_temperature": "room_temperature",
+}
 
 
 class ThermostatStandIn(MagicMock):
@@ -346,6 +354,22 @@ class ThermostatStandIn(MagicMock):
         if kw.get("_new_name") in self.__dict__.get("_spec_asyncs", ()):
             return AsyncMock(**kw)
         return MagicMock(**kw)
+
+
+RELEASE_SCOPES = ("room", "trv")
+"""The two ways a device is the user's: with the room's devices, or on its own."""
+
+
+def release_device(host: Any, entity_id: str, scope: str) -> None:
+    """Hand ``entity_id`` to the user the way ``scope`` names.
+
+    ``"room"`` turns on the room's Release devices switch, ``"trv"`` releases
+    the TRV on its own and leaves every other TRV of the room controlled.
+    """
+    if scope == "room":
+        host.devices_released = True
+    else:
+        host.released_trvs = {entity_id}
 
 
 def make_bt(
