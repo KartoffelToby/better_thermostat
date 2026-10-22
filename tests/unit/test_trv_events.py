@@ -4380,7 +4380,7 @@ def _prepare_outage_room(bt, *, with_peer: bool):
     bt.in_maintenance = False
     bt.devices_errors = list[str]()
     bt.devices_states = dict[str, dict[str, object]]()
-    bt._critical_grace_until = None
+    bt.clock = FakeClock()
     # The entity has subscribed to its TRVs' state changes.
     bt._async_unsub_state_changed = MagicMock()
     # The listener looks for TRVs startup went ahead without before it reads

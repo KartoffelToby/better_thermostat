@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.climate.const import HVACAction
+from homeassistant.const import UnitOfTemperature
 import pytest
 
 from custom_components.better_thermostat.calibration import (
@@ -10,6 +11,8 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_setpoint,
 )
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.containers import BtConfig
 from custom_components.better_thermostat.core.decide import decide
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
@@ -74,12 +77,30 @@ def test_the_stand_in_answers_constructor_bookkeeping():
     bt = ThermostatStandIn()
 
     assert bt.unavailable_sensors == []
-    assert bt._critical_grace_until is None
+    assert bt._critical_grace_until < FakeClock().now()
     assert bt._outdoor_check_lock is None
     assert bt.flight_recorder.export() == []
     assert bt.task_manager.tasks == set()
     assert bt.task_manager.hass is None
     assert bt.unique_id is None
+
+
+def test_the_stand_in_answers_the_unarmed_critical_grace_as_constructed():
+    """The grace deadline a stand-in answers is the one a new thermostat holds."""
+    thermostat = BetterThermostat(
+        config=BtConfig(sensor_entity_id="sensor.room_temperature"),
+        trv_configs=[],
+        min_target_temperature=None,
+        max_target_temperature=None,
+        target_temperature_step=None,
+        enabled_presets=None,
+        unit=UnitOfTemperature.CELSIUS,
+        unique_id="stand_in_defaults",
+        device_class=None,
+        state_class=None,
+    )
+
+    assert ThermostatStandIn()._critical_grace_until == thermostat._critical_grace_until
 
 
 def test_each_stand_in_gets_its_own_defaults():

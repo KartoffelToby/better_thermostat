@@ -270,7 +270,6 @@ def _constructor_literals() -> dict[str, object]:
 # takes, so it hides no state the test forgot.
 _CONSTRUCTOR_DEFAULTED = (
     "unavailable_sensors",
-    "_critical_grace_until",
     "_outdoor_check_lock",
     "_temperature_filter_lock",
     "control_cycle_started_monotonic",
@@ -289,6 +288,8 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
         name: functools.partial(copy.copy, _CONSTRUCTOR_LITERALS[name])
         for name in _CONSTRUCTOR_DEFAULTED
     },
+    # The constructor arms no critical grace window: its end has passed.
+    "_critical_grace_until": lambda: datetime.min.replace(tzinfo=UTC),
     # Built from config the constructor takes; these are the values of a
     # thermostat configured without a temperature step and without an
     # availability guard, before Home Assistant assigned it a unique id.

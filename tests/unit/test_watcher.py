@@ -77,7 +77,6 @@ def mock_bt_instance(mock_hass):
     )
     bt._next_battery_read = dict[str, float]()
     bt._degraded_warning_emitted = False
-    bt._critical_grace_until = None
     bt.is_removed = False
     bt.kernel_state = KernelState()
     bt.clock = FakeClock()

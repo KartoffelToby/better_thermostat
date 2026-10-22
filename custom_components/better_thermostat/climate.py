@@ -6,7 +6,7 @@ import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 import json
 import logging
@@ -515,23 +515,27 @@ async def _refresh_trv_model(self: BetterThermostat, entity_id: str) -> None:
     trv.model = resolved_model
 
 
-def _arm_degraded_grace(self: BetterThermostat) -> None:
+def _arm_degraded_grace(self: BetterThermostat) -> datetime:
     """Arm the degraded-mode annunciation grace window once.
 
     Stores the deadline on the entity and mirrors it into the lifecycle
     region, so every degraded-mode check that runs while startup is still in
     progress already sees the grace window. A deadline that is already armed
     is kept unchanged.
+
+    Returns the armed deadline.
     """
     if self._degraded_grace_until is not None:
-        return
-    self._degraded_grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
+        return self._degraded_grace_until
+    grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
+    self._degraded_grace_until = grace_until
     self.kernel_state = replace(
         self.kernel_state,
         lifecycle=replace(
             self.kernel_state.lifecycle, grace_until=self._degraded_grace_until
         ),
     )
+    return grace_until
 
 
 def _configured_delay(value: str | float | None, device_name: str, field: str) -> float:
@@ -1343,8 +1347,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self._degraded_grace_until: datetime | None = None
         self._degraded_warning_emitted: bool = False
         # Startup grace period before an unavailable TRV raises a
-        # ``missing_entity`` repair; armed when startup begins.
-        self._critical_grace_until: datetime | None = None
+        # ``missing_entity`` repair; armed when startup begins. Until then it
+        # is an instant every clock has passed.
+        self._critical_grace_until: datetime = datetime.min.replace(tzinfo=UTC)
         self.control_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
             maxsize=1
         )
@@ -2147,8 +2152,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         Returns True when startup can go ahead, False otherwise.
         """
-        grace_until = self._critical_grace_until
-        in_grace = grace_until is not None and self.clock.now() < grace_until
+        in_grace = self.clock.now() < self._critical_grace_until
 
         if room_sensor_reading(self, sensor_state) is None:
             if in_grace or self._first_plausible_trv_temperature() is None:
@@ -3202,7 +3206,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     async def _post_grace_recheck(
         self,
-        grace_until: datetime | None,
+        grace_until: datetime,
         recheck: Callable[[BetterThermostat], Awaitable[object]],
     ) -> None:
         """Re-run an availability check once a startup grace window elapses.
@@ -3215,16 +3219,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         Parameters
         ----------
-        grace_until : datetime | None
-            End of the grace window; ``None`` or a past instant runs the
-            recheck immediately.
+        grace_until : datetime
+            End of the grace window; a past instant runs the recheck
+            immediately.
         recheck : Callable[[BetterThermostat], Awaitable[object]]
             Availability check coroutine function, invoked with this
             thermostat instance.
         """
-        remaining = (
-            (grace_until - self.clock.now()).total_seconds() if grace_until else 0.0
-        )
+        remaining = (grace_until - self.clock.now()).total_seconds()
         if remaining > 0:
             await asyncio.sleep(remaining)
         if self.is_removed:
@@ -3243,7 +3245,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # The degraded-mode grace window is normally armed at the top of
         # startup(); arming here as well keeps the deadline in place before
         # the triggers below run their degraded checks.
-        _arm_degraded_grace(self)
+        degraded_grace_until = _arm_degraded_grace(self)
         # Likewise give critical (TRV) entities a short grace before raising
         # ``missing_entity`` repairs; cloud-backed valves (Tado, etc.) can lag
         # behind HA startup and would otherwise produce dismissable noise.
@@ -3382,7 +3384,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         self._spawn_owned(
             self._post_grace_recheck(
-                self._degraded_grace_until, check_and_update_degraded_mode
+                degraded_grace_until, check_and_update_degraded_mode
             ),
             name=f"bt_post_grace_degraded_{self.device_name}",
         )

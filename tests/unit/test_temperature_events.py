@@ -1480,7 +1480,6 @@ def _make_thermostat_checkable(mock_bt):
     mock_bt.devices_errors = list[str]()
     mock_bt.devices_states = dict[str, dict[str, str | None]]()
     mock_bt.unavailable_sensors = list[str]()
-    mock_bt._critical_grace_until = None
     mock_bt.kernel_state = KernelState()
     mock_bt.clock = FakeClock()
     # The first of the two readings announces that degraded mode has

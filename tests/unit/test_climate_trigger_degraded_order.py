@@ -54,7 +54,6 @@ def bt():
 async def test_trigger_steps_ladder_while_trv_is_unavailable(bt):
     """The ladder leaves OPTIMAL, and the tick runs on, while the TRV is gone."""
     bt.devices_errors = list[str]()
-    bt._critical_grace_until = None
     with (
         patch(f"{_CLIMATE}.check_ambient_air_temperature", AsyncMock()) as ambient,
         patch(f"{_WATCHER}.ir.async_create_issue"),
