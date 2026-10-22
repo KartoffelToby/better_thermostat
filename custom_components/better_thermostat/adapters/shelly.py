@@ -126,8 +126,7 @@ async def set_temperature(
     self: AdapterHost, entity_id: str, temperature: float
 ) -> None:
     """Set the device target only while BT controls its thermostat."""
-    trv = self.real_trvs.get(entity_id)
-    if trv is not None and trv.uses_valve_only_control:
+    if self.real_trvs[entity_id].uses_valve_only_control:
         return
     await generic_set_temperature(self, entity_id, temperature)
 

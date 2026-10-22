@@ -1,4 +1,4 @@
-"""A valve-only device must close when no working controller can regulate it."""
+"""Valve-only devices need limited heating on sensor loss and closure on invalid setup."""
 
 from copy import deepcopy
 from dataclasses import replace
@@ -8,7 +8,10 @@ from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 import pytest
-from pytest_homeassistant_custom_component.common import mock_restore_cache
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    mock_restore_cache,
+)
 
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.fsm.control_mode import (
@@ -144,6 +147,28 @@ async def test_invalid_stored_controller_closes_and_reports_until_reconfigured(
     )
     await control_trv(bt, TRV_ID)
     assert valve.native_value == 0
+    # A configuration error still requires closure if all temperatures are lost.
+    clock = FakeClock(monotonic_value=bt.clock.monotonic())
+    bt.clock = clock
+    fake_trv._attr_current_temperature = None
+    fake_trv.async_write_ha_state()
+    hass.states.async_set(SENSOR_ID, "unavailable")
+    await hass.async_block_till_done()
+    await check_and_update_degraded_mode(bt)
+    clock.advance(LadderParams().down_debounce_seconds + 1)
+    await check_and_update_degraded_mode(bt)
+    assert bt.kernel_state.control_mode.mode == ControlMode.HOLD
+    await control_trv(bt, TRV_ID)
+    assert valve.native_value == 0
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+    set_room_sensor(hass, 18.0)
+    fake_trv._attr_current_temperature = 19.5
+    fake_trv.async_write_ha_state()
+    await hass.async_block_till_done()
+    await check_and_update_degraded_mode(bt)
+    clock.advance(LadderParams().up_stability_seconds + 1)
+    await check_and_update_degraded_mode(bt)
+    assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
     for action in ("off", "window"):
         valve._attr_native_value = 72.0
         valve.async_write_ha_state()
@@ -181,18 +206,28 @@ async def test_invalid_stored_controller_closes_and_reports_until_reconfigured(
 @pytest.mark.parametrize(
     "fake_trv", [SHELLY_BLU_VALVE_TRV, VALVE_TRV], indirect=True, ids=profile_id
 )
-async def test_hold_closes_only_the_exclusive_valve_and_recovery_resumes_control(
+async def test_hold_limits_the_exclusive_valve_and_recovery_resumes_control(
     hass, fake_trv
 ):
-    """Loss of all temperatures must stop a valve that has no thermostat to take over."""
+    """Loss of all temperatures must preserve limited heating without a device thermostat."""
     set_room_sensor(hass, 18.0)
-    entry = make_entry(fake_trv.profile)
+    door_entity_id = "binary_sensor.door"
+    hass.states.async_set(WINDOW_ID, "off")
+    hass.states.async_set(door_entity_id, "off")
+    entry = make_entry(fake_trv.profile, with_window=True)
+    entry_data = dict(entry.data)
+    entry_data.update(
+        door_sensors=door_entity_id, door_off_delay=0, door_off_delay_after=0
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=entry.version, data=entry_data, title=entry.title
+    )
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
     with patch(WRITE_BUDGET, 0.0):
         await _heat(hass)
         valve = fake_trv.valve_number
-        assert await wait_for(hass, lambda: valve.native_value > 0)
+        assert await wait_for(hass, lambda: valve.native_value > 25)
         opening = valve.native_value
         clock = FakeClock(monotonic_value=bt.clock.monotonic())
         bt.clock = clock
@@ -206,7 +241,7 @@ async def test_hold_closes_only_the_exclusive_valve_and_recovery_resumes_control
         assert bt.kernel_state.control_mode.mode == ControlMode.HOLD
         await control_trv(bt, TRV_ID)
         assert valve.native_value == (
-            0 if bt.real_trvs[TRV_ID].uses_valve_only_control else opening
+            25 if bt.real_trvs[TRV_ID].uses_valve_only_control else opening
         )
         if bt.real_trvs[TRV_ID].uses_valve_only_control:
             assert fake_trv.set_temperature_calls == []
@@ -218,7 +253,7 @@ async def test_hold_closes_only_the_exclusive_valve_and_recovery_resumes_control
         await check_and_update_degraded_mode(bt)
         if bt.real_trvs[TRV_ID].uses_valve_only_control:
             # Temperatures have returned, but HOLD's stability period has not
-            # elapsed. Boost must not reopen the valve during that interval.
+            # elapsed. Boost must not replace the emergency opening.
             await hass.services.async_call(
                 "climate",
                 "set_preset_mode",
@@ -226,7 +261,7 @@ async def test_hold_closes_only_the_exclusive_valve_and_recovery_resumes_control
                 blocking=True,
             )
             await control_trv(bt, TRV_ID)
-            assert valve.native_value == 0
+            assert valve.native_value == 25
             await hass.services.async_call(
                 "climate",
                 "set_hvac_mode",
@@ -236,8 +271,19 @@ async def test_hold_closes_only_the_exclusive_valve_and_recovery_resumes_control
             await control_trv(bt, TRV_ID)
             assert valve.native_value == 0
             await _heat(hass)
+            await control_trv(bt, TRV_ID)
+            assert valve.native_value == 25
+            for contact_entity_id in (WINDOW_ID, door_entity_id):
+                hass.states.async_set(contact_entity_id, "on")
+                await hass.async_block_till_done()
+                await control_trv(bt, TRV_ID)
+                assert valve.native_value == 0
+                hass.states.async_set(contact_entity_id, "off")
+                await hass.async_block_till_done()
+                await control_trv(bt, TRV_ID)
+                assert valve.native_value == 25
         clock.advance(LadderParams().up_stability_seconds + 1)
         await check_and_update_degraded_mode(bt)
         assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
         await control_trv(bt, TRV_ID)
-        assert await wait_for(hass, lambda: valve.native_value > 0)
+        assert await wait_for(hass, lambda: valve.native_value > 25)

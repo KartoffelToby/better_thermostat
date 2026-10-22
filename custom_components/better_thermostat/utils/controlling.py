@@ -76,6 +76,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CONF_NO_OFF_SYSTEM_MODE,
     VALVE_CALIBRATION_MODES,
+    VALVE_HOLD_OPENING_PERCENT,
     CalibrationMode,
     CalibrationOutput,
 )
@@ -490,9 +491,10 @@ def _get_valve_control(
     (BT off, an open window or door, no call for heat) closes the valve
     wherever BT drives it, under a calibration mode that writes the valve
     or under boost: the controllers publish no valve command then, so the
-    valve would otherwise stay at its last opening. A valve-only device also
-    closes for an incompatible stored calibration mode or HOLD. Other devices
-    keep their existing behaviour when the mode produces no valve output.
+    valve would otherwise stay at its last opening. A valve-only device
+    closes for an incompatible stored calibration mode and uses a fixed
+    emergency opening in HOLD, since it has no thermostat to take over.
+    Other devices keep their existing behaviour when the mode produces no valve output.
 
     Returns a tuple of (valve_command, source_name).
     Returns (None, None) if no valve control should be applied.
@@ -515,7 +517,10 @@ def _get_valve_control(
         return None, None
 
     if valve_only and self.kernel_state.control_mode.mode == ControlMode.HOLD:
-        return {"valve_percent": 0, "apply_valve": True}, "hold"
+        return {
+            "valve_percent": VALVE_HOLD_OPENING_PERCENT,
+            "apply_valve": True,
+        }, "hold"
 
     if is_boost_heating(snapshot):
         _trv = self.real_trvs.get(entity_id)
@@ -2525,8 +2530,9 @@ async def control_trv(
                 _calibration = None
 
             # Optional: set valve position if supported (e.g., MQTT/Z2M).
-            # In HOLD only a valve-only device must close: it has no device
-            # thermostat to take over. OFF closure still applies to all valves.
+            # In HOLD a valve-only device needs an emergency opening because
+            # no device thermostat can take over. Other devices retain their
+            # state; OFF closure still applies to all valves.
             try:
                 if (
                     self.kernel_state.control_mode.mode == ControlMode.HOLD

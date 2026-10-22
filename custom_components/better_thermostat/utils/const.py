@@ -236,6 +236,10 @@ VALVE_CALIBRATION_MODES: Final[frozenset[CalibrationMode]] = frozenset(
     }
 )
 
+# With no usable temperature or device thermostat, retain limited heating
+# instead of closing completely or leaving an uncontrolled opening in place.
+VALVE_HOLD_OPENING_PERCENT: Final = 25
+
 
 # Plausibility bounds for incoming temperature readings (Celsius).
 # Values outside this window are treated as marker / garbage readings

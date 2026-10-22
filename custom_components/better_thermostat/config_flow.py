@@ -1480,6 +1480,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             user_input,
         )
 
+        errors: dict[str, str] = {}
         if user_input is not None:
             advanced_data = _normalize_advanced_submission(
                 user_input,
@@ -1487,54 +1488,37 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
-            if errors := _valve_only_errors(ctx, advanced_data):
-                return self.async_show_form(
-                    step_id="advanced",
-                    data_schema=vol.Schema(
-                        _build_advanced_fields(
-                            sources=(user_input, existing_adv),
-                            default_calibration=ctx.default_calibration,
-                            homematic=ctx.homematic,
-                            has_auto=ctx.has_auto,
-                            channels=ctx.channels,
-                            system_unit=self.hass.config.units.temperature_unit,
-                        )
-                    ),
-                    errors=errors,
-                    description_placeholders={
-                        "trv": ctx.entity_id,
-                        "docs_url": CONFIG_WALKTHROUGH_URL,
-                    },
-                )
-            _LOGGER.debug(
-                "ConfigFlow advanced step storing data for %s (index %s): %s",
-                trv.entity_id,
-                self.i,
-                advanced_data,
-            )
-            self.trv_bundle[self.i].advanced = advanced_data
-            self.trv_bundle[self.i].adapter = None
-
-            self.i += 1
-            self._active_trv = None
-            if len(self.trv_bundle) > self.i:
+            errors = _valve_only_errors(ctx, advanced_data)
+            if not errors:
                 _LOGGER.debug(
-                    "ConfigFlow advanced step moving to next TRV index=%s", self.i
+                    "ConfigFlow advanced step storing data for %s (index %s): %s",
+                    trv.entity_id,
+                    self.i,
+                    advanced_data,
                 )
-                return await self.async_step_advanced(None, self.trv_bundle[self.i])
+                self.trv_bundle[self.i].advanced = advanced_data
+                self.trv_bundle[self.i].adapter = None
 
-            _has_off_mode = True
-            for configured in self.trv_bundle:
-                state_obj = self.hass.states.get(configured.entity_id)
-                hvac_modes: list[str] = []
-                if state_obj:
-                    hvac_modes = state_obj.attributes.get("hvac_modes", []) or []
-                if not device_offers_mode(hvac_modes, HVACMode.OFF):
-                    _has_off_mode = False
+                self.i += 1
+                self._active_trv = None
+                if len(self.trv_bundle) > self.i:
+                    _LOGGER.debug(
+                        "ConfigFlow advanced step moving to next TRV index=%s", self.i
+                    )
+                    return await self.async_step_advanced(None, self.trv_bundle[self.i])
 
-            if not _has_off_mode:
-                return await self.async_step_confirm(None, "no_off_mode")
-            return await self.async_step_confirm()
+                _has_off_mode = True
+                for configured in self.trv_bundle:
+                    state_obj = self.hass.states.get(configured.entity_id)
+                    hvac_modes: list[str] = []
+                    if state_obj:
+                        hvac_modes = state_obj.attributes.get("hvac_modes", []) or []
+                    if not device_offers_mode(hvac_modes, HVACMode.OFF):
+                        _has_off_mode = False
+
+                if not _has_off_mode:
+                    return await self.async_step_confirm(None, "no_off_mode")
+                return await self.async_step_confirm()
 
         fields = _build_advanced_fields(
             sources=(user_input, existing_adv),
@@ -1553,6 +1537,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="advanced",
             data_schema=vol.Schema(fields),
+            errors=errors,
             last_step=False,
             description_placeholders={
                 "trv": ctx.entity_id or "-",
@@ -1683,6 +1668,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             user_input,
         )
 
+        errors: dict[str, str] = {}
         if user_input is not None:
             advanced_data = _normalize_advanced_submission(
                 user_input,
@@ -1690,91 +1676,78 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
-            if errors := _valve_only_errors(ctx, advanced_data):
-                return self.async_show_form(
-                    step_id="advanced",
-                    data_schema=vol.Schema(
-                        _build_advanced_fields(
-                            sources=(user_input, existing_adv),
-                            default_calibration=ctx.default_calibration,
-                            homematic=ctx.homematic,
-                            has_auto=ctx.has_auto,
-                            channels=ctx.channels,
-                            system_unit=self.hass.config.units.temperature_unit,
-                        )
-                    ),
-                    errors=errors,
-                    description_placeholders={
-                        "trv": ctx.entity_id,
-                        "docs_url": CONFIG_WALKTHROUGH_URL,
-                    },
+            errors = _valve_only_errors(ctx, advanced_data)
+            if not errors:
+                _LOGGER.debug(
+                    "OptionsFlow advanced step storing data for %s (index %s): %s",
+                    trv.entity_id,
+                    self.i,
+                    advanced_data,
                 )
-            _LOGGER.debug(
-                "OptionsFlow advanced step storing data for %s (index %s): %s",
-                trv.entity_id,
-                self.i,
-                advanced_data,
-            )
-            self.trv_bundle[self.i].advanced = advanced_data
-            self.trv_bundle[self.i].adapter = None
+                self.trv_bundle[self.i].advanced = advanced_data
+                self.trv_bundle[self.i].adapter = None
 
-            self.i += 1
+                self.i += 1
 
-            if len(self.trv_bundle) > self.i:
+                if len(self.trv_bundle) > self.i:
+                    self._active_trv = None
+                    return await self.async_step_advanced(None, self.trv_bundle[self.i])
+
+                options = _stored_settings(self.updated_config, self.trv_bundle)
+                _LOGGER.debug("Updated config: %s", options)
+                _LOGGER.debug(
+                    "OptionsFlow writing heater bundle: %s", options[CONF_THERMOSTAT]
+                )
+
+                # Another entry can have taken a thermostat this one gains while
+                # the forms were open, so the check runs again with nothing
+                # awaited before the write.
+                in_use = self._in_use_placeholders(
+                    [configured.entity_id for configured in self.trv_bundle]
+                )
+                if in_use:
+                    self.i = 0
+                    self.trv_bundle = []
+                    self._active_trv = None
+                    return self._show_user_form(
+                        options, {CONF_THERMOSTAT: "trv_in_use"}, in_use
+                    )
+
+                # The comparison reads the entry as stored, so it runs before the
+                # write; the signal goes out only once the write has happened.
+                algorithms_changed = self._calibration_algorithms_changed(options)
+
+                # The whole configuration lives in the entry's options. The data
+                # is emptied in the same update, so an entry 1.9 saved last, whose
+                # settings are in its data, is written - and so reloaded - once
+                # rather than twice.
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry, data={}, options=options
+                )
+                if (
+                    self._config_entry.state
+                    is config_entries.ConfigEntryState.SETUP_ERROR
+                ):
+                    # The update listener that reloads the entry on a write is
+                    # registered by a setup that succeeded, so an entry whose
+                    # setup failed is set up again here, with the settings just
+                    # written.
+                    self.hass.config_entries.async_schedule_reload(
+                        self._config_entry.entry_id
+                    )
+                if algorithms_changed:
+                    # Dynamic entity management adds and removes algorithm sensors.
+                    async_dispatcher_send(
+                        self.hass,
+                        SIGNAL_CONFIG_CHANGED.format(self._config_entry.entry_id),
+                    )
                 self._active_trv = None
-                return await self.async_step_advanced(None, self.trv_bundle[self.i])
-
-            options = _stored_settings(self.updated_config, self.trv_bundle)
-            _LOGGER.debug("Updated config: %s", options)
-            _LOGGER.debug(
-                "OptionsFlow writing heater bundle: %s", options[CONF_THERMOSTAT]
-            )
-
-            # Another entry can have taken a thermostat this one gains while
-            # the forms were open, so the check runs again with nothing
-            # awaited before the write.
-            in_use = self._in_use_placeholders(
-                [configured.entity_id for configured in self.trv_bundle]
-            )
-            if in_use:
-                self.i = 0
-                self.trv_bundle = []
-                self._active_trv = None
-                return self._show_user_form(
-                    options, {CONF_THERMOSTAT: "trv_in_use"}, in_use
+                # The options are written above already; finishing the flow with
+                # the same options leaves the entry unchanged and reloads nothing.
+                name = options.get(CONF_NAME)
+                return self.async_create_entry(
+                    title=name if isinstance(name, str) else None, data=options
                 )
-
-            # The comparison reads the entry as stored, so it runs before the
-            # write; the signal goes out only once the write has happened.
-            algorithms_changed = self._calibration_algorithms_changed(options)
-
-            # The whole configuration lives in the entry's options. The data
-            # is emptied in the same update, so an entry 1.9 saved last, whose
-            # settings are in its data, is written - and so reloaded - once
-            # rather than twice.
-            self.hass.config_entries.async_update_entry(
-                self._config_entry, data={}, options=options
-            )
-            if self._config_entry.state is config_entries.ConfigEntryState.SETUP_ERROR:
-                # The update listener that reloads the entry on a write is
-                # registered by a setup that succeeded, so an entry whose
-                # setup failed is set up again here, with the settings just
-                # written.
-                self.hass.config_entries.async_schedule_reload(
-                    self._config_entry.entry_id
-                )
-            if algorithms_changed:
-                # Dynamic entity management adds and removes algorithm sensors.
-                async_dispatcher_send(
-                    self.hass, SIGNAL_CONFIG_CHANGED.format(self._config_entry.entry_id)
-                )
-            self._active_trv = None
-            # The options are written above already; finishing the flow with
-            # the same options leaves the entry unchanged and reloads nothing.
-            name = options.get(CONF_NAME)
-            return self.async_create_entry(
-                title=name if isinstance(name, str) else None, data=options
-            )
 
         fields = _build_advanced_fields(
             sources=(user_input, existing_adv),
@@ -1795,6 +1768,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="advanced",
             data_schema=vol.Schema(fields),
+            errors=errors,
             last_step=self._last_step,
             description_placeholders={
                 "trv": ctx.entity_id or "-",

@@ -342,6 +342,8 @@ async def test_flow_requires_an_algorithm_with_valve_output(
             },
         )
     assert result["step_id"] == "advanced"
+    assert result["last_step"] is options
+    placeholders = result["description_placeholders"]
     result = await manager.async_configure(
         result["flow_id"],
         {
@@ -353,6 +355,8 @@ async def test_flow_requires_an_algorithm_with_valve_output(
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "advanced"
     assert result["errors"] == {CONF_CALIBRATION_MODE: "valve_only_calibration_mode"}
+    assert result["last_step"] is options
+    assert result["description_placeholders"] == placeholders
     assert form_default(result, CONF_MPC_V2_FLOW_TEMPERATURE) == flow_temperature
     field = result["data_schema"].schema[CONF_MPC_V2_FLOW_TEMPERATURE]
     assert field.config["unit_of_measurement"] == ("°F" if fahrenheit else "°C")
