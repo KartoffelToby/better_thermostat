@@ -42,7 +42,7 @@ The thermostat's `released_trvs` attribute lists the released TRVs by entity id,
 
 When every TRV of a room is released, Better Thermostat controls no TRV, and `heating_blocked_by` is `devices_released`, as with **Release devices**. The two differ in the cooler: with each TRV released on its own, the air conditioner of the room is still controlled. Use **Release devices** to hand over the air conditioner as well.
 
-Turning a TRV's switch off takes that TRV back the same way **Release devices** takes all of them back: one control cycle brings it onto the room's mode and targets, nothing it was set to while released becomes the room's, and learning resumes one cycle later. The switch keeps its state over a restart, and a Better Thermostat that starts with a TRV released does not set that TRV up until the switch is turned off.
+Turning a TRV's switch off takes that TRV back the same way **Release devices** takes all of them back: one control cycle brings it onto the room's mode and targets, nothing it was set to while released becomes the room's, and learning resumes one cycle later. The switch keeps its state over a restart, and a Better Thermostat that starts with a TRV released does not set that TRV up until the switch is turned off. It does not read its target, mode or temperature at the start either, and it waits for one of its other TRVs to come online. With every TRV released, it starts from the TRVs as a room with its devices released does.
 
 ## Examples
 
