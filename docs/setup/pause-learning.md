@@ -95,7 +95,7 @@ actions:
         - switch.dining_room_pause_learning
 ```
 
-The thresholds are in the unit of the sensor's state in Home Assistant, because `numeric_state` compares that state and converts nothing. When the state is in °F, use 104 instead of 40 and 95 instead of 35. The *Pause learning while the fireplace burns* [blueprint](/setup/automation-blueprints/) converts a sensor in °F or K to °C itself.
+The thresholds are in the unit of the sensor's state in Home Assistant, because `numeric_state` compares that state and converts nothing. When the state is in °F, use 104 instead of 40 and 95 instead of 35. A state in kelvin needs a template sensor that converts it to °C first. The *Pause learning while the fireplace burns* [blueprint](/setup/automation-blueprints/) converts a sensor in °F or K to °C itself.
 
 The second room is the one next door that the fireplace warms as well. The half hour before learning resumes lets the room cool off from the fire first. Better Thermostat keeps regulating meanwhile and closes the valves while the room is warm enough. The *Pause learning while the fireplace burns* [blueprint](/setup/automation-blueprints/) sets up the same automation from the UI and can also set a preset, such as Eco, while the fire burns.
 
@@ -169,7 +169,7 @@ template:
              or is_state('binary_sensor.fireplace_burning', 'on') }}
 ```
 
-The fireplace sensor only changes when one of its triggers fires, so it stays on until the fireplace has been below 35 °C for 30 minutes, and it keeps its state across a restart. As in the recipe, use 104 and 95 when the sensor's state is in °F. The combined sensor is unavailable while the boiler sensor is, and this automation then leaves the switch alone:
+The fireplace sensor only changes when one of its triggers fires, so it stays on until the fireplace has been below 35 °C for 30 minutes, and it keeps its state across a restart. As in the recipe, use 104 and 95 when the sensor's state is in °F, and convert a state in kelvin to °C first. The combined sensor is unavailable while the boiler sensor is, and this automation then leaves the switch alone:
 
 ```yaml
 alias: Pause learning in the living room
