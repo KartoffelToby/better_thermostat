@@ -1135,7 +1135,7 @@ class TestCollectTrvStates:
             TRV_ID_2: trv_record(entity_id=TRV_ID_2),
         }
         bt.released_trvs = released_trvs
-        bt.hass.states.get.side_effect = lambda entity_id: _make_trv_state(entity_id)
+        bt.hass.states.get.side_effect = _make_trv_state
 
         result = BetterThermostat._collect_trv_states(bt)
 
@@ -1149,7 +1149,7 @@ class TestCollectTrvStates:
             TRV_ID_2: trv_record(entity_id=TRV_ID_2),
         }
         bt.released_trvs = {TRV_ID}
-        bt.hass.states.get.side_effect = lambda entity_id: _make_trv_state(entity_id)
+        bt.hass.states.get.side_effect = _make_trv_state
 
         result = BetterThermostat._collect_trv_states(bt)
 
