@@ -1668,9 +1668,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         )
 
         # Unified state persistence. The stored state is read under the
-        # entry's lock, and the manager becomes the entity's only once the
-        # renames recorded meanwhile are applied: a rename either finds the
-        # state in memory here or leaves the move for this load.
+        # entry's lock, and ``state_loaded`` is set only once the renames
+        # recorded meanwhile are applied: a rename either finds the state in
+        # memory here or leaves the move for this load.
         state_mgr = self.state_mgr
         async with stored_state_lock(self.hass, self._config_entry_id):
             try:

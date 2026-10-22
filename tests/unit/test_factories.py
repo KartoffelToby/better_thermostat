@@ -12,7 +12,7 @@ from custom_components.better_thermostat.calibration import (
 )
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.core.containers import BtConfig
+from custom_components.better_thermostat.core.containers import BtConfig, BtRuntime
 from custom_components.better_thermostat.core.decide import decide
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
@@ -120,6 +120,16 @@ def test_the_unique_id_answers_from_the_private_id():
     bt._unique_id = "entry_1"
 
     assert bt.unique_id == "entry_1"
+
+
+def test_the_current_temperature_answers_from_the_room_temperature():
+    """``current_temperature`` publishes the room temperature, as the property does."""
+    thermostat = BetterThermostat.__new__(BetterThermostat)
+    thermostat.runtime = BtRuntime(heat_target_temperature=21.0, room_temperature=20.5)
+    bt = ThermostatStandIn()
+    bt.room_temperature = 20.5
+
+    assert bt.current_temperature == thermostat.current_temperature == 20.5
 
 
 @pytest.mark.parametrize("given", [True, False])

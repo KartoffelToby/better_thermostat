@@ -301,8 +301,13 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
 }
 
 # Names that only repeat another attribute, answered from it: the property
-# ``unique_id`` and the config entry id the constructor copies from it.
-_PROPERTY_SOURCES = {"unique_id": "_unique_id", "_config_entry_id": "_unique_id"}
+# ``unique_id`` and the config entry id the constructor copies from it, and
+# ``current_temperature``, which publishes the room temperature.
+_PROPERTY_SOURCES = {
+    "unique_id": "_unique_id",
+    "_config_entry_id": "_unique_id",
+    "current_temperature": "room_temperature",
+}
 
 
 class ThermostatStandIn(MagicMock):

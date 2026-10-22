@@ -12,6 +12,7 @@ with its devices released writes nothing to them on the way up either.
 import asyncio
 from dataclasses import replace
 from datetime import timedelta
+import logging
 from unittest.mock import patch
 
 from homeassistant.components.climate import (
@@ -37,6 +38,7 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache,
 )
 
+from custom_components.better_thermostat.core.desired import HeatingBlock
 from custom_components.better_thermostat.utils.helpers import entry_issue_id
 
 from .conftest import (
@@ -339,6 +341,39 @@ async def test_a_release_survives_a_restart_without_a_write(hass, fake_trv):
     assert hass.states.get(_release_switch(hass, bt)).state == STATE_OFF
     assert bt.real_trvs[TRV_ID].awaiting_initialization is False
     assert len(setpoint_commands(events, TRV_ID)) == 1
+
+
+@pytest.mark.parametrize("fake_trv", [GENERIC_HEAT_TRV], indirect=True, ids=profile_id)
+async def test_devices_released_while_home_assistant_starts_publish_the_block(
+    hass, fake_trv, caplog
+):
+    """The release is decided before the room has started, without an error.
+
+    Home Assistant offers the switch as soon as the platforms are set up,
+    and the room only starts once Home Assistant has, so the switch can be
+    turned before the room has measured a temperature. The release is
+    still the block the kernel names for the room.
+    """
+    hass.states.async_set(SENSOR_ID, "19.5", {"unit_of_measurement": "°C"})
+    hass.set_state(CoreState.starting)
+    entry = make_entry(fake_trv.profile)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    bt = hass.data["entity_components"]["climate"].get_entity(BT_ENTITY)
+    assert bt is not None
+    assert bt.startup_running is True
+    caplog.clear()
+
+    await _set_release(hass, bt, True)
+    await _settle(hass)
+
+    assert bt.heating_blocked_by == HeatingBlock.DEVICES_RELEASED
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno >= logging.ERROR
+    ] == []
 
 
 async def test_a_released_room_starts_while_its_trv_is_away(hass, fake_trv):
