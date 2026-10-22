@@ -3476,7 +3476,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         active_calibration_modes = set()
         try:
             for trv in self.real_trvs.values():
-                advanced = trv.advanced or {}
+                advanced = trv.advanced
 
                 balance_value = advanced.get("balance_mode", "")
                 if isinstance(balance_value, str):

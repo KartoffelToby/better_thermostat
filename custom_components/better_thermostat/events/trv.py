@@ -447,7 +447,7 @@ async def trigger_trv_change(
         request_control_cycle(self)
         return
 
-    advanced = trv.advanced or {}
+    advanced = trv.advanced
     # A missing flag counts as unlocked, and it can be missing: nothing
     # backfills the key, so an entry that has not been through the options flow
     # carries none, and an older one may hold a string. The config flow, the
@@ -973,7 +973,7 @@ def convert_outbound_states(
     """
     _new_local_calibration = None
     _new_heating_setpoint = None
-    advanced = self.real_trvs[entity_id].advanced or {}
+    advanced = self.real_trvs[entity_id].advanced
 
     try:
         _calibration_output = configured_calibration_output(advanced)

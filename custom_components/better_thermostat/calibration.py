@@ -879,7 +879,7 @@ def _compute_mpc_v2_balance(
     # whichever TRV is currently being dispatched, otherwise mixed per-TRV
     # settings re-parameterize the shared controller.
     preset_source_id = min(self.real_trvs) if is_multi_trv else entity_id
-    advanced = self.real_trvs[preset_source_id].advanced or {}
+    advanced = self.real_trvs[preset_source_id].advanced
     preset_raw = advanced.get(CONF_MPC_V2_PLANT_PRESET, MpcV2PlantPreset.AUTO)
     try:
         preset = MpcV2PlantPreset(preset_raw)
