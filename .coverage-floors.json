@@ -88,6 +88,7 @@
   "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/kalman.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/plant.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/qp_optimiser.py": 98.2,
+  "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/report_band.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/smith.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/pid.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/plant_preset.py": 100.0,

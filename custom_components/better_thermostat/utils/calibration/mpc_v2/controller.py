@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 import logging
 import math
 
@@ -16,6 +16,7 @@ from ..mpc_v2_internals.governor import ScalarReferenceGovernor
 from ..mpc_v2_internals.kalman import KalmanObserver
 from ..mpc_v2_internals.plant import PlantModelRC2
 from ..mpc_v2_internals.qp_optimiser import QpOptimiser
+from ..mpc_v2_internals.report_band import ReportBand
 from ..mpc_v2_internals.smith import SmithPredictor
 from .io import MpcV2Diagnostics
 from .params import MpcV2Params
@@ -25,7 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 # Snapshot format version. Bump when adding/renaming persisted fields so
 # restore_snapshot can refuse payloads from a future Better Thermostat
 # release. Pre-versioning snapshots are treated as version 0.
-SNAPSHOT_VERSION = 3
+SNAPSHOT_VERSION = 4
 
 # Snapshots up to this version mark an absent cycle stamp with a number
 # instead of a null: ``last_t_s`` with ``0.0``, ``next_mpc_t_s`` and
@@ -118,6 +119,10 @@ class ControllerSnapshot:
     # The command the last plan settled on. ``None`` for a snapshot written
     # before it was stored; the restore then takes ``last_u`` for it.
     last_command_u: float | None = None
+    # The last room reading and the recent steps between distinct readings,
+    # from which the sensor's reporting threshold is estimated.
+    last_room_reading: float | None = None
+    room_report_steps: list[float] = field(default_factory=list)
 
     def to_mapping(self) -> dict[str, object]:
         """Return the mapping the HA Store persists."""
@@ -138,13 +143,16 @@ class ControllerSnapshot:
         poisoned state. A stored ``null`` in ``rg_v_C`` means "no governor
         state", a missing or ``null`` ``planning_disturbance`` means "start it
         from zero", and a missing or ``null`` ``last_command_u`` means "the
-        last input is the command". A missing or ``null`` cycle stamp
+        last input is the command". A missing or ``null``
+        ``last_room_reading`` means "no reading yet". A missing or ``null`` cycle stamp
         (``last_t_s``, ``next_mpc_t_s``, ``last_mpc_t_s``) means "no such cycle
         yet"; a snapshot of version 2 or older marks that with ``0.0`` in
         ``last_t_s`` and a negative number in the other two, which load as
         ``None``. ``x_hat``,
-        ``u_history``, ``kalman_P`` and each row of ``kalman_P`` have to be
-        lists; a value of any other shape drops the snapshot as non-numeric.
+        ``u_history``, ``room_report_steps``, ``kalman_P`` and each row of
+        ``kalman_P`` have to be lists; a value of any other shape drops the
+        snapshot as non-numeric. A 2×2 ``kalman_P``, as version 3 and older
+        store it, holds no disturbance; the restore keeps its default variance.
         """
         try:
             version = _stored_version(raw.get("v", 0))
@@ -178,6 +186,10 @@ class ControllerSnapshot:
                 ),
                 planning_disturbance=_optional_float(raw.get("planning_disturbance")),
                 last_command_u=_optional_float(raw.get("last_command_u")),
+                last_room_reading=_optional_float(raw.get("last_room_reading")),
+                room_report_steps=_stored_floats(
+                    raw.get("room_report_steps", []), "room_report_steps"
+                ),
             )
         except TypeError, ValueError, OverflowError:
             _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
@@ -186,6 +198,7 @@ class ControllerSnapshot:
             *snapshot.x_hat,
             *(x for row in snapshot.kalman_P for x in row),
             *snapshot.u_history,
+            *snapshot.room_report_steps,
             snapshot.D_hat_K_per_min,
             snapshot.last_u,
             snapshot.e_integral_K_min,
@@ -197,6 +210,7 @@ class ControllerSnapshot:
                     snapshot.last_mpc_t_s,
                     snapshot.rg_v,
                     snapshot.planning_disturbance,
+                    snapshot.last_room_reading,
                 )
                 if x is not None
             ),
@@ -244,7 +258,12 @@ class MpcV2Controller:
             )
         self.plant_fine = PlantModelRC2(mpc_params.plant, dt_s=mpc_params.plant_step_s)
         self.plant_coarse = PlantModelRC2(mpc_params.plant, dt_s=mpc_params.qp.step_s)
-        self.kalman = KalmanObserver(self.plant_fine, mpc_params.kalman)
+        self.kalman = KalmanObserver(
+            self.plant_fine,
+            mpc_params.kalman,
+            disturbance_bound_K_per_min=mpc_params.dob.max_abs_K_per_min,
+        )
+        self.report_band = ReportBand()
         # The Smith predictor replays the command history, which holds one
         # entry per MPC re-plan — its time base is the QP step, so it runs
         # on the coarse plant, not the fine observer plant.
@@ -289,7 +308,10 @@ class MpcV2Controller:
             Wall-clock timestamp of this cycle in seconds; drives the dt used
             by the disturbance observer and the MPC re-plan cadence.
         T_room : float
-            Measured room temperature — the sole Kalman measurement.
+            Measured room temperature — the sole Kalman measurement. The
+            same value as on the previous cycle counts as no new report: the
+            room is then known to lie only within the sensor's reporting
+            threshold of it.
         T_target : float
             Setpoint handed to the reference governor and QP.
         T_outdoor : float
@@ -303,7 +325,8 @@ class MpcV2Controller:
             the user's maximum opening. The plan stays below it and the
             integral's anti-windup treats it as the upper rail.
         learning_paused : bool, optional
-            Hold the disturbance estimate and the error integral. The room
+            Hold the disturbance estimate, the reporting-threshold estimate
+            and the error integral. The room
             does not answer the valve while learning is paused, so what the
             observer corrects then is no load the room will carry after the
             pause. The observer keeps tracking the room and the plan runs on
@@ -319,6 +342,7 @@ class MpcV2Controller:
         if not self._initialised:
             T_rad_init = T_rad if T_rad is not None else T_room
             self.kalman.initialise(np.array([T_room, T_rad_init]))
+            self.kalman.restore_disturbance(self.dob.D_hat_K_per_min)
             self._next_mpc_t_s = t_s
             self._initialised = True
 
@@ -331,8 +355,8 @@ class MpcV2Controller:
                 # Stamps a second or more ahead of the clock are gone by now,
                 # so this sees only a repeat less than 1 s before or after the
                 # last cycle. It reuses the previous state and must NOT advance
-                # _last_t_s, otherwise a stale timestamp would reach
-                # dob.update.
+                # _last_t_s, otherwise a stale timestamp would reach the
+                # disturbance estimate.
                 return self._command_u, self._diagnostics()
         self._last_t_s = t_s
 
@@ -340,11 +364,21 @@ class MpcV2Controller:
         # remains on its fixed coarse planning grid; mixing those two time
         # bases was the source of large artificial DOB excursions on sparse
         # (typically five-minute) Home Assistant updates.
-        x_hat = self.kalman.update(T_room, self._last_u, T_outdoor, dt_s=dt_s)
-        # The disturbance observer takes the share of the residual the filter
-        # moved its room estimate by, not the raw innovation.
+        # An interval beyond ``max_reading_interval_s`` spans a pause of the
+        # controller; what the room did then is no load it carries now.
+        learn = not learning_paused and dt_s <= self.params.dob.max_reading_interval_s
+        band_K = self._report_band_for(T_room, learn)
+        x_hat = self.kalman.update(
+            T_room,
+            self._last_u,
+            T_outdoor,
+            dt_s=dt_s,
+            band_K=band_K,
+            report_threshold_K=self.report_band.threshold_K,
+            learn_disturbance=learn,
+        )
         if not learning_paused:
-            self.dob.update(self.kalman.room_correction, dt_s)
+            self.dob.follow(self.kalman.disturbance_K_per_min, dt_s)
 
         # The governor runs behind the observer and judges which setpoints are
         # reachable on this cycle's fast estimate. The QP plans with the slow
@@ -393,6 +427,18 @@ class MpcV2Controller:
 
         return u, self._diagnostics()
 
+    def _report_band_for(self, T_room: float, learn: bool) -> float | None:
+        """Return the band half-width for a repeated reading, ``None`` for a fresh one.
+
+        While ``learn`` is off the threshold estimate holds: a reading after a
+        pause can differ from the last by any amount.
+        """
+        if learn:
+            return self.report_band.observe(T_room)
+        repeated = T_room == self.report_band.last_reading
+        self.report_band.last_reading = T_room
+        return self.report_band.threshold_K if repeated else None
+
     def _forget_stamps_ahead_of_the_clock(self, t_s: float) -> None:
         """Drop the stored stamps when the last cycle lies ahead of the clock.
 
@@ -420,7 +466,7 @@ class MpcV2Controller:
             v=SNAPSHOT_VERSION,
             x_hat=[float(x) for x in self.kalman.x_hat],
             kalman_P=[[float(x) for x in row] for row in self.kalman.P],
-            D_hat_K_per_min=self.dob.D_hat_K_per_min,
+            D_hat_K_per_min=self.kalman.disturbance_K_per_min,
             last_u=self._last_u,
             e_integral_K_min=self.optimiser.e_integral_K_min,
             u_history=[float(u) for u in self._u_history],
@@ -430,6 +476,8 @@ class MpcV2Controller:
             last_mpc_t_s=self._last_mpc_t_s,
             planning_disturbance=self.dob.planning_filtered,
             last_command_u=self._command_u,
+            last_room_reading=self.report_band.last_reading,
+            room_report_steps=self.report_band.steps,
         )
 
     def restore_snapshot(self, snap: ControllerSnapshot) -> None:
@@ -454,6 +502,8 @@ class MpcV2Controller:
                 "its default uncertainty and re-learns"
             )
         self.dob.restore(snap.D_hat_K_per_min, snap.planning_disturbance)
+        self.kalman.restore_disturbance(self.dob.D_hat_K_per_min)
+        self.report_band.restore(snap.last_room_reading, snap.room_report_steps)
         self.optimiser.e_integral_K_min = snap.e_integral_K_min
         self._last_u = snap.last_u
         self._command_u = (

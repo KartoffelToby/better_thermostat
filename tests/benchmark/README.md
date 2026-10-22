@@ -174,18 +174,20 @@ score by noise and reporting threshold (balanced profile, 36 scenarios):
 
 | σ | threshold | mpc_v2 | tpi | pid | mpc | heating_power | bangbang |
 |---|---|---|---|---|---|---|---|
-| 0.00 K | 0.1 K | 0.868 | 0.836 | 0.767 | 0.715 | 0.751 | 0.660 |
-| **0.02 K** | **0.1 K** | **0.858** | **0.779** | **0.764** | **0.717** | **0.698** | **0.662** |
-| 0.05 K | 0.1 K | 0.827 | 0.692 | 0.749 | 0.705 | 0.593 | 0.663 |
-| 0.00 K | 0.5 K | 0.764 | 0.813 | 0.689 | 0.674 | 0.746 | 0.638 |
-| 0.02 K | 0.5 K | 0.774 | 0.807 | 0.696 | 0.675 | 0.736 | 0.637 |
-| 0.05 K | 0.5 K | 0.762 | 0.804 | 0.702 | 0.678 | 0.726 | 0.638 |
+| 0.00 K | 0.1 K | 0.866 | 0.836 | 0.767 | 0.715 | 0.751 | 0.660 |
+| **0.02 K** | **0.1 K** | **0.859** | **0.779** | **0.764** | **0.717** | **0.698** | **0.662** |
+| 0.05 K | 0.1 K | 0.834 | 0.692 | 0.749 | 0.705 | 0.593 | 0.663 |
+| 0.00 K | 0.5 K | 0.821 | 0.813 | 0.689 | 0.674 | 0.746 | 0.638 |
+| 0.02 K | 0.5 K | 0.819 | 0.807 | 0.696 | 0.675 | 0.736 | 0.637 |
+| 0.05 K | 0.5 K | 0.805 | 0.804 | 0.702 | 0.678 | 0.726 | 0.638 |
 
 Bold is the default; the 0.5 K rows add an hourly report. TPI leads PID
-up to about 0.02 K of noise and falls behind it at 0.05 K, and a sensor
-that reports only every 0.5 K moves MPC v2 behind TPI. Read the ranking
-of TPI, PID and `heating_power` as dependent on the sensor; MPC v2 leads
-as long as the sensor reports tenths.
+up to about 0.02 K of noise and falls behind it at 0.05 K. Read the
+ranking of TPI, PID and `heating_power` as dependent on the sensor. MPC
+v2 leads in every row, but at 0.5 K only narrowly: it learns the
+sensor's reporting threshold from the steps between readings and treats
+a repeated value as "still within that threshold" rather than as a
+fresh measurement.
 
 ### Multi-TRV (`--multi-trv`)
 
