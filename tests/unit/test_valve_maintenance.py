@@ -423,6 +423,19 @@ class TestFirstMaintenanceDue:
             == restored
         )
 
+    def test_the_horizon_follows_the_longest_interval(self):
+        """Every TRV on a 24 h interval bounds a restored date at 24 h plus 1 h."""
+        quirks = SimpleNamespace(VALVE_MAINTENANCE_INTERVAL_HOURS=24)
+        trvs = {
+            "trv1": _trv(maintenance=True, quirks=quirks),
+            "trv2": _trv(maintenance=True, quirks=quirks),
+        }
+        kept = _RESTART + timedelta(hours=25)
+        dropped = _RESTART + timedelta(hours=25, minutes=1)
+        assert first_maintenance_due(trvs, ["trv1", "trv2"], kept, now=_RESTART) == kept
+        result = first_maintenance_due(trvs, ["trv1", "trv2"], dropped, now=_RESTART)
+        assert timedelta(hours=1) <= result - _RESTART <= timedelta(hours=24)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # build_trv_snapshots

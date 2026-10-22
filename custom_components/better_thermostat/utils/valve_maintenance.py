@@ -138,19 +138,36 @@ def collect_maintenance_trvs(real_trvs: TrvMap) -> list[str]:
     return result
 
 
-def _shortest_interval_hours(real_trvs: TrvMap, trv_ids: list[str]) -> int:
-    """Return the shortest maintenance interval among the TRVs, in hours.
+def _interval_hours(real_trvs: TrvMap, entity_id: str) -> int:
+    """Return one TRV's maintenance interval, in hours.
 
     A TRV whose quirks set no interval, and an id with no TRV record,
     count with the default interval, which also bounds the result.
     """
-    shortest = DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS
-    for entity_id in trv_ids:
-        trv = real_trvs.get(entity_id)
-        quirks: object = trv.model_quirks if trv is not None else None
-        if isinstance(quirks, MaintenanceIntervalQuirk):
-            shortest = min(shortest, quirks.VALVE_MAINTENANCE_INTERVAL_HOURS)
-    return shortest
+    trv = real_trvs.get(entity_id)
+    quirks: object = trv.model_quirks if trv is not None else None
+    if isinstance(quirks, MaintenanceIntervalQuirk):
+        return min(
+            DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS,
+            quirks.VALVE_MAINTENANCE_INTERVAL_HOURS,
+        )
+    return DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS
+
+
+def _shortest_interval_hours(real_trvs: TrvMap, trv_ids: list[str]) -> int:
+    """Return the shortest maintenance interval among the TRVs, in hours."""
+    return min(
+        (_interval_hours(real_trvs, entity_id) for entity_id in trv_ids),
+        default=DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS,
+    )
+
+
+def _longest_interval_hours(real_trvs: TrvMap, trv_ids: list[str]) -> int:
+    """Return the longest maintenance interval among the TRVs, in hours."""
+    return max(
+        (_interval_hours(real_trvs, entity_id) for entity_id in trv_ids),
+        default=DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS,
+    )
 
 
 def compute_next_maintenance(
@@ -231,8 +248,9 @@ def first_maintenance_due(
     therefore never keeps a run from happening. Only a startup without a
     schedule, or with one further out than a run ever schedules the next,
     rolls the delay of ``compute_initial_maintenance``. A run schedules
-    over the TRVs it exercised, which leaves out released ones, so its
-    interval is never longer than the default interval; that interval
+    over the shortest interval of the TRVs it exercised, which leaves out
+    released ones; whichever of them it exercised, that interval is never
+    longer than the longest interval among ``trv_ids``, and that interval
     plus its jitter bounds every schedule a run writes.
 
     Parameters
@@ -251,7 +269,7 @@ def first_maintenance_due(
     datetime
         When the next maintenance run is due.
     """
-    interval_hours = DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS
+    interval_hours = _longest_interval_hours(real_trvs, trv_ids)
     horizon = timedelta(hours=interval_hours + _jitter_hours(interval_hours))
     if restored is not None and restored <= now + horizon:
         return restored
