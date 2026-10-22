@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
-from typing import Any, Literal, Protocol
+from typing import Any, ClassVar, Literal, Protocol
 
 
 @dataclass(frozen=True)
@@ -21,9 +21,11 @@ class BenchmarkContext:
     t: float  # seconds since scenario start
     dt: float  # time since last step (seconds)
     target_temperature: float
-    room_temperature: float  # measurement coming out of the sensor model
+    # The room temperature Better Thermostat has committed from the sensor
+    # reports (see ``input_stage``); what production hands its controllers.
+    room_temperature: float
     raw_room_temperature: float  # plant-internal truth (for adapters that cheat-peek)
-    trv_temperature: float | None  # radiator surface, if supported
+    trv_temperature: float | None  # the TRV's own sensor reading, if supported
     outdoor_temperature: float
     window_open: bool = False
     solar_intensity: float = 0.0  # 0.0 - 1.0
@@ -32,6 +34,19 @@ class BenchmarkContext:
     # like the reading; the noise-free part of the sensor's error that no
     # controller can observe.
     sensor_calibration_error_K: float = 0.0
+    # Production's EMA of the committed room temperature and the slope its
+    # minute tick derives from it; ``None`` before the first tick.
+    room_temperature_filtered: float | None = None
+    temperature_slope_K_per_min: float | None = None
+    # The TRV's internal measurement before it rounds its report; the TRV's
+    # own regulation runs on it, Better Thermostat never sees it.
+    trv_internal_temperature: float | None = None
+    # Whether Better Thermostat runs a control cycle at this step: an event
+    # requests one (first step, a committed room reading, a changed TRV
+    # report, a setpoint or window change), and the 300 s recompute tick
+    # adds one for the modes that register it.
+    control_event: bool = True
+    control_tick: bool = True
 
 
 @dataclass(frozen=True)
@@ -107,3 +122,26 @@ class ControllerAdapter(Protocol):
     def export_state(self) -> dict[str, Any]:
         """Return a serializable snapshot of current controller state."""
         ...
+
+
+class ControlCycleGate:
+    """Hold a production controller's output between control cycles.
+
+    Better Thermostat computes a controller only when a control cycle runs;
+    between cycles the TRV keeps the last command. A subclass implements
+    :meth:`_compute`, and its ``reset`` clears ``_held``.
+    """
+
+    # Whether the mode registers the 300 s recompute tick.
+    runs_on_tick: ClassVar[bool] = True
+    _held: BenchmarkOutput | None = None
+
+    def _compute(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+        raise NotImplementedError
+
+    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+        """Compute on a control cycle, otherwise repeat the last output."""
+        cycle = ctx.control_event or (self.runs_on_tick and ctx.control_tick)
+        if self._held is None or cycle:
+            self._held = self._compute(ctx)
+        return self._held

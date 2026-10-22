@@ -8,12 +8,18 @@ from unittest.mock import MagicMock
 from homeassistant.core import State
 import pytest
 
-from custom_components.better_thermostat.adapters import generic, mqtt, shelly, zwave_js
+from custom_components.better_thermostat.adapters import (
+    generic,
+    mqtt,
+    shelly,
+    zha,
+    zwave_js,
+)
 from custom_components.better_thermostat.adapters.base import DeviceChannels
 from tests.factories import ThermostatStandIn, trv_record
 
 # Adapters whose offset bounds come from an entity discovery found.
-ENTITY_ADAPTERS = (generic, mqtt, shelly, zwave_js)
+ENTITY_ADAPTERS = (generic, mqtt, shelly, zha, zwave_js)
 
 
 def _adapter_id(adapter):

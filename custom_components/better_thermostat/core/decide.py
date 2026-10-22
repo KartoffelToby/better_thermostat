@@ -34,6 +34,9 @@ degraded annunciation (unavailable optional sensors) is bookkeeping, and
 the ladder rung is read by the shell, which picks the calibration
 strategy from it. The kernel emits the same heating intent either way —
 under HOLD the shell simply passes the raw target through uncalibrated.
+
+Every tier above the heating rung names itself in the desired state's
+``heating_blocked_by``; the heating rung leaves it None.
 """
 
 from __future__ import annotations
@@ -42,7 +45,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 
-from .desired import DesiredState, Suppression, TrvDesired
+from .desired import (
+    SUPPRESSION_BLOCKS,
+    DesiredState,
+    HeatingBlock,
+    Suppression,
+    TrvDesired,
+)
 from .fsm.control_mode import ControlModeState
 from .fsm.lifecycle import LifecyclePhase, LifecycleState, tick as lifecycle_tick
 from .fsm.maintenance import MaintenanceIdle, MaintenanceState
@@ -207,24 +216,37 @@ def decide(
         # tracking, so the cycle after the release decides on what holds
         # by then.
         return (
-            DesiredState(call_for_heat=snapshot.call_for_heat, devices_released=True),
+            DesiredState(
+                call_for_heat=snapshot.call_for_heat,
+                devices_released=True,
+                heating_blocked_by=HeatingBlock.DEVICES_RELEASED,
+            ),
             state,
         )
 
-    if state.lifecycle.startup_running or state.maintenance.is_blocking(
-        snapshot.now_monotonic
-    ):
-        # Lifecycle gate: no intent while starting up, and maintenance
-        # pre-empts control entirely (it owns the valves). A maintenance
-        # run that exceeded its maximum runtime stops blocking — the
-        # region's liveness invariant.
-        return DesiredState(call_for_heat=snapshot.call_for_heat), state
+    # Lifecycle gate: no intent while starting up, and maintenance pre-empts
+    # control entirely (it owns the valves). A maintenance run that exceeded
+    # its maximum runtime stops blocking — the region's liveness invariant.
+    gate = None
+    if state.lifecycle.startup_running:
+        gate = HeatingBlock.STARTUP
+    elif state.maintenance.is_blocking(snapshot.now_monotonic):
+        gate = HeatingBlock.VALVE_MAINTENANCE
+    if gate is not None:
+        return (
+            DesiredState(call_for_heat=snapshot.call_for_heat, heating_blocked_by=gate),
+            state,
+        )
 
     addressed = _addressed(snapshot)
 
     if state.mode.hvac_mode == HvacMode.OFF:
         return (
-            DesiredState(call_for_heat=False, trvs=_with_mode(addressed, HvacMode.OFF)),
+            DesiredState(
+                call_for_heat=False,
+                trvs=_with_mode(addressed, HvacMode.OFF),
+                heating_blocked_by=HeatingBlock.HVAC_OFF,
+            ),
             state,
         )
 
@@ -242,6 +264,7 @@ def decide(
             DesiredState(
                 call_for_heat=snapshot.call_for_heat,
                 trvs=_with_mode(addressed, HvacMode.OFF, suppression),
+                heating_blocked_by=SUPPRESSION_BLOCKS[suppression],
             ),
             state,
         )
@@ -251,6 +274,7 @@ def decide(
             DesiredState(
                 call_for_heat=False,
                 trvs=_with_mode(addressed, HvacMode.OFF, Suppression.NO_CALL_FOR_HEAT),
+                heating_blocked_by=SUPPRESSION_BLOCKS[Suppression.NO_CALL_FOR_HEAT],
             ),
             state,
         )

@@ -400,6 +400,32 @@
     }
   },
   "entity": {
+    "climate": {
+      "better_thermostat": {
+        "state_attributes": {
+          "heating_blocked_by": {
+            "name": "Отопление заблокировано",
+            "state": {
+              "devices_released": "Устройства освобождены",
+              "startup": "Запуск",
+              "valve_maintenance": "Обслуживание клапанов",
+              "hvac_off": "Термостат выключен",
+              "window": "Окно открыто",
+              "door": "Дверь открыта",
+              "no_call_for_heat": "Нет запроса на тепло"
+            }
+          },
+          "active_overrides": {
+            "name": "Активные переопределения",
+            "state": {
+              "devices_released": "Устройства освобождены",
+              "learning_paused": "Обучение приостановлено",
+              "window_detection_off": "Обнаружение окна выключено"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "pid_kp": {
         "name": "{trv_name} PID Kp (пропорциональный коэффициент)"

@@ -10,7 +10,10 @@ from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import mock_restore_cache
 
-from custom_components.better_thermostat.utils.const import ATTR_STATE_LEARNING_PAUSED
+from custom_components.better_thermostat.utils.const import (
+    ATTR_STATE_DEVICES_RELEASED,
+    ATTR_STATE_LEARNING_PAUSED,
+)
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.thermal_learning import Reading
 
@@ -26,14 +29,18 @@ from .conftest import (
 from .device_profiles import GENERIC_HEAT_TRV
 
 
-def _pause_switch(hass, entry) -> str:
+def _switch(hass, entry, suffix: str) -> str:
     registry = er.async_get(hass)
     (entity_id,) = [
         reg.entity_id
         for reg in er.async_entries_for_config_entry(registry, entry.entry_id)
-        if reg.domain == "switch" and reg.unique_id.endswith("_pause_learning")
+        if reg.domain == "switch" and reg.unique_id.endswith(suffix)
     ]
     return entity_id
+
+
+def _pause_switch(hass, entry) -> str:
+    return _switch(hass, entry, "_pause_learning")
 
 
 def _published_pause(hass) -> object:
@@ -183,3 +190,38 @@ async def test_a_thermostat_saved_before_the_switch_existed_learns(hass):
     assert bt.learning_paused is False
     assert bt.learning_held is False
     assert hass.states.get(_pause_switch(hass, entry)).state == STATE_OFF
+
+
+async def test_a_thermostat_saved_with_its_devices_released_starts_held(hass):
+    """Devices released before a restart hold the learners from the start.
+
+    The pause switch stays off: a release is not a pause. Taking the
+    devices back ends the hold once the cycle it requests has run.
+    """
+    mock_restore_cache(
+        hass,
+        (
+            State(
+                BT_ENTITY,
+                "heat",
+                {"temperature": 21.0, ATTR_STATE_DEVICES_RELEASED: True},
+            ),
+        ),
+    )
+    entry, bt = await _started(hass)
+
+    assert bt.devices_released is True
+    assert (bt.learning_paused, bt.learning_held) == (False, True)
+    assert hass.states.get(_pause_switch(hass, entry)).state == STATE_OFF
+    assert _published_pause(hass) is False
+
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {"entity_id": _switch(hass, entry, "_release_devices")},
+        blocking=True,
+    )
+
+    assert await wait_for(hass, lambda: bt.learning_held is False)
+    released: bool = bt.devices_released
+    assert released is False

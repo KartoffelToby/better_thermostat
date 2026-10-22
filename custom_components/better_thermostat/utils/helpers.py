@@ -2629,19 +2629,24 @@ async def find_valve_entity(
         base_device.identifiers if base_device is not None else set()
     )
 
-    # Only a main device carries a model; a child device has none.
-    base_model_id = (
-        base_device.model_id if isinstance(base_device, dr.DeviceEntry) else None
+    # Only a main device carries a model; a child device has none. Zigbee2MQTT
+    # names the model in model_id, ZHA in model, which may carry a
+    # description in parentheses after it.
+    base_model = (
+        base_device.model_id or base_device.model
+        if isinstance(base_device, dr.DeviceEntry)
+        else None
     )
     if (
-        isinstance(base_model_id, str)
-        and base_model_id.strip().lower() in _MODELS_WITHOUT_VALVE_ENTITY
+        isinstance(base_model, str)
+        and re.sub(r"\s*\(.*\)\s*$", "", base_model).strip().lower()
+        in _MODELS_WITHOUT_VALVE_ENTITY
     ):
         _LOGGER.debug(
             "better thermostat: %s is a %s, whose valve numbers configure the "
             "device's own controller; no valve entity is offered",
             entity_id,
-            base_model_id,
+            base_model,
         )
         return None
 
