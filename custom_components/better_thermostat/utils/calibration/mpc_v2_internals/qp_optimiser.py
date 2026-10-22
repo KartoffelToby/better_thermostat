@@ -280,7 +280,7 @@ class QpOptimiser:
         """Clear the accumulated integral tracking error."""
         self.e_integral_K_min = 0.0
 
-    def upper_bound(self, u_max: float = 1.0) -> float:
+    def upper_bound(self, u_max: float) -> float:
         """Return the highest valve fraction this cycle may command.
 
         ``u_max`` is a further limit for the cycle, such as the maximum
