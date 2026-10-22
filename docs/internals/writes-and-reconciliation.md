@@ -34,10 +34,10 @@ adapter write would round and clamp it, so a target between two steps
 holds instead of going out again every cycle.
 
 **Adapters** (`adapters/`) speak the integration's dialect: Zigbee2MQTT,
-deCONZ, Tado, Z-Wave JS, Shelly, generic climate services. Zigbee2MQTT,
-Z-Wave JS and the Shelly BLU TRV publish the valve as a number entity of
-its own, and `adapters/valve_entity.py` serves that valve channel for all
-three.
+deCONZ, Tado, ZHA, Z-Wave JS, Shelly, generic climate services.
+Zigbee2MQTT, ZHA, Z-Wave JS and the Shelly BLU TRV publish the valve as a
+number entity of its own, and `adapters/valve_entity.py` serves that valve
+channel for all four.
 **Model quirks** (`model_fixes/`) override single operations for
 devices that need special sequences (for example valve writes on the
 Sonoff TRVZB). The `Trv` object carries both, plus a `TrvCapabilities`

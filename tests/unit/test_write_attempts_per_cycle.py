@@ -26,6 +26,7 @@ from custom_components.better_thermostat.adapters import (
     mqtt,
     shelly,
     tado,
+    zha,
     zwave_js,
 )
 from custom_components.better_thermostat.adapters.base import AdapterCapabilities
@@ -249,6 +250,7 @@ MODE_ADAPTERS = {
     "mqtt": mqtt,
     "shelly": shelly,
     "tado": tado,
+    "zha": zha,
     "zwave_js": zwave_js,
 }
 
