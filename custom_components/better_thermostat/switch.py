@@ -191,7 +191,7 @@ class BetterThermostatReleaseTrvSwitch(FollowsThermostat, TrvNamedEntity, Switch
 
     @staticmethod
     def build_unique_id(bt_unique_id: str, trv_entity_id: str) -> str:
-        """Return the unique id of the switch that releases one TRV of ``trv_entity_id``."""
+        """Return the unique id of the switch that releases ``trv_entity_id``."""
         return f"{bt_unique_id}_{trv_entity_id}_release"
 
     def __init__(
