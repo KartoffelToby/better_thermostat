@@ -1084,7 +1084,7 @@ def _set_pause_switches(hass, state):
     ("temperature", "switch_state", "expected"),
     [
         ("120", "off", [("turn_on", _PAUSE_SWITCHES)]),
-        ("120", "on", []),
+        ("120", "on", [("turn_on", _PAUSE_SWITCHES)]),
         ("30", "on", [("turn_off", _PAUSE_SWITCHES)]),
         ("30", "off", []),
         ("37", "on", []),
@@ -1104,6 +1104,26 @@ async def test_fireplace_reconciles_on_start_and_reload(
     await _advance(hass, freezer, timedelta(minutes=31))
 
     assert switch_calls == expected
+
+
+@pytest.mark.parametrize("switch_state", ["off", "on"])
+async def test_fireplace_burning_at_start_sets_the_preset_whatever_the_switches(
+    hass, switch_calls, preset_calls, switch_state
+):
+    """A pause already on at start still gets the fire's preset."""
+    _set_pause_switches(hass, switch_state)
+    await _set_up_fireplace(
+        hass,
+        temperature="120",
+        fire_preset="eco",
+        thermostat_target={"entity_id": "climate.living_room"},
+    )
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await _settle(hass)
+
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES)]
+    assert _presets(preset_calls) == ["eco"]
 
 
 async def test_fireplace_pause_left_at_start_waits_for_the_cool_down(

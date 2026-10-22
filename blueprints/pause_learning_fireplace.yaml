@@ -168,8 +168,6 @@ action:
                     entity_id: !input fireplace_sensor
                     value_template: *celsius
                     above: !input burning_above
-                  - condition: template
-                    value_template: "{{ switches | reject('is_state', 'on') | list | count > 0 }}"
         sequence:
           - service: switch.turn_on
             target:
