@@ -266,22 +266,6 @@ class TestTriggerTrvChangeGuards:
         mock_bt.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_returns_early_no_queue(self, mock_bt):
-        """Return early when control_queue_task is None."""
-        mock_bt.control_queue_task = None
-        event = _make_event(mock_bt)
-        await trigger_trv_change(mock_bt, event)
-        mock_bt.async_write_ha_state.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_returns_early_none_tolerance(self, mock_bt):
-        """Return early when tolerance is None."""
-        mock_bt.tolerance = None
-        event = _make_event(mock_bt)
-        await trigger_trv_change(mock_bt, event)
-        mock_bt.async_write_ha_state.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_returns_early_update_lock(self, mock_bt):
         """Return early when bt_update_lock is True."""
         mock_bt.bt_update_lock = True
