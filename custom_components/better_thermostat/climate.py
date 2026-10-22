@@ -2869,10 +2869,23 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         for entity_id in entity_ids:
             trv = self.real_trvs[entity_id]
             self.all_entities[entity_id] = None
+            # The refresh writes nothing to the device and may yield while a
+            # quirk module is imported, so it runs before the release check
+            # that guards the writes.
+            try:
+                await _refresh_trv_model(self, entity_id)
+            except Exception as exc:
+                failed.add(entity_id)
+                _LOGGER.error(
+                    "better_thermostat %s: Error refreshing the model of TRV %s: %s",
+                    self.device_name,
+                    entity_id,
+                    exc,
+                    exc_info=True,
+                )
             if self.devices_released:
                 trv.awaiting_initialization = True
                 continue
-            await _refresh_trv_model(self, entity_id)
             _LOGGER.debug(
                 "better_thermostat %s: initializing TRV %s", self.device_name, entity_id
             )

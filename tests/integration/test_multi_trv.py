@@ -42,6 +42,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.better_thermostat import climate as climate_module
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.watchdog import WATCHDOG_MAX_AGE_S
@@ -1407,6 +1408,49 @@ async def test_a_head_the_registry_names_while_the_room_waits_gets_its_quirks(
         absent.profile.min_temp + SHTRV_01_LOWEST_SETPOINT_STEP
     )
     assert len(model_refreshes(caplog)) == 1
+
+
+@pytest.mark.parametrize(
+    "trv_group", [registered_pair(None)], indirect=True, ids=profile_id
+)
+async def test_a_head_whose_new_quirks_fail_to_load_keeps_its_model(
+    hass, trv_group, caplog
+):
+    """A head whose newly named model cannot be loaded starts as it was.
+
+    Loading the quirks of the model the registry names by then is one step of
+    the initialisation; when it fails, the head keeps the model and the
+    quirks it was added with, and startup goes on with it and the other head.
+    """
+    absent = trv_group[1]
+    load_model_quirks = climate_module.load_model_quirks
+
+    async def refuse_the_new_model(bt, model, entity_id):
+        if model == "SHTRV-01":
+            raise RuntimeError("quirk module failed to import")
+        return await load_model_quirks(bt, model, entity_id)
+
+    with patch(
+        "custom_components.better_thermostat.climate.load_model_quirks",
+        autospec=True,
+        side_effect=refuse_the_new_model,
+    ):
+        bt, entry = await boot_with_heads_gone(
+            hass, trv_group, [absent], grace=STARTUP_GRACE
+        )
+        late = bt.real_trvs[absent.entity_id]
+        name_device_model(hass, absent, "SHTRV-01")
+        absent.set_available(True)
+        bt = await wait_for_startup(hass, entry)
+
+    assert not bt.startup_running
+    assert (late.model, late.model_quirks) == ("Generic", default_quirks)
+    assert late.min_temp == pytest.approx(absent.profile.min_temp)
+    assert any(
+        "Error refreshing the model of TRV" in record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.ERROR
+    )
 
 
 @pytest.mark.parametrize(
