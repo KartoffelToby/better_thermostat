@@ -39,10 +39,5 @@ def test_a_missing_option_takes_the_default():
     assert advanced_flag({}, "homematicip", True) is True
 
 
-def test_a_missing_mapping_takes_the_default():
-    assert advanced_flag(None, "child_lock") is False
-    assert advanced_flag(None, "child_lock", True) is True
-
-
 def test_a_none_value_takes_the_default():
     assert as_bool(None, True) is True

@@ -76,7 +76,7 @@ class _CalibrationConfiguredTrv(Protocol):
     """The per-TRV record a calibration-mode question reads."""
 
     @property
-    def advanced(self) -> Mapping[str, object] | None:
+    def advanced(self) -> Mapping[str, object]:
         """Per-TRV advanced options, keyed by option name."""
         ...
 
@@ -463,7 +463,7 @@ def normalize_calibration_mode(
 
 
 def configured_calibration_mode(
-    advanced: Mapping[str, object] | None,
+    advanced: Mapping[str, object],
 ) -> CalibrationMode | None:
     """Return the calibration mode a TRV's advanced settings select.
 
@@ -476,7 +476,7 @@ def configured_calibration_mode(
     runs the passive cascade, and no mode-specific entity or controller is
     set up.
     """
-    mode = (advanced or {}).get(CONF_CALIBRATION_MODE)
+    mode = advanced.get(CONF_CALIBRATION_MODE)
     if isinstance(mode, str):
         return normalize_calibration_mode(mode)
     normalized = (
@@ -488,7 +488,7 @@ def configured_calibration_mode(
 
 
 def configured_calibration_output(
-    advanced: Mapping[str, object] | None,
+    advanced: Mapping[str, object],
 ) -> CalibrationOutput | None:
     """Return the calibration type a TRV's advanced settings select.
 
@@ -496,7 +496,7 @@ def configured_calibration_output(
     setting returns ``None``: Better Thermostat then sends the room target
     to the TRV unchanged and looks for no offset or valve channel.
     """
-    output = (advanced or {}).get(CONF_CALIBRATION)
+    output = advanced.get(CONF_CALIBRATION)
     if not isinstance(output, str):
         return None
     try:
@@ -512,9 +512,7 @@ def entity_uses_calibration_mode(
 
     try:
         _trv = bt.real_trvs.get(entity_id)
-        advanced: Mapping[str, object] = (
-            _trv.advanced if _trv is not None else {}
-        ) or {}
+        advanced: Mapping[str, object] = _trv.advanced if _trv is not None else {}
     except AttributeError:
         return False
     return configured_calibration_mode(advanced) == expected
