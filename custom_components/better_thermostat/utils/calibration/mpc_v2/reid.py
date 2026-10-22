@@ -141,7 +141,7 @@ class ReidFit:
     rmse_fit_K: float
 
 
-@dataclass
+@dataclass(frozen=True)
 class ReidOutcome:
     """Result of one batch fit attempt.
 
