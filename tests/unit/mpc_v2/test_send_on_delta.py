@@ -16,6 +16,9 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2.controller imp
     ControllerSnapshot,
     MpcV2Controller,
 )
+from custom_components.better_thermostat.utils.calibration.mpc_v2_internals._types import (
+    FloatArray,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     PlantModelRC2,
     PlantParams,
@@ -270,6 +273,8 @@ def _closed_loop_on_a_coarse_sensor(
     [
         pytest.param(PlantParams(), id="room-as-modelled"),
         pytest.param(PlantParams(tau_room_min=640.0), id="slower-room"),
+        pytest.param(PlantParams(tau_room_min=240.0), id="faster-room"),
+        pytest.param(PlantParams(gain_heater=1.6), id="weaker-radiator"),
     ],
 )
 def test_a_coarse_sensor_does_not_set_the_valve_swinging(room: PlantParams) -> None:
@@ -279,7 +284,10 @@ def test_a_coarse_sensor_does_not_set_the_valve_swinging(room: PlantParams) -> N
     value tells the filter the room holds still, the next report jumps by the
     threshold, and the plan swings the valve from one rail towards the other
     each time, one to two thousand percent of travel over the 18 hours measured
-    here. The 0.1 K run of the same room bounds what a settled valve moves.
+    here. In a room faster or weaker than the model each report also corrects
+    the estimate by about the threshold; the weight against valve moves keeps
+    the valve from answering that with a jump. The 0.1 K run of the same room
+    bounds what a settled valve moves.
     """
     fine_travel, fine_deviation = _closed_loop_on_a_coarse_sensor(room, 0.1)
     travel, deviation = _closed_loop_on_a_coarse_sensor(room, 0.5)
@@ -388,3 +396,63 @@ def test_readings_the_trvs_substitute_are_fresh_and_teach_nothing() -> None:
 
     assert controller.report_band.steps == steps
     assert controller.report_band.last_reading == 21.3
+
+
+def test_the_plan_weighs_valve_moves_by_the_learned_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The controller hands the report band's factor to the optimiser."""
+    state: MpcV2State | None = None
+    for k in range(8):
+        _, state = compute_mpc_v2(
+            MpcV2Input(
+                key="move-suppression",
+                target_temperature=21.0,
+                room_temperature=21.0 + (0.5 if k % 2 else 0.0),
+                outdoor_temperature=5.0,
+            ),
+            MpcV2Params(),
+            state,
+            now=k * _CYCLE_S,
+        )
+    assert state is not None and state.controller is not None
+    controller = state.controller
+    assert controller.report_band.move_suppression_factor == pytest.approx(25.0)
+    seen: list[float] = []
+    solve = controller.optimiser.solve
+
+    def spy(
+        *,
+        x_pred: FloatArray,
+        T_sp: float,
+        T_outdoor: float,
+        u_last: float,
+        D_hat_K_per_min: float,
+        u_max: float | None,
+        move_suppression_factor: float,
+    ) -> float:
+        seen.append(move_suppression_factor)
+        return solve(
+            x_pred=x_pred,
+            T_sp=T_sp,
+            T_outdoor=T_outdoor,
+            u_last=u_last,
+            D_hat_K_per_min=D_hat_K_per_min,
+            u_max=u_max,
+            move_suppression_factor=move_suppression_factor,
+        )
+
+    monkeypatch.setattr(controller.optimiser, "solve", spy)
+    compute_mpc_v2(
+        MpcV2Input(
+            key="move-suppression",
+            target_temperature=21.0,
+            room_temperature=21.0,
+            outdoor_temperature=5.0,
+        ),
+        MpcV2Params(),
+        state,
+        now=8 * _CYCLE_S,
+    )
+
+    assert seen == [pytest.approx(25.0)]

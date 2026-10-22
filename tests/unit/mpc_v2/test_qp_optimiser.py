@@ -107,6 +107,36 @@ def test_delta_u_constraint_clamps_first_step() -> None:
     assert 0.0 <= u <= 0.05 + 1e-6
 
 
+@pytest.mark.parametrize("factor", [0.5, 4.0, 25.0])
+def test_move_suppression_factor_scales_the_smoothing_weight(factor: float) -> None:
+    """A factor on the plan is the same plan as a weight scaled by it."""
+    plant = PlantModelRC2(PlantParams(), dt_s=300.0)
+    x_pred = np.array([20.4, 30.0])
+    scaled = QpOptimiser(plant, QpParams()).solve(
+        x_pred, 21.0, 5.0, u_last=0.2, move_suppression_factor=factor
+    )
+    weighted = QpOptimiser(
+        plant, QpParams(w_smooth=QpParams().w_smooth * factor)
+    ).solve(x_pred, 21.0, 5.0, u_last=0.2)
+
+    assert scaled == pytest.approx(weighted)
+
+
+def test_a_larger_move_suppression_factor_moves_the_valve_less() -> None:
+    """The same room error asks for a smaller first step under a larger factor."""
+    plant = PlantModelRC2(PlantParams(), dt_s=300.0)
+    x_pred = np.array([20.4, 30.0])
+    steps = [
+        QpOptimiser(plant, QpParams()).solve(
+            x_pred, 21.0, 5.0, u_last=0.2, move_suppression_factor=factor
+        )
+        - 0.2
+        for factor in (1.0, 25.0, 100.0)
+    ]
+
+    assert steps[0] > steps[1] > steps[2] > 0.0
+
+
 @pytest.mark.parametrize("solver", ["daqp", "portable"])
 def test_box_constraint_bounds_the_whole_horizon(monkeypatch, solver) -> None:
     """Every planned step stays inside the valve box, and a cold room reaches it.

@@ -423,6 +423,7 @@ class MpcV2Controller:
             u_last=self._last_u,
             D_hat_K_per_min=self.dob.planning_rate,
             u_max=u_max,
+            move_suppression_factor=self.report_band.move_suppression_factor,
         )
         self._last_u = u
         self._command_u = u
