@@ -104,19 +104,20 @@ actions:
       hvac_mode: "{{ 'heat' if trigger.to_state.state == 'on' else 'off' }}"
 ```
 
-To switch on fixed dates, let a second automation set the helper, here on 1 May and 1 October:
+To switch on fixed dates, let a second automation set the helper, here on 1 May and 1 October. It also sets the helper when Home Assistant starts on one of those days, and leaves it to the dashboard on every other day:
 
 ```yaml
 alias: Heating season by date
 triggers:
   - trigger: template
-    value_template: "{{ now().month == 5 and now().day == 1 }}"
-    id: summer
-  - trigger: template
-    value_template: "{{ now().month == 10 and now().day == 1 }}"
-    id: winter
+    value_template: "{{ now().day == 1 and now().month in [5, 10] }}"
+  - trigger: homeassistant
+    event: start
+conditions:
+  - condition: template
+    value_template: "{{ now().day == 1 and now().month in [5, 10] }}"
 actions:
-  - action: "input_boolean.turn_{{ 'off' if trigger.id == 'summer' else 'on' }}"
+  - action: "input_boolean.turn_{{ 'off' if now().month == 5 else 'on' }}"
     target:
       entity_id: input_boolean.heating_season
 ```
@@ -177,7 +178,7 @@ The thermostat keeps its target while it is off, so the second trigger can still
 
 ### Heat with the air conditioner while the sun provides the power
 
-When an air conditioner can heat the room more cheaply than the radiators while there is surplus solar power, set up two Better Thermostat devices for the room: one with the radiators' TRVs, one with the air conditioner as its thermostat. This automation keeps exactly one of them in `heat`. The air conditioner takes over once the surplus has stayed above 1.5 kW for ten minutes while it is warmer than 3 °C outside; the radiators take over again when the surplus has dropped below 0.8 kW for ten minutes or it gets colder than 3 °C outside:
+When an air conditioner can heat the room more cheaply than the radiators while there is surplus solar power, set up two Better Thermostat devices for the room: one with the radiators' TRVs, one with the air conditioner as its thermostat. This automation keeps exactly one of them in `heat`. The air conditioner takes over once the surplus has stayed above 1.5 kW for ten minutes while it is warmer than 3 °C outside; the radiators take over again when the surplus has dropped below 0.8 kW for ten minutes or it gets colder than 3 °C outside. When Home Assistant starts, it picks the device from the current readings, and changes nothing while the readings are missing or between the thresholds:
 
 ```yaml
 alias: Living room heats with surplus solar power
@@ -200,18 +201,33 @@ triggers:
     entity_id: sensor.outdoor_temperature
     below: 3
     id: no_surplus
+  - trigger: homeassistant
+    event: start
+    id: start
+variables:
+  surplus: "{{ states('sensor.solar_surplus_power') | float(none) }}"
+  outdoor: "{{ states('sensor.outdoor_temperature') | float(none) }}"
+  heating_device: >-
+    {% if trigger.id == 'surplus' %}climate.living_room_ac
+    {% elif trigger.id == 'no_surplus' %}climate.living_room_radiators
+    {% elif surplus is not none and outdoor is not none
+         and surplus > 1500 and outdoor > 3 %}climate.living_room_ac
+    {% elif (surplus is not none and surplus < 800)
+         or (outdoor is not none and outdoor < 3) %}climate.living_room_radiators
+    {% endif %}
+conditions:
+  - condition: template
+    value_template: "{{ heating_device != '' }}"
 actions:
   - action: climate.set_hvac_mode
     target:
-      entity_id: >-
-        {{ 'climate.living_room_ac' if trigger.id == 'surplus'
-           else 'climate.living_room_radiators' }}
+      entity_id: "{{ heating_device }}"
     data:
       hvac_mode: heat
   - action: climate.set_hvac_mode
     target:
       entity_id: >-
-        {{ 'climate.living_room_radiators' if trigger.id == 'surplus'
+        {{ 'climate.living_room_radiators' if heating_device == 'climate.living_room_ac'
            else 'climate.living_room_ac' }}
     data:
       hvac_mode: "off"
