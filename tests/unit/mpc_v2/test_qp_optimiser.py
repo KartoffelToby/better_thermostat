@@ -193,6 +193,20 @@ def test_a_valve_held_at_the_user_maximum_does_not_wind_the_integral_up() -> Non
     assert opt.e_integral_K_min == pytest.approx(-2.0)
 
 
+def test_without_a_cycle_limit_the_configured_bound_is_the_rail() -> None:
+    """With no cap for the cycle the valve may open up to ``QpParams.u_max``.
+
+    A valve just short of fully open still has room to add heat, so its error
+    counts, and a cold room gets the fully open valve.
+    """
+    opt = _make_optimiser()
+    opt.update_integral(T_room=21.6, T_sp=22.0, u_applied=0.95, dt_s=300.0)
+    assert opt.e_integral_K_min == pytest.approx(-2.0)
+
+    u = opt.solve(np.array([16.0, 16.0]), T_sp=22.0, T_outdoor=5.0, u_last=1.0)
+    assert u == pytest.approx(QpParams().u_max, abs=1e-6)
+
+
 def test_the_plan_stays_below_the_cycle_limit() -> None:
     """A cold room asks for more than the cap allows; the plan stops at it."""
     opt = _make_optimiser()
