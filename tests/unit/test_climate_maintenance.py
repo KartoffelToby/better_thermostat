@@ -3,7 +3,8 @@
 _maintenance_tick decides, on each periodic tick, whether to run valve
 maintenance now, postpone it, or schedule it far out.  These tests pin every
 decision branch so the scheduling contract is locked down.  A second section
-covers the via device binding _finalize_startup writes, which depends on how
+covers what _finalize_startup does for maintenance: the schedule it takes
+up from the restored state, and the via device binding, which depends on how
 many valves the setup has.
 """
 
@@ -12,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -272,6 +274,70 @@ async def _run_finalize_startup(bt):
         patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
     ):
         await BetterThermostat._finalize_startup(bt)
+
+
+def _restarted_bt(advanced, next_valve_maintenance):
+    """A _finalize_startup mock whose restored state carries a schedule.
+
+    Returns the mock and the list ``async_write_ha_state`` records the
+    schedule of each published state in, in order.
+    """
+    bt = _startup_bt(advanced)
+    attributes = (
+        {}
+        if next_valve_maintenance is None
+        else {"next_valve_maintenance": next_valve_maintenance}
+    )
+    bt._saved_state = State("climate.bt", "heat", attributes)
+    published: list[datetime | None] = []
+    bt.async_write_ha_state = MagicMock(
+        side_effect=lambda: published.append(bt.kernel_state.maintenance.next_due)
+    )
+    return bt, published
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "due_in", [timedelta(hours=30), -timedelta(hours=2)], ids=["ahead", "overdue"]
+)
+async def test_startup_takes_up_the_restored_schedule(due_in):
+    """The date published before the restart is the one that holds after it.
+
+    Already the first state the startup publishes carries it, so the date
+    shown does not jump.
+    """
+    restored = _NOW + due_in
+    bt, published = _restarted_bt({"valve_maintenance": True}, restored.isoformat())
+
+    await _run_finalize_startup(bt)
+
+    assert bt.kernel_state.maintenance.next_due == restored
+    assert published[0] == restored
+
+
+@pytest.mark.asyncio
+async def test_startup_without_a_restored_schedule_rolls_the_startup_delay():
+    """A first start, with nothing restored, draws a delay of 1 h to 5 d."""
+    bt, published = _restarted_bt({"valve_maintenance": True}, None)
+
+    await _run_finalize_startup(bt)
+
+    due = bt.kernel_state.maintenance.next_due
+    assert due is not None
+    assert timedelta(hours=1) <= due - _NOW <= timedelta(days=5)
+    assert published[0] == due
+
+
+@pytest.mark.asyncio
+async def test_startup_without_valve_maintenance_leaves_the_schedule_alone():
+    """With maintenance off nothing is restored and nothing is rolled."""
+    constructed = MaintenanceIdle(next_due=_NOW + timedelta(hours=7))
+    bt, published = _restarted_bt({}, (_NOW + timedelta(hours=30)).isoformat())
+    bt.kernel_state = replace(bt.kernel_state, maintenance=constructed)
+
+    await _run_finalize_startup(bt)
+
+    assert bt.kernel_state.maintenance == constructed
 
 
 def _binding_bt(trv_confs):

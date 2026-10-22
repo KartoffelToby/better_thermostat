@@ -4,6 +4,8 @@ Covers:
   - collect_maintenance_trvs  (filter enabled TRVs)
   - compute_next_maintenance  (interval + jitter)
   - compute_initial_maintenance (startup delay)
+  - restored_maintenance_due  (schedule read back from a restored state)
+  - first_maintenance_due     (schedule a startup takes up)
   - build_trv_snapshots       (snapshot builder)
   - open_step / close_step    (direct valve vs temperature-based)
   - restore_one               (temperature + mode restore)
@@ -13,7 +15,7 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -38,10 +40,12 @@ from custom_components.better_thermostat.utils.valve_maintenance import (
     collect_maintenance_trvs,
     compute_initial_maintenance,
     compute_next_maintenance,
+    first_maintenance_due,
     mode_needs_restoring,
     open_step,
     pick_wake_mode,
     restore_one,
+    restored_maintenance_due,
     run_valve_maintenance,
     wake_step,
 )
@@ -295,6 +299,103 @@ class TestComputeInitialMaintenance:
         delta_h = (result - now).total_seconds() / 3600
         # max_delay_hours = min(120, 6) = 6 → randint(1, max(2, 6))
         assert 1 <= delta_h <= 6
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# restored_maintenance_due / first_maintenance_due
+# ═══════════════════════════════════════════════════════════════════════════
+
+_RESTART = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+
+
+class TestRestoredMaintenanceDue:
+    """The schedule comes back from the ISO 8601 string the state carries."""
+
+    def test_the_published_string_reads_back_as_the_same_time(self):
+        """What the attribute publishes is what a restore reads."""
+        due = datetime(2026, 1, 3, 7, 30, tzinfo=UTC)
+        assert restored_maintenance_due(due.isoformat()) == due
+
+    @pytest.mark.parametrize(
+        "raw",
+        [None, "", "next tuesday", "2026-01-03T07:30:00", 1767425400, ["x"]],
+        ids=["missing", "empty", "not_a_time", "no_time_zone", "number", "list"],
+    )
+    def test_anything_but_a_zoned_time_reads_as_no_schedule(self, raw):
+        """A value that names no definite moment restores nothing."""
+        assert restored_maintenance_due(raw) is None
+
+
+class TestFirstMaintenanceDue:
+    """A startup keeps the schedule it restores and rolls one only without it."""
+
+    @pytest.mark.parametrize(
+        "lead",
+        [timedelta(minutes=1), timedelta(hours=100), timedelta(hours=168 + 11)],
+        ids=["imminent", "days_out", "at_the_horizon"],
+    )
+    def test_a_restored_future_schedule_is_kept(self, lead):
+        """A restart does not move a date that is still ahead."""
+        trvs = {"trv1": _trv(maintenance=True)}
+        restored = _RESTART + lead
+        assert first_maintenance_due(trvs, ["trv1"], restored, now=_RESTART) == restored
+
+    @pytest.mark.parametrize(
+        "lag",
+        [timedelta(minutes=1), timedelta(days=30)],
+        ids=["just_missed", "long_overdue"],
+    )
+    def test_a_restored_past_schedule_stays_overdue(self, lag):
+        """A date that passed while stopped is run by the first tick."""
+        trvs = {"trv1": _trv(maintenance=True)}
+        restored = _RESTART - lag
+        assert first_maintenance_due(trvs, ["trv1"], restored, now=_RESTART) == restored
+
+    def test_restarting_repeatedly_never_moves_the_schedule(self):
+        """Each restart restores what the previous one published.
+
+        A startup that rolled anew would put the date back 1 to 120 hours
+        every time, and a home restarted more often than that would never
+        see a run.
+        """
+        trvs = {"trv1": _trv(maintenance=True)}
+        due = first_maintenance_due(trvs, ["trv1"], None, now=_RESTART)
+        now = _RESTART
+        published = due
+        for _ in range(50):
+            now += timedelta(minutes=30)
+            published = first_maintenance_due(
+                trvs, ["trv1"], restored_maintenance_due(published.isoformat()), now=now
+            )
+        assert published == due
+
+    def test_without_a_restored_schedule_the_startup_delay_is_rolled(self):
+        """A first start draws its delay from 1 h to 5 d."""
+        trvs = {"trv1": _trv(maintenance=True)}
+        result = first_maintenance_due(trvs, ["trv1"], None, now=_RESTART)
+        assert timedelta(hours=1) <= result - _RESTART <= timedelta(days=5)
+
+    def test_a_schedule_beyond_any_run_is_rolled_anew(self):
+        """No run schedules further out than its interval plus jitter.
+
+        The default interval of 168 h carries up to 11 h of jitter; a
+        restored date past that comes from nothing this code wrote and is
+        replaced by the startup delay.
+        """
+        trvs = {"trv1": _trv(maintenance=True)}
+        restored = _RESTART + timedelta(hours=168 + 11, minutes=1)
+        result = first_maintenance_due(trvs, ["trv1"], restored, now=_RESTART)
+        assert timedelta(hours=1) <= result - _RESTART <= timedelta(days=5)
+
+    def test_the_horizon_follows_the_shortest_interval(self):
+        """A 24 h quirk interval bounds a restored date at 24 h plus 1 h."""
+        quirks = SimpleNamespace(VALVE_MAINTENANCE_INTERVAL_HOURS=24)
+        trvs = {"trv1": _trv(maintenance=True, quirks=quirks)}
+        kept = _RESTART + timedelta(hours=25)
+        dropped = _RESTART + timedelta(hours=25, minutes=1)
+        assert first_maintenance_due(trvs, ["trv1"], kept, now=_RESTART) == kept
+        result = first_maintenance_due(trvs, ["trv1"], dropped, now=_RESTART)
+        assert timedelta(hours=1) <= result - _RESTART <= timedelta(hours=24)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

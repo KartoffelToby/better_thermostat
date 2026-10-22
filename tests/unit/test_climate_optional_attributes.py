@@ -1,8 +1,9 @@
 """Optional entries of BetterThermostat.extra_state_attributes.
 
 ``next_valve_maintenance`` and ``valve_method`` are published only when the
-entity actually holds the data behind them: a scheduled maintenance run, and
-at least one TRV that has recorded how its valve was last written.
+entity actually holds the data behind them: a scheduled maintenance run for
+at least one TRV with valve maintenance enabled, and at least one TRV that has
+recorded how its valve was last written.
 """
 
 from dataclasses import replace
@@ -22,24 +23,45 @@ def _extra_state_attributes(bt: BetterThermostat) -> dict[str, object]:
 
 
 class TestNextValveMaintenance:
-    """The maintenance schedule is published as ISO8601 when there is one."""
+    """The schedule is published as ISO8601 while a TRV has maintenance on."""
+
+    _DUE = datetime(2026, 1, 8, 12, 0, tzinfo=UTC)
+
+    def _bt(self, *, maintenance: bool, next_due: datetime | None = _DUE):
+        return make_state_attributes_bt(
+            kernel_state=replace(
+                running_kernel_state(), maintenance=MaintenanceIdle(next_due=next_due)
+            ),
+            real_trvs={
+                "climate.trv": trv_record(
+                    entity_id="climate.trv", advanced={"valve_maintenance": maintenance}
+                )
+            },
+        )
 
     def test_absent_without_a_schedule(self):
         """No schedule means no key."""
-        bt = make_state_attributes_bt()
-        attrs = _extra_state_attributes(bt)
+        attrs = _extra_state_attributes(self._bt(maintenance=True, next_due=None))
         assert "next_valve_maintenance" not in attrs
 
     def test_timestamp_is_published_as_iso8601(self):
         """A datetime schedule is rendered in ISO8601."""
-        due = datetime(2026, 1, 8, 12, 0, tzinfo=UTC)
-        bt = make_state_attributes_bt(
-            kernel_state=replace(
-                running_kernel_state(), maintenance=MaintenanceIdle(next_due=due)
-            )
+        attrs = _extra_state_attributes(self._bt(maintenance=True))
+        assert attrs["next_valve_maintenance"] == self._DUE.isoformat()
+
+    def test_absent_when_no_trv_has_valve_maintenance_enabled(self):
+        """No run happens on the date, so none is shown."""
+        attrs = _extra_state_attributes(self._bt(maintenance=False))
+        assert "next_valve_maintenance" not in attrs
+
+    def test_one_enabled_trv_among_several_publishes_the_schedule(self):
+        """Maintenance on any one TRV is enough for the date to hold."""
+        bt = self._bt(maintenance=False)
+        bt.real_trvs["climate.other"] = trv_record(
+            entity_id="climate.other", advanced={"valve_maintenance": True}
         )
         attrs = _extra_state_attributes(bt)
-        assert attrs["next_valve_maintenance"] == due.isoformat()
+        assert attrs["next_valve_maintenance"] == self._DUE.isoformat()
 
 
 class TestValveMethod:
