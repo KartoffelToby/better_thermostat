@@ -5822,8 +5822,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             when startup has not loaded the learned state yet, or the reset
             fails
         ServiceValidationError
-            when defaults are asked for but there is no numeric target to
-            pick the bucket; nothing is reset then
+            when defaults are asked for but the target is not finite, so it
+            picks no bucket; nothing is reset then
         """
         state_mgr = self.state_mgr
         if state_mgr is None:
@@ -5835,11 +5835,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         buckets: list[str] = []
         if apply_pid_defaults:
             target = self.heat_target_temperature
-            if (
-                isinstance(target, bool)
-                or not isinstance(target, (int, float))
-                or not math.isfinite(target)
-            ):
+            if not math.isfinite(target):
                 raise ServiceValidationError(
                     translation_domain=DOMAIN,
                     translation_key="pid_defaults_without_target",

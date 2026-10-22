@@ -165,7 +165,7 @@ def _inp(key: str = "test", **overrides) -> MpcInput:
     return MpcInput(**defaults)
 
 
-def _keyed_thermostat(target: object, unique_id: str | None) -> ThermostatStandIn:
+def _keyed_thermostat(target: float, unique_id: str | None) -> ThermostatStandIn:
     """Build a thermostat stand-in carrying what the state keys are built from."""
     bt = ThermostatStandIn()
     bt.heat_target_temperature = target
@@ -250,22 +250,6 @@ class TestBuildMpcKey:
         key = build_mpc_key(bt, "climate.trv_1")
         # 21.5 rounded to 0.5 step => 21.5
         assert key == "bt_123:climate.trv_1:t21.5"
-
-    def test_target_none(self):
-        """Test that None target temperature produces 'tunknown' bucket."""
-
-        bt = _keyed_thermostat(None, "bt_x")
-
-        key = build_mpc_key(bt, "climate.trv")
-        assert "tunknown" in key
-
-    def test_target_string(self):
-        """Test that non-numeric target temperature produces 'tunknown' bucket."""
-
-        bt = _keyed_thermostat("unavailable", "bt_y")
-
-        key = build_mpc_key(bt, "climate.trv")
-        assert "tunknown" in key
 
     def test_missing_unique_id_fallback(self):
         """An entity without a unique id keys its state under ``bt``."""
@@ -1644,15 +1628,6 @@ class TestBuildMpcGroupKey:
 
         key = build_mpc_group_key(bt)
         assert key == "bt_123:group:t21.5"
-
-    def test_group_key_target_none(self):
-        """None target temperature produces 'tunknown' bucket."""
-
-        bt = _keyed_thermostat(None, "bt_x")
-
-        key = build_mpc_group_key(bt)
-        assert "tunknown" in key
-        assert ":group:" in key
 
     def test_group_key_missing_uid(self):
         """An entity without a unique id keys its group under ``bt``."""

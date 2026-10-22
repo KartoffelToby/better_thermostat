@@ -13,11 +13,10 @@ from time import time
 from typing import TYPE_CHECKING, Literal, NamedTuple, TypedDict, overload
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
-from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
+from custom_components.better_thermostat.utils.calibration.pid import build_bucket_key
 from custom_components.better_thermostat.utils.calibration.state_key import (
     GROUP_KEY_SEGMENT,
     StateKey,
-    bucket_tag_of,
 )
 
 if TYPE_CHECKING:
@@ -516,11 +515,7 @@ def build_mpc_key(bt: BetterThermostat, entity_id: str) -> str:
     For multi-TRV setups the caller should prefer ``build_mpc_group_key``
     so that all TRVs share a single MPC model.
     """
-    return str(
-        StateKey(
-            resolve_unique_id(bt), entity_id, bucket_tag_of(bt.heat_target_temperature)
-        )
-    )
+    return build_bucket_key(bt, entity_id)
 
 
 def build_mpc_group_key(bt: BetterThermostat) -> str:
@@ -529,13 +524,7 @@ def build_mpc_group_key(bt: BetterThermostat) -> str:
     All TRVs under the same BT instance share this key so that a single
     MPC model learns the room dynamics from the external sensor.
     """
-    return str(
-        StateKey(
-            resolve_unique_id(bt),
-            GROUP_KEY_SEGMENT,
-            bucket_tag_of(bt.heat_target_temperature),
-        )
-    )
+    return build_bucket_key(bt, GROUP_KEY_SEGMENT)
 
 
 # Compensation factor: additional valve-% per Kelvin that a TRV is colder

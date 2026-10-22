@@ -798,6 +798,32 @@ def build_pid_loop_key(self: _HasUniqueId, entity_id: str) -> str:
     return str(StateKey(resolve_unique_id(self), entity_id))
 
 
+def build_bucket_key(bt: BetterThermostat, segment: str) -> str:
+    """Build the key of a learned state for the current target bucket.
+
+    Format: ``{unique_id}:{segment}:t<bucket>``, where the bucket is the
+    heating target rounded to 0.5 °C, or ``tunknown`` while the target is
+    not finite. The MPC, TPI and PID bucket keys are all built here.
+
+    Parameters
+    ----------
+    bt : BetterThermostat
+        The thermostat whose unique id and heating target key the state.
+    segment : str
+        A thermostat's entity id, or the group segment.
+
+    Returns
+    -------
+    str
+        The stored form of the key.
+    """
+    return str(
+        StateKey(
+            resolve_unique_id(bt), segment, bucket_tag_of(bt.heat_target_temperature)
+        )
+    )
+
+
 def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
     """Build consistent PID state key across all modules.
 
@@ -812,13 +838,7 @@ def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
     -------
         PID key string
     """
-    return str(
-        StateKey(
-            resolve_unique_id(self),
-            entity_id,
-            bucket_tag_of(self.heat_target_temperature),
-        )
-    )
+    return build_bucket_key(self, entity_id)
 
 
 # --- Loop and bucket entries -----------------------------------------------
