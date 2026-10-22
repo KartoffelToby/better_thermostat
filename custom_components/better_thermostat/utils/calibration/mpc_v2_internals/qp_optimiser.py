@@ -330,6 +330,7 @@ class QpOptimiser:
         u_last: float,
         D_hat_K_per_min: float = 0.0,
         u_max: float = 1.0,
+        move_suppression_factor: float = 1.0,
     ) -> float:
         """Solve the horizon QP and return the first valve command ``u_0``.
 
@@ -342,6 +343,9 @@ class QpOptimiser:
         above that bound, left from before the bound was lowered, anchors the
         rate limit at the bound: the limit is a hard one, and the first step
         down to it is not rate limited.
+
+        ``move_suppression_factor`` scales the weight against valve moves
+        (``w_smooth``) for this plan.
         """
         u_min = self.params.u_min
         u_max = self.upper_bound(u_max)
@@ -401,7 +405,7 @@ class QpOptimiser:
 
         w_c = self.params.w_comfort
         w_e = self.params.w_effort
-        w_du = self.params.w_smooth
+        w_du = self.params.w_smooth * move_suppression_factor
         w_i = self.params.w_integral
 
         dt_min = self.plant.dt_min

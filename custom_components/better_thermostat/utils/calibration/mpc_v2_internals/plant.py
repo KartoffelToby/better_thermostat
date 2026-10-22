@@ -81,7 +81,12 @@ class PlantModelRC2:
         return self._euler_step(x, u, T_outdoor, D_K_per_min, self.dt_min)
 
     def propagate(
-        self, x: FloatArray, u: float, outdoor_temperature: float, dt_s: float
+        self,
+        x: FloatArray,
+        u: float,
+        outdoor_temperature: float,
+        dt_s: float,
+        disturbance_rate: float = 0.0,
     ) -> FloatArray:
         """Advance ``x`` over ``dt_s`` under a constant valve fraction.
 
@@ -92,9 +97,14 @@ class PlantModelRC2:
         the start. Under a constant ``u`` every sub-step is the same affine
         map, so the composition is one matrix power whose cost grows with the
         logarithm of the sub-step count.
+
+        ``disturbance_rate`` (K/min) is a constant heat load on the room. It
+        passes through the room's own loss term, so over a long interval it
+        shifts the room by at most ``disturbance_rate·τ_room`` rather than
+        growing with the interval.
         """
         n_steps, dt_min = self._substeps(dt_s)
-        step = self._affine_step(u, outdoor_temperature, dt_min)
+        step = self._affine_step(u, outdoor_temperature, dt_min, disturbance_rate)
         transition = np.linalg.matrix_power(step, n_steps)
         n = self.state_dim
         return transition[:n, :n] @ np.asarray(x, dtype=float)[:n] + transition[:n, n]
@@ -122,14 +132,19 @@ class PlantModelRC2:
         )
 
     def _affine_step(
-        self, u: float, outdoor_temperature: float, dt_min: float
+        self,
+        u: float,
+        outdoor_temperature: float,
+        dt_min: float,
+        disturbance_rate: float = 0.0,
     ) -> FloatArray:
         """Return one Euler step of ``dt_min`` as an augmented affine matrix.
 
         The 3×3 result ``[[A, c], [0, 1]]`` maps ``[T_room, T_rad, 1]`` the
-        way :meth:`_euler_step` does without a disturbance rate: under a fixed
-        valve fraction the drive ``u·(T_water − T_rad)`` is affine in the
-        state, so one step is ``x ↦ A·x + c``.
+        way :meth:`_euler_step` does: under a fixed valve fraction the drive
+        ``u·(T_water − T_rad)`` is affine in the state, so one step is
+        ``x ↦ A·x + c``. The disturbance rate (K/min) adds to the room's
+        offset.
         """
         p = self.params
         u_clamped = max(0.0, min(1.0, u))
@@ -141,7 +156,7 @@ class PlantModelRC2:
                 [
                     1.0 - room_rate * (p.coupling_rad_room + 1.0),
                     room_rate * p.coupling_rad_room,
-                    room_rate * outdoor_temperature,
+                    room_rate * outdoor_temperature + disturbance_rate * dt_min,
                 ],
                 [
                     rad_rate,

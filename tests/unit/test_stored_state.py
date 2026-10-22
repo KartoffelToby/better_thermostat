@@ -113,9 +113,9 @@ def _populated_mpc() -> MpcState:
 def _populated_snapshot() -> dict[str, object]:
     """Return an MPC v2 controller snapshot as the store holds it."""
     return ControllerSnapshot(
-        v=2,
+        v=4,
         x_hat=[20.5, 35.25],
-        kalman_P=[[0.5, 0.01], [0.01, 0.75]],
+        kalman_P=[[0.5, 0.01, 0.0001], [0.01, 0.75, 0.0], [0.0001, 0.0, 0.00002]],
         D_hat_K_per_min=-0.002,
         last_u=0.42,
         e_integral_K_min=1.5,
@@ -126,6 +126,8 @@ def _populated_snapshot() -> dict[str, object]:
         last_mpc_t_s=86100.0,
         planning_disturbance=0.003,
         last_command_u=0.45,
+        last_room_reading=20.5,
+        room_report_steps=[0.5, 0.4, 0.6],
     ).to_mapping()
 
 

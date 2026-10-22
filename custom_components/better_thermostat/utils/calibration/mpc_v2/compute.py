@@ -57,6 +57,10 @@ def compute_mpc_v2(
         state.created_ts = now
 
     if not inp.heating_allowed or inp.window_open:
+        # The room moves on while the controller is off; the first reading
+        # after the pause is fresh, not a step of the sensor.
+        if state.controller is not None:
+            state.controller.report_band.forget_reading()
         return None, state
 
     # Reject non-finite sensor inputs. Without this guard a NaN propagates
@@ -144,6 +148,7 @@ def compute_mpc_v2(
         T_rad=inp.trv_temperature,
         u_max=cap_percent / 100.0,
         learning_paused=inp.learning_paused,
+        room_reading_from_trvs=inp.room_temperature_from_trvs,
     )
 
     # Round half up. The built-in ``round`` is half to even, so it sends every

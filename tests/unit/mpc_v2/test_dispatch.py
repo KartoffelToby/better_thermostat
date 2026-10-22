@@ -12,6 +12,7 @@ from typing import Any, Literal
 from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACMode
+import pytest
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -411,3 +412,27 @@ def test_a_late_position_report_does_not_revert_the_written_opening(
 
     assert second is not None
     assert second.valve_percent == first.valve_percent
+
+
+@pytest.mark.parametrize(
+    ("mode", "from_trvs"),
+    [(ControlMode.OPTIMAL, False), (ControlMode.SENSOR_FALLBACK, True)],
+)
+def test_the_controller_learns_whether_the_room_reading_is_the_trvs_substitute(
+    monkeypatch, mode: ControlMode, from_trvs: bool
+) -> None:
+    """Under the sensor fallback the controller is told its reading comes from the TRVs."""
+    seen = _capture_controller_input(monkeypatch)
+    monkeypatch.setattr(
+        "custom_components.better_thermostat.calibration.reachable_trv_temperature",
+        lambda _bt, _entity_id: 19.0,
+    )
+    trv = _make_trv("climate.x", current_temperature=19.0, supports_valve=True)
+    bt = _make_bt(real_trvs={"climate.x": trv})
+    bt.kernel_state.control_mode.mode = mode
+
+    _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert len(seen) == 1
+    assert seen[0].room_temperature_from_trvs is from_trvs
+    assert seen[0].room_temperature == (19.0 if from_trvs else bt.room_temperature)
