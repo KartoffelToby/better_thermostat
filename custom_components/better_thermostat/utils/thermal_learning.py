@@ -111,28 +111,25 @@ def clamp(value: float, lo: float, hi: float) -> float:
 
 
 def compute_weight_factor(
-    heat_target_temperature: float | None, min_target: float, max_target: float
+    heat_target_temperature: float, min_target: float, max_target: float
 ) -> float:
     """Relative-position weight within the observed target-temperature range.
 
     Returns a factor in ``[0.5, 1.5]``.
     """
     range_kelvin = max(max_target - min_target, 0.1)
-    if heat_target_temperature is None:
-        relative_pos = 0.5
-    else:
-        relative_pos = (heat_target_temperature - min_target) / range_kelvin
+    relative_pos = (heat_target_temperature - min_target) / range_kelvin
     return clamp(0.5 + relative_pos, 0.5, 1.5)
 
 
 def compute_env_factor(
-    outdoor_temperature: float | None, heat_target_temperature: float | None
+    outdoor_temperature: float | None, heat_target_temperature: float
 ) -> float:
     """Environmental factor based on outdoor-to-setpoint gradient.
 
     Returns a factor in ``[0.7, 1.3]``.  Without outdoor data returns 1.0.
     """
-    if outdoor_temperature is None or heat_target_temperature is None:
+    if outdoor_temperature is None:
         return 1.0
     delta_env = max(heat_target_temperature - outdoor_temperature, 0.1)
     return clamp(delta_env / 20.0, 0.7, 1.3)
@@ -205,7 +202,7 @@ class HeatingPowerTracker:
         current_action: HVACAction,
         now: datetime,
         *,
-        heat_target_temperature: float | None = None,
+        heat_target_temperature: float,
         outdoor_temperature: float | None = None,
         learning_paused: bool = False,
     ) -> HeatingPowerUpdate:
@@ -258,7 +255,7 @@ class HeatingPowerTracker:
         )
 
         # --- Dynamic target range ---
-        if heat_target_temperature is not None and not learning_paused:
+        if not learning_paused:
             self.min_target = min(self.min_target, heat_target_temperature)
             self.max_target = max(self.max_target, heat_target_temperature)
 
@@ -290,7 +287,7 @@ class HeatingPowerTracker:
         room_temperature: float,
         now: datetime,
         *,
-        heat_target_temperature: float | None,
+        heat_target_temperature: float,
         outdoor_temperature: float | None,
     ) -> CycleResult | None:
         """Check finalization criteria and compute a new EMA value if met."""
@@ -325,7 +322,7 @@ class HeatingPowerTracker:
             )
 
             normalized_power: float | None = None
-            if outdoor_temperature is not None and heat_target_temperature is not None:
+            if outdoor_temperature is not None:
                 delta_env = max(heat_target_temperature - outdoor_temperature, 0.1)
                 normalized_power = round(
                     (delta_kelvin / duration_minutes) / delta_env, 5

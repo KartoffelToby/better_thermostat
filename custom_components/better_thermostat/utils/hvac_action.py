@@ -129,7 +129,7 @@ _VALVE_THRESH = 0.0
 def compute_hvac_action(
     hysteresis: ToleranceHysteresis,
     room_temperature: float | None,
-    heat_target_temperature: float | None,
+    heat_target_temperature: float,
     cool_target_temperature: float | None,
     hvac_mode: HVACMode | None,
     bt_hvac_mode: HVACMode | None,
@@ -162,7 +162,7 @@ def compute_hvac_action(
             new_hold_active=False,
         )
 
-    if heat_target_temperature is None or room_temperature is None:
+    if room_temperature is None:
         return HvacActionResult(
             action=HVACAction.IDLE,
             tolerance_decision=HVACAction.IDLE,
