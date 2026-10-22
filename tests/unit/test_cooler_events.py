@@ -128,14 +128,6 @@ class TestTriggerCoolerChangeGuards:
         mock_bt.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_returns_early_no_queue(self, mock_bt):
-        """Return early when control_queue_task is None."""
-        mock_bt.control_queue_task = None
-        event = _make_event(mock_bt)
-        await trigger_cooler_change(mock_bt, event)
-        mock_bt.async_write_ha_state.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_returns_early_new_state_none(self, mock_bt):
         """Return early when new_state is None."""
         event = _make_event(mock_bt)

@@ -24,7 +24,10 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlModeState,
 )
 from custom_components.better_thermostat.core.fsm.lifecycle import LifecycleState
-from custom_components.better_thermostat.core.fsm.maintenance import MaintenanceRunning
+from custom_components.better_thermostat.core.fsm.maintenance import (
+    DUE_AT_FIRST_TICK,
+    MaintenanceRunning,
+)
 from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.fsm.reachability import ReachabilityState
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
@@ -76,7 +79,11 @@ def _scenarios() -> dict[str, tuple[WorldSnapshot, KernelState]]:
         "startup_running": (make_snapshot(), make_state(lifecycle=LifecycleState())),
         "maintenance_running": (
             make_snapshot(),
-            make_state(maintenance=MaintenanceRunning(running_since=900.0)),
+            make_state(
+                maintenance=MaintenanceRunning(
+                    running_since=900.0, next_due=DUE_AT_FIRST_TICK
+                )
+            ),
         ),
         "unreachable_trv": (
             make_snapshot(

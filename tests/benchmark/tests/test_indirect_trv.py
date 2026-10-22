@@ -25,8 +25,10 @@ from tests.benchmark.adapters.indirect_trv import (
     IndirectTrvAdapter,
     IndirectTrvParams,
 )
+from tests.benchmark.adapters.mpc_v2_adapter import MpcV2Adapter
 from tests.benchmark.adapters.pid_adapter import PidAdapter
 from tests.benchmark.runner import ADAPTER_FACTORIES
+from tests.benchmark.sensor import SensorParams
 
 
 class _FakeValveAdapter:
@@ -491,3 +493,15 @@ def test_indirect_variants_do_not_heat_while_the_window_is_open(name: str):
         )
     )
     assert out.valve_percent == 0.0
+
+
+def test_the_room_sensor_reaches_the_wrapped_controller() -> None:
+    """A wrapped MPC v2 starts with the sensor's threshold learned."""
+    inner = MpcV2Adapter()
+    adapter = IndirectTrvAdapter(inner, TADO_PARAMS)
+
+    adapter.adopt_sensor(SensorParams(report_threshold_K=0.5, resolution_K=0.1))
+
+    controller = inner._state.controller
+    assert controller is not None
+    assert controller.report_band.threshold_K == pytest.approx(0.5)

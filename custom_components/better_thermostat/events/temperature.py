@@ -256,11 +256,10 @@ async def _commit_temperature_update(
     # Enqueue control action (skip during valve maintenance to avoid overwriting exercise).
     # Still mark that a control cycle is needed after maintenance so we immediately
     # resume with the latest temperature.
-    if self.control_queue_task is not None:
-        if self.in_maintenance:
-            self._control_needed_after_maintenance = True
-        else:
-            request_control_cycle(self)
+    if self.in_maintenance:
+        self._control_needed_after_maintenance = True
+    else:
+        request_control_cycle(self)
     _LOGGER.debug(
         "better_thermostat %s: _commit_temperature_update finished", self.device_name
     )

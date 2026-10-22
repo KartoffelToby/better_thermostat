@@ -60,6 +60,7 @@ the four vendor presets, so they aggregate more runs than direct rows.
 | `uv run python -m tests.benchmark.runner --per-scenario --seeds 5` | Average every cell over five sensor-noise seeds, plus each cell's spread |
 | `uv run python -m tests.benchmark.runner --multi-trv` | Add multi-TRV matrices (parallel radiators sharing one room) |
 | `uv run python -m tests.benchmark.runner --plant-sweep` | Realistic + DOE envelope classes, cross-plant summary |
+| `uv run python -m tests.benchmark.runner --report-threshold 0.5 --heartbeat-s 3600 --learned-sensor` | A sensor that reports on a 0.5 K change or hourly, with MPC v2 past its first day |
 
 Each scenario draws its sensor noise from a fixed seed, so every run is
 reproducible. A single seed is one realisation, though: across five
@@ -172,14 +173,14 @@ the sensor reports matters as much: Aqara documents reports on a 0.5 K
 change or hourly, Sonoff's SNZB-02 defaults to about 0.2 K. Mean overall
 score by noise and reporting threshold (balanced profile, 36 scenarios):
 
-| σ | threshold | mpc_v2 | tpi | pid | mpc | heating_power | bangbang |
-|---|---|---|---|---|---|---|---|
-| 0.00 K | 0.1 K | 0.866 | 0.836 | 0.767 | 0.715 | 0.751 | 0.660 |
-| **0.02 K** | **0.1 K** | **0.859** | **0.779** | **0.764** | **0.717** | **0.698** | **0.662** |
-| 0.05 K | 0.1 K | 0.867 | 0.692 | 0.749 | 0.705 | 0.593 | 0.663 |
-| 0.00 K | 0.5 K | 0.872 | 0.813 | 0.689 | 0.674 | 0.746 | 0.638 |
-| 0.02 K | 0.5 K | 0.865 | 0.807 | 0.696 | 0.675 | 0.736 | 0.637 |
-| 0.05 K | 0.5 K | 0.858 | 0.804 | 0.702 | 0.678 | 0.726 | 0.638 |
+| σ | threshold | mpc_v2 | mpc_v2 learned | tpi | pid | mpc | heating_power | bangbang |
+|---|---|---|---|---|---|---|---|---|
+| 0.00 K | 0.1 K | 0.866 | 0.866 | 0.836 | 0.767 | 0.715 | 0.751 | 0.660 |
+| **0.02 K** | **0.1 K** | **0.859** | **0.859** | **0.779** | **0.764** | **0.717** | **0.698** | **0.662** |
+| 0.05 K | 0.1 K | 0.867 | 0.867 | 0.692 | 0.749 | 0.705 | 0.593 | 0.663 |
+| 0.00 K | 0.5 K | 0.872 | 0.913 | 0.813 | 0.689 | 0.674 | 0.746 | 0.638 |
+| 0.02 K | 0.5 K | 0.865 | 0.901 | 0.807 | 0.696 | 0.675 | 0.736 | 0.637 |
+| 0.05 K | 0.5 K | 0.858 | 0.895 | 0.804 | 0.702 | 0.678 | 0.726 | 0.638 |
 
 Bold is the default; the 0.5 K rows add an hourly report. At the 0.1 K
 threshold TPI leads PID up to about 0.02 K of noise and falls behind it
@@ -191,6 +192,20 @@ threshold" rather than as a fresh measurement, and weighs valve moves
 more heavily the coarser the threshold is. A noisy 0.1 K sensor reports
 uneven steps and so counts as somewhat coarser, which is why 0.05 K of
 noise costs MPC v2 no score here while it costs TPI 0.09.
+
+The `mpc_v2` column is MPC v2's first day. Every scenario starts with
+nothing learned, and until MPC v2 has seen three steps it treats the
+sensor as a 0.1 K one. A 0.5 K sensor in a steady room takes hours to
+show three. The `mpc_v2 learned` column starts it with the threshold
+already learned (`--learned-sensor`), which is where it stands once
+enough steps are stored; they survive restarts. On a 0.1 K sensor the
+two columns agree. On a 1.0 K sensor with an hourly report, MPC v2
+scores 0.838 on its first day and 0.900 learned (mean of three seeds).
+One scenario drops: S05, a 1 K setpoint step on underfloor heating,
+falls from 0.92 to about 0.6 on that sensor, the same as TPI. The
+sensor cannot show a step that small, and the first day scores higher
+only because treating the sensor as fine happens to be right in this
+scenario.
 
 ### Multi-TRV (`--multi-trv`)
 
@@ -296,6 +311,10 @@ class MyAdapter:
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput: ...
     def export_state(self) -> dict[str, Any]: ...
 ```
+
+An adapter that learns the room sensor can also offer
+`adopt_sensor(sensor: SensorParams)`; with `--learned-sensor` the runner
+calls it before the first step.
 
 Register it in `runner.ADAPTER_FACTORIES`:
 

@@ -257,7 +257,6 @@ def _maintained_room() -> ThermostatStandIn:
     bt = _deciding_room()
     bt.devices_released = False
     bt.ignore_states = False
-    bt.next_valve_maintenance = None
     bt.real_trvs = {"climate.trv": trv_record(entity_id="climate.trv")}
     bt.clock = FakeClock(monotonic_value=1000.0)
     bt.bt_hvac_mode = HVACMode.OFF

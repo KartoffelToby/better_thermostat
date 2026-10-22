@@ -87,7 +87,9 @@ async def test_already_in_maintenance_returns(bt):
     """A tick during an in-flight maintenance run does nothing."""
     bt.kernel_state = replace(
         bt.kernel_state,
-        maintenance=MaintenanceRunning(running_since=bt.clock.monotonic()),
+        maintenance=MaintenanceRunning(
+            running_since=bt.clock.monotonic(), next_due=_NOW
+        ),
     )
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),

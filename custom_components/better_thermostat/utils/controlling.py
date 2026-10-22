@@ -1987,16 +1987,15 @@ async def control_cooler(
     heat_target_temperature = snapshot.heat_target_temperature
     tolerance = snapshot.tolerance
 
-    if room_temperature is None or cool_target_temperature is None or tolerance is None:
+    if room_temperature is None or cool_target_temperature is None:
         _LOGGER.debug(
             "better_thermostat %s: cooler %s one or more required values are None "
-            "(room_temperature=%s, cool_target_temperature=%s, tolerance=%s), "
+            "(room_temperature=%s, cool_target_temperature=%s), "
             "defaulting to OFF",
             self.device_name,
             self.cooler_entity_id,
             room_temperature,
             cool_target_temperature,
-            tolerance,
         )
         desired_mode = HVACMode.OFF
     elif snapshot.hvac_mode == HVACMode.OFF:
