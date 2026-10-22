@@ -98,7 +98,9 @@ def _scenarios() -> dict[str, tuple[WorldSnapshot, KernelState]]:
         "trv_released": (
             make_snapshot(
                 trvs={
-                    "climate.trv1": TrvReported(entity_id="climate.trv1", released=True),
+                    "climate.trv1": TrvReported(
+                        entity_id="climate.trv1", released=True
+                    ),
                     "climate.trv2": TrvReported(entity_id="climate.trv2"),
                 }
             ),
@@ -107,7 +109,9 @@ def _scenarios() -> dict[str, tuple[WorldSnapshot, KernelState]]:
         "every_trv_released": (
             make_snapshot(
                 trvs={
-                    "climate.trv1": TrvReported(entity_id="climate.trv1", released=True),
+                    "climate.trv1": TrvReported(
+                        entity_id="climate.trv1", released=True
+                    ),
                     "climate.trv2": TrvReported(
                         entity_id="climate.trv2", available=False, released=True
                     ),

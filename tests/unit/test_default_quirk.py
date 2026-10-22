@@ -28,9 +28,11 @@ from custom_components.better_thermostat.utils.entry_schema import (
     _parse_advanced,
 )
 from tests.factories import (
+    RELEASE_SCOPES,
     ThermostatStandIn,
     make_entity_registry,
     make_registry_entry,
+    release_device,
     trv_record,
 )
 
@@ -586,11 +588,12 @@ class TestAdoptionStopsAtTheRelease:
     That step's write completes, and the steps after it send nothing.
     """
 
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
     @pytest.mark.parametrize(
         "released_by", [0, 1, 2], ids=["calibration", "lock", "window"]
     )
     @pytest.mark.asyncio
-    async def test_the_steps_after_the_release_send_nothing(self, released_by):
+    async def test_the_steps_after_the_release_send_nothing(self, released_by, scope):
         """Every write up to the release goes out, and none after it."""
         thermostat = _thermostat(
             child_lock=True,
@@ -603,7 +606,7 @@ class TestAdoptionStopsAtTheRelease:
 
         async def released_by_one_step(*_args, **_kwargs):
             if thermostat.hass.services.async_call.await_count == released_by + 1:
-                thermostat.devices_released = True
+                release_device(thermostat, ENTITY_ID, scope)
 
         thermostat.hass.services.async_call = AsyncMock(
             side_effect=released_by_one_step

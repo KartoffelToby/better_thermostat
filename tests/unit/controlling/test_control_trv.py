@@ -64,9 +64,11 @@ from custom_components.better_thermostat.utils.helpers import resolve_inbound_se
 from custom_components.better_thermostat.utils.watcher import get_device_errors
 from tests import stub_adapter
 from tests.factories import (
+    RELEASE_SCOPES,
     ThermostatStandIn,
     make_entity_registry,
     make_registry_entry,
+    release_device,
     trv_record,
 )
 
@@ -3524,8 +3526,9 @@ class TestOffsetWriteGate:
             )
         set_calibration_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
 
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
     @pytest.mark.asyncio
-    async def test_no_offset_is_written_once_the_devices_are_released(self):
+    async def test_no_offset_is_written_once_the_devices_are_released(self, scope):
         """A release that comes in while the offset is read stops its write.
 
         The cycle decided before the release, and the devices are the
@@ -3534,7 +3537,7 @@ class TestOffsetWriteGate:
         mock_self = _make_offset_self(calibration_received=True, last_calibration=0.0)
 
         def release():
-            mock_self.devices_released = True
+            release_device(mock_self, "climate.trv1", scope)
 
         set_calibration_offset, get_offset = await _run_offset_cycle(
             mock_self, desired_offset=-2.0, reported_offset=0.0, on_offset_read=release

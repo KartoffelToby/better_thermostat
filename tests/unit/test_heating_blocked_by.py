@@ -71,12 +71,19 @@ class TestPublishedValue:
         assert published is None or type(published) is str
 
     @pytest.mark.parametrize(
-        ("released", "paused", "detection"), list(product([False, True], repeat=3))
+        ("released", "trv_released", "paused", "detection"),
+        list(product([False, True], repeat=4)),
     )
-    def test_every_held_switch_is_listed(self, released, paused, detection):
-        """Each switch away from its default is listed, in a fixed order."""
+    def test_every_held_switch_is_listed(
+        self, released, trv_released, paused, detection
+    ):
+        """Each switch away from its default is listed, in a fixed order.
+
+        The TRVs released one by one are one entry, however many there are.
+        """
         bt = make_state_attributes_bt(
             devices_released=released,
+            released_trvs={"climate.a", "climate.b"} if trv_released else set(),
             learning_paused=paused,
             kernel_state=replace(make_state(), window_detection=detection),
         )
@@ -84,6 +91,7 @@ class TestPublishedValue:
             word
             for word, held in (
                 ("devices_released", released),
+                ("trvs_released", trv_released),
                 ("learning_paused", paused),
                 ("window_detection_off", not detection),
             )
@@ -93,6 +101,14 @@ class TestPublishedValue:
         assert isinstance(overrides, list)
         assert overrides == expected
         assert all(type(word) is str for word in overrides)
+
+    def test_the_released_trvs_are_published_in_order(self):
+        """The attribute the thermostat restores the per-TRV release from."""
+        bt = make_state_attributes_bt(released_trvs={"climate.b", "climate.a"})
+        assert _extra_state_attributes(bt)["released_trvs"] == [
+            "climate.a",
+            "climate.b",
+        ]
 
     def test_switches_are_listed_while_the_room_heats(self):
         """A paused learner and an ignored window do not block the heating.

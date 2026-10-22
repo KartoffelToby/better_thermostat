@@ -311,3 +311,42 @@ class TestParseHvacMode:
         """Core values are HA's mode strings, so equality is interoperable."""
         assert HvacMode.OFF == "off"
         assert HvacMode.HEAT == "heat"
+
+
+class TestReleasedTrvs:
+    """The snapshot says which TRVs the user has released on their own."""
+
+    @staticmethod
+    def _room_of_two(*, released: set[str], awaiting: set[str]) -> MagicMock:
+        bt = _make_bt()
+        bt.devices_released = False
+        bt.real_trvs = {
+            entity_id: trv_record(
+                entity_id=entity_id, awaiting_initialization=entity_id in awaiting
+            )
+            for entity_id in ("climate.trv", "climate.other")
+        }
+        bt.released_trvs = released
+        return bt
+
+    def test_each_trv_carries_its_own_release(self):
+        """Only the released TRV reads as released."""
+        bt = self._room_of_two(released={"climate.trv"}, awaiting=set())
+        snapshot = build_snapshot(bt)
+        assert {
+            entity_id: trv.released for entity_id, trv in snapshot.trvs.items()
+        } == {"climate.trv": True, "climate.other": False}
+
+    def test_a_released_trv_not_yet_set_up_stays_part_of_the_room(self):
+        """A TRV awaiting its setup is left out, unless it is released.
+
+        A released TRV is never addressed, so it cannot be commanded with
+        values its setup has not read yet; the kernel reads from it that
+        the room has a TRV released.
+        """
+        bt = self._room_of_two(
+            released={"climate.trv"}, awaiting={"climate.trv", "climate.other"}
+        )
+        snapshot = build_snapshot(bt)
+        assert set(snapshot.trvs) == {"climate.trv"}
+        assert snapshot.trvs["climate.trv"].released is True

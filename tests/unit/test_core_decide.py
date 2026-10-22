@@ -133,6 +133,59 @@ class TestReleasedDevices:
         assert state_after.reachability["climate.t"].online is False
 
 
+class TestReleasedTrv:
+    """A TRV the user released on its own receives no intent."""
+
+    def test_a_released_trv_is_not_addressed_even_under_boost(self):
+        """Boost keeps commanding an unreachable TRV, never a released one."""
+        snapshot = make_snapshot(
+            preset_mode=Preset.BOOST,
+            room_temperature=18.0,
+            trvs={
+                "climate.by_hand": TrvReported(
+                    entity_id="climate.by_hand", released=True
+                ),
+                "climate.away": TrvReported(entity_id="climate.away", available=False),
+            },
+        )
+        desired, _ = decide(snapshot, make_state())
+        assert set(desired.trvs) == {"climate.away"}
+        assert desired.heating_blocked_by is None
+
+    def test_every_trv_released_holds_above_the_gate_and_keeps_tracking(self):
+        """With every TRV released the room is blocked as a released room is.
+
+        The cooler is no TRV, so the decision does not release it, and the
+        regions advance as on any cycle.
+        """
+        snapshot = make_snapshot(
+            trvs={
+                "climate.a": TrvReported(entity_id="climate.a", released=True),
+                "climate.b": TrvReported(
+                    entity_id="climate.b", available=False, released=True
+                ),
+            }
+        )
+        state = make_state(
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING,
+                grace_until=snapshot.now - timedelta(seconds=1),
+            )
+        )
+        desired, state_after = decide(snapshot, state)
+        assert dict(desired.trvs) == {}
+        assert desired.devices_released is False
+        assert desired.heating_blocked_by is HeatingBlock.DEVICES_RELEASED
+        assert desired.call_for_heat is snapshot.call_for_heat
+        assert state_after.lifecycle.phase == LifecyclePhase.RUNNING
+        assert state_after.reachability["climate.b"].online is False
+
+    def test_a_room_without_trvs_is_not_released(self):
+        """No TRV is not every TRV released: the heating rung names no block."""
+        desired, _ = decide(make_snapshot(trvs={}), make_state())
+        assert desired.heating_blocked_by is None
+
+
 class TestModeOff:
     """OFF mode turns every TRV off."""
 

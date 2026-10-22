@@ -9,7 +9,7 @@ import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
-from custom_components.better_thermostat.core.desired import DesiredState
+from custom_components.better_thermostat.core.desired import DesiredState, HeatingBlock
 from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import WorldSnapshot
 from custom_components.better_thermostat.trv import Trv
@@ -800,3 +800,104 @@ class TestControlQueueWithReleasedDevices:
         cooler.assert_awaited_once()
         trv.assert_awaited_once()
         refresh_modes.assert_called_once()
+
+
+class TestControlQueueWithATrvReleasedOnItsOwn:
+    """A cycle commands the TRVs still controlled and passes a released one over."""
+
+    RELEASED = "climate.by_hand"
+    CONTROLLED = "climate.radiator"
+    COOLER_ID = "climate.air_conditioner"
+    _CTRL = "custom_components.better_thermostat.utils.controlling"
+
+    @classmethod
+    def _make_self(cls, released: set[str]) -> ThermostatStandIn:
+        mock_self = TestControlQueueWithReleasedDevices._make_self(released=False)
+        mock_self.real_trvs = {
+            entity_id: _tracked_trv(entity_id)
+            for entity_id in (cls.RELEASED, cls.CONTROLLED)
+        }
+        mock_self.released_trvs = released
+        return mock_self
+
+    @pytest.mark.asyncio
+    async def test_only_the_controlled_trv_is_commanded(self):
+        """The released TRV gets no control pass; the other TRV and the cooler do.
+
+        A released TRV counts towards neither the cycle's failures nor its
+        mode caches: the cache refresh passes it over.
+        """
+        mock_self = self._make_self({self.RELEASED})
+
+        (
+            cooler,
+            trv,
+            refresh_modes,
+            _,
+        ) = await TestControlQueueWithReleasedDevices._run_one_cycle(
+            mock_self, (Mock(), DesiredState(call_for_heat=True))
+        )
+
+        cooler.assert_awaited_once()
+        assert [call.args[1] for call in trv.await_args_list] == [self.CONTROLLED]
+        refresh_modes.assert_called_once_with(mock_self)
+
+    @pytest.mark.asyncio
+    async def test_every_trv_released_keeps_the_cooler_and_counts_as_a_cycle(self):
+        """No TRV is commanded, the cooler still is, and the cycle counts.
+
+        The room's heating action advances once, as in a cycle that
+        dispatches no TRV, and the watchdog reads a running loop.
+        """
+        mock_self = self._make_self({self.RELEASED, self.CONTROLLED})
+        mock_self.clock.advance(10.0)
+
+        (
+            cooler,
+            trv,
+            _,
+            advance_action,
+        ) = await TestControlQueueWithReleasedDevices._run_one_cycle(
+            mock_self,
+            (
+                Mock(),
+                DesiredState(
+                    call_for_heat=True, heating_blocked_by=HeatingBlock.DEVICES_RELEASED
+                ),
+            ),
+        )
+
+        cooler.assert_awaited_once()
+        trv.assert_not_awaited()
+        advance_action.assert_called_once_with(mock_self)
+        assert mock_self.kernel_state.last_control_monotonic == 10.0
+
+    @pytest.mark.asyncio
+    async def test_a_cooler_that_is_a_released_trv_is_not_commanded(self):
+        """A device wired as TRV and as cooler is released in both roles."""
+        mock_self = self._make_self({self.RELEASED})
+        mock_self.cooler_entity_id = self.RELEASED
+
+        cooler, trv, _, _ = await TestControlQueueWithReleasedDevices._run_one_cycle(
+            mock_self, (Mock(), DesiredState(call_for_heat=True))
+        )
+
+        cooler.assert_not_awaited()
+        assert [call.args[1] for call in trv.await_args_list] == [self.CONTROLLED]
+
+    @pytest.mark.parametrize(
+        ("released", "held"),
+        [({"climate.by_hand"}, True), (set(), False)],
+        ids=["released", "none"],
+    )
+    @pytest.mark.asyncio
+    async def test_the_learners_stay_held_while_a_trv_is_released(self, released, held):
+        """A cycle ends the hold only once no TRV is released."""
+        mock_self = self._make_self(released)
+        mock_self.learning_held = True
+
+        await TestControlQueueWithReleasedDevices._run_one_cycle(
+            mock_self, (Mock(), DesiredState(call_for_heat=True))
+        )
+
+        assert mock_self.learning_held is held

@@ -965,6 +965,37 @@ class TestCheckEntitiesReady:
         assert BetterThermostat._check_entities_ready(bt, sensor) is False
 
     @pytest.mark.parametrize(
+        ("devices_released", "released_trvs", "ready"),
+        [
+            pytest.param(False, {TRV_ID}, False, id="one_trv_released"),
+            pytest.param(False, {TRV_ID, TRV_ID_2}, True, id="every_trv_released"),
+            pytest.param(True, set(), True, id="devices_released"),
+        ],
+    )
+    def test_a_room_with_every_trv_released_starts_without_them(
+        self, bt, devices_released, released_trvs, ready
+    ):
+        """A room that controls no TRV does not wait for one after the window.
+
+        With a TRV still under control the room waits for it, as above;
+        with every TRV released, one by one or with the room's devices, it
+        starts on its saved state.
+        """
+        sensor = _make_sensor_state()
+        _arm_grace(bt, remaining=timedelta(seconds=-1))
+        bt.real_trvs = {
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
+        }
+        bt.devices_released = devices_released
+        bt.released_trvs = released_trvs
+        bt.hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, STATE_UNAVAILABLE
+        )
+
+        assert BetterThermostat._check_entities_ready(bt, sensor) is ready
+
+    @pytest.mark.parametrize(
         "sensor",
         [None, State(SENSOR_ID, STATE_UNAVAILABLE), State(SENSOR_ID, STATE_UNKNOWN)],
         ids=["absent", "unavailable", "unknown"],

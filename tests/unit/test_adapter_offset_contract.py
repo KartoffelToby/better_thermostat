@@ -31,7 +31,12 @@ from custom_components.better_thermostat.adapters.base import (
     wait_for_calibration_entity_or_timeout,
 )
 from custom_components.better_thermostat.utils.const import CalibrationOutput
-from tests.factories import ThermostatStandIn, trv_record
+from tests.factories import (
+    RELEASE_SCOPES,
+    ThermostatStandIn,
+    release_device,
+    trv_record,
+)
 
 ENTITY_ID = "climate.trv"
 CALIBRATION_ENTITY = "number.trv_local_temperature_calibration"
@@ -403,8 +408,9 @@ class TestNoZeroForReleasedDevices:
     is not written to them then.
     """
 
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
     @pytest.mark.asyncio
-    async def test_a_release_during_the_wait_writes_no_zero(self):
+    async def test_a_release_during_the_wait_writes_no_zero(self, scope):
         """Released devices get no zero, also when the wait is what they interrupt."""
         mock_self = _mock_self_with_select()
         mock_self.hass.states.get = lambda requested: State(
@@ -416,7 +422,7 @@ class TestNoZeroForReleasedDevices:
             nonlocal waits
             waits += 1
             if waits == 3:
-                mock_self.devices_released = True
+                release_device(mock_self, ENTITY_ID, scope)
 
         with patch(
             "custom_components.better_thermostat.adapters.base.asyncio.sleep",

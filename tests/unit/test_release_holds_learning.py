@@ -1,5 +1,8 @@
 """Released devices hold the learners the way a learning pause does.
 
+A TRV released on its own holds them as well: the room's response is then
+partly the user's doing.
+
 The requirement behind each test: while the devices are the user's no
 learner takes anything from the room, and the control cycle that takes
 them back still holds, so no learning interval spans the release. The
@@ -33,7 +36,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
 )
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.controlling import control_queue
-from tests.factories import trv_record
+from tests.factories import RELEASE_SCOPES, trv_record
 from tests.unit.controlling.test_control_queue import _idle_room, _stop, _wait_until
 from tests.unit.test_contact_gates_controllers import _bt, _valve_trv
 from tests.unit.test_pause_learning import (
@@ -55,6 +58,7 @@ def _make_releasable(bt: Any) -> Any:
     """Give a stand-in what releasing and taking back its devices touches."""
     bt.device_name = "Test BT"
     bt.devices_released = False
+    bt.released_trvs = set()
     bt.learning_paused = False
     bt.learning_held = False
     bt.learning_pause_changes = 0
@@ -69,9 +73,13 @@ def _make_releasable(bt: Any) -> Any:
     return bt
 
 
-async def _set_released(bt: Any, released: bool) -> None:
+async def _set_released(bt: Any, released: bool, scope: str = "room") -> None:
+    """Release or take back the room's devices, or its one TRV on its own."""
     with patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()):
-        await BetterThermostat.async_set_devices_released(bt, released)
+        if scope == "room":
+            await BetterThermostat.async_set_devices_released(bt, released)
+        else:
+            await BetterThermostat.async_set_trv_released(bt, ENTITY_ID, released)
 
 
 def _set_paused(bt: Any, paused: bool) -> None:
@@ -122,8 +130,9 @@ async def _run(steps: Callable[[_Loop], Any]) -> _Loop:
     return loop
 
 
+@pytest.mark.parametrize("scope", RELEASE_SCOPES)
 @pytest.mark.asyncio
-async def test_the_learners_hold_from_the_release_on():
+async def test_the_learners_hold_from_the_release_on(scope):
     """Releasing holds the learners at once and in every cycle while released.
 
     The pause switch's state is not touched: a release is not a pause.
@@ -131,7 +140,7 @@ async def test_the_learners_hold_from_the_release_on():
     seen: list[tuple[bool, bool]] = []
 
     async def steps(loop: _Loop) -> None:
-        await _set_released(loop.bt, True)
+        await _set_released(loop.bt, True, scope)
         seen.append((loop.bt.learning_paused, loop.bt.learning_held))
         await loop.cycle()
         await loop.cycle()
@@ -143,16 +152,17 @@ async def test_the_learners_hold_from_the_release_on():
     assert (loop.bt.learning_paused, loop.bt.learning_held) == (False, True)
 
 
+@pytest.mark.parametrize("scope", RELEASE_SCOPES)
 @pytest.mark.asyncio
-async def test_the_cycle_that_takes_the_devices_back_still_holds():
+async def test_the_cycle_that_takes_the_devices_back_still_holds(scope):
     """The take-back cycle holds; only the cycle after it learns again."""
     held_after: list[bool] = []
 
     async def steps(loop: _Loop) -> None:
         await loop.cycle()
-        await _set_released(loop.bt, True)
+        await _set_released(loop.bt, True, scope)
         await loop.cycle()
-        await _set_released(loop.bt, False)
+        await _set_released(loop.bt, False, scope)
         held_after.append(loop.bt.learning_held)
         await loop.cycle()
         held_after.append(loop.bt.learning_held)
@@ -168,8 +178,9 @@ async def test_the_cycle_that_takes_the_devices_back_still_holds():
 @pytest.mark.parametrize(
     "pause_first", [True, False], ids=["pause_first", "release_first"]
 )
+@pytest.mark.parametrize("scope", RELEASE_SCOPES)
 @pytest.mark.asyncio
-async def test_the_hold_lasts_until_a_cycle_after_both_have_ended(pause_first):
+async def test_the_hold_lasts_until_a_cycle_after_both_have_ended(pause_first, scope):
     """With a pause and a release, ending one of them leaves the learners held.
 
     Whichever ends last is followed by one more held cycle.
@@ -178,16 +189,16 @@ async def test_the_hold_lasts_until_a_cycle_after_both_have_ended(pause_first):
 
     async def steps(loop: _Loop) -> None:
         _set_paused(loop.bt, True)
-        await _set_released(loop.bt, True)
+        await _set_released(loop.bt, True, scope)
         await loop.cycle()
         if pause_first:
             _set_paused(loop.bt, False)
         else:
-            await _set_released(loop.bt, False)
+            await _set_released(loop.bt, False, scope)
         await loop.cycle()
         held_after.append(loop.bt.learning_held)
         if pause_first:
-            await _set_released(loop.bt, False)
+            await _set_released(loop.bt, False, scope)
         else:
             _set_paused(loop.bt, False)
         await loop.cycle()
@@ -200,8 +211,9 @@ async def test_the_hold_lasts_until_a_cycle_after_both_have_ended(pause_first):
     assert loop.held_by_cycle == [True, True, True, False]
 
 
+@pytest.mark.parametrize("scope", RELEASE_SCOPES)
 @pytest.mark.asyncio
-async def test_a_release_within_a_running_cycle_holds_the_next_cycle():
+async def test_a_release_within_a_running_cycle_holds_the_next_cycle(scope):
     """A release that comes and goes while a cycle writes still holds the next.
 
     That cycle ran its learners before the release, so it cannot end the
@@ -214,8 +226,8 @@ async def test_a_release_within_a_running_cycle_holds_the_next_cycle():
         loop.trv_writes.clear()
         loop.queue.put_nowait(loop.bt)
         await _wait_until(lambda: loop.held_by_cycle == [False])
-        await _set_released(loop.bt, True)
-        await _set_released(loop.bt, False)
+        await _set_released(loop.bt, True, scope)
+        await _set_released(loop.bt, False, scope)
         loop.trv_writes.set()
         await asyncio.wait_for(loop.queue.join(), timeout=1)
         held_after_take_back.append((list(loop.held_by_cycle), loop.bt.learning_held))
@@ -230,13 +242,17 @@ async def test_a_release_within_a_running_cycle_holds_the_next_cycle():
 # -- What the take-back cycle learns -------------------------------------------
 
 
-async def _release_for_a_while(bt: Any, advance: Callable[[float], None]) -> None:
-    await _set_released(bt, True)
+async def _release_for_a_while(
+    bt: Any, advance: Callable[[float], None], scope: str
+) -> None:
+    await _set_released(bt, True, scope)
     advance(_GAP_S)
-    await _set_released(bt, False)
+    await _set_released(bt, False, scope)
 
 
-@pytest.mark.parametrize("released", [True, False], ids=["released", "controlled"])
+@pytest.mark.parametrize(
+    "released", ["room", "trv", None], ids=["released", "trv_released", "controlled"]
+)
 @pytest.mark.asyncio
 async def test_the_take_back_cycle_neither_integrates_nor_tunes_the_pid(released):
     """The PID cycle after a take-back adds nothing for the time released.
@@ -252,19 +268,21 @@ async def test_the_take_back_cycle_neither_integrates_nor_tunes_the_pid(released
     bucket = store.get(build_pid_key(bt, ENTITY_ID))
 
     if released:
-        await _release_for_a_while(bt, bt.clock.advance)
+        await _release_for_a_while(bt, bt.clock.advance, released)
     else:
         bt.clock.advance(_GAP_S)
     percent, _ = _compute_pid_balance(bt, ENTITY_ID)
 
     assert percent is not None and percent > 0
     learned = (store[loop_key].pid_integral, store.get(build_pid_key(bt, ENTITY_ID)))
-    assert (learned == (integral, bucket)) is released
+    assert (learned == (integral, bucket)) is (released is not None)
     if released:
         assert store[loop_key].last_tune_ts == bt.clock.monotonic()
 
 
-@pytest.mark.parametrize("released", [True, False], ids=["released", "controlled"])
+@pytest.mark.parametrize(
+    "released", ["room", "trv", None], ids=["released", "trv_released", "controlled"]
+)
 @pytest.mark.asyncio
 async def test_the_take_back_cycle_adapts_no_mpc_estimate(released):
     """MPC restarts its learning interval on the take-back cycle.
@@ -286,7 +304,7 @@ async def test_the_take_back_cycle_adapts_no_mpc_estimate(released):
         wall[0] += seconds
 
     if released:
-        await _release_for_a_while(bt, advance)
+        await _release_for_a_while(bt, advance, released)
     else:
         advance(_GAP_S)
     with clock:
@@ -294,12 +312,14 @@ async def test_the_take_back_cycle_adapts_no_mpc_estimate(released):
 
     assert output is not None
     after = bt.state_mgr.get_mpc(key)
-    assert (_learned(after) == before) is released
+    assert (_learned(after) == before) is (released is not None)
     if released:
         assert after.last_learn_time == wall[0]
 
 
-@pytest.mark.parametrize("released", [True, False], ids=["released", "controlled"])
+@pytest.mark.parametrize(
+    "released", ["room", "trv", None], ids=["released", "trv_released", "controlled"]
+)
 @pytest.mark.asyncio
 async def test_the_take_back_cycle_holds_mpc_v2_and_cuts_the_reid_buffer(released):
     """MPC v2 moves neither its disturbance nor its integral on the take-back cycle.
@@ -325,13 +345,13 @@ async def test_the_take_back_cycle_holds_mpc_v2_and_cuts_the_reid_buffer(release
         before = _held(state)
 
         if released:
-            await _release_for_a_while(bt, advance)
+            await _release_for_a_while(bt, advance, released)
         else:
             advance(_GAP_S)
         output, _ = _compute_mpc_v2_balance(bt, ENTITY_ID)
 
     assert output is not None
-    assert (_held(state) == before) is released
+    assert (_held(state) == before) is (released is not None)
     samples = bt.state_mgr.get_mpc_v2_reid_runtime(_build_mpc_v2_reid_key(bt)).buffer
     cut = bool(samples.samples) and samples.samples[-1].learning_paused
-    assert cut is released
+    assert cut is (released is not None)
