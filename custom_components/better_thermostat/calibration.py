@@ -796,19 +796,16 @@ def _maybe_start_mpc_v2_reid_fit(
                 reid_key,
             )
             return
-        if (
-            outcome.status == "accepted"
-            and outcome.tau_room_min is not None
-            and outcome.gain_heater is not None
-        ):
+        fit = outcome.accepted_fit
+        if fit is not None:
             state_mgr.adopt_mpc_v2_reid(
                 reid_key,
                 MpcV2ReidData(
-                    tau_room_minutes=outcome.tau_room_min,
-                    gain_heater=outcome.gain_heater,
+                    tau_room_minutes=fit.tau_room_min,
+                    gain_heater=fit.gain_heater,
                     fitted_ts=fitted_wall_ts,
-                    rmse_prior_kelvin=outcome.rmse_prior_K or 0.0,
-                    rmse_fit_kelvin=outcome.rmse_fit_K or 0.0,
+                    rmse_prior_kelvin=fit.rmse_prior_K,
+                    rmse_fit_kelvin=fit.rmse_fit_K,
                     n_segments=outcome.n_segments,
                     flow_temperature=prior.T_water,
                 ),
@@ -820,10 +817,10 @@ def _maybe_start_mpc_v2_reid_fit(
                 "%d segments)",
                 device_name,
                 reid_key,
-                outcome.tau_room_min,
-                outcome.gain_heater,
-                outcome.rmse_prior_K or 0.0,
-                outcome.rmse_fit_K or 0.0,
+                fit.tau_room_min,
+                fit.gain_heater,
+                fit.rmse_prior_K,
+                fit.rmse_fit_K,
                 outcome.n_segments,
             )
         else:

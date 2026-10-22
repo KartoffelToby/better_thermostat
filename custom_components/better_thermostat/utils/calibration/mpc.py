@@ -117,7 +117,7 @@ class MpcInput:
     is_day: bool = True
     other_heat_power: float = 0.0
     solar_intensity: float = 0.0  # 0.0 to 1.0 (cloud coverage, etc.)
-    max_opening_percent: float | None = None
+    max_opening_percent: float = 100.0
     # While set, the controller keeps regulating on what it has learned and
     # learns nothing new: no adaptation, no forced loss calibration, no
     # dead-zone or TRV-profile evidence, no performance-curve sample. Every
@@ -2169,13 +2169,11 @@ def _post_process_percent(
                 )
 
     # 7b) MAX VALVE OPENING (USER CAP)
-    max_opening = inp.max_opening_percent
-    if isinstance(max_opening, (int, float)):
-        max_opening = max(0.0, min(100.0, float(max_opening)))
-        if percent_out > max_opening:
-            debug["max_opening_pct"] = _round_for_debug(max_opening, 2)
-            debug["max_opening_clamped"] = True
-            percent_out = round(max_opening)
+    max_opening = max(0.0, min(100.0, float(inp.max_opening_percent)))
+    if percent_out > max_opening:
+        debug["max_opening_pct"] = _round_for_debug(max_opening, 2)
+        debug["max_opening_clamped"] = True
+        percent_out = round(max_opening)
 
     # 8) UPDATE STATE ONLY IF CHANGED
     # Only update last_percent and last_update_ts if the output actually changed
