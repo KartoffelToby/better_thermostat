@@ -110,6 +110,15 @@ State estimates (the EMA, the slope, the MPC virtual temperature, the
 MPC v2 observer, the PID measurement chain) keep tracking the room, so
 learning resumes from fresh estimates and no interval spans the pause.
 
+The *Release devices* switch holds the learners through the same flag.
+`learning_held` is on while learning is paused or the devices are
+released, and turns off at the end of the first control cycle after both
+have ended. For a release that is the cycle the take-back requests, the
+one that writes the devices once, so neither PID, MPC nor MPC v2 learns
+over the released time and the re-identification buffer is cut there.
+`learning_paused` stays the pause switch's own state; a release does not
+set it.
+
 There is **no external readiness gate** in front of actuation:
 closed-loop learners bootstrap *through* actuation, and an external
 "only actuate when ready" gate would prevent them from ever warming

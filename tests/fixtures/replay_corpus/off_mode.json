@@ -2,6 +2,7 @@
   "desired": {
     "call_for_heat": false,
     "devices_released": false,
+    "heating_blocked_by": "hvac_off",
     "trvs": {
       "climate.trv1": {
         "calibration_offset": null,

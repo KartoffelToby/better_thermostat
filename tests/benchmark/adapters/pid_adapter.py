@@ -1,20 +1,15 @@
 """Adapter wrapping the existing PID controller.
 
 PID's signature differs from the others (positional args, no Input dataclass).
-This adapter normalises it to the common protocol shape.
-
-Deliberate simplifications relative to the production call site: the raw
-sensor reading is passed as ``inp_room_temperature_filtered`` (production feeds
-its maintained EMA ``room_temperature_filtered``), and the temperature slope is a
-two-point finite difference (production passes its own ``temperature_slope``).
-Both stand-ins converge on the production values for the noise-free,
-fixed-step scenarios the benchmark runs.
+This adapter normalises it to the common protocol shape. Like the production
+call site it passes the committed room temperature, its EMA and the slope the
+EMA tick derives.
 """
 
 from __future__ import annotations
 
 from itertools import count
-from typing import Any
+from typing import Any, override
 
 from custom_components.better_thermostat.utils.calibration import pid as pid_mod
 from custom_components.better_thermostat.utils.calibration.pid import (
@@ -27,14 +22,14 @@ from custom_components.better_thermostat.utils.state_manager import (
     write_pid_state,
 )
 
-from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
+from .base import BenchmarkContext, BenchmarkOutput, ControlCycleGate, ControllerFamily
 
 # Controller state is caller-owned; the adapter threads its own ``_state``
 # through compute_pid, so instances never share learned state.
 _KEY_COUNTER = count()
 
 
-class PidAdapter:
+class PidAdapter(ControlCycleGate):
     """Benchmark adapter for the production PID controller."""
 
     name: str = "pid"
@@ -46,8 +41,6 @@ class PidAdapter:
         self._key = key if key is not None else f"bench:trv:pid{next(_KEY_COUNTER)}"
         self._sim_time_s: float = 0.0
         self._original_monotonic = pid_mod.monotonic
-        self._previous_temperature: float | None = None
-        self._prev_t: float | None = None
 
     def _virtualise_time(self) -> None:
         pid_mod.monotonic = lambda: self._sim_time_s
@@ -64,38 +57,24 @@ class PidAdapter:
         ``deserialize_pid`` path. Without ``prior`` the adapter
         cold-starts.
         """
+        self._held = None
         self._state = deserialize_pid(prior) if prior else PIDState()
         self._sim_time_s = 0.0
-        self._previous_temperature = None
-        self._prev_t = None
 
-    def _estimate_slope(self, ctx: BenchmarkContext) -> float | None:
-        if self._previous_temperature is None or self._prev_t is None:
-            self._previous_temperature = ctx.room_temperature
-            self._prev_t = ctx.t
-            return None
-        dt_min = (ctx.t - self._prev_t) / 60.0
-        slope: float | None = None
-        if dt_min > 0.0:
-            slope = (ctx.room_temperature - self._previous_temperature) / dt_min
-        self._previous_temperature = ctx.room_temperature
-        self._prev_t = ctx.t
-        return slope
-
-    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+    @override
+    def _compute(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one PID step for the given benchmark context."""
         self._sim_time_s = ctx.t
         self._virtualise_time()
-        slope = self._estimate_slope(ctx)
         try:
             percent, debug, self._state = compute_pid(
                 params=self._params,
                 inp_target_temperature=ctx.target_temperature,
                 inp_room_temperature=ctx.room_temperature,
                 inp_trv_temperature=ctx.trv_temperature,
-                inp_temperature_slope_K_per_min=slope,
+                inp_temperature_slope_K_per_min=ctx.temperature_slope_K_per_min,
                 key=self._key,
-                inp_room_temperature_filtered=ctx.room_temperature,
+                inp_room_temperature_filtered=ctx.room_temperature_filtered,
                 state=self._state,
             )
         finally:

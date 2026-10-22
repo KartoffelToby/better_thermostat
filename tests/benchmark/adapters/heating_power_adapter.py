@@ -20,7 +20,7 @@ against the production implementation. The EMA learner's adaptive alpha
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, override
 
 from custom_components.better_thermostat.utils.const import (
     MAX_HEATING_POWER,
@@ -42,7 +42,7 @@ from custom_components.better_thermostat.utils.thermal_learning import (
     ema_smooth,
 )
 
-from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
+from .base import BenchmarkContext, BenchmarkOutput, ControlCycleGate, ControllerFamily
 
 # Benchmark-only plateau timeout: production finalizes a cycle when the
 # room cools below its peak; the timeout bounds pathological plateaus.
@@ -55,7 +55,7 @@ _DEFAULT_MIN_TARGET: float = 18.0
 _DEFAULT_MAX_TARGET: float = 21.0
 
 
-class HeatingPowerAdapter:
+class HeatingPowerAdapter(ControlCycleGate):
     """Benchmark wrapper for the ``HEATING_POWER_CALIBRATION`` ("Time Based") mode.
 
     The default ``initial_heating_power = 0.02 °C/min`` represents a
@@ -63,6 +63,9 @@ class HeatingPowerAdapter:
     converge on after a few days. Override to ``0.01`` for the
     "fresh-install" cold-start experience.
     """
+
+    # The mode registers no periodic recompute; only events run it.
+    runs_on_tick = False
 
     name: str = "heating_power"
     family: ControllerFamily = "valve"
@@ -82,6 +85,7 @@ class HeatingPowerAdapter:
 
     def reset(self, prior: dict[str, Any] | None = None) -> None:
         """Drop all learned state; optionally seed ``heating_power`` from ``prior``."""
+        self._held = None
         seed = self._initial_heating_power
         if prior is not None:
             seeded = prior.get("heating_power")
@@ -96,7 +100,8 @@ class HeatingPowerAdapter:
         self._min_target = _DEFAULT_MIN_TARGET
         self._max_target = _DEFAULT_MAX_TARGET
 
-    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+    @override
+    def _compute(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute valve percent + update the heating-power learner."""
         valve_percent = self._compute_valve_percent(ctx)
         self._update_learner(ctx, valve_percent > 0.0)

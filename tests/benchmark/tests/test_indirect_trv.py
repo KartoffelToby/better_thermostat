@@ -281,12 +281,11 @@ def test_indirect_params_rejects_invalid_mapping():
     "fields",
     [
         {"min_setpoint": 30.0, "max_setpoint": 30.0},
-        {"trv_sensor_rad_fraction": -0.1},
-        {"trv_sensor_rad_fraction": 1.1},
+        {"min_setpoint": 31.0, "max_setpoint": 30.0},
     ],
 )
 def test_indirect_params_rejects_non_physical_trv_fields(fields):
-    """An empty setpoint range or a sensor fraction outside [0, 1] is rejected."""
+    """An empty setpoint range is rejected."""
     with pytest.raises(ValueError):
         IndirectTrvParams(**fields)
 
@@ -313,7 +312,6 @@ _PRODUCTION = IndirectTrvParams(
     internal_p_gain=30.0,
     min_setpoint=5.0,
     max_setpoint=30.0,
-    trv_sensor_rad_fraction=0.1,
 )
 
 
@@ -321,7 +319,7 @@ def _plant_ctx(
     *,
     target: float = 21.0,
     room: float = 20.0,
-    rad: float | None = 40.0,
+    trv: float | None = 22.0,
     last_valve: float = 0.0,
 ) -> BenchmarkContext:
     return BenchmarkContext(
@@ -330,24 +328,18 @@ def _plant_ctx(
         target_temperature=target,
         room_temperature=room,
         raw_room_temperature=room,
-        trv_temperature=rad,
+        trv_temperature=trv,
         outdoor_temperature=5.0,
         last_valve_percent=last_valve,
     )
 
 
-def test_production_trv_reads_a_share_of_the_radiator_excess():
-    """The TRV reads room + fraction·(radiator − room), and the inner controller sees it."""
-    inner = _RecordingValveAdapter(50.0)
-    IndirectTrvAdapter(inner, _PRODUCTION).step(_plant_ctx(room=20.0, rad=40.0))
-    assert inner.seen[0].trv_temperature == pytest.approx(22.0)
-
-
-def test_production_trv_reads_the_room_without_a_radiator_temperature():
-    """A plant without a radiator state leaves the TRV reading the room."""
-    inner = _RecordingValveAdapter(50.0)
-    IndirectTrvAdapter(inner, _PRODUCTION).step(_plant_ctx(room=20.0, rad=None))
-    assert inner.seen[0].trv_temperature == pytest.approx(20.0)
+def test_production_maps_from_the_room_without_a_trv_reading():
+    """A plant without a TRV reading maps the setpoint from the room."""
+    adapter = IndirectTrvAdapter(_FakeValveAdapter(50.0), _PRODUCTION)
+    out = adapter.step(_plant_ctx(room=20.0, trv=None))
+    # 20.0 + (30.0 - 20.0)·0.5 = 25.0.
+    assert out.diagnostics["indirect_setpoint"] == pytest.approx(25.0)
 
 
 def test_production_full_demand_sends_the_maximum_setpoint():
@@ -362,7 +354,7 @@ def test_production_partial_demand_scales_between_reading_and_maximum():
     """u scales the setpoint from the TRV reading to the maximum, rounded up."""
     # Reading 22.0; 22.0 + (30.0 - 22.0)·0.33 = 24.64 → rounded up to 25.0.
     adapter = IndirectTrvAdapter(_FakeValveAdapter(33.0), _PRODUCTION)
-    out = adapter.step(_plant_ctx(room=20.0, rad=40.0))
+    out = adapter.step(_plant_ctx(room=20.0, trv=22.0))
     assert out.diagnostics["indirect_setpoint"] == pytest.approx(25.0)
     assert out.valve_percent == pytest.approx(30.0 * (25.0 - 22.0))
 
@@ -371,7 +363,7 @@ def test_production_zero_demand_pushes_the_setpoint_below_the_reading():
     """u = 0 without overshoot sends the reading minus one step, rounded down."""
     # Reading 22.2 → 22.2 - 0.5 = 21.7 → rounded down to 21.5.
     adapter = IndirectTrvAdapter(_FakeValveAdapter(0.0), _PRODUCTION)
-    out = adapter.step(_plant_ctx(target=21.0, room=20.0, rad=42.0))
+    out = adapter.step(_plant_ctx(target=21.0, room=20.0, trv=22.2))
     assert out.diagnostics["indirect_setpoint"] == pytest.approx(21.5)
     assert out.valve_percent == 0.0
 
@@ -379,9 +371,9 @@ def test_production_zero_demand_pushes_the_setpoint_below_the_reading():
 def test_production_zero_demand_backs_off_further_with_overshoot():
     """The further the room overshoots, the further below the reading u = 0 goes."""
     adapter = IndirectTrvAdapter(_FakeValveAdapter(0.0), _PRODUCTION)
-    small = adapter.step(_plant_ctx(target=21.0, room=21.0, rad=21.0))
+    small = adapter.step(_plant_ctx(target=21.0, room=21.0, trv=21.0))
     adapter.reset()
-    large = adapter.step(_plant_ctx(target=21.0, room=23.0, rad=23.0))
+    large = adapter.step(_plant_ctx(target=21.0, room=23.0, trv=23.0))
     small_gap = 21.0 - small.diagnostics["indirect_setpoint"]
     large_gap = 23.0 - large.diagnostics["indirect_setpoint"]
     assert small_gap == pytest.approx(0.5)
@@ -397,7 +389,7 @@ def test_production_setpoint_stays_inside_the_trv_range():
         setpoint_step_K=0.5, internal_hysteresis_K=0.0, min_setpoint=4.8
     )
     adapter = IndirectTrvAdapter(_FakeValveAdapter(0.0), params)
-    out = adapter.step(_plant_ctx(target=6.0, room=20.0, rad=20.0))
+    out = adapter.step(_plant_ctx(target=6.0, room=20.0, trv=20.0))
     assert out.diagnostics["indirect_setpoint"] >= 4.8
 
 
@@ -416,7 +408,7 @@ def test_production_setpoint_holds_an_off_grid_range_edge(
     # outside the range.
     params = replace(_PRODUCTION, min_setpoint=low, max_setpoint=high)
     adapter = IndirectTrvAdapter(_FakeValveAdapter(demand), params)
-    out = adapter.step(_plant_ctx(target=6.0, room=20.0, rad=20.0))
+    out = adapter.step(_plant_ctx(target=6.0, room=20.0, trv=20.0))
     setpoint = out.diagnostics["indirect_setpoint"]
     assert params.min_setpoint <= setpoint <= params.max_setpoint
     assert setpoint == pytest.approx(expected)
@@ -447,7 +439,7 @@ def test_heuristic_mapping_hands_the_inner_controller_the_context_unchanged():
     """The heuristic and inversion mappings leave the inner context untouched."""
     params = IndirectTrvParams(setpoint_mapping="heuristic")
     inner = _RecordingValveAdapter(40.0)
-    ctx = _plant_ctx(rad=40.0, last_valve=90.0)
+    ctx = _plant_ctx(trv=22.0, last_valve=90.0)
     IndirectTrvAdapter(inner, params).step(ctx)
     assert inner.seen[0] == ctx
 
