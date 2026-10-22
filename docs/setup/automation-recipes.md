@@ -174,7 +174,7 @@ actions:
       hvac_mode: "{{ 'off' if trigger.id == 'warm' else 'heat' }}"
 ```
 
-The thermostat keeps its target while it is off, so the second trigger can still compare with it. The automation switches the thermostat back on even when you switched it off yourself; turn the automation off for as long as the room should stay off. The `float` defaults make a missing outdoor reading count as neither warm nor cold. For a room with a cooler, use `target_temp_low` instead of `temperature` and `heat_cool` instead of `heat`.
+The thermostat keeps its target while it is off, so the second trigger can still compare with it. The automation switches the thermostat back on even when you switched it off yourself; turn the automation off for as long as the room should stay off. The `float` defaults make a missing outdoor reading count as neither warm nor cold. The gaps of 2 and 3 are in your system's temperature unit; with Fahrenheit, use 4 and 5. For a room with a cooler, use `target_temp_low` instead of `temperature` and `heat_cool` instead of `heat`.
 
 ### Heat with the air conditioner while the sun provides the power
 
@@ -233,7 +233,7 @@ actions:
       hvac_mode: "off"
 ```
 
-Give both devices the same room temperature sensor and the same target, and the air conditioner's device the calibration type *Target Temperature Based*. The device that is off switches its TRVs or its air conditioner off.
+The outdoor limit of 3 is in the unit the outdoor sensor reports; for a sensor in °F, use 37 instead. Give both devices the same room temperature sensor and the same target, and the air conditioner's device the calibration type *Target Temperature Based*. The device that is off switches its TRVs or its air conditioner off.
 
 ## Keep the air conditioner from cooling
 
