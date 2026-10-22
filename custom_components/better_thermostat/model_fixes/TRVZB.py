@@ -873,7 +873,7 @@ async def maybe_set_external_temperature(
         # A room sensor on the TRV's own device is the TRV's reading: mirroring
         # it back would freeze it at the value of the first write. A selector
         # an earlier write left on the remote option is moved back.
-        room_sensor = entity_registry.async_get(self.sensor_entity_id or "")
+        room_sensor = entity_registry.async_get(self.sensor_entity_id)
         if (
             room_sensor is not None
             and room_sensor.device_id is not None

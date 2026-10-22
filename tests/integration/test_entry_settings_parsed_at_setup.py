@@ -21,6 +21,7 @@ from custom_components.better_thermostat.utils.entry_schema import parse_setting
 from . import device_profiles
 from .conftest import (
     DOMAIN,
+    SENSOR_ID,
     click_through_the_options,
     make_entry,
     set_room_sensor,
@@ -241,4 +242,83 @@ async def test_a_name_entered_in_the_options_sets_up_an_entry_refused_without_on
     await wait_for(hass, lambda: entry.state is ConfigEntryState.LOADED)
 
     assert entry.state is ConfigEntryState.LOADED, entry.reason
+    await wait_for_startup(hass, entry)
+
+
+def _entry_with_room_sensor(fake_trv, **room_sensor: object) -> MockConfigEntry:
+    """Return an otherwise readable entry with ``room_sensor`` as its sensor.
+
+    Without a keyword the entry carries no ``temperature_sensor`` key at all.
+    """
+    options: dict[str, object] = {
+        "name": "BT Test",
+        "thermostat": [
+            {
+                "trv": TRV_ID,
+                "integration": fake_trv.profile.integration,
+                "model": "Generic",
+                "advanced": {},
+            }
+        ],
+    }
+    options |= room_sensor
+    return MockConfigEntry(
+        domain=DOMAIN,
+        version=18,
+        minor_version=2,
+        data={},
+        options=options,
+        title="BT Test",
+    )
+
+
+_NO_ROOM_SENSOR = pytest.mark.parametrize(
+    ("room_sensor", "reason"),
+    [
+        ({}, "temperature_sensor is missing"),
+        ({"temperature_sensor": None}, "temperature_sensor is null, not a string"),
+        ({"temperature_sensor": ""}, "temperature_sensor is empty"),
+    ],
+    ids=["missing", "null", "empty"],
+)
+
+
+@_NO_ROOM_SENSOR
+async def test_an_entry_without_a_room_sensor_ends_in_a_setup_error_naming_it(
+    hass, fake_trv, room_sensor, reason
+):
+    """Every Better Thermostat controls on a room sensor, so setup refuses none."""
+    set_room_sensor(hass, 19.0)
+    entry = _entry_with_room_sensor(fake_trv, **room_sensor)
+    stored = copy.deepcopy(dict(entry.options))
+    entry.add_to_hass(hass)
+
+    assert not await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert entry.error_reason_translation_key == "invalid_settings"
+    assert entry.error_reason_translation_placeholders == {"reason": reason}
+    assert hass.states.async_entity_ids("climate") == [TRV_ID]
+    assert entry.options == stored
+
+
+@_NO_ROOM_SENSOR
+async def test_a_room_sensor_chosen_in_the_options_sets_up_an_entry_refused_without_one(
+    hass, fake_trv, room_sensor, reason
+):
+    set_room_sensor(hass, 19.0)
+    entry = _entry_with_room_sensor(fake_trv, **room_sensor)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    refused: ConfigEntryState = entry.state
+    assert refused is ConfigEntryState.SETUP_ERROR
+    assert entry.reason is not None and reason in entry.reason
+
+    await click_through_the_options(hass, entry, temperature_sensor=SENSOR_ID)
+    await wait_for(hass, lambda: entry.state is ConfigEntryState.LOADED)
+
+    assert entry.state is ConfigEntryState.LOADED, entry.reason
+    assert entry.options["temperature_sensor"] == SENSOR_ID
     await wait_for_startup(hass, entry)

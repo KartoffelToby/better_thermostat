@@ -43,7 +43,9 @@ def _entity(
 ) -> BetterThermostat:
     """Entity shell carrying only the containers the valve heuristic reads."""
     entity = object.__new__(BetterThermostat)
-    entity.config = BtConfig(device_name="drift-guard")
+    entity.config = BtConfig(
+        sensor_entity_id="sensor.room_temperature", device_name="drift-guard"
+    )
     entity.runtime = BtRuntime(
         heat_target_temperature=heat_target_temperature,
         room_temperature=room_temperature,

@@ -44,7 +44,9 @@ def _forgotten_swap_records(caplog):
 def _thermostat() -> BetterThermostat:
     """Return a thermostat shell holding only its name and its TRVs."""
     thermostat = object.__new__(BetterThermostat)
-    thermostat.config = BtConfig(device_name="Test")
+    thermostat.config = BtConfig(
+        sensor_entity_id="sensor.room_temperature", device_name="Test"
+    )
     thermostat.real_trvs = {}
     return thermostat
 

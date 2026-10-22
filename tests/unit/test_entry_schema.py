@@ -31,6 +31,7 @@ def _minimal() -> dict[str, object]:
     return {
         "name": "Living room",
         "thermostat": [{"trv": "climate.radiator", "integration": "mqtt"}],
+        "temperature_sensor": "sensor.room",
     }
 
 
@@ -124,7 +125,7 @@ def test_a_whole_number_where_a_float_is_read_becomes_that_float():
         # Readers parse the outdoor threshold and the tolerance from text too.
         {"off_temperature": "20", "tolerance": "0.3"},
         # None is what a reader's own default for these keys is.
-        dict.fromkeys(_NUMBER_KEYS + ("model", "presets", "temperature_sensor")),
+        dict.fromkeys(_NUMBER_KEYS + ("model", "presets", "humidity_sensor")),
     ],
     ids=["numbers", "text", "none"],
 )
@@ -244,15 +245,19 @@ def test_keys_the_schema_does_not_describe_are_left_out():
                 "advanced": {"child_lock": True},
             }
         ],
+        "temperature_sensor": "sensor.room",
     }
 
 
 def test_the_described_keys_are_the_ones_the_constants_hold():
     """Readers look the keys up through the constants; both spell the same."""
-    assert BtSettings.__required_keys__ == {CONF_NAME, const.CONF_THERMOSTAT}
+    assert BtSettings.__required_keys__ == {
+        CONF_NAME,
+        const.CONF_THERMOSTAT,
+        const.CONF_TEMPERATURE_SENSOR,
+    }
     assert BtSettings.__optional_keys__ == {
         const.CONF_MODEL,
-        const.CONF_TEMPERATURE_SENSOR,
         const.CONF_HUMIDITY_SENSOR,
         const.CONF_COOLER,
         const.CONF_WINDOW_SENSORS,
@@ -345,6 +350,17 @@ def _with_advanced(**advanced: object) -> dict[str, object]:
             _with_advanced(calibration_mode=["mpc_calibration"]),
             "thermostat[0].advanced.calibration_mode is list, "
             "not a string, a number or null",
+        ),
+        (_without("temperature_sensor"), "temperature_sensor is missing"),
+        (
+            _minimal() | {"temperature_sensor": None},
+            "temperature_sensor is null, not a string",
+        ),
+        (_minimal() | {"temperature_sensor": ""}, "temperature_sensor is empty"),
+        (_minimal() | {"temperature_sensor": "  "}, "temperature_sensor is empty"),
+        (
+            _minimal() | {"temperature_sensor": ["sensor.room"]},
+            "temperature_sensor is list, not a string",
         ),
         (_minimal() | {"model": 1}, "model is int, not a string"),
         (

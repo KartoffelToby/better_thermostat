@@ -134,8 +134,8 @@ class ModelFixHost(Protocol):
         ...
 
     @property
-    def sensor_entity_id(self) -> str | None:
-        """Entity id of the room temperature sensor, None when none is set."""
+    def sensor_entity_id(self) -> str:
+        """Entity id of the room temperature sensor."""
         ...
 
     @property

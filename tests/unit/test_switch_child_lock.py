@@ -38,6 +38,7 @@ def _parsed_trv(child_lock: object) -> TrvSettings:
                     "advanced": {"child_lock": child_lock},
                 }
             ],
+            "temperature_sensor": "sensor.room_temperature",
         }
     )
     return settings["thermostat"][0]

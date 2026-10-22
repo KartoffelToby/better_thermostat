@@ -295,10 +295,7 @@ def _sensor_still_reads(self: BetterThermostat, value: float) -> bool:
     bool
             True if the sensor still reads ``value``.
     """
-    sensor_entity_id = self.sensor_entity_id
-    if sensor_entity_id is None:
-        return False
-    reading = room_sensor_reading(self, self.hass.states.get(sensor_entity_id))
+    reading = room_sensor_reading(self, self.hass.states.get(self.sensor_entity_id))
     return reading is not None and round(reading, 2) == value
 
 
