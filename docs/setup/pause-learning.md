@@ -1,7 +1,7 @@
 ---
 title: Pausing learning
 sidebar:
-    order: 3
+    order: 4
 description: The Pause Learning switch keeps Better Thermostat from learning while the room behaves in a way it should not learn from, with automation recipes for a boiler heating hot water, a fireplace and an away preset.
 ---
 
@@ -68,7 +68,7 @@ actions:
         - switch.bedroom_pause_learning
 ```
 
-The two triggers name the states they react to, so a sensor that turns `unavailable` changes nothing. The same automation covers a boiler lockout or a heat pump in a defrost cycle, as long as a sensor reports it.
+The two triggers name the states they react to, so a sensor that turns `unavailable` changes nothing. The same automation covers a boiler lockout or a heat pump in a defrost cycle, as long as a sensor reports it. The *Pause learning while the heat source delivers no heat* [blueprint](/setup/automation-blueprints/) sets up the same automation from the UI, also for a sensor that is `on` while the radiators get no heat, such as a hot water indicator.
 
 ### A fireplace is lit
 
@@ -95,7 +95,7 @@ actions:
         - switch.dining_room_pause_learning
 ```
 
-The second room is the one next door that the fireplace warms as well. The half hour before learning resumes lets the room cool off from the fire first. Better Thermostat keeps regulating meanwhile and closes the valves while the room is warm enough.
+The second room is the one next door that the fireplace warms as well. The half hour before learning resumes lets the room cool off from the fire first. Better Thermostat keeps regulating meanwhile and closes the valves while the room is warm enough. The *Pause learning while the fireplace burns* [blueprint](/setup/automation-blueprints/) sets up the same automation from the UI and can also set a preset, such as Eco, while the fire burns.
 
 ### Away or frost protection for weeks
 
@@ -120,6 +120,24 @@ actions:
 ```
 
 When you arrive and switch the preset back, learning resumes from the heating power the room had before you left.
+
+Without an Away preset, pause learning while the target is at frost protection, here below 15 °C:
+
+```yaml
+alias: Pause learning at frost protection
+triggers:
+  - trigger: state
+    entity_id: climate.holiday_home
+    attribute: temperature
+conditions:
+  - condition: template
+    value_template: "{{ trigger.to_state.attributes.temperature is number }}"
+actions:
+  - action: >-
+      switch.turn_{{ 'on' if trigger.to_state.attributes.temperature < 15 else 'off' }}
+    target:
+      entity_id: switch.holiday_home_pause_learning
+```
 
 ### Several reasons for one room
 

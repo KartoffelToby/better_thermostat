@@ -1,7 +1,7 @@
 ---
 title: Actions and conditions
 sidebar:
-    order: 6
+    order: 8
 description: The actions Better Thermostat adds to Home Assistant, their fields, and the device conditions it offers in automations.
 ---
 

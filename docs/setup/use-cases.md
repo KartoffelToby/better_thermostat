@@ -3,7 +3,7 @@ title: What you can use it for
 description: Typical rooms and problems Better Thermostat solves, and the feature behind each one.
 ---
 
-Each section below starts from a situation in a real home and names the part of Better Thermostat that handles it.
+Each section below starts from a situation in a real home and names the part of Better Thermostat that handles it. Situations that need a decision Better Thermostat cannot make itself, such as when a fireplace is lit or when the heating season ends, are handled by an automation; [Automation recipes](/setup/automation-recipes/) collects them.
 
 ## The TRV reads the radiator, not the room
 
