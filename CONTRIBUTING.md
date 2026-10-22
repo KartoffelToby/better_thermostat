@@ -72,7 +72,9 @@ decide(snapshot, state) -> (desired, state')
 - `decide.py` — the precedence cascade: released devices → lifecycle &
   maintenance gate → mode OFF → open window or door → call-for-heat → heating. Reachability
   is an address filter applied across it rather than a cascade tier;
-  unreachable TRVs are dropped from the commanded set. `decide()` never
+  unreachable TRVs are dropped from the commanded set, and so are TRVs
+  the user released on their own (with every TRV released the release
+  tier's block applies, while the cooler stays controlled). `decide()` never
   mutates its input state, it returns a successor state.
 - `fsm/` — one small state machine per concern (*region*): `window`
   (debounced open/closed; instantiated twice, as the window and the door

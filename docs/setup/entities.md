@@ -19,7 +19,7 @@ The thermostat's `heating_blocked_by` attribute names what keeps Better Thermost
 
 | Value | The room is not heated because |
 | --- | --- |
-| `devices_released` | The **Release devices** switch is on, and the devices are yours. See [Releasing the devices](/setup/releasing-devices/). |
+| `devices_released` | The **Release devices** switch is on, or the **Release** switch of every TRV is, and the TRVs are yours. See [Releasing the devices](/setup/releasing-devices/). |
 | `startup` | Better Thermostat is starting. The thermostat is unavailable until the startup ends and shows no attributes meanwhile, so the value is listed for completeness. |
 | `valve_maintenance` | A valve maintenance run is exercising the valves. |
 | `hvac_off` | The thermostat's mode is off. |
@@ -34,6 +34,7 @@ The `active_overrides` attribute lists the switches that are away from their def
 | Value | Switch |
 | --- | --- |
 | `devices_released` | **Release devices** is on. |
+| `trvs_released` | The **Release** switch of at least one TRV is on. The `released_trvs` attribute lists those TRVs. |
 | `learning_paused` | **Pause Learning** is on. |
 | `window_detection_off` | **Window Detection** is off. |
 
@@ -92,9 +93,11 @@ Set them from an automation to change several devices at once, for example to fo
 
 **Release devices** exists for every device. Turned on, it hands the room's TRVs and cooler to you: Better Thermostat writes nothing to them, takes over nothing they report and learns nothing until it is turned off, which brings them back onto the thermostat's own settings with one control cycle. It keeps its state over a restart. See [Releasing the devices](/setup/releasing-devices/).
 
+**Release** exists for every TRV, as *Living room left Release*. Turned on, it hands that TRV alone to you: Better Thermostat writes nothing to it and takes over nothing it reports, controls the room's other TRVs and its cooler as before, and learns nothing while any TRV is released. Turned off, one control cycle brings the TRV back onto the thermostat's settings. The thermostat lists the released TRVs in its `released_trvs` attribute, and the switch keeps its state over a restart. See [Releasing a single TRV](/setup/releasing-devices/#releasing-a-single-trv).
+
 **Pause Learning** exists for every device. While it is on, Better Thermostat keeps regulating but learns nothing from the room: the heating power, the heat loss and the state of every calibration controller stay as they are. Turn it on from an automation while the room behaves in a way that would teach the controllers something wrong, such as a boiler heating hot water or a lit fireplace. See [Pausing learning](/setup/pause-learning/).
 
-**Child Lock** exists for every TRV. It turns the *Ignore all inputs on the TRV like a child lock* option on and off and, where the TRV has a child lock entity of its own, that one too. While the devices are released it cannot be changed. Better Thermostat looks for a switch or lock on the TRV's device named for the child lock first; only when there is none does it use one whose name merely contains "lock". The switch and the startup sync of the option pick the same entity.
+**Child Lock** exists for every TRV. It turns the *Ignore all inputs on the TRV like a child lock* option on and off and, where the TRV has a child lock entity of its own, that one too. While the devices or the TRV are released it cannot be changed. Better Thermostat looks for a switch or lock on the TRV's device named for the child lock first; only when there is none does it use one whose name merely contains "lock". The switch and the startup sync of the option pick the same entity.
 
 **Window Detection** exists for every device with a window or door sensor. It is on by default, and then an open window or door turns the heating off as described in [Window sensor](/faq/window-sensor/). Turned off, the window and door sensors no longer affect the heating, and a close delay that is still running is dropped, so heating resumes at once. The thermostat shows the setting in its `window_detection` attribute, and the switch keeps its state across restarts. See [Turning window detection off](/faq/window-sensor/#turning-window-detection-off).
 

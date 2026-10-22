@@ -57,7 +57,7 @@ Enable **Ignore all inputs on the TRV like a child lock**. Better Thermostat the
 
 ## Running a device yourself for a while
 
-An air conditioner's self-cleaning sequence, radiators held open while the heating system is filled, or an air conditioner run by hand: Better Thermostat would put each of them back. Turn on the **Release devices** switch for that time. Better Thermostat then leaves the room's devices alone until you turn it off again. See [Releasing the devices](/setup/releasing-devices/).
+An air conditioner's self-cleaning sequence, radiators held open while the heating system is filled, or an air conditioner run by hand: Better Thermostat would put each of them back. Turn on the **Release devices** switch for that time. Better Thermostat then leaves the room's devices alone until you turn it off again. To run one radiator of the room yourself and leave the others to Better Thermostat, turn on that TRV's own **Release** switch instead. See [Releasing the devices](/setup/releasing-devices/).
 
 ## TRVs that stick after the summer
 

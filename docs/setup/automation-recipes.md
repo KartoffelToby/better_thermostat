@@ -136,7 +136,7 @@ It fails for a thermostat with no TRV that has maintenance enabled; see [Actions
 
 ## Run the devices yourself for a while
 
-When you want to hold radiators open for maintenance or over the summer, run an air conditioner by hand while Better Thermostat is off, or let it run a self-cleaning sequence, turn **Release devices** on for that time. [Releasing the devices](/setup/releasing-devices/#examples) has a recipe for each.
+When you want to hold radiators open for maintenance or over the summer, run an air conditioner by hand while Better Thermostat is off, or let it run a self-cleaning sequence, turn **Release devices** on for that time; to run a single radiator yourself, turn on its own **Release** switch. [Releasing the devices](/setup/releasing-devices/#examples) has a recipe for each.
 
 ## Use the outdoor temperature
 

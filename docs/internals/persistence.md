@@ -19,6 +19,7 @@ user inputs Home Assistant restores on its own sit outside that line.
 | PID parameters and the PID auto-tune switch | persists | `StateManager` (HA Store), inside the PID controller state |
 | Climate target and HVAC mode | persists | `RestoreEntity` (HA-owned) |
 | Release devices switch | persists | `RestoreEntity` of the climate entity, as its `devices_released` attribute, read before startup writes to any device |
+| Release switch of each TRV | persists | `RestoreEntity` of the climate entity, as its `released_trvs` attribute (a list of entity ids), read before startup writes to any device; a TRV no longer configured drops out |
 | User inputs on the other helper entities (preset temperatures, valve max opening, child-lock switch) | persists | `RestoreEntity` (HA-owned) |
 
 The discrete mode flags (window open, startup, maintenance, degraded)
