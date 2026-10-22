@@ -33,7 +33,7 @@ The **Window Detection** switch decides whether the window and door sensors turn
 
 ### Never let the room get colder than a minimum
 
-When the room must not drop below a minimum, whatever a window sensor or the outdoor temperature says, override both while the room is too cold. This automation turns **Window Detection** off and raises the **Outdoor Temperature Threshold** above any outdoor temperature once the room has been below 15 °C for ten minutes. Once it is back above 17 °C, it turns detection on again and puts the threshold back to 18 °C, the value you normally use:
+When the room must not drop below a minimum, whatever a window sensor or the outdoor temperature says, override both while the room is too cold. This automation turns **Window Detection** off and raises the **Outdoor Temperature Threshold** to 40 °C, above the damped outdoor temperature you can expect, once the room has been below 15 °C for ten minutes. Once it is back above 17 °C, it turns detection on again and puts the threshold back to 18 °C, the value you normally use:
 
 ```yaml
 alias: Living room never below 15 °C
@@ -80,7 +80,7 @@ actions:
               value: 18
 ```
 
-The room heats to its target temperature, so the target has to be above the minimum, and the thermostat has to be in `heat`. The **Window Detection** switch exists only for a device with a window or door sensor, and the threshold number only for one with an outdoor sensor or a weather entity; leave out the steps for the entity your device does not have. The threshold steps act at once, because Better Thermostat checks the outdoor temperature again as soon as the threshold changes. A weather entity that stops giving a forecast needs no recipe: after three hours without one, the room heats until the forecast is back. See [Summer mode](/deep-explanations/summer-mode/).
+The room heats to its target temperature, so the target has to be above the minimum, and the thermostat has to be in `heat`. The **Window Detection** switch exists only for a device with a window or door sensor, and the threshold number only for one with an outdoor sensor or a weather entity; leave out the steps for the entity your device does not have. All temperatures in the automation are in your system's temperature unit; with Fahrenheit, use 59, 63, 64 and 104 instead of 15, 17, 18 and 40. A damped outdoor temperature at or above the raised threshold still switches the heating off, so pick a value above anything your climate reaches. The threshold steps act at once, because Better Thermostat checks the outdoor temperature again as soon as the threshold changes. A weather entity that stops giving a forecast needs no recipe: after three hours without one, the room heats until the forecast is back. See [Summer mode](/deep-explanations/summer-mode/).
 
 ## Switch the heating off for the summer
 
