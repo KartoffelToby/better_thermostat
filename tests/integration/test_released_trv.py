@@ -10,6 +10,7 @@ nothing to it on the way up. With every TRV released the room says so in
 """
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -68,6 +69,15 @@ TWO_HEADS = GroupScenario(name="two_heads", profiles=GROUP_OF_THREE.profiles[:2]
 """A room with two plain heads, the first of which the tests release."""
 
 BY_HAND, CONTROLLED = (profile.entity_id for profile in TWO_HEADS.profiles)
+
+NARROW_BY_HAND = GroupScenario(
+    name="narrow_head_by_hand",
+    profiles=(
+        replace(TWO_HEADS.profiles[0], max_temp=24.0),
+        TWO_HEADS.profiles[1],
+    ),
+)
+"""Two heads, the one the tests release reaching only up to 24 °C."""
 
 
 async def _settle(hass, rounds=50):
@@ -485,3 +495,26 @@ async def test_a_restart_takes_no_target_from_a_released_trv(hass, trv_group):
     assert bt.released_trvs == {BY_HAND}
     assert bt.heat_target_temperature == 19.0
     assert hass.states.get(BY_HAND).attributes["temperature"] == 28.0
+
+
+@pytest.mark.parametrize(
+    "trv_group", [NARROW_BY_HAND], indirect=True, ids=profile_id
+)
+async def test_a_released_trv_does_not_bound_the_room_range(hass, trv_group):
+    """The range follows the TRVs the room controls.
+
+    While the narrow head is released, the room takes a target above its
+    ceiling; taken back, the head bounds the range again and the target
+    comes down onto its ceiling.
+    """
+    _, bt = await _start(hass, NARROW_BY_HAND)
+    assert bt.max_temp == 24.0
+
+    await _set_release(hass, bt, BY_HAND, True)
+    assert bt.max_temp == 30.0
+    await _call(hass, SERVICE_SET_TEMPERATURE, {"temperature": 27.0})
+    assert bt.heat_target_temperature == 27.0
+
+    await _set_release(hass, bt, BY_HAND, False)
+    assert bt.max_temp == 24.0
+    assert bt.heat_target_temperature == 24.0

@@ -3164,17 +3164,27 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 )
             trv.failed_initialization_attempts = 0
             trv.awaiting_initialization = False
-            self._resolve_temperature_range(self._collect_trv_states())
-            self.heat_target_temperature = self._bound_target_to_range(
-                self.heat_target_temperature
-            )
-            if self.cool_target_temperature is not None:
-                self.cool_target_temperature = self._bound_cool_target_to_range(
-                    self.cool_target_temperature
-                )
-                self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
+            self._refresh_temperature_range()
             self.async_write_ha_state()
             request_control_cycle(self)
+
+    def _refresh_temperature_range(self) -> None:
+        """Bound the room's range by the devices it reads, and its targets by that.
+
+        The range is the one :meth:`_resolve_temperature_range` derives from
+        the states :meth:`_collect_trv_states` collects, so a TRV that joins
+        or leaves that set widens or narrows it. Both targets are then
+        brought into the new range.
+        """
+        self._resolve_temperature_range(self._collect_trv_states())
+        self.heat_target_temperature = self._bound_target_to_range(
+            self.heat_target_temperature
+        )
+        if self.cool_target_temperature is not None:
+            self.cool_target_temperature = self._bound_cool_target_to_range(
+                self.cool_target_temperature
+            )
+            self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
 
     async def _startup_control_trvs(self) -> None:
         """Write the initial mode/setpoint/calibration to every TRV.
@@ -5453,7 +5463,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         room's mode or target, and an outage of it raises no repair issue.
         The room's other TRVs and its cooler stay under control. The room's
         response is then partly the user's doing, so the learners are held
-        while any TRV is released, as while the devices are released.
+        while any TRV is released, as while the devices are released. The
+        room's temperature range is bounded by the TRVs it still reads, so a
+        released TRV's narrower range does not cap the others.
 
         Taking it back resumes as taking the devices back does: an
         initialisation startup left for it is run, its outage check runs
@@ -5487,6 +5499,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.learning_held = True
             self._heating_tracker.abort_cycle()
             self._loss_tracker.abort_cycle()
+        self._refresh_temperature_range()
         await check_critical_entities(self)
         publish_kernel_verdict(self)
         self.async_write_ha_state()
