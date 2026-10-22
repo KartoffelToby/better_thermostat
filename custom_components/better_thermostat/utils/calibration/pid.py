@@ -335,7 +335,7 @@ def compute_pid(
     inp_temperature_slope_K_per_min: float | None,
     key: str,
     inp_room_temperature_filtered: float | None = None,
-    max_opening_percent: float | None = None,
+    max_opening_percent: float = 100.0,
     *,
     state: PIDState,
     now: float | None = None,
@@ -360,7 +360,7 @@ def compute_pid(
     inp_room_temperature_filtered:
         Optional EMA-filtered external temperature for learning.
     max_opening_percent:
-        Optional maximum valve opening percentage.
+        Maximum valve opening percentage; 100 leaves the valve uncapped.
     state:
         Mutable controller state, owned by the caller (typically read from
         and written back to the ``StateManager``).  It is mutated in place
@@ -392,9 +392,7 @@ def compute_pid(
     st = state
     _forget_stamps_from_a_previous_uptime(st, now)
 
-    max_opening = 100.0
-    if isinstance(max_opening_percent, (int, float)):
-        max_opening = max(0.0, min(100.0, float(max_opening_percent)))
+    max_opening = max(0.0, min(100.0, float(max_opening_percent)))
 
     _LOGGER.debug(
         "better_thermostat PID: input for %s: target=%.1f current=%.1f trv=%.1f slope=%.3f kp=%.1f ki=%.3f kd=%.1f",

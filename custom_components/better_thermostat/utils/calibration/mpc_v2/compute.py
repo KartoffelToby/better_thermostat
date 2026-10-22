@@ -134,11 +134,7 @@ def compute_mpc_v2(
     # out-of-range value from a caller cannot widen or invert the limit.
     # ``int`` floors the clamped cap, which is the largest whole percent a
     # fractional cap still admits.
-    cap_percent = (
-        None
-        if inp.max_opening_percent is None
-        else int(max(0.0, min(100.0, inp.max_opening_percent)))
-    )
+    cap_percent = int(max(0.0, min(100.0, inp.max_opening_percent)))
 
     u, diag = state.controller.step(
         t_s=now,
@@ -146,7 +142,7 @@ def compute_mpc_v2(
         T_target=inp.target_temperature,
         T_outdoor=T_outdoor,
         T_rad=inp.trv_temperature,
-        u_max=None if cap_percent is None else cap_percent / 100.0,
+        u_max=cap_percent / 100.0,
         learning_paused=inp.learning_paused,
     )
 
@@ -160,8 +156,7 @@ def compute_mpc_v2(
     # micro-percent makes "half" mean half before the half-up step decides,
     # and leaves every fraction that is not one where it was.
     percent_int = int(round(max(0.0, min(1.0, u)) * 100.0, 6) + 0.5)
-    if cap_percent is not None:
-        percent_int = min(percent_int, cap_percent)
+    percent_int = min(percent_int, cap_percent)
 
     # This is the bounded command requested this cycle.  It is replaced by the
     # confirmed input above on the next cycle once the adapter has succeeded.
