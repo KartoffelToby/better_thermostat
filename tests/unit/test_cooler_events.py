@@ -16,7 +16,10 @@ import pytest
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.events.cooler import trigger_cooler_change
-from custom_components.better_thermostat.utils.helpers import SentCommand
+from custom_components.better_thermostat.utils.helpers import (
+    CoolerSendCache,
+    SentCommand,
+)
 from custom_components.better_thermostat.utils.preset_manager import PresetManager
 from tests.factories import ThermostatStandIn
 
@@ -48,7 +51,6 @@ def mock_bt():
     # The cooler of these cases is a device of its own, so the set of
     # controlled thermostats does not contain it.
     bt.real_trvs = {"climate.radiator": MagicMock()}
-    bt._cooler_last_sent = None
     bt.clock = FakeClock()
     bt.startup_running = False
     bt.control_queue_task = MagicMock()
@@ -929,7 +931,7 @@ class TestEchoSuppression:
         mock_bt._cooler_last_sent = (
             {"temperature": SentCommand(cool_target_temperature, 0.0)}
             if send_cache_primed
-            else None
+            else CoolerSendCache()
         )
         old_state = _make_state(
             attributes={"temperature": previous, "target_temp_step": step}
@@ -1875,7 +1877,7 @@ class TestCoolerModeAgainstTheDecision:
     @pytest.mark.asyncio
     async def test_a_mode_change_before_any_decision_asks_for_nothing(self, off_bt):
         """Without a decision there is nothing for the mode to leave."""
-        off_bt._cooler_last_sent = None
+        off_bt._cooler_last_sent = CoolerSendCache()
         event = _make_event(
             off_bt, old_state=_make_state("off"), new_state=_make_state("cool")
         )

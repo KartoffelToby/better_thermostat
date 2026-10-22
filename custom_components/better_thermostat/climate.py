@@ -469,11 +469,7 @@ def _room_sensor_reads(self: BetterThermostat) -> bool:
     while it does; a skipped tick is logged.
     """
     sensor_entity_id = self.sensor_entity_id
-    if (
-        sensor_entity_id is not None
-        and room_sensor_reading(self, self.hass.states.get(sensor_entity_id))
-        is not None
-    ):
+    if room_sensor_reading(self, self.hass.states.get(sensor_entity_id)) is not None:
         return True
     _LOGGER.debug(
         "better_thermostat %s: external_temperature keepalive skipped (room sensor %s gives no reading)",
@@ -501,6 +497,39 @@ def _restored_attribute(old_state: State, name: str) -> object:
     if value is None:
         value = old_state.attributes.get(DEPRECATED_STATE_ATTRIBUTES[name])
     return value
+
+
+async def _refresh_trv_model(self: BetterThermostat, entity_id: str) -> None:
+    """Take up the model the device registry names for a TRV by now.
+
+    The model is resolved when the entity is added, and a device whose
+    integration registers it later is then known by its configured model
+    or as generic. The initialisation is what derives everything the
+    model's quirks decide, so the model is resolved again right before
+    it. A registry that still names no model leaves the TRV on the model
+    it has.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The thermostat holding the TRV.
+    entity_id : str
+        The TRV about to be initialised.
+    """
+    trv = self.real_trvs[entity_id]
+    resolved_model = await get_device_model(self, entity_id, configured_model=trv.model)
+    if resolved_model == trv.model:
+        return
+    _LOGGER.info(
+        "better_thermostat %s: device registry now names model '%s' for %s "
+        "(was '%s'); loading its model quirks",
+        self.device_name,
+        resolved_model,
+        entity_id,
+        trv.model,
+    )
+    trv.model_quirks = await load_model_quirks(self, resolved_model, entity_id)
+    trv.model = resolved_model
 
 
 def _arm_degraded_grace(self: BetterThermostat) -> None:
@@ -698,7 +727,7 @@ def _configured_bt_config(settings: BtSettings, unit: UnitOfTemperature) -> BtCo
     return BtConfig(
         device_name=name,
         model=settings.get(CONF_MODEL),
-        sensor_entity_id=settings.get(CONF_TEMPERATURE_SENSOR) or None,
+        sensor_entity_id=settings[CONF_TEMPERATURE_SENSOR],
         humidity_sensor_entity_id=settings.get(CONF_HUMIDITY_SENSOR) or None,
         cooler_entity_id=settings.get(CONF_COOLER) or None,
         window_sensor_entity_id=settings.get(CONF_WINDOW_SENSORS) or None,
@@ -812,13 +841,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         }
     )
 
-    # Per-channel cooler send bookkeeping: the last successfully sent command,
-    # the settled reading of each written channel, the mode the last cycle
-    # decided on, and each channel's run of consecutive send failures.
-    # ``cooler_send_cache()`` creates it on first use, and every reader reaches
-    # it through that helper.
-    _cooler_last_sent: CoolerSendCache
-
     async def reset_heating_power(self) -> None:
         """Reset heating power to default value."""
         self._heating_tracker.reset_power()
@@ -848,7 +870,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         return self.config.model
 
     @property
-    def sensor_entity_id(self) -> str | None:
+    def sensor_entity_id(self) -> str:
         """Return the room temperature sensor entity id."""
         return self.config.sensor_entity_id
 
@@ -1238,6 +1260,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.cool_min_temperature: float | None = None
         self.cool_max_temperature: float | None = None
         self.cool_target_temperature = None
+        # Per-channel cooler send bookkeeping: the last successfully sent
+        # command, the settled reading of each written channel, the mode the
+        # last cycle decided on, and each channel's run of consecutive send
+        # failures. Every reader reaches it through ``cooler_send_cache()``.
+        self._cooler_last_sent: CoolerSendCache = {}
         # The state saved before the last stop, read when the entity is added.
         self._saved_state: State | None = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
@@ -1338,15 +1365,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # Startup grace period before an unavailable TRV raises a
         # ``missing_entity`` repair; armed when startup begins.
         self._critical_grace_until: datetime | None = None
-        self.control_queue_task: asyncio.Queue[BetterThermostat | None] = asyncio.Queue(
+        self.control_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
             maxsize=1
         )
         if self.window_sensor_entity_id is not None:
-            self.window_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(
-                maxsize=1
-            )
+            self.window_queue_task: asyncio.Queue[bool] = asyncio.Queue(maxsize=1)
         if self.door_sensor_entity_id is not None:
-            self.door_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(maxsize=1)
+            self.door_queue_task: asyncio.Queue[bool] = asyncio.Queue(maxsize=1)
         self._control_task: asyncio.Task[None] | None = None
         self._window_task: asyncio.Task[None] | None = None
         self._door_task: asyncio.Task[None] | None = None
@@ -2040,8 +2065,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     def _set_trv_calibration_defaults(self, trv: str) -> None:
         """Set default calibration values for TRV."""
-        if self.real_trvs[trv].last_calibration is None:
-            self.real_trvs[trv].last_calibration = 0
         if self.real_trvs[trv].min_local_calibration is None:
             self.real_trvs[trv].min_local_calibration = -7
         if self.real_trvs[trv].max_local_calibration is None:
@@ -2071,16 +2094,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.version,
             )
 
-            # The external room sensor is a required configuration field.
-            if self.sensor_entity_id is None:
-                _LOGGER.error(
-                    "better_thermostat %s: no room temperature sensor configured "
-                    "(the required 'temperature_sensor' option is missing from "
-                    "the config entry); aborting startup, the entity stays "
-                    "unavailable",
-                    self.device_name,
-                )
-                return
             sensor_state = self.hass.states.get(self.sensor_entity_id)
             if not self._check_entities_ready(sensor_state):
                 # This loop waits for as long as it takes, and nothing
@@ -2391,8 +2404,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     def _initialize_sensors(self, sensor_state: State | None) -> None:
         """Set up room temperature, humidity, window and door sensors."""
-        if self.sensor_entity_id is not None:
-            self.all_entities[self.sensor_entity_id] = None
+        self.all_entities[self.sensor_entity_id] = None
 
         # Handle room temperature sensor with TRV fallback
         room_candidate = room_sensor_reading(self, sensor_state)
@@ -2847,7 +2859,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     async def _initialize_trvs(
         self, entity_ids: Iterable[str] | None = None
     ) -> set[str]:
-        """Initialize TRVs: init, tweak, calibration offsets, attributes.
+        """Initialize TRVs: model, init, tweak, calibration offsets, attributes.
 
         A step that fails is logged and the TRV is initialised as far as the
         remaining steps go, with defaults where the failed step would have
@@ -2879,6 +2891,20 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         for entity_id in entity_ids:
             trv = self.real_trvs[entity_id]
             self.all_entities[entity_id] = None
+            # The refresh writes nothing to the device and may yield while a
+            # quirk module is imported, so it runs before the release check
+            # that guards the writes.
+            try:
+                await _refresh_trv_model(self, entity_id)
+            except Exception as exc:
+                failed.add(entity_id)
+                _LOGGER.error(
+                    "better_thermostat %s: Error refreshing the model of TRV %s: %s",
+                    self.device_name,
+                    entity_id,
+                    exc,
+                    exc_info=True,
+                )
             if device_released(self, entity_id):
                 trv.awaiting_initialization = True
                 continue
@@ -2986,7 +3012,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     )
                     self._set_trv_calibration_defaults(entity_id)
             else:
-                trv.last_calibration = 0
                 trv.min_local_calibration = -7
                 trv.max_local_calibration = 7
                 trv.local_calibration_step = 0.5
@@ -3553,15 +3578,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.device_name,
             )
 
-        # The external room sensor is a required configuration field.
-        if self.sensor_entity_id is None:
-            _LOGGER.error(
-                "better_thermostat %s: no room temperature sensor configured "
-                "(the required 'temperature_sensor' option is missing from "
-                "the config entry); skipping listener registration",
-                self.device_name,
-            )
-            return
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self.sensor_entity_id], self._trigger_temperature_change
@@ -3728,8 +3744,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         hands one over, behind any reading the listener has already queued.
         """
         sensor_entity_id = self.sensor_entity_id
-        if sensor_entity_id is None:
-            return
         sensor_state = self.hass.states.get(sensor_entity_id)
         reading = room_sensor_reading(self, sensor_state)
         if sensor_state is None or reading is None:

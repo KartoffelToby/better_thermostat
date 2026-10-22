@@ -52,7 +52,7 @@ def request_control_cycle(
     queue.put_nowait(self)
 
 
-def empty_queue(q: asyncio.Queue[BetterThermostat | None]) -> None:
+def empty_queue(q: asyncio.Queue[BetterThermostat]) -> None:
     """Empty out a queue of pending items.
 
     Consumes all pending items from the queue and marks them as done.

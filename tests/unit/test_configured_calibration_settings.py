@@ -73,11 +73,6 @@ def test_the_calibration_mode_reading(stored, expected):
     assert configured_calibration_mode(advanced) == expected
 
 
-def test_no_advanced_settings_select_the_default_mode():
-    """A TRV record without advanced settings runs the default mode."""
-    assert configured_calibration_mode(None) == DEFAULT_CALIBRATION_MODE
-
-
 @pytest.mark.parametrize(
     ("stored", "expected"),
     [
@@ -106,11 +101,6 @@ def test_the_calibration_type_reading(stored, expected):
     advanced = _advanced(CONF_CALIBRATION, stored)
 
     assert configured_calibration_output(advanced) == expected
-
-
-def test_no_advanced_settings_select_no_calibration_type():
-    """A TRV record without advanced settings selects no calibration type."""
-    assert configured_calibration_output(None) is None
 
 
 def _outbound_bt(advanced: TrvAdvanced) -> ThermostatStandIn:

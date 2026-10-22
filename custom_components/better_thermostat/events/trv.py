@@ -140,7 +140,7 @@ def accepts_user_setpoint(
 
 
 def _hold_report(
-    self: BetterThermostat, trv: Trv, old_state: State | None, new_state: State | None
+    self: BetterThermostat, trv: Trv, old_state: State, new_state: State
 ) -> None:
     """Park a report that arrives while a control cycle holds the handler off.
 
@@ -170,7 +170,6 @@ def _hold_report(
     ) is None and previous_setpoint != _held_setpoint(self, new_state)
     switched_on_after_first_report = (
         unread is not None
-        and old_state is not None
         and old_state.state == HVACMode.OFF
         and _reports_on(new_state)
     )
@@ -185,12 +184,10 @@ def _hold_report(
         unread = UnreadReport(state_before=old_state, hvac_mode_before=trv.hvac_mode)
     if switched_on_after_first_report:
         unread = UnreadReport(state_before=old_state, hvac_mode_before=HVACMode.OFF)
-    if pressed_after_switch_on and old_state is not None:
+    if pressed_after_switch_on:
         unread = UnreadReport(state_before=old_state, hvac_mode_before=old_state.state)
     if (
-        old_state is not None
-        and new_state is not None
-        and _reports_on(old_state)
+        _reports_on(old_state)
         and _reports_on(new_state)
         and previous_setpoint is not None
         and _held_setpoint(self, new_state) not in (None, previous_setpoint)
@@ -273,13 +270,9 @@ def _reports_only_own_writes(
     return reports_written_setpoint(self, entity_id, trv, new_state) is True
 
 
-def _reports_on(state: State | None) -> bool:
+def _reports_on(state: State) -> bool:
     """Return whether a held report's state names a mode other than off."""
-    return state is not None and state.state not in (
-        HVACMode.OFF,
-        STATE_UNAVAILABLE,
-        STATE_UNKNOWN,
-    )
+    return state.state not in (HVACMode.OFF, STATE_UNAVAILABLE, STATE_UNKNOWN)
 
 
 def _held_setpoint(self: BetterThermostat, state: State | None) -> float | None:

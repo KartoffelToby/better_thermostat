@@ -11,6 +11,7 @@ from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State
 
 from custom_components.better_thermostat.utils.helpers import (
+    CoolerSendCache,
     cooling_owns_dual_role_device,
     cooling_owns_dual_role_report,
     dual_role_entity_id,
@@ -83,9 +84,9 @@ class TestCoolingOwnsDualRoleDevice:
         assert cooling_owns_dual_role_device(bt, SHARED_ID) is False
 
     def test_cooling_owns_dual_role_device_reads_a_cache_no_cycle_has_written(self):
-        """An instance whose cooler never ran yet carries no cache at all."""
+        """An instance whose cooler never ran yet carries an empty cache."""
         bt = _make_bt(cooler_entity_id=SHARED_ID, real_trvs={SHARED_ID: MagicMock()})
-        bt._cooler_last_sent = None
+        bt._cooler_last_sent = CoolerSendCache()
         bt.hass.states.get.return_value = State(SHARED_ID, HVACMode.COOL)
 
         assert cooling_owns_dual_role_device(bt, SHARED_ID) is True

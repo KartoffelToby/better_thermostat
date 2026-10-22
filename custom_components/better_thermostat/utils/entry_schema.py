@@ -17,10 +17,10 @@ apply to them.
 
 Only a broken structure is refused: a missing or non-string name, a missing,
 empty or non-list thermostat list, a thermostat without a string entity id
-or integration, and a value that is not a mapping where one has to be. A
-container no writer ever stored and no reader can use, such as a list where a
-number belongs, is refused as well. Every value a current reader tolerates
-parses.
+or integration, a missing or empty room temperature sensor, and a value that
+is not a mapping where one has to be. A container no writer ever stored and
+no reader can use, such as a list where a number belongs, is refused as well.
+Every value a current reader tolerates parses.
 
 Parsing never changes the stored entry: it builds a new mapping holding the
 keys described here, with each value as stored, except that a whole number
@@ -132,7 +132,7 @@ BtSettings = TypedDict(  # noqa: UP013
         "name": str,
         "thermostat": list[TrvSettings],
         "model": NotRequired[str | None],
-        "temperature_sensor": NotRequired[str | None],
+        "temperature_sensor": str,
         "humidity_sensor": NotRequired[str | None],
         "cooler": NotRequired[str | None],
         "window_sensors": NotRequired[str | None],
@@ -156,7 +156,6 @@ BtSettings = TypedDict(  # noqa: UP013
 
 type _TextKey = Literal[
     "model",
-    "temperature_sensor",
     "humidity_sensor",
     "cooler",
     "window_sensors",
@@ -191,7 +190,6 @@ type _FlagKey = Literal[
 
 _TEXT_KEYS: Final[tuple[_TextKey, ...]] = (
     CONF_MODEL,
-    CONF_TEMPERATURE_SENSOR,
     CONF_HUMIDITY_SENSOR,
     CONF_COOLER,
     CONF_WINDOW_SENSORS,
@@ -343,6 +341,14 @@ def _parse_thermostats(raw: Mapping[str, object]) -> list[TrvSettings]:
     return [_parse_trv(item, index) for index, item in enumerate(items)]
 
 
+def _parse_room_sensor(raw: Mapping[str, object]) -> str:
+    """Return the room temperature sensor, which every entry needs."""
+    sensor = _text(_required(raw, CONF_TEMPERATURE_SENSOR, ""), CONF_TEMPERATURE_SENSOR)
+    if not sensor.strip():
+        raise InvalidSettingsError(f"{CONF_TEMPERATURE_SENSOR} is empty")
+    return sensor
+
+
 def _parse_presets(value: object) -> list[str] | None:
     """Return the enabled presets as a new list of names, or ``None``."""
     if value is None:
@@ -369,13 +375,15 @@ def parse_settings(raw: Mapping[str, object]) -> BtSettings:
     ------
     InvalidSettingsError
         When a required key is missing (the name, the thermostat list, a
-        thermostat's entity id or integration), when the thermostat list is
-        empty, when a value that has to be a mapping, a list or a string is
-        not one, or when a scalar key holds a container.
+        thermostat's entity id or integration, the room temperature sensor),
+        when the thermostat list or the room temperature sensor is empty,
+        when a value that has to be a mapping, a list or a string is not one,
+        or when a scalar key holds a container.
     """
     settings: BtSettings = {
         "name": _text(_required(raw, CONF_NAME, ""), CONF_NAME),
         "thermostat": _parse_thermostats(raw),
+        "temperature_sensor": _parse_room_sensor(raw),
     }
     for text_key in _TEXT_KEYS:
         if text_key in raw:

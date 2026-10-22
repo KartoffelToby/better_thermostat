@@ -48,7 +48,9 @@ def _fake_self(
     system_unit: UnitOfTemperature = UnitOfTemperature.CELSIUS,
 ) -> BetterThermostat:
     self_ = object.__new__(BetterThermostat)
-    self_.config = BtConfig(device_name="Test")
+    self_.config = BtConfig(
+        sensor_entity_id="sensor.room_temperature", device_name="Test"
+    )
     self_.devices_released = False
     self_.released_trvs = set()
     self_.real_trvs = {

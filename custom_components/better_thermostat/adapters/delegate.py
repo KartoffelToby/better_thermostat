@@ -286,32 +286,15 @@ def _onto_device_grid(
     except TypeError, ValueError, OverflowError:
         rounded = float(t)
 
-    # Clamp to device min/max if available
+    # Clamp to the device range once startup has read its minimum
     trv = self.real_trvs.get(entity_id)
-    min_temperature_raw = trv.min_temp if trv is not None else None
-    max_temperature_raw = trv.max_temp if trv is not None else None
-    min_temperature = None
-    max_temperature = None
-    try:
-        if min_temperature_raw is not None:
-            min_temperature = float(min_temperature_raw)
-        if max_temperature_raw is not None:
-            max_temperature = float(max_temperature_raw)
-    except TypeError, ValueError:
-        min_temperature = None
-        max_temperature = None
-    if isinstance(min_temperature, (int, float)) and isinstance(
-        max_temperature, (int, float)
-    ):
-        low = float(min_temperature)
-        high = float(max_temperature)
-        rv = float(rounded) if isinstance(rounded, (int, float)) else float(t)
-        if rv < low:
+    if trv is not None and trv.min_temp is not None:
+        low = float(trv.min_temp)
+        high = float(trv.max_temp)
+        if rounded < low:
             rounded = low
-        elif rv > high:
+        elif rounded > high:
             rounded = high
-        else:
-            rounded = rv
 
     return rounded, step
 

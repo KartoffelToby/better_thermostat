@@ -17,11 +17,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.core import State
 import pytest
 
+from custom_components.better_thermostat import BetterThermostatData
 from custom_components.better_thermostat.calibration import _get_trv_max_opening
 from custom_components.better_thermostat.number import (
     BetterThermostatValveMaxOpeningNumber,
+    async_setup_entry,
 )
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.entry_schema import TrvSettings
 from tests.factories import ThermostatStandIn, trv_record
 
 _TRV_ID = "climate.living_room"
@@ -156,3 +159,40 @@ async def test_the_cap_of_a_head_not_built_is_the_full_opening() -> None:
 
     assert entity.native_value == 100.0
     write_state.assert_called_once()
+
+
+async def test_a_head_without_advanced_options_gets_no_cap() -> None:
+    """A thermostat entry that stores no advanced options builds no cap.
+
+    Such an entry selects no calibration type, so the setup creates neither
+    the cap nor a PID gain for that head.
+    """
+    bt_climate = ThermostatStandIn()
+    bt_climate.unique_id = "test_bt"
+    bt_climate.device_name = "Test BT"
+    bt_climate.preset_modes = list[str]()
+    bt_climate.real_trvs = dict[str, Trv]()
+    bt_climate.all_trvs = [TrvSettings(trv=_TRV_ID, integration="generic")]
+    bt_climate.cooler_entity_id = None
+    bt_climate.outdoor_sensor_entity_id = None
+    bt_climate.weather_entity_id = None
+    entry = MagicMock()
+    entry.runtime_data = BetterThermostatData(climate=bt_climate)
+    add_entities = MagicMock()
+
+    with (
+        patch("custom_components.better_thermostat.number.er.async_get"),
+        patch(
+            "custom_components.better_thermostat.number.remove_unclaimed_registry_entries"
+        ),
+        patch(
+            "custom_components.better_thermostat.number.async_normalize_bt_entity_ids"
+        ),
+    ):
+        await async_setup_entry(MagicMock(), entry, add_entities)
+
+    (numbers,) = add_entities.call_args.args
+    assert not any(
+        isinstance(number, BetterThermostatValveMaxOpeningNumber) for number in numbers
+    )
+    assert entry.runtime_data.tracked_entities.pid_numbers == {}

@@ -35,6 +35,7 @@ RAW = {
             "advanced": {"child_lock": "false", "calibration": "target_temp_based"},
         }
     ],
+    "temperature_sensor": "sensor.room_temperature",
     "window_off_delay": 30,
     "tolerance": 0.3,
 }
@@ -200,7 +201,6 @@ def test_the_availability_guard_grace_is_read_in_seconds(stored, seconds):
 async def test_an_entity_id_stored_empty_is_no_entity():
     """Every optional entity id stored as an empty string reads as no entity."""
     raw = RAW | {
-        "temperature_sensor": "",
         "humidity_sensor": "",
         "cooler": "",
         "window_sensors": "",
@@ -215,7 +215,7 @@ async def test_an_entity_id_stored_empty_is_no_entity():
         await async_setup_entry(_hass(), entry, MagicMock())
 
     config = entry.runtime_data.climate.config
-    assert config.sensor_entity_id is None
+    assert config.sensor_entity_id == "sensor.room_temperature"
     assert config.humidity_sensor_entity_id is None
     assert config.cooler_entity_id is None
     assert config.window_sensor_entity_id is None
