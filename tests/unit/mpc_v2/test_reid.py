@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from custom_components.better_thermostat.utils.calibration.mpc_v2.reid import (
     ReidBuffer,
     ReidConfig,
+    ReidFit,
+    ReidOutcome,
     ReidSample,
     Segment,
     _nelder_mead,
@@ -220,11 +224,12 @@ def test_fit_recovers_truth_params_and_is_accepted() -> None:
     prior = PlantParams()  # tau 480, gain 2.0 — both well off the truth
     outcome = run_reid_fit(samples, prior)
     assert outcome.status == "accepted"
-    assert outcome.tau_room_min is not None and outcome.gain_heater is not None
-    assert abs(outcome.tau_room_min - _TRUTH.tau_room_min) / _TRUTH.tau_room_min < 0.25
-    assert abs(outcome.gain_heater - _TRUTH.gain_heater) / _TRUTH.gain_heater < 0.25
-    assert outcome.rmse_fit_K is not None and outcome.rmse_prior_K is not None
-    assert outcome.rmse_fit_K < outcome.rmse_prior_K
+    fit = outcome.accepted_fit
+    assert fit is not None
+    assert fit is outcome.fit
+    assert abs(fit.tau_room_min - _TRUTH.tau_room_min) / _TRUTH.tau_room_min < 0.25
+    assert abs(fit.gain_heater - _TRUTH.gain_heater) / _TRUTH.gain_heater < 0.25
+    assert fit.rmse_fit_K < fit.rmse_prior_K
 
 
 def test_cooldown_holdout_does_not_adopt_unvalidated_gain() -> None:
@@ -237,9 +242,9 @@ def test_cooldown_holdout_does_not_adopt_unvalidated_gain() -> None:
     samples = _generate_day(_TRUTH)  # default day ends with a cool-down
     prior = PlantParams()  # gain 2.0, well below the truth's 3.0
     outcome = run_reid_fit(samples, prior)
-    assert outcome.gain_heater == prior.gain_heater
-    assert outcome.tau_room_min is not None
-    assert outcome.tau_room_min != prior.tau_room_min
+    assert outcome.fit is not None
+    assert outcome.fit.gain_heater == prior.gain_heater
+    assert outcome.fit.tau_room_min != prior.tau_room_min
 
 
 def test_fit_rejected_when_prior_already_matches() -> None:
@@ -248,6 +253,9 @@ def test_fit_rejected_when_prior_already_matches() -> None:
     samples = _generate_day(prior)
     outcome = run_reid_fit(samples, prior)
     assert outcome.status == "rejected"
+    # The rejected candidate is still reported, but nothing offers it for adoption.
+    assert outcome.fit is not None
+    assert outcome.accepted_fit is None
 
 
 def test_insufficient_without_a_heatup_in_training() -> None:
@@ -256,6 +264,7 @@ def test_insufficient_without_a_heatup_in_training() -> None:
     idle_only = [s for s in samples if s.u_frac <= 0.05]
     outcome = run_reid_fit(idle_only, PlantParams())
     assert outcome.status == "insufficient_data"
+    assert outcome.fit is None
 
 
 def test_insufficient_with_too_few_segments() -> None:
@@ -263,6 +272,20 @@ def test_insufficient_with_too_few_segments() -> None:
     samples = _stream((18.0, 21.0, 1.0, 12))
     outcome = run_reid_fit(samples, PlantParams())
     assert outcome.status == "insufficient_data"
+    assert outcome.fit is None
+
+
+_FIT = ReidFit(tau_room_min=240.0, gain_heater=3.0, rmse_prior_K=0.4, rmse_fit_K=0.1)
+
+
+@pytest.mark.parametrize(
+    ("status", "fit"),
+    [("accepted", None), ("rejected", None), ("insufficient_data", _FIT)],
+)
+def test_outcome_refuses_a_fit_that_contradicts_its_status(status, fit) -> None:
+    """A reader that checks the status can rely on the fit being there or absent."""
+    with pytest.raises(ValueError, match=status):
+        ReidOutcome(status=status, fit=fit)
 
 
 def test_simulate_room_seeds_radiator_from_trv() -> None:
