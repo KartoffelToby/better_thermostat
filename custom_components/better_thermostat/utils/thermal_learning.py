@@ -49,7 +49,7 @@ class HeatingCycle(TypedDict):
     delta_kelvin: float
     minutes: float
     rate_kelvin_per_min: float
-    target: float | None
+    target: float
     outdoor: float | None
     norm_power: float | None
 
