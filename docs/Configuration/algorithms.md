@@ -92,6 +92,8 @@ A change to the flow temperature reloads the thermostat. MPC v2 keeps its estima
 
 MPC v2 plans a new valve opening at most every 1.5 to 5 minutes, depending on how fast the room model is, and keeps sending that opening until the next plan. A valve position the TRV reports in between feeds the room model and the next plan, but does not replace the planned opening. The TRV's *Valve Max Opening* is the upper limit of every plan, so a valve held at that limit while the room stays just below the target does not build up demand that would overheat the room once the limit no longer binds.
 
+In Better Thermostat's benchmark simulation, MPC v2 leads all other modes as long as the room sensor reports changes of 0.1 °C. If the sensor reports only from 0.5 °C, as Aqara documents for its sensors, TPI leads in the same rooms. These results come from a simulation, not from measurements in real homes. If your sensor lets you set how small a change it reports, choose 0.1 °C when you use MPC v2. If it reports in 0.5 °C steps, prefer TPI.
+
 Its estimates show up in the *MPC v2 Virtual Temperature*, *MPC v2 Coupling*, *MPC v2 Disturbance* and *MPC v2 Room Time Constant* sensors. They start disabled on new installations; see [Entities](/setup/entities/#mpc-v2).
 
 ---
