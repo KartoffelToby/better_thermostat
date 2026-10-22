@@ -419,6 +419,7 @@
             "name": "Etkin geçersiz kılmalar",
             "state": {
               "devices_released": "Cihazlar serbest bırakıldı",
+              "trvs_released": "TRV'ler serbest bırakıldı",
               "learning_paused": "Öğrenme duraklatıldı",
               "window_detection_off": "Pencere algılama kapalı"
             }
@@ -524,6 +525,12 @@
     "switch": {
       "release_devices": {
         "name": "Cihazları serbest bırak"
+      },
+      "release_trv": {
+        "name": "{trv_name} Serbest bırakma"
+      },
+      "release_trv_no_trv": {
+        "name": "TRV serbest bırakma"
       },
       "pid_auto_tune": {
         "name": "{trv_name} PID otomatik ayarlama"
@@ -658,6 +665,9 @@
     },
     "devices_released": {
       "message": "{device_name} cihazları serbest bırakıldı. Better Thermostat'ın onları yeniden kontrol etmesi için Cihazları serbest bırak seçeneğini kapatın."
+    },
+    "trv_released": {
+      "message": "{device_name} cihazının şu TRV'leri serbest bırakıldı: {entity}. Better Thermostat'ın onları yeniden kontrol etmesi için serbest bırakma anahtarlarını kapatın."
     }
   }
 }

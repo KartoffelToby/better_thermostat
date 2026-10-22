@@ -48,6 +48,7 @@ def _build_trv_reported(
     return TrvReported(
         entity_id=entity_id,
         available=available,
+        released=entity_id in self.released_trvs,
         hvac_mode=parse_hvac_mode(trv.hvac_mode),
         current_temperature=_as_float(self, trv.current_temperature),
         setpoint=_as_float(self, trv.commanded_setpoint),
@@ -89,10 +90,12 @@ def build_snapshot(self: BetterThermostat) -> WorldSnapshot:
     # A TRV that startup has not initialised yet carries none of the values
     # a decision reads, and boost would address it even while unreachable,
     # so it is not part of the room until its initialisation has completed.
+    # A released TRV is never addressed, so it stays part of the room: the
+    # kernel reads from it that the room has a TRV released.
     trvs = {
         entity_id: _build_trv_reported(self, entity_id, trv)
         for entity_id, trv in self.real_trvs.items()
-        if not trv.awaiting_initialization
+        if not trv.awaiting_initialization or entity_id in self.released_trvs
     }
 
     is_day, solar_intensity = _get_solar_context(self)

@@ -33,6 +33,7 @@
         "max_temp": null,
         "min_local_calibration": null,
         "min_temp": null,
+        "released": false,
         "setpoint": null,
         "valve_max_opening": null
       },
@@ -45,6 +46,7 @@
         "max_temp": null,
         "min_local_calibration": null,
         "min_temp": null,
+        "released": false,
         "setpoint": null,
         "valve_max_opening": null
       }

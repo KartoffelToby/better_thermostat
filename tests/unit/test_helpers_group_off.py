@@ -51,6 +51,8 @@ def _fake_self(
     self_.config = BtConfig(
         sensor_entity_id="sensor.room_temperature", device_name="Test"
     )
+    self_.devices_released = False
+    self_.released_trvs = set()
     self_.real_trvs = {
         entity_id: replace(member, entity_id=entity_id)
         for entity_id, member in members.items()
@@ -289,3 +291,41 @@ def test_a_negative_minimum_parks_on_the_grid_point_zero(setpoint, at_minimum):
     assert (
         setpoint_at_minimum(setpoint, -0.3, step=0.5, whole_degrees=False) is at_minimum
     )
+
+
+@pytest.mark.parametrize(
+    ("released", "expected"),
+    [
+        pytest.param(set(), False, id="none_released"),
+        pytest.param({"climate.b"}, True, id="heating_trv_released"),
+        pytest.param({"climate.a"}, False, id="off_trv_released"),
+    ],
+)
+def test_a_released_member_has_no_say(released, expected):
+    """A TRV released on its own neither keeps the room on nor counts as off.
+
+    Two of three heads are off and the third heats. Released, the heating
+    head is left out and the room is off; one of the off heads released
+    leaves the heating head to keep the room on.
+    """
+    members = {f"climate.{n}": _member() for n in ("a", "b", "c")}
+    states = {
+        "climate.a": _state("climate.a", "off"),
+        "climate.b": _state("climate.b", "heat"),
+        "climate.c": _state("climate.c", "off"),
+    }
+    self_ = _fake_self(members, states)
+    self_.released_trvs = released
+    assert group_all_members_off(self_) is expected
+
+
+def test_one_member_left_under_control_decides_alone():
+    """With every other head released, the remaining head is the group."""
+    members = {f"climate.{n}": _member() for n in ("a", "b")}
+    states = {
+        "climate.a": _state("climate.a", "heat"),
+        "climate.b": _state("climate.b", "heat"),
+    }
+    self_ = _fake_self(members, states)
+    self_.released_trvs = {"climate.a"}
+    assert group_all_members_off(self_) is True

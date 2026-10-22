@@ -25,7 +25,12 @@ from custom_components.better_thermostat.adapters.mqtt import (
     manual_preset,
 )
 from custom_components.better_thermostat.utils.const import CalibrationOutput
-from tests.factories import ThermostatStandIn, trv_record
+from tests.factories import (
+    RELEASE_SCOPES,
+    ThermostatStandIn,
+    release_device,
+    trv_record,
+)
 
 ENTITY_ID = "climate.test_trv"
 _VALVE_LOGGER = "custom_components.better_thermostat.adapters.valve_entity"
@@ -297,13 +302,14 @@ class TestTheReportedSurface:
         assert surface.valve_write is False
 
 
+@pytest.mark.parametrize("scope", RELEASE_SCOPES)
 @pytest.mark.asyncio
-async def test_preset_reset_is_not_sent_once_the_devices_are_released():
+async def test_preset_reset_is_not_sent_once_the_devices_are_released(scope):
     """The discovery can take a while; released meanwhile, no preset follows."""
     bt = _bt_with_preset(["none", "auto", "manual", "holiday"], preset_mode="auto")
 
     async def released_during_the_discovery(*_args, **_kwargs):
-        bt.devices_released = True
+        release_device(bt, ENTITY_ID, scope)
 
     with (
         patch(_FIND_VALVE, AsyncMock(return_value=None)),

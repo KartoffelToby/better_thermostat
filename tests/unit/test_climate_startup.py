@@ -190,6 +190,9 @@ def bt():
     mock._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(
         mock, value
     )
+    mock._refresh_temperature_range = lambda: (
+        BetterThermostat._refresh_temperature_range(mock)
+    )
     mock._applied_target = lambda value, **kwargs: BetterThermostat._applied_target(
         mock, value, **kwargs
     )
@@ -1083,6 +1086,61 @@ class TestCheckEntitiesReady:
         assert BetterThermostat._check_entities_ready(bt, sensor) is False
 
     @pytest.mark.parametrize(
+        ("released_trvs", "ready"),
+        [
+            pytest.param(set(), True, id="none_released"),
+            pytest.param({TRV_ID}, False, id="only_the_available_trv_released"),
+            pytest.param({TRV_ID, TRV_ID_2}, True, id="every_trv_released"),
+        ],
+    )
+    def test_a_released_trv_is_not_one_the_room_starts_on(
+        self, bt, released_trvs, ready
+    ):
+        """Past the window, the room needs a TRV it controls, or none to control.
+
+        The first TRV reports and the second is gone. Released, the first
+        leaves no TRV to start on, and the room waits as one whose TRVs are
+        all gone does; with both released it starts.
+        """
+        sensor = _make_sensor_state()
+        _arm_grace(bt, remaining=timedelta(seconds=-1))
+        _two_trvs_second_gone(bt)
+        bt.released_trvs = released_trvs
+
+        assert BetterThermostat._check_entities_ready(bt, sensor) is ready
+
+    @pytest.mark.parametrize(
+        ("devices_released", "released_trvs", "ready"),
+        [
+            pytest.param(False, {TRV_ID}, False, id="one_trv_released"),
+            pytest.param(False, {TRV_ID, TRV_ID_2}, True, id="every_trv_released"),
+            pytest.param(True, set(), True, id="devices_released"),
+        ],
+    )
+    def test_a_room_with_every_trv_released_starts_without_them(
+        self, bt, devices_released, released_trvs, ready
+    ):
+        """A room that controls no TRV does not wait for one after the window.
+
+        With a TRV still under control the room waits for it, as above;
+        with every TRV released, one by one or with the room's devices, it
+        starts on its saved state.
+        """
+        sensor = _make_sensor_state()
+        _arm_grace(bt, remaining=timedelta(seconds=-1))
+        bt.real_trvs = {
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
+        }
+        bt.devices_released = devices_released
+        bt.released_trvs = released_trvs
+        bt.hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, STATE_UNAVAILABLE
+        )
+
+        assert BetterThermostat._check_entities_ready(bt, sensor) is ready
+
+    @pytest.mark.parametrize(
         "sensor",
         [None, State(SENSOR_ID, STATE_UNAVAILABLE), State(SENSOR_ID, STATE_UNKNOWN)],
         ids=["absent", "unavailable", "unknown"],
@@ -1175,6 +1233,71 @@ def _two_trvs_second_gone(bt) -> None:
 
 class TestCollectTrvStates:
     """Tests for _collect_trv_states."""
+
+    @pytest.mark.parametrize(
+        ("released_trvs", "read"),
+        [
+            pytest.param(set(), [TRV_ID, TRV_ID_2, COOLER_ID], id="none_released"),
+            pytest.param({TRV_ID}, [TRV_ID_2, COOLER_ID], id="one_released"),
+            pytest.param(
+                {TRV_ID, TRV_ID_2}, [TRV_ID, TRV_ID_2, COOLER_ID], id="every_released"
+            ),
+        ],
+    )
+    def test_a_trv_released_on_its_own_is_not_read(self, bt, released_trvs, read):
+        """Startup takes nothing from a TRV the user has, unless all of them are.
+
+        With every TRV released the room reads them, as a room whose devices
+        are released does. The separate cooler is read either way.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.real_trvs = {
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
+        }
+        bt.released_trvs = released_trvs
+        bt.hass.states.get.side_effect = _make_trv_state
+
+        result = BetterThermostat._collect_trv_states(bt)
+
+        assert [state.entity_id for state in result] == read
+
+    def test_a_cooler_that_is_a_released_trv_is_not_read(self, bt):
+        """A device wired as TRV and as cooler, released, is left out in both roles."""
+        bt.cooler_entity_id = TRV_ID
+        bt.real_trvs = {
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
+        }
+        bt.released_trvs = {TRV_ID}
+        bt.hass.states.get.side_effect = _make_trv_state
+
+        result = BetterThermostat._collect_trv_states(bt)
+
+        assert [state.entity_id for state in result] == [TRV_ID_2]
+
+    @pytest.mark.parametrize(
+        ("released_trvs", "taken"),
+        [
+            pytest.param({TRV_ID}, (TRV_ID_2, 18.0), id="one_released"),
+            pytest.param({TRV_ID, TRV_ID_2}, (TRV_ID, 23.0), id="every_released"),
+        ],
+    )
+    def test_the_temperature_stand_in_skips_a_released_trv(
+        self, bt, released_trvs, taken
+    ):
+        """Without a room sensor, the room starts on a TRV it controls."""
+        bt.real_trvs = {
+            TRV_ID: trv_record(entity_id=TRV_ID),
+            TRV_ID_2: trv_record(entity_id=TRV_ID_2),
+        }
+        bt.released_trvs = released_trvs
+        readings = {TRV_ID: 23.0, TRV_ID_2: 18.0}
+        bt.hass.states.get.side_effect = lambda entity_id: _make_trv_state(
+            entity_id, attrs={"current_temperature": readings[entity_id]}
+        )
+
+        assert BetterThermostat._first_plausible_trv_temperature(bt) == taken
 
     def test_collects_single_trv(self, bt):
         """Collect state for a single TRV."""

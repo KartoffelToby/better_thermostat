@@ -419,6 +419,7 @@
             "name": "Активные переопределения",
             "state": {
               "devices_released": "Устройства освобождены",
+              "trvs_released": "TRV освобождены",
               "learning_paused": "Обучение приостановлено",
               "window_detection_off": "Обнаружение окна выключено"
             }
@@ -524,6 +525,12 @@
     "switch": {
       "release_devices": {
         "name": "Освободить устройства"
+      },
+      "release_trv": {
+        "name": "{trv_name} Освобождение"
+      },
+      "release_trv_no_trv": {
+        "name": "Освобождение TRV"
       },
       "pid_auto_tune": {
         "name": "{trv_name} PID: автонастройка"
@@ -658,6 +665,9 @@
     },
     "devices_released": {
       "message": "Устройства {device_name} освобождены. Выключите «Освободить устройства», чтобы Better Thermostat снова управлял ими."
+    },
+    "trv_released": {
+      "message": "Эти TRV {device_name} освобождены: {entity}. Выключите их переключатель освобождения, чтобы Better Thermostat снова управлял ими."
     }
   }
 }

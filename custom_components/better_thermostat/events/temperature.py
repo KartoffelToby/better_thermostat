@@ -28,6 +28,7 @@ from custom_components.better_thermostat.model_fixes.types import (
 from custom_components.better_thermostat.utils.const import DOMAIN
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
+    device_released,
     entry_issue_id,
     is_reasonable_temperature,
     state_is_live,
@@ -212,11 +213,11 @@ async def _commit_temperature_update(
             exc,
         )
     for entity_id in entity_ids:
-        # The devices are the user's, also when they are released while an
+        # A released TRV is the user's, also when it is released while an
         # earlier TRV's write is under way; a TRV that reads the room through
         # this value falls back to its own sensor after its silence window.
-        if self.devices_released:
-            break
+        if device_released(self, entity_id):
+            continue
         try:
             _trv = self.real_trvs.get(entity_id)
             if _trv is not None and _trv.awaiting_initialization:

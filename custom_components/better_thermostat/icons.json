@@ -48,6 +48,18 @@
           "off": "mdi:hand-back-right-off"
         }
       },
+      "release_trv": {
+        "default": "mdi:hand-back-right",
+        "state": {
+          "off": "mdi:hand-back-right-off"
+        }
+      },
+      "release_trv_no_trv": {
+        "default": "mdi:hand-back-right",
+        "state": {
+          "off": "mdi:hand-back-right-off"
+        }
+      },
       "child_lock": {
         "default": "mdi:account-lock",
         "state": {

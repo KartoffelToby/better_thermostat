@@ -1,22 +1,17 @@
-"""Disturbance observer — EMA over the Kalman filter's room corrections.
+"""Disturbance observer — the disturbance the optimiser and governor plan with.
 
-Each update receives the amount the filter moved its room estimate towards
-the measurement. Under a standing disturbance that correction is what keeps
-the estimate on the measured room, so its rate is the disturbance rate. The
-raw innovation is not: the filter applies only its room gain of it, and the
-remainder reappears in the next innovation.
+The Kalman filter estimates the room's disturbance rate (K/min) as a state of
+its own. This observer holds the two readings of it the controller uses: the
+fast estimate, bounded by ``max_abs_K_per_min``, which the governor judges
+reachability with, and ``planning_rate``, a slower filtered copy the optimiser
+carries along its horizon. The QP's steady-state input ``u_ss`` assumes the
+plant model is exact; feeding the disturbance forward removes the setpoint
+offset an unmodelled load (sun, occupants, a wrong prior) would leave.
 
-The QP's steady-state input ``u_ss`` assumes the plant model is exact. Real
-rooms see unmodelled disturbances (open windows, solar gain, occupants);
-the DOB captures the average rate in ``K/min`` so ``_steady_input_for`` can
-feed-forward against it. Without the DOB, integral-only correction would
-leave a slow setpoint offset.
-
-The optimiser plans with a second, slower reading of the same estimate,
-``planning_rate``. It carries the rate along its whole horizon, where an
-error of 0.003 K/min already shifts the predicted room by about 0.2 K and
-the valve by tens of percent; the fast estimate carries that much from
-sensor noise or quantisation alone.
+The optimiser needs the slower reading because it carries the rate along its
+whole horizon, where an error of 0.003 K/min already shifts the predicted room
+by about 0.2 K and the valve by tens of percent; the fast estimate carries
+that much from sensor noise or quantisation alone.
 """
 
 from __future__ import annotations
@@ -35,9 +30,8 @@ _READING_INTERVAL_TICKS = 1.5
 
 @dataclass
 class DobParams:
-    """Tunables for the disturbance observer (EMA time constant)."""
+    """Tunables for the disturbance observer."""
 
-    tau_s: float = 600.0
     # A single quantised room-sensor jump must not become an arbitrarily large
     # permanent heat source/sink in the steady-state feed-forward term.  0.05
     # K/min is already 3 K/hour, well beyond a normal unmodelled room load.
@@ -57,7 +51,7 @@ class DobParams:
 
 
 class DisturbanceObserver:
-    """EMA over Kalman room corrections estimating the disturbance rate in K/min."""
+    """Bounded and slowly filtered readings of the Kalman disturbance (K/min)."""
 
     def __init__(self, params: DobParams) -> None:
         """Initialise the observer with a zero disturbance estimate.
@@ -65,7 +59,8 @@ class DisturbanceObserver:
         Parameters
         ----------
         params : DobParams
-            Tunables for the observer, notably the EMA time constant ``tau_s``.
+            Tunables for the observer, notably the bound and the planning
+            time constant.
         """
         self.params = params
         self.D_hat_K_per_min: float = 0.0
@@ -92,40 +87,25 @@ class DisturbanceObserver:
         estimate: that one follows the last few readings, and the free heat
         they saw before a restart is no evidence for the plan after it.
         """
-        max_abs = max(0.0, self.params.max_abs_K_per_min)
-        self.D_hat_K_per_min = max(-max_abs, min(max_abs, estimate))
-        self.planning_filtered = (
-            0.0 if planning is None else max(-max_abs, min(max_abs, planning))
-        )
+        self.D_hat_K_per_min = self._bounded(estimate)
+        self.planning_filtered = 0.0 if planning is None else self._bounded(planning)
 
-    def update(self, correction_K: float, dt_s: float) -> float:
-        """Fold one room correction into the EMA and return the disturbance estimate.
+    def follow(self, estimate_K_per_min: float, dt_s: float) -> float:
+        """Take the filter's disturbance estimate and return the bounded one.
 
-        Converts the per-step correction into a ``K/min`` rate and blends it
-        with EMA weight ``a`` derived from ``dt_s`` and ``tau_s``. A
-        non-positive ``dt_s``, or one beyond ``max_reading_interval_s``,
-        leaves both estimates unchanged.
-
-        The weight scales linearly with ``dt_s`` (no lower floor): the
-        correction rate grows as ``1/dt_s``, so a dt-proportional weight keeps
-        the per-update contribution ``a * correction_rate`` bounded by
-        ``60 * correction_K / tau_s`` even for near-zero intervals, as they
-        occur when a shared group controller is stepped once per TRV within
-        the same control pass.
-
-        The estimate itself is bounded by ``max_abs_K_per_min`` so a quantised
-        sensor jump cannot become an implausible steady-state load. That bound
-        belongs on the estimate rather than on the incoming rate: clamping the
-        rate first would scale it by the dt-proportional weight as well, which
-        drops the short-interval corrections this observer is meant to fold in.
+        The planning reading moves towards it with weight
+        ``dt_s / planning_tau_s``. A non-positive ``dt_s``, or one beyond
+        ``max_reading_interval_s``, leaves the planning reading unchanged:
+        that interval spans a pause of the controller.
         """
-        if dt_s <= 0.0 or dt_s > self.params.max_reading_interval_s:
-            return self.D_hat_K_per_min
-        correction_rate = correction_K / (dt_s / 60.0)
-        a = min(1.0, dt_s / max(self.params.tau_s, dt_s))
-        max_abs = max(0.0, self.params.max_abs_K_per_min)
-        self.D_hat_K_per_min = (1.0 - a) * self.D_hat_K_per_min + a * correction_rate
-        self.D_hat_K_per_min = max(-max_abs, min(max_abs, self.D_hat_K_per_min))
-        b = min(1.0, dt_s / max(self.params.planning_tau_s, dt_s))
-        self.planning_filtered += b * (self.D_hat_K_per_min - self.planning_filtered)
+        self.D_hat_K_per_min = self._bounded(estimate_K_per_min)
+        if 0.0 < dt_s <= self.params.max_reading_interval_s:
+            b = min(1.0, dt_s / max(self.params.planning_tau_s, dt_s))
+            self.planning_filtered += b * (
+                self.D_hat_K_per_min - self.planning_filtered
+            )
         return self.D_hat_K_per_min
+
+    def _bounded(self, rate_K_per_min: float) -> float:
+        max_abs = max(0.0, self.params.max_abs_K_per_min)
+        return max(-max_abs, min(max_abs, rate_K_per_min))

@@ -13,6 +13,7 @@ from pytest_homeassistant_custom_component.common import mock_restore_cache
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_DEVICES_RELEASED,
     ATTR_STATE_LEARNING_PAUSED,
+    ATTR_STATE_RELEASED_TRVS,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.thermal_learning import Reading
@@ -26,7 +27,7 @@ from .conftest import (
     wait_for,
     wait_for_startup,
 )
-from .device_profiles import GENERIC_HEAT_TRV
+from .device_profiles import GENERIC_HEAT_TRV, TRV_ID
 
 
 def _switch(hass, entry, suffix: str) -> str:
@@ -225,3 +226,35 @@ async def test_a_thermostat_saved_with_its_devices_released_starts_held(hass):
     assert await wait_for(hass, lambda: bt.learning_held is False)
     released: bool = bt.devices_released
     assert released is False
+
+
+async def test_a_thermostat_saved_with_a_trv_released_starts_held(hass):
+    """A TRV released before a restart holds the learners from the start.
+
+    Taking it back ends the hold once the cycle it requests has run.
+    """
+    mock_restore_cache(
+        hass,
+        (
+            State(
+                BT_ENTITY,
+                "heat",
+                {"temperature": 21.0, ATTR_STATE_RELEASED_TRVS: [TRV_ID]},
+            ),
+        ),
+    )
+    entry, bt = await _started(hass)
+
+    assert bt.released_trvs == {TRV_ID}
+    assert (bt.learning_paused, bt.learning_held) == (False, True)
+    assert _published_pause(hass) is False
+
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {"entity_id": _switch(hass, entry, f"_{TRV_ID}_release")},
+        blocking=True,
+    )
+
+    assert await wait_for(hass, lambda: bt.learning_held is False)
+    assert bt.released_trvs == set()

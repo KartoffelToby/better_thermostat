@@ -88,7 +88,9 @@ wins:
 ```mermaid
 flowchart TD
     R{Devices released?} -->|yes| R1[No intents, released]
-    R -->|no| A
+    R -->|no| T{Every TRV released on its own?}
+    T -->|yes| T1[No intents, cooler still controlled]
+    T -->|no| A
     A{Startup or maintenance running?} -->|yes| A1[No intents]
     A -->|no| B{Mode OFF?}
     B -->|yes| B1[OFF intent for every TRV]
@@ -115,6 +117,15 @@ devices until the switch is turned off again. The learners are held as
 during a learning pause, the take-back cycle included. The regions keep
 tracking meanwhile, so the first cycle after the release decides on the
 window, mode and targets that hold by then.
+
+A TRV released on its own reaches the kernel as `TrvReported.released`.
+The address filter drops it from every tier, boost included, which keeps
+commanding an unreachable TRV but never a released one. A snapshot whose
+TRVs are all released gets the release tier's block with no intents, but
+the intent is not marked as released: the cooler is no TRV and stays
+under the cooling channel. The snapshot keeps a released TRV that is still
+waiting for its initialisation, so a room that starts with its TRVs
+released reads as such.
 
 Every tier above the heating intent also puts its own `heating_blocked_by`
 block into the desired state: `devices_released`, `startup`,

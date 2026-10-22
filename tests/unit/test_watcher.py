@@ -397,6 +397,32 @@ class TestCheckCriticalEntities:
         assert mock_ir.async_delete_issue.call_count == 2
 
     @pytest.mark.asyncio
+    async def test_only_the_trv_released_on_its_own_raises_no_issue(
+        self, mock_bt_instance
+    ):
+        """An outage of a TRV released on its own is the user's business.
+
+        Both TRVs go away. The released one leaves the error list and its
+        earlier issue is withdrawn; the other one is reported as before.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_bt_instance.released_trvs = {"climate.trv_1"}
+        mock_bt_instance.devices_errors = ["climate.trv_1"]
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            await check_critical_entities(mock_bt_instance)
+
+        assert mock_bt_instance.devices_errors == ["climate.trv_2"]
+        (created,) = mock_ir.async_create_issue.call_args_list
+        assert created.kwargs["translation_placeholders"]["entity"] == "climate.trv_2"
+        (withdrawn,) = mock_ir.async_delete_issue.call_args_list
+        assert withdrawn.args[2].endswith("_missing_entity_climate.trv_1")
+
+    @pytest.mark.asyncio
     async def test_no_issue_during_grace_period(self, mock_bt_instance):
         """Unavailable TRV during startup grace does not raise a repair issue."""
         from datetime import timedelta

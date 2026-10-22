@@ -9,7 +9,8 @@ The cascade (top wins):
 
 1. Release — while the user has the room's devices released, nothing is
    commanded and the intent says so, so the shell leaves the cooler and
-   the learners alone as well.
+   the learners alone as well. A room whose TRVs are each released on
+   their own commands no TRV either, but keeps its cooler.
 2. Lifecycle gate — while startup or valve maintenance runs, nothing is
    commanded.
 3. Mode — OFF turns every TRV off.
@@ -27,7 +28,8 @@ The cascade (top wins):
 Reachability is an address filter applied across the cascade rather than
 a tier of it: an unreachable TRV is dropped from the addressed set and
 receives no intent, except while boost heating is active (boost keeps
-commanding so the TRV catches up the moment it returns).
+commanding so the TRV catches up the moment it returns). A TRV the user
+released on its own is dropped the same way, boost or not.
 
 Neither half of the control-mode region branches the cascade: the
 degraded annunciation (unavailable optional sensors) is bookkeeping, and
@@ -148,11 +150,14 @@ def _addressed(snapshot: WorldSnapshot) -> list[str]:
     """Entity ids of every TRV that should be commanded at all.
 
     Unreachable TRVs are skipped so the shell does not write into the
-    void — unless boost heating is active, which keeps commanding.
+    void — unless boost heating is active, which keeps commanding. A
+    released TRV is the user's and is skipped even under boost.
     """
     boost = is_boost_heating(snapshot)
     return [
-        entity_id for entity_id, trv in snapshot.trvs.items() if trv.available or boost
+        entity_id
+        for entity_id, trv in snapshot.trvs.items()
+        if not trv.released and (trv.available or boost)
     ]
 
 
@@ -173,7 +178,8 @@ def decide(
 ) -> tuple[DesiredState, KernelState]:
     """Map one world snapshot onto the desired state of every TRV.
 
-    The deterministic precedence cascade (top wins): released devices,
+    The deterministic precedence cascade (top wins): released devices
+    (the whole room, or every TRV on its own),
     the lifecycle and maintenance gate, mode OFF, an open window while
     window detection is on, no call for heat, and otherwise heating to
     the target.
@@ -219,6 +225,17 @@ def decide(
             DesiredState(
                 call_for_heat=snapshot.call_for_heat,
                 devices_released=True,
+                heating_blocked_by=HeatingBlock.DEVICES_RELEASED,
+            ),
+            state,
+        )
+
+    if snapshot.trvs and all(trv.released for trv in snapshot.trvs.values()):
+        # Every TRV is released on its own: none is commanded, as with the
+        # room released, but the cooler is no TRV and stays under control.
+        return (
+            DesiredState(
+                call_for_heat=snapshot.call_for_heat,
                 heating_blocked_by=HeatingBlock.DEVICES_RELEASED,
             ),
             state,

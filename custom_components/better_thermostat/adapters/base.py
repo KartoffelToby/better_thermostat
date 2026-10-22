@@ -15,7 +15,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import State
 
-from ..utils.helpers import state_is_live
+from ..utils.helpers import device_released, state_is_live
 from .types import AdapterHost
 
 _LOGGER = logging.getLogger(__name__)
@@ -294,9 +294,9 @@ async def wait_for_calibration_entity_or_timeout(
                 calibration_entity,
             )
             _retry_count += 1
-            # The devices can be released while the wait goes on, and the
-            # write that ends it is not sent to them then.
-            if self.devices_released:
+            # The device can be released while the wait goes on, and the
+            # write that ends it is not sent to it then.
+            if device_released(self, entity_id):
                 return
             if _retry_count >= _max_retries:
                 _LOGGER.warning(

@@ -13,6 +13,7 @@ from custom_components.better_thermostat.model_fixes.types import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     celsius_to_system_temperature,
+    device_released,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,8 +49,8 @@ async def _select_manual_preset(self: ModelFixHost, entity_id: str) -> None:
         Entity ID of the TRV to take off its schedule
     """
     # The preset follows or precedes the command it belongs to, and it is
-    # not sent once the devices are the user's.
-    if self.devices_released:
+    # not sent once the device is the user's.
+    if device_released(self, entity_id):
         return
     try:
         await self.hass.services.async_call(
@@ -140,7 +141,7 @@ async def override_set_temperature(
     -------
     bool
         True once the setpoint write went out, so the caller does not need
-        the generic adapter fallback, and also when the devices were
+        the generic adapter fallback, and also when the device was
         released during the preset write, which leaves the setpoint unsent.
         False when the device refused it: the adapter write then carries the
         setpoint instead, with its own step rounding and retry handling.
@@ -153,7 +154,7 @@ async def override_set_temperature(
             entity_id,
         )
         await _select_manual_preset(self, entity_id)
-        if self.devices_released:
+        if device_released(self, entity_id):
             return True
 
     try:

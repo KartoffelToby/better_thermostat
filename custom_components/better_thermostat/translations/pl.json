@@ -419,6 +419,7 @@
             "name": "Aktywne nadpisania",
             "state": {
               "devices_released": "Urządzenia zwolnione",
+              "trvs_released": "TRV zwolnione",
               "learning_paused": "Uczenie wstrzymane",
               "window_detection_off": "Wykrywanie okna wyłączone"
             }
@@ -524,6 +525,12 @@
     "switch": {
       "release_devices": {
         "name": "Zwolnij urządzenia"
+      },
+      "release_trv": {
+        "name": "{trv_name} Zwolnienie"
+      },
+      "release_trv_no_trv": {
+        "name": "Zwolnienie TRV"
       },
       "pid_auto_tune": {
         "name": "{trv_name} Automatyczne strojenie PID"
@@ -658,6 +665,9 @@
     },
     "devices_released": {
       "message": "Urządzenia {device_name} są zwolnione. Wyłącz Zwolnij urządzenia, aby Better Thermostat znów nimi sterował."
+    },
+    "trv_released": {
+      "message": "Te TRV {device_name} są zwolnione: {entity}. Wyłącz ich przełącznik zwolnienia, aby Better Thermostat znów nimi sterował."
     }
   }
 }
