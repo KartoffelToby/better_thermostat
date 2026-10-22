@@ -17,7 +17,7 @@ from .compute import compute_mpc_v2
 from .controller import SNAPSHOT_VERSION, ControllerSnapshot, MpcV2Controller
 from .io import MpcV2Diagnostics, MpcV2Input, MpcV2Output
 from .params import PLANT_PRESETS, MpcV2Params, MpcV2PlantPreset, make_plant_prior
-from .reid import ReidBuffer, ReidConfig, ReidOutcome, ReidSample, run_reid_fit
+from .reid import ReidBuffer, ReidConfig, ReidFit, ReidOutcome, ReidSample, run_reid_fit
 from .state import MpcV2State, export_mpc_v2_state, import_mpc_v2_state
 
 __all__ = [
@@ -32,6 +32,7 @@ __all__ = [
     "PlantParams",
     "ReidBuffer",
     "ReidConfig",
+    "ReidFit",
     "ReidOutcome",
     "ReidSample",
     "compute_mpc_v2",

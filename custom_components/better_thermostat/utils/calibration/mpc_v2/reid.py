@@ -131,17 +131,40 @@ class ReidConfig:
     max_iterations: int = 200
 
 
+@dataclass(frozen=True)
+class ReidFit:
+    """Fitted plant parameters and the holdout RMSEs that judged them."""
+
+    tau_room_min: float
+    gain_heater: float
+    rmse_prior_K: float
+    rmse_fit_K: float
+
+
 @dataclass
 class ReidOutcome:
-    """Result of one batch fit attempt."""
+    """Result of one batch fit attempt.
+
+    ``fit`` is present exactly when a fit ran, that is for ``accepted`` and
+    ``rejected``; ``insufficient_data`` carries none.
+    """
 
     status: ReidStatus
-    tau_room_min: float | None = None
-    gain_heater: float | None = None
-    rmse_prior_K: float | None = None
-    rmse_fit_K: float | None = None
     n_segments: int = 0
     n_samples: int = 0
+    fit: ReidFit | None = None
+
+    def __post_init__(self) -> None:
+        """Hold ``fit`` to the status it belongs to."""
+        if (self.fit is None) != (self.status == "insufficient_data"):
+            raise ValueError(
+                f"ReidOutcome status {self.status!r} with fit={self.fit!r}"
+            )
+
+    @property
+    def accepted_fit(self) -> ReidFit | None:
+        """The fit to adopt, or ``None`` unless the holdout accepted it."""
+        return self.fit if self.status == "accepted" else None
 
 
 def _classify(sample: ReidSample, config: ReidConfig) -> SampleClass:
@@ -374,10 +397,12 @@ def run_reid_fit(
     )
     return ReidOutcome(
         status="accepted" if accepted else "rejected",
-        tau_room_min=fitted.tau_room_min,
-        gain_heater=fitted.gain_heater,
-        rmse_prior_K=rmse_prior,
-        rmse_fit_K=rmse_fit,
         n_segments=len(segments),
         n_samples=n_samples,
+        fit=ReidFit(
+            tau_room_min=fitted.tau_room_min,
+            gain_heater=fitted.gain_heater,
+            rmse_prior_K=rmse_prior,
+            rmse_fit_K=rmse_fit,
+        ),
     )
