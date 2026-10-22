@@ -2792,7 +2792,8 @@ async def control_trv(
 
                 # COMMAND: what the adapter actually put on the wire. Only
                 # that value can be acknowledged; before the first write it is
-                # the offset startup read off the device.
+                # the offset startup read off the device, or 0.0 when startup
+                # read none.
                 _last_sent = trv.last_calibration
 
                 # Three-valued: an unreadable report neither confirms the

@@ -2941,7 +2941,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     )
                     self._set_trv_calibration_defaults(entity_id)
             else:
-                trv.last_calibration = 0
                 trv.min_local_calibration = -7
                 trv.max_local_calibration = 7
                 trv.local_calibration_step = 0.5
