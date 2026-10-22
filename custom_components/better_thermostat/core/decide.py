@@ -56,7 +56,7 @@ from .desired import (
 )
 from .fsm.control_mode import ControlModeState
 from .fsm.lifecycle import LifecyclePhase, LifecycleState, tick as lifecycle_tick
-from .fsm.maintenance import MaintenanceIdle, MaintenanceState
+from .fsm.maintenance import DUE_AT_FIRST_TICK, MaintenanceIdle, MaintenanceState
 from .fsm.mode import ModeState
 from .fsm.reachability import ReachabilityState, step as reachability_step
 from .fsm.window import WindowState
@@ -91,7 +91,9 @@ class KernelState:
 
     window: WindowState = field(default_factory=WindowState)
     door: WindowState = field(default_factory=WindowState)
-    maintenance: MaintenanceState = field(default_factory=MaintenanceIdle)
+    maintenance: MaintenanceState = field(
+        default_factory=lambda: MaintenanceIdle(next_due=DUE_AT_FIRST_TICK)
+    )
     lifecycle: LifecycleState = field(default_factory=LifecycleState)
     mode: ModeState = field(default_factory=ModeState)
     control_mode: ControlModeState = field(default_factory=ControlModeState)
