@@ -47,7 +47,7 @@ def _baseline_input(
     outdoor_temperature: float | None = 5.0,
     heating_allowed: bool = True,
     window_open: bool = False,
-    max_opening_percent: float | None = None,
+    max_opening_percent: float = 100.0,
     applied_valve_percent: float | None = None,
 ) -> MpcV2Input:
     """Build a baseline MpcV2Input with optional field overrides."""
@@ -113,7 +113,7 @@ def _step_returning(fraction: float):
         T_target: float,
         T_outdoor: float,
         T_rad: float | None = None,
-        u_max: float | None = None,
+        u_max: float = 1.0,
         learning_paused: bool = False,
     ) -> tuple[float, MpcV2Diagnostics]:
         _u, diagnostics = real_step(
@@ -1390,7 +1390,7 @@ def _hold_room_with_feedback(
     start: tuple[float, np.ndarray, float],
     cycles: int,
     disturbance: float = 0.0,
-    max_opening_percent: float | None = None,
+    max_opening_percent: float = 100.0,
     target: float = 21.0,
     outdoor: float = 0.0,
 ) -> tuple[MpcV2State, tuple[float, np.ndarray, float], list[int], list[float]]:

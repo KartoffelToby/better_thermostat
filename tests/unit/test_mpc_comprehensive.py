@@ -1944,16 +1944,11 @@ class TestMaxOpeningPct:
         )
         assert result.valve_percent <= 30
 
-    def test_max_opening_none_no_clamp(self):
-        """When max_opening_percent is None, no clamping should occur."""
+    def test_default_max_opening_does_not_clamp(self):
+        """The default max_opening_percent of 100 leaves the output unclamped."""
         params = _default_params()
         result = _compute(
-            _inp(
-                key="maxop_none",
-                room_temperature=18.0,
-                target_temperature=22.0,
-                max_opening_percent=None,
-            ),
+            _inp(key="maxop_default", room_temperature=18.0, target_temperature=22.0),
             params,
         )
         # Large error → should be high, not clamped
