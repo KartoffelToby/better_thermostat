@@ -60,7 +60,11 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.entry_schema import TrvSettings
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
-from custom_components.better_thermostat.utils.state_manager import ThermalStats
+from custom_components.better_thermostat.utils.state_manager import (
+    FilterState,
+    StateManager,
+    ThermalStats,
+)
 from custom_components.better_thermostat.utils.watcher import BatteryReading
 from tests.factories import ThermostatStandIn, make_trv, trv_record
 
@@ -100,7 +104,9 @@ def bt():
     mock.clock = FakeClock()
     mock.kernel_state = KernelState()
     mock._degraded_grace_until = None
-    mock.state_mgr = None
+    # The learned state is loaded, from a store that holds none yet.
+    mock.state_mgr = StateManager(MagicMock(), "test_entry")
+    mock.state_loaded = True
     mock.hass = MagicMock()
     # climate entities publish no unit attribute, so every temperature read off
     # a child state resolves through the system unit.
@@ -712,6 +718,8 @@ class TestOwnedBackgroundTasks:
         owned_task_bt._unique_id = "uid"
         owned_task_bt._config_entry_id = "entry"
         owned_task_bt.entity_id = "climate.bt_test"
+        owned_task_bt.state_mgr = state_mgr
+        owned_task_bt.state_loaded = False
 
         async def idle_worker(_entity):
             await asyncio.Event().wait()
@@ -719,7 +727,6 @@ class TestOwnedBackgroundTasks:
         module = "custom_components.better_thermostat.climate"
         with (
             patch(f"{module}.control_queue", side_effect=idle_worker),
-            patch(f"{module}.StateManager", return_value=state_mgr),
             patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
         ):
             assert owned_task_bt.task_manager.hass is None
@@ -744,6 +751,8 @@ class TestOwnedBackgroundTasks:
         owned_task_bt._unique_id = "uid"
         owned_task_bt._config_entry_id = "entry"
         owned_task_bt.entity_id = "climate.bt_test"
+        owned_task_bt.state_mgr = state_mgr
+        owned_task_bt.state_loaded = False
 
         async def idle_worker(_entity):
             await asyncio.Event().wait()
@@ -751,7 +760,6 @@ class TestOwnedBackgroundTasks:
         module = "custom_components.better_thermostat.climate"
         with (
             patch(f"{module}.control_queue", side_effect=idle_worker),
-            patch(f"{module}.StateManager", return_value=state_mgr),
             patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
         ):
             await BetterThermostat.async_added_to_hass(owned_task_bt)
@@ -790,6 +798,8 @@ class TestOwnedBackgroundTasks:
         owned_task_bt._unique_id = "uid"
         owned_task_bt._config_entry_id = "entry"
         owned_task_bt.entity_id = "climate.bt_test"
+        owned_task_bt.state_mgr = state_mgr
+        owned_task_bt.state_loaded = False
 
         async def idle_worker(_entity):
             await asyncio.Event().wait()
@@ -797,7 +807,6 @@ class TestOwnedBackgroundTasks:
         module = "custom_components.better_thermostat.climate"
         with (
             patch(f"{module}.control_queue", side_effect=idle_worker),
-            patch(f"{module}.StateManager", return_value=state_mgr),
             patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
         ):
             await BetterThermostat.async_added_to_hass(owned_task_bt)
@@ -817,6 +826,114 @@ class TestOwnedBackgroundTasks:
             if name in {"close", "flush"}
         ]
         assert lifecycle == ["close", "flush"]
+
+
+class TestLoadingTheStoredState:
+    """The entity takes over the learned state only once it is loaded."""
+
+    @staticmethod
+    def _loading(bt, during_load=None):
+        """Wire the entity to a store whose load runs ``during_load`` first."""
+        state_mgr = MagicMock()
+        state_mgr.clamped_thermal.return_value = ThermalStats(heating_power=0.05)
+        state_mgr.filters = FilterState()
+
+        async def load():
+            if during_load is not None:
+                during_load()
+
+        state_mgr.load = AsyncMock(side_effect=load)
+        state_mgr.flush = AsyncMock()
+        bt.all_trvs = list[TrvSettings]()
+        bt._unique_id = "uid"
+        bt._config_entry_id = "entry"
+        bt.entity_id = "climate.bt_test"
+        bt.state_mgr = state_mgr
+        bt.state_loaded = False
+        bt.heating_power = 0.01
+        bt._hydrate_thermal_from_state = lambda: (
+            BetterThermostat._hydrate_thermal_from_state(bt)
+        )
+        return state_mgr
+
+    @staticmethod
+    def _on_remove(bt):
+        return next(
+            call.args[0]
+            for call in bt.async_on_remove.call_args_list
+            if getattr(call.args[0], "__name__", "") == "on_remove"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_rename_finds_the_state_in_memory_only_after_the_load(
+        self, hass, owned_task_bt
+    ):
+        """Before the load a rename is left to it; after the load it is not."""
+        bt = owned_task_bt
+        seen_during_load = []
+        state_mgr = self._loading(
+            bt,
+            during_load=lambda: seen_during_load.append(
+                BetterThermostat.state_in_memory.__get__(bt)
+            ),
+        )
+
+        assert BetterThermostat.state_in_memory.__get__(bt) is None
+        with patch(
+            "custom_components.better_thermostat.climate.migrate_v0_stores",
+            new=AsyncMock(),
+        ):
+            await BetterThermostat.async_added_to_hass(bt)
+
+        assert seen_during_load == [None]
+        assert bt.state_loaded is True
+        assert BetterThermostat.state_in_memory.__get__(bt) is state_mgr
+        assert bt.heating_power == 0.05
+        await BetterThermostat.async_will_remove_from_hass(bt)
+        await hass.async_block_till_done()
+
+    @pytest.mark.asyncio
+    async def test_a_removal_during_the_load_saves_nothing(self, hass, owned_task_bt):
+        """The load of a removed entity is closed and neither saved nor applied."""
+        bt = owned_task_bt
+
+        def remove_during_load():
+            self._on_remove(bt)()
+
+        state_mgr = self._loading(bt, during_load=remove_during_load)
+        with patch(
+            "custom_components.better_thermostat.climate.migrate_v0_stores",
+            new=AsyncMock(),
+        ):
+            await BetterThermostat.async_added_to_hass(bt)
+        await hass.async_block_till_done()
+
+        assert bt.state_loaded is False
+        assert BetterThermostat.state_in_memory.__get__(bt) is None
+        state_mgr.close.assert_called_once_with()
+        state_mgr.flush.assert_not_awaited()
+        state_mgr.forget_thermostats_except.assert_not_called()
+        assert bt._final_flush_task is None
+        assert bt.heating_power == 0.01
+
+    @pytest.mark.asyncio
+    async def test_a_removal_after_the_load_saves_the_state(self, hass, owned_task_bt):
+        """Once the state is loaded, the removal writes it and lets go of it."""
+        bt = owned_task_bt
+        state_mgr = self._loading(bt)
+        with patch(
+            "custom_components.better_thermostat.climate.migrate_v0_stores",
+            new=AsyncMock(),
+        ):
+            await BetterThermostat.async_added_to_hass(bt)
+
+        await BetterThermostat.async_will_remove_from_hass(bt)
+        self._on_remove(bt)()
+        await hass.async_block_till_done()
+
+        assert BetterThermostat.state_in_memory.__get__(bt) is None
+        state_mgr.close.assert_called_once_with()
+        state_mgr.flush.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

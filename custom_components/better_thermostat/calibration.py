@@ -438,9 +438,6 @@ def _compute_mpc_balance(
         mpc_key = build_mpc_key(self, entity_id)
 
     state_mgr = self.state_mgr
-    if state_mgr is None:
-        trv_state.calibration_balance = None
-        return None, False
 
     mpc_state = state_mgr.get_mpc(mpc_key)
 
@@ -596,8 +593,6 @@ def _lookup_mpc_v2_reid(
     and drops this thermostat's legacy bucket entries.
     """
     state_mgr = self.state_mgr
-    if state_mgr is None:
-        return None
 
     def fitted_under_this_flow(data: MpcV2ReidData) -> bool:
         return (
@@ -656,8 +651,6 @@ def _record_mpc_v2_reid_sample(
     SENSOR_FALLBACK also cuts the buffer.
     """
     state_mgr = self.state_mgr
-    if state_mgr is None:
-        return
     room_temperature = effective_room_temperature(self)
     if room_temperature is None:
         return
@@ -744,8 +737,6 @@ def _maybe_start_mpc_v2_reid_fit(
     if hass is None:
         return
     state_mgr = self.state_mgr
-    if state_mgr is None:
-        return
     if self.learning_held:
         return
     runtime = state_mgr.get_mpc_v2_reid_runtime(reid_key)
@@ -874,9 +865,6 @@ def _compute_mpc_v2_balance(
         return None, False
 
     state_mgr = self.state_mgr
-    if state_mgr is None:
-        trv_state.calibration_balance = None
-        return None, False
 
     is_multi_trv = len(self.real_trvs) > 1
     trv_temps: dict[str, float | None] | None = None
@@ -1075,9 +1063,6 @@ def _compute_tpi_balance(
 
     key = build_tpi_key(self, entity_id)
     state_mgr = self.state_mgr
-    if state_mgr is None:
-        trv_state.calibration_balance = None
-        return None, False
     tpi_state = state_mgr.get_tpi(key)
     tpi_state, _tpi_health = sanitize_tpi_state(tpi_state)
     annunciate_health(self, entity_id, _tpi_health)
@@ -1140,9 +1125,6 @@ def _compute_pid_balance(
         return None, False
 
     state_mgr = self.state_mgr
-    if state_mgr is None:
-        trv_state.calibration_balance = None
-        return None, False
 
     if self.contact_open is True or self.bt_hvac_mode == HVACMode.OFF:
         # Standby: no actuation, but the measurement chain keeps

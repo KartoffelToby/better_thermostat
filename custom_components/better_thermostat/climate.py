@@ -390,6 +390,7 @@ async def async_setup_entry(
         enabled_presets=settings.get(CONF_PRESETS),
         unit=unit,
         unique_id=entry.entry_id,
+        state_mgr=StateManager(hass, entry.entry_id),
         device_class="better_thermostat",
         state_class="better_thermostat_state",
     )
@@ -1172,6 +1173,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         enabled_presets: list[str] | None,
         unit: UnitOfTemperature,
         unique_id: str,
+        state_mgr: StateManager,
         device_class: str | None,
         state_class: str | None,
     ) -> None:
@@ -1198,6 +1200,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             Temperature unit of the Home Assistant system.
         unique_id : str
             Unique id of the config entry.
+        state_mgr : StateManager
+            Persistence of the entry's learned state; the entity loads it
+            when it is added.
         device_class : str | None
             Device class of the climate entity.
         state_class : str | None
@@ -1382,8 +1387,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.room_temperature_ema = None
         self._room_temperature_ema_monotonic: float | None = None
         self.room_temperature_filtered = None
-        # Unified state persistence (replaces per-controller stores)
-        self.state_mgr: StateManager | None = None
+        # Unified state persistence (replaces per-controller stores). It holds
+        # the stored state, and the entity saves through it, once
+        # ``state_loaded`` is set: after the load, and only for an entity that
+        # was not removed meanwhile.
+        self.state_mgr = state_mgr
+        self.state_loaded = False
 
         self.last_known_external_temperature: float | None = None
         self._slope_periodic_last_ts: float | None = None
@@ -1610,7 +1619,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # state the next start reads back. async_will_remove_from_hass
             # awaits it instead, so the unload, and a removal that deletes the
             # stores after it, follow the write.
-            if self.state_mgr is not None:
+            if self.state_loaded:
                 self.state_mgr.close()
                 try:
                     self._record_runtime_to_state()
@@ -1628,7 +1637,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # a copy of the stored payload is taken here: in the final write
             # the Store writes at once, so the copy is confirmed before the
             # state replaces the payload.
-            if self.state_mgr is not None and self.state_mgr.copy_pending:
+            if self.state_loaded and self.state_mgr.copy_pending:
                 self._record_runtime_to_state()
                 await self.state_mgr.flush()
 
@@ -1648,7 +1657,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # entry's lock, and the manager becomes the entity's only once the
         # renames recorded meanwhile are applied: a rename either finds the
         # state in memory here or leaves the move for this load.
-        state_mgr = StateManager(self.hass, self._config_entry_id)
+        state_mgr = self.state_mgr
         async with stored_state_lock(self.hass, self._config_entry_id):
             try:
                 await state_mgr.load()
@@ -1673,7 +1682,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     self.hass, self._config_entry_id, state_mgr
                 )
                 state_mgr.forget_thermostats_except([*self.entity_ids, *moved_to])
-                self.state_mgr = state_mgr
+                self.state_loaded = True
         self._hydrate_thermal_from_state()
 
         @callback
@@ -2662,11 +2671,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # authority. The restored attributes only fill in when the
             # store carries nothing — a one-time migration fallback for
             # upgrades from versions that persisted via RestoreEntity.
-            stored_thermal = (
-                self.state_mgr.clamped_thermal()
-                if self.state_mgr is not None
-                else ThermalStats()
-            )
+            stored_thermal = self.state_mgr.clamped_thermal()
             if (
                 stored_thermal.heating_power is None
                 and old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None
@@ -4003,7 +4008,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         The StateManager is the persistence authority; the RestoreEntity
         attributes only serve as a one-time migration fallback.
         """
-        if self.state_mgr is None:
+        if not self.state_loaded:
             return
         stored_thermal = self.state_mgr.clamped_thermal()
         if stored_thermal.heating_power is not None:
@@ -4033,8 +4038,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     def _record_runtime_to_state(self) -> None:
         """Push the entity-held thermal stats and filters into the StateManager."""
-        if self.state_mgr is None:
-            return
         self.state_mgr.record_thermal(
             ThermalStats(
                 heating_power=self.heating_power, heat_loss_rate=self.heat_loss_rate
@@ -4061,7 +4064,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         Assistant's final-write event (normal shutdown), and repeated
         triggers cannot starve the write.
         """
-        if self.state_mgr is None:
+        if not self.state_loaded:
             return
         self.state_mgr.schedule_delay_save(
             pre_save=self._record_runtime_to_state, delay_seconds=delay_seconds
@@ -5687,7 +5690,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             picks no bucket; nothing is reset then
         """
         state_mgr = self.state_mgr
-        if state_mgr is None:
+        if not self.state_loaded:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="pid_state_not_ready",
@@ -5888,7 +5891,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         ``None`` before the stored state is loaded and once the entity is
         removed, when its final save is under way or done.
         """
-        return None if self.is_removed else self.state_mgr
+        if self.is_removed or not self.state_loaded:
+            return None
+        return self.state_mgr
 
     async def wait_for_final_save(self) -> None:
         """Wait for the save the removal started, if one is under way."""

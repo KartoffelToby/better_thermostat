@@ -16,6 +16,7 @@ from custom_components.better_thermostat.core.containers import BtConfig
 from custom_components.better_thermostat.core.decide import decide
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
+from custom_components.better_thermostat.utils.state_manager import StateManager
 from tests.factories import (
     DEFAULT_TRV_ID,
     STAND_IN_DEFAULTS,
@@ -96,6 +97,7 @@ def test_the_stand_in_answers_the_unarmed_critical_grace_as_constructed():
         enabled_presets=None,
         unit=UnitOfTemperature.CELSIUS,
         unique_id="stand_in_defaults",
+        state_mgr=StateManager(MagicMock(), "stand_in_defaults"),
         device_class=None,
         state_class=None,
     )

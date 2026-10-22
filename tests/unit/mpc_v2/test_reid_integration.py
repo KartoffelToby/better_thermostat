@@ -860,30 +860,6 @@ def test_a_fit_that_cannot_be_scheduled_frees_the_next_attempt(caplog) -> None:
 # -- Missing state store ------------------------------------------------------
 
 
-def test_reid_helpers_without_a_state_store_do_nothing() -> None:
-    """Every re-ID helper is a no-op until the state store exists."""
-    from custom_components.better_thermostat import calibration as cal
-
-    bt = _make_bt()
-    bt.hass = _FakeHass()
-    bt.state_mgr = None
-
-    assert (
-        cal._lookup_mpc_v2_reid(
-            bt, "bt:reid", "bt:climate.x:t21.0", DEFAULT_FLOW_TEMPERATURE
-        )
-        is None
-    )
-    cal._record_mpc_v2_reid_sample(
-        bt,
-        "bt:reid",
-        applied_valve_percent=40.0,
-        trv_temperature=21.0,
-        outdoor_temperature=5.0,
-    )
-    cal._maybe_start_mpc_v2_reid_fit(bt, "bt:reid", MpcV2Params())
-
-
 # -- Configured flow temperature ----------------------------------------------
 
 

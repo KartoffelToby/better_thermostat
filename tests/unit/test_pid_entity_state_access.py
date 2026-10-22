@@ -64,6 +64,7 @@ def _make_bt() -> MagicMock:
     bt.heat_target_temperature = 21.0
     bt.schedule_save_state = MagicMock()
     bt.state_mgr = _StateMgrStub()
+    bt.state_loaded = True
     return bt
 
 
@@ -86,10 +87,11 @@ class TestPidNumber:
         bt = _make_bt()
         assert self._make(bt).native_value == DEFAULT_PID_KP
 
-    def test_no_state_manager_falls_back_to_default(self):
-        """Without a state manager the default value is exposed."""
+    def test_state_not_loaded_yet_falls_back_to_default(self):
+        """Before the stored state is loaded the default value is exposed."""
         bt = _make_bt()
-        bt.state_mgr = None
+        bt.state_mgr.pid[_KEY] = PIDState(pid_kp=123.0)
+        bt.state_loaded = False
         assert self._make(bt).native_value == DEFAULT_PID_KP
 
     @pytest.mark.parametrize(
@@ -202,14 +204,15 @@ class TestPidNumber:
         assert _LOOP not in bt.state_mgr.pid
 
     @pytest.mark.asyncio
-    async def test_set_without_state_manager_is_a_noop(self):
-        """Setting without a state manager neither writes nor schedules a save."""
+    async def test_set_before_the_state_is_loaded_is_a_noop(self):
+        """Setting before the load neither writes nor schedules a save."""
         bt = _make_bt()
-        bt.state_mgr = None
+        bt.state_loaded = False
         number = self._make(bt)
 
         await number.async_set_native_value(55.0)
 
+        assert bt.state_mgr.pid == {}
         bt.schedule_save_state.assert_not_called()
 
 
@@ -232,10 +235,11 @@ class TestAutoTuneSwitch:
         bt = _make_bt()
         assert self._make(bt).is_on is DEFAULT_PID_AUTO_TUNE
 
-    def test_no_state_manager_falls_back_to_default(self):
-        """Without a state manager the default value is exposed."""
+    def test_state_not_loaded_yet_falls_back_to_default(self):
+        """Before the stored state is loaded the default value is exposed."""
         bt = _make_bt()
-        bt.state_mgr = None
+        bt.state_mgr.pid[_KEY] = PIDState(auto_tune=not DEFAULT_PID_AUTO_TUNE)
+        bt.state_loaded = False
         assert self._make(bt).is_on is DEFAULT_PID_AUTO_TUNE
 
     def test_after_an_upgrade_reads_the_flag_of_the_stored_buckets(self):
@@ -277,12 +281,13 @@ class TestAutoTuneSwitch:
         assert bt.state_mgr.dirty is True
         bt.schedule_save_state.assert_called_once()
 
-    def test_update_without_state_manager_is_a_noop(self):
-        """Toggling without a state manager neither writes nor schedules a save."""
+    def test_update_before_the_state_is_loaded_is_a_noop(self):
+        """Toggling before the load neither writes nor schedules a save."""
         bt = _make_bt()
-        bt.state_mgr = None
+        bt.state_loaded = False
         switch = self._make(bt)
 
         switch._update_state(True)
 
+        assert bt.state_mgr.pid == {}
         bt.schedule_save_state.assert_not_called()
