@@ -299,6 +299,7 @@ class MpcV2Controller:
         T_rad: float | None = None,
         u_max: float | None = None,
         learning_paused: bool = False,
+        room_reading_from_trvs: bool = False,
     ) -> tuple[float, MpcV2Diagnostics]:
         """Run one control cycle. Returns (valve_fraction, diagnostics).
 
@@ -332,6 +333,10 @@ class MpcV2Controller:
             pause. The observer keeps tracking the room and the plan runs on
             the held values; the integral counts at most one re-plan step
             after the pause, so nothing is caught up.
+        room_reading_from_trvs : bool, optional
+            ``T_room`` is the TRVs' substitute for a failed room sensor. It
+            counts as a fresh reading and teaches the reporting threshold
+            nothing.
 
         Between re-plans the cycle returns the command of the last plan. The
         applied input the caller confirms through :meth:`set_applied_u` feeds
@@ -367,7 +372,7 @@ class MpcV2Controller:
         # An interval beyond ``max_reading_interval_s`` spans a pause of the
         # controller; what the room did then is no load it carries now.
         learn = not learning_paused and dt_s <= self.params.dob.max_reading_interval_s
-        band_K = self._report_band_for(T_room, learn)
+        band_K = self._report_band_for(T_room, learn, room_reading_from_trvs)
         x_hat = self.kalman.update(
             T_room,
             self._last_u,
@@ -427,12 +432,19 @@ class MpcV2Controller:
 
         return u, self._diagnostics()
 
-    def _report_band_for(self, T_room: float, learn: bool) -> float | None:
+    def _report_band_for(
+        self, T_room: float, learn: bool, from_trvs: bool
+    ) -> float | None:
         """Return the band half-width for a repeated reading, ``None`` for a fresh one.
 
         While ``learn`` is off the threshold estimate holds: a reading after a
-        pause can differ from the last by any amount.
+        pause can differ from the last by any amount. A reading the TRVs
+        substitute for the room sensor is always fresh, and the room sensor's
+        first reading after it adds no step.
         """
+        if from_trvs:
+            self.report_band.forget_reading()
+            return None
         if learn:
             return self.report_band.observe(T_room)
         repeated = T_room == self.report_band.last_reading

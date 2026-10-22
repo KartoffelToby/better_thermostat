@@ -31,6 +31,10 @@ class MpcV2Input:
     # While set, the disturbance estimate and the error integral are held and
     # the controller plans on them; the observer keeps tracking the room.
     learning_paused: bool = False
+    # Set while the room sensor has failed and ``room_temperature`` is the
+    # mean of the TRVs' own readings. Their steps say nothing about the room
+    # sensor's reporting threshold, so each such reading counts as fresh.
+    room_temperature_from_trvs: bool = False
     bt_name: str | None = None
     entity_id: str | None = None
 

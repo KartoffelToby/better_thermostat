@@ -5,11 +5,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Params
+from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+    MpcV2Input,
+    MpcV2Params,
+    MpcV2State,
+    compute_mpc_v2,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
     SNAPSHOT_VERSION,
     ControllerSnapshot,
     MpcV2Controller,
+)
+from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
+    PlantModelRC2,
+    PlantParams,
 )
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.report_band import (
     MIN_REPORT_THRESHOLD_K,
@@ -195,3 +204,187 @@ def test_a_restored_disturbance_survives_a_snapshot_without_an_estimate() -> Non
     controller.step(t_s=0.0, T_room=21.0, T_target=21.0, T_outdoor=5.0)
 
     assert controller.kalman.disturbance_K_per_min == pytest.approx(0.01, rel=0.2)
+
+
+_SETPOINT = 21.0
+_ROOM_STEP_S = 30.0
+_HEARTBEAT_S = 3600.0
+
+
+def _closed_loop_on_a_coarse_sensor(
+    room: PlantParams, threshold_K: float, hours: float = 24.0
+) -> tuple[float, float]:
+    """Run MPC v2 against a room read through a send-on-delta sensor.
+
+    The sensor rounds to 0.1 K and reports when its value has moved by
+    ``threshold_K`` since the last report, or once an hour. Each five-minute
+    cycle hands MPC v2 the last report. Returns the valve travel (sum of the
+    percent changes) and the largest deviation of the room from the
+    setpoint, both over the run after its first quarter.
+    """
+    plant = PlantModelRC2(room, dt_s=_ROOM_STEP_S)
+    x = np.array([_SETPOINT, _SETPOINT + 10.0])
+    reported, reported_at = round(_SETPOINT, 1), 0.0
+    state: MpcV2State | None = None
+    applied: int | None = None
+    valves: list[int] = []
+    rooms: list[float] = []
+    t_s = 0.0
+    while t_s < hours * 3600.0:
+        out, state = compute_mpc_v2(
+            MpcV2Input(
+                key="send-on-delta",
+                target_temperature=_SETPOINT,
+                room_temperature=reported,
+                trv_temperature=float(x[1]),
+                outdoor_temperature=0.0,
+                applied_valve_percent=None if applied is None else float(applied),
+            ),
+            MpcV2Params(),
+            state,
+            now=t_s,
+        )
+        assert out is not None
+        applied = out.valve_percent
+        for _ in range(int(_CYCLE_S / _ROOM_STEP_S)):
+            x = plant.discrete_step(x, applied / 100.0, 0.0)
+            t_s += _ROOM_STEP_S
+            value = round(float(x[0]), 1)
+            if (
+                abs(value - reported) >= threshold_K - 1e-9
+                or t_s - reported_at >= _HEARTBEAT_S
+            ):
+                reported, reported_at = value, t_s
+        valves.append(applied)
+        rooms.append(float(x[0]))
+    settled = len(valves) // 4
+    travel = float(
+        sum(abs(b - a) for a, b in zip(valves[settled:], valves[settled + 1 :]))
+    )
+    deviation = max(abs(r - _SETPOINT) for r in rooms[settled:])
+    return travel, deviation
+
+
+@pytest.mark.parametrize(
+    "room",
+    [
+        pytest.param(PlantParams(), id="room-as-modelled"),
+        pytest.param(PlantParams(tau_room_min=640.0), id="slower-room"),
+    ],
+)
+def test_a_coarse_sensor_does_not_set_the_valve_swinging(room: PlantParams) -> None:
+    """With a 0.5 K sensor the valve settles instead of cycling between reports.
+
+    Taking every repeat as a fresh reading drives a limit cycle: the frozen
+    value tells the filter the room holds still, the next report jumps by the
+    threshold, and the plan swings the valve from one rail towards the other
+    each time, one to two thousand percent of travel over the 18 hours measured
+    here. The 0.1 K run of the same room bounds what a settled valve moves.
+    """
+    fine_travel, fine_deviation = _closed_loop_on_a_coarse_sensor(room, 0.1)
+    travel, deviation = _closed_loop_on_a_coarse_sensor(room, 0.5)
+
+    assert fine_travel < 150.0
+    assert fine_deviation < 0.1
+    assert travel < 300.0, f"valve travelled {travel:.0f} %"
+    assert deviation < 0.25, f"room {deviation:.2f} K off the setpoint"
+
+
+def test_the_first_reading_after_a_window_pause_adds_no_step() -> None:
+    """While the window is open the room moves on; that move is no sensor step.
+
+    The window closes again within the pause limit of the disturbance, so
+    only the open window itself keeps the drop out of the steps.
+    """
+    state: MpcV2State | None = None
+    t_s = 0.0
+    for k in range(8):
+        _, state = compute_mpc_v2(
+            MpcV2Input(
+                key="window",
+                target_temperature=21.0,
+                room_temperature=21.0 + (0.5 if k % 2 else 0.0),
+                outdoor_temperature=5.0,
+            ),
+            MpcV2Params(),
+            state,
+            now=t_s,
+        )
+        t_s += _CYCLE_S
+    assert state is not None and state.controller is not None
+    steps = state.controller.report_band.steps
+
+    _, state = compute_mpc_v2(
+        MpcV2Input(
+            key="window",
+            target_temperature=21.0,
+            room_temperature=20.0,
+            outdoor_temperature=5.0,
+            window_open=True,
+        ),
+        MpcV2Params(),
+        state,
+        now=t_s,
+    )
+    _, state = compute_mpc_v2(
+        MpcV2Input(
+            key="window",
+            target_temperature=21.0,
+            room_temperature=18.7,
+            outdoor_temperature=5.0,
+        ),
+        MpcV2Params(),
+        state,
+        now=t_s + 100.0,
+    )
+
+    assert state.controller is not None
+    assert 100.0 + _CYCLE_S <= state.controller.params.dob.max_reading_interval_s
+    assert state.controller.report_band.steps == steps
+    assert state.controller.report_band.last_reading == 18.7
+
+
+def test_a_reading_the_trvs_substitute_reaches_the_controller_as_such() -> None:
+    """``compute_mpc_v2`` hands the substitute flag on to the controller."""
+    state: MpcV2State | None = None
+    for k, from_trvs in enumerate((False, True)):
+        _, state = compute_mpc_v2(
+            MpcV2Input(
+                key="fallback",
+                target_temperature=21.0,
+                room_temperature=20.0,
+                outdoor_temperature=5.0,
+                room_temperature_from_trvs=from_trvs,
+            ),
+            MpcV2Params(),
+            state,
+            now=k * _CYCLE_S,
+        )
+        assert state.controller is not None
+        expected = None if from_trvs else 20.0
+        assert state.controller.report_band.last_reading == expected
+
+
+def test_readings_the_trvs_substitute_are_fresh_and_teach_nothing() -> None:
+    """The TRVs' mean stands in for a failed room sensor without touching the band.
+
+    Each of its readings counts as fresh, even a repeat, and none adds a
+    step. The room sensor's first reading afterwards adds none either.
+    """
+    controller, t_s = _controller_with_steps(0.5)
+    steps = controller.report_band.steps
+    for reading in (19.4, 19.4, 19.9, 19.9):
+        controller.step(
+            t_s=t_s,
+            T_room=reading,
+            T_target=21.0,
+            T_outdoor=5.0,
+            room_reading_from_trvs=True,
+        )
+        t_s += _CYCLE_S
+        assert controller.report_band.last_reading is None
+
+    controller.step(t_s=t_s, T_room=21.3, T_target=21.0, T_outdoor=5.0)
+
+    assert controller.report_band.steps == steps
+    assert controller.report_band.last_reading == 21.3

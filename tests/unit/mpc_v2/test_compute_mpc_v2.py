@@ -115,6 +115,7 @@ def _step_returning(fraction: float):
         T_rad: float | None = None,
         u_max: float | None = None,
         learning_paused: bool = False,
+        room_reading_from_trvs: bool = False,
     ) -> tuple[float, MpcV2Diagnostics]:
         _u, diagnostics = real_step(
             self,
@@ -125,6 +126,7 @@ def _step_returning(fraction: float):
             T_rad=T_rad,
             u_max=u_max,
             learning_paused=learning_paused,
+            room_reading_from_trvs=room_reading_from_trvs,
         )
         return fraction, diagnostics
 

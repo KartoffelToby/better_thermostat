@@ -980,6 +980,9 @@ def _compute_mpc_v2_balance(
                 max_opening_percent=max_opening_percent,
                 applied_valve_percent=controller_applied_percent,
                 learning_paused=self.learning_held,
+                room_temperature_from_trvs=(
+                    self.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+                ),
             ),
             v2_params,
             state=mpc_v2_state,

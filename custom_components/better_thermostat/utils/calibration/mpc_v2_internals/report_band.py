@@ -71,6 +71,15 @@ class ReportBand:
         self._steps.append(abs(reading - last))
         return None
 
+    def forget_reading(self) -> None:
+        """Drop the last reading, keeping the steps.
+
+        The next reading then counts as fresh and adds no step: across a gap
+        in the readings, or a reading from another source, its distance from
+        the last one says nothing about the sensor.
+        """
+        self.last_reading = None
+
     def restore(self, last_reading: float | None, steps: Iterable[float]) -> None:
         """Adopt a persisted last reading and step history.
 
