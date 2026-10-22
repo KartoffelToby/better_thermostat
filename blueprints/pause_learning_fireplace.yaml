@@ -6,7 +6,10 @@ blueprint:
     not learned as heat from the radiators. Learning resumes once the
     fireplace has cooled down for a while. Optionally sets a preset on the
     thermostats while the fire burns and sets None again afterwards; that
-    preset has to be enabled in the Better Thermostat configuration.
+    preset has to be enabled in the Better Thermostat configuration. When
+    Home Assistant starts or automations are reloaded, a burning fireplace
+    pauses learning at once, and a pause left over from a fire that is out
+    ends after the cool-down time.
   domain: automation
   source_url: https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/pause_learning_fireplace.yaml
   input:
@@ -116,9 +119,10 @@ variables:
   fire_preset: !input fire_preset
   thermostat_target: !input thermostat_target
   pause_learning_switches: !input pause_learning_switches
+  switches: >-
+    {{ [pause_learning_switches] if pause_learning_switches is string
+       else pause_learning_switches }}
   preset_target: >-
-    {% set switches = [pause_learning_switches] if pause_learning_switches is string
-       else pause_learning_switches %}
     {{ thermostat_target if thermostat_target
        else {'device_id': switches | map('device_id') | select | list} }}
 
@@ -140,14 +144,32 @@ trigger:
     for:
       minutes: !input cool_down_minutes
     id: out
+  - platform: homeassistant
+    event: start
+    id: reconcile
+  - platform: event
+    event_type: automation_reloaded
+    id: reconcile
 
 condition: []
 
 action:
   - choose:
       - conditions:
-          - condition: trigger
-            id: burning
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: burning
+              - condition: and
+                conditions:
+                  - condition: trigger
+                    id: reconcile
+                  - condition: numeric_state
+                    entity_id: !input fireplace_sensor
+                    value_template: *celsius
+                    above: !input burning_above
+                  - condition: template
+                    value_template: "{{ switches | reject('is_state', 'on') | list | count > 0 }}"
         sequence:
           - service: switch.turn_on
             target:
@@ -161,9 +183,41 @@ action:
                 data:
                   preset_mode: "{{ fire_preset }}"
       - conditions:
-          - condition: trigger
-            id: out
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: out
+              - condition: and
+                conditions:
+                  - condition: trigger
+                    id: reconcile
+                  - condition: numeric_state
+                    entity_id: !input fireplace_sensor
+                    value_template: *celsius
+                    below: !input out_below
+                  - condition: template
+                    value_template: "{{ switches | select('is_state', 'on') | list | count > 0 }}"
         sequence:
+          - if:
+              - condition: trigger
+                id: reconcile
+            then:
+              - wait_for_trigger:
+                  - platform: numeric_state
+                    entity_id: !input fireplace_sensor
+                    value_template: *celsius
+                    above: !input out_below
+                timeout:
+                  minutes: !input cool_down_minutes
+              - if:
+                  - condition: not
+                    conditions:
+                      - condition: numeric_state
+                        entity_id: !input fireplace_sensor
+                        value_template: *celsius
+                        below: !input out_below
+                then:
+                  - stop: The fireplace is no longer out.
           - service: switch.turn_off
             target:
               entity_id: !input pause_learning_switches

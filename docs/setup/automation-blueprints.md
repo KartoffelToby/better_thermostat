@@ -270,6 +270,11 @@ fireplace's room and of every room next door that the fire warms as well. Both
 thresholds are in °C; a sensor that reports °F or K is converted before the
 comparison.
 
+When Home Assistant starts or automations are reloaded, the blueprint checks the
+sensor once: above *Burning above* it pauses learning, and below *Out below* it
+ends a pause that is still on once the sensor has stayed there for the whole
+cool-down time.
+
 Optionally it sets a preset, such as Eco, on the selected thermostats while the
 fire burns, and sets `none` once the fire is out. A preset chosen before the
 fire is not restored.

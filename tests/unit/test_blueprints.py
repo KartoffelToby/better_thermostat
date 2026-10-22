@@ -923,9 +923,9 @@ async def test_heat_source_state_is_applied_on_start_and_reload(
     assert switch_calls == expected
 
 
-async def _set_up_fireplace(hass, unit=None, **inputs):
+async def _set_up_fireplace(hass, unit=None, temperature="20", **inputs):
     attributes: dict[str, str] = {} if unit is None else {"unit_of_measurement": unit}
-    hass.states.async_set("sensor.fireplace_temperature", "20", attributes)
+    hass.states.async_set("sensor.fireplace_temperature", temperature, attributes)
     await _set_up_blueprint(
         hass,
         FIREPLACE,
@@ -1072,3 +1072,97 @@ async def test_fireplace_preset_without_thermostats_goes_to_the_paused_devices(
     assert _presets(preset_calls) == ["eco", "none"]
     assert [call.data["device_id"] for call in preset_calls] == [device_ids] * 2
     assert switch_calls == [("turn_on", _PAUSE_SWITCHES), ("turn_off", _PAUSE_SWITCHES)]
+
+
+def _set_pause_switches(hass, state):
+    for switch in _PAUSE_SWITCHES:
+        hass.states.async_set(switch, state)
+
+
+@pytest.mark.parametrize("event", [EVENT_HOMEASSISTANT_STARTED, "automation_reloaded"])
+@pytest.mark.parametrize(
+    ("temperature", "switch_state", "expected"),
+    [
+        ("120", "off", [("turn_on", _PAUSE_SWITCHES)]),
+        ("120", "on", []),
+        ("30", "on", [("turn_off", _PAUSE_SWITCHES)]),
+        ("30", "off", []),
+        ("37", "on", []),
+        ("unavailable", "on", []),
+        ("unknown", "off", []),
+    ],
+)
+async def test_fireplace_reconciles_on_start_and_reload(
+    hass, freezer, switch_calls, event, temperature, switch_state, expected
+):
+    """A burning fire pauses at once; a pause left from a cold one ends."""
+    _set_pause_switches(hass, switch_state)
+    await _set_up_fireplace(hass, temperature=temperature)
+
+    hass.bus.async_fire(event)
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=31))
+
+    assert switch_calls == expected
+
+
+async def test_fireplace_pause_left_at_start_waits_for_the_cool_down(
+    hass, freezer, switch_calls, preset_calls
+):
+    """The cool-down runs in full from the start before the pause ends."""
+    _set_pause_switches(hass, "on")
+    await _set_up_fireplace(
+        hass,
+        temperature="30",
+        fire_preset="eco",
+        thermostat_target={"entity_id": "climate.living_room"},
+    )
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=29))
+    assert switch_calls == []
+
+    await _advance(hass, freezer, timedelta(minutes=2))
+    assert switch_calls == [("turn_off", _PAUSE_SWITCHES)]
+    assert _presets(preset_calls) == ["none"]
+
+
+async def test_fireplace_warming_up_during_the_start_cool_down_keeps_the_pause(
+    hass, freezer, switch_calls
+):
+    """Wood added after a restart restarts the cool-down."""
+    _set_pause_switches(hass, "on")
+    await _set_up_fireplace(hass, temperature="30")
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=20))
+    hass.states.async_set("sensor.fireplace_temperature", "38")
+    await _settle(hass)
+    hass.states.async_set("sensor.fireplace_temperature", "30")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=20))
+    assert switch_calls == []
+
+    await _advance(hass, freezer, timedelta(minutes=11))
+    assert switch_calls == [("turn_off", _PAUSE_SWITCHES)]
+
+
+async def test_fireplace_cooling_through_the_band_at_start_gets_the_full_cool_down(
+    hass, freezer, switch_calls
+):
+    """A fire between the thresholds at start ends through its own cool-down."""
+    _set_pause_switches(hass, "on")
+    await _set_up_fireplace(hass, temperature="37")
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=5))
+    hass.states.async_set("sensor.fireplace_temperature", "30")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=26))
+    assert switch_calls == []
+
+    await _advance(hass, freezer, timedelta(minutes=5))
+    assert switch_calls == [("turn_off", _PAUSE_SWITCHES)]
