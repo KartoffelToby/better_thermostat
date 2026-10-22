@@ -6,7 +6,7 @@ import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 import json
 import logging
@@ -393,6 +393,7 @@ async def async_setup_entry(
         enabled_presets=settings.get(CONF_PRESETS),
         unit=unit,
         unique_id=entry.entry_id,
+        state_mgr=StateManager(hass, entry.entry_id),
         device_class="better_thermostat",
         state_class="better_thermostat_state",
     )
@@ -532,23 +533,27 @@ async def _refresh_trv_model(self: BetterThermostat, entity_id: str) -> None:
     trv.model = resolved_model
 
 
-def _arm_degraded_grace(self: BetterThermostat) -> None:
+def _arm_degraded_grace(self: BetterThermostat) -> datetime:
     """Arm the degraded-mode annunciation grace window once.
 
     Stores the deadline on the entity and mirrors it into the lifecycle
     region, so every degraded-mode check that runs while startup is still in
     progress already sees the grace window. A deadline that is already armed
     is kept unchanged.
+
+    Returns the armed deadline.
     """
     if self._degraded_grace_until is not None:
-        return
-    self._degraded_grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
+        return self._degraded_grace_until
+    grace_until = self.clock.now() + STARTUP_DEGRADED_GRACE_PERIOD
+    self._degraded_grace_until = grace_until
     self.kernel_state = replace(
         self.kernel_state,
         lifecycle=replace(
             self.kernel_state.lifecycle, grace_until=self._degraded_grace_until
         ),
     )
+    return grace_until
 
 
 def _configured_delay(value: str | float | None, device_name: str, field: str) -> float:
@@ -984,12 +989,28 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         return self.config.availability_guard_grace_seconds
 
     @property
-    def room_temperature(self) -> float | None:
-        """Return the current room temperature."""
-        return self.runtime.room_temperature
+    def room_temperature(self) -> float:
+        """Return the room temperature the thermostat regulates on.
+
+        Startup sets it before it starts anything that reads it. Home
+        Assistant's own reads go through ``current_temperature``, which
+        answers ``None`` until then.
+
+        Raises
+        ------
+        RuntimeError
+            when read before startup has set it
+        """
+        value = self.runtime.room_temperature
+        if value is None:
+            raise RuntimeError(
+                f"better_thermostat {self.device_name}: room temperature read "
+                "before startup set it"
+            )
+        return value
 
     @room_temperature.setter
-    def room_temperature(self, value: float | None) -> None:
+    def room_temperature(self, value: float) -> None:
         """Set the current room temperature."""
         self.runtime.room_temperature = value
 
@@ -1185,6 +1206,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         enabled_presets: list[str] | None,
         unit: UnitOfTemperature,
         unique_id: str,
+        state_mgr: StateManager,
         device_class: str | None,
         state_class: str | None,
     ) -> None:
@@ -1211,6 +1233,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             Temperature unit of the Home Assistant system.
         unique_id : str
             Unique id of the config entry.
+        state_mgr : StateManager
+            Persistence of the entry's learned state; the entity loads it
+            when it is added.
         device_class : str | None
             Device class of the climate entity.
         state_class : str | None
@@ -1240,7 +1265,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # announced, keyed by contact kind.
         self.announced_contact_open: dict[str, bool] = {}
         self.flight_recorder = FlightRecorder()
-        self.room_temperature = None
         self._current_humidity: float | None = None
         # A configured bound overrides what the controlled entities report, so
         # it is kept apart from the resolved ``bt_min_temp`` / ``bt_max_temp``.
@@ -1363,8 +1387,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self._degraded_grace_until: datetime | None = None
         self._degraded_warning_emitted: bool = False
         # Startup grace period before an unavailable TRV raises a
-        # ``missing_entity`` repair; armed when startup begins.
-        self._critical_grace_until: datetime | None = None
+        # ``missing_entity`` repair; armed when startup begins. Until then it
+        # is an instant every clock has passed.
+        self._critical_grace_until: datetime = datetime.min.replace(tzinfo=UTC)
         self.control_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
             maxsize=1
         )
@@ -1397,10 +1422,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.room_temperature_ema = None
         self._room_temperature_ema_monotonic: float | None = None
         self.room_temperature_filtered = None
-        # Unified state persistence (replaces per-controller stores)
-        self.state_mgr: StateManager | None = None
+        # Unified state persistence (replaces per-controller stores). It holds
+        # the stored state, and the entity saves through it, once
+        # ``state_loaded`` is set: after the load, and only for an entity that
+        # was not removed meanwhile.
+        self.state_mgr = state_mgr
+        self.state_loaded = False
 
-        self.last_known_external_temperature: float | None = None
         self._slope_periodic_last_ts: float | None = None
 
         # Anti-flicker state; the timer applies a pending reading later, at
@@ -1630,7 +1658,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # state the next start reads back. async_will_remove_from_hass
             # awaits it instead, so the unload, and a removal that deletes the
             # stores after it, follow the write.
-            if self.state_mgr is not None:
+            if self.state_loaded:
                 self.state_mgr.close()
                 try:
                     self._record_runtime_to_state()
@@ -1648,7 +1676,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # a copy of the stored payload is taken here: in the final write
             # the Store writes at once, so the copy is confirmed before the
             # state replaces the payload.
-            if self.state_mgr is not None and self.state_mgr.copy_pending:
+            if self.state_loaded and self.state_mgr.copy_pending:
                 self._record_runtime_to_state()
                 await self.state_mgr.flush()
 
@@ -1665,10 +1693,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         )
 
         # Unified state persistence. The stored state is read under the
-        # entry's lock, and the manager becomes the entity's only once the
-        # renames recorded meanwhile are applied: a rename either finds the
-        # state in memory here or leaves the move for this load.
-        state_mgr = StateManager(self.hass, self._config_entry_id)
+        # entry's lock, and ``state_loaded`` is set only once the renames
+        # recorded meanwhile are applied: a rename either finds the state in
+        # memory here or leaves the move for this load.
+        state_mgr = self.state_mgr
         async with stored_state_lock(self.hass, self._config_entry_id):
             try:
                 await state_mgr.load()
@@ -1693,7 +1721,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     self.hass, self._config_entry_id, state_mgr
                 )
                 state_mgr.forget_thermostats_except([*self.entity_ids, *moved_to])
-                self.state_mgr = state_mgr
+                self.state_loaded = True
         self._hydrate_thermal_from_state()
 
         @callback
@@ -1867,12 +1895,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         try:
             async with temperature_filter_lock(self):
                 cur = self.room_temperature
-                if cur is None:
-                    _LOGGER.debug(
-                        "better_thermostat %s: external_temperature keepalive skipped (room_temperature is None)",
-                        self.device_name,
-                    )
-                    return
                 if not _room_sensor_reads(self):
                     return
 
@@ -2177,8 +2199,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         Returns True when startup can go ahead, False otherwise.
         """
-        grace_until = self._critical_grace_until
-        in_grace = grace_until is not None and self.clock.now() < grace_until
+        in_grace = self.clock.now() < self._critical_grace_until
 
         if room_sensor_reading(self, sensor_state) is None:
             if in_grace or self._first_plausible_trv_temperature() is None:
@@ -2418,42 +2439,38 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
 
         if room_candidate is not None:
-            self.room_temperature = room_candidate
+            room_temperature = room_candidate
+        elif (trv_reading := self._first_plausible_trv_temperature()) is not None:
+            entity_id, room_temperature = trv_reading
+            _LOGGER.info(
+                "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
+                self.device_name,
+                entity_id,
+                room_temperature,
+            )
         else:
-            self.room_temperature = None
-            trv_reading = self._first_plausible_trv_temperature()
-            if trv_reading is not None:
-                entity_id, self.room_temperature = trv_reading
-                _LOGGER.info(
-                    "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
-                    self.device_name,
-                    entity_id,
-                    self.room_temperature,
-                )
-            if self.room_temperature is None:
-                self.room_temperature = DEFAULT_FALLBACK_TEMPERATURE
-                _LOGGER.warning(
-                    "better_thermostat %s: No temperature available, using default %.1f°C",
-                    self.device_name,
-                    DEFAULT_FALLBACK_TEMPERATURE,
-                )
+            room_temperature = DEFAULT_FALLBACK_TEMPERATURE
+            _LOGGER.warning(
+                "better_thermostat %s: No temperature available, using default %.1f°C",
+                self.device_name,
+                DEFAULT_FALLBACK_TEMPERATURE,
+            )
+        self.room_temperature = room_temperature
 
         # Initialize EMA with current temperature at startup
-        if self.room_temperature is not None:
-            self.last_known_external_temperature = self.room_temperature
-            try:
-                _update_room_temperature_ema(self, float(self.room_temperature))
-                _LOGGER.debug(
-                    "better_thermostat %s: initialized room_temperature_ema at startup with %.2f",
-                    self.device_name,
-                    self.room_temperature,
-                )
-            except (ValueError, TypeError) as e:
-                _LOGGER.warning(
-                    "better_thermostat %s: failed to initialize room_temperature_ema at startup: %s",
-                    self.device_name,
-                    e,
-                )
+        try:
+            _update_room_temperature_ema(self, float(room_temperature))
+            _LOGGER.debug(
+                "better_thermostat %s: initialized room_temperature_ema at startup with %.2f",
+                self.device_name,
+                room_temperature,
+            )
+        except (ValueError, TypeError) as e:
+            _LOGGER.warning(
+                "better_thermostat %s: failed to initialize room_temperature_ema at startup: %s",
+                self.device_name,
+                e,
+            )
 
         # The startup humidity is read here and nowhere else, so the guard
         # below is the only one deciding what the entity publishes until the
@@ -2701,11 +2718,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # authority. The restored attributes only fill in when the
             # store carries nothing — a one-time migration fallback for
             # upgrades from versions that persisted via RestoreEntity.
-            stored_thermal = (
-                self.state_mgr.clamped_thermal()
-                if self.state_mgr is not None
-                else ThermalStats()
-            )
+            stored_thermal = self.state_mgr.clamped_thermal()
             if (
                 stored_thermal.heating_power is None
                 and old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None
@@ -3256,7 +3269,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     async def _post_grace_recheck(
         self,
-        grace_until: datetime | None,
+        grace_until: datetime,
         recheck: Callable[[BetterThermostat], Awaitable[object]],
     ) -> None:
         """Re-run an availability check once a startup grace window elapses.
@@ -3269,16 +3282,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         Parameters
         ----------
-        grace_until : datetime | None
-            End of the grace window; ``None`` or a past instant runs the
-            recheck immediately.
+        grace_until : datetime
+            End of the grace window; a past instant runs the recheck
+            immediately.
         recheck : Callable[[BetterThermostat], Awaitable[object]]
             Availability check coroutine function, invoked with this
             thermostat instance.
         """
-        remaining = (
-            (grace_until - self.clock.now()).total_seconds() if grace_until else 0.0
-        )
+        remaining = (grace_until - self.clock.now()).total_seconds()
         if remaining > 0:
             await asyncio.sleep(remaining)
         if self.is_removed:
@@ -3297,7 +3308,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # The degraded-mode grace window is normally armed at the top of
         # startup(); arming here as well keeps the deadline in place before
         # the triggers below run their degraded checks.
-        _arm_degraded_grace(self)
+        degraded_grace_until = _arm_degraded_grace(self)
         # Likewise give critical (TRV) entities a short grace before raising
         # ``missing_entity`` repairs; cloud-backed valves (Tado, etc.) can lag
         # behind HA startup and would otherwise produce dismissable noise.
@@ -3436,7 +3447,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         self._spawn_owned(
             self._post_grace_recheck(
-                self._degraded_grace_until, check_and_update_degraded_mode
+                degraded_grace_until, check_and_update_degraded_mode
             ),
             name=f"bt_post_grace_degraded_{self.device_name}",
         )
@@ -3748,9 +3759,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         reading = room_sensor_reading(self, sensor_state)
         if sensor_state is None or reading is None:
             return
-        if self.room_temperature is not None and round(reading, 2) == round(
-            self.room_temperature, 2
-        ):
+        if round(reading, 2) == round(self.room_temperature, 2):
             return
         await self._trigger_temperature_change(
             Event(
@@ -4062,7 +4071,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         The StateManager is the persistence authority; the RestoreEntity
         attributes only serve as a one-time migration fallback.
         """
-        if self.state_mgr is None:
+        if not self.state_loaded:
             return
         stored_thermal = self.state_mgr.clamped_thermal()
         if stored_thermal.heating_power is not None:
@@ -4092,8 +4101,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     def _record_runtime_to_state(self) -> None:
         """Push the entity-held thermal stats and filters into the StateManager."""
-        if self.state_mgr is None:
-            return
         self.state_mgr.record_thermal(
             ThermalStats(
                 heating_power=self.heating_power, heat_loss_rate=self.heat_loss_rate
@@ -4120,7 +4127,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         Assistant's final-write event (normal shutdown), and repeated
         triggers cannot starve the write.
         """
-        if self.state_mgr is None:
+        if not self.state_loaded:
             return
         self.state_mgr.schedule_delay_save(
             pre_save=self._record_runtime_to_state, delay_seconds=delay_seconds
@@ -4131,9 +4138,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         Delegates to :class:`HeatingPowerTracker` and handles HA side-effects.
         """
-        if self.room_temperature is None:
-            return
-
         current_action = self._compute_hvac_action()
         outdoor_temperature = self._get_outdoor_temperature()
 
@@ -4165,9 +4169,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         Delegates to :class:`HeatLossTracker` and handles HA side-effects.
         """
-        if self.room_temperature is None:
-            return
-
         current_action = self._compute_hvac_action()
 
         result = self._loss_tracker.update(
@@ -4488,7 +4489,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     @override
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
-        return self.room_temperature
+        return self.runtime.room_temperature
 
     @property
     @override
@@ -4502,7 +4503,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         return self._bt_hvac_mode
 
     @bt_hvac_mode.setter
-    def bt_hvac_mode(self, value: HVACMode | None) -> None:
+    def bt_hvac_mode(self, value: HVACMode) -> None:
         """Set the BT-internal HVAC mode and advance the mode region."""
         self._bt_hvac_mode = value
         self.kernel_state = replace(
@@ -4551,8 +4552,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self, previous_action: HVACAction | None, tol: float
     ) -> bool:
         """Apply hysteresis so heating restarts only below target - tolerance."""
-        if self.room_temperature is None:
-            return False
         return should_heat_with_tolerance(
             self.room_temperature, self.heat_target_temperature, tol, previous_action
         )
@@ -5840,7 +5839,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             picks no bucket; nothing is reset then
         """
         state_mgr = self.state_mgr
-        if state_mgr is None:
+        if not self.state_loaded:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="pid_state_not_ready",
@@ -5919,62 +5918,56 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.device_name,
         )
 
-        last_raw = self.last_known_external_temperature
-        if last_raw is not None:
-            try:
-                _LOGGER.debug(
-                    "better_thermostat %s: updating EMA with last_raw=%s",
-                    self.device_name,
-                    last_raw,
-                )
-
-                published_before = self._minute_tick_attributes()
-
-                # Calculate slope from EMA change
-                old_ema = self.room_temperature_ema
-                old_ts = self._slope_periodic_last_ts
-                now_ts = self.clock.monotonic()
-
-                new_ema = _update_room_temperature_ema(self, float(last_raw))
-
-                if old_ema is not None and old_ts is not None:
-                    elapsed_minutes = (now_ts - old_ts) / 60.0
-                    if elapsed_minutes > 0.1:  # Avoid division by zero or tiny steps
-                        delta_kelvin = new_ema - old_ema
-                        slope = delta_kelvin / elapsed_minutes
-                        self.temperature_slope = slope
-                        _LOGGER.debug(
-                            "better_thermostat %s: periodic slope calc: old_ema=%.3f new_ema=%.3f dt=%.2fmin -> slope=%.4f K/min",
-                            self.device_name,
-                            old_ema,
-                            new_ema,
-                            elapsed_minutes,
-                            slope,
-                        )
-
-                self._slope_periodic_last_ts = now_ts
-
-                _LOGGER.debug(
-                    "better_thermostat %s: periodic EMA result=%.3f",
-                    self.device_name,
-                    new_ema,
-                )
-                # The EMA sensors read the filter from this entity and update
-                # on its state changes, so a write is what publishes the tick.
-                # A tick that moves no published value writes nothing.
-                if self._minute_tick_attributes() != published_before:
-                    self.async_write_ha_state()
-            except Exception as e:
-                _LOGGER.error(
-                    "better_thermostat %s: error in _async_update_ema_periodic: %s",
-                    self.device_name,
-                    e,
-                    exc_info=True,
-                )
-        else:
+        last_raw = self.room_temperature
+        try:
             _LOGGER.debug(
-                "better_thermostat %s: _async_update_ema_periodic skipped (no last_known_external_temperature)",
+                "better_thermostat %s: updating EMA with last_raw=%s",
                 self.device_name,
+                last_raw,
+            )
+
+            published_before = self._minute_tick_attributes()
+
+            # Calculate slope from EMA change
+            old_ema = self.room_temperature_ema
+            old_ts = self._slope_periodic_last_ts
+            now_ts = self.clock.monotonic()
+
+            new_ema = _update_room_temperature_ema(self, float(last_raw))
+
+            if old_ema is not None and old_ts is not None:
+                elapsed_minutes = (now_ts - old_ts) / 60.0
+                if elapsed_minutes > 0.1:  # Avoid division by zero or tiny steps
+                    delta_kelvin = new_ema - old_ema
+                    slope = delta_kelvin / elapsed_minutes
+                    self.temperature_slope = slope
+                    _LOGGER.debug(
+                        "better_thermostat %s: periodic slope calc: old_ema=%.3f new_ema=%.3f dt=%.2fmin -> slope=%.4f K/min",
+                        self.device_name,
+                        old_ema,
+                        new_ema,
+                        elapsed_minutes,
+                        slope,
+                    )
+
+            self._slope_periodic_last_ts = now_ts
+
+            _LOGGER.debug(
+                "better_thermostat %s: periodic EMA result=%.3f",
+                self.device_name,
+                new_ema,
+            )
+            # The EMA sensors read the filter from this entity and update
+            # on its state changes, so a write is what publishes the tick.
+            # A tick that moves no published value writes nothing.
+            if self._minute_tick_attributes() != published_before:
+                self.async_write_ha_state()
+        except Exception as e:
+            _LOGGER.error(
+                "better_thermostat %s: error in _async_update_ema_periodic: %s",
+                self.device_name,
+                e,
+                exc_info=True,
             )
 
     @override
@@ -6041,7 +6034,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         ``None`` before the stored state is loaded and once the entity is
         removed, when its final save is under way or done.
         """
-        return None if self.is_removed else self.state_mgr
+        if self.is_removed or not self.state_loaded:
+            return None
+        return self.state_mgr
 
     async def wait_for_final_save(self) -> None:
         """Wait for the save the removal started, if one is under way."""

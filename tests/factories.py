@@ -270,7 +270,6 @@ def _constructor_literals() -> dict[str, object]:
 # takes, so it hides no state the test forgot.
 _CONSTRUCTOR_DEFAULTED = (
     "unavailable_sensors",
-    "_critical_grace_until",
     "_outdoor_check_lock",
     "_temperature_filter_lock",
     "control_cycle_started_monotonic",
@@ -290,6 +289,8 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
         name: functools.partial(copy.copy, _CONSTRUCTOR_LITERALS[name])
         for name in _CONSTRUCTOR_DEFAULTED
     },
+    # The constructor arms no critical grace window: its end has passed.
+    "_critical_grace_until": lambda: datetime.min.replace(tzinfo=UTC),
     # Built from config the constructor takes; these are the values of a
     # thermostat configured without a temperature step and without an
     # availability guard, before Home Assistant assigned it a unique id.
@@ -301,8 +302,13 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
 }
 
 # Names that only repeat another attribute, answered from it: the property
-# ``unique_id`` and the config entry id the constructor copies from it.
-_PROPERTY_SOURCES = {"unique_id": "_unique_id", "_config_entry_id": "_unique_id"}
+# ``unique_id`` and the config entry id the constructor copies from it, and
+# ``current_temperature``, which publishes the room temperature.
+_PROPERTY_SOURCES = {
+    "unique_id": "_unique_id",
+    "_config_entry_id": "_unique_id",
+    "current_temperature": "room_temperature",
+}
 
 
 class ThermostatStandIn(MagicMock):

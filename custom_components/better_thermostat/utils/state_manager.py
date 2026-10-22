@@ -8,16 +8,19 @@ Usage in climate.py
 -------------------
 ::
 
+    # async_setup_entry hands the manager to the entity:
+    BetterThermostat(..., state_mgr=StateManager(hass, entry.entry_id))
+
     async def async_added_to_hass(self) -> None:
-        self.state_mgr = StateManager(self.hass, self.config_entry.entry_id)
         await self.state_mgr.load()
+        self.state_loaded = True
 
     # After calibration updates:
     self.state_mgr.mark_dirty()
 
-    async def async_will_remove_from_hass(self) -> None:
-        self.state_mgr.close()
-        await self.state_mgr.flush()
+    # On removal, once the state is loaded:
+    self.state_mgr.close()
+    await self.state_mgr.flush()
 
 Schema migration
 ----------------

@@ -127,18 +127,6 @@ def test_mpc_sanitized_state_is_persisted_when_compute_raises() -> None:
     assert stored.last_percent is None  # sanitized default, not NaN
 
 
-def test_mpc_balance_without_a_state_store_publishes_no_valve() -> None:
-    """Before the store is loaded there is no state to run the controller on."""
-    bt = _make_bt(_MpcStateStub())
-    bt.state_mgr = None
-
-    payload, supports_valve = _compute_mpc_balance(bt, "climate.trv")
-
-    assert payload is None
-    assert supports_valve is False
-    assert bt.real_trvs["climate.trv"].calibration_balance is None
-
-
 def test_mpc_failed_compute_on_a_healthy_state_leaves_the_store_alone() -> None:
     """Only a healed state is written back after a failed compute."""
     state_mgr = _MpcStateStub()

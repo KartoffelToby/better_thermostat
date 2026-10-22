@@ -63,6 +63,7 @@ def bt():
     mock.schedule_save_state = MagicMock()
     mock.control_queue_task = MagicMock()
     mock.state_mgr = _StateMgrStub()
+    mock.state_loaded = True
     return mock
 
 
@@ -90,10 +91,12 @@ async def test_no_keys_still_schedules_save(bt):
 @pytest.mark.asyncio
 async def test_no_state_manager_is_reported(bt):
     """Before startup has loaded the state, the call says so and saves nothing."""
-    bt.state_mgr = None
+    bt.state_mgr.pid = {"uid:climate.trv:t21.0": PIDState()}
+    bt.state_loaded = False
     with pytest.raises(HomeAssistantError) as refused:
         await BetterThermostat.reset_pid_learnings_service(bt)
     assert refused.value.translation_key == "pid_state_not_ready"
+    assert set(bt.state_mgr.pid) == {"uid:climate.trv:t21.0"}
     bt.schedule_save_state.assert_not_called()
 
 

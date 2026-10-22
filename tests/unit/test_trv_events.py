@@ -274,14 +274,6 @@ class TestTriggerTrvChangeGuards:
         mock_bt.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_returns_early_none_room_temperature(self, mock_bt):
-        """Return early when room_temperature is None."""
-        mock_bt.room_temperature = None
-        event = _make_event(mock_bt)
-        await trigger_trv_change(mock_bt, event)
-        mock_bt.async_write_ha_state.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_returns_early_none_tolerance(self, mock_bt):
         """Return early when tolerance is None."""
         mock_bt.tolerance = None
@@ -4385,7 +4377,7 @@ def _prepare_outage_room(bt, *, with_peer: bool):
     bt.in_maintenance = False
     bt.devices_errors = list[str]()
     bt.devices_states = dict[str, dict[str, object]]()
-    bt._critical_grace_until = None
+    bt.clock = FakeClock()
     # The entity has subscribed to its TRVs' state changes.
     bt._async_unsub_state_changed = MagicMock()
     # The listener looks for TRVs startup went ahead without before it reads

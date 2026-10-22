@@ -95,20 +95,3 @@ class TestPostGraceRecheck:
             )
         sleep.assert_not_awaited()
         check.assert_awaited_once_with(bt)
-
-    @pytest.mark.asyncio
-    async def test_no_grace_window_rechecks_without_sleep(self, bt):
-        """With no grace window set, recheck immediately."""
-        with (
-            patch.object(
-                climate_module, "check_critical_entities", new_callable=AsyncMock
-            ) as check,
-            patch.object(
-                climate_module.asyncio, "sleep", new_callable=AsyncMock
-            ) as sleep,
-        ):
-            await BetterThermostat._post_grace_recheck(
-                bt, None, climate_module.check_critical_entities
-            )
-        sleep.assert_not_awaited()
-        check.assert_awaited_once_with(bt)

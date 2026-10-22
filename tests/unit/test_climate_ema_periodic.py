@@ -24,7 +24,7 @@ def bt():
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.startup_running = False
-    mock.last_known_external_temperature = 20.0
+    mock.room_temperature = 20.0
     mock.room_temperature_ema = None
     mock._slope_periodic_last_ts = None
     mock.temperature_slope = None
@@ -51,16 +51,6 @@ def _filter_update(ema: float):
 async def test_skips_while_startup_running(bt):
     """During startup the tick is a no-op (no EMA update, no state write)."""
     bt.startup_running = True
-    with patch(_EMA) as ema:
-        await BetterThermostat._async_update_ema_periodic(bt)
-    ema.assert_not_called()
-    bt.async_write_ha_state.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_skips_without_last_known_temperature(bt):
-    """Without a last known external temperature, nothing is updated."""
-    bt.last_known_external_temperature = None
     with patch(_EMA) as ema:
         await BetterThermostat._async_update_ema_periodic(bt)
     ema.assert_not_called()

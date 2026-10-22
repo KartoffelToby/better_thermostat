@@ -325,7 +325,7 @@ class BetterThermostatPIDAutoTuneSwitch(
     def is_on(self) -> bool | None:
         """Return true if switch is on."""
         state_mgr = self._bt_climate.state_mgr
-        if state_mgr is None:
+        if not self._bt_climate.state_loaded:
             return DEFAULT_PID_AUTO_TUNE
         states = state_mgr.state.pid
         bucket_key = build_pid_key(self._bt_climate, self._trv_entity_id)
@@ -351,7 +351,7 @@ class BetterThermostatPIDAutoTuneSwitch(
     def _update_state(self, state: bool) -> None:
         """Update the state."""
         state_mgr = self._bt_climate.state_mgr
-        if state_mgr is None:
+        if not self._bt_climate.state_loaded:
             _LOGGER.debug(
                 "Cannot set PID auto-tune for %s: state manager not ready",
                 self._trv_entity_id,

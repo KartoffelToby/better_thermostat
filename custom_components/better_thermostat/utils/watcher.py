@@ -457,8 +457,7 @@ async def check_critical_entities(self: BetterThermostat) -> None:
     or the TRV are taken back reports what is still missing.
     """
     critical = get_critical_entities(self)
-    grace_until = self._critical_grace_until
-    in_grace = grace_until is not None and self.clock.now() < grace_until
+    in_grace = self.clock.now() < self._critical_grace_until
     reportable = unavailable_trvs_reportable(self)
 
     for entity in critical:

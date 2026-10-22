@@ -29,7 +29,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
 from custom_components.better_thermostat.utils.telemetry import MpcV2Balance
-from tests.factories import make_calibration_balance, trv_record
+from tests.factories import trv_record
 
 
 class _FakeStateManager:
@@ -253,44 +253,6 @@ def test_hvac_off_returns_none() -> None:
     assert out is None
     assert supports is False
     assert real_trvs["climate.x"].calibration_balance is None
-
-
-def test_dispatch_without_a_state_store_publishes_no_valve() -> None:
-    """Before the store is loaded there is no controller state to run on.
-
-    A valve intent from an earlier cycle must not outlive the missing store.
-    """
-    real_trvs = {
-        "climate.x": _make_trv(
-            "climate.x", current_temperature=19.0, supports_valve=True
-        )
-    }
-    real_trvs["climate.x"].calibration_balance = make_calibration_balance(
-        CalibrationMode.MPC_V2_CALIBRATION, valve_percent=80, apply_valve=True
-    )
-    bt = _make_bt(real_trvs=real_trvs)
-    bt.state_mgr = None
-
-    out, supports = _compute_mpc_v2_balance(bt, "climate.x")
-
-    assert out is None
-    assert supports is False
-    assert real_trvs["climate.x"].calibration_balance is None
-
-
-def test_missing_room_temperature_returns_none() -> None:
-    """A missing BT room temperature short-circuits the dispatch."""
-    real_trvs = {
-        "climate.x": _make_trv(
-            "climate.x", current_temperature=19.0, supports_valve=True
-        )
-    }
-    bt = _make_bt(real_trvs=real_trvs)
-    bt.room_temperature = None
-
-    out, supports = _compute_mpc_v2_balance(bt, "climate.x")
-    assert out is None
-    assert supports is False
 
 
 def test_daqp_absence_uses_portable_solver(monkeypatch) -> None:

@@ -188,21 +188,6 @@ async def test_a_trv_released_during_the_tick_gets_nothing():
     assert _written_values(quirks) == [(TRV_ID, ROOM_TEMPERATURE)]
 
 
-@pytest.mark.asyncio
-async def test_the_tick_writes_nothing_without_a_room_temperature():
-    """No reading means no value to keep alive."""
-    bt = ThermostatStandIn()
-    bt.device_name = "Test BT"
-    bt.room_temperature = None
-    quirks = MagicMock()
-    quirks.maybe_set_external_temperature = AsyncMock()
-    bt.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID, model_quirks=quirks)}
-
-    await BetterThermostat._external_temperature_keepalive(bt)
-
-    quirks.maybe_set_external_temperature.assert_not_awaited()
-
-
 @pytest.mark.parametrize(
     "sensor_state",
     [None, STATE_UNAVAILABLE, STATE_UNKNOWN, "150.0"],

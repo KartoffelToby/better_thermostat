@@ -81,13 +81,6 @@ def _controller_reports(percent: float, *, drives_the_valve: bool):
     return patch(f"{_CAL}._balance_calibrator", return_value=calibrator)
 
 
-@pytest.mark.parametrize(
-    "calculate", [calculate_calibration_local, calculate_calibration_setpoint]
-)
-def test_without_a_room_temperature_nothing_is_sent(calculate):
-    assert calculate(_make_bt(room_temperature=None), ENTITY_ID) is None
-
-
 def test_the_local_channel_without_a_trv_reading_sends_nothing(caplog):
     """An offset is the gap between two readings; with one missing it is unknown."""
     bt = _make_bt(trv_temperature=None)

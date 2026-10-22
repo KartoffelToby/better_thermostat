@@ -14,7 +14,6 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.calibration import (
-    _heating_power_adjustment,
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
@@ -195,9 +194,9 @@ def _make_sensor_fallback_bt(hvac_action, *, trv_temperature):
     """HEATING_POWER entity whose room sensor is dead under SENSOR_FALLBACK.
 
     The effective room temperature is the reachable TRV's internal reading
-    while ``room_temperature`` itself stays ``None``.
+    while ``room_temperature`` itself holds the last reading the sensor gave.
     """
-    bt = _make_bt(hvac_action, room_temperature=None, trv_temperature=trv_temperature)
+    bt = _make_bt(hvac_action, room_temperature=18.0, trv_temperature=trv_temperature)
     bt.heating_power = 0.02
     bt.kernel_state = make_state(
         control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
@@ -239,30 +238,4 @@ class TestUnderSensorFallback:
         assert expected_fraction == pytest.approx(0.3992, abs=1e-4)
         # 20.5 + (30.0 - 20.5) * 0.3992 = 24.29, rounded to the 0.1 step.
         assert result == pytest.approx(24.3)
-        assert bt.real_trvs[ENTITY_ID].calibration_balance is None
-
-    @pytest.mark.parametrize("direct_valve", [True, False])
-    def test_no_room_reading_keeps_the_base_value(self, direct_valve):
-        """Heating without any room reading publishes no intent and keeps the value."""
-        bt = _make_bt(HVACAction.HEATING, room_temperature=None)
-        bt.real_trvs[ENTITY_ID].calibration_balance = {"stale": True}
-        with patch(f"{_CAL}._supports_direct_valve_control", return_value=direct_valve):
-            result = _heating_power_adjustment(
-                bt,
-                ENTITY_ID,
-                1.5,
-                hold_value=21.0,
-                legacy_fallback=lambda _position: pytest.fail("valve was sized"),
-            )
-        assert result == (1.5, False)
-        assert bt.real_trvs[ENTITY_ID].calibration_balance is None
-
-    def test_setpoint_without_demand_drops_the_valve_intent(self):
-        """No room reading leaves no valve intent to replay."""
-        bt = _make_bt(HVACAction.HEATING, room_temperature=None)
-        bt.real_trvs[ENTITY_ID].calibration_balance = {
-            "valve_percent": 40,
-            "apply_valve": True,
-        }
-        assert calculate_calibration_setpoint(bt, ENTITY_ID) is None
         assert bt.real_trvs[ENTITY_ID].calibration_balance is None
