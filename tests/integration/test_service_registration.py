@@ -35,6 +35,7 @@ from custom_components.better_thermostat.utils.const import (
 from .conftest import (
     BT_ENTITY,
     DOMAIN,
+    SENSOR_ID,
     make_entry,
     profile_id,
     set_room_sensor,
@@ -111,6 +112,31 @@ async def test_every_service_dispatches_to_its_own_method(hass, entry_set_up):
                 DOMAIN, service, {"entity_id": BT_ENTITY}, blocking=True
             )
         assert ran == [method]
+
+
+@pytest.mark.parametrize("fake_trv", [GENERIC_HEAT_TRV], indirect=True, ids=profile_id)
+async def test_no_service_reaches_a_thermostat_that_is_still_starting(hass, fake_trv):
+    """A service called while the thermostat starts up does not run on it.
+
+    Home Assistant calls an entity service only on entities that are
+    available, and the thermostat stays unavailable until its startup has
+    finished. That is what keeps a valve maintenance run, or a reset, away
+    from TRVs startup has not initialised yet, so none of the methods checks
+    for a running startup itself.
+    """
+    hass.states.async_set(SENSOR_ID, "unavailable")
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    entity = entry.runtime_data.climate
+    assert entity.startup_running
+
+    for service, method in _EXPECTED_SERVICES.items():
+        with patch.object(entity, method, AsyncMock()) as called:
+            await hass.services.async_call(
+                DOMAIN, service, {"entity_id": BT_ENTITY}, blocking=True
+            )
+        called.assert_not_awaited()
+    assert entity.startup_running
 
 
 @pytest.mark.parametrize("fake_trv", [GENERIC_HEAT_TRV], indirect=True, ids=profile_id)
