@@ -169,7 +169,7 @@ template:
              or is_state('binary_sensor.fireplace_burning', 'on') }}
 ```
 
-The fireplace sensor only changes when one of its triggers fires, so it stays on until the fireplace has been below 35 °C for 30 minutes, and it keeps its state across a restart. As in the recipe, use 104 and 95 when the sensor's state is in °F, and convert a state in kelvin to °C first. The combined sensor is unavailable while the boiler sensor is, and this automation then leaves the switch alone:
+The fireplace sensor only changes when one of its triggers fires, so it stays on until the fireplace has been below 35 °C for 30 minutes, and it keeps its state across a restart. As in the recipe, use 104 and 95 when the sensor's state is in °F, and convert a state in kelvin to °C first. The combined sensor is unavailable while the boiler sensor is unknown or unavailable, and this automation then leaves the switch alone:
 
 ```yaml
 alias: Pause learning in the living room
