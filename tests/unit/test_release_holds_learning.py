@@ -68,6 +68,7 @@ def _make_releasable(bt: Any) -> Any:
     bt._initialize_arrived_trvs = AsyncMock()
     bt._external_temperature_keepalive = AsyncMock()
     bt.async_write_ha_state = MagicMock()
+    bt._refresh_temperature_range = MagicMock()
     if not isinstance(getattr(bt, "control_queue_task", None), asyncio.Queue):
         bt.control_queue_task = asyncio.Queue(maxsize=1)
     return bt

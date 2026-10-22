@@ -186,6 +186,9 @@ def bt():
     mock._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(
         mock, value
     )
+    mock._refresh_temperature_range = lambda: (
+        BetterThermostat._refresh_temperature_range(mock)
+    )
     mock._applied_target = lambda value, **kwargs: BetterThermostat._applied_target(
         mock, value, **kwargs
     )
