@@ -795,13 +795,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         }
     )
 
-    # Per-channel cooler send bookkeeping: the last successfully sent command,
-    # the settled reading of each written channel, the mode the last cycle
-    # decided on, and each channel's run of consecutive send failures.
-    # ``cooler_send_cache()`` creates it on first use, and every reader reaches
-    # it through that helper.
-    _cooler_last_sent: CoolerSendCache
-
     async def reset_heating_power(self) -> None:
         """Reset heating power to default value."""
         self._heating_tracker.reset_power()
@@ -1221,6 +1214,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.cool_min_temperature: float | None = None
         self.cool_max_temperature: float | None = None
         self.cool_target_temperature = None
+        # Per-channel cooler send bookkeeping: the last successfully sent
+        # command, the settled reading of each written channel, the mode the
+        # last cycle decided on, and each channel's run of consecutive send
+        # failures. Every reader reaches it through ``cooler_send_cache()``.
+        self._cooler_last_sent: CoolerSendCache = {}
         # The state saved before the last stop, read when the entity is added.
         self._saved_state: State | None = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE

@@ -1778,7 +1778,7 @@ CoolerSendCache = TypedDict(  # noqa: UP013
 
 
 def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
-    """Return the cooler send-cache, creating it on first use.
+    """Return the cooler send-cache.
 
     Holds the last successfully sent command per channel as a
     :class:`SentCommand` for the resend throttle, with no send time once the
@@ -1786,8 +1786,7 @@ def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     channel, the mode the last cycle decided on for the hysteresis band, each
     channel's :class:`CoolerFailureRun`, the monotonic time the cooler last
     reported a mode change of its own, and whether the last mode command went
-    out ahead of the resend throttle. Created lazily
-    because only cooler-equipped instances need it.
+    out ahead of the resend throttle.
 
     Parameters
     ----------
@@ -1799,14 +1798,7 @@ def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     CoolerSendCache
             the cache, which the caller mutates in place
     """
-    try:
-        last_sent: CoolerSendCache | None = self._cooler_last_sent
-    except AttributeError:
-        last_sent = None
-    if not isinstance(last_sent, dict):
-        last_sent = CoolerSendCache()
-        self._cooler_last_sent = last_sent
-    return last_sent
+    return self._cooler_last_sent
 
 
 def last_sent_cooler_temperature(self: BetterThermostat) -> float | None:

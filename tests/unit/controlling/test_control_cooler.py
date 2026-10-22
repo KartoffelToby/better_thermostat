@@ -452,7 +452,6 @@ def _make_cooler_setup(
     mock_self.cool_target_temperature = cool_target_temperature
     mock_self.heat_target_temperature = heat_target_temperature
     mock_self.tolerance = 0.5
-    mock_self._cooler_last_sent = None
     return mock_self, mock_hass, mock_cooler_state
 
 
