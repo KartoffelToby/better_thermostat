@@ -262,6 +262,32 @@ class TestSetup:
         assert bt.real_trvs[CONTROLLED].awaiting_initialization is False
 
     @pytest.mark.asyncio
+    async def test_a_trv_released_during_its_init_gets_no_tweak(self):
+        """The tweak after the init is a write of its own and is not sent.
+
+        The other TRV is set up in full.
+        """
+        bt = _room()
+        bt.hass = MagicMock()
+        bt.hass.states.get.return_value = None
+        bt.all_entities = dict.fromkeys(bt.real_trvs)
+        bt._configured_temperature_step = None
+        bt.bt_target_temperature_step = None
+
+        async def released_during_init(_bt, entity_id):
+            if entity_id == RELEASED:
+                bt.released_trvs = {RELEASED}
+
+        with (
+            patch(f"{_CLIMATE}.init", autospec=True, side_effect=released_during_init),
+            patch(f"{_CLIMATE}.initial_tweak", autospec=True) as tweak,
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+        assert [call.args[1] for call in tweak.await_args_list] == [CONTROLLED]
+        assert bt.real_trvs[RELEASED].awaiting_initialization is True
+
+    @pytest.mark.asyncio
     async def test_a_released_trv_that_arrives_is_not_set_up(self):
         """Back on the air, a released TRV waits; a controlled one is set up."""
         bt = _room()
