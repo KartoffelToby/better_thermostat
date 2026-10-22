@@ -1,7 +1,7 @@
 """The valve channel a device exposes as a number entity of its own.
 
-Zigbee2MQTT and Z-Wave JS both publish the valve opening as a separate
-number entity next to the climate entity, so both ecosystems reach the
+Zigbee2MQTT, ZHA and Z-Wave JS publish the valve opening as a separate
+number entity next to the climate entity, so these ecosystems reach the
 valve the same way: a lookup stores the entity and whether it accepts
 writes, and a write scales Better Thermostat's percentage onto the grid
 that entity itself publishes.
@@ -14,14 +14,46 @@ import logging
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE
 
-from ..utils.helpers import find_valve_entity
-from .types import AdapterHost
+from ..utils.helpers import find_local_calibration_entity, find_valve_entity
+from .base import DeviceChannels
+from .types import AdapterHost, AdapterProbeHost
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class ValveEntityUnreachableError(RuntimeError):
     """The valve entity has no state a valve position could be written to."""
+
+
+async def find_entity_channels(
+    self: AdapterProbeHost, entity_id: str
+) -> DeviceChannels:
+    """Report the channels a TRV offers through entities of its own.
+
+    The offset is offered once a local calibration entity exists, the
+    valve once a valve entity exists that accepts writes. A valve entity
+    that only reports the opening is no valve channel.
+
+    Parameters
+    ----------
+    self : AdapterProbeHost
+        Host providing Home Assistant access and the name to log under.
+    entity_id : str
+        Entity ID of the TRV to look up.
+
+    Returns
+    -------
+    DeviceChannels
+        The offset and valve channels the discovered entities provide.
+    """
+    calibration_entity_id = await find_local_calibration_entity(self, entity_id)
+    valve = await find_valve_entity(self, entity_id)
+    return DeviceChannels(
+        offset_write=calibration_entity_id is not None,
+        valve_write=bool(
+            valve is not None and valve.get("entity_id") and valve.get("writable")
+        ),
+    )
 
 
 async def discover_valve_entity(self: AdapterHost, entity_id: str) -> None:
