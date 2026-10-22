@@ -318,8 +318,24 @@ class TestRestoredMaintenanceDue:
 
     @pytest.mark.parametrize(
         "raw",
-        [None, "", "next tuesday", "2026-01-03T07:30:00", 1767425400, ["x"]],
-        ids=["missing", "empty", "not_a_time", "no_time_zone", "number", "list"],
+        [
+            None,
+            "",
+            "next tuesday",
+            "2026-01-03T07:30:00",
+            "2026-02-30T12:00:00+00:00",
+            1767425400,
+            ["x"],
+        ],
+        ids=[
+            "missing",
+            "empty",
+            "not_a_time",
+            "no_time_zone",
+            "no_such_day",
+            "number",
+            "list",
+        ],
     )
     def test_anything_but_a_zoned_time_reads_as_no_schedule(self, raw):
         """A value that names no definite moment restores nothing."""
@@ -387,15 +403,25 @@ class TestFirstMaintenanceDue:
         result = first_maintenance_due(trvs, ["trv1"], restored, now=_RESTART)
         assert timedelta(hours=1) <= result - _RESTART <= timedelta(days=5)
 
-    def test_the_horizon_follows_the_shortest_interval(self):
-        """A 24 h quirk interval bounds a restored date at 24 h plus 1 h."""
+    def test_a_schedule_a_run_wrote_over_fewer_trvs_is_kept(self):
+        """A run leaves released TRVs out when it schedules the next one.
+
+        With a released TRV on a 24 h interval and a serviced one on the
+        default 168 h, the run schedules 168 h out; the restart that counts
+        every TRV with maintenance enabled keeps that date.
+        """
         quirks = SimpleNamespace(VALVE_MAINTENANCE_INTERVAL_HOURS=24)
-        trvs = {"trv1": _trv(maintenance=True, quirks=quirks)}
-        kept = _RESTART + timedelta(hours=25)
-        dropped = _RESTART + timedelta(hours=25, minutes=1)
-        assert first_maintenance_due(trvs, ["trv1"], kept, now=_RESTART) == kept
-        result = first_maintenance_due(trvs, ["trv1"], dropped, now=_RESTART)
-        assert timedelta(hours=1) <= result - _RESTART <= timedelta(hours=24)
+        trvs = {
+            "released": _trv(maintenance=True, quirks=quirks),
+            "serviced": _trv(maintenance=True),
+        }
+        restored = _RESTART + timedelta(hours=168 + 11)
+        assert (
+            first_maintenance_due(
+                trvs, ["released", "serviced"], restored, now=_RESTART
+            )
+            == restored
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

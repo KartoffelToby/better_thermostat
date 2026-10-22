@@ -205,11 +205,15 @@ def restored_maintenance_due(raw: object) -> datetime | None:
     Returns
     -------
     datetime | None
-        The schedule, or ``None`` when ``raw`` is no time with a time zone.
+        The schedule, or ``None`` when ``raw`` is no valid time with a time
+        zone.
     """
     if not isinstance(raw, str):
         return None
-    due = dt_util.parse_datetime(raw)
+    try:
+        due = dt_util.parse_datetime(raw)
+    except ValueError:
+        return None
     if due is None or due.tzinfo is None:
         return None
     return due
@@ -226,7 +230,10 @@ def first_maintenance_due(
     maintenance; restarting more often than the delay rolled below
     therefore never keeps a run from happening. Only a startup without a
     schedule, or with one further out than a run ever schedules the next,
-    rolls the delay of ``compute_initial_maintenance``.
+    rolls the delay of ``compute_initial_maintenance``. A run schedules
+    over the TRVs it exercised, which leaves out released ones, so its
+    interval is never longer than the default interval; that interval
+    plus its jitter bounds every schedule a run writes.
 
     Parameters
     ----------
@@ -244,7 +251,7 @@ def first_maintenance_due(
     datetime
         When the next maintenance run is due.
     """
-    interval_hours = _shortest_interval_hours(real_trvs, trv_ids)
+    interval_hours = DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS
     horizon = timedelta(hours=interval_hours + _jitter_hours(interval_hours))
     if restored is not None and restored <= now + horizon:
         return restored
