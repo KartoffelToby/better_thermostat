@@ -233,7 +233,7 @@ actions:
       hvac_mode: "off"
 ```
 
-The outdoor limit of 3 is in the unit the outdoor sensor reports; for a sensor in °F, use 37 instead. Give both devices the same room temperature sensor and the same target, and the air conditioner's device the calibration type *Target Temperature Based*. The device that is off switches its TRVs or its air conditioner off.
+The outdoor limit of 3 is in the unit of the outdoor sensor's state in Home Assistant. Home Assistant converts temperature sensors to the system unit unless you set another unit on the sensor. When that state is in °F, use 37 instead. Give both devices the same room temperature sensor and the same target, and the air conditioner's device the calibration type *Target Temperature Based*. The device that is off switches its TRVs or its air conditioner off.
 
 ## Keep the air conditioner from cooling
 
