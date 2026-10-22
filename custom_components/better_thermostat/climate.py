@@ -482,6 +482,39 @@ def _restored_attribute(old_state: State, name: str) -> object:
     return value
 
 
+async def _refresh_trv_model(self: BetterThermostat, entity_id: str) -> None:
+    """Take up the model the device registry names for a TRV by now.
+
+    The model is resolved when the entity is added, and a device whose
+    integration registers it later is then known by its configured model
+    or as generic. The initialisation is what derives everything the
+    model's quirks decide, so the model is resolved again right before
+    it. A registry that still names no model leaves the TRV on the model
+    it has.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The thermostat holding the TRV.
+    entity_id : str
+        The TRV about to be initialised.
+    """
+    trv = self.real_trvs[entity_id]
+    resolved_model = await get_device_model(self, entity_id, configured_model=trv.model)
+    if resolved_model == trv.model:
+        return
+    _LOGGER.info(
+        "better_thermostat %s: device registry now names model '%s' for %s "
+        "(was '%s'); loading its model quirks",
+        self.device_name,
+        resolved_model,
+        entity_id,
+        trv.model,
+    )
+    trv.model_quirks = await load_model_quirks(self, resolved_model, entity_id)
+    trv.model = resolved_model
+
+
 def _arm_degraded_grace(self: BetterThermostat) -> None:
     """Arm the degraded-mode annunciation grace window once.
 
@@ -2785,7 +2818,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     async def _initialize_trvs(
         self, entity_ids: Iterable[str] | None = None
     ) -> set[str]:
-        """Initialize TRVs: init, tweak, calibration offsets, attributes.
+        """Initialize TRVs: model, init, tweak, calibration offsets, attributes.
 
         A step that fails is logged and the TRV is initialised as far as the
         remaining steps go, with defaults where the failed step would have
@@ -2817,6 +2850,20 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         for entity_id in entity_ids:
             trv = self.real_trvs[entity_id]
             self.all_entities[entity_id] = None
+            # The refresh writes nothing to the device and may yield while a
+            # quirk module is imported, so it runs before the release check
+            # that guards the writes.
+            try:
+                await _refresh_trv_model(self, entity_id)
+            except Exception as exc:
+                failed.add(entity_id)
+                _LOGGER.error(
+                    "better_thermostat %s: Error refreshing the model of TRV %s: %s",
+                    self.device_name,
+                    entity_id,
+                    exc,
+                    exc_info=True,
+                )
             if self.devices_released:
                 trv.awaiting_initialization = True
                 continue
