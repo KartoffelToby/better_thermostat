@@ -127,9 +127,9 @@ def _setpoint_at(hour: float) -> float:
 
 
 def test_setpoint_steps_on_a_fast_prior_keep_the_narrow_bound() -> None:
-    """Setpoint steps on a 60 min prior settle as with the rate bound alone.
+    """Setpoint steps on a prior far faster than the room do not overheat it.
 
-    20 → 22 °C at hour 1 and back to 21 °C at hour 3, outdoor sensor present.
+    The prior is the fastest AUTO derives, against the default room. 20 → 22 °C at hour 1 and back to 21 °C at hour 3, outdoor sensor present.
     The room may overshoot 22 °C by at most 0.1 K, 21 °C by at most 1.1 K
     after the drop (the radiator still holds its heat), and from hour 5 on may
     sit at most 0.25 K below 21 °C. A disturbance bound that widens during
@@ -162,6 +162,7 @@ def test_setpoint_steps_on_a_fast_prior_keep_the_narrow_bound() -> None:
         )
         assert out is not None
         applied = out.valve_percent
+        assert state.controller is not None
         samples.append((hour, float(x[0]), state.controller.dob.D_hat_K_per_min))
         for _step in range(int(CYCLE_S / ROOM_STEP_S)):
             x = room.discrete_step(x, applied / 100.0, STEP_OUTDOOR)

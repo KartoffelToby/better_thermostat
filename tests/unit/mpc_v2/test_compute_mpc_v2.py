@@ -1776,6 +1776,7 @@ def test_a_pause_narrows_the_widened_disturbance_bound() -> None:
     )
 
     assert out is not None
+    assert state.controller is not None
     in_use = max(0.05, abs(dob.D_hat_K_per_min), abs(dob.planning_filtered))
     assert dob.bound_K_per_min == pytest.approx(in_use)
     assert state.controller.kalman.disturbance_bound_K_per_min == pytest.approx(in_use)
