@@ -56,6 +56,9 @@ remove the solar intensity sensor.
   attribute. Nothing in 1.9 set it, so it only ever held an old value or
   nothing. The temperature a preset returns to is still in
   `preset_temperature`.
+- **`last_change` is gone.** The climate entity no longer has this
+  attribute. 1.9 set it once at startup, to two hours before the startup
+  time, and never wrote it again. A template that reads it gets nothing.
 - **Invalid service calls now fail.** Setting an HVAC mode other than heat,
   heat/cool or off, or a temperature that isn't a number, raises an error.
   1.9 logged these calls and ignored them. An automation that sent such
