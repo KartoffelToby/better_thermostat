@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 from dataclasses import replace
+import math
 import sys
 from typing import Any, Protocol
 import zlib
@@ -266,12 +267,15 @@ def _drive_adapter(
     step_s: float,
     duration_s: float,
     handle_controller_restart: bool,
+    learned_sensor: bool = False,
 ) -> TimeSeries:
     """Drive an adapter through one scenario, returning the recorded series.
 
     Shared between :func:`run_scenario` and the multi-TRV runner — the
     only difference between the two is *how* the valve command reaches
-    the plant, which the facade encapsulates.
+    the plant, which the facade encapsulates. With ``learned_sensor`` an
+    adapter that offers ``adopt_sensor`` is handed the room sensor's
+    parameters before the first step.
     """
     sensor_params = scenario.sensor_params or REALISTIC_SENSOR_PARAMS
     # Derive a stable per-scenario seed so sensor noise/jitter is
@@ -286,6 +290,12 @@ def _drive_adapter(
     sensor = Sensor(sensor_params, seed=zlib.crc32(seed_key.encode()))
     room_input = RoomTemperatureInput()
     adapter.reset()
+    if learned_sensor:
+        # A controller that learns the sensor then starts as one that has
+        # watched it for days; the others have nothing to adopt.
+        adopt = getattr(adapter, "adopt_sensor", None)
+        if callable(adopt):
+            adopt(sensor_params)
 
     t_s_list: list[float] = []
     T_room_list: list[float] = []
@@ -423,6 +433,7 @@ def run_scenario(
     step_s: float = 30.0,
     plant_params: PlantParams | None = None,
     stabilisation_min: float = 60.0,
+    learned_sensor: bool = False,
 ) -> ScenarioResult:
     """Drive a controller through one scenario and return measured metrics.
 
@@ -442,6 +453,11 @@ def run_scenario(
         Minutes to pre-warm the plant via :class:`IdealOracleAdapter` before
         the test adapter takes over. ``0`` disables stabilisation and gives
         the cold-start behaviour of earlier versions.
+    learned_sensor:
+        Start a controller that learns the room sensor's reporting
+        threshold with that threshold already learned, as it stands after
+        days in service. ``False`` starts it cold, as on the day it is
+        installed.
 
     Raises
     ------
@@ -477,7 +493,13 @@ def run_scenario(
         scenario.duration_minutes * 60.0, scenario.duration_minutes * 60.0 * time_scale
     )
     series = _drive_adapter(
-        adapter, facade, scenario, step_s, duration_s, handle_controller_restart=True
+        adapter,
+        facade,
+        scenario,
+        step_s,
+        duration_s,
+        handle_controller_restart=True,
+        learned_sensor=learned_sensor,
     )
     return ScenarioResult(
         controller=adapter.name,
@@ -591,6 +613,42 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--sensor-noise",
+        type=float,
+        default=None,
+        metavar="K",
+        help="Room sensor noise σ in K for every scenario (default: per scenario).",
+    )
+    parser.add_argument(
+        "--report-threshold",
+        type=float,
+        default=None,
+        metavar="K",
+        help=(
+            "Change in K that makes the room sensor report, for every scenario "
+            "(default: per scenario)."
+        ),
+    )
+    parser.add_argument(
+        "--heartbeat-s",
+        type=float,
+        default=None,
+        metavar="S",
+        help=(
+            "Seconds after which the room sensor reports anyway, for every "
+            "scenario; 0 disables it (default: per scenario)."
+        ),
+    )
+    parser.add_argument(
+        "--learned-sensor",
+        action="store_true",
+        help=(
+            "Start controllers that learn the room sensor's reporting threshold "
+            "(mpc_v2) with it already learned, as after days in service. "
+            "Without it every scenario is their first day."
+        ),
+    )
+    parser.add_argument(
         "--multi-trv",
         action="store_true",
         help=(
@@ -610,6 +668,34 @@ def main(argv: list[str] | None = None) -> int:
     if args.seeds < 1:
         print("--seeds must be >= 1", file=sys.stderr)
         return 2
+    sensor_overrides = {
+        field: value
+        for field, value in (
+            ("noise_std_K", args.sensor_noise),
+            ("report_threshold_K", args.report_threshold),
+            ("heartbeat_s", args.heartbeat_s),
+        )
+        if value is not None
+    }
+    if any(
+        not math.isfinite(value) or value < 0.0 for value in sensor_overrides.values()
+    ):
+        print(
+            "--sensor-noise, --report-threshold and --heartbeat-s must be finite "
+            "and >= 0",
+            file=sys.stderr,
+        )
+        return 2
+    if (sensor_overrides or args.learned_sensor) and (
+        args.plant_sweep or args.multi_trv
+    ):
+        print(
+            "--sensor-noise, --report-threshold, --heartbeat-s and "
+            "--learned-sensor cannot be combined with --plant-sweep or --multi-trv",
+            file=sys.stderr,
+        )
+        return 2
+    args.sensor_overrides = sensor_overrides
     if args.seeds > 1 and (args.plant or args.plant_sweep or args.multi_trv):
         print(
             "--seeds cannot be combined with --plant, --plant-sweep or --multi-trv",
@@ -668,7 +754,7 @@ def main(argv: list[str] | None = None) -> int:
     def _scenario_for(name: str) -> ScenarioConfig:
         sc = ALL_SCENARIOS[name]
         if not args.plant_sweep:
-            return sc
+            return _with_sensor_overrides(sc, sensor_overrides)
         from dataclasses import replace as _dc_replace
 
         return _dc_replace(
@@ -725,6 +811,7 @@ def main(argv: list[str] | None = None) -> int:
                         step_s=args.step_s,
                         plant_params=plant_override,
                         stabilisation_min=args.stabilisation_min,
+                        learned_sensor=args.learned_sensor,
                     )
                 )
         grouped[label] = section
@@ -790,6 +877,16 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _with_sensor_overrides(
+    scenario: ScenarioConfig, overrides: dict[str, float]
+) -> ScenarioConfig:
+    """Return ``scenario`` with the given room sensor fields replaced."""
+    if not overrides:
+        return scenario
+    sensor = scenario.sensor_params or REALISTIC_SENSOR_PARAMS
+    return replace(scenario, sensor_params=replace(sensor, **overrides))
+
+
 def _score_over_seeds(
     controllers: list[str],
     scenarios: list[str],
@@ -814,7 +911,10 @@ def _score_over_seeds(
         oracles: dict[tuple[str, str], MetricValues] = {}
         block: list[ScenarioResult] = []
         for s in scenarios:
-            scen = replace(ALL_SCENARIOS[s], noise_seed=seed)
+            scen = replace(
+                _with_sensor_overrides(ALL_SCENARIOS[s], args.sensor_overrides),
+                noise_seed=seed,
+            )
             oracles[("scenario default", s)] = run_scenario(
                 IdealOracleAdapter(plant_params=scen.plant),
                 scen,
@@ -827,6 +927,7 @@ def _score_over_seeds(
                     scen,
                     step_s=args.step_s,
                     stabilisation_min=args.stabilisation_min,
+                    learned_sensor=args.learned_sensor,
                 )
                 for c in controllers
             )

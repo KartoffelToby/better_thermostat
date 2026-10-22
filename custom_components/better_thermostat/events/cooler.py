@@ -113,8 +113,6 @@ async def trigger_cooler_change(
     """Trigger a change in the cooler state."""
     if self.startup_running:
         return
-    if self.control_queue_task is None:
-        return
 
     if event.context == self.context:
         settle_on_own_write_report(self, event)

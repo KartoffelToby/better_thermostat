@@ -3476,7 +3476,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         active_calibration_modes = set()
         try:
             for trv in self.real_trvs.values():
-                advanced = trv.advanced or {}
+                advanced = trv.advanced
 
                 balance_value = advanced.get("balance_mode", "")
                 if isinstance(balance_value, str):
@@ -4049,9 +4049,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             if control_needed or self.bt_hvac_mode != HVACMode.OFF:
                 try:
                     request_control_cycle(self)
-                except AttributeError:
-                    # Queue not ready; the periodic tick will catch up.
-                    pass
                 except Exception:
                     # This is the last statement of the ``finally``: an
                     # exception leaving here replaces the one the maintenance
@@ -4351,10 +4348,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.preset_mgr.temperatures
             ),
         }
-        # Optional: next scheduled valve maintenance (ISO8601)
-        next_due = self.kernel_state.maintenance.next_due
-        if next_due is not None:
-            dev_specific["next_valve_maintenance"] = next_due.isoformat()
+        dev_specific["next_valve_maintenance"] = (
+            self.kernel_state.maintenance.next_due.isoformat()
+        )
         if self.has_contact_sensor:
             dev_specific[ATTR_STATE_WINDOW_DETECTION] = (
                 self.kernel_state.window_detection
@@ -4632,7 +4628,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             hvac_mode=self.hvac_mode,
             bt_hvac_mode=self.bt_hvac_mode,
             window_open=self.contact_open,
-            tolerance=self.tolerance or 0.0,
+            tolerance=self.tolerance,
             ignore_states=self.ignore_states,
             trv_snapshots=self._build_trv_snapshots(),
             cool_previously_active=self._cooler_previously_active(),
@@ -5192,7 +5188,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """
         applied = self._applied_target(stored, cooling=True)
         heating = self.heat_target_temperature
-        if heating is None or applied > heating:
+        if applied > heating:
             return applied
         return _cool_target_above(
             heating,
@@ -5786,8 +5782,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
 
             self.async_write_ha_state()
-            if self.control_queue_task is not None:
-                request_control_cycle(self)
+            request_control_cycle(self)
         finally:
             self.bt_update_lock = False
 
