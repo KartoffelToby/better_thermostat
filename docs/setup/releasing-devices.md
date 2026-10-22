@@ -148,7 +148,7 @@ actions:
       entity_id: switch.bedroom_ac_release_devices
 ```
 
-The **Release devices** switch releases every device of a Better Thermostat. Where one Better Thermostat drives both the radiators and the air conditioner of a room, release the radiators with their own **Release** switches instead to keep the air conditioner controlled, or the other way round, release the air conditioner on its own if it is wired as a TRV.
+The **Release devices** switch releases every device of a Better Thermostat. Where one Better Thermostat drives both the radiators and the air conditioner of a room, release the radiators with their own **Release** switches instead to keep the air conditioner controlled. An air conditioner wired as a TRV can be released on its own.
 
 ### Run one radiator by hand for a while
 
