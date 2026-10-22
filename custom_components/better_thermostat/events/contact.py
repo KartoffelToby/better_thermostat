@@ -102,12 +102,12 @@ def _door_close_delay(self: BetterThermostat) -> float:
     return self.door_close_delay_seconds
 
 
-def _window_queue(self: BetterThermostat) -> asyncio.Queue[bool | None]:
+def _window_queue(self: BetterThermostat) -> asyncio.Queue[bool]:
     """Return the queue feeding the window settle worker."""
     return self.window_queue_task
 
 
-def _door_queue(self: BetterThermostat) -> asyncio.Queue[bool | None]:
+def _door_queue(self: BetterThermostat) -> asyncio.Queue[bool]:
     """Return the queue feeding the door settle worker."""
     return self.door_queue_task
 
@@ -128,7 +128,7 @@ class ContactRole:
     entity_id_of: Callable[[BetterThermostat], str | None]
     open_delay_of: Callable[[BetterThermostat], float]
     close_delay_of: Callable[[BetterThermostat], float]
-    queue_of: Callable[[BetterThermostat], asyncio.Queue[bool | None]]
+    queue_of: Callable[[BetterThermostat], asyncio.Queue[bool]]
     region_of: Callable[[KernelState], WindowState]
     with_region: Callable[[KernelState, WindowState], KernelState]
     issue_translation_key: str
@@ -480,13 +480,12 @@ async def contact_queue(self: BetterThermostat, role: ContactRole) -> None:
             queue = role.queue_of(self)
             queued = await queue.get()
             try:
-                if queued is not None:
-                    announced.setdefault(role.kind, queued)
-                    await _settle_contact_region(self, role)
-                    effective = role.region_of(self.kernel_state).effective_open
-                    if effective != announced[role.kind]:
-                        announced[role.kind] = effective
-                        await _announce_contact_change(self, role)
+                announced.setdefault(role.kind, queued)
+                await _settle_contact_region(self, role)
+                effective = role.region_of(self.kernel_state).effective_open
+                if effective != announced[role.kind]:
+                    announced[role.kind] = effective
+                    await _announce_contact_change(self, role)
             except asyncio.CancelledError:
                 _LOGGER.debug(
                     "better_thermostat %s: %s queue processing cancelled",

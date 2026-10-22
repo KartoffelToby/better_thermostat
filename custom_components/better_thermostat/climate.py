@@ -1318,15 +1318,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # Startup grace period before an unavailable TRV raises a
         # ``missing_entity`` repair; armed when startup begins.
         self._critical_grace_until: datetime | None = None
-        self.control_queue_task: asyncio.Queue[BetterThermostat | None] = asyncio.Queue(
+        self.control_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
             maxsize=1
         )
         if self.window_sensor_entity_id is not None:
-            self.window_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(
-                maxsize=1
-            )
+            self.window_queue_task: asyncio.Queue[bool] = asyncio.Queue(maxsize=1)
         if self.door_sensor_entity_id is not None:
-            self.door_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(maxsize=1)
+            self.door_queue_task: asyncio.Queue[bool] = asyncio.Queue(maxsize=1)
         self._control_task: asyncio.Task[None] | None = None
         self._window_task: asyncio.Task[None] | None = None
         self._door_task: asyncio.Task[None] | None = None

@@ -355,12 +355,12 @@ class TestControlQueue:
         assert mock_self.ignore_states is True
 
     @pytest.mark.asyncio
-    async def test_an_item_that_carries_no_cycle_is_still_marked_done(self):
-        """An item without a cycle leaves the queue joinable.
+    async def test_an_item_whose_cycle_ran_is_marked_done(self):
+        """An item whose cycle ran leaves the queue joinable.
 
         The queue counts an item as unfinished until the worker acknowledges
-        it, and ``join`` is what reads that count. An item that asks for no
-        control pass still has to be acknowledged, or the count never clears.
+        it, and ``join`` is what reads that count. Every item taken has to be
+        acknowledged once its cycle is over, or the count never clears.
         """
         mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
@@ -373,7 +373,7 @@ class TestControlQueue:
 
         queue = asyncio.Queue()
         mock_self.control_queue_task = queue
-        await queue.put(None)
+        await queue.put(mock_self)
 
         queue_task = asyncio.create_task(control_queue(mock_self))
         try:
@@ -385,8 +385,7 @@ class TestControlQueue:
             except asyncio.CancelledError:
                 pass
 
-        # The item asked for no control pass, so none was run.
-        mock_self.calculate_heating_power.assert_not_called()
+        mock_self.calculate_heating_power.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_an_item_cancelled_mid_flight_is_still_marked_done(self):
