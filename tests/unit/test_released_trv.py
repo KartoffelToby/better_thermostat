@@ -349,7 +349,7 @@ class TestSetup:
 
 def _release_switch(
     *, released_trvs: set[str], show_trv_name: bool = True
-) -> tuple[BetterThermostatReleaseTrvSwitch, AsyncMock]:
+) -> tuple[BetterThermostatReleaseTrvSwitch, AsyncMock, MagicMock]:
     bt_climate = ThermostatStandIn()
     bt_climate.unique_id = "bt_1"
     bt_climate.hass = MagicMock()
@@ -360,8 +360,9 @@ def _release_switch(
     setter = AsyncMock()
     bt_climate.async_set_trv_released = setter
     switch = BetterThermostatReleaseTrvSwitch(bt_climate, RELEASED, show_trv_name)
-    switch.async_write_ha_state = MagicMock()
-    return switch, setter
+    write = MagicMock()
+    switch.async_write_ha_state = write
+    return switch, setter, write
 
 
 class TestTheSwitch:
@@ -374,7 +375,7 @@ class TestTheSwitch:
     )
     def test_the_switch_shows_its_trvs_release(self, released_trvs, is_on):
         """Only its own TRV's release turns the switch on."""
-        switch, _ = _release_switch(released_trvs=released_trvs)
+        switch, _, _ = _release_switch(released_trvs=released_trvs)
 
         assert switch.is_on is is_on
         assert switch.unique_id == f"bt_1_{RELEASED}_release"
@@ -390,7 +391,7 @@ class TestTheSwitch:
         self, show_trv_name, translation_key, placeholders
     ):
         """It carries the TRV's name in a room of several TRVs."""
-        switch, _ = _release_switch(released_trvs=set(), show_trv_name=show_trv_name)
+        switch, _, _ = _release_switch(released_trvs=set(), show_trv_name=show_trv_name)
 
         assert switch.translation_key == translation_key
         assert getattr(switch, "_attr_translation_placeholders", None) == placeholders
@@ -399,7 +400,7 @@ class TestTheSwitch:
     @pytest.mark.asyncio
     async def test_the_switch_sets_its_trvs_release(self, turn_on):
         """On releases its TRV, off takes it back."""
-        switch, setter = _release_switch(released_trvs=set())
+        switch, setter, write = _release_switch(released_trvs=set())
 
         if turn_on:
             await switch.async_turn_on()
@@ -407,4 +408,4 @@ class TestTheSwitch:
             await switch.async_turn_off()
 
         setter.assert_awaited_once_with(RELEASED, turn_on)
-        switch.async_write_ha_state.assert_called_once()
+        write.assert_called_once()
