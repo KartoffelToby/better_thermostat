@@ -6,11 +6,19 @@ recorded how its valve was last written.
 """
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
+
+from homeassistant.const import UnitOfTemperature
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.containers import BtConfig
 from custom_components.better_thermostat.core.decide import running_kernel_state
-from custom_components.better_thermostat.core.fsm.maintenance import MaintenanceIdle
+from custom_components.better_thermostat.core.fsm.maintenance import (
+    DUE_AT_FIRST_TICK,
+    MaintenanceIdle,
+)
+from custom_components.better_thermostat.utils.state_manager import StateManager
 from tests.factories import make_state_attributes_bt, trv_record
 
 
@@ -23,6 +31,28 @@ def _extra_state_attributes(bt: BetterThermostat) -> dict[str, object]:
 
 class TestNextValveMaintenance:
     """The maintenance schedule is published as ISO8601."""
+
+    def test_a_new_thermostat_holds_a_schedule_of_its_own(self):
+        """The constructor schedules the first check one hour to five days out."""
+        thermostat = BetterThermostat(
+            config=BtConfig(sensor_entity_id="sensor.room_temperature"),
+            trv_configs=[],
+            min_target_temperature=None,
+            max_target_temperature=None,
+            target_temperature_step=None,
+            enabled_presets=None,
+            unit=UnitOfTemperature.CELSIUS,
+            unique_id="maintenance_seed",
+            state_mgr=StateManager(MagicMock(), "maintenance_seed"),
+            device_class=None,
+            state_class=None,
+        )
+        now = thermostat.clock.now()
+
+        next_due = thermostat.kernel_state.maintenance.next_due
+
+        assert next_due != DUE_AT_FIRST_TICK
+        assert now < next_due <= now + timedelta(hours=24 * 5)
 
     def test_timestamp_is_published_as_iso8601(self):
         """A datetime schedule is rendered in ISO8601."""
