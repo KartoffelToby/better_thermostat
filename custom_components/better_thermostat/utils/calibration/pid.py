@@ -335,7 +335,7 @@ def compute_pid(
     inp_temperature_slope_K_per_min: float | None,
     key: str,
     inp_room_temperature_filtered: float | None = None,
-    max_opening_percent: float | None = None,
+    max_opening_percent: float = 100.0,
     *,
     state: PIDState,
     now: float | None = None,
@@ -360,7 +360,7 @@ def compute_pid(
     inp_room_temperature_filtered:
         Optional EMA-filtered external temperature for learning.
     max_opening_percent:
-        Optional maximum valve opening percentage.
+        Maximum valve opening percentage; 100 leaves the valve uncapped.
     state:
         Mutable controller state, owned by the caller (typically read from
         and written back to the ``StateManager``).  It is mutated in place
@@ -392,9 +392,7 @@ def compute_pid(
     st = state
     _forget_stamps_from_a_previous_uptime(st, now)
 
-    max_opening = 100.0
-    if isinstance(max_opening_percent, (int, float)):
-        max_opening = max(0.0, min(100.0, float(max_opening_percent)))
+    max_opening = max(0.0, min(100.0, float(max_opening_percent)))
 
     _LOGGER.debug(
         "better_thermostat PID: input for %s: target=%.1f current=%.1f trv=%.1f slope=%.3f kp=%.1f ki=%.3f kd=%.1f",
@@ -798,6 +796,32 @@ def build_pid_loop_key(self: _HasUniqueId, entity_id: str) -> str:
     return str(StateKey(resolve_unique_id(self), entity_id))
 
 
+def build_bucket_key(bt: BetterThermostat, segment: str) -> str:
+    """Build the key of a learned state for the current target bucket.
+
+    Format: ``{unique_id}:{segment}:t<bucket>``, where the bucket is the
+    heating target rounded to 0.5 °C, or ``tunknown`` while the target is
+    not finite. The MPC, TPI and PID bucket keys are all built here.
+
+    Parameters
+    ----------
+    bt : BetterThermostat
+        The thermostat whose unique id and heating target key the state.
+    segment : str
+        A thermostat's entity id, or the group segment.
+
+    Returns
+    -------
+    str
+        The stored form of the key.
+    """
+    return str(
+        StateKey(
+            resolve_unique_id(bt), segment, bucket_tag_of(bt.heat_target_temperature)
+        )
+    )
+
+
 def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
     """Build consistent PID state key across all modules.
 
@@ -812,13 +836,7 @@ def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
     -------
         PID key string
     """
-    return str(
-        StateKey(
-            resolve_unique_id(self),
-            entity_id,
-            bucket_tag_of(self.heat_target_temperature),
-        )
-    )
+    return build_bucket_key(self, entity_id)
 
 
 # --- Loop and bucket entries -----------------------------------------------

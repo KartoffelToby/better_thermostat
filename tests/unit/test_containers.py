@@ -15,7 +15,9 @@ from custom_components.better_thermostat.core.containers import (
 def _bare_entity() -> BetterThermostat:
     """Entity shell with containers attached, without running __init__."""
     bare = object.__new__(BetterThermostat)
-    bare.config = BtConfig(device_name="Test BT", tolerance=0.3)
+    bare.config = BtConfig(
+        sensor_entity_id="sensor.room_temperature", device_name="Test BT", tolerance=0.3
+    )
     bare.runtime = BtRuntime(heat_target_temperature=21.0)
     return bare
 
@@ -48,7 +50,9 @@ class TestConfigIsFrozen:
 
     def test_config_container_rejects_writes(self):
         """The container itself is frozen."""
-        config = BtConfig(device_name="Test BT")
+        config = BtConfig(
+            sensor_entity_id="sensor.room_temperature", device_name="Test BT"
+        )
         with pytest.raises(FrozenInstanceError):
             setattr(config, "tolerance", 1.0)
 

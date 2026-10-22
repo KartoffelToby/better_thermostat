@@ -38,6 +38,7 @@ def _parsed_trv(child_lock: object) -> TrvSettings:
                     "advanced": {"child_lock": child_lock},
                 }
             ],
+            "temperature_sensor": "sensor.room_temperature",
         }
     )
     return settings["thermostat"][0]
@@ -105,6 +106,14 @@ def test_the_configured_option_reads_a_stored_spelling(stored, expected):
     switch._bt_climate.all_trvs = [_parsed_trv(stored)]
 
     assert switch._configured_child_lock() is expected
+
+
+def test_an_entry_without_advanced_options_configures_no_lock():
+    """A thermostat entry that stores no advanced options reads as unlocked."""
+    switch = _make_switch(trv_record(entity_id=TRV_ID))
+    switch._bt_climate.all_trvs = [TrvSettings(trv=TRV_ID, integration="generic")]
+
+    assert switch._configured_child_lock() is False
 
 
 @pytest.mark.asyncio

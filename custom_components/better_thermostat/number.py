@@ -200,7 +200,7 @@ async def async_setup_entry(
         if not trv_entity_id:
             continue
 
-        advanced = trv_config.get("advanced")
+        advanced = trv_config.get("advanced", {})
         calibration_mode = configured_calibration_mode(advanced)
         calibration_output = configured_calibration_output(advanced)
 

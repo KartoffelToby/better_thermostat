@@ -688,10 +688,6 @@ class TestPIDController:
         key = build_pid_key(bt, "climate.test")
         assert key == "test_bt:climate.test:t22.5"
 
-        bt.heat_target_temperature = None
-        key = build_pid_key(bt, "climate.test")
-        assert key == "test_bt:climate.test:tunknown"
-
 
 class TestPidTimeHandling:
     """Injected timestamps and the integration-step upper bound."""

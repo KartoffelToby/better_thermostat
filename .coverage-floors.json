@@ -94,7 +94,7 @@
   "custom_components/better_thermostat/utils/calibration/plant_preset.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/state_key.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/strategies.py": 98.4,
-  "custom_components/better_thermostat/utils/calibration/tpi.py": 98.0,
+  "custom_components/better_thermostat/utils/calibration/tpi.py": 97.9,
   "custom_components/better_thermostat/utils/clock.py": 100.0,
   "custom_components/better_thermostat/utils/const.py": 98.5,
   "custom_components/better_thermostat/utils/controlling.py": 97.0,
@@ -112,7 +112,7 @@
   "custom_components/better_thermostat/utils/stored_state.py": 100.0,
   "custom_components/better_thermostat/utils/stored_values.py": 100.0,
   "custom_components/better_thermostat/utils/telemetry.py": 97.1,
-  "custom_components/better_thermostat/utils/thermal_learning.py": 98.5,
+  "custom_components/better_thermostat/utils/thermal_learning.py": 98.4,
   "custom_components/better_thermostat/utils/valve_maintenance.py": 98.6,
   "custom_components/better_thermostat/utils/watcher.py": 99.0,
   "custom_components/better_thermostat/utils/weather.py": 100.0

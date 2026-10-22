@@ -428,7 +428,7 @@ def test_the_plan_weighs_valve_moves_by_the_learned_threshold(
         T_outdoor: float,
         u_last: float,
         D_hat_K_per_min: float,
-        u_max: float | None,
+        u_max: float,
         move_suppression_factor: float,
     ) -> float:
         seen.append(move_suppression_factor)

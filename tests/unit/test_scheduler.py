@@ -54,9 +54,10 @@ class TestRequestControlCycle:
 @pytest.mark.asyncio
 async def test_empty_queue_drains_and_marks_done():
     """empty_queue consumes every pending item and marks it done."""
-    queue: asyncio.Queue[BetterThermostat | None] = asyncio.Queue()
-    queue.put_nowait(None)
-    queue.put_nowait(None)
+    bt = _make_bt()
+    queue: asyncio.Queue[BetterThermostat] = asyncio.Queue()
+    queue.put_nowait(bt)
+    queue.put_nowait(bt)
     empty_queue(queue)
     assert queue.empty()
     # join() must not block after the drain: all items were marked done.

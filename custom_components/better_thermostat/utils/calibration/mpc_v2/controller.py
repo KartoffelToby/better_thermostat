@@ -297,7 +297,7 @@ class MpcV2Controller:
         T_target: float,
         T_outdoor: float,
         T_rad: float | None = None,
-        u_max: float | None = None,
+        u_max: float = 1.0,
         learning_paused: bool = False,
         room_reading_from_trvs: bool = False,
     ) -> tuple[float, MpcV2Diagnostics]:
@@ -321,7 +321,7 @@ class MpcV2Controller:
             Measured radiator temperature. Used only to seed the initial
             Kalman estimate on the very first cycle (falling back to
             ``T_room`` when ``None``); ignored on every subsequent cycle.
-        u_max : float | None, optional
+        u_max : float, optional
             Highest valve fraction the caller will pass on this cycle, such as
             the user's maximum opening. The plan stays below it and the
             integral's anti-windup treats it as the upper rail.

@@ -281,6 +281,7 @@ _CONSTRUCTOR_DEFAULTED = (
     "learning_paused",
     "learning_held",
     "learning_pause_changes",
+    "_cooler_last_sent",
 )
 _CONSTRUCTOR_LITERALS = _constructor_literals()
 STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {

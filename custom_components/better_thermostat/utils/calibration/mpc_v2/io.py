@@ -23,7 +23,7 @@ class MpcV2Input:
     outdoor_temperature: float | None = None
     window_open: bool = False
     heating_allowed: bool = True
-    max_opening_percent: float | None = None
+    max_opening_percent: float = 100.0
     # Last valve opening confirmed by the adapter or reported by the device.
     # It is deliberately the previous applied input, not this cycle's MPC
     # recommendation: writes can be deferred or fail after computation.

@@ -267,7 +267,6 @@ def build_trv_snapshots(
             == CalibrationOutput.DIRECT_VALVE_BASED
         )
 
-        raw_max = trv.max_temp
         raw_min_temperature = trv.min_temp
         infos.append(
             MaintenanceTrvInfo(
@@ -275,7 +274,7 @@ def build_trv_snapshots(
                 cur_mode=trv_state.state,
                 setpoint=read_setpoint(trv_state),
                 use_direct_valve=use_direct,
-                max_temp=float(raw_max) if isinstance(raw_max, (int, float)) else 30.0,
+                max_temp=trv.max_temp,
                 min_temp=float(raw_min_temperature)
                 if isinstance(raw_min_temperature, (int, float))
                 else 5.0,

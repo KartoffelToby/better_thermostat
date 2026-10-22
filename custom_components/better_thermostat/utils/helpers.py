@@ -6,7 +6,15 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict, TypeGuard
+from typing import (
+    TYPE_CHECKING,
+    Final,
+    NamedTuple,
+    Protocol,
+    TypedDict,
+    TypeGuard,
+    overload,
+)
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -76,7 +84,7 @@ class _CalibrationConfiguredTrv(Protocol):
     """The per-TRV record a calibration-mode question reads."""
 
     @property
-    def advanced(self) -> Mapping[str, object] | None:
+    def advanced(self) -> Mapping[str, object]:
         """Per-TRV advanced options, keyed by option name."""
         ...
 
@@ -463,7 +471,7 @@ def normalize_calibration_mode(
 
 
 def configured_calibration_mode(
-    advanced: Mapping[str, object] | None,
+    advanced: Mapping[str, object],
 ) -> CalibrationMode | None:
     """Return the calibration mode a TRV's advanced settings select.
 
@@ -476,7 +484,7 @@ def configured_calibration_mode(
     runs the passive cascade, and no mode-specific entity or controller is
     set up.
     """
-    mode = (advanced or {}).get(CONF_CALIBRATION_MODE)
+    mode = advanced.get(CONF_CALIBRATION_MODE)
     if isinstance(mode, str):
         return normalize_calibration_mode(mode)
     normalized = (
@@ -488,7 +496,7 @@ def configured_calibration_mode(
 
 
 def configured_calibration_output(
-    advanced: Mapping[str, object] | None,
+    advanced: Mapping[str, object],
 ) -> CalibrationOutput | None:
     """Return the calibration type a TRV's advanced settings select.
 
@@ -496,7 +504,7 @@ def configured_calibration_output(
     setting returns ``None``: Better Thermostat then sends the room target
     to the TRV unchanged and looks for no offset or valve channel.
     """
-    output = (advanced or {}).get(CONF_CALIBRATION)
+    output = advanced.get(CONF_CALIBRATION)
     if not isinstance(output, str):
         return None
     try:
@@ -512,9 +520,7 @@ def entity_uses_calibration_mode(
 
     try:
         _trv = bt.real_trvs.get(entity_id)
-        advanced: Mapping[str, object] = (
-            _trv.advanced if _trv is not None else {}
-        ) or {}
+        advanced: Mapping[str, object] = _trv.advanced if _trv is not None else {}
     except AttributeError:
         return False
     return configured_calibration_mode(advanced) == expected
@@ -1481,6 +1487,18 @@ def device_setpoint_step(
     return step
 
 
+@overload
+def on_cooler_grid(
+    self: BetterThermostat, cooler_state: State, value: float
+) -> float: ...
+
+
+@overload
+def on_cooler_grid(
+    self: BetterThermostat, cooler_state: State, value: float | None
+) -> float | None: ...
+
+
 def on_cooler_grid(
     self: BetterThermostat, cooler_state: State, value: float | None
 ) -> float | None:
@@ -1493,7 +1511,8 @@ def on_cooler_grid(
     for that unit, and on a Celsius system is rounded onto the step its
     reports are compared with. A cooler published in whole degrees
     Fahrenheit reports a finer step back rounded, so it is written on whole
-    degrees whatever its step.
+    degrees whatever its step. A value that is None, such as a cooling
+    target not set yet, stays None.
     """
     if value is None:
         return None
@@ -1780,7 +1799,7 @@ CoolerSendCache = TypedDict(  # noqa: UP013
 
 
 def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
-    """Return the cooler send-cache, creating it on first use.
+    """Return the cooler send-cache.
 
     Holds the last successfully sent command per channel as a
     :class:`SentCommand` for the resend throttle, with no send time once the
@@ -1788,8 +1807,7 @@ def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     channel, the mode the last cycle decided on for the hysteresis band, each
     channel's :class:`CoolerFailureRun`, the monotonic time the cooler last
     reported a mode change of its own, and whether the last mode command went
-    out ahead of the resend throttle. Created lazily
-    because only cooler-equipped instances need it.
+    out ahead of the resend throttle.
 
     Parameters
     ----------
@@ -1801,14 +1819,7 @@ def cooler_send_cache(self: BetterThermostat) -> CoolerSendCache:
     CoolerSendCache
             the cache, which the caller mutates in place
     """
-    try:
-        last_sent: CoolerSendCache | None = self._cooler_last_sent
-    except AttributeError:
-        last_sent = None
-    if not isinstance(last_sent, dict):
-        last_sent = CoolerSendCache()
-        self._cooler_last_sent = last_sent
-    return last_sent
+    return self._cooler_last_sent
 
 
 def last_sent_cooler_temperature(self: BetterThermostat) -> float | None:

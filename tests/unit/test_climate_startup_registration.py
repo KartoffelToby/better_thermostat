@@ -237,28 +237,6 @@ async def test_a_calibration_mode_and_maintenance_together_register_both_ticks()
     )
 
 
-@pytest.mark.asyncio
-async def test_a_missing_room_sensor_cuts_the_interval_set_short():
-    """The required-sensor guard returns before the later registrations.
-
-    Weather, the ladder tick and maintenance are registered above it; the
-    keepalive, the EMA tick and the reconciliation tick are not.
-    The entity runs with a partially wired timer set until the sensor is
-    configured, and that is what the guard's error message reports.
-    """
-    bt = _startup_bt(sensor_entity_id=None, advanced={"valve_maintenance": True})
-
-    registered = await _run_finalize_startup(bt)
-
-    assert registered.intervals == Counter(
-        {
-            (bt._trigger_check_weather, timedelta(hours=1)): 1,
-            (bt._availability_tick, timedelta(seconds=LADDER_TICK_S)): 1,
-            (bt._maintenance_tick, timedelta(minutes=5)): 1,
-        }
-    )
-
-
 # ---------------------------------------------------------------------------
 # The daily time trigger
 # ---------------------------------------------------------------------------

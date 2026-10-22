@@ -14,11 +14,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, Literal, TypedDict, overload
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
-from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
-from custom_components.better_thermostat.utils.calibration.state_key import (
-    StateKey,
-    bucket_tag_of,
-)
+from custom_components.better_thermostat.utils.calibration.pid import build_bucket_key
 
 if TYPE_CHECKING:
     from ...climate import BetterThermostat
@@ -241,8 +237,4 @@ def _finalize_output(
 
 def build_tpi_key(bt: BetterThermostat, entity_id: str) -> str:
     """Return a stable key for TPI state tracking (similar to MPC)."""
-    return str(
-        StateKey(
-            resolve_unique_id(bt), entity_id, bucket_tag_of(bt.heat_target_temperature)
-        )
-    )
+    return build_bucket_key(bt, entity_id)

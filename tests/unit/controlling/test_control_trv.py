@@ -3124,17 +3124,17 @@ class TestGroupedTrvCalibration:
             trv = mock_bt_grouped.real_trvs[entity_id]
             assert trv.calibration_received is False
 
-    async def test_missing_reference_calibration_skips_offset_write(
+    async def test_unreadable_device_offset_writes_against_the_stored_command(
         self, mock_bt_grouped
     ):
-        """No reference calibration skips the offset write without aborting.
+        """An unparseable device offset leaves the stored command as reference.
 
-        With no stored last_calibration and an unparseable device offset
-        there is nothing to compare against; the cycle still performs the
-        setpoint write instead of failing.
+        The report neither confirms nor contradicts the last command, so
+        the new offset is compared with the stored one and written, and
+        the cycle still performs the setpoint write.
         """
         entity_id = "climate.trv_1"
-        mock_bt_grouped.real_trvs[entity_id].last_calibration = None
+        mock_bt_grouped.real_trvs[entity_id].last_calibration = 0.0
 
         mock_trv_state = MagicMock()
         mock_trv_state.state = "heat"
@@ -3171,7 +3171,9 @@ class TestGroupedTrvCalibration:
             result = await control_trv(mock_bt_grouped, entity_id)
 
             assert result is True
-            mock_set_calibration_offset.assert_not_called()
+            mock_set_calibration_offset.assert_called_once_with(
+                mock_bt_grouped, entity_id, 3.0
+            )
             mock_set_temperature.assert_awaited_once_with(
                 mock_bt_grouped, entity_id, 21.0
             )

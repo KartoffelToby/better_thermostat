@@ -220,19 +220,6 @@ async def test_a_sensor_lost_during_the_tick_stops_the_writes_after_it():
     assert quirks.maybe_set_external_temperature.await_count == 1
 
 
-@pytest.mark.asyncio
-async def test_the_tick_writes_nothing_without_a_room_sensor():
-    """A room without a sensor has no measured temperature to mirror."""
-    quirks = MagicMock()
-    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
-    bt = _bt_with_two_trvs(quirks)
-    bt.sensor_entity_id = None
-
-    await BetterThermostat._external_temperature_keepalive(bt)
-
-    quirks.maybe_set_external_temperature.assert_not_awaited()
-
-
 @pytest.mark.parametrize(
     "refusal",
     [
