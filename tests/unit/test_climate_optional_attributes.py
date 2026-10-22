@@ -1,8 +1,8 @@
-"""Optional entries of BetterThermostat.extra_state_attributes.
+"""Data-dependent entries of BetterThermostat.extra_state_attributes.
 
-``next_valve_maintenance`` and ``valve_method`` are published only when the
-entity actually holds the data behind them: a scheduled maintenance run, and
-at least one TRV that has recorded how its valve was last written.
+``next_valve_maintenance`` carries the maintenance schedule, which the entity
+always holds. ``valve_method`` is published only when at least one TRV has
+recorded how its valve was last written.
 """
 
 from dataclasses import replace
@@ -22,13 +22,7 @@ def _extra_state_attributes(bt: BetterThermostat) -> dict[str, object]:
 
 
 class TestNextValveMaintenance:
-    """The maintenance schedule is published as ISO8601 when there is one."""
-
-    def test_absent_without_a_schedule(self):
-        """No schedule means no key."""
-        bt = make_state_attributes_bt()
-        attrs = _extra_state_attributes(bt)
-        assert "next_valve_maintenance" not in attrs
+    """The maintenance schedule is published as ISO8601."""
 
     def test_timestamp_is_published_as_iso8601(self):
         """A datetime schedule is rendered in ISO8601."""

@@ -4351,10 +4351,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.preset_mgr.temperatures
             ),
         }
-        # Optional: next scheduled valve maintenance (ISO8601)
-        next_due = self.kernel_state.maintenance.next_due
-        if next_due is not None:
-            dev_specific["next_valve_maintenance"] = next_due.isoformat()
+        dev_specific["next_valve_maintenance"] = (
+            self.kernel_state.maintenance.next_due.isoformat()
+        )
         if self.has_contact_sensor:
             dev_specific[ATTR_STATE_WINDOW_DETECTION] = (
                 self.kernel_state.window_detection

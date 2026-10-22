@@ -70,7 +70,7 @@
       "phase": "running"
     },
     "maintenance": {
-      "next_due": null,
+      "next_due": "0001-01-01T00:00:00+00:00",
       "phase": "running",
       "running_since": 900.0
     },

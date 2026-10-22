@@ -20,6 +20,7 @@ from .desired import DesiredState, HeatingBlock, Suppression, TrvDesired
 from .fsm.control_mode import ControlMode, ControlModeState, PendingWindow
 from .fsm.lifecycle import LifecyclePhase, LifecycleState
 from .fsm.maintenance import (
+    DUE_AT_FIRST_TICK,
     MaintenanceDue,
     MaintenanceIdle,
     MaintenanceRunning,
@@ -387,7 +388,11 @@ def _maintenance_of(raw: dict[str, Json]) -> MaintenanceState:
     same way in ``decide()``.
     """
     phase = _str_of(raw["phase"])
+    # An export taken before the region had a schedule carries none; such a
+    # region was due at its first tick, which DUE_AT_FIRST_TICK keeps.
     next_due = _datetime_or_none(raw["next_due"])
+    if next_due is None:
+        next_due = DUE_AT_FIRST_TICK
     running_since = _float_or_none(raw["running_since"])
     match phase:
         case "idle":
