@@ -2037,8 +2037,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     def _set_trv_calibration_defaults(self, trv: str) -> None:
         """Set default calibration values for TRV."""
-        if self.real_trvs[trv].last_calibration is None:
-            self.real_trvs[trv].last_calibration = 0
         if self.real_trvs[trv].min_local_calibration is None:
             self.real_trvs[trv].min_local_calibration = -7
         if self.real_trvs[trv].max_local_calibration is None:
@@ -2971,7 +2969,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                     )
                     self._set_trv_calibration_defaults(entity_id)
             else:
-                trv.last_calibration = 0
                 trv.min_local_calibration = -7
                 trv.max_local_calibration = 7
                 trv.local_calibration_step = 0.5

@@ -1482,28 +1482,24 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
         if _use_valve:
             _new_trv_calibration = _current_trv_calibration
         elif _percent is not None:
-            _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-            if _max_temp is not None:
-                _valve_fraction = max(0.0, min(1.0, _percent / 100.0))
-                _desired_trv_setpoint = _cur_trv_temperature + (
-                    (float(_max_temp) - _cur_trv_temperature) * _valve_fraction
+            _max_temp = round_by_step(self.real_trvs[entity_id].max_temp, 0.01)
+            _valve_fraction = max(0.0, min(1.0, _percent / 100.0))
+            _desired_trv_setpoint = _cur_trv_temperature + (
+                (_max_temp - _cur_trv_temperature) * _valve_fraction
+            )
+            if _valve_fraction == 0.0 and _desired_trv_setpoint >= _cur_trv_temperature:
+                _setpoint_drop = _compute_zero_open_offset(
+                    self,
+                    entity_id,
+                    _cur_trv_temperature,
+                    _cur_external_temperature,
+                    _cur_target_temperature,
+                    _calibration_step,
                 )
-                if (
-                    _valve_fraction == 0.0
-                    and _desired_trv_setpoint >= _cur_trv_temperature
-                ):
-                    _setpoint_drop = _compute_zero_open_offset(
-                        self,
-                        entity_id,
-                        _cur_trv_temperature,
-                        _cur_external_temperature,
-                        _cur_target_temperature,
-                        _calibration_step,
-                    )
-                    _desired_trv_setpoint = _cur_trv_temperature - _setpoint_drop
-                _new_trv_calibration = _current_trv_calibration - (
-                    _desired_trv_setpoint - _cur_target_temperature
-                )
+                _desired_trv_setpoint = _cur_trv_temperature - _setpoint_drop
+            _new_trv_calibration = _current_trv_calibration - (
+                _desired_trv_setpoint - _cur_target_temperature
+            )
 
     _skip_post_adjustments = traits.skip_post_adjustments
 
@@ -1717,36 +1713,30 @@ def calculate_calibration_setpoint(
                 # Valve open: keep target so TRV internal logic doesn't restrict us.
                 _calibrated_setpoint = _cur_target_temperature
         elif not _use_valve and _percent is not None:
-            _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-            if _max_temp is not None:
-                _valve_fraction = max(0.0, min(1.0, float(_percent) / 100.0))
-                _calibrated_setpoint = _cur_trv_temperature + (
-                    (float(_max_temp) - _cur_trv_temperature) * _valve_fraction
+            _max_temp = round_by_step(self.real_trvs[entity_id].max_temp, 0.01)
+            _valve_fraction = max(0.0, min(1.0, float(_percent) / 100.0))
+            _calibrated_setpoint = _cur_trv_temperature + (
+                (_max_temp - _cur_trv_temperature) * _valve_fraction
+            )
+            if _valve_fraction == 0.0 and _calibrated_setpoint >= _cur_trv_temperature:
+                _setpoint_drop = _compute_zero_open_offset(
+                    self,
+                    entity_id,
+                    _cur_trv_temperature,
+                    _cur_external_temperature,
+                    _cur_target_temperature,
+                    _trv_temperature_step,
                 )
-                if (
-                    _valve_fraction == 0.0
-                    and _calibrated_setpoint >= _cur_trv_temperature
-                ):
-                    _setpoint_drop = _compute_zero_open_offset(
-                        self,
-                        entity_id,
-                        _cur_trv_temperature,
-                        _cur_external_temperature,
-                        _cur_target_temperature,
-                        _trv_temperature_step,
-                    )
-                    _calibrated_setpoint = _cur_trv_temperature - _setpoint_drop
+                _calibrated_setpoint = _cur_trv_temperature - _setpoint_drop
 
     _skip_post_adjustments = traits.skip_post_adjustments
 
     if traits.adjust is not None:
 
         def _legacy_setpoint(valve_position: float) -> float:
-            max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-            if max_temp is None:
-                return _calibrated_setpoint
+            max_temp = round_by_step(self.real_trvs[entity_id].max_temp, 0.01)
             return _cur_trv_temperature + (
-                (float(max_temp) - _cur_trv_temperature) * valve_position
+                (max_temp - _cur_trv_temperature) * valve_position
             )
 
         _calibrated_setpoint, _skip_post_adjustments = traits.adjust(

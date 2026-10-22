@@ -505,12 +505,13 @@ class TestNoOffsetChannelReportsFalse:
     async def test_missing_calibration_entity_reports_false(self, adapter):
         """Nothing is written and nothing is claimed to have been."""
         mock_self = _mock_self(calibration_entity=None)
+        mock_self.real_trvs[ENTITY_ID].last_calibration = 1.5
 
         result = await adapter.set_calibration_offset(mock_self, ENTITY_ID, -2.0)
 
         assert result is False
         mock_self.hass.services.async_call.assert_not_awaited()
-        assert mock_self.real_trvs[ENTITY_ID].last_calibration is None
+        assert mock_self.real_trvs[ENTITY_ID].last_calibration == 1.5
 
 
 def _reject_anything_but_an_entity_id(requested):
