@@ -63,9 +63,6 @@ def build_bt(
     cooler_state.state = reported_mode
     bt.hass.states.get.return_value = cooler_state
 
-    bt._build_trv_snapshots = types.MethodType(
-        BetterThermostat._build_trv_snapshots, bt
-    )
     bt._cooler_previously_active = types.MethodType(
         BetterThermostat._cooler_previously_active, bt
     )
@@ -188,8 +185,6 @@ def test_report_agrees_with_the_command(
         bt_hvac_mode=HVACMode.HEAT,
         window_open=False,
         tolerance=tolerance,
-        ignore_states=False,
-        trv_snapshots=[],
         cool_previously_active=cool_previously_active,
     ).action
     commanded = (

@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 from homeassistant.components.climate import (
     DOMAIN as CLIMATE_DOMAIN,
     SERVICE_SET_HVAC_MODE,
+    HVACAction,
     HVACMode,
 )
 from homeassistant.components.weather import (
@@ -1691,3 +1692,47 @@ async def test_valve_maintenance_leaves_a_head_that_is_not_set_up_alone(
         assert await wait_for(hass, lambda: has_adopted(bt, absent.profile))
 
     assert exercised == sorted(head.entity_id for head in present)
+
+
+AGGRESSIVE_PAIR = GroupScenario(
+    name="aggressive_pair",
+    profiles=tuple(
+        replace(_group_member_profile, calibration_mode="fix_calibration")
+        for _group_member_profile in GROUP_OF_THREE.profiles[:2]
+    ),
+)
+"""Two plain heads under the aggressive calibration, which boosts while heating."""
+
+
+@pytest.mark.parametrize(
+    "reported_action", [HVACAction.HEATING, HVACAction.IDLE], ids=str
+)
+async def test_startup_boost_does_not_follow_another_head_reporting_heating(
+    hass, reported_action
+):
+    """A head's startup setpoint is the room's decision, not its neighbour's.
+
+    The room sits inside the tolerance band, where the room has not decided
+    to heat. Startup controls the heads one after another while the inbound
+    handler is listening, so each head is calibrated while the other one's
+    report is on the table. The aggressive boost follows the room's action,
+    and a head reporting that it heats leaves that action alone: every head
+    gets the same unboosted setpoint whatever its neighbour reports.
+    """
+    heads = await build_devices(hass, *AGGRESSIVE_PAIR.profiles)
+    for head in heads:
+        head._attr_hvac_action = reported_action
+        head.async_write_ha_state()
+    # Tolerance 0.3 under a 20.0 target: 19.8 is in the band, not below it.
+    set_room_sensor(hass, 19.8)
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+
+    entry = make_entry(AGGRESSIVE_PAIR)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    assert bt.heat_target_temperature == pytest.approx(20.0)
+    for head in heads:
+        writes = setpoint_commands(events, head.entity_id)
+        assert [w["temperature"] for w in writes] == [19.5], head.entity_id
+    assert bt.hvac_action == HVACAction.IDLE

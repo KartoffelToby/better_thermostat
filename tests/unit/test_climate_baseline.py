@@ -33,7 +33,7 @@ from custom_components.better_thermostat.utils.thermal_learning import (
     HeatLossTracker,
     Reading,
 )
-from tests.factories import ThermostatStandIn, make_state, trv_record
+from tests.factories import ThermostatStandIn, make_state
 
 # ---------------------------------------------------------------------------
 # Fixture
@@ -133,7 +133,6 @@ def mock_bt():
     bt._compute_hvac_action_pure = lambda: BetterThermostat._compute_hvac_action_pure(
         bt
     )
-    bt._build_trv_snapshots = lambda: BetterThermostat._build_trv_snapshots(bt)
     bt._cooler_previously_active = lambda: BetterThermostat._cooler_previously_active(
         bt
     )
@@ -280,93 +279,6 @@ class TestComputeHvacAction:
         mock_bt.cool_target_temperature = 26.0
         mock_bt.tolerance = 0.5
         assert self._call(mock_bt) == HVACAction.COOLING
-
-    def test_trv_override_hvac_action_heating(self, mock_bt):
-        """TRV reports hvac_action='heating' in band → override to HEATING."""
-        mock_bt.room_temperature = (
-            21.7  # in band: target-tol(21.5) < cur < target(22.0)
-        )
-        mock_bt.heat_target_temperature = 22.0
-        mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt.real_trvs = {
-            "climate.trv1": trv_record(
-                entity_id="climate.trv1", hvac_action=HVACAction.HEATING
-            )
-        }
-        assert self._call(mock_bt) == HVACAction.HEATING
-
-    def test_trv_override_valve_position(self, mock_bt):
-        """TRV valve_position=50 in band → override to HEATING."""
-        mock_bt.room_temperature = 21.7
-        mock_bt.heat_target_temperature = 22.0
-        mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt.real_trvs = {
-            "climate.trv1": trv_record(entity_id="climate.trv1", valve_position=50)
-        }
-        assert self._call(mock_bt) == HVACAction.HEATING
-
-    def test_trv_override_last_valve_percent_0_1_range(self, mock_bt):
-        """TRV last_valve_percent=0.8 (0-1 range) → normalized to 80% → HEATING."""
-        mock_bt.room_temperature = 21.7
-        mock_bt.heat_target_temperature = 22.0
-        mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt.real_trvs = {
-            "climate.trv1": trv_record(entity_id="climate.trv1", last_valve_percent=0.8)
-        }
-        assert self._call(mock_bt) == HVACAction.HEATING
-
-    def test_trv_override_suppressed_above_target(self, mock_bt):
-        """Above target with TRV still reporting heating → action stays IDLE."""
-        mock_bt.room_temperature = 22.3  # above target → BT has decided IDLE
-        mock_bt.heat_target_temperature = 22.0
-        mock_bt._hysteresis.last_action = HVACAction.HEATING
-        mock_bt.real_trvs = {
-            "climate.trv1": trv_record(
-                entity_id="climate.trv1", hvac_action=HVACAction.HEATING
-            )
-        }
-        assert self._call(mock_bt) == HVACAction.IDLE
-
-    def test_ignore_states_no_trv_override(self, mock_bt):
-        """ignore_states=True in band → TRV override still skipped, returns IDLE."""
-        mock_bt.room_temperature = 21.7
-        mock_bt.heat_target_temperature = 22.0
-        mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt.ignore_states = True
-        mock_bt.real_trvs = {
-            "climate.trv1": trv_record(
-                entity_id="climate.trv1", hvac_action=HVACAction.HEATING
-            )
-        }
-        assert self._call(mock_bt) == HVACAction.IDLE
-
-    def test_ignore_trv_states_per_trv(self, mock_bt):
-        """ignore_trv_states=True on specific TRV in band → that TRV is skipped."""
-        mock_bt.room_temperature = 21.7
-        mock_bt.heat_target_temperature = 22.0
-        mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt.real_trvs = {
-            "climate.trv1": trv_record(
-                entity_id="climate.trv1",
-                hvac_action=HVACAction.HEATING,
-                ignore_trv_states=True,
-            )
-        }
-        assert self._call(mock_bt) == HVACAction.IDLE
-
-    def test_tolerance_decision_saved_before_trv_override(self, mock_bt):
-        """Hysteresis state uses tolerance decision, not TRV-overridden action."""
-        mock_bt.room_temperature = 21.7  # in band → tolerance says IDLE
-        mock_bt.heat_target_temperature = 22.0
-        mock_bt._hysteresis.last_action = HVACAction.IDLE
-        mock_bt.real_trvs = {
-            "climate.trv1": trv_record(
-                entity_id="climate.trv1", hvac_action=HVACAction.HEATING
-            )
-        }
-        self._call(mock_bt)
-        # Tolerance last action should be IDLE (tolerance decision), not HEATING
-        assert mock_bt._hysteresis.last_action == HVACAction.IDLE
 
     def test_tolerance_hold_active_set(self, mock_bt):
         """The hysteresis holds when tolerance says no-heat but not cooling."""
