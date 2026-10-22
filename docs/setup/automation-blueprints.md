@@ -247,7 +247,9 @@ sensor built from an eBUS, OpenTherm or heat pump integration. Only its `on` and
 `off` states count, so an entity that becomes `unavailable` changes nothing.
 The blueprint also applies the entity's current state when Home Assistant starts
 and when automations are reloaded, so a heat source that is already off when you
-save the automation pauses learning at once.
+save the automation pauses learning at once. When the fireplace blueprint drives
+the same switch, see
+[Both pause-learning blueprints in one room](#both-pause-learning-blueprints-in-one-room).
 
 | Input | Description | Default |
 |---|---|---|
@@ -273,7 +275,8 @@ comparison.
 When Home Assistant starts or automations are reloaded, the blueprint checks the
 sensor once: above *Burning above* it pauses learning, and below *Out below* it
 ends a pause that is still on once the sensor has stayed there for the whole
-cool-down time.
+cool-down time. When the heat source blueprint drives the same switch, see
+[Both pause-learning blueprints in one room](#both-pause-learning-blueprints-in-one-room).
 
 Optionally it sets a preset, such as Eco, on the selected thermostats while the
 fire burns, and sets `none` once the fire is out. A preset chosen before the
@@ -294,6 +297,22 @@ fire is not restored.
 | Thermostats for the preset | Better Thermostat devices / climate entities for the preset; left empty, the devices of the selected Pause Learning switches | – |
 
 [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FKartoffelToby%2Fbetter_thermostat%2Fblob%2Fmaster%2Fblueprints%2Fpause_learning_fireplace.yaml)
+
+### Both pause-learning blueprints in one room
+
+Each of the two blueprints tracks only its own reason. When both act on the same
+**Pause Learning** switch, one can end a pause the other still needs. The heat
+source blueprint turns the switch off whenever heat flows, even while the fire
+burns. When Home Assistant starts or automations are reloaded, it sets the
+switch from the entity's current state: on in the pause state, off in the other
+state, and unchanged while the entity is `unknown` or `unavailable`. A restart
+while heat flows therefore also ends a pause the fire still needs. The fireplace
+blueprint turns the switch off once the fire is out, even while the boiler heats
+hot water. For a room with both reasons, combine them in a template binary
+sensor and let a single automation drive the switch, as
+[Several reasons for one room](/setup/pause-learning/#several-reasons-for-one-room)
+shows. The heat source blueprint can be that automation: select the combined
+sensor as its entity and set *Pause learning while the entity is* to `on`.
 
 ---
 
