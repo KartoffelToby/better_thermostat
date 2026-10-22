@@ -6,7 +6,15 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypedDict, TypeGuard
+from typing import (
+    TYPE_CHECKING,
+    Final,
+    NamedTuple,
+    Protocol,
+    TypedDict,
+    TypeGuard,
+    overload,
+)
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -1481,6 +1489,18 @@ def device_setpoint_step(
     return step
 
 
+@overload
+def on_cooler_grid(
+    self: BetterThermostat, cooler_state: State, value: float
+) -> float: ...
+
+
+@overload
+def on_cooler_grid(
+    self: BetterThermostat, cooler_state: State, value: float | None
+) -> float | None: ...
+
+
 def on_cooler_grid(
     self: BetterThermostat, cooler_state: State, value: float | None
 ) -> float | None:
@@ -1493,7 +1513,8 @@ def on_cooler_grid(
     for that unit, and on a Celsius system is rounded onto the step its
     reports are compared with. A cooler published in whole degrees
     Fahrenheit reports a finer step back rounded, so it is written on whole
-    degrees whatever its step.
+    degrees whatever its step. A value that is None, such as a cooling
+    target not set yet, stays None.
     """
     if value is None:
         return None

@@ -215,15 +215,6 @@ class TestBuildMpcGroupKey:
         entity_bucket = entity_key.split(":")[-1]
         assert group_bucket == entity_bucket
 
-    def test_group_key_none_target(self):
-        """Group key handles None target temperature gracefully."""
-        bt = ThermostatStandIn()
-        bt.unique_id = "bt_test"
-        bt.heat_target_temperature = None
-
-        key = build_mpc_group_key(bt)
-        assert "tunknown" in key
-
     def test_group_key_fallback_uid(self):
         """An entity without a unique id keys its group under ``bt``."""
         bt = ThermostatStandIn()

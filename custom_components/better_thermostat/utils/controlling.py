@@ -1691,7 +1691,7 @@ _CoolerChannel = Literal["temperature", "hvac_mode"]
 
 
 def cooler_low_bound(
-    high: float, heat_target_temperature: float | None, lowest: float | None = None
+    high: float, heat_target_temperature: float, lowest: float | None = None
 ) -> float:
     """Return the lower bound that travels with ``high`` in a range write.
 
@@ -1702,11 +1702,7 @@ def cooler_low_bound(
     heating target is held to the heaters' range, not the cooler's, so it is
     raised onto ``lowest``, the cooler's minimum, where it sits below it.
     """
-    low = (
-        high
-        if heat_target_temperature is None
-        else min(float(heat_target_temperature), high)
-    )
+    low = min(heat_target_temperature, high)
     if lowest is not None and low < lowest:
         low = min(lowest, high)
     return low
