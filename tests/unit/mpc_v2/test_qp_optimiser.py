@@ -193,8 +193,8 @@ def test_a_valve_held_at_the_user_maximum_does_not_wind_the_integral_up() -> Non
     assert opt.e_integral_K_min == pytest.approx(-2.0)
 
 
-def test_without_a_cycle_limit_the_configured_bound_is_the_rail() -> None:
-    """With no cap for the cycle the valve may open up to ``QpParams.u_max``.
+def test_without_a_cycle_limit_the_valve_may_open_fully() -> None:
+    """With no cap for the cycle the rail is the fully open valve.
 
     A valve just short of fully open still has room to add heat, so its error
     counts, and a cold room gets the fully open valve.
@@ -204,7 +204,7 @@ def test_without_a_cycle_limit_the_configured_bound_is_the_rail() -> None:
     assert opt.e_integral_K_min == pytest.approx(-2.0)
 
     u = opt.solve(np.array([16.0, 16.0]), T_sp=22.0, T_outdoor=5.0, u_last=1.0)
-    assert u == pytest.approx(QpParams().u_max, abs=1e-6)
+    assert u == pytest.approx(1.0, abs=1e-6)
 
 
 def test_the_plan_stays_below_the_cycle_limit() -> None:

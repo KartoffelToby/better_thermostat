@@ -86,7 +86,7 @@ def test_full_cap_matches_the_default_cap(
     capped: object,
     scenario: ScenarioConfig,
 ) -> None:
-    """Passing 100 % commands the same valve as passing no cap, cycle by cycle."""
+    """Passing 100 % commands the same valve as the default cap, cycle by cycle."""
     default_trace = _valve_trace(monkeypatch, adapter_cls(), scenario)
 
     monkeypatch.setattr(_MODULES[name], name, capped)
