@@ -135,7 +135,7 @@ class TestSetpoint:
 
         await shelly.set_temperature(bt, ENTITY_ID, 21.0)
 
-        bt.hass.services.async_call.assert_not_awaited()
+        bt.hass.services.async_call.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -172,7 +172,7 @@ class TestSetpoint:
             await shelly.init(bt, ENTITY_ID)
         await shelly.set_hvac_mode(bt, ENTITY_ID, "heat")
         assert await shelly.set_calibration_offset(bt, ENTITY_ID, 2.0) is False
-        bt.hass.services.async_call.assert_not_awaited()
+        bt.hass.services.async_call.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_gen1_keeps_its_thermostat_commands(self):
