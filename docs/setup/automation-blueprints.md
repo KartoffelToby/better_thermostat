@@ -303,11 +303,14 @@ fire is not restored.
 Each of the two blueprints tracks only its own reason. When both act on the same
 **Pause Learning** switch, one can end a pause the other still needs. The heat
 source blueprint turns the switch off whenever heat flows, even while the fire
-burns, and it also does so when Home Assistant starts or automations are
-reloaded. The fireplace blueprint turns the switch off once the fire is out,
-even while the boiler heats hot water. For a room with both reasons, combine
-them in a template binary sensor and let a single automation drive the switch,
-as [Several reasons for one room](/setup/pause-learning/#several-reasons-for-one-room)
+burns. When Home Assistant starts or automations are reloaded, it sets the
+switch from the entity's current state: on in the pause state, off in the other
+state, and unchanged while the entity is `unknown` or `unavailable`. A restart
+while heat flows therefore also ends a pause the fire still needs. The fireplace
+blueprint turns the switch off once the fire is out, even while the boiler heats
+hot water. For a room with both reasons, combine them in a template binary
+sensor and let a single automation drive the switch, as
+[Several reasons for one room](/setup/pause-learning/#several-reasons-for-one-room)
 shows. The heat source blueprint can be that automation: select the combined
 sensor as its entity and set *Pause learning while the entity is* to `on`.
 
