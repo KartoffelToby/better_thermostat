@@ -527,7 +527,7 @@
         "name": "Αποδέσμευση συσκευών"
       },
       "release_trv": {
-        "name": "Αποδέσμευση {trv_name}"
+        "name": "{trv_name} Αποδέσμευση"
       },
       "release_trv_no_trv": {
         "name": "Αποδέσμευση TRV"

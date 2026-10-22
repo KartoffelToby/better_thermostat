@@ -527,10 +527,10 @@
         "name": "Uvoľniť zariadenia"
       },
       "release_trv": {
-        "name": "Uvoľniť {trv_name}"
+        "name": "{trv_name} Uvoľnenie"
       },
       "release_trv_no_trv": {
-        "name": "Uvoľniť TRV"
+        "name": "Uvoľnenie TRV"
       },
       "pid_auto_tune": {
         "name": "{trv_name} PID Auto Tune"

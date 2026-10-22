@@ -527,10 +527,10 @@
         "name": "Frigiv enheder"
       },
       "release_trv": {
-        "name": "Frigiv {trv_name}"
+        "name": "{trv_name} Frigivelse"
       },
       "release_trv_no_trv": {
-        "name": "Frigiv TRV"
+        "name": "TRV-frigivelse"
       },
       "pid_auto_tune": {
         "name": "{trv_name} PID-autotuning"

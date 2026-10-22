@@ -527,10 +527,10 @@
         "name": "Libérer les appareils"
       },
       "release_trv": {
-        "name": "Libérer {trv_name}"
+        "name": "{trv_name} Libération"
       },
       "release_trv_no_trv": {
-        "name": "Libérer le TRV"
+        "name": "Libération du TRV"
       },
       "pid_auto_tune": {
         "name": "{trv_name} Réglage automatique PID"

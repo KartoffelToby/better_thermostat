@@ -137,7 +137,7 @@ class TestReleasedTrv:
     """A TRV the user released on its own receives no intent."""
 
     def test_a_released_trv_is_not_addressed_even_under_boost(self):
-        """Boost keeps commanding an unreachable TRV, never a released one."""
+        """Under boost an unreachable TRV is commanded, a released one is not."""
         snapshot = make_snapshot(
             preset_mode=Preset.BOOST,
             room_temperature=18.0,

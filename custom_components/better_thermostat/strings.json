@@ -527,10 +527,10 @@
         "name": "Release devices"
       },
       "release_trv": {
-        "name": "Release {trv_name}"
+        "name": "{trv_name} Release"
       },
       "release_trv_no_trv": {
-        "name": "Release TRV"
+        "name": "TRV Release"
       },
       "pid_auto_tune": {
         "name": "{trv_name} PID Auto Tune"

@@ -527,10 +527,10 @@
         "name": "Освободить устройства"
       },
       "release_trv": {
-        "name": "Освободить {trv_name}"
+        "name": "{trv_name} Освобождение"
       },
       "release_trv_no_trv": {
-        "name": "Освободить TRV"
+        "name": "Освобождение TRV"
       },
       "pid_auto_tune": {
         "name": "{trv_name} PID: автонастройка"

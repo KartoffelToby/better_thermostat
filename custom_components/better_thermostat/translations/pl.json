@@ -527,10 +527,10 @@
         "name": "Zwolnij urządzenia"
       },
       "release_trv": {
-        "name": "Zwolnij {trv_name}"
+        "name": "{trv_name} Zwolnienie"
       },
       "release_trv_no_trv": {
-        "name": "Zwolnij TRV"
+        "name": "Zwolnienie TRV"
       },
       "pid_auto_tune": {
         "name": "{trv_name} Automatyczne strojenie PID"

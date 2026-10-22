@@ -527,10 +527,10 @@
         "name": "Cihazları serbest bırak"
       },
       "release_trv": {
-        "name": "{trv_name} serbest bırak"
+        "name": "{trv_name} Serbest bırakma"
       },
       "release_trv_no_trv": {
-        "name": "TRV'yi serbest bırak"
+        "name": "TRV serbest bırakma"
       },
       "pid_auto_tune": {
         "name": "{trv_name} PID otomatik ayarlama"
