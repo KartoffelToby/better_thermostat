@@ -12,12 +12,15 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
+from dataclasses import replace
 import sys
 from typing import Any, Protocol
 import zlib
 
+from custom_components.better_thermostat.core.watchdog import CONTROL_TICK_S
+
 from .actuator import Actuator, ActuatorParams, ActuatorProfile
-from .adapters.base import BenchmarkContext, ControllerAdapter
+from .adapters.base import BenchmarkContext, ControlCycleGate, ControllerAdapter
 from .adapters.baselines import BangBangAdapter, IdealOracleAdapter, LinearPAdapter
 from .adapters.heating_power_adapter import HeatingPowerAdapter
 from .adapters.indirect_trv import (
@@ -36,6 +39,7 @@ from .adapters.passive_modes import (
 )
 from .adapters.pid_adapter import PidAdapter
 from .adapters.tpi_adapter import TpiAdapter
+from .input_stage import RoomTemperatureInput
 from .metrics import MetricValues, TimeSeries, compute_metrics
 from .plant import (
     PROFILE_DOE_MIDRISE_APT,
@@ -51,7 +55,6 @@ from .plant import (
     PROFILE_STANDARD,
     PROFILE_STANDARD_RC3,
     PROFILE_UNDERFLOOR,
-    REALISTIC_SENSOR_PARAMS,
     PlantParams,
     PlantState,
     TwoStatePlant,
@@ -59,6 +62,7 @@ from .plant import (
 from .reporter import (
     ScenarioResult,
     ScoredResult,
+    average_over_seeds,
     render_per_scenario,
     render_plant_sweep,
     render_score_matrix,
@@ -66,7 +70,7 @@ from .reporter import (
 )
 from .scenarios import ALL_SCENARIOS, ScenarioConfig
 from .scoring import PROFILES, UserProfile
-from .sensor import Sensor, SensorParams
+from .sensor import REALISTIC_SENSOR_PARAMS, Sensor, trv_sensor_reading
 
 ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     "mpc": MpcAdapter,
@@ -269,12 +273,18 @@ def _drive_adapter(
     only difference between the two is *how* the valve command reaches
     the plant, which the facade encapsulates.
     """
-    sensor_params = scenario.sensor_params or SensorParams(sample_interval_s=60.0)
+    sensor_params = scenario.sensor_params or REALISTIC_SENSOR_PARAMS
     # Derive a stable per-scenario seed so sensor noise/jitter is
     # decorrelated across scenarios while staying fully reproducible.
     # ``zlib.crc32`` is used over the built-in ``hash`` because the latter
     # is salted per process (PYTHONHASHSEED) and would break determinism.
-    sensor = Sensor(sensor_params, seed=zlib.crc32(scenario.name.encode()))
+    seed_key = (
+        scenario.name
+        if scenario.noise_seed == 0
+        else f"{scenario.name}#{scenario.noise_seed}"
+    )
+    sensor = Sensor(sensor_params, seed=zlib.crc32(seed_key.encode()))
+    room_input = RoomTemperatureInput()
     adapter.reset()
 
     t_s_list: list[float] = []
@@ -285,8 +295,11 @@ def _drive_adapter(
 
     t = 0.0
     last_valve_percent = 0.0
-    last_measured_temperature = facade.T_room
     restart_fired = False
+    # What the previous step showed; a change in any of them is an event
+    # that requests a control cycle.
+    seen: tuple[int, float | None, float, bool] | None = None
+    next_tick_t = 0.0
 
     while t <= duration_s + 1e-6:
         if (
@@ -308,6 +321,8 @@ def _drive_adapter(
                 if isinstance(candidate, dict):
                     stored = candidate
             adapter.reset(prior=stored)
+            room_input.reset()
+            seen = None
             restart_fired = True
 
         target = scenario.setpoint_schedule(t)
@@ -327,12 +342,23 @@ def _drive_adapter(
             if scenario.controller_solar_schedule is not None
             else solar_intensity
         )
-        # On dropout the sensor returns None; the controller keeps using
-        # its last good reading rather than being handed the plant truth.
-        sampled = sensor.read(t, facade.T_room)
-        if sampled is not None:
-            last_measured_temperature = sampled
-        T_measured = last_measured_temperature
+        # On dropout the sensor returns None and the input stage holds its
+        # last committed value rather than handing over the plant truth.
+        room_input.update(t, sensor.read(t, facade.T_room))
+        trv_report = trv_sensor_reading(
+            facade.T_room, facade.T_rad, scenario.trv_sensor_rad_fraction
+        )
+        # Before the first committed reading BT controls on the TRV's own
+        # temperature, as its sensor-fallback rung does.
+        T_measured = room_input.room_temperature
+        if T_measured is None:
+            T_measured = trv_report
+        now_seen = (room_input.commits, trv_report, target, window_open)
+        control_event = now_seen != seen
+        seen = now_seen
+        control_tick = t >= next_tick_t
+        if control_tick:
+            next_tick_t += CONTROL_TICK_S
 
         ctx = BenchmarkContext(
             t=t,
@@ -340,12 +366,22 @@ def _drive_adapter(
             target_temperature=target,
             room_temperature=T_measured,
             raw_room_temperature=facade.T_room,
-            trv_temperature=facade.T_rad,
+            trv_temperature=trv_report,
             outdoor_temperature=T_outdoor,
             window_open=window_open,
             solar_intensity=controller_solar,
             last_valve_percent=last_valve_percent,
             sensor_calibration_error_K=sensor.observed_calibration_error_K,
+            room_temperature_filtered=room_input.room_temperature_filtered,
+            temperature_slope_K_per_min=room_input.temperature_slope_K_per_min,
+            trv_internal_temperature=trv_sensor_reading(
+                facade.T_room,
+                facade.T_rad,
+                scenario.trv_sensor_rad_fraction,
+                resolution_K=0.0,
+            ),
+            control_event=control_event,
+            control_tick=control_tick,
         )
 
         out = adapter.step(ctx)
@@ -356,6 +392,9 @@ def _drive_adapter(
         valve_percent = (
             0.0 if window_open or out.valve_percent is None else out.valve_percent
         )
+        if isinstance(adapter, ControlCycleGate):
+            # BT writes a direct-valve command as a whole percent.
+            valve_percent = float(round(valve_percent))
         last_valve_percent = valve_percent
 
         t_s_list.append(t)
@@ -542,6 +581,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--seeds",
+        type=int,
+        default=1,
+        help=(
+            "Average every controller × scenario cell over this many sensor "
+            "noise realisations (default 1). With --per-scenario, a second "
+            "table shows each cell's spread (max − min) across them."
+        ),
+    )
+    parser.add_argument(
         "--multi-trv",
         action="store_true",
         help=(
@@ -557,6 +606,15 @@ def main(argv: list[str] | None = None) -> int:
     profile = PROFILES[args.profile]
     if args.step_s <= 0.0:
         print("--step-s must be > 0", file=sys.stderr)
+        return 2
+    if args.seeds < 1:
+        print("--seeds must be >= 1", file=sys.stderr)
+        return 2
+    if args.seeds > 1 and (args.plant or args.plant_sweep or args.multi_trv):
+        print(
+            "--seeds cannot be combined with --plant, --plant-sweep or --multi-trv",
+            file=sys.stderr,
+        )
         return 2
 
     controllers = args.controller or list(ADAPTER_FACTORIES.keys())
@@ -704,6 +762,21 @@ def main(argv: list[str] | None = None) -> int:
             print(render_score_matrix(scored, profile))
             if args.per_scenario:
                 print(render_per_scenario(scored, profile))
+    elif args.seeds > 1:
+        scored, spread = _score_over_seeds(
+            controllers, scenarios, args, profile, oracle_by_label, grouped
+        )
+        print(f"\n[single-TRV, mean of {args.seeds} noise seeds]")
+        print(render_score_matrix(scored, profile))
+        if args.per_scenario:
+            print(render_per_scenario(scored, profile))
+            print(
+                render_per_scenario(
+                    spread,
+                    profile,
+                    title=f"Per-scenario spread (max − min) over {args.seeds} seeds",
+                )
+            )
     else:
         scored = score_results(grouped, oracle_by_label, profile)
         print("\n[single-TRV]")
@@ -715,6 +788,50 @@ def main(argv: list[str] | None = None) -> int:
         _run_multi_trv_block(controllers, scenarios, args, profile)
 
     return 0
+
+
+def _score_over_seeds(
+    controllers: list[str],
+    scenarios: list[str],
+    args: argparse.Namespace,
+    profile: UserProfile,
+    oracle_by_label: dict[tuple[str, str], MetricValues],
+    grouped: dict[str, list[ScenarioResult]],
+) -> tuple[list[ScoredResult], list[ScoredResult]]:
+    """Score every cell over ``args.seeds`` noise seeds.
+
+    Seed 0 is the run already in ``grouped``; each further seed reruns the
+    oracle and every controller on an independent noise realisation.
+
+    Returns
+    -------
+    tuple of list of ScoredResult
+        The per-cell mean scores, and per-cell spreads (max − min) carried
+        in the same shape.
+    """
+    per_seed = [score_results(grouped, oracle_by_label, profile)]
+    for seed in range(1, args.seeds):
+        oracles: dict[tuple[str, str], MetricValues] = {}
+        block: list[ScenarioResult] = []
+        for s in scenarios:
+            scen = replace(ALL_SCENARIOS[s], noise_seed=seed)
+            oracles[("scenario default", s)] = run_scenario(
+                IdealOracleAdapter(plant_params=scen.plant),
+                scen,
+                step_s=args.step_s,
+                stabilisation_min=args.stabilisation_min,
+            ).metrics
+            block.extend(
+                run_scenario(
+                    _make_adapter(c, scen.plant),
+                    scen,
+                    step_s=args.step_s,
+                    stabilisation_min=args.stabilisation_min,
+                )
+                for c in controllers
+            )
+        per_seed.append(score_results({"scenario default": block}, oracles, profile))
+    return average_over_seeds(per_seed)
 
 
 def _run_multi_trv_block(

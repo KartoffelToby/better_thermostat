@@ -246,6 +246,7 @@ Direct valve control is available for TRVs that expose valve position as a contr
 
 - **Sonoff TRVZB** (via Zigbee2MQTT or ZHA)
 - **TRVs exposed via MQTT** with valve position entities
+- **ZHA TRVs** whose quirk exposes the valve position as a number entity. A valve position that ZHA only shows as a sensor, such as the PI heating demand of the Bosch Radiator Thermostat II, reports the opening but cannot set it
 - **Z-Wave JS TRVs** that expose a valve position entity, and the Eurotronic Spirit Z / Aeotec ZWA021
 - **Shelly BLU TRV**, once its built-in thermostat is switched off on the Shelly side and Home Assistant shows its valve position entity. Reload Better Thermostat after switching, so it finds the entity
 - **Other Zigbee TRVs** that expose valve control through their integration

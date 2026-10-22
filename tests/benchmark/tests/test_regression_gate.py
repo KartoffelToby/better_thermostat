@@ -2,8 +2,8 @@
 
 The benchmark's headline output is a 0..1 score matrix. Beyond the unit
 tests of individual components, this test turns the matrix itself into a
-guard: it runs the production controllers over a representative,
-noise-free scenario set and asserts the invariants that must always hold
+guard: it runs the production controllers over a representative
+scenario set, each with its seeded sensor noise, and asserts the invariants that must always hold
 if the plant, metrics, scoring and controllers are wired up correctly.
 
 Each controller holds a recorded floor per dimension, about 0.02 below
@@ -48,11 +48,11 @@ _DIMENSIONS = ("overall", "comfort", "actuator", "energy")
 # Mean balanced score per dimension over _SCENARIOS, recorded about 0.02
 # below the measured value and rounded down to the hundredth.
 _FLOORS: dict[str, dict[str, float]] = {
-    "mpc": {"overall": 0.75, "comfort": 0.90, "actuator": 0.35, "energy": 0.96},
-    "mpc_v2": {"overall": 0.94, "comfort": 0.96, "actuator": 0.89, "energy": 0.97},
-    "pid": {"overall": 0.81, "comfort": 0.80, "actuator": 0.74, "energy": 0.97},
-    "tpi": {"overall": 0.73, "comfort": 0.52, "actuator": 0.95, "energy": 0.94},
-    "default": {"overall": 0.64, "comfort": 0.38, "actuator": 0.94, "energy": 0.85},
+    "mpc": {"overall": 0.68, "comfort": 0.83, "actuator": 0.25, "energy": 0.98},
+    "mpc_v2": {"overall": 0.89, "comfort": 0.96, "actuator": 0.72, "energy": 0.97},
+    "pid": {"overall": 0.77, "comfort": 0.77, "actuator": 0.63, "energy": 0.97},
+    "tpi": {"overall": 0.76, "comfort": 0.65, "actuator": 0.79, "energy": 0.98},
+    "default": {"overall": 0.59, "comfort": 0.25, "actuator": 0.91, "energy": 0.98},
 }
 
 # A floor further than this below the measured mean is stale and has to

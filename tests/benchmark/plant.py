@@ -55,8 +55,6 @@ from collections import deque
 from dataclasses import dataclass
 import math
 
-from .sensor import SensorParams
-
 
 @dataclass
 class PlantParams:
@@ -323,17 +321,6 @@ PROFILE_REALISTIC = PlantParams(
     tau_wall_min=1100.0,
     r_room_wall=1.0,
     valve_command_delay_s=60.0,  # 1 min boiler→radiator transport
-)
-
-
-# Realistic sensor settings to combine with PROFILE_REALISTIC. Not used
-# automatically by any scenario; opt-in via ``scenario.sensor_params``.
-
-REALISTIC_SENSOR_PARAMS = SensorParams(
-    sample_interval_s=60.0,
-    ema_alpha=0.7,
-    noise_std_K=0.05,
-    thermal_lag_s=90.0,  # 1.5 min sensor thermal mass
 )
 
 

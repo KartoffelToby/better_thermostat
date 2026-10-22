@@ -244,3 +244,75 @@ def test_the_context_carries_the_calibration_error_of_the_held_reading():
     # Reports at minutes 0 and 10; minute 5 still holds the minute-0 drift.
     assert seen[5] == pytest.approx(0.0)
     assert seen[10] == pytest.approx(0.1)
+
+
+@pytest.mark.parametrize("fraction", [0.0, 0.1, 1.0])
+def test_the_context_carries_the_trv_sensor_reading(fraction: float):
+    """Controllers see the TRV's own reading, between room and radiator."""
+    scenario = replace(
+        _COLD_ROOM_WINDOW_OPEN,
+        window_open_schedule=None,
+        trv_sensor_rad_fraction=fraction,
+    )
+    adapter = _ConstantValveAdapter(100.0)
+    run_scenario(adapter, scenario, step_s=60.0)
+    readings = [ctx.trv_temperature for ctx in adapter.seen]
+    assert all(r is not None and r == round(r, 1) for r in readings)
+    excess = [
+        r - ctx.raw_room_temperature
+        for r, ctx in zip(readings, adapter.seen, strict=True)
+        if r is not None
+    ]
+    if fraction == 0.0:
+        assert max(abs(e) for e in excess) <= 0.05 + 1e-9
+    else:
+        assert max(excess) > 1.0
+
+
+def test_the_context_carries_the_filter_and_slope_after_the_first_ticks():
+    """The EMA and its slope reach the controllers from the minute ticks on."""
+    scenario = replace(
+        _COLD_ROOM_WINDOW_OPEN, window_open_schedule=None, sensor_params=SensorParams()
+    )
+    adapter = _ConstantValveAdapter(100.0)
+    run_scenario(adapter, scenario, step_s=30.0)
+    by_t = {ctx.t: ctx for ctx in adapter.seen}
+    assert by_t[0.0].room_temperature_filtered is not None
+    assert by_t[60.0].temperature_slope_K_per_min is None
+    slope = by_t[600.0].temperature_slope_K_per_min
+    assert slope is not None
+    assert slope > 0.0
+
+
+def test_a_restart_clears_the_input_stage():
+    """An HA restart starts the filter over from the next reading."""
+    plain = replace(_COLD_ROOM_WINDOW_OPEN, window_open_schedule=None)
+    uninterrupted = _ConstantValveAdapter(100.0)
+    run_scenario(uninterrupted, plain, step_s=30.0)
+    before = {ctx.t: ctx for ctx in uninterrupted.seen}[600.0]
+    assert before.temperature_slope_K_per_min is not None
+
+    restarted = _ConstantValveAdapter(100.0)
+    run_scenario(restarted, replace(plain, controller_restart_t_s=600.0), step_s=30.0)
+    # The adapter's own reset empties its record, so it starts at the restart.
+    first = restarted.seen[0]
+    assert first.t == 600.0
+    assert first.temperature_slope_K_per_min is None
+    assert first.room_temperature_filtered == first.room_temperature
+
+
+def test_without_a_committed_reading_the_controller_sees_the_trv():
+    """A sensor that is out from the start leaves the controller on the TRV."""
+    scenario = replace(
+        _COLD_ROOM_WINDOW_OPEN,
+        window_open_schedule=None,
+        # A warm radiator, so the TRV reads well above the room.
+        initial=InitialConditions(T_room=17.0, T_rad=40.0),
+        sensor_params=SensorParams(dropout_from_t_s=0.0, dropout_until_t_s=300.0),
+    )
+    adapter = _ConstantValveAdapter(100.0)
+    run_scenario(adapter, scenario, step_s=60.0)
+    first = adapter.seen[0]
+    assert first.trv_temperature is not None
+    assert first.trv_temperature > first.raw_room_temperature + 1.0
+    assert first.room_temperature == first.trv_temperature

@@ -473,11 +473,11 @@ ZHA_VALVE_QUIRK_TRV = DeviceProfile(
     offset_channel=OffsetChannel.NUMBER_ENTITY,
     valve_channel=ValveChannel.MODEL_QUIRK,
 )
-"""A Sonoff TRVZB on an ecosystem Better Thermostat has no adapter for.
+"""A Sonoff TRVZB under ZHA whose valve only its model quirk drives.
 
 Its valve is driven by the quirk module of its model rather than by anything
-the ecosystem publishes, so the valve channel of this device is invisible to
-the adapter that serves it. The device registry model is the whole of what
+the ecosystem publishes, so the ZHA adapter finds no valve entity and the
+valve channel comes from the quirk alone. The device registry model is the whole of what
 makes it this device: it is what selects the quirk.
 """
 

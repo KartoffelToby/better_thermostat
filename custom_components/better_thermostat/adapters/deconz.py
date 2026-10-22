@@ -11,11 +11,22 @@ from typing import Final
 
 from ..utils.helpers import state_is_live
 from .base import AdapterCapabilities, DeviceChannels
-from .generic import (
-    set_hvac_mode as generic_set_hvac_mode,
-    set_temperature as generic_set_temperature,
-)
+from .generic import set_hvac_mode, set_temperature
 from .types import AdapterHost, AdapterProbeHost
+
+__all__ = (
+    "CAPABILITIES",
+    "get_calibration_offset",
+    "get_info",
+    "get_max_calibration_offset",
+    "get_min_calibration_offset",
+    "get_calibration_offset_step",
+    "init",
+    "set_hvac_mode",
+    "set_calibration_offset",
+    "set_temperature",
+    "set_valve",
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,18 +67,6 @@ async def init(self: AdapterHost, entity_id: str) -> None:
     function returns None.
     """
     return None
-
-
-async def set_temperature(
-    self: AdapterHost, entity_id: str, temperature: float
-) -> None:
-    """Set new target temperature."""
-    return await generic_set_temperature(self, entity_id, temperature)
-
-
-async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> None:
-    """Set new target hvac mode."""
-    return await generic_set_hvac_mode(self, entity_id, hvac_mode)
 
 
 async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:

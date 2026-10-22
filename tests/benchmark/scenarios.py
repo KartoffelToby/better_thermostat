@@ -13,7 +13,7 @@ the module is the authoritative registry.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from . import schedules
 from .actuator import ActuatorParams, ActuatorProfile
@@ -24,7 +24,7 @@ from .plant import (
     PROFILE_UNDERFLOOR,
     PlantParams,
 )
-from .sensor import SensorParams
+from .sensor import REALISTIC_SENSOR_PARAMS, TRV_SENSOR_RAD_FRACTION, SensorParams
 from .weather.synthetic import CHICAGO_LIKE, DENVER_LIKE, ClimateParams, make_schedules
 
 
@@ -89,6 +89,8 @@ class ScenarioConfig:
     window_loss_K_per_min: float = 0.5  # heat lost per minute while window is open
     solar_max_K_per_min: float = 0.03  # plant-side heat gain at full solar (1.0)
     sensor_params: SensorParams | None = None
+    # Share of the radiator's excess the TRV's own sensor picks up.
+    trv_sensor_rad_fraction: float = TRV_SENSOR_RAD_FRACTION
     actuator_params: ActuatorParams | None = None
     # Per-scenario override for the stabilisation phase. ``None`` defers
     # to the CLI default.
@@ -98,6 +100,9 @@ class ScenarioConfig:
     # ``export_state()`` and rehydrated through ``reset(prior=...)``;
     # in-RAM-only state is lost.
     controller_restart_t_s: float | None = None
+    # Realisation of the sensor's noise and jitter. ``0`` is the
+    # scenario's own; other values draw an independent one.
+    noise_seed: int = 0
 
 
 # --- Schedule helpers ---
@@ -244,8 +249,8 @@ S12_SENSOR_DROPOUT = ScenarioConfig(
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(5.0),
     transient_start_s=60 * 60.0,
-    sensor_params=SensorParams(
-        sample_interval_s=60.0, dropout_from_t_s=60 * 60.0, dropout_until_t_s=70 * 60.0
+    sensor_params=replace(
+        REALISTIC_SENSOR_PARAMS, dropout_from_t_s=60 * 60.0, dropout_until_t_s=70 * 60.0
     ),
 )
 
@@ -319,7 +324,7 @@ S17_SENSOR_BIAS = ScenarioConfig(
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(5.0),
-    sensor_params=SensorParams(sample_interval_s=60.0, bias_K=0.5),
+    sensor_params=replace(REALISTIC_SENSOR_PARAMS, bias_K=0.5),
     transient_start_s=30 * 60.0,
 )
 
@@ -332,7 +337,7 @@ S18_SENSOR_DRIFT = ScenarioConfig(
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(5.0),
-    sensor_params=SensorParams(sample_interval_s=60.0, drift_K_per_h=0.05),
+    sensor_params=replace(REALISTIC_SENSOR_PARAMS, drift_K_per_h=0.05),
     transient_start_s=30 * 60.0,
 )
 
@@ -623,7 +628,9 @@ S35_SAMPLE_JITTER = ScenarioConfig(
     plant=PROFILE_STANDARD,
     setpoint_schedule=schedules.step(30 * 60.0, 20.0, 21.0),
     outdoor_schedule=schedules.constant(5.0),
-    sensor_params=SensorParams(sample_interval_s=120.0, jitter_std_s=45.0),
+    sensor_params=replace(
+        REALISTIC_SENSOR_PARAMS, sample_interval_s=120.0, jitter_std_s=45.0
+    ),
     transient_start_s=30 * 60.0,
 )
 

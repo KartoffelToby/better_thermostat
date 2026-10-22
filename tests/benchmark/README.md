@@ -26,11 +26,11 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
  *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   36
-  mpc_v2                0.937  0.071    0.978  0.035     0.837  0.222    0.986  0.033   36
-  tpi                   0.842  0.113    0.722  0.225     0.958  0.033    0.971  0.019   36
-  pid                   0.828  0.120    0.897  0.156     0.607  0.348    0.984  0.025   36
-  mpc                   0.768  0.126    0.917  0.118     0.378  0.368    0.981  0.025   36
-  bangbang              0.626  0.145    0.777  0.189     0.141  0.278    0.974  0.037   36
+  mpc_v2                0.858  0.097    0.975  0.027     0.577  0.313    0.988  0.026   36
+  tpi                   0.779  0.177    0.783  0.220     0.626  0.340    1.000  0.002   36
+  pid                   0.764  0.137    0.860  0.131     0.453  0.363    0.991  0.025   36
+  mpc                   0.717  0.126    0.870  0.138     0.277  0.298    0.993  0.026   36
+  bangbang              0.662  0.139    0.804  0.158     0.216  0.303    0.973  0.045   36
 ```
 
 Higher is better. Each dimension is **oracle-normalised**: `1.0` matches
@@ -57,8 +57,16 @@ the four vendor presets, so they aggregate more runs than direct rows.
 | `uv run python -m tests.benchmark.runner --controller mpc --scenario S01_setpoint_step_small` | One controller × one scenario |
 | `uv run python -m tests.benchmark.runner --profile longevity_first` | Re-weight toward actuator wear |
 | `uv run python -m tests.benchmark.runner --per-scenario` | Add per-scenario detail table |
+| `uv run python -m tests.benchmark.runner --per-scenario --seeds 5` | Average every cell over five sensor-noise seeds, plus each cell's spread |
 | `uv run python -m tests.benchmark.runner --multi-trv` | Add multi-TRV matrices (parallel radiators sharing one room) |
 | `uv run python -m tests.benchmark.runner --plant-sweep` | Realistic + DOE envelope classes, cross-plant summary |
+
+Each scenario draws its sensor noise from a fixed seed, so every run is
+reproducible. A single seed is one realisation, though: across five
+seeds the controller means move by at most 0.014, but a single
+scenario cell moves by up to 0.31 (PID), and the better of two
+controllers changes in 47 of 360 scenario × pair cells. Read the
+matrix from one seed; read `--per-scenario` with `--seeds`.
 
 Run `uv run python -m tests.benchmark.runner --help` for the full flag list.
 
@@ -67,9 +75,11 @@ Run `uv run python -m tests.benchmark.runner --help` for the full flag list.
 ### What each dimension measures
 
 **comfort** — how close the room temperature stays to the setpoint.
-Internally a weighted sum: 0.4·overshoot-excess + 0.4·settling-time ratio
-+ 0.2·steady-state-error excess, all measured against the Oracle on the
-same scenario.
+Internally a weighted sum: 0.5·discomfort-excess + 0.25·overshoot-excess
++ 0.25·settling-time ratio, all measured against the Oracle on the same
+scenario. Discomfort is the deviation beyond ±0.2 K of the setpoint,
+integrated in K·h over the scored phase, so a controller that oscillates
+after it settled, or holds an offset, pays for every hour of it.
 
 | Score | What it means in practice |
 |---|---|
@@ -91,20 +101,22 @@ continuous on scenarios where the Oracle barely moves the valve.
 | 0.20–0.40 | High wear; expect motor lifetime and battery hits. |
 | < 0.20 | Pathological cycling (BangBang territory). |
 
-**energy** — heat the radiator delivered to the room, relative to the
-Oracle's optimum, symmetric around 1.0× so under-heating (missed
-setpoint) costs the same as over-heating (wasted energy). It follows the
-plant, not the command: a command that deadband or stiction holds back
-adds no heat over a closed valve, however often it is sent. Overshoot costs
-little here, since 0.3 K above the setpoint raises the losses by only a
-few per cent, so most controllers land between 0.95 and 1.00.
+**energy** — heat the radiator delivered to the room beyond the Oracle's
+optimum. Heat below the Oracle's earns no extra credit: mostly it means
+the room missed its setpoint, which comfort already scores, and only
+where the Oracle over-heats, as under sun, is it a saving. It follows
+the plant, not the command: a command that deadband or stiction holds
+back adds no heat over a closed valve, however often it is sent.
+Overshoot costs little here, since 0.3 K above the setpoint raises the
+losses by only a few per cent, so most controllers land between 0.95 and
+1.00.
 
 | Score | What it means in practice |
 |---|---|
-| 1.00 | Same heat input as the Oracle. |
-| 0.75–1.00 | Within ~25 % of the optimum either way. |
-| 0.50–0.75 | 25–50 % over- or under-heating. |
-| 0.00 | Either 2× the Oracle's heat or the room missed the setpoint entirely. |
+| 1.00 | No more heat than the Oracle. |
+| 0.75–1.00 | Up to ~25 % more heat than the optimum. |
+| 0.50–0.75 | 25–50 % over-heating. |
+| 0.00 | 2× the Oracle's heat or more. |
 
 **overall** — profile-weighted sum. Defaults to `balanced`
 (0.5·comfort + 0.3·actuator + 0.2·energy). Other profiles
@@ -114,20 +126,66 @@ a controller wins.
 
 ### Anchor points
 
-* **Oracle = 1.0** — the ceiling by construction. Every dimension
+* **Oracle = 1.0** — the reference by construction. Every dimension
   normalises against the Oracle, so it scores itself 1.0 on every
   scenario, including the permanent-disturbance ones (diurnal outdoor,
   multi-day weather) where the disturbance cancels on both sides.
-* **BangBang ≈ 0.63** — noise floor. A deliberately naive on/off
-  controller; anything close to BangBang has a real problem.
+* **BangBang ≈ 0.66** — noise floor. A deliberately naive on/off
+  controller; anything close to BangBang has a problem. `default`,
+  `no_calibration` and `linear_p` sit there: they leave the room below
+  its setpoint, and the discomfort score counts every hour of that.
 * **Production controllers (`pid`, `tpi`, `mpc`, `heating_power`) ≈
-  0.77–0.84, `mpc_v2` ≈ 0.94.** That band is the realistic operating
-  range. A controller above 0.80 is beating most of the field; near the
+  0.70–0.78, `mpc_v2` ≈ 0.86.** That band is the realistic operating
+  range. A controller above 0.78 is beating most of the field; near the
   BangBang floor means a clear weakness in at least one dimension.
 
 Rule of thumb: when a controller scores well below the Oracle, look at
 which dimension column dropped. A 0.92 comfort with 0.25 actuator means
 the controller tracks the setpoint by thrashing the valve.
+
+### Signal path
+
+Every controller sees the room through the signal path Better Thermostat
+runs in production, not through the plant's truth:
+
+* **Room sensor** (`REALISTIC_SENSOR_PARAMS`): sampled once a minute,
+  90 s thermal lag, 0.02 K noise, reported in 0.1 K steps whenever the
+  value changes by a tenth. A scenario can set its own sensor.
+* **Input stage** (`input_stage.py`): BT commits a reading only when it
+  moves the committed value by 0.11 K, when same-direction moves add up
+  to that, or when a smaller move holds for 120 s. Controllers see the
+  committed value; PID and MPC v1 also get its EMA (τ = 300 s) and the
+  slope of that EMA, as in production.
+* **TRV sensor**: the TRV reads the room plus a tenth of the radiator's
+  excess and reports in 0.1 K steps. The TRV's own regulation runs on the
+  unrounded value.
+* **Control cycles**: the production controllers compute only when BT
+  runs a cycle, on a committed reading, a changed TRV report, a setpoint
+  or window change, and on the 300 s tick (not for `heating_power`). In
+  between the TRV keeps the last command, written as a whole percent.
+
+The room sensor is the least certain part of that path. No measurement
+of a real Zigbee sensor stands behind 0.02 K: it lies between the high-
+and medium-repeatability modes of a Sensirion SHT3x (3σ = 0.04 / 0.08 K).
+Air turbulence adds nothing a 90 s sensor body would pass on. How often
+the sensor reports matters as much: Aqara documents reports on a 0.5 K
+change or hourly, Sonoff's SNZB-02 defaults to about 0.2 K. Mean overall
+score by noise and reporting threshold (balanced profile, 36 scenarios):
+
+| σ | threshold | mpc_v2 | tpi | pid | mpc | heating_power | bangbang |
+|---|---|---|---|---|---|---|---|
+| 0.00 K | 0.1 K | 0.868 | 0.836 | 0.767 | 0.715 | 0.751 | 0.660 |
+| **0.02 K** | **0.1 K** | **0.858** | **0.779** | **0.764** | **0.717** | **0.698** | **0.662** |
+| 0.05 K | 0.1 K | 0.827 | 0.692 | 0.749 | 0.705 | 0.593 | 0.663 |
+| 0.00 K | 0.5 K | 0.764 | 0.813 | 0.689 | 0.674 | 0.746 | 0.638 |
+| 0.02 K | 0.5 K | 0.774 | 0.807 | 0.696 | 0.675 | 0.736 | 0.637 |
+| 0.05 K | 0.5 K | 0.762 | 0.804 | 0.702 | 0.678 | 0.726 | 0.638 |
+
+Bold is the default; the 0.5 K rows add an hourly report. TPI leads PID
+up to about 0.02 K of noise and falls behind it at 0.05 K, and a sensor
+that reports only every 0.5 K moves MPC v2 behind TPI. Read the ranking
+of TPI, PID and `heating_power` as dependent on the sensor; MPC v2 leads
+as long as the sensor reports tenths.
 
 ### Multi-TRV (`--multi-trv`)
 
@@ -167,12 +225,13 @@ By default the wrapper maps the valve intent onto a setpoint the way
 `calibration.py` does for the controller modes
 (`setpoint_mapping="production"`): `T_trv + (T_max − T_trv)·u`, a
 setpoint below the TRV's reading at `u = 0`, rounded up while heating
-and down while idle, then clamped to the TRV's range. The TRV's own sensor reads
-`T_room + trv_sensor_rad_fraction·(T_rad − T_room)`, 0.1 by default, and
-the inner controller sees that reading as its TRV temperature. The
-fraction is an estimate. Between 0.05 and 0.2, TPI stays first on the
-Tuya and Sonoff presets and MPC v2 on Tado; on Bosch, MPC v2 overtakes
-TPI at 0.2. Absolute scores move by up to 0.09. The older `"heuristic"`
+and down while idle, then clamped to the TRV's range. The mapping starts
+from the TRV's own reading (see [Signal path](#signal-path)); the
+scenario's `trv_sensor_rad_fraction`, 0.1 by default, sets how much of
+the radiator's excess that reading picks up. The fraction is an
+estimate. Between 0.05 and 0.2, TPI stays first on the Tuya and Sonoff
+presets and MPC v2 on Tado; on Bosch, MPC v2 overtakes TPI at 0.2.
+Absolute scores move by up to 0.13. The older `"heuristic"`
 and `"inversion"` mappings remain selectable.
 
 `reports_valve_position` decides what the inner controller gets as the
@@ -187,19 +246,22 @@ Thermostat passes it to MPC v2 when the TRV's climate entity carries a
   states). Real buildings have distributed wall mass, infiltration,
   multi-zone coupling, and occupant behaviour. Trust the *relative
   ranking* across controllers more than the absolute scores.
-* **The Oracle cheats.** The reference controller is plant-aware — it
+* **The Oracle cheats.** The reference controller is plant-aware: it
   knows the simulator's exact parameters and inverts them. That is not
   a real controller, just a definition of "what's achievable with
-  perfect knowledge". Read it as an asymptote, not a target.
+  perfect knowledge". It is not an upper bound either: candidates beat
+  its discomfort in about a quarter of the runs, and their score then
+  stops at 1.0.
 * **Scoring weights are opinionated.** A controller can win
   `balanced` and lose `longevity_first`. The four profiles bracket
   reasonable user priorities, but if your application is asymmetric
   (e.g. comfort cost ≫ energy cost) the right answer may require
   reading the dimension columns, not the `overall`.
-* **Energy scoring is symmetric.** Under- and over-heating cost the
-  same. If you're optimising specifically for energy savings (where
-  under-heating is acceptable and over-heating is the only cost), use
-  the comfort and actuator columns separately and reweight outside.
+* **Energy scores over-heating only.** Heat below the Oracle's earns no
+  extra credit: a missed setpoint shows up in comfort, and a saving
+  where the Oracle over-heats goes unrewarded. If you accept a cooler
+  room to save energy, read `delivered_heat_K` and the comfort column
+  separately and weigh them yourself.
 * **The scenario library doesn't cover everything.** Notable
   omissions: multi-zone thermal coupling, occupancy schedules,
   photovoltaic-driven setpoint shifts, HVAC topologies beyond
@@ -267,7 +329,8 @@ Schedule shape generators (`step`, `ramp`, `pulse`, `piecewise_step`,
 tests/benchmark/
 ├── plant.py              RC2 / RC3 thermal plant + plant profiles
 ├── multi_trv_plant.py    N parallel radiators sharing one room
-├── sensor.py             Sampled-output sensor (lag, EMA, dropout, bias, drift, jitter)
+├── sensor.py             Room sensor (lag, resolution, reporting, faults) + TRV sensor
+├── input_stage.py        BT's acceptance gate, EMA and slope of the room temperature
 ├── actuator.py           Linear / threshold / quadratic / equal-percentage flow
 ├── schedules.py          Setpoint / outdoor / disturbance schedule builders
 ├── scenarios.py          ScenarioConfig library
@@ -310,7 +373,7 @@ uv run python -m pytest tests/benchmark/tests -p no:homeassistant
 ```
 
 `tests/test_regression_gate.py` runs `mpc`, `mpc_v2`, `pid`, `tpi` and
-`default` over five noise-free scenarios and holds each controller's mean
+`default` over five scenarios and holds each controller's mean
 score per dimension above a floor recorded in `_FLOORS`, about 0.02
 below the current value. A floor more than 0.04 below the measured mean
 fails as well, and the message names the value to record. A change that

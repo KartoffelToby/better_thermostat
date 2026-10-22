@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from itertools import count
-from typing import Any
+from typing import Any, override
 
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Input,
@@ -32,14 +32,14 @@ from custom_components.better_thermostat.utils.state_manager import (
     write_mpc_v2_state,
 )
 
-from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
+from .base import BenchmarkContext, BenchmarkOutput, ControlCycleGate, ControllerFamily
 
 # Controller state is caller-owned; each adapter keeps its own key so
 # concurrent instances never share learned state.
 _KEY_COUNTER = count()
 
 
-class MpcV2Adapter:
+class MpcV2Adapter(ControlCycleGate):
     """Benchmark adapter for the MPC v2 (QP + Kalman) controller."""
 
     name: str = "mpc_v2"
@@ -61,12 +61,14 @@ class MpcV2Adapter:
         ``prior`` so restart scenarios resume statefully instead of
         cold-starting (which would bias the benchmark).
         """
+        self._held = None
         if prior:
             self._state = import_mpc_v2_state(prior, self._params, key=self._key)
         else:
             self._state = MpcV2State()
 
-    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+    @override
+    def _compute(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one MPC v2 step for the given benchmark context.
 
         The valve the plant received on the previous step goes in as

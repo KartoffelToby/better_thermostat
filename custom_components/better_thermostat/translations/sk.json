@@ -400,6 +400,32 @@
     }
   },
   "entity": {
+    "climate": {
+      "better_thermostat": {
+        "state_attributes": {
+          "heating_blocked_by": {
+            "name": "Kúrenie blokované",
+            "state": {
+              "devices_released": "Zariadenia uvoľnené",
+              "startup": "Spúšťanie",
+              "valve_maintenance": "Údržba ventilov",
+              "hvac_off": "Termostat vypnutý",
+              "window": "Okno otvorené",
+              "door": "Dvere otvorené",
+              "no_call_for_heat": "Žiadna požiadavka na teplo"
+            }
+          },
+          "active_overrides": {
+            "name": "Aktívne prepísania",
+            "state": {
+              "devices_released": "Zariadenia uvoľnené",
+              "learning_paused": "Učenie pozastavené",
+              "window_detection_off": "Detekcia okna vypnutá"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "pid_kp": {
         "name": "{trv_name} PID Kp (Proporcionálne)"

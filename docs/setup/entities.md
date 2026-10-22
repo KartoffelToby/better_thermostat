@@ -13,6 +13,50 @@ The thermostat entity carries the name of the device. You set the target tempera
 
 You can change the thermostat's entity ID in the entity settings. Better Thermostat then reloads the device and carries on under the new ID with the same targets, preset and learned state.
 
+### Why the room is not heated
+
+The thermostat's `heating_blocked_by` attribute names what keeps Better Thermostat from heating the room. It comes from the same decision that sets the TRVs, so it changes when the TRVs are told to, and it holds one of these values:
+
+| Value | The room is not heated because |
+| --- | --- |
+| `devices_released` | The **Release devices** switch is on, and the devices are yours. See [Releasing the devices](/setup/releasing-devices/). |
+| `startup` | Better Thermostat is starting. The thermostat is unavailable until the startup ends and shows no attributes meanwhile, so the value is listed for completeness. |
+| `valve_maintenance` | A valve maintenance run is exercising the valves. |
+| `hvac_off` | The thermostat's mode is off. |
+| `window` | A window is open and window detection is on. With a window and a door open, the window is named. |
+| `door` | A door is open and window detection is on. |
+| `no_call_for_heat` | The outdoor temperature or the weather forecast is above the *outdoor temperature when the thermostat should turn off*. See [Summer mode](/deep-explanations/summer-mode/). |
+
+The attribute is empty (`null`) while Better Thermostat heats the room towards its target. That does not mean a valve is open: once the room is warm enough, the TRVs close on their own. The HVAC action shows whether the room is heating at the moment.
+
+The `active_overrides` attribute lists the switches that are away from their default, whether or not they block the heating at the moment. It is an empty list when none is:
+
+| Value | Switch |
+| --- | --- |
+| `devices_released` | **Release devices** is on. |
+| `learning_paused` | **Pause Learning** is on. |
+| `window_detection_off` | **Window Detection** is off. |
+
+Pause Learning and a window detection that is off never stop the heating, so they show here and not in `heating_blocked_by`. The list lets an automation notice a switch that another automation turned and never turned back. This one sends a notification when any of the switches has been held for twelve hours:
+
+```yaml
+alias: Living room switch left on
+triggers:
+  - trigger: template
+    value_template: >-
+      {{ state_attr('climate.living_room', 'active_overrides') | default([], true) | length > 0 }}
+    for:
+      hours: 12
+actions:
+  - action: notify.notify
+    data:
+      message: >-
+        The living room thermostat still holds
+        {{ state_attr('climate.living_room', 'active_overrides') | join(', ') }}.
+```
+
+A template reads the block the same way, for example `{{ state_attr('climate.living_room', 'heating_blocked_by') == 'window' }}` to show a card only while an open window holds the heating off. Automations compare against the values in both tables, so the values stay as they are; a later version may add a value but does not rename one.
+
 ## Numbers
 
 All numbers are in the *Configuration* section of the device page.

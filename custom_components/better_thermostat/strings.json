@@ -406,6 +406,32 @@
     }
   },
   "entity": {
+    "climate": {
+      "better_thermostat": {
+        "state_attributes": {
+          "heating_blocked_by": {
+            "name": "Heating blocked by",
+            "state": {
+              "devices_released": "Devices released",
+              "startup": "Starting up",
+              "valve_maintenance": "Valve maintenance",
+              "hvac_off": "Thermostat off",
+              "window": "Window open",
+              "door": "Door open",
+              "no_call_for_heat": "No call for heat"
+            }
+          },
+          "active_overrides": {
+            "name": "Active overrides",
+            "state": {
+              "devices_released": "Devices released",
+              "learning_paused": "Learning paused",
+              "window_detection_off": "Window detection off"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "pid_kp": {
         "name": "{trv_name} PID Kp (Proportional)"

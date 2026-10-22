@@ -64,8 +64,9 @@ class MetricValues:
     in DESIGN.md §4 (the fifth — adaptation across runs — is a
     benchmark-suite-level metric, not a per-run one):
 
-    * **Comfort**: max_overshoot_K, max_undershoot_K, rmse_tracking_K,
-      steady_state_error_K, settling_time_min
+    * **Comfort**: discomfort_K_h, max_overshoot_K, settling_time_min
+      (scored); max_undershoot_K, rmse_tracking_K, steady_state_error_K
+      (diagnostics)
     * **Actuator longevity**: valve_cycle_count, total_valve_travel_percent
     * **Energy**: delivered_heat_K (integral_valve_percent_minutes is
       the commanded-valve diagnostic)
@@ -90,6 +91,10 @@ class MetricValues:
     # the transient phase only.
     time_above_setpoint_K_h: float
     time_below_setpoint_K_h: float
+    # Deviation beyond the ±COMFORT_BAND_K band, integrated over the
+    # transient phase, and that phase's length.
+    discomfort_K_h: float
+    transient_duration_h: float
     # Fraction of run time spent with the valve at 40–60 %. Heat-pump
     # COP suffers at the extremes; the sweet spot is mid-range modulation.
     valve_sweet_spot_residency_percent: float
@@ -109,10 +114,15 @@ def _compute_overshoot(
     return over, under
 
 
+#: Half-width of the band around the setpoint a user does not notice;
+#: settling enters it, discomfort counts what lies beyond it.
+COMFORT_BAND_K = 0.2
+
+
 def _compute_settling(
     series: TimeSeries,
     transient_start_s: float,
-    band_K: float = 0.2,
+    band_K: float = COMFORT_BAND_K,
     min_dwell_s: float = 600.0,
 ) -> float:
     """Return settling time in minutes.
@@ -240,6 +250,35 @@ def _compute_setpoint_imbalance_K_h(
     return above_K_h, below_K_h
 
 
+def _compute_discomfort_K_h(series: TimeSeries, transient_start_s: float) -> float:
+    """Return ∫max(|T − SP| − COMFORT_BAND_K, 0) dt in K·h over the transient phase.
+
+    Parameters
+    ----------
+    series : TimeSeries
+        Recorded run.
+    transient_start_s : float
+        Start of the scored phase in seconds.
+
+    Returns
+    -------
+    float
+        Deviation beyond the comfort band, integrated in K·h.
+    """
+    total = 0.0
+    for i in range(1, len(series.t_s)):
+        seg_end = series.t_s[i]
+        if seg_end <= transient_start_s:
+            continue
+        seg_start = max(series.t_s[i - 1], transient_start_s)
+        # Each sample is recorded before the plant advances, so it holds
+        # for the interval it starts, as in the delivered-heat integral.
+        beyond = abs(series.T_room[i - 1] - series.T_setpoint[i - 1]) - COMFORT_BAND_K
+        if beyond > 0.0:
+            total += beyond * (seg_end - seg_start) / 3600.0
+    return total
+
+
 def _compute_valve_sweet_spot_residency(
     series: TimeSeries, low_percent: float = 40.0, high_percent: float = 60.0
 ) -> float:
@@ -276,5 +315,9 @@ def compute_metrics(series: TimeSeries, transient_start_s: float) -> MetricValue
         total_valve_travel_percent=_compute_total_valve_travel(series),
         time_above_setpoint_K_h=above_K_h,
         time_below_setpoint_K_h=below_K_h,
+        discomfort_K_h=_compute_discomfort_K_h(series, transient_start_s),
+        transient_duration_h=(
+            max(0.0, series.t_s[-1] - transient_start_s) / 3600.0 if series.t_s else 0.0
+        ),
         valve_sweet_spot_residency_percent=_compute_valve_sweet_spot_residency(series),
     )

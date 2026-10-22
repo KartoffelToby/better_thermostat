@@ -35,6 +35,7 @@ from custom_components.better_thermostat.adapters import (
     generic,
     mqtt,
     valve_entity,
+    zha,
     zwave_js,
 )
 from custom_components.better_thermostat.model_fixes import (
@@ -122,6 +123,14 @@ async def _mqtt_offers_offset(host, _registry, _candidate):
 
 async def _mqtt_offers_valve(host, _registry, _candidate):
     return (await mqtt.get_info(host, TRV_ID)).valve_write
+
+
+async def _zha_offers_offset(host, _registry, _candidate):
+    return (await zha.get_info(host, TRV_ID)).offset_write
+
+
+async def _zha_offers_valve(host, _registry, _candidate):
+    return (await zha.get_info(host, TRV_ID)).valve_write
 
 
 async def _zwave_offers_offset(host, _registry, _candidate):
@@ -228,6 +237,18 @@ LOOKUPS = {
             "mqtt.get_info valve",
             "number.trv_valve_opening_degree",
             _mqtt_offers_valve,
+            VALVE,
+        ),
+        Lookup(
+            "zha.get_info offset",
+            "number.trv_local_temperature_calibration",
+            _zha_offers_offset,
+            CALIBRATION,
+        ),
+        Lookup(
+            "zha.get_info valve",
+            "number.trv_valve_opening_degree",
+            _zha_offers_valve,
             VALVE,
         ),
         Lookup(
