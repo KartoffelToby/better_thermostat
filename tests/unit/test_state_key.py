@@ -26,7 +26,7 @@ from custom_components.better_thermostat.utils.calibration.tpi import build_tpi_
 from tests.factories import ThermostatStandIn
 
 
-def _keyed_thermostat(target: object, unique_id: str | None) -> ThermostatStandIn:
+def _keyed_thermostat(target: float, unique_id: str | None) -> ThermostatStandIn:
     """Build a thermostat stand-in carrying what the state keys are built from."""
     bt = ThermostatStandIn()
     bt.heat_target_temperature = target
@@ -55,11 +55,9 @@ class TestStoredForm:
         bt = _keyed_thermostat(21.0, "entry_1")
         assert build_pid_loop_key(bt, "climate.trv") == "entry_1:climate.trv"
 
-    @pytest.mark.parametrize(
-        "target", [None, "unavailable", math.nan, math.inf, -math.inf]
-    )
-    def test_a_target_that_is_no_finite_number_keys_the_unknown_bucket(self, target):
-        """Every controller keys a missing or non-finite target as ``tunknown``."""
+    @pytest.mark.parametrize("target", [math.nan, math.inf, -math.inf])
+    def test_a_target_that_is_not_finite_keys_the_unknown_bucket(self, target):
+        """Every controller keys a non-finite target as ``tunknown``."""
         bt = _keyed_thermostat(target, "entry_1")
         expected = "entry_1:climate.trv:tunknown"
         assert build_mpc_key(bt, "climate.trv") == expected

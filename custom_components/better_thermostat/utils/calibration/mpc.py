@@ -13,11 +13,10 @@ from time import time
 from typing import TYPE_CHECKING, Literal, NamedTuple, TypedDict, overload
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
-from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
+from custom_components.better_thermostat.utils.calibration.pid import build_bucket_key
 from custom_components.better_thermostat.utils.calibration.state_key import (
     GROUP_KEY_SEGMENT,
     StateKey,
-    bucket_tag_of,
 )
 
 if TYPE_CHECKING:
@@ -118,7 +117,7 @@ class MpcInput:
     is_day: bool = True
     other_heat_power: float = 0.0
     solar_intensity: float = 0.0  # 0.0 to 1.0 (cloud coverage, etc.)
-    max_opening_percent: float | None = None
+    max_opening_percent: float = 100.0
     # While set, the controller keeps regulating on what it has learned and
     # learns nothing new: no adaptation, no forced loss calibration, no
     # dead-zone or TRV-profile evidence, no performance-curve sample. Every
@@ -516,11 +515,7 @@ def build_mpc_key(bt: BetterThermostat, entity_id: str) -> str:
     For multi-TRV setups the caller should prefer ``build_mpc_group_key``
     so that all TRVs share a single MPC model.
     """
-    return str(
-        StateKey(
-            resolve_unique_id(bt), entity_id, bucket_tag_of(bt.heat_target_temperature)
-        )
-    )
+    return build_bucket_key(bt, entity_id)
 
 
 def build_mpc_group_key(bt: BetterThermostat) -> str:
@@ -529,13 +524,7 @@ def build_mpc_group_key(bt: BetterThermostat) -> str:
     All TRVs under the same BT instance share this key so that a single
     MPC model learns the room dynamics from the external sensor.
     """
-    return str(
-        StateKey(
-            resolve_unique_id(bt),
-            GROUP_KEY_SEGMENT,
-            bucket_tag_of(bt.heat_target_temperature),
-        )
-    )
+    return build_bucket_key(bt, GROUP_KEY_SEGMENT)
 
 
 # Compensation factor: additional valve-% per Kelvin that a TRV is colder
@@ -2180,13 +2169,11 @@ def _post_process_percent(
                 )
 
     # 7b) MAX VALVE OPENING (USER CAP)
-    max_opening = inp.max_opening_percent
-    if isinstance(max_opening, (int, float)):
-        max_opening = max(0.0, min(100.0, float(max_opening)))
-        if percent_out > max_opening:
-            debug["max_opening_pct"] = _round_for_debug(max_opening, 2)
-            debug["max_opening_clamped"] = True
-            percent_out = round(max_opening)
+    max_opening = max(0.0, min(100.0, float(inp.max_opening_percent)))
+    if percent_out > max_opening:
+        debug["max_opening_pct"] = _round_for_debug(max_opening, 2)
+        debug["max_opening_clamped"] = True
+        percent_out = round(max_opening)
 
     # 8) UPDATE STATE ONLY IF CHANGED
     # Only update last_percent and last_update_ts if the output actually changed
