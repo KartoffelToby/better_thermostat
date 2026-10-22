@@ -980,8 +980,8 @@ class _FailedCycleRun:
     count: int
     wait_seconds: float
     started_at: float
-    warned_at: float | None = None
-    retry: asyncio.Task[None] | None = None
+    warned_at: float | None
+    retry: asyncio.Task[None]
 
 
 def _user_intent(self: BetterThermostat) -> _UserIntent:
@@ -1056,15 +1056,14 @@ def _pace_failed_cycle(
         if run is None:
             return None
         if run.intent == _user_intent(self) and (
-            (run.retry is not None and not run.retry.done())
+            not run.retry.done()
             or not all(
                 _controlled_cleanly(self, entity_id, dispatched, desired)
                 for entity_id in run.failing
             )
         ):
             return run
-        if run.retry is not None:
-            run.retry.cancel()
+        run.retry.cancel()
         return None
 
     intent = _user_intent(self)
@@ -1088,7 +1087,7 @@ def _pace_failed_cycle(
     warn_again = not at_ceiling or (
         warned_at is None or now - warned_at >= FAILED_CYCLE_WARNING_INTERVAL_S
     )
-    if run is not None and run.retry is not None:
+    if run is not None:
         run.retry.cancel()
 
     # A retry inside the setpoint's write-budget window writes nothing, so
@@ -1678,7 +1677,7 @@ async def control_queue(self: BetterThermostat) -> None:
         )
         raise
     finally:
-        if failed_run is not None and failed_run.retry is not None:
+        if failed_run is not None:
             failed_run.retry.cancel()
         # Ensure ignore_states is reset on any exit unless maintenance wants it suppressed.
         if not self.in_maintenance:
