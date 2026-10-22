@@ -143,13 +143,11 @@ def bt():
     mock._configured_temperature_step = None
     mock.cool_target_temperature = None
     mock.bt_hvac_mode = None
-    mock.room_temperature = None
     mock.room_temperature_filtered = None
     mock.room_temperature_ema = None
     mock._room_temperature_ema_monotonic = None
     mock.room_temperature_ema_tau_seconds = 300.0
     mock.temperature_slope = None
-    mock.last_known_external_temperature = None
     mock._current_humidity = None
     mock.window_open = None
     mock.contact_open = None
@@ -223,6 +221,9 @@ def plateau_bt(bt, hass):
     bt.in_maintenance = False
     bt._control_needed_after_maintenance = False
     bt.last_external_sensor_change = dt_util.now() - timedelta(hours=2)
+    # Startup left the room on a temperature the baseline reading moves
+    # significantly away from.
+    bt.room_temperature = 19.0
     bt.prev_stable_temperature = None
     bt.last_change_direction = 0
     bt.accum_delta = 0.0
@@ -1468,9 +1469,9 @@ class TestInitializeSensors:
         sensor = _make_sensor_state("21.5")
         with patch(
             "custom_components.better_thermostat.climate._update_room_temperature_ema"
-        ):
+        ) as update_ema:
             BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.last_known_external_temperature is not None
+        update_ema.assert_called_once_with(bt, 21.5)
 
 
 # ---------------------------------------------------------------------------

@@ -972,12 +972,28 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         return self.config.availability_guard_grace_seconds
 
     @property
-    def room_temperature(self) -> float | None:
-        """Return the current room temperature."""
-        return self.runtime.room_temperature
+    def room_temperature(self) -> float:
+        """Return the room temperature the thermostat regulates on.
+
+        Startup sets it before it starts anything that reads it. Home
+        Assistant's own reads go through ``current_temperature``, which
+        answers ``None`` until then.
+
+        Raises
+        ------
+        RuntimeError
+            when read before startup has set it
+        """
+        value = self.runtime.room_temperature
+        if value is None:
+            raise RuntimeError(
+                f"better_thermostat {self.device_name}: room temperature read "
+                "before startup set it"
+            )
+        return value
 
     @room_temperature.setter
-    def room_temperature(self, value: float | None) -> None:
+    def room_temperature(self, value: float) -> None:
         """Set the current room temperature."""
         self.runtime.room_temperature = value
 
@@ -1232,7 +1248,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # announced, keyed by contact kind.
         self.announced_contact_open: dict[str, bool] = {}
         self.flight_recorder = FlightRecorder()
-        self.room_temperature = None
         self._current_humidity: float | None = None
         # A configured bound overrides what the controlled entities report, so
         # it is kept apart from the resolved ``bt_min_temp`` / ``bt_max_temp``.
@@ -1394,7 +1409,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.state_mgr = state_mgr
         self.state_loaded = False
 
-        self.last_known_external_temperature: float | None = None
         self._slope_periodic_last_ts: float | None = None
 
         # Anti-flicker state; the timer applies a pending reading later, at
@@ -1856,12 +1870,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         try:
             async with temperature_filter_lock(self):
                 cur = self.room_temperature
-                if cur is None:
-                    _LOGGER.debug(
-                        "better_thermostat %s: external_temperature keepalive skipped (room_temperature is None)",
-                        self.device_name,
-                    )
-                    return
                 if not _room_sensor_reads(self):
                     return
 
@@ -2388,42 +2396,38 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
 
         if room_candidate is not None:
-            self.room_temperature = room_candidate
+            room_temperature = room_candidate
+        elif (trv_reading := self._first_plausible_trv_temperature()) is not None:
+            entity_id, room_temperature = trv_reading
+            _LOGGER.info(
+                "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
+                self.device_name,
+                entity_id,
+                room_temperature,
+            )
         else:
-            self.room_temperature = None
-            trv_reading = self._first_plausible_trv_temperature()
-            if trv_reading is not None:
-                entity_id, self.room_temperature = trv_reading
-                _LOGGER.info(
-                    "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
-                    self.device_name,
-                    entity_id,
-                    self.room_temperature,
-                )
-            if self.room_temperature is None:
-                self.room_temperature = DEFAULT_FALLBACK_TEMPERATURE
-                _LOGGER.warning(
-                    "better_thermostat %s: No temperature available, using default %.1f°C",
-                    self.device_name,
-                    DEFAULT_FALLBACK_TEMPERATURE,
-                )
+            room_temperature = DEFAULT_FALLBACK_TEMPERATURE
+            _LOGGER.warning(
+                "better_thermostat %s: No temperature available, using default %.1f°C",
+                self.device_name,
+                DEFAULT_FALLBACK_TEMPERATURE,
+            )
+        self.room_temperature = room_temperature
 
         # Initialize EMA with current temperature at startup
-        if self.room_temperature is not None:
-            self.last_known_external_temperature = self.room_temperature
-            try:
-                _update_room_temperature_ema(self, float(self.room_temperature))
-                _LOGGER.debug(
-                    "better_thermostat %s: initialized room_temperature_ema at startup with %.2f",
-                    self.device_name,
-                    self.room_temperature,
-                )
-            except (ValueError, TypeError) as e:
-                _LOGGER.warning(
-                    "better_thermostat %s: failed to initialize room_temperature_ema at startup: %s",
-                    self.device_name,
-                    e,
-                )
+        try:
+            _update_room_temperature_ema(self, float(room_temperature))
+            _LOGGER.debug(
+                "better_thermostat %s: initialized room_temperature_ema at startup with %.2f",
+                self.device_name,
+                room_temperature,
+            )
+        except (ValueError, TypeError) as e:
+            _LOGGER.warning(
+                "better_thermostat %s: failed to initialize room_temperature_ema at startup: %s",
+                self.device_name,
+                e,
+            )
 
         # The startup humidity is read here and nowhere else, so the guard
         # below is the only one deciding what the entity publishes until the
@@ -3701,9 +3705,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         reading = room_sensor_reading(self, sensor_state)
         if sensor_state is None or reading is None:
             return
-        if self.room_temperature is not None and round(reading, 2) == round(
-            self.room_temperature, 2
-        ):
+        if round(reading, 2) == round(self.room_temperature, 2):
             return
         await self._trigger_temperature_change(
             Event(
@@ -4075,9 +4077,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         Delegates to :class:`HeatingPowerTracker` and handles HA side-effects.
         """
-        if self.room_temperature is None:
-            return
-
         current_action = self._compute_hvac_action()
         outdoor_temperature = self._get_outdoor_temperature()
 
@@ -4109,9 +4108,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         Delegates to :class:`HeatLossTracker` and handles HA side-effects.
         """
-        if self.room_temperature is None:
-            return
-
         current_action = self._compute_hvac_action()
 
         result = self._loss_tracker.update(
@@ -4426,7 +4422,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     @override
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
-        return self.room_temperature
+        return self.runtime.room_temperature
 
     @property
     @override
@@ -4489,8 +4485,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self, previous_action: HVACAction | None, tol: float
     ) -> bool:
         """Apply hysteresis so heating restarts only below target - tolerance."""
-        if self.room_temperature is None:
-            return False
         return should_heat_with_tolerance(
             self.room_temperature, self.heat_target_temperature, tol, previous_action
         )
@@ -5769,62 +5763,56 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.device_name,
         )
 
-        last_raw = self.last_known_external_temperature
-        if last_raw is not None:
-            try:
-                _LOGGER.debug(
-                    "better_thermostat %s: updating EMA with last_raw=%s",
-                    self.device_name,
-                    last_raw,
-                )
-
-                published_before = self._minute_tick_attributes()
-
-                # Calculate slope from EMA change
-                old_ema = self.room_temperature_ema
-                old_ts = self._slope_periodic_last_ts
-                now_ts = self.clock.monotonic()
-
-                new_ema = _update_room_temperature_ema(self, float(last_raw))
-
-                if old_ema is not None and old_ts is not None:
-                    elapsed_minutes = (now_ts - old_ts) / 60.0
-                    if elapsed_minutes > 0.1:  # Avoid division by zero or tiny steps
-                        delta_kelvin = new_ema - old_ema
-                        slope = delta_kelvin / elapsed_minutes
-                        self.temperature_slope = slope
-                        _LOGGER.debug(
-                            "better_thermostat %s: periodic slope calc: old_ema=%.3f new_ema=%.3f dt=%.2fmin -> slope=%.4f K/min",
-                            self.device_name,
-                            old_ema,
-                            new_ema,
-                            elapsed_minutes,
-                            slope,
-                        )
-
-                self._slope_periodic_last_ts = now_ts
-
-                _LOGGER.debug(
-                    "better_thermostat %s: periodic EMA result=%.3f",
-                    self.device_name,
-                    new_ema,
-                )
-                # The EMA sensors read the filter from this entity and update
-                # on its state changes, so a write is what publishes the tick.
-                # A tick that moves no published value writes nothing.
-                if self._minute_tick_attributes() != published_before:
-                    self.async_write_ha_state()
-            except Exception as e:
-                _LOGGER.error(
-                    "better_thermostat %s: error in _async_update_ema_periodic: %s",
-                    self.device_name,
-                    e,
-                    exc_info=True,
-                )
-        else:
+        last_raw = self.room_temperature
+        try:
             _LOGGER.debug(
-                "better_thermostat %s: _async_update_ema_periodic skipped (no last_known_external_temperature)",
+                "better_thermostat %s: updating EMA with last_raw=%s",
                 self.device_name,
+                last_raw,
+            )
+
+            published_before = self._minute_tick_attributes()
+
+            # Calculate slope from EMA change
+            old_ema = self.room_temperature_ema
+            old_ts = self._slope_periodic_last_ts
+            now_ts = self.clock.monotonic()
+
+            new_ema = _update_room_temperature_ema(self, float(last_raw))
+
+            if old_ema is not None and old_ts is not None:
+                elapsed_minutes = (now_ts - old_ts) / 60.0
+                if elapsed_minutes > 0.1:  # Avoid division by zero or tiny steps
+                    delta_kelvin = new_ema - old_ema
+                    slope = delta_kelvin / elapsed_minutes
+                    self.temperature_slope = slope
+                    _LOGGER.debug(
+                        "better_thermostat %s: periodic slope calc: old_ema=%.3f new_ema=%.3f dt=%.2fmin -> slope=%.4f K/min",
+                        self.device_name,
+                        old_ema,
+                        new_ema,
+                        elapsed_minutes,
+                        slope,
+                    )
+
+            self._slope_periodic_last_ts = now_ts
+
+            _LOGGER.debug(
+                "better_thermostat %s: periodic EMA result=%.3f",
+                self.device_name,
+                new_ema,
+            )
+            # The EMA sensors read the filter from this entity and update
+            # on its state changes, so a write is what publishes the tick.
+            # A tick that moves no published value writes nothing.
+            if self._minute_tick_attributes() != published_before:
+                self.async_write_ha_state()
+        except Exception as e:
+            _LOGGER.error(
+                "better_thermostat %s: error in _async_update_ema_periodic: %s",
+                self.device_name,
+                e,
+                exc_info=True,
             )
 
     @override

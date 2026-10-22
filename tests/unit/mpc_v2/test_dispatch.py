@@ -254,21 +254,6 @@ def test_hvac_off_returns_none() -> None:
     assert real_trvs["climate.x"].calibration_balance is None
 
 
-def test_missing_room_temperature_returns_none() -> None:
-    """A missing BT room temperature short-circuits the dispatch."""
-    real_trvs = {
-        "climate.x": _make_trv(
-            "climate.x", current_temperature=19.0, supports_valve=True
-        )
-    }
-    bt = _make_bt(real_trvs=real_trvs)
-    bt.room_temperature = None
-
-    out, supports = _compute_mpc_v2_balance(bt, "climate.x")
-    assert out is None
-    assert supports is False
-
-
 def test_daqp_absence_uses_portable_solver(monkeypatch) -> None:
     """MPC v2 keeps dispatching through the portable solver without DAQP."""
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (

@@ -177,11 +177,6 @@ class TestShouldHeatWithTolerance:
     def _call(self, bt, previous_action, tol):
         return BetterThermostat._should_heat_with_tolerance(bt, previous_action, tol)
 
-    def test_room_temperature_none(self, mock_bt):
-        """Return False when current temperature is None."""
-        mock_bt.room_temperature = None
-        assert self._call(mock_bt, HVACAction.IDLE, 0.5) is False
-
     def test_heating_cur_below_target(self, mock_bt):
         """Continue heating when current temperature is below target."""
         mock_bt.room_temperature = 21.5
@@ -244,11 +239,6 @@ class TestComputeHvacAction:
 
     def _call(self, bt):
         return BetterThermostat._compute_hvac_action(bt)
-
-    def test_room_temperature_none_returns_idle(self, mock_bt):
-        """Return IDLE when current temperature is None."""
-        mock_bt.room_temperature = None
-        assert self._call(mock_bt) == HVACAction.IDLE
 
     def test_hvac_mode_off_returns_off(self, mock_bt):
         """Return OFF when HVAC mode is OFF."""
@@ -400,14 +390,6 @@ class TestCalculateHeatingPower:
 
     async def _call(self, bt):
         return await BetterThermostat.calculate_heating_power(bt)
-
-    @pytest.mark.asyncio
-    async def test_room_temperature_none_early_return(self, mock_bt):
-        """Skip update when current temperature is None."""
-        mock_bt.room_temperature = None
-        old_power = mock_bt.heating_power
-        await self._call(mock_bt)
-        assert mock_bt.heating_power == old_power
 
     @pytest.mark.asyncio
     async def test_heating_start_transition(self, mock_bt):
@@ -722,13 +704,6 @@ class TestCalculateHeatLoss:
 
     async def _call(self, bt):
         return await BetterThermostat.calculate_heat_loss(bt)
-
-    @pytest.mark.asyncio
-    async def test_room_temperature_none_early_return(self, mock_bt):
-        """Skip update when current temperature is None."""
-        mock_bt.room_temperature = None
-        await self._call(mock_bt)
-        assert mock_bt._loss_tracker.start is None
 
     @pytest.mark.asyncio
     async def test_window_open_resets_tracking(self, mock_bt):

@@ -155,7 +155,7 @@ def _compute_zero_open_offset(
     return _setpoint_drop
 
 
-def effective_room_temperature(self: BetterThermostat) -> float | None:
+def effective_room_temperature(self: BetterThermostat) -> float:
     """Room temperature for the control law, honoring the fail-soft ladder.
 
     Under SENSOR_FALLBACK the mean of the internal temperatures of the
@@ -170,9 +170,8 @@ def effective_room_temperature(self: BetterThermostat) -> float | None:
 
     Returns
     -------
-    float | None
-        Effective room temperature, or ``None`` when no usable reading
-        exists.
+    float
+        Effective room temperature.
     """
     mode = self.kernel_state.control_mode.mode
     if mode == ControlMode.SENSOR_FALLBACK:
@@ -397,9 +396,6 @@ def _compute_mpc_balance(
     trv_state = self.real_trvs[entity_id]
 
     mpc_room_temperature = effective_room_temperature(self)
-    if mpc_room_temperature is None:
-        trv_state.calibration_balance = None
-        return None, False
 
     hvac_mode = self.bt_hvac_mode
     if hvac_mode == HVACMode.OFF:
@@ -651,10 +647,7 @@ def _record_mpc_v2_reid_sample(
     SENSOR_FALLBACK also cuts the buffer.
     """
     state_mgr = self.state_mgr
-    room_temperature = effective_room_temperature(self)
-    if room_temperature is None:
-        return
-    t_room = float(room_temperature)
+    t_room = effective_room_temperature(self)
     if self.learning_held:
         buffer = state_mgr.get_mpc_v2_reid_runtime(reid_key).buffer
         # One paused sample cuts the run; more would only push real samples
@@ -856,9 +849,6 @@ def _compute_mpc_v2_balance(
     trv_state = self.real_trvs[entity_id]
 
     mpc_room_temperature = effective_room_temperature(self)
-    if mpc_room_temperature is None:
-        trv_state.calibration_balance = None
-        return None, False
 
     if self.bt_hvac_mode == HVACMode.OFF:
         trv_state.calibration_balance = None
@@ -1049,9 +1039,6 @@ def _compute_tpi_balance(
     trv_state = self.real_trvs[entity_id]
 
     _room_temperature = effective_room_temperature(self)
-    if _room_temperature is None:
-        trv_state.calibration_balance = None
-        return None, False
 
     hvac_mode = self.bt_hvac_mode
     if hvac_mode == HVACMode.OFF:
@@ -1120,9 +1107,6 @@ def _compute_pid_balance(
     trv_state = self.real_trvs[entity_id]
 
     _pid_room_temperature = effective_room_temperature(self)
-    if _pid_room_temperature is None:
-        trv_state.calibration_balance = None
-        return None, False
 
     state_mgr = self.state_mgr
 
@@ -1386,8 +1370,6 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
     )
 
     _cur_external_temperature = effective_room_temperature(self)
-    if _cur_external_temperature is None:
-        return None
     _cur_target_temperature = self.heat_target_temperature
 
     if traits.uses_tolerance_band:
@@ -1617,13 +1599,7 @@ def calculate_calibration_setpoint(
         configured_calibration_mode(self.real_trvs[entity_id].advanced)
     )
 
-    # Without a room reading there is no demand, so no valve intent from an
-    # earlier cycle may outlive it.
-    _effective_room_temperature = effective_room_temperature(self)
-    if _effective_room_temperature is None:
-        self.real_trvs[entity_id].calibration_balance = None
-        return None
-    _cur_external_temperature = float(_effective_room_temperature)
+    _cur_external_temperature = effective_room_temperature(self)
     _cur_target_temperature = self.heat_target_temperature
 
     _cur_trv_temperature_raw = self.real_trvs[entity_id].current_temperature

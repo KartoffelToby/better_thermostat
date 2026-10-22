@@ -103,7 +103,8 @@ def _make_bt(state_mgr: _StateStub, trv_temperature: float | None) -> Thermostat
     bt.device_name = "Test BT"
     bt.unique_id = "uid"
     bt.heat_target_temperature = 22.0
-    bt.room_temperature = None
+    # The last reading the dead sensor gave.
+    bt.room_temperature = 18.0
     bt.room_temperature_filtered = None
     bt.temperature_slope = 0.0
     bt.tolerance = 0.0
@@ -183,42 +184,6 @@ def test_pid_balance_uses_trv_temperature_when_room_sensor_is_dead() -> None:
     assert state_mgr.pid[build_pid_loop_key(bt, "climate.trv")].last_abs_error == 1.0
 
 
-def test_mpc_balance_skips_when_no_temperature_is_available() -> None:
-    """MPC still bails out when neither room nor TRV temperature exists."""
-    state_mgr = _StateStub()
-    bt = _make_bt(state_mgr, trv_temperature=None)
-
-    payload, supports_valve = _compute_mpc_balance(bt, "climate.trv")
-
-    assert payload is None
-    assert supports_valve is False
-    assert bt.real_trvs["climate.trv"].calibration_balance is None
-
-
-def test_tpi_balance_skips_when_no_temperature_is_available() -> None:
-    """TPI still bails out when neither room nor TRV temperature exists."""
-    state_mgr = _StateStub()
-    bt = _make_bt(state_mgr, trv_temperature=None)
-
-    payload, supports_valve = _compute_tpi_balance(bt, "climate.trv")
-
-    assert payload is None
-    assert supports_valve is False
-    assert bt.real_trvs["climate.trv"].calibration_balance is None
-
-
-def test_pid_balance_skips_when_no_temperature_is_available() -> None:
-    """PID still bails out when neither room nor TRV temperature exists."""
-    state_mgr = _StateStub()
-    bt = _make_bt(state_mgr, trv_temperature=None)
-
-    percent, supports_valve = _compute_pid_balance(bt, "climate.trv")
-
-    assert percent is None
-    assert supports_valve is False
-    assert bt.real_trvs["climate.trv"].calibration_balance is None
-
-
 def test_mpc_v2_balance_uses_trv_temperature_when_room_sensor_is_dead() -> None:
     """MPC v2 keeps computing on the TRV-internal temperature under SENSOR_FALLBACK."""
     state_mgr = _StateStub()
@@ -228,18 +193,6 @@ def test_mpc_v2_balance_uses_trv_temperature_when_room_sensor_is_dead() -> None:
 
     assert payload is not None
     assert bt.real_trvs["climate.trv"].calibration_balance is not None
-
-
-def test_mpc_v2_balance_skips_when_no_temperature_is_available() -> None:
-    """MPC v2 still bails out when neither room nor TRV temperature exists."""
-    state_mgr = _StateStub()
-    bt = _make_bt(state_mgr, trv_temperature=None)
-
-    payload, supports_valve = _compute_mpc_v2_balance(bt, "climate.trv")
-
-    assert payload is None
-    assert supports_valve is False
-    assert bt.real_trvs["climate.trv"].calibration_balance is None
 
 
 def test_mpc_v2_compute_treats_open_door_as_open_contact() -> None:

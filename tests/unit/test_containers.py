@@ -77,6 +77,23 @@ class TestRuntimeAndLearnedBridges:
         bare.runtime.call_for_heat = False
         assert bare.call_for_heat is False
 
+    def test_the_room_temperature_is_unknown_to_home_assistant_until_startup(self):
+        """Home Assistant reads no room temperature before startup sets one."""
+        entity = _bare_entity()
+
+        assert entity.current_temperature is None
+        entity.room_temperature = 20.5
+        assert entity.current_temperature == 20.5
+
+    def test_reading_the_room_temperature_before_startup_is_an_error(self):
+        """A room temperature read before startup measured one is refused."""
+        entity = _bare_entity()
+
+        with pytest.raises(RuntimeError, match="before startup"):
+            _ = entity.room_temperature
+        entity.room_temperature = 20.5
+        assert entity.room_temperature == 20.5
+
     def test_mode_flags_derive_from_the_regions(self):
         """The discrete mode flags are read-only views onto the kernel."""
         from custom_components.better_thermostat.core.decide import running_kernel_state
