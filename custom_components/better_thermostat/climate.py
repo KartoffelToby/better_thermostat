@@ -4440,7 +4440,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         return self._bt_hvac_mode
 
     @bt_hvac_mode.setter
-    def bt_hvac_mode(self, value: HVACMode | None) -> None:
+    def bt_hvac_mode(self, value: HVACMode) -> None:
         """Set the BT-internal HVAC mode and advance the mode region."""
         self._bt_hvac_mode = value
         self.kernel_state = replace(
