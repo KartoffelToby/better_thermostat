@@ -505,6 +505,11 @@ def _compute_mpc_balance(
     else:
         this_trv_percent = group_valve_percent
 
+    # The controller only sees the group-level cap (warmest TRV); the
+    # distribution can boost a colder TRV above its own configured limit,
+    # so each per-TRV command is clamped to that TRV's max opening here.
+    this_trv_percent = min(this_trv_percent, _get_trv_max_opening(self, entity_id))
+
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state.calibration_balance = MpcBalance(
         valve_percent=clamp_valve_percent(this_trv_percent),
