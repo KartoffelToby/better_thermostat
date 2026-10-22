@@ -8,11 +8,11 @@ controllers can be compared against trivial reference behaviour:
   action.
 * :class:`IdealOracleAdapter` — knows the plant's true steady-state
   inverse and commands the valve setting needed to hold the setpoint
-  asymptotically. Used as an upper bound for what's physically possible
-  given the simulator.
+  asymptotically. Used as the reference every score is normalised
+  against; candidates beat it where its feedforward misses a disturbance.
 
-Comparing real controllers to these establishes a sanity floor and ceiling
-for each scenario's metrics.
+Comparing real controllers to these establishes a sanity floor and a
+reference for each scenario's metrics.
 """
 
 from __future__ import annotations
@@ -117,11 +117,12 @@ class IdealOracleAdapter:
     plant parameters and would not exist outside simulation. It serves
     two purposes in the benchmark:
 
-    * **Reference ceiling** for tracking quality — a feedback controller
-      with perfect plant knowledge. The feedforward inversion is exact
-      for the RC2/RC3 plants driving a linear actuator; nonlinear valve
-      profiles are covered only by the proportional feedback term, so on
-      those scenarios the ceiling is approximate rather than optimal.
+    * **Reference** for tracking quality — a feedback controller with
+      perfect plant knowledge. The feedforward inversion is exact for the
+      RC2/RC3 plants driving a linear actuator; sun, open windows and
+      nonlinear valve profiles are covered only by the proportional
+      feedback term, so there the reference keeps a steady-state error
+      a candidate can beat.
     * **Stabilisation driver** in the benchmark runner — warms the
       plant to equilibrium before the test controller takes over.
     """
@@ -182,7 +183,7 @@ class IdealOracleAdapter:
 
         # Aggressive P-feedback so the oracle reacts to transients quickly.
         # Feed back on the plant truth: the oracle is the perfect-knowledge
-        # upper bound, so sensor lag/noise must not depress its ceiling. A
+        # reference, so sensor lag/noise must not weaken it. A
         # sensor's calibration error (bias, drift) is the exception: no
         # controller can observe it without a second reference, so the
         # oracle reads it too and the candidates are scored only on what

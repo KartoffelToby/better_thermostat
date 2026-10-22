@@ -48,7 +48,9 @@ All randomness (sensor noise, sample jitter, stochastic windows,
 synthetic weather) flows from explicit seeds. The sensor RNG is seeded
 per scenario (derived from the scenario name via a stable CRC, not
 Python's salted `hash`) so noise realisations are decorrelated across
-scenarios yet reproducible run to run.
+scenarios yet reproducible run to run. `ScenarioConfig.noise_seed` draws
+an independent realisation, and `--seeds N` averages every cell over N
+of them.
 
 ### Functional decomposition: plant / sensor / actuator / controller
 
@@ -106,26 +108,34 @@ entirely on the house and the disturbance — 0.3 K on a fast small room in
 a gentle step is poor; 0.3 K on a leaky house during a −15 K cold snap is
 excellent. Comparing raw metrics across scenarios is meaningless.
 
-So every scenario is *also* run by an **`IdealOracle`** — a controller
-that knows the plant's exact parameters and inverts them to deliver the
-physically best-achievable response. Its metrics define the per-scenario
-reference:
+So every scenario is *also* run by an **`IdealOracle`**, a controller
+that knows the plant's exact parameters, inverts them for its
+feedforward and adds proportional feedback on the true room
+temperature. Its metrics define the per-scenario reference:
 
-* Oracle's value → score **1.0** (the asymptote of perfect knowledge)
+* Oracle's value → score **1.0**
 * A controller at the **failure threshold** (§6) → score **0.0**
 * Linear interpolation in between, clamped to `[0, 1]`
 
 This makes scores comparable *across* scenarios and houses: 0.85 always
-means "85 % of the way from catastrophic to physically perfect, in this
+means "85 % of the way from the failure threshold to the oracle, in this
 specific situation". The oracle normalises against itself, so it scores
-**1.0** by construction — a real controller approaching 1.0 is matching
-the perfect-knowledge bound. Read the oracle as a ceiling, not a target:
-it cheats by knowing the plant exactly, which no deployable controller can.
-It feeds back on the true room temperature, so sensor lag and noise do not
-lower the ceiling. A sensor's calibration error (bias, drift) is the one
-fault it shares with the candidates: nothing can observe it without a
-second reference, so the fault scenarios score what a controller adds on
-top of it.
+**1.0** by construction.
+
+The oracle is a strong reference, not an upper bound. Its feedforward
+does not see sun, open windows or a non-linear valve, and its feedback
+is proportional only, so those disturbances leave it a steady-state
+error. Candidates beat its discomfort in about a quarter of the runs
+(59 of 216 for `mpc_v2`, `tpi`, `pid`, `mpc`, `heating_power` and
+BangBang); the clamp then scores them 1.0, so a 1.0 means "at least as
+good as the oracle", not "perfect". An integral term would not sharpen
+the reference: it removes little discomfort (4.9 → 4.7 K·h on average)
+and multiplies the oracle's valve travel, which only loosens the
+actuator yardstick. The oracle feeds back on the true room temperature,
+so sensor lag and noise do not weaken the reference. A sensor's
+calibration error (bias, drift) is the one fault it shares with the
+candidates: nothing can observe it without a second reference, so the
+fault scenarios score what a controller adds on top of it.
 
 ---
 
@@ -139,8 +149,9 @@ cares about. Four are measured per run; the fifth is suite-level.
 2. **Actuator longevity** — valve wear and TRV battery drain. A
    controller that tracks perfectly by thrashing the valve is a bad trade
    on battery-powered Zigbee hardware.
-3. **Energy** — heat actually spent. Both over-heating (waste) and
-   under-heating (missed comfort) are deviations from the optimum.
+3. **Energy** — heat actually spent beyond the optimum. Heat below it
+   earns no extra credit; where it misses the setpoint, comfort counts
+   it.
 4. **Resilience** — behaviour under faults (sensor dropout, large
    disturbances). Not a separate per-run score: it surfaces as
    catastrophic comfort/actuator values on the fault scenarios (§7-E/F),
@@ -165,6 +176,12 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
 
 ### Comfort
 
+* **discomfort_K_h** — ∫ max(|T − setpoint| − 0.2 K, 0) dt over the
+  scored phase, in K·h: how far and how long the room sat outside the
+  band a user does not notice. Unlike settling, which is a single
+  instant, and the peak overshoot, it charges an oscillation that starts
+  after settling and an offset that never closes, for as long as they
+  last. `transient_duration_h` records the length of the scored phase.
 * **max_overshoot_K / max_undershoot_K** — peak excursion past the
   setpoint, measured only after `transient_start_s` (so the initial rise
   isn't counted as overshoot). Captures the worst-case the user feels.
@@ -175,6 +192,7 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
   number to average away.
 * **steady_state_error_K** — mean absolute error over the final 30 min;
   the offset a user would read on the thermostat once things calm down.
+  Reported as a diagnostic: discomfort already contains it.
 * **rmse_tracking_K** — RMS error across the whole transient;
   complements settling (which is a single instant) with an integral view.
 
@@ -195,11 +213,11 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
   the radiators delivered to the room, expressed as the room-air
   temperature rise it would cause without losses. Taken from the plant, so
   deadband, stiction and pipe delay count as they act on the room.
-  Scored *symmetrically* around the oracle's optimum (§6): under-heating
-  (missed setpoint) costs the same as over-heating (waste). This is a
-  deliberate neutrality — the benchmark does not assume the user prefers
-  saving energy over comfort. If your application is asymmetric, read the
-  energy column alongside comfort rather than the weighted overall.
+  Scored one-sided against the oracle's optimum (§6): heat beyond it is
+  waste; heat below it earns no extra credit. It is usually a missed
+  setpoint, which comfort scores once, in the dimension the user feels
+  it in; where the oracle over-heats, as under sun, it is a saving the
+  score does not reward.
 * **integral_valve_percent_minutes** = ∫ valve% dt of the commanded valve.
   Reported as a diagnostic, *not* scored: it charges a valve the actuator
   never opened, and it overstates a wide-open valve, because a hotter
@@ -223,23 +241,25 @@ Each dimension maps its metrics to `[0, 1]` against the oracle, with
 **failure thresholds** chosen so the scale is interpretable rather than
 arbitrary:
 
-* **Comfort** = 1 − (0.4·overshoot-excess + 0.4·settling-ratio +
-  0.2·ss-error-excess). Failure at +1 K extra overshoot, 5× the oracle's
-  settling time, or +0.5 K extra steady-state error. (Overshoot and
-  settling are weighted equally because a user notices a temperature
-  swing and a slow approach about equally; steady-state error is weighted
-  less because it is usually small once settled.)
+* **Comfort** = 1 − (0.5·discomfort-excess + 0.25·overshoot-excess +
+  0.25·settling-ratio). Discomfort fails at a mean of 0.5 K beyond the
+  oracle's, averaged over the scored phase but over at least 4 h, so a
+  brief event in a short scenario still weighs; overshoot fails at +1 K
+  extra, settling at 5× the oracle's time. Discomfort carries half the
+  weight because it is the only component that sees the whole run.
+  Between 0.25 K and 1 K for the discomfort threshold the order of
+  `mpc_v2`, `tpi`, `pid` and `mpc` stays the same; only the controllers
+  near the BangBang floor trade places.
 * **Actuator** = 1 − excess travel / (4 × max(oracle travel, 125 %)).
   Failure at 5× the oracle's total travel. When the oracle barely moves,
   the 125 % floor takes its place, so 500 % of travel scores 0 against an
   idle oracle and the score does not jump as the oracle's travel nears
   zero.
-* **Energy** = 1 − |ratio − 1| on delivered heat, symmetric. Failure at
-  2× the oracle's heat (over-heating) or 0 (room never heated). When the
-  oracle's heat is below a small floor (the scenario barely heated), the
-  candidate's absolute deviation from the oracle is scored against that
-  floor, so neither a grossly over-heating nor an under-heating
-  controller can escape via the edge case.
+* **Energy** = 1 − max(ratio − 1, 0) on delivered heat. Failure at 2× the
+  oracle's heat. When the oracle's heat is below a small floor (the
+  scenario barely heated), the candidate's absolute excess over the
+  oracle is scored against that floor, so a grossly over-heating
+  controller cannot escape via the edge case.
 
 The **overall** column is a weighted sum under a `UserProfile`. Four
 profiles bracket reasonable priorities — `balanced` (0.5 / 0.3 / 0.2),
@@ -472,11 +492,11 @@ quantisation model real valve imperfections (the §7-F family).
 Read the matrix top-down with three anchors (full tables in
 [`README.md`](README.md#how-to-read-the-results)):
 
-* **Oracle = 1.0** — the ceiling. It normalises against itself, so it
+* **Oracle = 1.0** — the reference. It normalises against itself, so it
   scores 1.0 on every scenario by construction.
-* **BangBang ≈ 0.60** — the noise floor. A naive on/off controller;
+* **BangBang ≈ 0.66** — the noise floor. A naive on/off controller;
   anything near it has a real problem.
-* **Production controllers ≈ 0.67–0.75, `mpc_v2` ≈ 0.85** — the realistic band.
+* **Production controllers ≈ 0.70–0.78, `mpc_v2` ≈ 0.86** — the realistic band.
 
 Then read *across* the dimension columns, not just `overall`:
 
@@ -496,11 +516,14 @@ Then read *across* the dimension columns, not just `overall`:
   have distributed mass, infiltration, and multi-zone coupling. Trust the
   *relative ranking* far more than the absolute scores.
 * **The oracle cheats.** It is a definition of "achievable with perfect
-  knowledge", not a deployable controller. It is an asymptote.
+  knowledge", not a deployable controller, and a reference rather than
+  an upper bound: candidates beat it on some runs.
 * **Scoring is opinionated.** A controller can win `balanced` and lose
   `longevity_first`. There is no profile-free "best".
-* **Energy is symmetric.** Under- and over-heating cost the same here; if
-  you optimise specifically for savings, read the columns separately.
+* **Energy scores over-heating only.** Heat below the oracle's earns no
+  extra credit: a missed setpoint is charged once, in comfort, and a
+  saving under sun goes unrewarded. If you would trade comfort for
+  savings, read the columns separately.
 * **Not a deployment validation.** The benchmark spots regressions,
   compares controllers on equal footing, and localises a weakness to a
   dimension. Confirming real-world quality still needs hardware field
