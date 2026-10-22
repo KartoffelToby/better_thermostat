@@ -2,7 +2,7 @@
 
 The Kalman filter estimates the room's disturbance rate (K/min) as a state of
 its own. This observer holds the two readings of it the controller uses: the
-fast estimate, bounded by ``max_abs_K_per_min``, which the governor judges
+fast estimate, bounded by ``bound_K_per_min``, which the governor judges
 reachability with, and ``planning_rate``, a slower filtered copy the optimiser
 carries along its horizon. The QP's steady-state input ``u_ss`` assumes the
 plant model is exact; feeding the disturbance forward removes the setpoint
@@ -36,6 +36,13 @@ class DobParams:
     # permanent heat source/sink in the steady-state feed-forward term.  0.05
     # K/min is already 3 K/hour, well beyond a normal unmodelled room load.
     max_abs_K_per_min: float = 0.05
+    # The same bound as a shift of the room's heat balance, in K. A rate
+    # ``D`` carries ``D·τ_room`` of loss-equivalent temperature into the
+    # feed-forward, so a fast prior needs a larger rate to cover the same
+    # model error: a missing outdoor sensor 15 K off the real outdoor
+    # temperature is 0.083 K/min at τ_room = 180 min. 24 K matches
+    # ``max_abs_K_per_min`` at the default τ_room of 480 min.
+    max_abs_loss_K: float = 24.0
     # Time constant (s) of the planning reading, and the band around zero
     # (K/min) it treats as no disturbance. Rates inside the band are what
     # sensor noise and quantisation produce on their own. A slower reading
@@ -49,20 +56,38 @@ class DobParams:
     # closes it measures that pause, not a standing disturbance.
     max_reading_interval_s: float = _READING_INTERVAL_TICKS * CONTROL_TICK_S
 
+    def bound_K_per_min(self, tau_room_min: float) -> float:
+        """Return the largest disturbance rate (K/min) for a room time constant.
+
+        The larger of ``max_abs_K_per_min`` and ``max_abs_loss_K / τ_room``,
+        so a slow prior keeps the rate bound and a fast one gets the rate
+        that covers ``max_abs_loss_K`` of model error.
+        """
+        rate_bound = max(0.0, self.max_abs_K_per_min)
+        if tau_room_min <= 0.0:
+            return rate_bound
+        return max(rate_bound, max(0.0, self.max_abs_loss_K) / tau_room_min)
+
 
 class DisturbanceObserver:
     """Bounded and slowly filtered readings of the Kalman disturbance (K/min)."""
 
-    def __init__(self, params: DobParams) -> None:
+    def __init__(self, params: DobParams, bound_K_per_min: float | None = None) -> None:
         """Initialise the observer with a zero disturbance estimate.
 
         Parameters
         ----------
         params : DobParams
-            Tunables for the observer, notably the bound and the planning
-            time constant.
+            Tunables for the observer, notably the planning time constant.
+        bound_K_per_min : float | None, optional
+            Largest estimate the observer passes on, in either sign;
+            ``params.max_abs_K_per_min`` when ``None``.
         """
         self.params = params
+        self.bound_K_per_min = max(
+            0.0,
+            params.max_abs_K_per_min if bound_K_per_min is None else bound_K_per_min,
+        )
         self.D_hat_K_per_min: float = 0.0
         # Slow EMA of the estimate, before the deadband. Persisted.
         self.planning_filtered: float = 0.0
@@ -81,7 +106,7 @@ class DisturbanceObserver:
         return rate - math.copysign(band, rate)
 
     def restore(self, estimate: float, planning: float | None) -> None:
-        """Adopt persisted estimates, bounded by ``max_abs_K_per_min``.
+        """Adopt persisted estimates, bounded by ``bound_K_per_min``.
 
         A missing planning reading starts from zero rather than from the fast
         estimate: that one follows the last few readings, and the free heat
@@ -107,5 +132,5 @@ class DisturbanceObserver:
         return self.D_hat_K_per_min
 
     def _bounded(self, rate_K_per_min: float) -> float:
-        max_abs = max(0.0, self.params.max_abs_K_per_min)
+        max_abs = self.bound_K_per_min
         return max(-max_abs, min(max_abs, rate_K_per_min))

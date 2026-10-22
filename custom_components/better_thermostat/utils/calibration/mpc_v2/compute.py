@@ -61,6 +61,7 @@ def compute_mpc_v2(
         # after the pause is fresh, not a step of the sensor.
         if state.controller is not None:
             state.controller.report_band.forget_reading()
+            state.controller.mark_paused()
         return None, state
 
     # Reject non-finite sensor inputs. Without this guard a NaN propagates

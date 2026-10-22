@@ -159,3 +159,36 @@ def test_restore_bounds_both_readings(
     dob.restore(estimate, planning)
 
     assert (dob.D_hat_K_per_min, dob.planning_filtered) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("tau_room_min", "expected"),
+    [
+        pytest.param(60.0, 0.4, id="tau60"),
+        pytest.param(180.0, 24.0 / 180.0, id="tau180"),
+        pytest.param(480.0, 0.05, id="tau480"),
+        pytest.param(720.0, 0.05, id="tau720"),
+        pytest.param(0.0, 0.05, id="tau0"),
+    ],
+)
+def test_bound_covers_the_loss_equivalent_model_error_on_a_fast_prior(
+    tau_room_min: float, expected: float
+) -> None:
+    """A fast prior gets the rate that covers ``max_abs_loss_K``.
+
+    A slow prior keeps ``max_abs_K_per_min``, and so does a time constant
+    that is not positive.
+    """
+    params = DobParams(max_abs_K_per_min=0.05, max_abs_loss_K=24.0)
+
+    assert params.bound_K_per_min(tau_room_min) == pytest.approx(expected)
+
+
+def test_the_observer_clips_at_the_bound_it_is_given() -> None:
+    """An explicit bound replaces ``max_abs_K_per_min`` for every reading."""
+    dob = DisturbanceObserver(DobParams(max_abs_K_per_min=0.05), bound_K_per_min=0.2)
+
+    assert dob.follow(-5.0, dt_s=60.0) == pytest.approx(-0.2)
+    dob.restore(0.5, 0.5)
+    assert dob.D_hat_K_per_min == pytest.approx(0.2)
+    assert dob.planning_filtered == pytest.approx(0.2)
