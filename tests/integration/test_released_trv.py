@@ -465,3 +465,23 @@ async def test_a_device_heating_and_cooling_is_released_in_both_roles(hass):
 
     assert _writes_to(events, device.entity_id) == []
     assert hass.states.get(device.entity_id).state == mode_before
+
+
+@pytest.mark.parametrize("trv_group", [TWO_HEADS], indirect=True, ids=profile_id)
+async def test_a_restart_takes_no_target_from_a_released_trv(hass, trv_group):
+    """A room restarted without a saved target reads it off its controlled TRV.
+
+    The released TRV is set far above the other one by hand; its setpoint
+    does not become the room's target.
+    """
+    by_hand, controlled = trv_group.entities
+    _at_the_device(by_hand, setpoint=28.0)
+    _at_the_device(controlled, setpoint=19.0)
+    mock_restore_cache(
+        hass, [State(BT_ENTITY, HVACMode.HEAT, {"released_trvs": [BY_HAND]})]
+    )
+    _, bt = await _start(hass, TWO_HEADS)
+
+    assert bt.released_trvs == {BY_HAND}
+    assert bt.heat_target_temperature == 19.0
+    assert hass.states.get(BY_HAND).attributes["temperature"] == 28.0

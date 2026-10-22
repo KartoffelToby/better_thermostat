@@ -448,6 +448,20 @@ def _contact_reads_open(state: State | None) -> bool:
     return state is not None and state.state in OPEN_WORDS
 
 
+def _read_at_startup(self: BetterThermostat, entity_id: str) -> bool:
+    """Return whether the startup takes the room's state from this device.
+
+    A TRV released on its own is the user's, and its setpoint, mode and
+    temperature say nothing about the room, as an unreachable TRV's say
+    nothing. It is read once it is taken back. A room whose TRVs are all
+    released has nothing else to read and starts from them, as a room
+    whose devices are released does.
+    """
+    return entity_id not in self.released_trvs or every_trv_released(
+        self, self.real_trvs
+    )
+
+
 def _room_sensor_reads(self: BetterThermostat) -> bool:
     """Return whether the room sensor gives a reading right now.
 
@@ -2141,7 +2155,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         takes over again as soon as it reports. A room with no TRV available
         keeps waiting: there is nothing to control, and the temperature
         range and the mode startup derives from the TRVs would have nothing
-        to be read from. A room whose devices are released, or whose TRVs
+        to be read from. A TRV released on its own counts as none: it is
+        neither controlled nor read. A room whose devices are released, or whose TRVs
         are each released on their own, controls none of them and starts on
         its saved state once the window has closed, with no TRV available as
         well. Without its room sensor, a room also keeps
@@ -2171,9 +2186,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         unavailable = self._unavailable_trvs()
         if not unavailable:
             return True
+        # A TRV released on its own is not one the room starts on.
+        controlled_available = any(
+            entity_id not in unavailable and not device_released(self, entity_id)
+            for entity_id in self.real_trvs
+        )
         if in_grace or (
-            len(unavailable) == len(self.real_trvs)
-            and not every_trv_released(self, self.real_trvs)
+            not controlled_available and not every_trv_released(self, self.real_trvs)
         ):
             for entity_id in unavailable:
                 _LOGGER.info(
@@ -2206,7 +2225,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             ``None`` when no available TRV reports a plausible one.
         """
         for entity_id in self.real_trvs:
-            if not is_trv_available(self, entity_id):
+            if not is_trv_available(self, entity_id) or not _read_at_startup(
+                self, entity_id
+            ):
                 continue
             trv_state = self.hass.states.get(entity_id)
             if trv_state is None:
@@ -2241,17 +2262,23 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         A TRV still awaiting its initialisation is left out: it was
         unavailable when startup read the others, and its state carries none
-        of the values read from these states.
+        of the values read from these states. A TRV released on its own is
+        left out as well, unless every TRV is; it is read once it is taken
+        back and set up.
         """
         states = [
             state
             for entity_id, trv in self.real_trvs.items()
             if not trv.awaiting_initialization
+            and _read_at_startup(self, entity_id)
             and (state := self.hass.states.get(entity_id)) is not None
         ]
 
-        # The cooler's state carries the bounds of the cooling channel.
-        if self.cooler_entity_id is not None:
+        # The cooler's state carries the bounds of the cooling channel. A
+        # device that is also a TRV released on its own is left out with it.
+        if self.cooler_entity_id is not None and _read_at_startup(
+            self, self.cooler_entity_id
+        ):
             cooler_state = self.hass.states.get(self.cooler_entity_id)
             if cooler_state is not None and cooler_state.state not in (
                 STATE_UNAVAILABLE,
