@@ -5189,7 +5189,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """
         applied = self._applied_target(stored, cooling=True)
         heating = self.heat_target_temperature
-        if heating is None or applied > heating:
+        if applied > heating:
             return applied
         return _cool_target_above(
             heating,
