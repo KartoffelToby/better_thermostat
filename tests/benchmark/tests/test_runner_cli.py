@@ -295,7 +295,12 @@ def test_main_seeds_prints_the_mean_and_the_spread():
 
 
 @pytest.mark.parametrize(
-    "extra", [["--seeds", "0"], ["--seeds", "2", "--plant", "standard"]]
+    "extra",
+    [
+        ["--seeds", "0"],
+        ["--seeds", "2", "--plant", "standard"],
+        ["--seeds", "2", "--multi-trv"],
+    ],
 )
 def test_main_rejects_unusable_seeds(extra: list[str]):
     rc, out = _run(["--controller", "linear_p", *extra])

@@ -28,9 +28,9 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
  *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   36
   mpc_v2                0.858  0.097    0.975  0.027     0.577  0.313    0.988  0.026   36
   tpi                   0.779  0.177    0.783  0.220     0.626  0.340    1.000  0.002   36
-  pid                   0.764  0.138    0.860  0.131     0.453  0.363    0.991  0.025   36
+  pid                   0.764  0.137    0.860  0.131     0.453  0.363    0.991  0.025   36
   mpc                   0.717  0.126    0.870  0.138     0.277  0.298    0.993  0.026   36
-  bangbang              0.662  0.139    0.805  0.158     0.216  0.303    0.973  0.045   36
+  bangbang              0.662  0.139    0.804  0.158     0.216  0.303    0.973  0.045   36
 ```
 
 Higher is better. Each dimension is **oracle-normalised**: `1.0` matches
@@ -101,14 +101,15 @@ continuous on scenarios where the Oracle barely moves the valve.
 | 0.20–0.40 | High wear; expect motor lifetime and battery hits. |
 | < 0.20 | Pathological cycling (BangBang territory). |
 
-**energy** — heat the radiator delivered to the room beyond the
-Oracle's optimum. Heating less than the Oracle is not a saving: the room
-then misses its setpoint, which comfort already scores, so energy does
-not charge it a second time. It follows the plant, not the command: a
-command that deadband or stiction holds back adds no heat over a closed
-valve, however often it is sent. Overshoot costs little here, since
-0.3 K above the setpoint raises the losses by only a few per cent, so
-most controllers land between 0.95 and 1.00.
+**energy** — heat the radiator delivered to the room beyond the Oracle's
+optimum. Heat below the Oracle's earns no extra credit: mostly it means
+the room missed its setpoint, which comfort already scores, and only
+where the Oracle over-heats, as under sun, is it a saving. It follows
+the plant, not the command: a command that deadband or stiction holds
+back adds no heat over a closed valve, however often it is sent.
+Overshoot costs little here, since 0.3 K above the setpoint raises the
+losses by only a few per cent, so most controllers land between 0.95 and
+1.00.
 
 | Score | What it means in practice |
 |---|---|
@@ -173,11 +174,11 @@ score by noise and reporting threshold (balanced profile, 36 scenarios):
 
 | σ | threshold | mpc_v2 | tpi | pid | mpc | heating_power | bangbang |
 |---|---|---|---|---|---|---|---|
-| 0.00 K | 0.1 K | 0.868 | 0.836 | 0.768 | 0.715 | 0.751 | 0.660 |
+| 0.00 K | 0.1 K | 0.868 | 0.836 | 0.767 | 0.715 | 0.751 | 0.660 |
 | **0.02 K** | **0.1 K** | **0.858** | **0.779** | **0.764** | **0.717** | **0.698** | **0.662** |
-| 0.05 K | 0.1 K | 0.827 | 0.692 | 0.750 | 0.705 | 0.593 | 0.663 |
+| 0.05 K | 0.1 K | 0.827 | 0.692 | 0.749 | 0.705 | 0.593 | 0.663 |
 | 0.00 K | 0.5 K | 0.764 | 0.813 | 0.689 | 0.674 | 0.746 | 0.638 |
-| 0.02 K | 0.5 K | 0.774 | 0.807 | 0.696 | 0.675 | 0.737 | 0.637 |
+| 0.02 K | 0.5 K | 0.774 | 0.807 | 0.696 | 0.675 | 0.736 | 0.637 |
 | 0.05 K | 0.5 K | 0.762 | 0.804 | 0.702 | 0.678 | 0.726 | 0.638 |
 
 Bold is the default; the 0.5 K rows add an hourly report. TPI leads PID
@@ -256,10 +257,11 @@ Thermostat passes it to MPC v2 when the TRV's climate entity carries a
   reasonable user priorities, but if your application is asymmetric
   (e.g. comfort cost ≫ energy cost) the right answer may require
   reading the dimension columns, not the `overall`.
-* **Energy scores over-heating only.** Heat below the Oracle's is a
-  missed setpoint and shows up in comfort, not as a saving. If you
-  accept a cooler room to save energy, read `delivered_heat_K` and the
-  comfort column separately and weigh them yourself.
+* **Energy scores over-heating only.** Heat below the Oracle's earns no
+  extra credit: a missed setpoint shows up in comfort, and a saving
+  where the Oracle over-heats goes unrewarded. If you accept a cooler
+  room to save energy, read `delivered_heat_K` and the comfort column
+  separately and weigh them yourself.
 * **The scenario library doesn't cover everything.** Notable
   omissions: multi-zone thermal coupling, occupancy schedules,
   photovoltaic-driven setpoint shifts, HVAC topologies beyond

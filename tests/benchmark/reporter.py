@@ -99,7 +99,7 @@ def score_results(
 def average_over_seeds(
     per_seed: list[list[ScoredResult]],
 ) -> tuple[list[ScoredResult], list[ScoredResult]]:
-    """Average each (controller, scenario) cell over several noise seeds.
+    """Average each (block, controller, scenario) cell over several noise seeds.
 
     Parameters
     ----------
@@ -113,10 +113,11 @@ def average_over_seeds(
         The cells with their scores averaged over the seeds, and the same
         cells carrying each score's spread (max − min) instead.
     """
-    cells: dict[tuple[str, str], list[ScoredResult]] = {}
+    cells: dict[tuple[str, str, str], list[ScoredResult]] = {}
     for run in per_seed:
         for sr in run:
-            cells.setdefault((sr.controller, sr.scenario), []).append(sr)
+            key = (sr.block_label, sr.controller, sr.scenario)
+            cells.setdefault(key, []).append(sr)
     means: list[ScoredResult] = []
     spreads: list[ScoredResult] = []
     for group in cells.values():

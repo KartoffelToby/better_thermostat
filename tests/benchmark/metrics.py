@@ -271,7 +271,9 @@ def _compute_discomfort_K_h(series: TimeSeries, transient_start_s: float) -> flo
         if seg_end <= transient_start_s:
             continue
         seg_start = max(series.t_s[i - 1], transient_start_s)
-        beyond = abs(series.T_room[i] - series.T_setpoint[i]) - COMFORT_BAND_K
+        # Each sample is recorded before the plant advances, so it holds
+        # for the interval it starts, as in the delivered-heat integral.
+        beyond = abs(series.T_room[i - 1] - series.T_setpoint[i - 1]) - COMFORT_BAND_K
         if beyond > 0.0:
             total += beyond * (seg_end - seg_start) / 3600.0
     return total

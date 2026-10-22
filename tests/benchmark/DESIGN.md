@@ -149,8 +149,9 @@ cares about. Four are measured per run; the fifth is suite-level.
 2. **Actuator longevity** — valve wear and TRV battery drain. A
    controller that tracks perfectly by thrashing the valve is a bad trade
    on battery-powered Zigbee hardware.
-3. **Energy** — heat actually spent. Both over-heating (waste) and
-   under-heating (missed comfort) are deviations from the optimum.
+3. **Energy** — heat actually spent beyond the optimum. Heat below it
+   earns no extra credit; where it misses the setpoint, comfort counts
+   it.
 4. **Resilience** — behaviour under faults (sensor dropout, large
    disturbances). Not a separate per-run score: it surfaces as
    catastrophic comfort/actuator values on the fault scenarios (§7-E/F),
@@ -213,9 +214,10 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
   temperature rise it would cause without losses. Taken from the plant, so
   deadband, stiction and pipe delay count as they act on the room.
   Scored one-sided against the oracle's optimum (§6): heat beyond it is
-  waste, heat below it is a missed setpoint, which comfort scores. The
-  benchmark thereby charges an under-heating controller once, in the
-  dimension the user feels it in.
+  waste; heat below it earns no extra credit. It is usually a missed
+  setpoint, which comfort scores once, in the dimension the user feels
+  it in; where the oracle over-heats, as under sun, it is a saving the
+  score does not reward.
 * **integral_valve_percent_minutes** = ∫ valve% dt of the commanded valve.
   Reported as a diagnostic, *not* scored: it charges a valve the actuator
   never opened, and it overstates a wide-open valve, because a hotter
@@ -518,9 +520,10 @@ Then read *across* the dimension columns, not just `overall`:
   an upper bound: candidates beat it on some runs.
 * **Scoring is opinionated.** A controller can win `balanced` and lose
   `longevity_first`. There is no profile-free "best".
-* **Energy scores over-heating only.** Under-heating is charged once, in
-  comfort; if you would trade comfort for savings, read the columns
-  separately.
+* **Energy scores over-heating only.** Heat below the oracle's earns no
+  extra credit: a missed setpoint is charged once, in comfort, and a
+  saving under sun goes unrewarded. If you would trade comfort for
+  savings, read the columns separately.
 * **Not a deployment validation.** The benchmark spots regressions,
   compares controllers on equal footing, and localises a weakness to a
   dimension. Confirming real-world quality still needs hardware field

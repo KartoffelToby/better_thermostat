@@ -251,3 +251,14 @@ def test_render_per_scenario_takes_a_title():
         [_scored("pid", "S01", 0.1)], PROFILES["balanced"], title="Spread"
     )
     assert "Spread — profile: balanced" in out
+
+
+def test_average_over_seeds_keeps_plant_blocks_apart():
+    """The same controller and scenario under two plant blocks stay two cells."""
+    seed0 = [
+        _scored("pid", "S01", 0.8, block_label="plant=a"),
+        _scored("pid", "S01", 0.4, block_label="plant=b"),
+    ]
+    means, _ = average_over_seeds([seed0])
+    by_block = {sr.block_label: sr.scores.overall for sr in means}
+    assert by_block == {"plant=a": pytest.approx(0.8), "plant=b": pytest.approx(0.4)}

@@ -610,9 +610,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.seeds < 1:
         print("--seeds must be >= 1", file=sys.stderr)
         return 2
-    if args.seeds > 1 and (args.plant or args.plant_sweep):
+    if args.seeds > 1 and (args.plant or args.plant_sweep or args.multi_trv):
         print(
-            "--seeds cannot be combined with --plant or --plant-sweep", file=sys.stderr
+            "--seeds cannot be combined with --plant, --plant-sweep or --multi-trv",
+            file=sys.stderr,
         )
         return 2
 

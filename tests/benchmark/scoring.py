@@ -22,8 +22,8 @@ Failure thresholds are chosen so the score scale is interpretable:
 * Actuator: a controller with ≥ 5× oracle's total valve travel scores ≤ 0;
   below a small travel floor the excess is scored against the floor
 * Energy: heat delivered to the room beyond the oracle's — ≥ 2× the
-  oracle's heat scores 0. Heating less is not scored here: the room
-  then misses its setpoint, which comfort counts
+  oracle's heat scores 0. Heating less earns no extra credit: where it
+  misses the setpoint, comfort counts that
 
 Resilience is not a continuous per-run dimension — it shows up as
 catastrophic comfort/actuator scores in the edge-case scenarios
@@ -247,8 +247,10 @@ def energy_score(metrics: MetricValues, oracle: MetricValues) -> float:
 
     The oracle delivers the heat required to track the setpoint, so heat
     beyond it is waste: ≥ 2× the oracle's heat scores 0. Less heat than
-    the oracle's is not a saving but a missed setpoint, which comfort
-    scores; counting it here as well would charge it twice.
+    the oracle's earns no extra credit. It is usually a missed setpoint,
+    which comfort scores, and counting it here as well would charge it
+    twice; where the oracle over-heats, as under sun, it is a saving this
+    score does not reward.
 
     Parameters
     ----------

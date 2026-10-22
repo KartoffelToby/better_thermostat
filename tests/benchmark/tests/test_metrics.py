@@ -221,3 +221,17 @@ def test_discomfort_starts_at_the_transient():
     m = compute_metrics(_flat_series(21.5, 21.0, n=61), transient_start_s=1800.0)
     assert m.discomfort_K_h == pytest.approx(0.15)
     assert m.transient_duration_h == pytest.approx(0.5)
+
+
+def test_discomfort_charges_each_interval_its_starting_sample():
+    """A step recorded at the end of an interval is not charged to it."""
+    series = TimeSeries(
+        t_s=[0.0, 3600.0, 7200.0],
+        T_room=[21.0, 21.5, 21.5],
+        T_setpoint=[21.0, 21.0, 21.0],
+        valve_percent=[0.0, 0.0, 0.0],
+        heat_to_room_K_per_min=[0.0, 0.0, 0.0],
+    )
+    m = compute_metrics(series, transient_start_s=0.0)
+    # In band for the first hour, 0.3 K beyond it for the second.
+    assert m.discomfort_K_h == pytest.approx(0.3)
