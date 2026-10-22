@@ -181,15 +181,16 @@ score by noise and reporting threshold (balanced profile, 36 scenarios):
 | 0.02 K | 0.5 K | 0.865 | 0.807 | 0.696 | 0.675 | 0.736 | 0.637 |
 | 0.05 K | 0.5 K | 0.858 | 0.804 | 0.702 | 0.678 | 0.726 | 0.638 |
 
-Bold is the default; the 0.5 K rows add an hourly report. TPI leads PID
-up to about 0.02 K of noise and falls behind it at 0.05 K. Read the
-ranking of TPI, PID and `heating_power` as dependent on the sensor. MPC
-v2 leads in every row. It learns the sensor's reporting threshold from
-the steps between readings, treats a repeated value as "still within
-that threshold" rather than as a fresh measurement, and weighs valve
-moves more heavily the coarser the threshold is. A noisy 0.1 K sensor
-reports uneven steps and so counts as somewhat coarser, which is why
-0.05 K of noise costs MPC v2 no score here while it costs TPI 0.09.
+Bold is the default; the 0.5 K rows add an hourly report. At the 0.1 K
+threshold TPI leads PID up to about 0.02 K of noise and falls behind it
+at 0.05 K; at 0.5 K it leads at every noise level. Read the ranking of
+TPI, PID and `heating_power` as dependent on the sensor. MPC v2 leads in
+every row. It learns the sensor's reporting threshold from the steps
+between readings, treats a repeated value as "still within that
+threshold" rather than as a fresh measurement, and weighs valve moves
+more heavily the coarser the threshold is. A noisy 0.1 K sensor reports
+uneven steps and so counts as somewhat coarser, which is why 0.05 K of
+noise costs MPC v2 no score here while it costs TPI 0.09.
 
 ### Multi-TRV (`--multi-trv`)
 
