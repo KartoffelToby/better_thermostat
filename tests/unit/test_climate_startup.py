@@ -220,7 +220,7 @@ def plateau_bt(bt, hass):
     bt._control_task = None
     bt._window_task = None
     bt._door_task = None
-    bt.control_queue_task = None
+    bt.control_queue_task = asyncio.Queue(maxsize=1)
     bt.in_maintenance = False
     bt._control_needed_after_maintenance = False
     bt.last_external_sensor_change = dt_util.now() - timedelta(hours=2)
@@ -2514,7 +2514,7 @@ class TestRestoreState:
         bt._preset_cool_temperatures = {"none": 24.0, "comfort": 25.28, "eco": 27.0}
         bt._preset_cool_temperature = None
         bt.preset_mgr.temperatures = {"none": 20.0, "comfort": 22.222, "eco": 18.0}
-        bt.control_queue_task = None
+        bt.control_queue_task = asyncio.Queue(maxsize=1)
 
         await BetterThermostat.async_set_preset_mode(bt, "comfort")
         selected = (bt.heat_target_temperature, bt.cool_target_temperature)
@@ -2551,7 +2551,7 @@ class TestRestoreState:
         bt.cool_max_temperature = 35.0
         bt._preset_cool_temperatures = {"comfort": 33.0}
         bt._preset_cool_temperature = None
-        bt.control_queue_task = None
+        bt.control_queue_task = asyncio.Queue(maxsize=1)
 
         old = MagicMock()
         old.state = "heat"

@@ -143,3 +143,42 @@ def test_mpc_failed_compute_on_a_healthy_state_leaves_the_store_alone() -> None:
     assert payload is None
     state_mgr.set_mpc.assert_not_called()
     assert state_mgr.mpc[build_mpc_key(bt, "climate.trv")] is healthy
+
+
+def test_mpc_balance_clamps_a_boosted_trv_to_its_own_max_opening() -> None:
+    """A cold TRV's distributed share stops at its own ``valve_max_opening``.
+
+    The controller only sees the warmest TRV's cap, so the distribution can
+    hand a colder TRV a share above its own limit. Without direct valve
+    control that share becomes a setpoint or offset, so no later write path
+    clamps it.
+    """
+    state_mgr = _MpcStateStub()
+    bt = _make_bt(state_mgr)
+    bt.heat_target_temperature = 25.0
+    bt.room_temperature = 15.0
+    bt.real_trvs["climate.trv"] = trv_record(
+        entity_id="climate.trv",
+        advanced={},
+        current_temperature=15.0,
+        min_temp=5.0,
+        max_temp=30.0,
+        valve_max_opening=40.0,
+    )
+    bt.real_trvs["climate.trv2"] = trv_record(
+        entity_id="climate.trv2",
+        advanced={},
+        current_temperature=22.0,
+        min_temp=5.0,
+        max_temp=30.0,
+    )
+
+    payload, _ = _compute_mpc_balance(bt, "climate.trv")
+
+    assert payload is not None
+    balance = bt.real_trvs["climate.trv"].calibration_balance
+    assert balance is not None
+    # The group command exceeds the cold TRV's cap, so the clamp is exercised.
+    assert balance["debug"]["group_valve_pct"] > 40.0
+    assert balance["valve_percent"] == 40
+    assert payload.valve_percent == 40

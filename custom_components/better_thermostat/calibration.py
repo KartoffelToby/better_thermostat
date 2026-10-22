@@ -450,7 +450,7 @@ def _compute_mpc_balance(
                 room_temperature=mpc_room_temperature,
                 room_temperature_filtered=mpc_room_temperature_filtered,
                 trv_temperature=trv_state.current_temperature,
-                tolerance_K=float(self.tolerance or 0.0),
+                tolerance_K=self.tolerance,
                 temperature_slope_K_per_min=self.temperature_slope,
                 window_open=self.contact_open,
                 heating_allowed=True,
@@ -504,6 +504,11 @@ def _compute_mpc_balance(
         )
     else:
         this_trv_percent = group_valve_percent
+
+    # The controller only sees the group-level cap (warmest TRV); the
+    # distribution can boost a colder TRV above its own configured limit,
+    # so each per-TRV command is clamped to that TRV's max opening here.
+    this_trv_percent = min(this_trv_percent, _get_trv_max_opening(self, entity_id))
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state.calibration_balance = MpcBalance(
@@ -879,7 +884,7 @@ def _compute_mpc_v2_balance(
     # whichever TRV is currently being dispatched, otherwise mixed per-TRV
     # settings re-parameterize the shared controller.
     preset_source_id = min(self.real_trvs) if is_multi_trv else entity_id
-    advanced = self.real_trvs[preset_source_id].advanced or {}
+    advanced = self.real_trvs[preset_source_id].advanced
     preset_raw = advanced.get(CONF_MPC_V2_PLANT_PRESET, MpcV2PlantPreset.AUTO)
     try:
         preset = MpcV2PlantPreset(preset_raw)

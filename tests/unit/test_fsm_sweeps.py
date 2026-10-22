@@ -332,7 +332,11 @@ class TestLifecycleSweep:
 class TestMaintenanceSweep:
     """The maintenance region can never block control forever, exhaustively."""
 
-    DUES = (None, NOW_DT - timedelta(minutes=1), NOW_DT + timedelta(days=1))
+    DUES = (
+        mt.DUE_AT_FIRST_TICK,
+        NOW_DT - timedelta(minutes=1),
+        NOW_DT + timedelta(days=1),
+    )
 
     @pytest.mark.parametrize(
         ("region", "due", "window_open", "has_trvs"),
@@ -361,22 +365,22 @@ class TestMaintenanceSweep:
             assert result == state
             return
         # A future schedule stays untouched.
-        if due is not None and NOW_DT < due:
+        if NOW_DT < due:
             assert result == state
             return
         # Blocked or TRV-less ticks postpone instead of arming.
         if window_open or not has_trvs:
             assert isinstance(result, mt.MaintenanceIdle)
-            assert result.next_due is not None and result.next_due > NOW_DT
+            assert result.next_due > NOW_DT
         else:
             assert isinstance(result, mt.MaintenanceDue)
 
     @pytest.mark.parametrize(
         "state",
         [
-            mt.MaintenanceIdle(),
-            mt.MaintenanceDue(),
-            mt.MaintenanceRunning(running_since=NOW),
+            mt.MaintenanceIdle(next_due=NOW_DT),
+            mt.MaintenanceDue(next_due=NOW_DT),
+            mt.MaintenanceRunning(running_since=NOW, next_due=NOW_DT),
         ],
     )
     def test_finish_run_always_returns_to_idle(self, state):
@@ -386,7 +390,7 @@ class TestMaintenanceSweep:
 
     def test_overrunning_maintenance_stops_blocking(self):
         """A RUNNING phase past MAX_RUN_S is dead and no longer blocks."""
-        state = mt.MaintenanceRunning(running_since=NOW - mt.MAX_RUN_S)
+        state = mt.MaintenanceRunning(running_since=NOW - mt.MAX_RUN_S, next_due=NOW_DT)
         assert state.is_blocking(NOW) is False
-        fresh = mt.MaintenanceRunning(running_since=NOW - 10.0)
+        fresh = mt.MaintenanceRunning(running_since=NOW - 10.0, next_due=NOW_DT)
         assert fresh.is_blocking(NOW) is True
