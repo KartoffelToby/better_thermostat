@@ -40,6 +40,7 @@ from custom_components.better_thermostat.utils.helpers import (
     async_fire_logbook_entry,
     attr_to_celsius,
     convert_to_float_celsius,
+    device_released,
     entry_issue_id,
     is_reasonable_temperature,
 )
@@ -452,7 +453,8 @@ async def check_critical_entities(self: BetterThermostat) -> None:
 
     While the devices are released, an outage is the user's business: no
     TRV is reported, and an issue an earlier outage raised is withdrawn. The
-    check after the devices are taken back reports what is still missing.
+    same holds for a TRV released on its own. The check after the devices
+    or the TRV are taken back reports what is still missing.
     """
     critical = get_critical_entities(self)
     grace_until = self._critical_grace_until
@@ -460,7 +462,7 @@ async def check_critical_entities(self: BetterThermostat) -> None:
     reportable = unavailable_trvs_reportable(self)
 
     for entity in critical:
-        if self.devices_released:
+        if device_released(self, entity):
             if entity in self.devices_errors:
                 self.devices_errors.remove(entity)
                 self.async_write_ha_state()

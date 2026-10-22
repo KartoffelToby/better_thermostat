@@ -87,11 +87,11 @@ class DeviceCallTimeoutError(TimeoutError):
 
 
 class WriteWithheldError(Exception):
-    """A device write not sent because the devices are the user's.
+    """A device write not sent because the device is the user's.
 
     It ends a retry chain on the attempt it is raised in: a write that has
-    not gone out by the time the devices are released does not go out
-    later either.
+    not gone out by the time the device is released does not go out later
+    either.
     """
 
 

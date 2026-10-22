@@ -419,6 +419,7 @@
             "name": "Dérogations actives",
             "state": {
               "devices_released": "Appareils libérés",
+              "trvs_released": "TRV libérés",
               "learning_paused": "Apprentissage suspendu",
               "window_detection_off": "Détection de fenêtre désactivée"
             }
@@ -524,6 +525,12 @@
     "switch": {
       "release_devices": {
         "name": "Libérer les appareils"
+      },
+      "release_trv": {
+        "name": "{trv_name} Libération"
+      },
+      "release_trv_no_trv": {
+        "name": "Libération du TRV"
       },
       "pid_auto_tune": {
         "name": "{trv_name} Réglage automatique PID"
@@ -658,6 +665,9 @@
     },
     "devices_released": {
       "message": "Les appareils de {device_name} sont libérés. Désactivez Libérer les appareils pour que Better Thermostat les contrôle à nouveau."
+    },
+    "trv_released": {
+      "message": "Ces TRV de {device_name} sont libérés : {entity}. Désactivez leur interrupteur de libération pour que Better Thermostat les contrôle à nouveau."
     }
   }
 }

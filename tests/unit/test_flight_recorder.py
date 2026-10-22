@@ -634,6 +634,7 @@ class TestRoundtripCompleteness:
         trv_reported_kwargs = {
             "entity_id": "climate.trv",
             "available": False,
+            "released": True,
             "hvac_mode": HvacMode.HEAT,
             "current_temperature": 20.5,
             "setpoint": 21.5,

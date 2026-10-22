@@ -12,7 +12,7 @@ value actually has.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Set
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -63,6 +63,11 @@ class AdapterHost(AdapterProbeHost, Protocol):
     @property
     def devices_released(self) -> bool:
         """Whether the room's devices are the user's, so nothing is sent to them."""
+        ...
+
+    @property
+    def released_trvs(self) -> Set[str]:
+        """The TRVs the user has released one by one; nothing is sent to them."""
         ...
 
 

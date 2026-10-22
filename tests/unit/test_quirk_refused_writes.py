@@ -39,9 +39,11 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationOutput,
 )
 from tests.factories import (
+    RELEASE_SCOPES,
     ThermostatStandIn,
     make_entity_registry,
     make_registry_entry,
+    release_device,
     trv_record,
 )
 
@@ -426,6 +428,7 @@ class TestTheTuyaValveGetsNothingOnceReleased:
     way, and the second does not go out then.
     """
 
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
     @pytest.mark.parametrize(
         ("command", "first_service"),
         [
@@ -434,12 +437,12 @@ class TestTheTuyaValveGetsNothingOnceReleased:
         ],
     )
     @pytest.mark.asyncio
-    async def test_the_second_write_is_not_sent(self, command, first_service):
+    async def test_the_second_write_is_not_sent(self, command, first_service, scope):
         """The write under way completes; the one that would follow it does not."""
         host = _host(model="TV02-Zigbee")
 
         async def released_during_the_first(_domain, _service, _data, **_kwargs):
-            host.devices_released = True
+            release_device(host, ENTITY_ID, scope)
 
         host.hass.services.async_call = AsyncMock(side_effect=released_during_the_first)
 

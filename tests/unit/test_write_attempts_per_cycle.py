@@ -31,9 +31,11 @@ from custom_components.better_thermostat.adapters import (
 )
 from custom_components.better_thermostat.adapters.base import AdapterCapabilities
 from tests.factories import (
+    RELEASE_SCOPES,
     ThermostatStandIn,
     make_entity_registry,
     make_registry_entry,
+    release_device,
     trv_record,
 )
 
@@ -587,15 +589,16 @@ class TestNothingIsSentOnceTheDevicesAreReleased:
     of their own, and none of them goes out.
     """
 
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
     @pytest.mark.asyncio
     @pytest.mark.parametrize("channel", CHANNELS)
-    async def test_a_retry_due_after_the_release_is_not_sent(self, channel):
+    async def test_a_retry_due_after_the_release_is_not_sent(self, channel, scope):
         """The backoff the release lands in is the last thing the write does."""
         write = AsyncMock(side_effect=_unreachable())
         thermostat = _thermostat(_adapter(**{channel: write}))
 
         async def released_during_the_backoff(_seconds):
-            thermostat.devices_released = True
+            release_device(thermostat, ENTITY_ID, scope)
 
         sleeps = AsyncMock(side_effect=released_during_the_backoff)
         with patch(f"{_RETRY}.asyncio.sleep", new=sleeps):
@@ -606,12 +609,15 @@ class TestNothingIsSentOnceTheDevicesAreReleased:
         assert answer is (None if channel == "temperature" else False)
         assert thermostat.real_trvs[ENTITY_ID].unreachable_write_channels == {}
 
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
     @pytest.mark.asyncio
-    async def test_the_adapter_valve_channel_is_not_tried_after_the_release(self):
+    async def test_the_adapter_valve_channel_is_not_tried_after_the_release(
+        self, scope
+    ):
         """A quirk that declines the position leaves nothing to the adapter."""
 
         async def declined_while_released(_thermostat, _entity_id, _percent):
-            thermostat.devices_released = True
+            release_device(thermostat, ENTITY_ID, scope)
             return False
 
         quirks = SimpleNamespace(
@@ -627,15 +633,16 @@ class TestNothingIsSentOnceTheDevicesAreReleased:
         adapter.set_valve.assert_not_awaited()
         assert thermostat.real_trvs[ENTITY_ID].last_valve_percent is None
 
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
     @pytest.mark.asyncio
-    async def test_the_mode_after_an_offset_is_not_restored_once_released(self):
+    async def test_the_mode_after_an_offset_is_not_restored_once_released(self, scope):
         """The head that left its mode is the user's by the time it is told."""
         calls: list[str] = []
 
         async def service_call(domain, service, data, **kwargs):
             calls.append(domain)
             if domain == "number":
-                thermostat.devices_released = True
+                release_device(thermostat, ENTITY_ID, scope)
 
         thermostat = _thermostat_on(generic, service_call)
         thermostat.hass.states.get = MagicMock(return_value=None)

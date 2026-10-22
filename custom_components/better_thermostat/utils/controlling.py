@@ -96,6 +96,7 @@ from custom_components.better_thermostat.utils.helpers import (
     cooler_mode_diverges,
     cooler_send_cache,
     cooling_owns_dual_role_device,
+    device_released,
     dual_role_entity_id,
     get_current_set_temperatures,
     last_sent_cooler_temperature,
@@ -456,17 +457,17 @@ def _stamp_heartbeat(self: BetterThermostat) -> None:
 
 
 def _released_during_cycle(self: BetterThermostat, entity_id: str | None) -> bool:
-    """Return whether the devices are the user's at this write.
+    """Return whether the device is the user's at this write.
 
     A cycle decides once and then writes device after device, awaiting each
-    write. The devices can be released meanwhile, and from then on nothing
-    is sent to them, whatever the cycle decided before. Every write of a
-    cycle asks this right before it goes out.
+    write. The room's devices, or this one alone, can be released meanwhile,
+    and from then on nothing is sent to it, whatever the cycle decided
+    before. Every write of a cycle asks this right before it goes out.
     """
-    if not self.devices_released:
+    if not device_released(self, entity_id):
         return False
     _LOGGER.debug(
-        "better_thermostat %s: devices released during the cycle, leaving %s alone",
+        "better_thermostat %s: device released during the cycle, leaving %s alone",
         self.device_name,
         entity_id,
     )
@@ -738,8 +739,11 @@ def desired_diverges(
     reported mode with the mode the cooling channel decided on; a lost write
     shows up here and the next control cycle re-sends it.
     """
-    if self.cooler_entity_id is not None and cooler_mode_diverges(
-        self, self.hass.states.get(self.cooler_entity_id)
+    # A cooler that is also a released TRV reports what the user set.
+    if (
+        self.cooler_entity_id is not None
+        and not device_released(self, self.cooler_entity_id)
+        and cooler_mode_diverges(self, self.hass.states.get(self.cooler_entity_id))
     ):
         return True
     for entity_id, intent in desired.trvs.items():
@@ -1208,6 +1212,10 @@ def refresh_cached_trv_modes(self: BetterThermostat) -> None:
             continue
         if advanced_flag(trv.advanced, CONF_CHILD_LOCK):
             continue
+        # A released TRV was commanded nothing, and its cache keeps the mode
+        # it reports.
+        if device_released(self, entity_id):
+            continue
         _settled_mode = state.state
         if trv.last_hvac_mode is not None and state.state != trv.last_hvac_mode:
             _settled_mode = trv.last_hvac_mode
@@ -1337,6 +1345,9 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
                 self.device_name,
                 entity_id,
             )
+            continue
+        # What a released TRV reports moves nothing a cycle acts on.
+        if device_released(self, entity_id):
             continue
         switched_on = (
             prior_hvac_mode == HVACMode.OFF
@@ -1531,6 +1542,7 @@ async def control_queue(self: BetterThermostat) -> None:
                     )
                     if self.cooler_entity_id is not None and not (
                         _released
+                        or device_released(self, self.cooler_entity_id)
                         or (
                             _cooler_trv is not None
                             and _cooler_trv.awaiting_initialization
@@ -1563,6 +1575,10 @@ async def control_queue(self: BetterThermostat) -> None:
                     tasks = []
                     controlled_trvs = []
                     for trv in [] if _released else self.real_trvs.keys():
+                        if device_released(self, trv):
+                            # The user has this TRV: not commanded, and
+                            # not missing either.
+                            continue
                         if _cooling_owns_shared and trv == _shared_entity_id:
                             _LOGGER.debug(
                                 "better_thermostat %s: %s is driven by the cooling "
@@ -1574,16 +1590,17 @@ async def control_queue(self: BetterThermostat) -> None:
                         controlled_trvs.append(trv)
                         tasks.append(control_trv(self, trv, cycle=cycle))
 
-                    if _cooling_owns_shared and not tasks:
+                    if not tasks and not _released:
                         # The heating action and its hysteresis are advanced
-                        # inside control_trv, so a cycle whose only device went
-                        # to the cooling channel advances them here instead of
-                        # leaving the band on the state the previous cycle left.
+                        # inside control_trv, so a cycle that leaves every
+                        # TRV out, to the cooling channel or to the user,
+                        # advances them here instead of leaving the band on
+                        # the state the previous cycle left.
                         advance_hvac_action(self)
-                        # Leaving the room's only device to the cooling channel
-                        # is a deliberate decision and the cycle reached it, so
-                        # it counts as one: without the stamp the control
-                        # watchdog would read every cooling run longer than its
+                        # Leaving the room's TRVs alone is a deliberate
+                        # decision and the cycle reached it, so it counts as
+                        # one: without the stamp the control watchdog would
+                        # read every cooling run or release longer than its
                         # window as a hung loop.
                         _stamp_heartbeat(self)
 
@@ -1597,7 +1614,9 @@ async def control_queue(self: BetterThermostat) -> None:
                     # next cycle is the first to hold after it.
                     if self.learning_pause_changes == pause_changes_before_learners:
                         self.learning_held = (
-                            self.learning_paused or self.devices_released
+                            self.learning_paused
+                            or self.devices_released
+                            or bool(self.released_trvs)
                         )
 
                     failures: list[tuple[str, BaseException | bool]] = [

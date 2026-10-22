@@ -350,3 +350,78 @@ async def test_the_service_refuses_while_the_devices_are_released(bt):
     with pytest.raises(ServiceValidationError) as raised:
         await BetterThermostat.run_valve_maintenance_service(bt)
     assert raised.value.translation_key == "devices_released"
+
+
+@pytest.mark.asyncio
+async def test_a_run_writes_nothing_to_a_trv_released_on_its_own(bt):
+    """A run under way writes to the TRVs still controlled and not to a released one.
+
+    The TRV is released while the run is going on, so its restore at the end
+    is not sent either.
+    """
+    bt.real_trvs = {
+        entity_id: trv_record(entity_id=entity_id)
+        for entity_id in ("climate.trv", "climate.other")
+    }
+    bt.released_trvs = {"climate.trv"}
+    bt._temperature_lock = asyncio.Lock()
+
+    async def exercise(
+        infos, *, set_valve_fn, set_temperature_fn, set_hvac_mode_fn, **kwargs
+    ):
+        for entity_id in ("climate.trv", "climate.other"):
+            await set_valve_fn(entity_id, 100)
+            await set_temperature_fn(entity_id, 30.0)
+            await set_hvac_mode_fn(entity_id, HVACMode.HEAT)
+
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", AsyncMock(side_effect=exercise)),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+        patch(f"{_CLIMATE}.adapter_set_valve", AsyncMock(return_value=True)) as valve,
+        patch(f"{_CLIMATE}.adapter_set_temperature", AsyncMock()) as setpoint,
+        patch(f"{_CLIMATE}.adapter_set_hvac_mode", AsyncMock()) as mode,
+    ):
+        await BetterThermostat._run_valve_maintenance(
+            bt, ["climate.trv", "climate.other"]
+        )
+
+    for write in (valve, setpoint, mode):
+        assert [call.args[1] for call in write.await_args_list] == ["climate.other"]
+
+
+@pytest.mark.parametrize(
+    ("released", "serviced"),
+    [
+        pytest.param({"climate.trv"}, ["climate.other"], id="one_released"),
+        pytest.param({"climate.trv", "climate.other"}, None, id="every_released"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_the_service_leaves_a_released_trv_out(bt, released, serviced):
+    """On demand, the run exercises the TRVs still controlled.
+
+    A request that would exercise released TRVs only is refused and names
+    them.
+    """
+    bt.in_maintenance = False
+    bt.real_trvs = {
+        entity_id: trv_record(entity_id=entity_id, advanced={"valve_maintenance": True})
+        for entity_id in ("climate.trv", "climate.other")
+    }
+    bt.released_trvs = released
+    bt._run_valve_maintenance = AsyncMock()
+    bt._spawn_owned = asyncio.create_task
+
+    if serviced is None:
+        with pytest.raises(ServiceValidationError) as raised:
+            await BetterThermostat.run_valve_maintenance_service(bt)
+        assert raised.value.translation_key == "trv_released"
+        assert raised.value.translation_placeholders == {
+            "device_name": "Test BT",
+            "entity": "climate.trv, climate.other",
+        }
+        bt._run_valve_maintenance.assert_not_awaited()
+    else:
+        await BetterThermostat.run_valve_maintenance_service(bt)
+        bt._run_valve_maintenance.assert_awaited_once_with(serviced)

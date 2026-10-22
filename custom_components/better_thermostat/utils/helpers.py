@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 import logging
 import math
 import re
@@ -114,6 +114,46 @@ class _DeviceModelHost(_RegistryHost, Protocol):
     def device_name(self) -> str:
         """The Better Thermostat instance name, for logging context."""
         ...
+
+
+class ReleaseHost(Protocol):
+    """The instance surface a release question reads."""
+
+    @property
+    def devices_released(self) -> bool:
+        """Whether the user has released every device of the room."""
+        ...
+
+    @property
+    def released_trvs(self) -> Set[str]:
+        """The TRVs the user has released one by one, by entity id."""
+        ...
+
+
+def device_released(host: ReleaseHost, entity_id: str | None) -> bool:
+    """Return whether Better Thermostat leaves the device ``entity_id`` alone.
+
+    A device is the user's while the whole room is released, or while it is
+    a TRV released on its own. A cooler that is also one of the room's TRVs
+    is released with that TRV, since both roles write to the same device.
+    """
+    return host.devices_released or (
+        entity_id is not None and entity_id in host.released_trvs
+    )
+
+
+def every_trv_released(host: ReleaseHost, trv_ids: Iterable[str]) -> bool:
+    """Return whether no TRV among ``trv_ids`` is left for Better Thermostat.
+
+    True while the whole room is released, or while each of the TRVs is
+    released on its own. A room without TRVs has none released.
+    """
+    if host.devices_released:
+        return True
+    trv_ids = list(trv_ids)
+    return bool(trv_ids) and all(
+        entity_id in host.released_trvs for entity_id in trv_ids
+    )
 
 
 def entry_settings(entry: BetterThermostatConfigEntry) -> dict[str, object]:
@@ -966,12 +1006,19 @@ def group_all_members_off(self: BetterThermostat) -> bool:
     Gates group-wide "switch off" adoptions so a single valve entering frost
     protection (reported as ``off`` in HA) or a single ``no_off_system_mode``
     valve dropping to its minimum temperature cannot turn the whole room off.
-    With at most one TRV there is no group to disagree, so the gate is open.
+    With at most one TRV under control there is no group to disagree, so the
+    gate is open.
 
     What makes one member count as off is :func:`member_counts_as_off`, which
     the startup path reads too so the two cannot drift apart.
     """
-    trv_ids = list(self.real_trvs.keys())
+    # A released TRV is the user's, and what it reports decides nothing
+    # about the room, like a member that is not there.
+    trv_ids = [
+        entity_id
+        for entity_id in self.real_trvs
+        if not device_released(self, entity_id)
+    ]
     if len(trv_ids) <= 1:
         return True
 

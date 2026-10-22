@@ -15,6 +15,7 @@ from homeassistant.helpers.importlib import async_import_module
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.utils.helpers import (
+    device_released,
     published_setpoint_grid,
     round_by_step,
     sibling_disabled_at_write,
@@ -217,7 +218,7 @@ async def set_temperature(
     turns them into a bound — a NaN target would reach the device as its
     maximum setpoint.
 
-    A setpoint withheld because the devices were released while it waited
+    A setpoint withheld because the device was released while it waited
     for an attempt is not sent, and is no failure either.
     """
     # Normalize input to float early
@@ -395,7 +396,7 @@ async def _write_on_channel[H: AdapterHost, T, R](
     return. The outage is named at WARNING when it begins, once an hour
     while it lasts, and at INFO when it ends.
 
-    No attempt starts once the devices are released, so a retry still due
+    No attempt starts once the device is released, so a retry still due
     then, and a write that follows another one inside an adapter, is not
     sent; the write raises :class:`WriteWithheldError` instead and leaves
     the channel's reachability as it was.
@@ -429,7 +430,7 @@ async def _write_on_channel[H: AdapterHost, T, R](
     Raises
     ------
     WriteWithheldError
-        When the devices are released before an attempt
+        When the device is released before an attempt
     Exception
         The write's own exception, once the attempts it gets are spent
     """
@@ -439,10 +440,10 @@ async def _write_on_channel[H: AdapterHost, T, R](
 
     async def write_to_device(host: H, target: str, payload: T) -> R:
         # Every attempt asks: a retry, or the next valve channel, is a new
-        # write, and none goes out once the devices are the user's.
-        if host.devices_released:
+        # write, and none goes out once the device is the user's.
+        if device_released(host, target):
             _LOGGER.debug(
-                "better_thermostat %s: devices released, %s for %s not sent",
+                "better_thermostat %s: device released, %s for %s not sent",
                 device_name,
                 what,
                 target,

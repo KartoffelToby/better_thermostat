@@ -24,7 +24,7 @@ from custom_components.better_thermostat.model_fixes.types import (
 from ..adapters.base import offset_scale, offset_to_published
 from ..utils.advanced_flags import as_bool
 from ..utils.const import CONF_CHILD_LOCK
-from ..utils.helpers import find_child_lock_entity, find_device_entity
+from ..utils.helpers import device_released, find_child_lock_entity, find_device_entity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ async def override_set_temperature(
 async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
     """Run initial tweaks for the device.
 
-    Each tweak is a write of its own. The devices can be released while an
+    Each tweak is a write of its own. The device can be released while an
     earlier one is under way, and the tweaks after it are not sent then.
     """
     entity_registry = er.async_get(self.hass)
@@ -125,7 +125,7 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                 )
 
         # 2. Child lock sync setting
-        if self.devices_released:
+        if device_released(self, entity_id):
             return
         stored_child_lock = self.real_trvs[entity_id].advanced.get(CONF_CHILD_LOCK)
         if stored_child_lock is not None:
@@ -184,7 +184,7 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                     )
 
         # 3. Away / Window detection -> Off
-        if self.devices_released:
+        if device_released(self, entity_id):
             return
         # Window detection disable the interal trv window detection, its handled by better_thermostat
         win_entity = find_entity(
@@ -216,7 +216,7 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                 )
 
         # Away mode -> Off
-        if self.devices_released:
+        if device_released(self, entity_id):
             return
         # Disable the away mode on the device if available
         away_entity = find_entity(

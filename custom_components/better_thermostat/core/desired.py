@@ -75,7 +75,9 @@ class DesiredState:
 
     ``devices_released`` says the room's devices are the user's for this
     cycle: the shell commands none of them, the cooler included, and the
-    cycle teaches the learners nothing.
+    cycle teaches the learners nothing. TRVs released one by one leave it
+    False; they receive no intent, and once all of them are released the
+    block below says so.
 
     ``heating_blocked_by`` names the tier that keeps the room from being
     heated, and is None while the heating rung rules.

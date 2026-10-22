@@ -325,6 +325,46 @@ class TestCommitTemperatureUpdate:
         quirks.maybe_set_external_temperature.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_a_trv_released_on_its_own_is_passed_over(self, mock_bt):
+        """The reading goes to every TRV but the one released on its own."""
+        quirks = _external_temperature_quirks()
+        mock_bt.released_trvs = {"climate.trv1"}
+        mock_bt.real_trvs = {
+            entity_id: trv_record(entity_id=entity_id, model_quirks=quirks)
+            for entity_id in ("climate.trv1", "climate.trv2")
+        }
+
+        await _commit_temperature_update(mock_bt, 21.0)
+
+        quirks.maybe_set_external_temperature.assert_awaited_once_with(
+            mock_bt, "climate.trv2", 21.0
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_trv_released_during_an_earlier_write_gets_nothing(self, mock_bt):
+        """A TRV released while the one before it is written is passed over."""
+
+        async def second_released_during_the_write(_bt, _entity_id, _value):
+            mock_bt.released_trvs = {"climate.trv2"}
+
+        quirks = SimpleNamespace(
+            maybe_set_external_temperature=AsyncMock(
+                side_effect=second_released_during_the_write
+            )
+        )
+        mock_bt.real_trvs = {
+            entity_id: trv_record(entity_id=entity_id, model_quirks=quirks)
+            for entity_id in ("climate.trv1", "climate.trv2", "climate.trv3")
+        }
+
+        await _commit_temperature_update(mock_bt, 21.0)
+
+        assert [
+            call.args[1]
+            for call in quirks.maybe_set_external_temperature.await_args_list
+        ] == ["climate.trv1", "climate.trv3"]
+
+    @pytest.mark.asyncio
     async def test_a_release_during_one_trvs_write_spares_the_next(self, mock_bt):
         """The write under way completes; the TRVs after it get nothing."""
 

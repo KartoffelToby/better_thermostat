@@ -49,6 +49,7 @@ from custom_components.better_thermostat.utils.helpers import (
     cooler_send_cache,
     cooling_owns_dual_role_report,
     device_offers_mode,
+    device_released,
     dual_role_entity_id,
     group_all_members_off,
     is_reasonable_temperature,
@@ -610,7 +611,7 @@ async def trigger_trv_change(
             str(val_pos), self.device_name, "trv_event"
         )
 
-    if self.devices_released:
+    if device_released(self, entity_id):
         # The user drives the device. Its mode is cached as it reports it, so
         # that once the device is taken back its next report reads as no
         # change rather than as a press, and nothing it reports becomes the

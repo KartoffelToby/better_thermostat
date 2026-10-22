@@ -10,9 +10,11 @@ import pytest
 
 from custom_components.better_thermostat.trv import Trv
 from tests.factories import (
+    RELEASE_SCOPES,
     ThermostatStandIn,
     make_entity_registry,
     make_registry_entry,
+    release_device,
     trv_record,
 )
 
@@ -1204,8 +1206,9 @@ class TestNothingFollowsTheRelease:
     own that the released devices do not get.
     """
 
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
     @pytest.mark.asyncio
-    async def test_the_target_a_bump_deferred_is_not_sent(self, monkeypatch):
+    async def test_the_target_a_bump_deferred_is_not_sent(self, monkeypatch, scope):
         """The valve stays on the bump; the user owns it from the release on."""
         monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
         mock_self = _trvzb_with_numbers(
@@ -1216,20 +1219,21 @@ class TestNothingFollowsTheRelease:
         trv_state.last_valve_percent = 40
 
         assert await quirk.override_set_valve(mock_self, ENTITY, 30) is True
-        mock_self.devices_released = True
+        release_device(mock_self, ENTITY, scope)
         await trv_state.extra["_trvzb_valve_bump_task"]
 
         assert _number_writes(mock_self) == [{"entity_id": VALVE_OPENING, "value": 50}]
 
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
     @pytest.mark.asyncio
-    async def test_the_selector_is_not_moved_after_the_input(self, monkeypatch):
+    async def test_the_selector_is_not_moved_after_the_input(self, monkeypatch, scope):
         """The input went out; the selector that would follow it does not."""
         device = TestExternalTemperatureWriteTheDeviceRefuses
         mock_self = device._device_on_the_internal_sensor(monkeypatch)
 
         async def released_during_the_input(domain, *_args, **_kwargs):
             if domain == "number":
-                mock_self.devices_released = True
+                release_device(mock_self, "climate.trv1", scope)
 
         mock_self.hass.services.async_call = AsyncMock(
             side_effect=released_during_the_input

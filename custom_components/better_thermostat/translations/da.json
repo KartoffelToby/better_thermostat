@@ -419,6 +419,7 @@
             "name": "Aktive tilsidesættelser",
             "state": {
               "devices_released": "Enheder frigivet",
+              "trvs_released": "TRV'er frigivet",
               "learning_paused": "Indlæring sat på pause",
               "window_detection_off": "Vinduesregistrering slået fra"
             }
@@ -524,6 +525,12 @@
     "switch": {
       "release_devices": {
         "name": "Frigiv enheder"
+      },
+      "release_trv": {
+        "name": "{trv_name} Frigivelse"
+      },
+      "release_trv_no_trv": {
+        "name": "TRV-frigivelse"
       },
       "pid_auto_tune": {
         "name": "{trv_name} PID-autotuning"
@@ -658,6 +665,9 @@
     },
     "devices_released": {
       "message": "Enhederne for {device_name} er frigivet. Slå Frigiv enheder fra, så Better Thermostat styrer dem igen."
+    },
+    "trv_released": {
+      "message": "Disse TRV'er for {device_name} er frigivet: {entity}. Slå deres frigivelseskontakt fra, så Better Thermostat styrer dem igen."
     }
   }
 }

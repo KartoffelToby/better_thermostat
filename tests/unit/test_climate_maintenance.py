@@ -331,3 +331,41 @@ async def test_a_due_run_waits_while_the_devices_are_released(bt):
         await BetterThermostat._maintenance_tick(bt)
     bt._spawn_owned.assert_not_called()
     assert bt.kernel_state.maintenance.next_due == _NOW + timedelta(hours=1)
+
+
+@pytest.mark.parametrize(
+    ("released", "serviced", "next_due"),
+    [
+        pytest.param(set(), ["climate.trv", "climate.other"], None, id="none"),
+        pytest.param({"climate.trv"}, ["climate.other"], None, id="one"),
+        pytest.param(
+            {"climate.trv", "climate.other"}, None, timedelta(hours=1), id="every"
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_due_run_leaves_a_released_trv_out(bt, released, serviced, next_due):
+    """A TRV released on its own is not exercised; the others are.
+
+    A run that would exercise released TRVs only waits for them by the hour,
+    as a run of a released room does.
+    """
+    bt.real_trvs = {
+        entity_id: make_trv(entity_id) for entity_id in ("climate.trv", "climate.other")
+    }
+    bt.released_trvs = released
+    with (
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(
+            f"{_CLIMATE}.collect_maintenance_trvs",
+            MagicMock(return_value=["climate.trv", "climate.other"]),
+        ),
+    ):
+        await BetterThermostat._maintenance_tick(bt)
+    if serviced is None:
+        bt._spawn_owned.assert_not_called()
+        assert bt.kernel_state.maintenance.next_due == _NOW + next_due
+    else:
+        bt._spawn_owned.assert_called_once()
+        bt._run_valve_maintenance.assert_called_once_with(serviced)
