@@ -791,13 +791,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         }
     )
 
-    # Per-channel cooler send bookkeeping: the last successfully sent command,
-    # the settled reading of each written channel, the mode the last cycle
-    # decided on, and each channel's run of consecutive send failures.
-    # ``cooler_send_cache()`` creates it on first use, and every reader reaches
-    # it through that helper.
-    _cooler_last_sent: CoolerSendCache
-
     async def reset_heating_power(self) -> None:
         """Reset heating power to default value."""
         self._heating_tracker.reset_power()
@@ -1217,6 +1210,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.cool_min_temperature: float | None = None
         self.cool_max_temperature: float | None = None
         self.cool_target_temperature = None
+        # Per-channel cooler send bookkeeping: the last successfully sent
+        # command, the settled reading of each written channel, the mode the
+        # last cycle decided on, and each channel's run of consecutive send
+        # failures. Every reader reaches it through ``cooler_send_cache()``.
+        self._cooler_last_sent: CoolerSendCache = {}
         # The state saved before the last stop, read when the entity is added.
         self._saved_state: State | None = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
@@ -1314,15 +1312,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # Startup grace period before an unavailable TRV raises a
         # ``missing_entity`` repair; armed when startup begins.
         self._critical_grace_until: datetime | None = None
-        self.control_queue_task: asyncio.Queue[BetterThermostat | None] = asyncio.Queue(
+        self.control_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
             maxsize=1
         )
         if self.window_sensor_entity_id is not None:
-            self.window_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(
-                maxsize=1
-            )
+            self.window_queue_task: asyncio.Queue[bool] = asyncio.Queue(maxsize=1)
         if self.door_sensor_entity_id is not None:
-            self.door_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(maxsize=1)
+            self.door_queue_task: asyncio.Queue[bool] = asyncio.Queue(maxsize=1)
         self._control_task: asyncio.Task[None] | None = None
         self._window_task: asyncio.Task[None] | None = None
         self._door_task: asyncio.Task[None] | None = None

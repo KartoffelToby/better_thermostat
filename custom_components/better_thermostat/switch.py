@@ -464,7 +464,7 @@ class BetterThermostatChildLockSwitch(
         """Return the child-lock option the config entry holds for the TRV."""
         for trv_config in self._bt_climate.all_trvs or []:
             if trv_config.get("trv") == self._trv_entity_id:
-                return advanced_flag(trv_config.get("advanced"), CONF_CHILD_LOCK)
+                return advanced_flag(trv_config.get("advanced", {}), CONF_CHILD_LOCK)
         return False
 
     @override

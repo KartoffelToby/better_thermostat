@@ -108,6 +108,14 @@ def test_the_configured_option_reads_a_stored_spelling(stored, expected):
     assert switch._configured_child_lock() is expected
 
 
+def test_an_entry_without_advanced_options_configures_no_lock():
+    """A thermostat entry that stores no advanced options reads as unlocked."""
+    switch = _make_switch(trv_record(entity_id=TRV_ID))
+    switch._bt_climate.all_trvs = [TrvSettings(trv=TRV_ID, integration="generic")]
+
+    assert switch._configured_child_lock() is False
+
+
 @pytest.mark.asyncio
 async def test_a_restored_off_matching_a_stored_false_sends_nothing():
     """A TRV holding ``"false"`` already holds the restored off."""
