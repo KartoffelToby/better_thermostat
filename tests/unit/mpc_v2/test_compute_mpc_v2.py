@@ -1722,3 +1722,81 @@ def test_a_short_pause_teaches_the_disturbance_estimate_nothing(
         applied = float(out.valve_percent)
     assert state.controller is not None
     assert state.controller.dob.D_hat_K_per_min > before + 0.005
+
+
+def _fast_prior_run(
+    params: MpcV2Params, hours: float, state: MpcV2State | None, t_s: float
+) -> tuple[MpcV2State, float]:
+    """Hold 21 °C in the default room for ``hours`` on five-minute cycles."""
+    room = PlantModelRC2(PlantParams(), dt_s=30.0)
+    x = np.array([21.0, 37.0])
+    applied: float | None = None
+    for _ in range(round(hours * 12)):
+        out, state = compute_mpc_v2(
+            _baseline_input(
+                target_temperature=21.0,
+                room_temperature=float(x[0]),
+                applied_valve_percent=applied,
+            ),
+            params,
+            state,
+            now=t_s,
+        )
+        assert out is not None
+        applied = float(out.valve_percent)
+        for _step in range(10):
+            x = room.discrete_step(x, applied / 100.0, 5.0)
+            t_s += 30.0
+    assert state is not None
+    return state, t_s
+
+
+def test_a_pause_narrows_the_widened_disturbance_bound() -> None:
+    """After a window or heating pause the bound falls back to what is in use."""
+    params = MpcV2Params(plant=replace(PlantParams(), tau_room_min=60.0))
+    state, t_s = _fast_prior_run(params, 8.0, None, 1_700_000_000.0)
+    assert state.controller is not None
+    dob = state.controller.dob
+    assert dob.bound_K_per_min > 0.3
+
+    out, state = compute_mpc_v2(
+        _baseline_input(
+            target_temperature=21.0, room_temperature=21.0, window_open=True
+        ),
+        params,
+        state,
+        now=t_s,
+    )
+    assert out is None
+    out, state = compute_mpc_v2(
+        _baseline_input(target_temperature=21.0, room_temperature=21.0),
+        params,
+        state,
+        now=t_s + 300.0,
+    )
+
+    assert out is not None
+    in_use = max(0.05, abs(dob.D_hat_K_per_min), abs(dob.planning_filtered))
+    assert dob.bound_K_per_min == pytest.approx(in_use)
+    assert state.controller.kalman.disturbance_bound_K_per_min == pytest.approx(in_use)
+
+
+def test_a_restored_load_beyond_the_rate_bound_reaches_the_observer() -> None:
+    """A stored disturbance past 0.05 K/min on a fast prior is restored whole."""
+    params = MpcV2Params(plant=replace(PlantParams(), tau_room_min=60.0))
+    snap = ControllerSnapshot.from_mapping(
+        {
+            "v": SNAPSHOT_VERSION,
+            "x_hat": [21.0, 30.0],
+            "D_hat_K_per_min": -0.2,
+            "planning_disturbance": -0.18,
+        }
+    )
+    assert snap is not None
+    controller = MpcV2Controller(params)
+
+    controller.restore_snapshot(snap)
+
+    assert controller.dob.D_hat_K_per_min == pytest.approx(-0.2)
+    assert controller.kalman.disturbance_K_per_min == pytest.approx(-0.2)
+    assert controller.kalman.disturbance_bound_K_per_min == pytest.approx(0.2)
