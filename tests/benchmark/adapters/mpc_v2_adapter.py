@@ -27,11 +27,18 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     import_mpc_v2_state,
     make_plant_prior,
 )
+from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
+    MpcV2Controller,
+)
+from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.report_band import (
+    REPORT_STEP_WINDOW,
+)
 from custom_components.better_thermostat.utils.state_manager import (
     MpcV2StateData,
     write_mpc_v2_state,
 )
 
+from ..sensor import SensorParams
 from .base import BenchmarkContext, BenchmarkOutput, ControlCycleGate, ControllerFamily
 
 # Controller state is caller-owned; each adapter keeps its own key so
@@ -99,6 +106,18 @@ class MpcV2Adapter(ControlCycleGate):
         return BenchmarkOutput(
             valve_percent=float(out.valve_percent), diagnostics=asdict(out.diagnostics)
         )
+
+    def adopt_sensor(self, sensor: SensorParams) -> None:
+        """Start with the room sensor's reporting threshold already learned.
+
+        The report band is filled with steps of that threshold (or of the
+        resolution, for a sensor that reports every change), which is where
+        its estimate settles after days of readings.
+        """
+        step = max(sensor.report_threshold_K, sensor.resolution_K)
+        if self._state.controller is None:
+            self._state.controller = MpcV2Controller(self._params)
+        self._state.controller.report_band.restore(None, [step] * REPORT_STEP_WINDOW)
 
     def export_state(self) -> dict[str, Any]:
         """Return a serializable snapshot of the wrapped MPC v2 state."""

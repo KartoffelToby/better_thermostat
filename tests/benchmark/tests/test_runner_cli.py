@@ -13,9 +13,14 @@ import io
 
 import pytest
 
+from tests.benchmark import runner
+from tests.benchmark.adapters.base import ControllerAdapter
 from tests.benchmark.adapters.baselines import LinearPAdapter
+from tests.benchmark.plant import PlantParams
+from tests.benchmark.reporter import ScenarioResult
 from tests.benchmark.runner import main, run_scenario
-from tests.benchmark.scenarios import S01_SETPOINT_STEP_SMALL
+from tests.benchmark.scenarios import S01_SETPOINT_STEP_SMALL, ScenarioConfig
+from tests.benchmark.sensor import REALISTIC_SENSOR_PARAMS, SensorParams
 
 
 def _run(argv: list[str]) -> tuple[int, str]:
@@ -317,3 +322,84 @@ def test_a_noise_seed_draws_another_realisation():
     )
     assert again.metrics == base.metrics
     assert other.metrics != base.metrics
+
+
+@pytest.mark.parametrize("seeds", ["1", "2"])
+def test_main_hands_the_sensor_flags_to_every_run(
+    monkeypatch: pytest.MonkeyPatch, seeds: str
+) -> None:
+    """Every controller and oracle run gets the overridden sensor.
+
+    Controller runs also get ``learned_sensor``; the second seed takes the
+    same path.
+    """
+    seen: list[tuple[SensorParams | None, bool]] = []
+    real_run = runner.run_scenario
+
+    def _record(
+        adapter: ControllerAdapter,
+        scenario: ScenarioConfig,
+        *,
+        step_s: float,
+        stabilisation_min: float,
+        plant_params: PlantParams | None = None,
+        learned_sensor: bool = False,
+    ) -> ScenarioResult:
+        seen.append((scenario.sensor_params, learned_sensor))
+        return real_run(
+            adapter,
+            scenario,
+            step_s=step_s,
+            plant_params=plant_params,
+            stabilisation_min=stabilisation_min,
+            learned_sensor=learned_sensor,
+        )
+
+    monkeypatch.setattr(runner, "run_scenario", _record)
+    rc, _ = _run(
+        [
+            "--controller",
+            "linear_p",
+            "--scenario",
+            "S01_setpoint_step_small",
+            "--stabilisation-min",
+            "0",
+            "--step-s",
+            "60",
+            "--seeds",
+            seeds,
+            "--sensor-noise",
+            "0.05",
+            "--report-threshold",
+            "0.5",
+            "--heartbeat-s",
+            "1800",
+            "--learned-sensor",
+        ]
+    )
+    assert rc == 0
+    expected = replace(
+        REALISTIC_SENSOR_PARAMS,
+        noise_std_K=0.05,
+        report_threshold_K=0.5,
+        heartbeat_s=1800.0,
+    )
+    # One oracle and one controller run per seed.
+    assert seen == [(expected, False), (expected, True)] * int(seeds)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        pytest.param(["--sensor-noise", "-0.01"], id="negative-noise"),
+        pytest.param(["--report-threshold", "-0.1"], id="negative-threshold"),
+        pytest.param(["--heartbeat-s", "-1"], id="negative-heartbeat"),
+        pytest.param(["--learned-sensor", "--multi-trv"], id="multi-trv"),
+        pytest.param(["--report-threshold", "0.5", "--plant-sweep"], id="plant-sweep"),
+    ],
+)
+def test_main_rejects_unusable_sensor_flags(extra: list[str]) -> None:
+    """A negative sensor value or a run with its own sensors exits with code 2."""
+    rc, out = _run(["--controller", "linear_p", *extra])
+    assert rc == 2
+    assert "--sensor-noise, --report-threshold" in out
