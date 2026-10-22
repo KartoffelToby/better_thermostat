@@ -395,10 +395,6 @@ async def trigger_trv_change(
     """
     if self.startup_running:
         return
-    if self.control_queue_task is None:
-        return
-    if self.tolerance is None:
-        return
     if self.bt_update_lock:
         return
     _main_change = False

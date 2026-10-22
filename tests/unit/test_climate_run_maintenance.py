@@ -140,22 +140,8 @@ async def test_deferred_control_kicks_even_when_off(bt):
 
 
 @pytest.mark.asyncio
-async def test_control_kick_skipped_without_a_queue(bt):
-    """Without a control queue the run finishes; the periodic tick catches up."""
-    bt.control_queue_task = None
-    with (
-        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
-        patch(f"{_CLIMATE}.run_valve_maintenance", AsyncMock()),
-        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
-    ):
-        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
-    assert BetterThermostat.in_maintenance.__get__(bt) is False
-    assert bt.ignore_states is False
-
-
-@pytest.mark.asyncio
 async def test_failing_control_kick_is_traced(bt, caplog):
-    """A control-kick failure other than a missing queue is recorded."""
+    """A control-kick failure is recorded."""
     with (
         caplog.at_level(logging.DEBUG, logger=_CLIMATE),
         patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),

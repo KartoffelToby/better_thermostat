@@ -450,7 +450,7 @@ def _compute_mpc_balance(
                 room_temperature=mpc_room_temperature,
                 room_temperature_filtered=mpc_room_temperature_filtered,
                 trv_temperature=trv_state.current_temperature,
-                tolerance_K=float(self.tolerance or 0.0),
+                tolerance_K=self.tolerance,
                 temperature_slope_K_per_min=self.temperature_slope,
                 window_open=self.contact_open,
                 heating_allowed=True,

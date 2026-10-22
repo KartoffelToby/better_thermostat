@@ -1015,15 +1015,6 @@ class TestEdgeCasesAndRobustness:
         assert mock_bt.room_temperature == 60.0
 
     @pytest.mark.asyncio
-    async def test_control_queue_none_no_crash_in_apply(self, mock_bt):
-        """No crash when control_queue_task is None during _commit_temperature_update."""
-        mock_bt.control_queue_task = None
-        event = _make_event(State(SENSOR_ID, "21.0"))
-
-        await trigger_temperature_change(mock_bt, event)
-        assert mock_bt.room_temperature == 21.0
-
-    @pytest.mark.asyncio
     async def test_ema_failure_does_not_block_update(self, mock_bt):
         """EMA calculation failure should not prevent temperature update."""
         # Force EMA to fail by making tau_seconds non-numeric
