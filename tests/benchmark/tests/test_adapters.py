@@ -274,6 +274,9 @@ def test_mpc_v2_adapter_closes_the_valve_while_the_window_is_open():
     [
         pytest.param(0.5, 0.1, 0.5, id="threshold"),
         pytest.param(0.0, 0.3, 0.3, id="every-change-at-resolution"),
+        pytest.param(0.4, 0.3, 0.6, id="threshold-between-resolution-steps"),
+        pytest.param(0.27, 0.09, 0.27, id="threshold-on-a-resolution-step"),
+        pytest.param(0.4, 0.0, 0.4, id="unrounded"),
     ],
 )
 def test_mpc_v2_adapter_adopts_the_sensor_threshold_and_keeps_it(

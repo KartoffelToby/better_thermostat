@@ -40,6 +40,7 @@ from dataclasses import dataclass, replace
 import math
 from typing import Any
 
+from ..sensor import SensorParams
 from .base import BenchmarkContext, BenchmarkOutput, ControllerAdapter, ControllerFamily
 
 
@@ -341,6 +342,12 @@ class IndirectTrvAdapter:
                 "indirect_quantised_diff_K": applied_setpoint - desired_setpoint,
             },
         )
+
+    def adopt_sensor(self, sensor: SensorParams) -> None:
+        """Hand the room sensor on to the wrapped controller, if it learns it."""
+        adopt = getattr(self.inner, "adopt_sensor", None)
+        if callable(adopt):
+            adopt(sensor)
 
     def export_state(self) -> dict[str, Any]:
         """Expose inner state plus TRV-layer cache."""

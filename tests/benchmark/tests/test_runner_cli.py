@@ -392,6 +392,8 @@ def test_main_hands_the_sensor_flags_to_every_run(
     "extra",
     [
         pytest.param(["--sensor-noise", "-0.01"], id="negative-noise"),
+        pytest.param(["--sensor-noise", "nan"], id="nan-noise"),
+        pytest.param(["--heartbeat-s", "inf"], id="infinite-heartbeat"),
         pytest.param(["--report-threshold", "-0.1"], id="negative-threshold"),
         pytest.param(["--heartbeat-s", "-1"], id="negative-heartbeat"),
         pytest.param(["--learned-sensor", "--multi-trv"], id="multi-trv"),

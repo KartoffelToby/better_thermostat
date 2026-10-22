@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from itertools import count
+import math
 from typing import Any, override
 
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
@@ -110,11 +111,18 @@ class MpcV2Adapter(ControlCycleGate):
     def adopt_sensor(self, sensor: SensorParams) -> None:
         """Start with the room sensor's reporting threshold already learned.
 
-        The report band is filled with steps of that threshold (or of the
-        resolution, for a sensor that reports every change), which is where
-        its estimate settles after days of readings.
+        The report band is filled with the smallest step the sensor reports,
+        which is where its estimate settles after days of readings. The
+        sensor rounds to its resolution before it compares against the
+        threshold, so that step is the first multiple of the resolution that
+        reaches the threshold.
         """
-        step = max(sensor.report_threshold_K, sensor.resolution_K)
+        threshold, resolution = sensor.report_threshold_K, sensor.resolution_K
+        if resolution > 0.0:
+            multiples = max(1, math.ceil(threshold / resolution - 1e-9))
+            step = round(multiples * resolution, 6)
+        else:
+            step = threshold
         if self._state.controller is None:
             self._state.controller = MpcV2Controller(self._params)
         self._state.controller.report_band.restore(None, [step] * REPORT_STEP_WINDOW)

@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 from dataclasses import replace
+import math
 import sys
 from typing import Any, Protocol
 import zlib
@@ -676,9 +677,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         if value is not None
     }
-    if any(value < 0.0 for value in sensor_overrides.values()):
+    if any(
+        not math.isfinite(value) or value < 0.0 for value in sensor_overrides.values()
+    ):
         print(
-            "--sensor-noise, --report-threshold and --heartbeat-s must be >= 0",
+            "--sensor-noise, --report-threshold and --heartbeat-s must be finite "
+            "and >= 0",
             file=sys.stderr,
         )
         return 2
