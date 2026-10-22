@@ -619,11 +619,13 @@ async def _cleanup_pid_switch_entities(
         uid = f"{bt_climate.unique_id}_{trv_entity_id}_pid_auto_tune"
         tracked_switches[uid] = SwitchRef(trv_entity_id, SwitchKind.PID_AUTO_TUNE)
 
-    # Add Child Lock switches (always present for all TRVs)
+    # Add the Child Lock and Release switches (always present for all TRVs)
     if bt_climate.real_trvs:
         for trv_entity_id in bt_climate.real_trvs:
             uid = f"{bt_climate.unique_id}_{trv_entity_id}_child_lock"
             tracked_switches[uid] = SwitchRef(trv_entity_id, SwitchKind.CHILD_LOCK)
+            uid = f"{bt_climate.unique_id}_{trv_entity_id}_release"
+            tracked_switches[uid] = SwitchRef(trv_entity_id, SwitchKind.RELEASE_TRV)
 
     if removed_count > 0:
         _LOGGER.info(
