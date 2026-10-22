@@ -70,33 +70,42 @@ async def async_setup_entry(
         BetterThermostatReleaseDevicesSwitch(bt_climate),
         BetterThermostatPauseLearningSwitch(bt_climate),
     ]
-    switch_unique_ids: dict[str | None, SwitchRef] = {}
+    switch_unique_ids: dict[str, SwitchRef] = {}
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
     for trv_entity_id, trv in bt_climate.real_trvs.items():
         if configured_calibration_mode(trv.advanced) == CalibrationMode.PID_CALIBRATION:
-            pid_switch = BetterThermostatPIDAutoTuneSwitch(
+            switches.append(
+                BetterThermostatPIDAutoTuneSwitch(
+                    bt_climate, trv_entity_id, has_multiple_trvs
+                )
+            )
+            switch_unique_ids[
+                BetterThermostatPIDAutoTuneSwitch.build_unique_id(
+                    bt_climate.unique_id, trv_entity_id
+                )
+            ] = SwitchRef(trv_entity_id, SwitchKind.PID_AUTO_TUNE)
+
+        switches.append(
+            BetterThermostatChildLockSwitch(
                 bt_climate, trv_entity_id, has_multiple_trvs
             )
-            switches.append(pid_switch)
-            switch_unique_ids[pid_switch._attr_unique_id] = SwitchRef(
-                trv_entity_id, SwitchKind.PID_AUTO_TUNE
+        )
+        switch_unique_ids[
+            BetterThermostatChildLockSwitch.build_unique_id(
+                bt_climate.unique_id, trv_entity_id
             )
+        ] = SwitchRef(trv_entity_id, SwitchKind.CHILD_LOCK)
 
-        child_lock_switch = BetterThermostatChildLockSwitch(
-            bt_climate, trv_entity_id, has_multiple_trvs
+        switches.append(
+            BetterThermostatReleaseTrvSwitch(
+                bt_climate, trv_entity_id, has_multiple_trvs
+            )
         )
-        switches.append(child_lock_switch)
-        switch_unique_ids[child_lock_switch._attr_unique_id] = SwitchRef(
-            trv_entity_id, SwitchKind.CHILD_LOCK
-        )
-
-        release_switch = BetterThermostatReleaseTrvSwitch(
-            bt_climate, trv_entity_id, has_multiple_trvs
-        )
-        switches.append(release_switch)
-        switch_unique_ids[release_switch._attr_unique_id] = SwitchRef(
-            trv_entity_id, SwitchKind.RELEASE_TRV
-        )
+        switch_unique_ids[
+            BetterThermostatReleaseTrvSwitch.build_unique_id(
+                bt_climate.unique_id, trv_entity_id
+            )
+        ] = SwitchRef(trv_entity_id, SwitchKind.RELEASE_TRV)
 
     if bt_climate.has_contact_sensor:
         switches.append(BetterThermostatWindowDetectionSwitch(bt_climate))
@@ -180,6 +189,11 @@ class BetterThermostatReleaseTrvSwitch(FollowsThermostat, TrvNamedEntity, Switch
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
 
+    @staticmethod
+    def build_unique_id(bt_unique_id: str, trv_entity_id: str) -> str:
+        """Return the unique id of the switch that releases one TRV of ``trv_entity_id``."""
+        return f"{bt_unique_id}_{trv_entity_id}_release"
+
     def __init__(
         self,
         bt_climate: BetterThermostat,
@@ -189,7 +203,9 @@ class BetterThermostatReleaseTrvSwitch(FollowsThermostat, TrvNamedEntity, Switch
         """Initialize the switch."""
         self._bt_climate = bt_climate
         self._trv_entity_id = trv_entity_id
-        self._attr_unique_id = f"{bt_climate.unique_id}_{trv_entity_id}_release"
+        self._attr_unique_id = BetterThermostatReleaseTrvSwitch.build_unique_id(
+            bt_climate.unique_id, trv_entity_id
+        )
         if show_trv_name:
             self._attr_translation_key = "release_trv"
             self._attr_translation_placeholders = {
@@ -288,6 +304,11 @@ class BetterThermostatPIDAutoTuneSwitch(
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
 
+    @staticmethod
+    def build_unique_id(bt_unique_id: str, trv_entity_id: str) -> str:
+        """Return the unique id of the PID auto-tune switch of ``trv_entity_id``."""
+        return f"{bt_unique_id}_{trv_entity_id}_pid_auto_tune"
+
     def __init__(
         self,
         bt_climate: BetterThermostat,
@@ -297,7 +318,9 @@ class BetterThermostatPIDAutoTuneSwitch(
         """Initialize the switch."""
         self._bt_climate = bt_climate
         self._trv_entity_id = trv_entity_id
-        self._attr_unique_id = f"{bt_climate.unique_id}_{trv_entity_id}_pid_auto_tune"
+        self._attr_unique_id = BetterThermostatPIDAutoTuneSwitch.build_unique_id(
+            bt_climate.unique_id, trv_entity_id
+        )
 
         if show_trv_name:
             self._attr_translation_key = "pid_auto_tune"
@@ -403,7 +426,9 @@ def restored_child_lock(
     the device the lock the switch will show rather than the option.
     """
     entity_id = er.async_get(hass).async_get_entity_id(
-        "switch", DOMAIN, f"{bt_unique_id}_{trv_entity_id}_child_lock"
+        "switch",
+        DOMAIN,
+        BetterThermostatChildLockSwitch.build_unique_id(bt_unique_id, trv_entity_id),
     )
     if entity_id is None:
         return None
@@ -503,6 +528,11 @@ class BetterThermostatChildLockSwitch(
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
 
+    @staticmethod
+    def build_unique_id(bt_unique_id: str, trv_entity_id: str) -> str:
+        """Return the unique id of the child lock switch of ``trv_entity_id``."""
+        return f"{bt_unique_id}_{trv_entity_id}_child_lock"
+
     def __init__(
         self,
         bt_climate: BetterThermostat,
@@ -512,7 +542,9 @@ class BetterThermostatChildLockSwitch(
         """Initialize the switch."""
         self._bt_climate = bt_climate
         self._trv_entity_id = trv_entity_id
-        self._attr_unique_id = f"{bt_climate.unique_id}_{trv_entity_id}_child_lock"
+        self._attr_unique_id = BetterThermostatChildLockSwitch.build_unique_id(
+            bt_climate.unique_id, trv_entity_id
+        )
         if show_trv_name:
             self._attr_translation_key = "child_lock"
             self._attr_translation_placeholders = {
