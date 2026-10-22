@@ -32,7 +32,8 @@ class TestTypedAccess:
         assert trv.calibration_received is True
         assert trv.ignore_trv_states is False
         assert trv.current_temperature is None
-        assert trv.last_calibration is None
+        assert trv.last_calibration == 0.0
+        assert trv.max_temp == 30.0
         assert trv.last_calibration_requested is None
         assert trv.advanced == {}
         assert trv.extra == {}

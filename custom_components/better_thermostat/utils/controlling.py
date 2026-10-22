@@ -675,7 +675,7 @@ def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
         # Service-call ecosystems have no readable calibration entity;
         # divergence is only verifiable through one.
         return False
-    if trv.last_calibration is None or trv.calibration_received is not True:
+    if trv.calibration_received is not True:
         return False
     state = self.hass.states.get(trv.local_temperature_calibration_entity)
     if not state_is_live(state):
@@ -684,7 +684,7 @@ def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
     if reported is None:
         return False
     reported = published_to_offset(offset_scale(state), reported)
-    return abs(float(trv.last_calibration) - reported) > _calibration_match_tolerance(
+    return abs(trv.last_calibration - reported) > _calibration_match_tolerance(
         self, trv.entity_id
     )
 
@@ -2791,20 +2791,16 @@ async def control_trv(
                 _offset_tolerance = _calibration_match_tolerance(self, entity_id)
 
                 # COMMAND: what the adapter actually put on the wire. Only
-                # that value can be acknowledged; before the first write the
-                # device's own report stands in for it.
+                # that value can be acknowledged; before the first write it is
+                # the offset startup read off the device.
                 _last_sent = trv.last_calibration
-                if _last_sent is None:
-                    _last_sent = _current_calibration
 
                 # Three-valued: an unreadable report neither confirms the
                 # command nor proves it was dropped.
-                _report_readable = (
-                    _current_calibration is not None and _last_sent is not None
-                )
-                _command_diverged = _report_readable and (
-                    abs(float(_current_calibration) - float(_last_sent))
-                    > _offset_tolerance
+                _report_readable = _current_calibration is not None
+                _command_diverged = (
+                    _current_calibration is not None
+                    and abs(_current_calibration - _last_sent) > _offset_tolerance
                 )
                 _command_confirmed = _report_readable and not _command_diverged
 
@@ -2821,57 +2817,49 @@ async def control_trv(
                     trv.calibration_received = True
 
                 if _calibration is not None and trv.calibration_received is True:
-                    if _last_sent is None:
-                        _LOGGER.debug(
-                            "better_thermostat %s: no reference calibration for %s "
-                            "yet, skipping calibration write this cycle",
-                            self.device_name,
-                            entity_id,
-                        )
-                    else:
-                        # INTENT: the value asked for before the adapter's own
-                        # clamp. A device resting at a limit it declared keeps
-                        # reporting the clamped command, so comparing the
-                        # intent against the command would rewrite it every
-                        # cycle. Both intent values come off the same step
-                        # grid, so they compare exactly; only the report lives
-                        # on the device's grid and needs the tolerance.
-                        _last_requested = trv.last_calibration_requested
-                        if _last_requested is None:
-                            _last_requested = _last_sent
-                        if float(_last_requested) != _calibration or _command_diverged:
-                            if _released_during_cycle(self, entity_id):
-                                return True
-                            # A deferred offset re-derives on the next control cycle
-                            # once the slot is free again.
-                            if _consume_budget(self, entity_id, "offset"):
-                                _LOGGER.debug(
-                                    "better_thermostat %s: TO TRV set_local_temperature_calibration: %s from: %s to: %s (device reports %s)",
-                                    self.device_name,
-                                    entity_id,
-                                    _last_sent,
-                                    _calibration,
-                                    _current_calibration,
+                    # INTENT: the value asked for before the adapter's own
+                    # clamp. A device resting at a limit it declared keeps
+                    # reporting the clamped command, so comparing the
+                    # intent against the command would rewrite it every
+                    # cycle. Both intent values come off the same step
+                    # grid, so they compare exactly; only the report lives
+                    # on the device's grid and needs the tolerance.
+                    _last_requested = trv.last_calibration_requested
+                    if _last_requested is None:
+                        _last_requested = _last_sent
+                    if float(_last_requested) != _calibration or _command_diverged:
+                        if _released_during_cycle(self, entity_id):
+                            return True
+                        # A deferred offset re-derives on the next control cycle
+                        # once the slot is free again.
+                        if _consume_budget(self, entity_id, "offset"):
+                            _LOGGER.debug(
+                                "better_thermostat %s: TO TRV set_local_temperature_calibration: %s from: %s to: %s (device reports %s)",
+                                self.device_name,
+                                entity_id,
+                                _last_sent,
+                                _calibration,
+                                _current_calibration,
+                            )
+                            if await set_calibration_offset(
+                                self, entity_id, _calibration
+                            ):
+                                trv.calibration_received = False
+                                trv.calibration_write_generation += 1
+                                self.task_manager.create_task(
+                                    check_calibration(
+                                        self,
+                                        entity_id,
+                                        trv.calibration_write_generation,
+                                    ),
+                                    name=f"bt_check_calibration_{entity_id}",
                                 )
-                                if await set_calibration_offset(
-                                    self, entity_id, _calibration
-                                ):
-                                    trv.calibration_received = False
-                                    trv.calibration_write_generation += 1
-                                    self.task_manager.create_task(
-                                        check_calibration(
-                                            self,
-                                            entity_id,
-                                            trv.calibration_write_generation,
-                                        ),
-                                        name=f"bt_check_calibration_{entity_id}",
-                                    )
-                            else:
-                                _schedule_budget_retry(
-                                    self,
-                                    entity_id,
-                                    _budget_remaining(self, entity_id, "offset"),
-                                )
+                        else:
+                            _schedule_budget_retry(
+                                self,
+                                entity_id,
+                                _budget_remaining(self, entity_id, "offset"),
+                            )
 
             # set new target temperature
             _safety_overrode_setpoint = False
@@ -3428,9 +3416,9 @@ async def check_calibration(
                 self.device_name,
                 "check_calibration()",
             )
-            if trv.last_calibration is None or (
+            if (
                 _reported is not None
-                and abs(_reported - float(trv.last_calibration)) <= _tolerance
+                and abs(_reported - trv.last_calibration) <= _tolerance
             ):
                 _timeout = 0
                 break

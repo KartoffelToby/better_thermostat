@@ -1533,21 +1533,6 @@ class TestCheckCalibration:
         assert 1 not in durations
 
     @pytest.mark.asyncio
-    async def test_without_a_written_offset_the_wait_ends_at_once(self):
-        """Nothing was commanded, so there is nothing to confirm."""
-        mock_self = self._mock_self(last_calibration=None)
-        durations, sleep_patch = _sleep_recorder()
-
-        with (
-            patch(f"{_CTRL}.get_calibration_offset", autospec=True, return_value=-1.0),
-            sleep_patch,
-        ):
-            await check_calibration(mock_self, "climate.trv1")
-
-        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
-        assert 1 not in durations
-
-    @pytest.mark.asyncio
     async def test_adapter_error_still_releases_the_write_gate(self):
         """An adapter raising mid-poll does not wedge the offset channel.
 

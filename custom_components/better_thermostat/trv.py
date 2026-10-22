@@ -156,7 +156,9 @@ class Trv:
     valve_position_entity: str | None = None
     valve_position_writable: bool | None = None
     valve_max_opening: float = 100.0
-    max_temp: float | None = None
+    # Better Thermostat's own ceiling, which startup keeps for a device
+    # that publishes none.
+    max_temp: float = 30.0
     min_temp: float | None = None
     target_temp_step: float | None = None
     current_temperature: float | None = None
@@ -263,7 +265,7 @@ class Trv:
     # ``last_calibration_requested`` is the value asked for before that
     # clamp. Keeping them apart lets a device resting at a limit it
     # declared be recognised as converged instead of rewritten.
-    last_calibration: float | None = None
+    last_calibration: float = 0.0
     last_calibration_requested: float | None = None
     # Identity of the offset command currently in flight. Each accepted write
     # takes the next number, and only the watchdog holding that number may
