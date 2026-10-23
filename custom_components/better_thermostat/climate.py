@@ -143,6 +143,7 @@ from .utils.const import (
     ATTR_STATE_HEATING_POWER,
     ATTR_STATE_LEARNING_PAUSED,
     ATTR_STATE_MAIN_MODE,
+    ATTR_STATE_NEXT_VALVE_MAINTENANCE,
     ATTR_STATE_OFF_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
@@ -277,8 +278,9 @@ from .utils.thermal_learning import (
 from .utils.valve_maintenance import (
     build_trv_snapshots,
     collect_maintenance_trvs,
-    compute_initial_maintenance,
     compute_next_maintenance,
+    first_maintenance_due,
+    restored_maintenance_due,
     run_valve_maintenance,
 )
 from .utils.watcher import (
@@ -491,6 +493,54 @@ def _restored_attribute(old_state: State, name: str) -> object:
     if value is None:
         value = old_state.attributes.get(DEPRECATED_STATE_ATTRIBUTES[name])
     return value
+
+
+def _seed_maintenance_schedule(self: BetterThermostat) -> list[str]:
+    """Take up the valve maintenance schedule for this run.
+
+    The schedule the restored state publishes is kept, so a restart
+    does not move it; ``first_maintenance_due`` says when a new one is
+    rolled instead.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The thermostat whose schedule is seeded.
+
+    Returns
+    -------
+    list[str]
+        The TRVs with valve maintenance enabled; empty when none has it
+        or the options cannot be read, and the schedule is then left as
+        it is.
+    """
+    try:
+        maint_trvs = collect_maintenance_trvs(self.real_trvs)
+    except Exception:
+        _LOGGER.warning(
+            "better_thermostat %s: could not read which TRVs have valve "
+            "maintenance enabled; the maintenance tick stays off",
+            self.device_name,
+            exc_info=True,
+        )
+        return []
+    if not maint_trvs:
+        return []
+    restored = (
+        restored_maintenance_due(
+            self._saved_state.attributes.get(ATTR_STATE_NEXT_VALVE_MAINTENANCE)
+        )
+        if self._saved_state is not None
+        else None
+    )
+    first_due = first_maintenance_due(
+        self.real_trvs, maint_trvs, restored, now=self.clock.now()
+    )
+    self.kernel_state = replace(
+        self.kernel_state,
+        maintenance=maintenance_reschedule(self.kernel_state.maintenance, first_due),
+    )
+    return maint_trvs
 
 
 async def _refresh_trv_model(self: BetterThermostat, entity_id: str) -> None:
@@ -3351,6 +3401,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             ),
         )
         await self._startup_control_trvs()
+        # The schedule is in place before the first state goes out, so the
+        # published date is the one that holds.
+        maint_trvs = _seed_maintenance_schedule(self)
         self._available = True
         self.async_write_ha_state()
 
@@ -3541,25 +3594,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         # Valve maintenance is orthogonal to balance/calibration: enable its
         # tick whenever at least one TRV has it turned on.
-        try:
-            maint_trvs = collect_maintenance_trvs(self.real_trvs)
-        except Exception:
-            _LOGGER.warning(
-                "better_thermostat %s: could not read which TRVs have valve "
-                "maintenance enabled; the maintenance tick stays off",
-                self.device_name,
-                exc_info=True,
-            )
-            maint_trvs: list[str] = []
-
         if maint_trvs:
-            first_due = compute_initial_maintenance(self.real_trvs, maint_trvs)
-            self.kernel_state = replace(
-                self.kernel_state,
-                maintenance=maintenance_reschedule(
-                    self.kernel_state.maintenance, first_due
-                ),
-            )
             self.async_on_remove(
                 async_track_time_interval(
                     self.hass,
@@ -3574,7 +3609,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             _LOGGER.debug(
                 "better_thermostat %s: valve maintenance tick enabled (5min), first run at %s",
                 self.device_name,
-                first_due,
+                self.kernel_state.maintenance.next_due,
             )
         else:
             _LOGGER.debug(
@@ -4341,9 +4376,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.preset_mgr.temperatures
             ),
         }
-        dev_specific["next_valve_maintenance"] = (
-            self.kernel_state.maintenance.next_due.isoformat()
-        )
+        # The schedule is published only while a TRV has valve maintenance
+        # enabled: without one, no run happens on the date it names.
+        if collect_maintenance_trvs(self.real_trvs):
+            dev_specific[ATTR_STATE_NEXT_VALVE_MAINTENANCE] = (
+                self.kernel_state.maintenance.next_due.isoformat()
+            )
         if self.has_contact_sensor:
             dev_specific[ATTR_STATE_WINDOW_DETECTION] = (
                 self.kernel_state.window_detection

@@ -138,19 +138,36 @@ def collect_maintenance_trvs(real_trvs: TrvMap) -> list[str]:
     return result
 
 
-def _shortest_interval_hours(real_trvs: TrvMap, trv_ids: list[str]) -> int:
-    """Return the shortest maintenance interval among the TRVs, in hours.
+def _interval_hours(real_trvs: TrvMap, entity_id: str) -> int:
+    """Return one TRV's maintenance interval, in hours.
 
     A TRV whose quirks set no interval, and an id with no TRV record,
     count with the default interval, which also bounds the result.
     """
-    shortest = DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS
-    for entity_id in trv_ids:
-        trv = real_trvs.get(entity_id)
-        quirks: object = trv.model_quirks if trv is not None else None
-        if isinstance(quirks, MaintenanceIntervalQuirk):
-            shortest = min(shortest, quirks.VALVE_MAINTENANCE_INTERVAL_HOURS)
-    return shortest
+    trv = real_trvs.get(entity_id)
+    quirks: object = trv.model_quirks if trv is not None else None
+    if isinstance(quirks, MaintenanceIntervalQuirk):
+        return min(
+            DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS,
+            quirks.VALVE_MAINTENANCE_INTERVAL_HOURS,
+        )
+    return DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS
+
+
+def _shortest_interval_hours(real_trvs: TrvMap, trv_ids: list[str]) -> int:
+    """Return the shortest maintenance interval among the TRVs, in hours."""
+    return min(
+        (_interval_hours(real_trvs, entity_id) for entity_id in trv_ids),
+        default=DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS,
+    )
+
+
+def _longest_interval_hours(real_trvs: TrvMap, trv_ids: list[str]) -> int:
+    """Return the longest maintenance interval among the TRVs, in hours."""
+    return max(
+        (_interval_hours(real_trvs, entity_id) for entity_id in trv_ids),
+        default=DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS,
+    )
 
 
 def compute_next_maintenance(
@@ -165,27 +182,98 @@ def compute_next_maintenance(
         now = dt_util.now()
 
     min_interval_hours = _shortest_interval_hours(real_trvs, trv_ids)
+    return now + timedelta(
+        hours=min_interval_hours + randint(0, _jitter_hours(min_interval_hours))
+    )
 
-    variance = max(1, int(min_interval_hours * 0.07))
-    return now + timedelta(hours=min_interval_hours + randint(0, variance))
+
+def _jitter_hours(interval_hours: int) -> int:
+    """Return the most a run's schedule is pushed past its interval, in hours."""
+    return max(1, int(interval_hours * 0.07))
 
 
 def compute_initial_maintenance(
-    real_trvs: TrvMap, trv_ids: list[str], *, now: datetime | None = None
+    real_trvs: TrvMap, trv_ids: list[str], *, now: datetime
 ) -> datetime:
     """Compute the *first* maintenance datetime after startup.
 
     Randomises within ``[1 h, min(5 d, interval)]`` so that multiple
     BT instances don't all fire at once.
     """
-    if now is None:
-        now = dt_util.now()
-
     min_interval_hours = _shortest_interval_hours(real_trvs, trv_ids)
 
     max_delay_hours = min(24 * 5, min_interval_hours)
     delay_hours = randint(1, max(2, max_delay_hours))
     return now + timedelta(hours=delay_hours)
+
+
+def restored_maintenance_due(raw: object) -> datetime | None:
+    """Read the schedule a restored thermostat state publishes.
+
+    The state carries it as the ISO 8601 string the attribute is written
+    as; a restored state hands it back unchanged.
+
+    Parameters
+    ----------
+    raw : object
+        The value of the ``next_valve_maintenance`` attribute, or ``None``
+        when the state carries none.
+
+    Returns
+    -------
+    datetime | None
+        The schedule, or ``None`` when ``raw`` is no valid time with a time
+        zone.
+    """
+    if not isinstance(raw, str):
+        return None
+    try:
+        due = dt_util.parse_datetime(raw)
+    except ValueError:
+        return None
+    if due is None or due.tzinfo is None:
+        return None
+    return due
+
+
+def first_maintenance_due(
+    real_trvs: TrvMap, trv_ids: list[str], restored: datetime | None, *, now: datetime
+) -> datetime:
+    """Return the schedule a startup takes up.
+
+    The schedule restored from before the restart is kept, so a restart
+    does not move it. One that has passed in the meantime stays overdue,
+    and the first maintenance tick runs it as it runs any overdue
+    maintenance; restarting more often than the delay rolled below
+    therefore never keeps a run from happening. Only a startup without a
+    schedule, or with one further out than a run ever schedules the next,
+    rolls the delay of ``compute_initial_maintenance``. A run schedules
+    over the shortest interval of the TRVs it exercised, which leaves out
+    released ones; whichever of them it exercised, that interval is never
+    longer than the longest interval among ``trv_ids``, and that interval
+    plus its jitter bounds every schedule a run writes.
+
+    Parameters
+    ----------
+    real_trvs : TrvMap
+        The cached TRV records, keyed by entity id.
+    trv_ids : list[str]
+        The TRVs with valve maintenance enabled.
+    restored : datetime | None
+        The schedule the restored state publishes, if any.
+    now : datetime
+        The current time.
+
+    Returns
+    -------
+    datetime
+        When the next maintenance run is due.
+    """
+    interval_hours = _longest_interval_hours(real_trvs, trv_ids)
+    horizon = timedelta(hours=interval_hours + _jitter_hours(interval_hours))
+    if restored is not None and restored <= now + horizon:
+        return restored
+    return compute_initial_maintenance(real_trvs, trv_ids, now=now)
 
 
 # Snapshot builder
