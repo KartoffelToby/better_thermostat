@@ -394,7 +394,9 @@ class MpcV2Controller:
             learn_disturbance=learn,
         )
         if not learning_paused:
-            self.dob.follow(self.kalman.disturbance_K_per_min, dt_s)
+            # An interval that learns nothing leaves the planning reading
+            # where it stood, as one that spans a pause of the controller.
+            self.dob.follow(self.kalman.disturbance_K_per_min, dt_s if learn else 0.0)
 
         # The governor runs behind the observer and judges which setpoints are
         # reachable on this cycle's fast estimate. The QP plans with the slow
@@ -443,6 +445,11 @@ class MpcV2Controller:
         self._next_mpc_t_s = t_s + self.params.qp.step_s
 
         return u, self._diagnostics()
+
+    @property
+    def paused(self) -> bool:
+        """Return whether the next cycle follows a skipped one."""
+        return self._paused
 
     def mark_paused(self) -> None:
         """Note that the controller skipped a cycle (window open, heating off).

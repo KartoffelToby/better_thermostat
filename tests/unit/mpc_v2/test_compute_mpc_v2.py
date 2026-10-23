@@ -1671,6 +1671,7 @@ def test_a_short_pause_teaches_the_disturbance_estimate_nothing(
             t_s += 30.0
     assert state is not None and state.controller is not None
     before = state.controller.dob.D_hat_K_per_min
+    planning_before = state.controller.dob.planning_filtered
 
     for _ in range(4):
         out, state = compute_mpc_v2(
@@ -1700,6 +1701,9 @@ def test_a_short_pause_teaches_the_disturbance_estimate_nothing(
     assert out is not None
     assert state.controller is not None
     assert state.controller.dob.D_hat_K_per_min == pytest.approx(before, abs=1e-12)
+    assert state.controller.dob.planning_filtered == pytest.approx(
+        planning_before, abs=1e-12
+    )
     assert state.controller.kalman.x_hat[0] < 20.5
 
     # The cycles after it learn again: a standing gain shows up in the estimate.
@@ -1801,3 +1805,46 @@ def test_a_restored_load_beyond_the_rate_bound_reaches_the_observer() -> None:
     assert controller.dob.D_hat_K_per_min == pytest.approx(-0.2)
     assert controller.kalman.disturbance_K_per_min == pytest.approx(-0.2)
     assert controller.kalman.disturbance_bound_K_per_min == pytest.approx(0.2)
+
+
+def test_a_prior_change_after_a_pause_keeps_the_pause() -> None:
+    """A controller rebuilt for a new prior learns nothing from the pause either.
+
+    The rebuild takes over the observer state; the cycle it runs still spans
+    the window opening, so the disturbance and its planning reading stay put.
+    The whole pause is shorter than a regular control interval may be, so
+    only the pause itself keeps the drop out of the estimate.
+    """
+    params = MpcV2Params(plant=replace(PlantParams(), tau_room_min=60.0))
+    state, t_s = _fast_prior_run(params, 4.0, None, 1_700_000_000.0)
+    # The last cycle ran 300 s before ``t_s``.
+    last_cycle_s = t_s - 300.0
+    assert state.controller is not None
+    before = state.controller.dob.D_hat_K_per_min
+    planning_before = state.controller.dob.planning_filtered
+
+    out, state = compute_mpc_v2(
+        _baseline_input(
+            target_temperature=21.0, room_temperature=21.0, window_open=True
+        ),
+        params,
+        state,
+        now=last_cycle_s + 60.0,
+    )
+    assert out is None
+    previous = state.controller
+    rebuilt = MpcV2Params(plant=replace(PlantParams(), tau_room_min=90.0))
+    out, state = compute_mpc_v2(
+        _baseline_input(target_temperature=21.0, room_temperature=20.2),
+        rebuilt,
+        state,
+        now=last_cycle_s + 240.0,
+    )
+
+    assert out is not None
+    assert state.controller is not None
+    assert state.controller is not previous
+    assert state.controller.dob.D_hat_K_per_min == pytest.approx(before, abs=1e-12)
+    assert state.controller.dob.planning_filtered == pytest.approx(
+        planning_before, abs=1e-12
+    )

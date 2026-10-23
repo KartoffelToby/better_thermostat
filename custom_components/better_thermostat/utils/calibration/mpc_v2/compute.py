@@ -108,6 +108,8 @@ def compute_mpc_v2(
         state.controller = MpcV2Controller(params)
         if previous.initialised:
             state.controller.restore_snapshot(previous.export_snapshot())
+        if previous.paused:
+            state.controller.mark_paused()
         state.plant_signature = new_signature
 
     if state.controller is None:
