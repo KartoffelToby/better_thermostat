@@ -11,7 +11,10 @@ from dataclasses import asdict
 
 import pytest
 
-from custom_components.better_thermostat.utils.calibration.mpc import _MpcState
+from custom_components.better_thermostat.utils.calibration.mpc import (
+    TrvProfile,
+    _MpcState,
+)
 from custom_components.better_thermostat.utils.state_manager import deserialize_mpc
 
 
@@ -26,7 +29,7 @@ class TestImportStringFields:
     def test_trv_profile_survives_round_trip(self):
         """trv_profile should be preserved as a string after a round-trip."""
         state = _MpcState()
-        state.trv_profile = "threshold"
+        state.trv_profile = TrvProfile.THRESHOLD
         state.gain_est = 0.08
 
         restored = _round_trip(state)
@@ -36,13 +39,13 @@ class TestImportStringFields:
     def test_trv_profile_unknown_survives_round_trip(self):
         """Default trv_profile 'unknown' should also survive a round-trip."""
         state = _MpcState()
-        state.trv_profile = "unknown"
+        state.trv_profile = TrvProfile.UNKNOWN
 
         assert _round_trip(state).trv_profile == "unknown"
 
     def test_trv_profile_all_known_values(self):
         """All known trv_profile values should survive a round-trip."""
-        for profile in ("unknown", "linear", "threshold", "exponential"):
+        for profile in TrvProfile:
             state = _MpcState()
             state.trv_profile = profile
 
@@ -120,7 +123,7 @@ class TestImportStringFields:
         state.min_effective_percent = 12.0
         state.dead_zone_hits = 3
         state.is_calibration_active = True
-        state.trv_profile = "threshold"
+        state.trv_profile = TrvProfile.THRESHOLD
         state.profile_confidence = 0.85
         state.profile_samples = 10
         state.loss_learn_count = 7

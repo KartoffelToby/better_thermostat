@@ -2,12 +2,53 @@
 
 from __future__ import annotations
 
-import numpy as np
+from collections.abc import Callable
+import math
+from pathlib import Path
+import sys
+from types import FrameType
+from typing import TYPE_CHECKING, Any
 
+import numpy as np
+import pytest
+
+from custom_components.better_thermostat.utils import state_manager as _state_manager
+from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+    params as _params,
+    reid as _reid,
+)
+from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+    plant as _plant,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
+    GAIN_HEATER_BOUNDS,
+    TAU_ROOM_BOUNDS_MIN,
     PlantModelRC2,
     PlantParams,
 )
+
+if TYPE_CHECKING:
+    from sys import TraceFunction
+
+
+class TestPlantPriorBands:
+    """Every producer and consumer of a plant prior reads one band."""
+
+    def test_reid_reads_the_bands_from_plant(self) -> None:
+        """The offline fit clamps its emission against these very tuples."""
+        assert _reid.TAU_ROOM_BOUNDS_MIN is TAU_ROOM_BOUNDS_MIN
+        assert _reid.GAIN_HEATER_BOUNDS is GAIN_HEATER_BOUNDS
+
+    def test_state_manager_reads_the_bands_from_plant(self) -> None:
+        """The restore gate rejects against these very tuples."""
+        assert _state_manager.TAU_ROOM_BOUNDS_MIN is TAU_ROOM_BOUNDS_MIN
+        assert _state_manager.GAIN_HEATER_BOUNDS is GAIN_HEATER_BOUNDS
+
+    def test_heat_loss_derivation_clamps_to_the_band(self) -> None:
+        """The AUTO heuristic lands on the band edges, not on its own numbers."""
+        low, high = TAU_ROOM_BOUNDS_MIN
+        assert _params.make_plant_prior(heat_loss_rate=1.0).tau_room_min == low
+        assert _params.make_plant_prior(heat_loss_rate=0.0001).tau_room_min == high
 
 
 def test_state_dim_is_two() -> None:
@@ -22,23 +63,21 @@ def test_discrete_step_with_zero_u_cools_toward_outdoor() -> None:
     x = np.array([21.0, 21.0])
     T_outdoor = 5.0
     for _ in range(2000):
-        x = plant.discrete_step(x, u=0.0, T_outdoor_C=T_outdoor)
+        x = plant.discrete_step(x, u=0.0, T_outdoor=T_outdoor)
     assert abs(float(x[0]) - T_outdoor) < 0.5
     assert abs(float(x[1]) - T_outdoor) < 0.5
 
 
 def test_discrete_step_with_full_u_heats_toward_water() -> None:
-    """At full heat the radiator approaches water temp and the room warms well above setpoint."""
+    """At full heat the radiator approaches water temperature and the room warms well above setpoint."""
     plant = PlantModelRC2(
-        PlantParams(
-            tau_room_min=120.0, tau_rad_min=5.0, gain_heater=5.0, T_water_C=65.0
-        ),
+        PlantParams(tau_room_min=120.0, tau_rad_min=5.0, gain_heater=5.0, T_water=65.0),
         dt_s=30.0,
     )
     x = np.array([20.0, 20.0])
     for _ in range(2000):
-        x = plant.discrete_step(x, u=1.0, T_outdoor_C=10.0)
-    # Room equilibrates well above setpoint; T_rad approaches water temp.
+        x = plant.discrete_step(x, u=1.0, T_outdoor=10.0)
+    # Room equilibrates well above setpoint; T_rad approaches water temperature.
     assert float(x[1]) > 50.0
     assert float(x[0]) > 30.0
 
@@ -48,17 +87,191 @@ def test_linearisation_matches_discrete_step_for_small_dt() -> None:
     plant = PlantModelRC2(PlantParams(), dt_s=30.0)
     x = np.array([20.5, 35.0])
     T_outdoor, u = 5.0, 0.4
-    x_next_nonlin = plant.discrete_step(x, u=u, T_outdoor_C=T_outdoor)
-    A, B, d = plant.linearised_AB(T_outdoor, T_rad_op_C=float(x[1]))
+    x_next_nonlin = plant.discrete_step(x, u=u, T_outdoor=T_outdoor)
+    A, B, d = plant.linearised_system(T_outdoor, T_rad_op=float(x[1]))
     x_next_lin = A @ x + B.flatten() * u + d
     # Linearised around operating x[1], they should agree to ~1e-12.
     np.testing.assert_allclose(x_next_lin, x_next_nonlin, atol=1e-10)
 
 
+def test_long_linearised_interval_is_composed_from_stable_substeps() -> None:
+    """A sparse observer update stays finite even across a one-hour gap."""
+    plant = PlantModelRC2(PlantParams(tau_rad_min=15.0), dt_s=30.0)
+    A, B, d = plant.linearised_system(T_outdoor=5.0, T_rad_op=30.0, dt_s=3600.0)
+
+    assert np.all(np.isfinite(A))
+    assert np.all(np.isfinite(B))
+    assert np.all(np.isfinite(d))
+
+
 def test_linearisation_stable_eigenvalues() -> None:
     """The linearised plant has all eigenvalues inside the unit circle."""
     plant = PlantModelRC2(PlantParams(), dt_s=30.0)
-    A, _, _ = plant.linearised_AB(T_outdoor_C=5.0, T_rad_op_C=30.0)
+    A, _, _ = plant.linearised_system(T_outdoor=5.0, T_rad_op=30.0)
     eigs = np.linalg.eigvals(A)
     # All eigenvalues inside the unit circle ⇒ stable open-loop plant.
     assert max(abs(eigs)) < 1.0
+
+
+def _composed_by_substeps(
+    plant: PlantModelRC2, T_outdoor: float, T_rad_op: float, n_steps: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return ``(A, B, d)`` of ``n_steps`` nominal steps, composed one by one."""
+    A_step, B_step, d_step = plant.linearised_system(T_outdoor, T_rad_op)
+    A = np.eye(2)
+    B = np.zeros((2, 1))
+    d = np.zeros(2)
+    for _ in range(n_steps):
+        B = A_step @ B + B_step
+        d = A_step @ d + d_step
+        A = A_step @ A
+    return A, B, d
+
+
+@pytest.mark.parametrize("n_steps", [1, 2, 7, 120, 1000])
+def test_a_long_linearised_interval_equals_its_composed_substeps(n_steps: int) -> None:
+    """Covering ``n`` nominal steps at once is the product of ``n`` single steps."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+
+    A, B, d = plant.linearised_system(
+        T_outdoor=5.0, T_rad_op=35.0, dt_s=n_steps * plant.dt_s
+    )
+
+    A_ref, B_ref, d_ref = _composed_by_substeps(plant, 5.0, 35.0, n_steps)
+    np.testing.assert_allclose(A, A_ref, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(B, B_ref, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(d, d_ref, rtol=1e-9, atol=1e-12)
+
+
+@pytest.mark.parametrize("n_steps", [1, 2, 7, 120, 1000])
+def test_a_long_propagation_equals_its_euler_substeps(n_steps: int) -> None:
+    """Propagating over ``n`` nominal steps lands where ``n`` Euler steps do."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    x0 = np.array([19.0, 24.0])
+
+    x = plant.propagate(x0, u=0.6, outdoor_temperature=5.0, dt_s=n_steps * plant.dt_s)
+
+    reference = x0
+    for _ in range(n_steps):
+        reference = plant.discrete_step(reference, u=0.6, T_outdoor=5.0)
+    np.testing.assert_allclose(x, reference, rtol=1e-9)
+
+
+@pytest.mark.parametrize("n_steps", [1, 7, 120])
+def test_a_propagation_under_a_disturbance_equals_its_euler_substeps(
+    n_steps: int,
+) -> None:
+    """A disturbance rate propagates as the Euler steps that carry it do."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    x0 = np.array([19.0, 24.0])
+
+    x = plant.propagate(x0, 0.6, 5.0, n_steps * plant.dt_s, disturbance_rate=0.02)
+
+    reference = x0
+    for _ in range(n_steps):
+        reference = plant.discrete_step(reference, 0.6, 5.0, D_K_per_min=0.02)
+    np.testing.assert_allclose(x, reference, rtol=1e-9)
+    assert float(x[0]) > float(plant.propagate(x0, 0.6, 5.0, n_steps * 30.0)[0])
+
+
+def test_a_disturbance_shifts_the_settled_room_by_its_rate_times_tau() -> None:
+    """Across the settling time a load shifts the room by ``rate·τ_room``.
+
+    With the valve closed the radiator settles on the room, so only the
+    room's loss to outdoors balances the load, and a long interval holds the
+    room at that offset instead of letting it run away.
+    """
+    p = PlantParams()
+    plant = PlantModelRC2(p, dt_s=30.0)
+    x0 = np.array([5.0, 5.0])
+    gap_s = 2.0 * plant.settling_time_s
+
+    x = plant.propagate(x0, 0.0, 5.0, gap_s, disturbance_rate=0.01)
+
+    assert float(x[0]) - 5.0 == pytest.approx(0.01 * p.tau_room_min, rel=1e-6)
+
+
+def _plant_lines_run(work: Callable[[], Any]) -> int:
+    """Return how many lines of the plant module ``work`` executes."""
+    plant_source = Path(_plant.__file__).resolve()
+    count = 0
+
+    def tracer(frame: FrameType, event: str, _arg: object) -> TraceFunction | None:
+        nonlocal count
+        if Path(frame.f_code.co_filename).resolve() != plant_source:
+            return None
+        if event == "line":
+            count += 1
+        return tracer
+
+    previous = sys.gettrace()
+    sys.settrace(tracer)
+    try:
+        work()
+    finally:
+        sys.settrace(previous)
+    return count
+
+
+def test_a_month_long_gap_runs_no_more_plant_code_than_one_step() -> None:
+    """The observer's cost for a sensor gap does not grow with the gap.
+
+    The prediction runs on the event loop once per controller after every
+    gap; a month without readings on a slow room spans tens of thousands of
+    nominal steps, which must not mean as many passes through Python code.
+    """
+    plant = PlantModelRC2(PlantParams(tau_room_min=2000.0), dt_s=30.0)
+    x0 = np.array([19.0, 24.0])
+    month_s = 30 * 86_400.0
+    assert math.ceil(min(month_s, plant.settling_time_s) / plant.dt_s) > 50_000
+
+    def predict(dt_s: float) -> None:
+        plant.linearised_system(T_outdoor=5.0, T_rad_op=24.0, dt_s=dt_s)
+        plant.propagate(x0, u=0.5, outdoor_temperature=5.0, dt_s=dt_s)
+
+    assert _plant_lines_run(lambda: predict(month_s)) == _plant_lines_run(
+        lambda: predict(plant.dt_s)
+    )
+
+
+def test_steady_input_holds_a_reachable_setpoint() -> None:
+    """The steady valve fraction balances the radiator drive against the loss."""
+    plant = PlantModelRC2(
+        PlantParams(gain_heater=2.0, coupling_rad_room=3.0, T_water=33.0), dt_s=30.0
+    )
+    # Radiator 27 °C holds 21 °C at 3 °C outdoors: 6 K / (2 · 6 K).
+    assert plant.steady_input(21.0, 3.0) == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("outdoor_temperature", [-20.0, -15.0])
+def test_steady_input_is_infinite_when_the_radiator_must_pass_the_water(
+    outdoor_temperature: float,
+) -> None:
+    """A setpoint that needs a radiator at or above the supply water is unreachable.
+
+    At -15 °C the radiator must sit exactly at the 33 °C supply water, at
+    -20 °C above it. No valve fraction holds either, so both are infinite
+    rather than a large finite number that reads as a valid demand.
+    """
+    plant = PlantModelRC2(
+        PlantParams(gain_heater=2.0, coupling_rad_room=3.0, T_water=33.0), dt_s=30.0
+    )
+    assert plant.steady_radiator_temperature(21.0, outdoor_temperature) >= 33.0
+
+    assert plant.steady_input(21.0, outdoor_temperature) == math.inf
+
+
+def test_steady_input_is_zero_without_demand_above_the_water() -> None:
+    """A setpoint above the water that free heat holds needs a closed valve.
+
+    The disturbance covers more than the loss, so the steady radiator sits
+    between the 20 °C water and the room and the valve holds the setpoint
+    shut.
+    """
+    plant = PlantModelRC2(
+        PlantParams(gain_heater=2.0, coupling_rad_room=3.0, T_water=20.0), dt_s=30.0
+    )
+    surplus = (21.0 - 5.0 + 1.5) / plant.params.tau_room_min
+    assert 20.0 <= plant.steady_radiator_temperature(21.0, 5.0, surplus) < 21.0
+
+    assert plant.steady_input(21.0, 5.0, surplus) == 0.0

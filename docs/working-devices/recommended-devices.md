@@ -87,7 +87,7 @@ An affordable setup built from widely available Zigbee devices.
 
 **Configuration:**
 - **Algorithm**: MPC Predictive or AI Time Based
-- **Calibration Type**: Local Calibration (Default)
+- **Calibration Type**: Offset Based (Default)
 - **Important Note for Large Temperature Gaps**: The SEA801/SEA802 TRVs only allow a small offset calibration via Zigbee2MQTT. If you have a room with a **large temperature difference** between the radiator and the room sensor, the standard local offset calibration won't be enough. In this specific case, you need to switch the Calibration Type to **Target Temperature Based**. This bypasses the TRV's offset limit and directly manipulates the target temperature to achieve the desired room temperature.
 
 **Pros:**
@@ -109,7 +109,7 @@ This setup uses the powerful Eurotronic Spirit TRV, which supports both local of
 
 **Configuration:**
 - **Algorithm**: AI Time Based or Aggressive
-- **Calibration Type**: Local Calibration or Valve Control (both work well)
+- **Calibration Type**: Offset Based or Direct Valve Based (both work well)
 
 **Pros:**
 - Can handle both valve-based and local-based calibration

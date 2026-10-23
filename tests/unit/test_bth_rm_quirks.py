@@ -7,6 +7,8 @@ from homeassistant.components.climate.const import ClimateEntityFeature
 from homeassistant.const import UnitOfTemperature
 import pytest
 
+from tests.factories import ThermostatStandIn
+
 RANGE_BIT = int(ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
 
 
@@ -20,7 +22,7 @@ def quirk(request):
 
 def _make_self(state, temperature_unit=UnitOfTemperature.CELSIUS):
     """Create a mock BetterThermostat whose TRV state lookup returns state."""
-    mock_self = Mock()
+    mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
     mock_self.context = Mock()
     mock_self.hass.config.units.temperature_unit = temperature_unit

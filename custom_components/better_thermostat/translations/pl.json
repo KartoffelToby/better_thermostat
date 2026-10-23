@@ -8,7 +8,6 @@
           "name": "Nazwa",
           "thermostat": "Twój termostat",
           "cooler": "Urządzenie chłodzące (opcjonalnie)",
-          "min_cooler_resend_interval": "Minimalna liczba sekund między powtórzonymi poleceniami chłodzenia (0 = wyłączone)",
           "temperature_sensor": "Sensor temperatury",
           "humidity_sensor": "Sensor wilgotności",
           "window_sensors": "Sensor okna",
@@ -21,12 +20,34 @@
           "door_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu drzwi",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
+          "availability_guard": "Strażnik dostępności",
+          "availability_guard_grace_seconds": "Okres karencji po włączeniu strażnika dostępności",
           "target_temp_min": "Minimalna temperatura docelowa",
           "target_temp_max": "Maksymalna temperatura docelowa",
           "target_temp_step": "Krok temperatury docelowej",
           "presets": "Włączone ustawienia predefiniowane"
         },
         "data_description": {
+          "name": "Nazwa tego termostatu i jego urządzenia w Home Assistant.",
+          "thermostat": "Głowice termostatyczne (TRV) w tym pomieszczeniu. Better Thermostat steruje nimi razem.",
+          "cooler": "Opcjonalne. Klimatyzator lub inna encja klimatu, która chłodzi to pomieszczenie razem z termostatami.",
+          "temperature_sensor": "Czujnik temperatury pomieszczenia, według którego reguluje Better Thermostat. Umieść go z dala od grzejnika.",
+          "humidity_sensor": "Opcjonalne. Odczyt jest pokazywany na termostacie i używany przez wyzwalacze wilgotności.",
+          "window_sensors": "Opcjonalne. Czujnik lub grupa zgłaszająca otwarte okno; dopóki to zgłasza, ogrzewanie jest wstrzymane.",
+          "door_sensors": "Opcjonalne. Działa jak czujnik okna, z własnymi opóźnieniami.",
+          "off_temperature": "Ogrzewanie wyłącza się, gdy temperatura zewnętrzna osiągnie tę wartość, i włącza ponownie, gdy spadnie o 1 °C (1,8 °F) poniżej niej. Bieżąca temperatura zewnętrzna jest uśredniana z około doby.",
+          "tolerance": "O ile pomieszczenie może ochłodzić się poniżej celu, zanim grzanie ruszy ponownie: cel 20 i tolerancja 0,3 grzeją znowu od 19,7.",
+          "window_off_delay": "Jak długo okno musi być otwarte, zanim ogrzewanie zostanie wstrzymane.",
+          "window_off_delay_after": "Jak długo wszystkie okna muszą być zamknięte, zanim ogrzewanie wznowi pracę.",
+          "door_off_delay": "Jak długo drzwi muszą być otwarte, zanim ogrzewanie zostanie wstrzymane.",
+          "door_off_delay_after": "Jak długo wszystkie drzwi muszą być zamknięte, zanim ogrzewanie wznowi pracę.",
+          "outdoor_sensor": "Opcjonalne. Dostarcza temperaturę zewnętrzną dla progu zewnętrznego i ma pierwszeństwo przed encją pogody.",
+          "weather": "Opcjonalne. Dostarcza temperaturę zewnętrzną, gdy nie wybrano czujnika zewnętrznego.",
+          "availability_guard": "Opcjonalnie. Czujnik binarny, przełącznik lub input boolean, który jest włączony, dopóki termostaty mają zasilanie. Gdy jest wyłączony, niedostępny termostat nie wywołuje ani ostrzeżenia, ani naprawy.",
+          "availability_guard_grace_seconds": "Jak długo termostat może pozostać niedostępny po włączeniu strażnika dostępności, zanim zostanie zgłoszony.",
+          "target_temp_min": "Najniższy cel, jaki można ustawić. Auto przyjmuje zakres zgłaszany przez urządzenia.",
+          "target_temp_max": "Najwyższy cel, jaki można ustawić. Auto przyjmuje zakres zgłaszany przez urządzenia.",
+          "target_temp_step": "O ile zmienia się cel na krok. Auto przyjmuje najgrubszy krok zgłaszany przez termostaty.",
           "presets": "Wybierz ustawienia predefiniowane, które mają być dostępne dla tego termostatu."
         }
       },
@@ -40,12 +61,21 @@
           "valve_maintenance": "Jeżeli Twój termostat nie ma trybu konserwacji, możesz użyć tej opcji.",
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "calibration_mode": "Tryb kalibracji",
-          "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C"
+          "no_off_system_mode": "Użyj temperatury minimalnej zamiast 'wyłączony'",
+          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia",
+          "mpc_v2_flow_temperature": "MPC v2 temperatura zasilania"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
-          "calibration_mode": "Rodzaj sposobu obliczania kalibracji\n***Normalny***: W tym trybie wewnętrzny czujnik temperatury TRV jest zależny od zewnętrznego czujnika temperatury.\n***Agresywny***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale jest ustawiony znacznie niżej/wyżej, aby uzyskać szybsze przyspieszenie.\n***AI Time Based***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale wartość jest obliczana przez niestandardowy algorytm w celu ulepszenia wewnętrznego algorytmu TRV.",
-          "calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia."
+          "heat_auto_swapped": "Dla TRV, którego tryb grzania nazywa się 'auto': Better Thermostat wysyła wtedy 'auto', aby grzać.",
+          "child_lock": "Blokuje przyciski TRV, jeśli ma blokadę rodzicielską; zmiany wprowadzone na samym TRV są ignorowane.",
+          "homematicip": "Wysyła polecenia rzadziej, aby urządzenia HomematicIP mieściły się w swoim duty cycle.",
+          "valve_maintenance": "Od czasu do czasu otwiera i zamyka zawór, aby się nie zablokował. Dla TRV bez własnej funkcji konserwacji.",
+          "calibration": "Jak kalibracja jest stosowana w TRV\n***Na podstawie temperatury docelowej***: Zastosuj kalibrację do temperatury docelowej.\n***Na podstawie przesunięcia***: Zastosuj kalibrację do przesunięcia temperatury. Dostępne tylko, gdy TRV ma zapisywalne przesunięcie temperatury.\n***Bezpośrednie sterowanie zaworem***: Ustaw otwarcie zaworu bezpośrednio. Dostępne tylko, gdy TRV ma zapisywalną pozycję zaworu. Tryby kalibracji, które nie wyznaczają otwarcia zaworu, wysyłają zamiast tego temperaturę docelową.",
+          "calibration_mode": "Jak obliczana jest kalibracja\n***AI na podstawie czasu (domyślne)***: Z czasem uczy się mocy grzewczej pomieszczenia i wyznacza z niej kalibrację.\n***Tylko przesunięcie czujnika zewnętrznego***: Koryguje wewnętrzny czujnik TRV za pomocą zewnętrznego czujnika temperatury. Żaden regulator nie działa dodatkowo.\n***Predykcyjne MPC (beta)***: Przewiduje temperaturę pomieszczenia i oblicza z niej otwarcie zaworu. Uczy się zachowania cieplnego pomieszczenia.\n***(AI) MPC v2 (QP + Kalman, eksperymentalne)***: Szacuje stan pomieszczenia filtrem Kalmana i oblicza otwarcie zaworu regulatorem predykcyjnym z modelem. Ustawienie MPC v2 wielkość pomieszczenia wybiera model pomieszczenia: wyuczony w pomieszczeniu (Automatycznie) lub stały dla danej wielkości (małe, średnie, duże).\n***Agresywne***: Podbija kalibrację, gdy pomieszczenie się nagrzewa, i pomija opóźnienie tolerancji, aby TRV zaczął grzać wcześniej. Przydatne, gdy pomieszczenie nagrzewa się powoli.\n***Regulator TPI***: Oblicza czas załączenia cykli grzewczych na podstawie różnicy temperatur.\n***Regulator PID***: Oblicza otwarcie zaworu z uchybu temperatury za pomocą członu proporcjonalnego, całkującego i różniczkującego.\n***Bez kalibracji***: Wysyła temperaturę docelową do TRV bez zmian i nie stosuje żadnej korekty.",
+          "no_off_system_mode": "Przy tej opcji Better Thermostat wysyła do TRV jego temperaturę minimalną zamiast 'wyłączony'. TRV, który zgłasza swoją temperaturę minimalną, uznaje się za wyłączony: gdy wszystkie TRV w pomieszczeniu są wyłączone, pomieszczenie się wyłącza, a podkręcenie pokrętła włącza je ponownie. Liczy się też obrót przy otwartym oknie lub drzwiach; ogrzewanie czeka wtedy, aż wszystkie okna i drzwi zostaną zamknięte. TRV bez trybu wyłączenia otrzymuje swoją temperaturę minimalną także bez tej opcji. Włącz ją dla TRV, którego tryb wyłączenia nie działa, albo dla TRV bez trybu wyłączenia, którego pokrętło ma włączać i wyłączać Better Thermostat.",
+          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia.",
+          "mpc_v2_flow_temperature": "Używane tylko przez tryb kalibracji MPC v2. Temperatura wody grzewczej płynącej do grzejników. Pozostaw 65 °C (149 °F) dla kotła ze stałą krzywą grzewczą. Dla pompy ciepła lub kotła sterowanego pogodowo wpisz typową wartość dla sezonu grzewczego, na przykład od 35 do 45 °C (od 95 do 113 °F). Po zmianie MPC v2 uczy się modelu pomieszczenia od nowa przy nowej wartości."
         }
       },
       "confirm": {
@@ -58,13 +88,19 @@
       "no_name": "Proszę podać nazwę.",
       "no_heater": "Proszę wybrać przynajmniej jeden prawdziwy termostat.",
       "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie",
-      "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej.",
       "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej.",
-      "no_data": "Nie otrzymano żadnych danych. Spróbuj ponownie."
+      "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej.",
+      "trv_not_found": "Home Assistant nie zna {trv}. Wybierz istniejący termostat.",
+      "trv_is_better_thermostat": "{trv} jest urządzeniem Better Thermostat. Wybierz zamiast niego prawdziwy termostat.",
+      "trv_no_target_temperature": "{trv} nie przyjmuje temperatury docelowej. Wybierz termostat, który ją przyjmuje.",
+      "cooler_is_better_thermostat": "{cooler} jest urządzeniem Better Thermostat. Wybierz zamiast niego prawdziwe urządzenie chłodzące.",
+      "cooler_no_target_temperature": "{cooler} nie przyjmuje temperatury docelowej. Wybierz urządzenie chłodzące, które ją przyjmuje."
     },
     "abort": {
       "single_instance_allowed": "Dozwolony jest tylko jeden termostat dla jednego urządzenia.",
-      "no_devices_found": "Nie znaleziono jednostki termostatu, upewnij się, że masz jednostkę klimatyczną w swoim asystencie domowym."
+      "no_devices_found": "Nie znaleziono jednostki termostatu, upewnij się, że masz jednostkę klimatyczną w swoim asystencie domowym.",
+      "already_configured": "Better Thermostat o tej nazwie już steruje tymi termostatami.",
+      "trv_in_use": "{trv} jest już sterowany przez Better Thermostat {entry}. Termostat może należeć tylko do jednego Better Thermostat; najpierw usuń go tam."
     }
   },
   "options": {
@@ -86,18 +122,36 @@
           "door_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu drzwi",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
+          "availability_guard": "Strażnik dostępności",
+          "availability_guard_grace_seconds": "Okres karencji po włączeniu strażnika dostępności",
           "target_temp_min": "Minimalna temperatura docelowa",
           "target_temp_max": "Maksymalna temperatura docelowa",
           "target_temp_step": "Krok temperatury docelowej",
           "presets": "Włączone ustawienia predefiniowane",
-          "valve_maintenance": "Jeżeli Twój termostat nie ma własnego trybu konserwacji, możesz użyć tej opcji.",
-          "calibration": "Rodzaje kalibracji",
-          "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
-          "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
-          "homematicip": "Jeżeli używasz HomematicIP, powinienieś włączyć tę opcję żeby spowolnić żądania"
+          "cooler": "Urządzenie chłodzące (opcjonalnie)"
         },
         "data_description": {
-          "presets": "Wybierz ustawienia predefiniowane, które mają być dostępne dla tego termostatu."
+          "name": "Nazwa tego termostatu i jego urządzenia w Home Assistant.",
+          "thermostat": "Głowice termostatyczne (TRV) w tym pomieszczeniu. Better Thermostat steruje nimi razem.",
+          "temperature_sensor": "Czujnik temperatury pomieszczenia, według którego reguluje Better Thermostat. Umieść go z dala od grzejnika.",
+          "humidity_sensor": "Opcjonalne. Odczyt jest pokazywany na termostacie i używany przez wyzwalacze wilgotności.",
+          "window_sensors": "Opcjonalne. Czujnik lub grupa zgłaszająca otwarte okno; dopóki to zgłasza, ogrzewanie jest wstrzymane.",
+          "door_sensors": "Opcjonalne. Działa jak czujnik okna, z własnymi opóźnieniami.",
+          "off_temperature": "Ogrzewanie wyłącza się, gdy temperatura zewnętrzna osiągnie tę wartość, i włącza ponownie, gdy spadnie o 1 °C (1,8 °F) poniżej niej. Bieżąca temperatura zewnętrzna jest uśredniana z około doby.",
+          "tolerance": "O ile pomieszczenie może ochłodzić się poniżej celu, zanim grzanie ruszy ponownie: cel 20 i tolerancja 0,3 grzeją znowu od 19,7.",
+          "window_off_delay": "Jak długo okno musi być otwarte, zanim ogrzewanie zostanie wstrzymane.",
+          "window_off_delay_after": "Jak długo wszystkie okna muszą być zamknięte, zanim ogrzewanie wznowi pracę.",
+          "door_off_delay": "Jak długo drzwi muszą być otwarte, zanim ogrzewanie zostanie wstrzymane.",
+          "door_off_delay_after": "Jak długo wszystkie drzwi muszą być zamknięte, zanim ogrzewanie wznowi pracę.",
+          "outdoor_sensor": "Opcjonalne. Dostarcza temperaturę zewnętrzną dla progu zewnętrznego i ma pierwszeństwo przed encją pogody.",
+          "weather": "Opcjonalne. Dostarcza temperaturę zewnętrzną, gdy nie wybrano czujnika zewnętrznego.",
+          "availability_guard": "Opcjonalnie. Czujnik binarny, przełącznik lub input boolean, który jest włączony, dopóki termostaty mają zasilanie. Gdy jest wyłączony, niedostępny termostat nie wywołuje ani ostrzeżenia, ani naprawy.",
+          "availability_guard_grace_seconds": "Jak długo termostat może pozostać niedostępny po włączeniu strażnika dostępności, zanim zostanie zgłoszony.",
+          "target_temp_min": "Najniższy cel, jaki można ustawić. Auto przyjmuje zakres zgłaszany przez urządzenia.",
+          "target_temp_max": "Najwyższy cel, jaki można ustawić. Auto przyjmuje zakres zgłaszany przez urządzenia.",
+          "target_temp_step": "O ile zmienia się cel na krok. Auto przyjmuje najgrubszy krok zgłaszany przez termostaty.",
+          "presets": "Wybierz ustawienia predefiniowane, które mają być dostępne dla tego termostatu.",
+          "cooler": "Opcjonalne. Klimatyzator lub inna encja klimatu, która chłodzi to pomieszczenie razem z termostatami."
         }
       },
       "advanced": {
@@ -110,40 +164,44 @@
           "valve_maintenance": "Jeżeli Twój termostat nie ma trybu konserwacji, możesz użyć tej opcji.",
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "calibration_mode": "Tryb kalibracji",
-          "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C"
+          "no_off_system_mode": "Użyj temperatury minimalnej zamiast 'wyłączony'",
+          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia",
+          "mpc_v2_flow_temperature": "MPC v2 temperatura zasilania"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
-          "calibration_mode": "Rodzaj sposobu obliczania kalibracji\n***Normalny***: W tym trybie wewnętrzny czujnik temperatury TRV jest zależny od zewnętrznego czujnika temperatury.\n***Agresywny***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale jest ustawiony znacznie niżej/wyżej, aby uzyskać szybsze przyspieszenie.\n***AI Time Based***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale wartość jest obliczana przez niestandardowy algorytm w celu ulepszenia wewnętrznego algorytmu TRV.",
-          "calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia."
+          "heat_auto_swapped": "Dla TRV, którego tryb grzania nazywa się 'auto': Better Thermostat wysyła wtedy 'auto', aby grzać.",
+          "child_lock": "Blokuje przyciski TRV, jeśli ma blokadę rodzicielską; zmiany wprowadzone na samym TRV są ignorowane.",
+          "homematicip": "Wysyła polecenia rzadziej, aby urządzenia HomematicIP mieściły się w swoim duty cycle.",
+          "valve_maintenance": "Od czasu do czasu otwiera i zamyka zawór, aby się nie zablokował. Dla TRV bez własnej funkcji konserwacji.",
+          "calibration": "Jak kalibracja jest stosowana w TRV\n***Na podstawie temperatury docelowej***: Zastosuj kalibrację do temperatury docelowej.\n***Na podstawie przesunięcia***: Zastosuj kalibrację do przesunięcia temperatury. Dostępne tylko, gdy TRV ma zapisywalne przesunięcie temperatury.\n***Bezpośrednie sterowanie zaworem***: Ustaw otwarcie zaworu bezpośrednio. Dostępne tylko, gdy TRV ma zapisywalną pozycję zaworu. Tryby kalibracji, które nie wyznaczają otwarcia zaworu, wysyłają zamiast tego temperaturę docelową.",
+          "calibration_mode": "Jak obliczana jest kalibracja\n***AI na podstawie czasu (domyślne)***: Z czasem uczy się mocy grzewczej pomieszczenia i wyznacza z niej kalibrację.\n***Tylko przesunięcie czujnika zewnętrznego***: Koryguje wewnętrzny czujnik TRV za pomocą zewnętrznego czujnika temperatury. Żaden regulator nie działa dodatkowo.\n***Predykcyjne MPC (beta)***: Przewiduje temperaturę pomieszczenia i oblicza z niej otwarcie zaworu. Uczy się zachowania cieplnego pomieszczenia.\n***(AI) MPC v2 (QP + Kalman, eksperymentalne)***: Szacuje stan pomieszczenia filtrem Kalmana i oblicza otwarcie zaworu regulatorem predykcyjnym z modelem. Ustawienie MPC v2 wielkość pomieszczenia wybiera model pomieszczenia: wyuczony w pomieszczeniu (Automatycznie) lub stały dla danej wielkości (małe, średnie, duże).\n***Agresywne***: Podbija kalibrację, gdy pomieszczenie się nagrzewa, i pomija opóźnienie tolerancji, aby TRV zaczął grzać wcześniej. Przydatne, gdy pomieszczenie nagrzewa się powoli.\n***Regulator TPI***: Oblicza czas załączenia cykli grzewczych na podstawie różnicy temperatur.\n***Regulator PID***: Oblicza otwarcie zaworu z uchybu temperatury za pomocą członu proporcjonalnego, całkującego i różniczkującego.\n***Bez kalibracji***: Wysyła temperaturę docelową do TRV bez zmian i nie stosuje żadnej korekty.",
+          "no_off_system_mode": "Przy tej opcji Better Thermostat wysyła do TRV jego temperaturę minimalną zamiast 'wyłączony'. TRV, który zgłasza swoją temperaturę minimalną, uznaje się za wyłączony: gdy wszystkie TRV w pomieszczeniu są wyłączone, pomieszczenie się wyłącza, a podkręcenie pokrętła włącza je ponownie. Liczy się też obrót przy otwartym oknie lub drzwiach; ogrzewanie czeka wtedy, aż wszystkie okna i drzwi zostaną zamknięte. TRV bez trybu wyłączenia otrzymuje swoją temperaturę minimalną także bez tej opcji. Włącz ją dla TRV, którego tryb wyłączenia nie działa, albo dla TRV bez trybu wyłączenia, którego pokrętło ma włączać i wyłączać Better Thermostat.",
+          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia.",
+          "mpc_v2_flow_temperature": "Używane tylko przez tryb kalibracji MPC v2. Temperatura wody grzewczej płynącej do grzejników. Pozostaw 65 °C (149 °F) dla kotła ze stałą krzywą grzewczą. Dla pompy ciepła lub kotła sterowanego pogodowo wpisz typową wartość dla sezonu grzewczego, na przykład od 35 do 45 °C (od 95 do 113 °F). Po zmianie MPC v2 uczy się modelu pomieszczenia od nowa przy nowej wartości."
         }
       }
     },
     "error": {
-      "failed": "coś poszło nie tak.",
-      "no_name": "Proszę podać nazwę.",
       "no_heater": "Proszę wybrać przynajmniej jeden prawdziwy termostat.",
-      "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie",
       "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej.",
-      "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej.",
-      "no_data": "Nie otrzymano żadnych danych. Spróbuj ponownie."
+      "no_sensor": "Wybierz czujnik temperatury pomieszczenia.",
+      "trv_in_use": "{trv} jest już sterowany przez Better Thermostat {entry}. Termostat może należeć tylko do jednego Better Thermostat.",
+      "trv_not_found": "Home Assistant nie zna {trv}. Wybierz istniejący termostat.",
+      "trv_is_better_thermostat": "{trv} jest urządzeniem Better Thermostat. Wybierz zamiast niego prawdziwy termostat.",
+      "trv_no_target_temperature": "{trv} nie przyjmuje temperatury docelowej. Wybierz termostat, który ją przyjmuje.",
+      "cooler_is_better_thermostat": "{cooler} jest urządzeniem Better Thermostat. Wybierz zamiast niego prawdziwe urządzenie chłodzące.",
+      "cooler_no_target_temperature": "{cooler} nie przyjmuje temperatury docelowej. Wybierz urządzenie chłodzące, które ją przyjmuje."
     }
   },
   "issues": {
     "missing_entity": {
       "title": "BT: {name} - brak podmiotu powiązanego",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Brak {entity} powiązanej",
-            "description": "Powodem tego jest to, że podmiot ({entity}) nie jest dostępny w Twoim Home Assistant.\n\nMożesz to naprawić, sprawdzając, czy bateria urządzenia jest pełna lub ponownie podłączając je do HA. Zanim przejdziesz dalej, upewnij się, że jednostka wróciła do HA."
-          }
-        }
-      }
+      "description": "Powodem tego jest to, że podmiot ({entity}) nie jest dostępny w Twoim Home Assistant.\n\nJeśli encja została przemianowana lub urządzenie wymienione, jej identyfikator encji się zmienił, a Better Thermostat nadal szuka {entity}. Otwórz ustawienia tego Better Thermostat (Ustawienia → Urządzenia oraz usługi → Better Thermostat → Konfiguruj) i wybierz nową encję.\n\nMożesz to naprawić, sprawdzając, czy bateria urządzenia jest pełna lub ponownie podłączając je do HA. To powiadomienie zniknie samo, gdy encja będzie ponownie dostępna lub zostanie usunięta z ustawień tego Better Thermostat."
     },
     "degraded_mode": {
       "title": "BT: {name} - błąd czujnika: {sensors} działa w trybie ograniczonym",
-      "description": "Better Thermostat działa w trybie ograniczonym, ponieważ niektóre czujniki są niedostępne: {sensors}\n\nTermostat będzie nadal działać z ograniczoną funkcjonalnością. Na przykład:\n- Jeśli czujnik temperatury pokojowej jest niedostępny, zostanie użyty wewnętrzny czujnik TRV.\n- Jeśli czujniki okien są niedostępne, okna są uznawane za zamknięte.\n- Jeśli czujniki zewnętrzne/pogodowe są niedostępne, ogrzewanie będzie zawsze włączone.\n\nSprawdź, czy dotknięte urządzenia mają problemy z baterią lub łącznością."
+      "description": "Better Thermostat działa w trybie ograniczonym, ponieważ niektóre czujniki są niedostępne: {sensors}\n\nTermostat nadal reguluje i stopniowo ogranicza działanie:\n- Jeśli czujnik temperatury pomieszczenia jest niedostępny, zastępuje go średnia z wewnętrznych temperatur głowic TRV.\n- Jeśli ani czujnik pomieszczenia, ani żadna temperatura TRV nie jest użyteczna, termostat przestaje regulować i zachowuje ostatnio ustawiony stan; ochrona przed zamarzaniem pozostaje aktywna.\n- Jeśli czujnik okna jest niedostępny, okno jest uznawane za zamknięte i ogrzewanie jest kontynuowane; utracony czujnik nie może zatrzymać ogrzewania.\n- Jeśli czujniki zewnętrzne/pogodowe są niedostępne, ogrzewanie pozostaje włączone.\n\nSprawdź, czy urządzenia, których to dotyczy, nie mają problemów z baterią lub łącznością. To powiadomienie zniknie samo, gdy wszystkie czujniki będą ponownie dostępne."
     },
     "invalid_window_state": {
       "title": "BT: {name} - nieprawidłowy stan czujnika okna",
@@ -156,6 +214,14 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - nieprawidłowa temperatura zewnętrzna",
       "description": "Czujnik temperatury zewnętrznej dla Better Thermostat {name} zgłosił niewiarygodną wartość: {value}.\n\nOdczyt był poza wiarygodnym zakresem i został zignorowany. Sprawdź konfigurację czujnika temperatury."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} jest sterowany przez więcej niż jeden Better Thermostat",
+      "description": "Termostat {trv} należy do tych Better Thermostat: {entries}. Zapisują do niego sprzeczne temperatury docelowe i tryby. Usuń go w ustawieniach ze wszystkich oprócz jednego; potem ten problem zniknie sam."
+    },
+    "setpoint_not_applied": {
+      "title": "BT: {name} - {entity} nie przyjmuje temperatury docelowej",
+      "description": "Better Thermostat wielokrotnie zapisuje temperaturę docelową {wanted} do {entity}, ale termostat nadal zgłasza {held}. Pomieszczenie nie jest ogrzewane tak, jak zamierza Better Thermostat.\n\nCzęste przyczyny:\n- Termostat ma własny limit nastawy niższy niż publikowane maksimum, na przykład `max_heat_setpoint_limit` w Zigbee2MQTT.\n- Termostat jest w trybie lub presecie, w którym ignoruje temperatury docelowe, na przykład w trybie harmonogramu.\n- Termostat utracił połączenie radiowe lub ma słabą baterię.\n\nBetter Thermostat nadal zapisuje temperaturę docelową, najwyżej raz na godzinę. Ten problem znika sam, gdy termostat zgłosi temperaturę docelową."
     }
   },
   "services": {
@@ -177,15 +243,15 @@
         },
         "defaults_kp": {
           "name": "Domyślne kp",
-          "description": "Wzmocnienie proporcjonalne ustawiane po resecie (jeśli nie podano, używane jest BalanceParams.kp)."
+          "description": "Wzmocnienie proporcjonalne ustawiane po resecie (jeśli nie podano, używana jest wbudowana domyślna wartość PID)."
         },
         "defaults_ki": {
           "name": "Domyślne ki",
-          "description": "Wzmocnienie całkujące ustawiane po resecie (jeśli nie podano, używane jest BalanceParams.ki)."
+          "description": "Wzmocnienie całkujące ustawiane po resecie (jeśli nie podano, używana jest wbudowana domyślna wartość PID)."
         },
         "defaults_kd": {
           "name": "Domyślne kd",
-          "description": "Wzmocnienie różniczkujące ustawiane po resecie (jeśli nie podano, używane jest BalanceParams.kd)."
+          "description": "Wzmocnienie różniczkujące ustawiane po resecie (jeśli nie podano, używana jest wbudowana domyślna wartość PID)."
         }
       }
     }
@@ -317,7 +383,7 @@
         "no_calibration": "Bez kalibracji"
       }
     },
-    "calibration_type": {
+    "calibration_output": {
       "options": {
         "direct_valve_based": "Bezpośrednie sterowanie zaworem",
         "target_temp_based": "Na podstawie temperatury docelowej",
@@ -334,6 +400,33 @@
     }
   },
   "entity": {
+    "climate": {
+      "better_thermostat": {
+        "state_attributes": {
+          "heating_blocked_by": {
+            "name": "Ogrzewanie zablokowane przez",
+            "state": {
+              "devices_released": "Urządzenia zwolnione",
+              "startup": "Uruchamianie",
+              "valve_maintenance": "Konserwacja zaworów",
+              "hvac_off": "Termostat wyłączony",
+              "window": "Okno otwarte",
+              "door": "Drzwi otwarte",
+              "no_call_for_heat": "Brak zapotrzebowania na ciepło"
+            }
+          },
+          "active_overrides": {
+            "name": "Aktywne nadpisania",
+            "state": {
+              "devices_released": "Urządzenia zwolnione",
+              "trvs_released": "TRV zwolnione",
+              "learning_paused": "Uczenie wstrzymane",
+              "window_detection_off": "Wykrywanie okna wyłączone"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "pid_kp": {
         "name": "{trv_name} PID Kp (proporcjonalny)"
@@ -421,9 +514,24 @@
       },
       "valve_max_opening_no_trv": {
         "name": "Maksymalne otwarcie zaworu"
+      },
+      "off_temperature": {
+        "name": "Próg temperatury zewnętrznej"
+      },
+      "tolerance": {
+        "name": "Tolerancja"
       }
     },
     "switch": {
+      "release_devices": {
+        "name": "Zwolnij urządzenia"
+      },
+      "release_trv": {
+        "name": "{trv_name} Zwolnienie"
+      },
+      "release_trv_no_trv": {
+        "name": "Zwolnienie TRV"
+      },
       "pid_auto_tune": {
         "name": "{trv_name} Automatyczne strojenie PID"
       },
@@ -435,6 +543,12 @@
       },
       "child_lock_no_trv": {
         "name": "Blokada rodzicielska"
+      },
+      "pause_learning": {
+        "name": "Wstrzymaj uczenie"
+      },
+      "window_detection": {
+        "name": "Wykrywanie okna"
       }
     },
     "sensor": {
@@ -444,6 +558,7 @@
           "window_close": "wznowiono ogrzewanie, ponieważ zamknięto okno",
           "summer_mode_on": "wyłączono, ponieważ temperatura na zewnątrz jest zbyt wysoka",
           "summer_mode_off": "wznowiono ogrzewanie, ponieważ temperatura na zewnątrz spadła",
+          "weather_forecast_missing": "wznowiono ogrzewanie, ponieważ prognoza pogody jest niedostępna",
           "degraded_mode_entered": "wszedł w tryb awaryjny, ponieważ niektóre czujniki są niedostępne",
           "degraded_mode_resolved": "opuścił tryb awaryjny, ponieważ wszystkie czujniki są dostępne",
           "door_open": "turned off because a door was opened",
@@ -477,23 +592,23 @@
       "mpc_ka": {
         "name": "Izolacja MPC (Ka)"
       },
-      "pid_kp": {
-        "name": "PID Kp"
+      "mpc_v2_virtual_temp": {
+        "name": "Temperatura wirtualna MPC v2"
       },
-      "pid_ki": {
-        "name": "PID Ki"
+      "mpc_v2_coupling": {
+        "name": "Sprzężenie MPC v2"
       },
-      "pid_kd": {
-        "name": "PID Kd"
+      "mpc_v2_disturbance": {
+        "name": "Zakłócenie MPC v2"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "Stała czasowa pomieszczenia MPC v2"
       },
       "pid_output": {
         "name": "Wyjście PID"
       },
       "pid_error": {
         "name": "Uchyb PID"
-      },
-      "solar_intensity": {
-        "name": "Zysk ciepła od słońca"
       }
     }
   },
@@ -518,6 +633,41 @@
     "action_type": {
       "set_hvac_mode": "Ustaw tryb HVAC",
       "set_temperature": "Ustaw temperaturę docelową"
+    }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} nie obsługuje trybu HVAC {mode}. Obsługiwane tryby: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} otrzymał {value} dla {attribute}, co nie jest liczbą."
+    },
+    "valve_maintenance_running": {
+      "message": "Konserwacja zaworów jest już uruchomiona na {device_name}."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} nie ma zaworu z włączoną konserwacją zaworów."
+    },
+    "valve_maintenance_failed": {
+      "message": "Konserwacja zaworów na {device_name} nie powiodła się. Szczegóły są w logu."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} nie wczytał jeszcze wyuczonego stanu. Spróbuj ponownie po jego uruchomieniu."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} nie ma temperatury docelowej, do której można zastosować domyślne wartości PID. Nic nie zostało zresetowane."
+    },
+    "pid_reset_failed": {
+      "message": "Resetowanie nauki PID dla {device_name} nie powiodło się. Szczegóły są w logu."
+    },
+    "invalid_settings": {
+      "message": "Nie można odczytać zapisanych ustawień tego Better Thermostat: {reason}. Zmień je w jego opcjach albo usuń go i dodaj ponownie."
+    },
+    "devices_released": {
+      "message": "Urządzenia {device_name} są zwolnione. Wyłącz Zwolnij urządzenia, aby Better Thermostat znów nimi sterował."
+    },
+    "trv_released": {
+      "message": "Te TRV {device_name} są zwolnione: {entity}. Wyłącz ich przełącznik zwolnienia, aby Better Thermostat znów nimi sterował."
     }
   }
 }

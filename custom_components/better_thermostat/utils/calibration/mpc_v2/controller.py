@@ -4,18 +4,19 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 import logging
 import math
-from typing import Any
 
 import numpy as np
 
+from ...stored_values import stored_float
 from ..mpc_v2_internals.dob import DisturbanceObserver
 from ..mpc_v2_internals.governor import ScalarReferenceGovernor
 from ..mpc_v2_internals.kalman import KalmanObserver
 from ..mpc_v2_internals.plant import PlantModelRC2
-from ..mpc_v2_internals.qp_optimiser import QpOptimiser, require_daqp
+from ..mpc_v2_internals.qp_optimiser import QpOptimiser
+from ..mpc_v2_internals.report_band import ReportBand
 from ..mpc_v2_internals.smith import SmithPredictor
 from .io import MpcV2Diagnostics
 from .params import MpcV2Params
@@ -25,7 +26,13 @@ _LOGGER = logging.getLogger(__name__)
 # Snapshot format version. Bump when adding/renaming persisted fields so
 # restore_snapshot can refuse payloads from a future Better Thermostat
 # release. Pre-versioning snapshots are treated as version 0.
-SNAPSHOT_VERSION = 1
+SNAPSHOT_VERSION = 4
+
+# Snapshots up to this version mark an absent cycle stamp with a number
+# instead of a null: ``last_t_s`` with ``0.0``, ``next_mpc_t_s`` and
+# ``last_mpc_t_s`` with ``-1.0``. The stamps are wall-clock epoch seconds, so
+# no real cycle carries either value.
+_LAST_SENTINEL_STAMP_VERSION = 2
 
 # Steps arriving closer together than this carry no new information: in a
 # multi-TRV group every TRV dispatch steps the same shared controller within
@@ -35,13 +42,62 @@ SNAPSHOT_VERSION = 1
 MIN_STEP_DT_S = 1.0
 
 
+# Store key of ``ControllerSnapshot.rg_v``. The stores on disk carry the
+# governor state under this name, so it is the key read and written.
+_STORED_RG_V = "rg_v_C"
+
+
+def _stored_version(value: object) -> int:
+    """Return a stored snapshot version, with ``int()`` semantics on JSON scalars.
+
+    Raises ``TypeError`` for a null, a list or an object, which drops the
+    snapshot like any other value that is not a number.
+    """
+    if isinstance(value, int | float | str):
+        return int(value)
+    raise TypeError(f"snapshot version is not a number: {value!r}")
+
+
+def _stored_floats(value: object, name: str) -> list[float]:
+    """Return a stored list of numbers as floats.
+
+    Anything other than a list raises ``TypeError``, and so does an element
+    that is not a number, so the caller drops the snapshot.
+    """
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(f"{name} is not a list")
+    return [stored_float(x) for x in value]
+
+
+def _optional_float(value: object) -> float | None:
+    """Return a stored nullable number, ``None`` for a stored null."""
+    return None if value is None else stored_float(value)
+
+
+def _stored_stamp(value: object, version: int, *, zero_is_absent: bool) -> float | None:
+    """Return a stored cycle stamp, ``None`` when the snapshot marks it absent.
+
+    An absent stamp is a missing key or a null. A snapshot up to
+    ``_LAST_SENTINEL_STAMP_VERSION`` marks it with a number the controller
+    read as absent instead: a negative one, and also ``0.0`` when
+    ``zero_is_absent`` is set.
+    """
+    stamp = _optional_float(value)
+    if stamp is None or version > _LAST_SENTINEL_STAMP_VERSION:
+        return stamp
+    if stamp < 0.0 or (zero_is_absent and stamp == 0.0):
+        return None
+    return stamp
+
+
 @dataclass
 class ControllerSnapshot:
     """Typed, JSON-round-trippable snapshot of the full controller state.
 
-    Field names are the persisted JSON keys; ``asdict`` produces the stored
-    mapping and :meth:`from_mapping` rebuilds it defensively on load. Arrays are
-    plain lists so the HA Store round-trips them unchanged.
+    Field names are the persisted JSON keys, except ``rg_v``, which is stored
+    as ``rg_v_C``. :meth:`to_mapping` produces the stored mapping and
+    :meth:`from_mapping` rebuilds it defensively on load. Arrays are plain lists
+    so the HA Store round-trips them unchanged.
     """
 
     v: int
@@ -51,12 +107,31 @@ class ControllerSnapshot:
     last_u: float
     e_integral_K_min: float
     u_history: list[float]
-    rg_v_C: float | None
-    last_t_s: float
-    next_mpc_t_s: float
+    rg_v: float | None
+    # Wall-clock seconds of the last observer cycle, the next due plan and
+    # the last plan; ``None`` while there is none.
+    last_t_s: float | None
+    next_mpc_t_s: float | None
+    last_mpc_t_s: float | None = None
+    # ``None`` for a snapshot written before the planning reading existed;
+    # the restore then starts it from zero.
+    planning_disturbance: float | None = None
+    # The command the last plan settled on. ``None`` for a snapshot written
+    # before it was stored; the restore then takes ``last_u`` for it.
+    last_command_u: float | None = None
+    # The last room reading and the recent steps between distinct readings,
+    # from which the sensor's reporting threshold is estimated.
+    last_room_reading: float | None = None
+    room_report_steps: list[float] = field(default_factory=list)
+
+    def to_mapping(self) -> dict[str, object]:
+        """Return the mapping the HA Store persists."""
+        data = asdict(self)
+        data[_STORED_RG_V] = data.pop("rg_v")
+        return data
 
     @classmethod
-    def from_mapping(cls, raw: Mapping[str, Any]) -> ControllerSnapshot | None:
+    def from_mapping(cls, raw: Mapping[str, object]) -> ControllerSnapshot | None:
         """Parse a persisted mapping; ``None`` for a future version or bad data.
 
         This is the single place raw (untyped) persisted data is validated and
@@ -65,11 +140,22 @@ class ControllerSnapshot:
         non-numeric or non-finite values is dropped entirely — ``float`` accepts
         ``NaN`` and infinity, and either one spreads through the observer into
         every later command, so the controller boots fresh instead of running on
-        poisoned state. ``rg_v_C`` is the one nullable field: a stored ``null``
-        means "no governor state" and stays legal.
+        poisoned state. A stored ``null`` in ``rg_v_C`` means "no governor
+        state", a missing or ``null`` ``planning_disturbance`` means "start it
+        from zero", and a missing or ``null`` ``last_command_u`` means "the
+        last input is the command". A missing or ``null``
+        ``last_room_reading`` means "no reading yet". A missing or ``null`` cycle stamp
+        (``last_t_s``, ``next_mpc_t_s``, ``last_mpc_t_s``) means "no such cycle
+        yet"; a snapshot of version 2 or older marks that with ``0.0`` in
+        ``last_t_s`` and a negative number in the other two, which load as
+        ``None``. ``x_hat``,
+        ``u_history``, ``room_report_steps``, ``kalman_P`` and each row of
+        ``kalman_P`` have to be lists; a value of any other shape drops the
+        snapshot as non-numeric. A 2×2 ``kalman_P``, as version 3 and older
+        store it, holds no disturbance; the restore keeps its default variance.
         """
         try:
-            version = int(raw.get("v", 0))
+            version = _stored_version(raw.get("v", 0))
             if version > SNAPSHOT_VERSION:
                 _LOGGER.warning(
                     "MPC v2 snapshot version %d > supported %d; ignoring",
@@ -77,17 +163,33 @@ class ControllerSnapshot:
                     SNAPSHOT_VERSION,
                 )
                 return None
+            kalman_rows = raw.get("kalman_P", [])
+            if not isinstance(kalman_rows, (list, tuple)):
+                raise TypeError("kalman_P is not a list")
             snapshot = cls(
                 v=version,
-                x_hat=[float(x) for x in raw.get("x_hat", [])],
-                kalman_P=[[float(x) for x in row] for row in raw.get("kalman_P", [])],
-                D_hat_K_per_min=float(raw.get("D_hat_K_per_min", 0.0)),
-                last_u=float(raw.get("last_u", 0.0)),
-                e_integral_K_min=float(raw.get("e_integral_K_min", 0.0)),
-                u_history=[float(x) for x in raw.get("u_history", [])],
-                rg_v_C=None if raw.get("rg_v_C") is None else float(raw["rg_v_C"]),
-                last_t_s=float(raw.get("last_t_s", 0.0)),
-                next_mpc_t_s=float(raw.get("next_mpc_t_s", -1.0)),
+                x_hat=_stored_floats(raw.get("x_hat", []), "x_hat"),
+                kalman_P=[_stored_floats(row, "kalman_P row") for row in kalman_rows],
+                D_hat_K_per_min=stored_float(raw.get("D_hat_K_per_min", 0.0)),
+                last_u=stored_float(raw.get("last_u", 0.0)),
+                e_integral_K_min=stored_float(raw.get("e_integral_K_min", 0.0)),
+                u_history=_stored_floats(raw.get("u_history", []), "u_history"),
+                rg_v=_optional_float(raw.get(_STORED_RG_V)),
+                last_t_s=_stored_stamp(
+                    raw.get("last_t_s"), version, zero_is_absent=True
+                ),
+                next_mpc_t_s=_stored_stamp(
+                    raw.get("next_mpc_t_s"), version, zero_is_absent=False
+                ),
+                last_mpc_t_s=_stored_stamp(
+                    raw.get("last_mpc_t_s"), version, zero_is_absent=False
+                ),
+                planning_disturbance=_optional_float(raw.get("planning_disturbance")),
+                last_command_u=_optional_float(raw.get("last_command_u")),
+                last_room_reading=_optional_float(raw.get("last_room_reading")),
+                room_report_steps=_stored_floats(
+                    raw.get("room_report_steps", []), "room_report_steps"
+                ),
             )
         except TypeError, ValueError, OverflowError:
             _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
@@ -96,12 +198,23 @@ class ControllerSnapshot:
             *snapshot.x_hat,
             *(x for row in snapshot.kalman_P for x in row),
             *snapshot.u_history,
+            *snapshot.room_report_steps,
             snapshot.D_hat_K_per_min,
             snapshot.last_u,
             snapshot.e_integral_K_min,
-            snapshot.last_t_s,
-            snapshot.next_mpc_t_s,
-            *([] if snapshot.rg_v_C is None else [snapshot.rg_v_C]),
+            *(
+                x
+                for x in (
+                    snapshot.last_t_s,
+                    snapshot.next_mpc_t_s,
+                    snapshot.last_mpc_t_s,
+                    snapshot.rg_v,
+                    snapshot.planning_disturbance,
+                    snapshot.last_room_reading,
+                )
+                if x is not None
+            ),
+            *([] if snapshot.last_command_u is None else [snapshot.last_command_u]),
         ]
         if not all(math.isfinite(x) for x in numbers):
             _LOGGER.warning("MPC v2 snapshot contains non-finite data; ignoring")
@@ -127,9 +240,6 @@ class MpcV2Controller:
             sub-params are copied because ``step_s`` is rewritten below, so the
             caller's object is never mutated.
         """
-        # Fail fast when the daqp wheel is missing so the HA log carries
-        # a clear message instead of crashing on the first QP solve.
-        require_daqp()
         # Copy the one sub-param this controller mutates in place — ``qp``
         # (``step_s`` rewritten below) — so the caller's object is never
         # aliased. It is a flat dataclass, so a shallow ``replace`` fully
@@ -148,28 +258,51 @@ class MpcV2Controller:
             )
         self.plant_fine = PlantModelRC2(mpc_params.plant, dt_s=mpc_params.plant_step_s)
         self.plant_coarse = PlantModelRC2(mpc_params.plant, dt_s=mpc_params.qp.step_s)
-        self.kalman = KalmanObserver(self.plant_fine, mpc_params.kalman)
+        self.dob = DisturbanceObserver(
+            mpc_params.dob, tau_room_min=mpc_params.plant.tau_room_min
+        )
+        self.kalman = KalmanObserver(
+            self.plant_fine,
+            mpc_params.kalman,
+            disturbance_bound_K_per_min=self.dob.bound_K_per_min,
+        )
+        self.report_band = ReportBand()
         # The Smith predictor replays the command history, which holds one
         # entry per MPC re-plan — its time base is the QP step, so it runs
         # on the coarse plant, not the fine observer plant.
         self.smith = SmithPredictor(self.plant_coarse)
-        self.dob = DisturbanceObserver(mpc_params.dob)
         self.optimiser = QpOptimiser(self.plant_coarse, mpc_params.qp)
         self.governor = ScalarReferenceGovernor(self.plant_coarse, mpc_params.governor)
 
         self._u_history: deque[float] = deque(maxlen=64)
+        # ``_last_u`` is the best known plant input of the previous cycle: the
+        # applied valve fraction once the caller confirms one, the command
+        # until then. The observer, the integral and the rate limit read it.
+        # ``_command_u`` is what the last plan settled on; between re-plans the
+        # controller keeps commanding it, whatever the device reported since.
         self._last_u: float = 0.0
-        self._last_t_s: float = 0.0
-        self._next_mpc_t_s: float = -1.0
+        self._command_u: float = 0.0
+        self._last_t_s: float | None = None
+        self._next_mpc_t_s: float | None = None
+        self._last_mpc_t_s: float | None = None
         self._initialised: bool = False
+        self._paused: bool = False
+
+    @property
+    def initialised(self) -> bool:
+        """Return whether the observer holds an estimate of the room."""
+        return self._initialised
 
     def step(
         self,
         t_s: float,
-        T_room_C: float,
-        T_target_C: float,
-        T_outdoor_C: float,
-        T_rad_C: float | None = None,
+        T_room: float,
+        T_target: float,
+        T_outdoor: float,
+        T_rad: float | None = None,
+        u_max: float = 1.0,
+        learning_paused: bool = False,
+        room_reading_from_trvs: bool = False,
     ) -> tuple[float, MpcV2Diagnostics]:
         """Run one control cycle. Returns (valve_fraction, diagnostics).
 
@@ -178,62 +311,194 @@ class MpcV2Controller:
         t_s : float
             Wall-clock timestamp of this cycle in seconds; drives the dt used
             by the disturbance observer and the MPC re-plan cadence.
-        T_room_C : float
-            Measured room temperature — the sole Kalman measurement.
-        T_target_C : float
+        T_room : float
+            Measured room temperature — the sole Kalman measurement. The
+            same value as on the previous cycle counts as no new report: the
+            room is then known to lie only within the sensor's reporting
+            threshold of it.
+        T_target : float
             Setpoint handed to the reference governor and QP.
-        T_outdoor_C : float
+        T_outdoor : float
             Outdoor temperature for the loss term and feed-forward.
-        T_rad_C : float | None, optional
+        T_rad : float | None, optional
             Measured radiator temperature. Used only to seed the initial
             Kalman estimate on the very first cycle (falling back to
-            ``T_room_C`` when ``None``); ignored on every subsequent cycle.
+            ``T_room`` when ``None``); ignored on every subsequent cycle.
+        u_max : float, optional
+            Highest valve fraction the caller will pass on this cycle, such as
+            the user's maximum opening. The plan stays below it and the
+            integral's anti-windup treats it as the upper rail.
+        learning_paused : bool, optional
+            Hold the disturbance estimate, the reporting-threshold estimate
+            and the error integral. The room
+            does not answer the valve while learning is paused, so what the
+            observer corrects then is no load the room will carry after the
+            pause. The observer keeps tracking the room and the plan runs on
+            the held values; the integral counts at most one re-plan step
+            after the pause, so nothing is caught up.
+        room_reading_from_trvs : bool, optional
+            ``T_room`` is the TRVs' substitute for a failed room sensor. It
+            counts as a fresh reading and teaches the reporting threshold
+            nothing.
+
+        Between re-plans the cycle returns the command of the last plan. The
+        applied input the caller confirms through :meth:`set_applied_u` feeds
+        the observer and the next plan, but does not become the command: a
+        device that reports its position late would otherwise turn its old
+        position into a new command.
         """
         if not self._initialised:
-            T_rad_init = T_rad_C if T_rad_C is not None else T_room_C
-            self.kalman.initialise(np.array([T_room_C, T_rad_init]))
+            T_rad_init = T_rad if T_rad is not None else T_room
+            self.kalman.initialise(np.array([T_room, T_rad_init]))
+            self.kalman.restore_disturbance(self.dob.D_hat_K_per_min)
             self._next_mpc_t_s = t_s
             self._initialised = True
 
-        dt_s = t_s - self._last_t_s if self._last_t_s > 0 else self.params.plant_step_s
-        if self._last_t_s > 0 and dt_s < MIN_STEP_DT_S:
-            # Forward-only: a non-positive dt_s (backward time jump) or a step
-            # below the minimum reuses the previous state and must NOT advance
-            # _last_t_s, otherwise a stale timestamp would reach dob.update.
-            return self._last_u, self._diagnostics()
+        self._forget_stamps_ahead_of_the_clock(t_s)
+        if self._last_t_s is None:
+            dt_s = self.params.plant_step_s
+        else:
+            dt_s = t_s - self._last_t_s
+            if dt_s < MIN_STEP_DT_S:
+                # Stamps a second or more ahead of the clock are gone by now,
+                # so this sees only a repeat less than 1 s before or after the
+                # last cycle. It reuses the previous state and must NOT advance
+                # _last_t_s, otherwise a stale timestamp would reach the
+                # disturbance estimate.
+                return self._command_u, self._diagnostics()
         self._last_t_s = t_s
 
+        # The observer follows real elapsed time.  The QP below intentionally
+        # remains on its fixed coarse planning grid; mixing those two time
+        # bases was the source of large artificial DOB excursions on sparse
+        # (typically five-minute) Home Assistant updates.
+        # An interval beyond ``max_reading_interval_s`` spans a pause of the
+        # controller; what the room did then is no load it carries now.
+        learn = (
+            not learning_paused
+            and not self._paused
+            and dt_s <= self.params.dob.max_reading_interval_s
+        )
+        self.kalman.disturbance_bound_K_per_min = self.dob.track_settling(
+            t_s, T_room, T_target, paused=not learn
+        )
+        self._paused = False
+        band_K = self._report_band_for(T_room, learn, room_reading_from_trvs)
+        x_hat = self.kalman.update(
+            T_room,
+            self._last_u,
+            T_outdoor,
+            dt_s=dt_s,
+            band_K=band_K,
+            report_threshold_K=self.report_band.threshold_K,
+            learn_disturbance=learn,
+        )
+        if not learning_paused:
+            # An interval that learns nothing leaves the planning reading
+            # where it stood, as one that spans a pause of the controller.
+            self.dob.follow(self.kalman.disturbance_K_per_min, dt_s if learn else 0.0)
+
+        # The governor runs behind the observer and judges which setpoints are
+        # reachable on this cycle's fast estimate. The QP plans with the slow
+        # ``planning_rate`` instead, which lags too far for that judgement: a
+        # setpoint out of reach would keep the valve off its rail.
         sp_for_opt = self.governor.update(
-            T_sp=T_target_C, T_outdoor_C=T_outdoor_C, T_room_now=T_room_C
+            T_sp=T_target,
+            T_outdoor=T_outdoor,
+            T_room_now=T_room,
+            D_hat_K_per_min=self.dob.D_hat_K_per_min,
         )
 
-        innovation = self.kalman.innovation(T_room_C, self._last_u, T_outdoor_C)
-        x_hat = self.kalman.update(T_room_C, self._last_u, T_outdoor_C)
-        self.dob.update(innovation, dt_s)
-
-        if t_s < self._next_mpc_t_s:
-            return self._last_u, self._diagnostics()
+        if self._next_mpc_t_s is not None and t_s < self._next_mpc_t_s:
+            return self._command_u, self._diagnostics()
 
         plant_delay_s = self.params.plant.valve_command_delay_s
         x_pred = self.smith.predict(
-            x_hat, list(self._u_history), T_outdoor_C, plant_delay_s
+            x_hat, list(self._u_history), T_outdoor, plant_delay_s
         )
+
+        # Hand over the time since the previous plan; the optimiser counts at
+        # most one re-plan step of it. The first plan has no preceding
+        # control interval.
+        if self._last_mpc_t_s is not None and not learning_paused:
+            self.optimiser.update_integral(
+                T_room=T_room,
+                T_sp=sp_for_opt,
+                u_applied=self._last_u,
+                dt_s=max(0.0, t_s - self._last_mpc_t_s),
+                u_max=u_max,
+            )
 
         u = self.optimiser.solve(
             x_pred=x_pred,
             T_sp=sp_for_opt,
-            T_outdoor_C=T_outdoor_C,
+            T_outdoor=T_outdoor,
             u_last=self._last_u,
-            D_hat_K_per_min=self.dob.D_hat_K_per_min,
-        )
-        self.optimiser.update_integral(
-            T_room=T_room_C, T_sp=sp_for_opt, u_applied=u, dt_s=self.params.qp.step_s
+            D_hat_K_per_min=self.dob.planning_rate,
+            u_max=u_max,
+            move_suppression_factor=self.report_band.move_suppression_factor,
         )
         self._last_u = u
+        self._command_u = u
         self._u_history.append(u)
+        self._last_mpc_t_s = t_s
         self._next_mpc_t_s = t_s + self.params.qp.step_s
 
         return u, self._diagnostics()
+
+    @property
+    def paused(self) -> bool:
+        """Return whether the next cycle follows a skipped one."""
+        return self._paused
+
+    def mark_paused(self) -> None:
+        """Note that the controller skipped a cycle (window open, heating off).
+
+        The next cycle's interval then spans the pause, in which the room
+        followed an input the controller did not command; the observer tracks
+        the room across it but learns no disturbance from it.
+        """
+        self._paused = True
+
+    def _report_band_for(
+        self, T_room: float, learn: bool, from_trvs: bool
+    ) -> float | None:
+        """Return the band half-width for a repeated reading, ``None`` for a fresh one.
+
+        While ``learn`` is off the threshold estimate holds: a reading after a
+        pause can differ from the last by any amount. A reading the TRVs
+        substitute for the room sensor is always fresh, and the room sensor's
+        first reading after it adds no step.
+        """
+        if from_trvs:
+            self.report_band.forget_reading()
+            return None
+        if learn:
+            return self.report_band.observe(T_room)
+        repeated = T_room == self.report_band.last_reading
+        self.report_band.last_reading = T_room
+        return self.report_band.threshold_K if repeated else None
+
+    def _forget_stamps_ahead_of_the_clock(self, t_s: float) -> None:
+        """Drop the stored stamps when the last cycle lies ahead of the clock.
+
+        A stamp less than ``MIN_STEP_DT_S`` ahead counts as a repeat of the
+        last cycle and stays.
+
+        The stamps are read from the wall clock, which can step back (a time
+        sync, a host with a wrong clock at boot). A stamp from before the step
+        lies in the future of every cycle after it, so the interval since it
+        comes out negative and the cycle would repeat the last command until
+        the clock catches up. The stamps then count as absent and the next
+        cycle runs as a first cycle does: the observer advances by one plant
+        step, the plan is due now and starts without a preceding control
+        interval. The stamp of the last plan needs no reset: the interval
+        measured from it is floored at zero and the plan replaces it. The
+        estimates, the error integral and the command history are kept.
+        """
+        if self._last_t_s is not None and self._last_t_s - t_s >= MIN_STEP_DT_S:
+            self._last_t_s = None
+            self._next_mpc_t_s = None
 
     def export_snapshot(self) -> ControllerSnapshot:
         """Return a typed snapshot of the controller state for persistence."""
@@ -241,13 +506,18 @@ class MpcV2Controller:
             v=SNAPSHOT_VERSION,
             x_hat=[float(x) for x in self.kalman.x_hat],
             kalman_P=[[float(x) for x in row] for row in self.kalman.P],
-            D_hat_K_per_min=self.dob.D_hat_K_per_min,
+            D_hat_K_per_min=self.kalman.disturbance_K_per_min,
             last_u=self._last_u,
             e_integral_K_min=self.optimiser.e_integral_K_min,
             u_history=[float(u) for u in self._u_history],
-            rg_v_C=self.governor.state(),
+            rg_v=self.governor.state(),
             last_t_s=self._last_t_s,
             next_mpc_t_s=self._next_mpc_t_s,
+            last_mpc_t_s=self._last_mpc_t_s,
+            planning_disturbance=self.dob.planning_filtered,
+            last_command_u=self._command_u,
+            last_room_reading=self.report_band.last_reading,
+            room_report_steps=self.report_band.steps,
         )
 
     def restore_snapshot(self, snap: ControllerSnapshot) -> None:
@@ -256,26 +526,36 @@ class MpcV2Controller:
         An estimate or covariance that is empty, wrong-shaped or non-finite (a
         partial or corrupted snapshot) leaves the freshly constructed defaults
         in place — a mis-shaped or ``NaN`` covariance would otherwise poison
-        every subsequent Kalman update. Version gating lives in
-        :meth:`ControllerSnapshot.from_mapping`.
+        every subsequent Kalman update. The covariance additionally has to be
+        symmetric and positive semi-definite, which
+        :meth:`KalmanObserver.restore_covariance` decides. Version gating lives
+        in :meth:`ControllerSnapshot.from_mapping`.
         """
         n = self.plant_fine.state_dim
         x_hat = np.asarray(snap.x_hat, dtype=float)
         seeded = x_hat.shape == (n,) and bool(np.all(np.isfinite(x_hat)))
         if seeded:
             self.kalman.initialise(x_hat)
-        if snap.kalman_P:
-            P = np.asarray(snap.kalman_P, dtype=float)
-            if P.shape == (n, n) and bool(np.all(np.isfinite(P))):
-                self.kalman.P = P
-        self.dob.D_hat_K_per_min = snap.D_hat_K_per_min
+        if snap.kalman_P and not self.kalman.restore_covariance(snap.kalman_P):
+            _LOGGER.warning(
+                "MPC v2 snapshot covariance is unusable; the observer keeps "
+                "its default uncertainty and re-learns"
+            )
+        self.dob.restore(snap.D_hat_K_per_min, snap.planning_disturbance)
+        self.kalman.disturbance_bound_K_per_min = self.dob.bound_K_per_min
+        self.kalman.restore_disturbance(self.dob.D_hat_K_per_min)
+        self.report_band.restore(snap.last_room_reading, snap.room_report_steps)
         self.optimiser.e_integral_K_min = snap.e_integral_K_min
         self._last_u = snap.last_u
+        self._command_u = (
+            snap.last_u if snap.last_command_u is None else snap.last_command_u
+        )
         for u in snap.u_history:
             self._u_history.append(u)
-        self.governor.restore(snap.rg_v_C)
+        self.governor.restore(snap.rg_v)
         self._last_t_s = snap.last_t_s
         self._next_mpc_t_s = snap.next_mpc_t_s
+        self._last_mpc_t_s = snap.last_mpc_t_s
         # The controller counts as initialised only when the snapshot carried a
         # usable estimate. Without one the Kalman filter still holds its
         # construction default, so the first :meth:`step` has to seed it from
@@ -285,10 +565,11 @@ class MpcV2Controller:
     def set_applied_u(self, u: float) -> None:
         """Record the valve fraction actually applied to the TRV.
 
-        When the caller clamps the command (e.g. ``max_opening_pct``), the
+        When the caller clamps the command (e.g. ``max_opening_percent``), the
         Kalman observer, Smith predictor and rate limiter must see the applied
         value on the next cycle rather than the optimiser's uncapped request,
-        otherwise their state drifts from the real plant input.
+        otherwise their state drifts from the real plant input. The command
+        returned between re-plans stays the planned one.
 
         Parameters
         ----------
@@ -299,6 +580,17 @@ class MpcV2Controller:
         self._last_u = u
         if self._u_history:
             self._u_history[-1] = u
+
+    def set_command_u(self, u: float) -> None:
+        """Record this cycle's bounded command pending device confirmation.
+
+        The command is also the plant input until :meth:`set_applied_u`
+        confirms one.
+        """
+        self._command_u = max(0.0, min(1.0, u))
+        self._last_u = self._command_u
+        if self._u_history:
+            self._u_history[-1] = self._last_u
 
     def _diagnostics(self) -> MpcV2Diagnostics:
         return MpcV2Diagnostics(

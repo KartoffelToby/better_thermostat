@@ -26,13 +26,16 @@ blueprint:
     message:
       name: Message
       description: Notification message body.
-      default: "🔥 {{ device_attr(trigger.device_id, 'name') }} started heating."
+      default: "🔥 {{ device_attr(thermostat_device, 'name') }} started heating."
       selector:
         text:
           multiline: true
 
 mode: single
 max_exceeded: silent
+
+variables:
+  thermostat_device: !input thermostat_device
 
 trigger:
   - platform: device

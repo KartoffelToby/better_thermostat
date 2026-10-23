@@ -2,14 +2,17 @@
 
 The benchmark's headline output is a 0..1 score matrix. Beyond the unit
 tests of individual components, this test turns the matrix itself into a
-guard: it runs the production controllers over a representative,
-noise-free scenario set and asserts the invariants that must always hold
+guard: it runs the production controllers over a representative
+scenario set, each with its seeded sensor noise, and asserts the invariants that must always hold
 if the plant, metrics, scoring and controllers are wired up correctly.
 
-It is intentionally loose — wide of the current numbers — so it is not
-flaky, but tight enough to catch a real regression: a controller change
-that quietly halves a smart controller's score, a scoring bug that lets
-a candidate beat the oracle, or a plant change that breaks tracking.
+Each controller holds a recorded floor per dimension, about 0.02 below
+its current mean, so a controller change that costs a few hundredths of
+comfort, valve travel or energy fails the build. The floors ratchet: a
+floor more than 0.04 below the measured mean fails too, so an
+improvement has to be recorded before the margin it opened can be spent
+again. A scoring bug that lets a candidate beat the oracle fails the
+ceiling check.
 
 Scenarios here carry no sensor noise/jitter, so the per-scenario sensor
 seed does not affect the numbers — the gate stays stable run to run.
@@ -17,6 +20,7 @@ seed does not affect the numbers — the gate stays stable run to run.
 
 from __future__ import annotations
 
+import math
 import statistics
 
 import pytest
@@ -29,7 +33,7 @@ from tests.benchmark.scenarios import (
     S07_OUTDOOR_STEP_COLD,
     S08_OUTDOOR_RAMP_WARM,
 )
-from tests.benchmark.scoring import PROFILES, compute_scores
+from tests.benchmark.scoring import PROFILES, DimensionScores, compute_scores
 
 _SCENARIOS = [
     S01_SETPOINT_STEP_SMALL,
@@ -39,18 +43,28 @@ _SCENARIOS = [
     S08_OUTDOOR_RAMP_WARM,
 ]
 
-# Smart controllers must stay comfortably above this. They currently sit
-# around 0.72-0.78 on this set; a floor of 0.50 ignores normal scenario
-# variation but trips on a genuine regression.
-_SMART_OVERALL_FLOOR = 0.50
+_DIMENSIONS = ("overall", "comfort", "actuator", "energy")
 
-_SMART_CONTROLLERS = ("mpc", "pid", "tpi")
+# Mean balanced score per dimension over _SCENARIOS, recorded about 0.02
+# below the measured value and rounded down to the hundredth.
+_FLOORS: dict[str, dict[str, float]] = {
+    "mpc": {"overall": 0.68, "comfort": 0.83, "actuator": 0.25, "energy": 0.98},
+    "mpc_v2": {"overall": 0.89, "comfort": 0.97, "actuator": 0.72, "energy": 0.97},
+    "pid": {"overall": 0.77, "comfort": 0.77, "actuator": 0.63, "energy": 0.97},
+    "tpi": {"overall": 0.76, "comfort": 0.65, "actuator": 0.79, "energy": 0.98},
+    "default": {"overall": 0.59, "comfort": 0.25, "actuator": 0.91, "energy": 0.98},
+}
+
+# A floor further than this below the measured mean is stale and has to
+# be raised, so the gate keeps following the controllers upward.
+_MAX_FLOOR_SLACK = 0.04
 
 
 def _make_adapter(name: str):
     """Build a fresh adapter by registry name (deferred imports keep it cheap)."""
     from tests.benchmark.adapters.baselines import IdealOracleAdapter
     from tests.benchmark.adapters.mpc_adapter import MpcAdapter
+    from tests.benchmark.adapters.mpc_v2_adapter import MpcV2Adapter
     from tests.benchmark.adapters.passive_modes import DefaultCalibrationAdapter
     from tests.benchmark.adapters.pid_adapter import PidAdapter
     from tests.benchmark.adapters.tpi_adapter import TpiAdapter
@@ -58,6 +72,7 @@ def _make_adapter(name: str):
     factories = {
         "ideal_oracle": IdealOracleAdapter,
         "mpc": MpcAdapter,
+        "mpc_v2": MpcV2Adapter,
         "pid": PidAdapter,
         "tpi": TpiAdapter,
         "default": DefaultCalibrationAdapter,
@@ -66,15 +81,15 @@ def _make_adapter(name: str):
 
 
 @pytest.fixture(scope="module")
-def mean_overall_scores() -> dict[str, dict[str, float]]:
-    """Per-(controller, scenario) balanced overall score; oracle normalises to itself.
+def scenario_scores() -> dict[str, dict[str, DimensionScores]]:
+    """Per-(controller, scenario) balanced scores; oracle normalises to itself.
 
     Retained per scenario (not just the mean) so the ceiling check can catch a
     controller that beats the oracle on an individual scenario while losing on
     average.
     """
     profile = PROFILES["balanced"]
-    controllers = ["ideal_oracle", "mpc", "pid", "tpi", "default"]
+    controllers = ["ideal_oracle", "mpc", "mpc_v2", "pid", "tpi", "default"]
 
     # Oracle metrics per scenario are the normalisation baseline.
     oracle_metrics = {
@@ -82,35 +97,42 @@ def mean_overall_scores() -> dict[str, dict[str, float]]:
         for s in _SCENARIOS
     }
 
-    out: dict[str, dict[str, float]] = {}
+    out: dict[str, dict[str, DimensionScores]] = {}
     for name in controllers:
-        per: dict[str, float] = {}
-        for s in _SCENARIOS:
-            metrics = run_scenario(_make_adapter(name), s).metrics
-            per[s.name] = compute_scores(
-                metrics, oracle_metrics[s.name], profile
-            ).overall
-        out[name] = per
+        out[name] = {
+            s.name: compute_scores(
+                run_scenario(_make_adapter(name), s).metrics,
+                oracle_metrics[s.name],
+                profile,
+            )
+            for s in _SCENARIOS
+        }
     return out
 
 
+def _mean(
+    scores: dict[str, dict[str, DimensionScores]], name: str, dimension: str
+) -> float:
+    return statistics.mean(getattr(s, dimension) for s in scores[name].values())
+
+
 def test_oracle_is_the_ceiling(
-    mean_overall_scores: dict[str, dict[str, float]],
+    scenario_scores: dict[str, dict[str, DimensionScores]],
 ) -> None:
     """No controller may out-score the IdealOracle on ANY scenario."""
     for s in _SCENARIOS:
-        oracle = mean_overall_scores["ideal_oracle"][s.name]
-        for name, per in mean_overall_scores.items():
+        oracle = scenario_scores["ideal_oracle"][s.name].overall
+        for name, per in scenario_scores.items():
             if name == "ideal_oracle":
                 continue
-            assert per[s.name] <= oracle + 1e-9, (
-                f"{name} on {s.name} ({per[s.name]:.3f}) out-scored the oracle "
-                f"({oracle:.3f}) — a scoring or normalisation regression."
+            assert per[s.name].overall <= oracle + 1e-9, (
+                f"{name} on {s.name} ({per[s.name].overall:.3f}) out-scored the "
+                f"oracle ({oracle:.3f}) — a scoring or normalisation regression."
             )
 
 
 def test_oracle_scores_near_one(
-    mean_overall_scores: dict[str, dict[str, float]],
+    scenario_scores: dict[str, dict[str, DimensionScores]],
 ) -> None:
     """The oracle normalises against itself, so it must sit near 1.0.
 
@@ -118,19 +140,37 @@ def test_oracle_scores_near_one(
     (a score above 1.0 would let a candidate "beat" the oracle; below would
     mean the oracle failed to normalise to itself).
     """
-    oracle = statistics.mean(mean_overall_scores["ideal_oracle"].values())
+    oracle = _mean(scenario_scores, "ideal_oracle", "overall")
     assert oracle == pytest.approx(1.0, abs=1e-3), (
         f"oracle normalised to {oracle:.3f}, expected ~1.0 — plant/metric regression."
     )
 
 
-@pytest.mark.parametrize("name", _SMART_CONTROLLERS)
-def test_smart_controllers_above_floor(
-    name: str, mean_overall_scores: dict[str, float]
+_GATED = [(name, dimension) for name in _FLOORS for dimension in _DIMENSIONS]
+
+
+@pytest.mark.parametrize(("name", "dimension"), _GATED)
+def test_controller_holds_its_floor(
+    name: str, dimension: str, scenario_scores: dict[str, dict[str, DimensionScores]]
 ) -> None:
-    """Each smart controller must stay above the regression floor."""
-    score = statistics.mean(mean_overall_scores[name].values())
-    assert score >= _SMART_OVERALL_FLOOR, (
-        f"{name} fell to {score:.3f} (floor {_SMART_OVERALL_FLOOR}) — "
+    """Each gated controller stays at or above its recorded floor."""
+    score = _mean(scenario_scores, name, dimension)
+    floor = _FLOORS[name][dimension]
+    assert score >= floor, (
+        f"{name} {dimension} fell to {score:.4f} (floor {floor:.2f}) — "
         f"a controller regression."
+    )
+
+
+@pytest.mark.parametrize(("name", "dimension"), _GATED)
+def test_floor_follows_the_controller(
+    name: str, dimension: str, scenario_scores: dict[str, dict[str, DimensionScores]]
+) -> None:
+    """A floor that trails the measured mean by too much has to be raised."""
+    score = _mean(scenario_scores, name, dimension)
+    floor = _FLOORS[name][dimension]
+    raised = math.floor((score - 0.02) * 100.0) / 100.0
+    assert score - floor <= _MAX_FLOOR_SLACK, (
+        f"{name} {dimension} now scores {score:.4f}; raise its floor in "
+        f"_FLOORS from {floor:.2f} to {raised:.2f}."
     )

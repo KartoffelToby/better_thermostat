@@ -48,7 +48,9 @@ All randomness (sensor noise, sample jitter, stochastic windows,
 synthetic weather) flows from explicit seeds. The sensor RNG is seeded
 per scenario (derived from the scenario name via a stable CRC, not
 Python's salted `hash`) so noise realisations are decorrelated across
-scenarios yet reproducible run to run.
+scenarios yet reproducible run to run. `ScenarioConfig.noise_seed` draws
+an independent realisation, and `--seeds N` averages every cell over N
+of them.
 
 ### Functional decomposition: plant / sensor / actuator / controller
 
@@ -69,6 +71,11 @@ controller ───────────────► actuator ──► P
 * **Sensor** (`sensor.py`) — converts the plant's true temperature into
   what the controller actually *sees*: sampled, lagged, optionally noisy,
   biased, drifting, or dropped out. This is where "garbage in" enters.
+* **Input stage** (`input_stage.py`) — what Better Thermostat makes of
+  the sensor reports before a controller sees them: the 0.11 K
+  acceptance gate, the EMA and its slope, as `events/temperature.py`
+  keeps them. The runner also models the TRV's own sensor and runs the
+  production controllers only on BT's control cycles.
 * **Actuator** (`actuator.py`) — converts the controller's commanded
   valve-% into the *delivered* flow the plant receives (a non-linear flow
   curve, deadband, stiction, quantisation). This is where "intent ≠
@@ -101,21 +108,34 @@ entirely on the house and the disturbance — 0.3 K on a fast small room in
 a gentle step is poor; 0.3 K on a leaky house during a −15 K cold snap is
 excellent. Comparing raw metrics across scenarios is meaningless.
 
-So every scenario is *also* run by an **`IdealOracle`** — a controller
-that knows the plant's exact parameters and inverts them to deliver the
-physically best-achievable response. Its metrics define the per-scenario
-reference:
+So every scenario is *also* run by an **`IdealOracle`**, a controller
+that knows the plant's exact parameters, inverts them for its
+feedforward and adds proportional feedback on the true room
+temperature. Its metrics define the per-scenario reference:
 
-* Oracle's value → score **1.0** (the asymptote of perfect knowledge)
+* Oracle's value → score **1.0**
 * A controller at the **failure threshold** (§6) → score **0.0**
 * Linear interpolation in between, clamped to `[0, 1]`
 
 This makes scores comparable *across* scenarios and houses: 0.85 always
-means "85 % of the way from catastrophic to physically perfect, in this
+means "85 % of the way from the failure threshold to the oracle, in this
 specific situation". The oracle normalises against itself, so it scores
-**1.0** by construction — a real controller approaching 1.0 is matching
-the perfect-knowledge bound. Read the oracle as a ceiling, not a target:
-it cheats by knowing the plant exactly, which no deployable controller can.
+**1.0** by construction.
+
+The oracle is a strong reference, not an upper bound. Its feedforward
+does not see sun, open windows or a non-linear valve, and its feedback
+is proportional only, so those disturbances leave it a steady-state
+error. Candidates beat its discomfort in about a quarter of the runs
+(59 of 216 for `mpc_v2`, `tpi`, `pid`, `mpc`, `heating_power` and
+BangBang); the clamp then scores them 1.0, so a 1.0 means "at least as
+good as the oracle", not "perfect". An integral term would not sharpen
+the reference: it removes little discomfort (4.9 → 4.7 K·h on average)
+and multiplies the oracle's valve travel, which only loosens the
+actuator yardstick. The oracle feeds back on the true room temperature,
+so sensor lag and noise do not weaken the reference. A sensor's
+calibration error (bias, drift) is the one fault it shares with the
+candidates: nothing can observe it without a second reference, so the
+fault scenarios score what a controller adds on top of it.
 
 ---
 
@@ -129,8 +149,9 @@ cares about. Four are measured per run; the fifth is suite-level.
 2. **Actuator longevity** — valve wear and TRV battery drain. A
    controller that tracks perfectly by thrashing the valve is a bad trade
    on battery-powered Zigbee hardware.
-3. **Energy** — heat actually spent. Both over-heating (waste) and
-   under-heating (missed comfort) are deviations from the optimum.
+3. **Energy** — heat actually spent beyond the optimum. Heat below it
+   earns no extra credit; where it misses the setpoint, comfort counts
+   it.
 4. **Resilience** — behaviour under faults (sensor dropout, large
    disturbances). Not a separate per-run score: it surfaces as
    catastrophic comfort/actuator values on the fault scenarios (§7-E/F),
@@ -151,10 +172,16 @@ which is exactly a resilience signal.
 ## §5 — Metrics: what is measured and why
 
 All metrics are computed from a `TimeSeries` (`metrics.py`) of
-`(t, T_room, T_setpoint, valve_pct)`. Per dimension:
+`(t, T_room, T_setpoint, valve_percent)`. Per dimension:
 
 ### Comfort
 
+* **discomfort_K_h** — ∫ max(|T − setpoint| − 0.2 K, 0) dt over the
+  scored phase, in K·h: how far and how long the room sat outside the
+  band a user does not notice. Unlike settling, which is a single
+  instant, and the peak overshoot, it charges an oscillation that starts
+  after settling and an offset that never closes, for as long as they
+  last. `transient_duration_h` records the length of the scored phase.
 * **max_overshoot_K / max_undershoot_K** — peak excursion past the
   setpoint, measured only after `transient_start_s` (so the initial rise
   isn't counted as overshoot). Captures the worst-case the user feels.
@@ -165,12 +192,13 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
   number to average away.
 * **steady_state_error_K** — mean absolute error over the final 30 min;
   the offset a user would read on the thermostat once things calm down.
+  Reported as a diagnostic: discomfort already contains it.
 * **rmse_tracking_K** — RMS error across the whole transient;
   complements settling (which is a single instant) with an integral view.
 
 ### Actuator longevity
 
-* **total_valve_travel_pct** = Σ|Δu| over the run. This — not cycle count
+* **total_valve_travel_percent** = Σ|Δu| over the run. This — not cycle count
   — is the headline wear/battery proxy. A precise controller (the oracle
   included) makes *many small* moves; counting "cycles" would punish it
   for being smooth. Summed absolute travel is the honest measure: every
@@ -181,19 +209,26 @@ All metrics are computed from a `TimeSeries` (`metrics.py`) of
 
 ### Energy
 
-* **integral_valve_pct_min** = ∫ valve% dt. A proxy for delivered heat.
-  Scored *symmetrically* around the oracle's optimum (§6): under-heating
-  (missed setpoint) costs the same as over-heating (waste). This is a
-  deliberate neutrality — the benchmark does not assume the user prefers
-  saving energy over comfort. If your application is asymmetric, read the
-  energy column alongside comfort rather than the weighted overall.
+* **delivered_heat_K** = ∫ coupling·(T_rad − T_room) / tau_room dt, the heat
+  the radiators delivered to the room, expressed as the room-air
+  temperature rise it would cause without losses. Taken from the plant, so
+  deadband, stiction and pipe delay count as they act on the room.
+  Scored one-sided against the oracle's optimum (§6): heat beyond it is
+  waste; heat below it earns no extra credit. It is usually a missed
+  setpoint, which comfort scores once, in the dimension the user feels
+  it in; where the oracle over-heats, as under sun, it is a saving the
+  score does not reward.
+* **integral_valve_percent_minutes** = ∫ valve% dt of the commanded valve.
+  Reported as a diagnostic, *not* scored: it charges a valve the actuator
+  never opened, and it overstates a wide-open valve, because a hotter
+  radiator takes up less heat per valve percent.
 
 ### Diagnostics (measured, not scored)
 
 * **time_above/below_setpoint_K_h** — asymmetric comfort accounting in
   K·h (the BOPTEST `tdis_tot` split), for analyses where overshoot and
   undershoot have different cost.
-* **valve_sweet_spot_residency_pct** — fraction of time the valve sits at
+* **valve_sweet_spot_residency_percent** — fraction of time the valve sits at
   40–60 %. Heat-pump COP suffers at the extremes; mid-range modulation is
   efficient. Surfaced for heat-pump scenarios (§7-G), not folded into the
   score.
@@ -206,21 +241,25 @@ Each dimension maps its metrics to `[0, 1]` against the oracle, with
 **failure thresholds** chosen so the scale is interpretable rather than
 arbitrary:
 
-* **Comfort** = 1 − (0.4·overshoot-excess + 0.4·settling-ratio +
-  0.2·ss-error-excess). Failure at +1 K extra overshoot, 5× the oracle's
-  settling time, or +0.5 K extra steady-state error. (Overshoot and
-  settling are weighted equally because a user notices a temperature
-  swing and a slow approach about equally; steady-state error is weighted
-  less because it is usually small once settled.)
-* **Actuator** = 1 − (excess travel / 4× oracle travel). Failure at 5×
-  the oracle's total travel. When the oracle barely moves, the candidate
-  is scored against an absolute floor so a low-activity controller still
-  scores near 1.0.
-* **Energy** = 1 − |ratio − 1|, symmetric. Failure at 2× the oracle's
-  integral (over-heating) or 0 (room never heated). When the oracle's
-  integral is below a small floor (the scenario barely heated), the
-  candidate's *excess* usage is scored against that floor — so a grossly
-  over-heating controller cannot escape via the edge case.
+* **Comfort** = 1 − (0.5·discomfort-excess + 0.25·overshoot-excess +
+  0.25·settling-ratio). Discomfort fails at a mean of 0.5 K beyond the
+  oracle's, averaged over the scored phase but over at least 4 h, so a
+  brief event in a short scenario still weighs; overshoot fails at +1 K
+  extra, settling at 5× the oracle's time. Discomfort carries half the
+  weight because it is the only component that sees the whole run.
+  Between 0.25 K and 1 K for the discomfort threshold the order of
+  `mpc_v2`, `tpi`, `pid` and `mpc` stays the same; only the controllers
+  near the BangBang floor trade places.
+* **Actuator** = 1 − excess travel / (4 × max(oracle travel, 125 %)).
+  Failure at 5× the oracle's total travel. When the oracle barely moves,
+  the 125 % floor takes its place, so 500 % of travel scores 0 against an
+  idle oracle and the score does not jump as the oracle's travel nears
+  zero.
+* **Energy** = 1 − max(ratio − 1, 0) on delivered heat. Failure at 2× the
+  oracle's heat. When the oracle's heat is below a small floor (the
+  scenario barely heated), the candidate's absolute excess over the
+  oracle is scored against that floor, so a grossly over-heating
+  controller cannot escape via the edge case.
 
 The **overall** column is a weighted sum under a `UserProfile`. Four
 profiles bracket reasonable priorities — `balanced` (0.5 / 0.3 / 0.2),
@@ -234,7 +273,7 @@ controller wins, not just the overall.
 
 ## §7 — Scenario taxonomy: what is covered and why
 
-The 37 scenarios are not arbitrary. Each probes a specific stress that a
+The 36 scenarios are not arbitrary. Each probes a specific stress that a
 real Better Thermostat install encounters. They group into families;
 within a family, scenarios vary magnitude or plant to expose where a
 controller breaks.
@@ -256,7 +295,7 @@ the core tracking test (rise time, overshoot, re-planning).
 
 | Scenario | Probes |
 |---|---|
-| `S07_outdoor_step_cold` (5→−10, hold 21) | Sudden cold snap — disturbance rejection. |
+| `S07_outdoor_step_cold` (5→−5, hold 21) | Sudden cold snap — disturbance rejection. |
 | `S08_outdoor_ramp_warm` (5→12 over 6 h) | Slow load change — drift, integral action. |
 | `S22_diurnal_outdoor` (24 h cycle) | Continuous disturbance — never settles. |
 
@@ -267,13 +306,18 @@ against a moving load.
 
 | Scenario | Probes |
 |---|---|
-| `S09_window_open_short` (5 min) | Brief open — should not crank the valve open into the cold. |
-| `S10_window_open_long` (20 min) | Sustained open — energy waste + recovery overshoot. |
+| `S09_window_open_short` (5 min) | Brief open — recovery from a short, sharp drop. |
+| `S10_window_open_long` (20 min) | Sustained open — deep drop + recovery overshoot. |
 | `S21_stochastic_windows` (3 random, Annex-79 style) | Realistic irregular venting. |
 
 *Why:* open windows are the classic TRV failure mode (the valve opens
-fully against the cold air); a key thing BT's window handling must get
-right.
+fully against the cold air). Better Thermostat turns every TRV off while
+a window is open, whatever the calibration mode, so the runner closes
+the valve for every controller, the oracle included, for as long as the
+window is open. The controller still runs and is told the window is
+open. What these scenarios score is how each controller brings the room
+back once the window closes, and what its state carries through the
+window into that recovery.
 
 ### D — Solar gain & forecast (anticipation)
 
@@ -291,8 +335,8 @@ gracefully when the forecast is wrong.
 | Scenario | Probes |
 |---|---|
 | `S12_sensor_dropout` (10 min none) | Holds sane output through a reporting gap. |
-| `S17_sensor_bias` (+0.5 K) | Constant offset — steady-state error it cannot see. |
-| `S18_sensor_drift` (+0.05 K/h) | Slow drift — moving blind spot. |
+| `S17_sensor_bias` (+0.5 K) | Constant offset — no error beyond the bias it cannot see. |
+| `S18_sensor_drift` (+0.05 K/h) | Slow drift — no error beyond the moving blind spot. |
 | `S35_sample_jitter` (±45 s) | Irregular Zigbee report timing. |
 
 *Why:* real Zigbee temperature sensors drop out, drift, and report
@@ -317,11 +361,19 @@ ignores this hunts and wears the motor.
 | `S33_ufh_asymmetric` | Underfloor with asymmetric over/undershoot cost. |
 | `S23_boiler_limited` (42 °C supply HP) | Low supply temperature — limited authority. |
 | `S29_heatpump_steady_state` | Valve sweet-spot residency for heat-pump COP. |
-| `S26_cooling_mode` (reverse-acting) | Chilled-water / cooling — sign-flipped control. |
 | `S27_pipe_fill_after_idle` (120 s delay) | Boiler→radiator transport lag from cold. |
 
-*Why:* BT runs on radiators, underfloor, heat pumps, and in cooling mode;
-a controller must not assume a hot, fast, instantly-responding radiator.
+*Why:* BT runs on radiators, underfloor and heat pumps; a controller must
+not assume a hot, fast, instantly-responding radiator.
+
+Every scenario leaves the oracle headroom: its steady-state valve stays at
+or below 90 % at every five-minute sample of the setpoint and outdoor
+temperature the scenario visits (`test_scenario_feasibility.py`). A setpoint the plant cannot hold
+saturates every controller at a fully open valve and turns the run into a
+measure of the plant's capacity, in which a naive controller ties the
+oracle. The two synthetic winter weeks reach about −15 °C and therefore run
+on `PROFILE_COLD_CLIMATE`, whose radiator is sized for that design
+temperature; the standard plant needs more than 90 % valve below about −7 °C.
 
 ### H — Lifecycle & operational (real-world operation)
 
@@ -406,9 +458,20 @@ Two time-domain effects plus fault injection:
 * **Thermal lag** — a first-order filter (time constant 30 s – 3 min): the
   sensor body has its own thermal mass and approaches the air temperature
   gradually. This is the dominant physical lag in residential sensors.
-* **Sampling + EMA** — sensors only emit every `sample_interval_s`
-  (1–5 min for Zigbee), optionally smoothed by an EMA matching BT's own
-  periodic filter.
+* **Sampling, resolution, reporting** — sensors only emit every
+  `sample_interval_s` (1–5 min for Zigbee), on a `resolution_K` grid,
+  and only when the value moved `report_threshold_K` since the last
+  report or `heartbeat_s` has passed. An optional EMA (`ema_alpha`)
+  models a sensor that smooths its own samples.
+* **Default** — `REALISTIC_SENSOR_PARAMS`: 60 s, 90 s lag, 0.02 K noise,
+  0.1 K resolution and threshold. The noise lies between the high- and
+  medium-repeatability modes of a Sensirion SHT3x (3σ = 0.04 / 0.08 K);
+  room-air turbulence (0.2–1.2 Hz in a DTU field study of 19 rooms) is
+  filtered out by the sensor body. The README tabulates how the scores
+  move with noise and reporting threshold.
+* **TRV sensor** — `T_room + f·(T_rad − T_room)` with `f = 0.1`,
+  reported in 0.1 K steps; the TRV's own regulation uses the unrounded
+  value.
 * **Faults** — noise, bias, drift, dropout, sample jitter (the §7-E
   family), all deterministic from the per-scenario seed.
 
@@ -429,11 +492,11 @@ quantisation model real valve imperfections (the §7-F family).
 Read the matrix top-down with three anchors (full tables in
 [`README.md`](README.md#how-to-read-the-results)):
 
-* **Oracle = 1.0** — the ceiling. It normalises against itself, so it
+* **Oracle = 1.0** — the reference. It normalises against itself, so it
   scores 1.0 on every scenario by construction.
-* **BangBang ≈ 0.57** — the noise floor. A naive on/off controller;
+* **BangBang ≈ 0.66** — the noise floor. A naive on/off controller;
   anything near it has a real problem.
-* **Production controllers ≈ 0.71–0.79** — the realistic band.
+* **Production controllers ≈ 0.70–0.78, `mpc_v2` ≈ 0.86** — the realistic band.
 
 Then read *across* the dimension columns, not just `overall`:
 
@@ -453,11 +516,14 @@ Then read *across* the dimension columns, not just `overall`:
   have distributed mass, infiltration, and multi-zone coupling. Trust the
   *relative ranking* far more than the absolute scores.
 * **The oracle cheats.** It is a definition of "achievable with perfect
-  knowledge", not a deployable controller. It is an asymptote.
+  knowledge", not a deployable controller, and a reference rather than
+  an upper bound: candidates beat it on some runs.
 * **Scoring is opinionated.** A controller can win `balanced` and lose
   `longevity_first`. There is no profile-free "best".
-* **Energy is symmetric.** Under- and over-heating cost the same here; if
-  you optimise specifically for savings, read the columns separately.
+* **Energy scores over-heating only.** Heat below the oracle's earns no
+  extra credit: a missed setpoint is charged once, in comfort, and a
+  saving under sun goes unrewarded. If you would trade comfort for
+  savings, read the columns separately.
 * **Not a deployment validation.** The benchmark spots regressions,
   compares controllers on equal footing, and localises a weakness to a
   dimension. Confirming real-world quality still needs hardware field

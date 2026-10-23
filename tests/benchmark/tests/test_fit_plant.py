@@ -14,7 +14,7 @@ def _ts(
     values: list[float], start: float = 0.0, step_s: float = 3600.0
 ) -> fit_plant.TimeSeries:
     return fit_plant.TimeSeries(
-        ts=[start + i * step_s for i in range(len(values))], val=values
+        ts=[start + i * step_s for i in range(len(values))], value=values
     )
 
 

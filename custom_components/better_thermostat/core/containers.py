@@ -1,0 +1,77 @@
+"""Typed containers for the three attribute lifecycles of the entity.
+
+The entity's attributes split into three lifecycles:
+
+* :class:`BtConfig` — static configuration, set at setup and frozen; the
+  settings that apply without a reload replace it as a whole.
+* :class:`BtRuntime` — live operating values, changing with every
+  observation or control cycle, rebuilt from scratch on restart.
+* learned values — these have owned homes elsewhere: the heating-power
+  and heat-loss trackers on the entity, and the StateManager for
+  everything that persists across restarts. No third container is
+  duplicated here.
+
+The entity exposes the flat attribute names as properties that delegate
+into these containers, so call sites read ``self.room_temperature`` while each
+value lives in exactly one container.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field, fields
+
+
+@dataclass(frozen=True)
+class BtConfig:
+    """Static configuration: set at setup, frozen.
+
+    The outdoor threshold and the tolerance apply without a reload, so a
+    change of either replaces the whole container; no field is written in
+    place. The room temperature sensor is required, so it has no default.
+    """
+
+    sensor_entity_id: str = field(kw_only=True)
+    device_name: str = ""
+    model: str | None = None
+    humidity_sensor_entity_id: str | None = None
+    cooler_entity_id: str | None = None
+    window_sensor_entity_id: str | None = None
+    window_open_delay_seconds: float = 0.0
+    window_close_delay_seconds: float = 0.0
+    door_sensor_entity_id: str | None = None
+    door_open_delay_seconds: float = 0.0
+    door_close_delay_seconds: float = 0.0
+    weather_entity_id: str | None = None
+    outdoor_sensor_entity_id: str | None = None
+    off_temperature: float | None = None
+    tolerance: float = 0.0
+    availability_guard_entity_id: str | None = None
+    availability_guard_grace_seconds: float = 0.0
+
+
+@dataclass
+class BtRuntime:
+    """Live operating values: rebuilt from observations after a restart.
+
+    The discrete mode flags (window open, startup, maintenance,
+    degraded) live in the kernel's FSM regions and are exposed as
+    derived read-only properties on the entity — they have no second
+    home here.
+    """
+
+    heat_target_temperature: float
+    room_temperature: float | None = None
+    room_temperature_filtered: float | None = None
+    room_temperature_ema: float | None = None
+    temperature_slope: float | None = None
+    call_for_heat: bool = True
+    ignore_states: bool = False
+    cool_target_temperature: float | None = None
+
+
+def container_field_names() -> dict[str, frozenset[str]]:
+    """Return the attribute-to-container assignment for the guard test."""
+    return {
+        "config": frozenset(f.name for f in fields(BtConfig)),
+        "runtime": frozenset(f.name for f in fields(BtRuntime)),
+    }

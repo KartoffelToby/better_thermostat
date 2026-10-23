@@ -1,70 +1,281 @@
-"""Unit tests for the disturbance observer (EMA over Kalman innovations)."""
+"""Unit tests for the disturbance observer (bounded and planning readings)."""
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
+from custom_components.better_thermostat.core.watchdog import CONTROL_TICK_S
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.dob import (
     DisturbanceObserver,
     DobParams,
 )
 
 
-def test_non_positive_dt_leaves_estimate_unchanged() -> None:
-    """Zero or negative dt is a no-op on the disturbance estimate."""
-    dob = DisturbanceObserver(DobParams(tau_s=600.0))
-    dob.update(0.5, dt_s=300.0)
-    before = dob.D_hat_K_per_min
-    assert dob.update(1.0, dt_s=0.0) == before
-    assert dob.update(1.0, dt_s=-1.0) == before
-    assert dob.D_hat_K_per_min == before
+@pytest.mark.parametrize("dt_s", [0.0, -1.0])
+def test_non_positive_dt_leaves_the_planning_reading_unchanged(dt_s: float) -> None:
+    """Zero or negative dt moves the fast estimate but not the planning reading."""
+    dob = DisturbanceObserver(DobParams())
+    dob.follow(0.01, dt_s=300.0)
+    slow = dob.planning_filtered
+
+    assert dob.follow(0.02, dt_s=dt_s) == pytest.approx(0.02)
+    assert dob.planning_filtered == slow
 
 
-def test_near_zero_dt_contribution_is_dt_proportional() -> None:
-    """A tiny-dt update contributes ``60 * innovation / tau_s``, not more.
+@pytest.mark.parametrize("estimate", [5.0, -5.0])
+def test_an_estimate_past_the_bound_is_clipped_before_feed_forward(
+    estimate: float,
+) -> None:
+    """A wild estimate cannot create an implausible steady-state load."""
+    dob = DisturbanceObserver(DobParams(max_abs_K_per_min=0.05))
 
-    The innovation rate grows as ``1/dt``, so the EMA weight must scale with
-    ``dt`` for the product to stay bounded as ``dt -> 0``.
-    """
-    tau_s = 600.0
-    innovation_K = 0.5
-    dob = DisturbanceObserver(DobParams(tau_s=tau_s))
-    dob.update(innovation_K, dt_s=0.001)
-    assert dob.D_hat_K_per_min == pytest.approx(60.0 * innovation_K / tau_s)
+    assert dob.follow(estimate, dt_s=60.0) == pytest.approx(
+        math.copysign(0.05, estimate)
+    )
+    assert abs(dob.planning_filtered) <= 0.05
+
+
+def test_planning_reading_approaches_a_held_estimate_along_its_time_constant() -> None:
+    """A held estimate is approached geometrically with weight ``dt / planning_tau``."""
+    params = DobParams(planning_tau_s=1200.0)
+    dt_s, rate, steps = 300.0, 0.02, 12
+    weight = dt_s / params.planning_tau_s
+    dob = DisturbanceObserver(params)
+
+    readings = []
+    for _ in range(steps):
+        dob.follow(rate, dt_s=dt_s)
+        readings.append(dob.planning_filtered)
+
+    assert readings == pytest.approx(
+        [rate * (1.0 - (1.0 - weight) ** k) for k in range(1, steps + 1)]
+    )
+    assert len(set(readings)) == steps
 
 
 def test_two_near_zero_dt_updates_do_not_amplify() -> None:
-    """Two updates 1 ms apart stay within twice one update's contribution.
+    """Two updates 1 ms apart move the planning reading at most twice as far.
 
     A shared group controller is stepped once per TRV within the same control
-    pass, so back-to-back near-zero dt updates are a realistic input; they
-    must accumulate at most linearly instead of blowing up the estimate.
+    pass, so back-to-back near-zero dt updates are a realistic input.
     """
-    tau_s = 600.0
-    innovation_K = 0.5
-    per_update = 60.0 * innovation_K / tau_s
+    params = DobParams(planning_tau_s=1200.0)
+    single = DisturbanceObserver(params)
+    single.follow(0.02, dt_s=0.001)
+    double = DisturbanceObserver(params)
+    double.follow(0.02, dt_s=0.001)
+    double.follow(0.02, dt_s=0.001)
 
-    single = DisturbanceObserver(DobParams(tau_s=tau_s))
-    single.update(innovation_K, dt_s=0.001)
-
-    double = DisturbanceObserver(DobParams(tau_s=tau_s))
-    double.update(innovation_K, dt_s=0.001)
-    double.update(innovation_K, dt_s=0.001)
-
-    assert single.D_hat_K_per_min == pytest.approx(per_update)
-    assert double.D_hat_K_per_min <= 2.0 * per_update
-    assert double.D_hat_K_per_min <= 2.0 * single.D_hat_K_per_min
+    assert single.planning_filtered == pytest.approx(0.02 * 0.001 / 1200.0)
+    assert double.planning_filtered <= 2.0 * single.planning_filtered
 
 
-def test_regular_dt_converges_towards_innovation_rate() -> None:
-    """Repeated same-sign innovations at tau-scale dt approach the rate."""
-    tau_s = 600.0
-    dt_s = 300.0
-    innovation_K = 0.5
-    innov_rate = innovation_K / (dt_s / 60.0)
+def test_planning_rate_follows_the_estimate_and_loses_the_deadband() -> None:
+    """One update moves the slow reading by ``dt / planning_tau`` of the gap.
 
-    dob = DisturbanceObserver(DobParams(tau_s=tau_s))
-    for _ in range(50):
-        dob.update(innovation_K, dt_s=dt_s)
+    The deadband then takes ``planning_deadband`` off its magnitude.
+    """
+    params = DobParams(planning_tau_s=3600.0, planning_deadband=0.001)
+    dob = DisturbanceObserver(params)
 
-    assert dob.D_hat_K_per_min == pytest.approx(innov_rate, rel=1e-6)
+    dob.follow(0.02, dt_s=300.0)
+
+    assert dob.D_hat_K_per_min == pytest.approx(0.02)
+    assert dob.planning_filtered == pytest.approx(0.02 * 300.0 / 3600.0)
+    assert dob.planning_rate == pytest.approx(0.02 * 300.0 / 3600.0 - 0.001)
+
+
+@pytest.mark.parametrize("rate", [0.0009, -0.0009, 0.001, -0.001])
+def test_planning_rate_is_zero_inside_the_deadband(rate: float) -> None:
+    """Rates no larger than ``planning_deadband`` plan as no disturbance."""
+    dob = DisturbanceObserver(DobParams(planning_deadband=0.001))
+    dob.planning_filtered = rate
+
+    assert dob.planning_rate == 0.0
+
+
+@pytest.mark.parametrize("rate", [0.003, -0.003])
+def test_planning_rate_outside_the_deadband_shrinks_towards_zero(rate: float) -> None:
+    """Outside the band the reading loses the band width, keeping its sign."""
+    dob = DisturbanceObserver(DobParams(planning_deadband=0.001))
+    dob.planning_filtered = rate
+
+    assert dob.planning_rate == pytest.approx(math.copysign(0.002, rate))
+
+
+@pytest.mark.parametrize("dt_s", [451.0, 1200.0, 86_400.0])
+def test_a_reading_after_a_pause_leaves_the_planning_reading_alone(dt_s: float) -> None:
+    """An interval that spans a pause of the control loop is not folded in.
+
+    Beyond ``max_reading_interval_s`` the controller did not run in between
+    (window open, heating off, restart).
+    """
+    dob = DisturbanceObserver(DobParams())
+    dob.follow(0.02, dt_s=300.0)
+    slow = dob.planning_filtered
+    assert dt_s > dob.params.max_reading_interval_s
+
+    dob.follow(-0.03, dt_s=dt_s)
+
+    assert dob.planning_filtered == slow
+
+
+def test_a_reading_at_the_pause_limit_is_still_folded_in() -> None:
+    """An interval of exactly ``max_reading_interval_s`` is a regular reading."""
+    dob = DisturbanceObserver(DobParams())
+
+    dob.follow(0.02, dt_s=dob.params.max_reading_interval_s)
+
+    assert dob.planning_filtered > 0.0
+
+
+def test_the_pause_limit_sits_between_one_and_two_control_ticks() -> None:
+    """A regular cycle is folded in, one skipped control tick is a pause.
+
+    The limit follows the periodic tick that drives calibration, so a change
+    of that tick moves it along instead of silencing the observer.
+    """
+    limit = DobParams().max_reading_interval_s
+
+    assert CONTROL_TICK_S < limit < 2.0 * CONTROL_TICK_S
+
+
+@pytest.mark.parametrize(
+    ("estimate", "planning", "expected"),
+    [
+        pytest.param(0.2, 0.2, (0.05, 0.05), id="above"),
+        pytest.param(-0.2, -0.2, (-0.05, -0.05), id="below"),
+        pytest.param(0.01, None, (0.01, 0.0), id="no-planning-reading"),
+    ],
+)
+def test_restore_bounds_both_readings(
+    estimate: float, planning: float | None, expected: tuple[float, float]
+) -> None:
+    """Persisted readings are bounded; a missing planning reading starts at zero."""
+    dob = DisturbanceObserver(DobParams(max_abs_K_per_min=0.05))
+
+    dob.restore(estimate, planning)
+
+    assert (dob.D_hat_K_per_min, dob.planning_filtered) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("tau_room_min", "expected"),
+    [
+        pytest.param(60.0, 0.4, id="tau60"),
+        pytest.param(180.0, 24.0 / 180.0, id="tau180"),
+        pytest.param(480.0, 0.05, id="tau480"),
+        pytest.param(720.0, 0.05, id="tau720"),
+        pytest.param(0.0, 0.05, id="tau0"),
+    ],
+)
+def test_bound_covers_the_loss_equivalent_model_error_on_a_fast_prior(
+    tau_room_min: float, expected: float
+) -> None:
+    """A fast prior gets the rate that covers ``max_abs_loss_K``.
+
+    A slow prior keeps ``max_abs_K_per_min``, and so does a time constant
+    that is not positive.
+    """
+    params = DobParams(max_abs_K_per_min=0.05, max_abs_loss_K=24.0)
+
+    assert params.bound_K_per_min(tau_room_min) == pytest.approx(expected)
+
+
+def _settle(
+    dob: DisturbanceObserver,
+    hours: float,
+    *,
+    start_s: float = 0.0,
+    room: float | None = None,
+    room_drift_K_per_h: float = 0.0,
+    setpoint: float = 21.0,
+) -> float:
+    """Feed five-minute cycles for ``hours`` and return the time reached."""
+    t_s = start_s
+    for _ in range(round(hours * 12)):
+        reading = (21.0 if room is None else room) + room_drift_K_per_h * t_s / 3600.0
+        dob.track_settling(t_s, reading, setpoint, paused=False)
+        t_s += 300.0
+    return t_s
+
+
+def test_a_fresh_observer_clips_at_the_rate_bound_on_a_fast_prior() -> None:
+    """The bound starts narrow, whatever the ceiling the prior allows."""
+    dob = DisturbanceObserver(DobParams(), tau_room_min=60.0)
+
+    assert dob.ceiling_K_per_min == pytest.approx(0.4)
+    assert dob.follow(-5.0, dt_s=300.0) == pytest.approx(-0.05)
+
+
+def test_the_bound_widens_at_its_growth_rate_once_the_room_has_settled() -> None:
+    """After ``settle_s`` of a settled room the bound grows, up to the ceiling.
+
+    6 K of loss-equivalent temperature per hour is 0.1 K/min per hour on a
+    60 min prior.
+    """
+    params = DobParams(settle_s=3600.0, bound_growth_K_per_h=6.0)
+    dob = DisturbanceObserver(params, tau_room_min=60.0)
+
+    t_s = _settle(dob, 1.0)
+    assert dob.bound_K_per_min == pytest.approx(0.05)
+    t_s = _settle(dob, 1.0, start_s=t_s)
+    assert dob.bound_K_per_min == pytest.approx(0.05 + 0.1, abs=0.01)
+    _settle(dob, 6.0, start_s=t_s)
+    assert dob.bound_K_per_min == pytest.approx(0.4)
+
+
+def test_a_moving_room_keeps_the_bound() -> None:
+    """A room drifting faster than ``settle_slope_K_per_h`` is no settled room."""
+    dob = DisturbanceObserver(DobParams(), tau_room_min=60.0)
+
+    _settle(dob, 6.0, room_drift_K_per_h=1.0)
+
+    assert dob.bound_K_per_min == pytest.approx(0.05)
+
+
+def test_a_slow_prior_or_none_never_widens() -> None:
+    """At the default τ_room, or without one, the bound stays at the rate bound."""
+    for dob in (
+        DisturbanceObserver(DobParams(), tau_room_min=480.0),
+        DisturbanceObserver(DobParams()),
+    ):
+        _settle(dob, 12.0)
+        assert dob.bound_K_per_min == pytest.approx(0.05)
+
+
+@pytest.mark.parametrize("event", ["setpoint", "pause"])
+def test_a_setpoint_change_or_pause_narrows_to_what_the_estimates_use(
+    event: str,
+) -> None:
+    """The learned load stays, the headroom above it goes."""
+    dob = DisturbanceObserver(DobParams(), tau_room_min=60.0)
+    t_s = _settle(dob, 8.0)
+    assert dob.bound_K_per_min == pytest.approx(0.4)
+    for _ in range(40):
+        dob.follow(-0.12, dt_s=300.0)
+
+    if event == "setpoint":
+        dob.track_settling(t_s, 21.0, 22.0, paused=False)
+    else:
+        dob.track_settling(t_s, 21.0, 21.0, paused=True)
+
+    assert dob.bound_K_per_min == pytest.approx(
+        max(abs(dob.D_hat_K_per_min), abs(dob.planning_filtered))
+    )
+    assert dob.bound_K_per_min == pytest.approx(0.12, abs=0.01)
+    assert dob.D_hat_K_per_min == pytest.approx(-0.12)
+
+
+def test_restore_reopens_the_bound_as_far_as_the_stored_estimates_need() -> None:
+    """Stored estimates keep their size up to the ceiling."""
+    dob = DisturbanceObserver(DobParams(), tau_room_min=60.0)
+    dob.restore(-0.1, -0.08)
+    assert dob.bound_K_per_min == pytest.approx(0.1)
+    assert dob.D_hat_K_per_min == pytest.approx(-0.1)
+
+    dob.restore(0.5, 0.5)
+    assert dob.bound_K_per_min == pytest.approx(0.4)
+    assert dob.planning_filtered == pytest.approx(0.4)
