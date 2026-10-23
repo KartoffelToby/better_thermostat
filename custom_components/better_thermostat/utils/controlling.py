@@ -495,7 +495,8 @@ def _get_valve_control(
     valve would otherwise stay at its last opening. A valve-only device
     closes for an incompatible stored calibration mode and uses a fixed
     emergency opening in HOLD, since it has no thermostat to take over.
-    Other devices keep their existing behaviour when the mode produces no valve output.
+    Other devices keep their existing behaviour when the mode produces no
+    valve output.
 
     Returns a tuple of (valve_command, source_name).
     Returns (None, None) if no valve control should be applied.
