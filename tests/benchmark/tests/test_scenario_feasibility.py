@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from tests.benchmark.adapters.baselines import IdealOracleAdapter
+from tests.benchmark.runner import flow_temperature_at
 from tests.benchmark.scenarios import ALL_SCENARIOS
 
 # Steady-state valve opening above which the oracle has too little authority
@@ -28,6 +29,7 @@ def test_oracle_can_hold_every_setpoint_of_the_scenario(name: str) -> None:
             oracle.steady_state_valve_percent(
                 scenario.setpoint_schedule(float(t)),
                 scenario.outdoor_schedule(float(t)),
+                flow_temperature_at(scenario, float(t)),
             ),
             t,
         )

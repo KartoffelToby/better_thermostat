@@ -149,13 +149,17 @@ class IdealOracleAdapter:
         """No state to reset."""
         _ = prior
 
-    def steady_state_valve_percent(self, setpoint: float, T_outdoor: float) -> float:
+    def steady_state_valve_percent(
+        self, setpoint: float, T_outdoor: float, flow_temperature: float | None = None
+    ) -> float:
         """Return the valve percent that holds ``setpoint`` at ``T_outdoor``.
 
-        Clamped to ``[0, 100]``; ``100`` also stands for a setpoint the
-        plant cannot hold at that outdoor temperature.
+        ``flow_temperature`` replaces the plant's ``T_water``. Clamped to
+        ``[0, 100]``; ``100`` also stands for a setpoint the plant cannot
+        hold at that outdoor temperature.
         """
         p = self._plant
+        T_water = p.T_water if flow_temperature is None else flow_temperature
         # Steady-state inversion of the lumped-RC plant. Room balance:
         #   coupling * (T_rad_ss - sp) = loss_ss
         # where the steady-state envelope loss is (sp - T_out) in RC2 and
@@ -171,7 +175,7 @@ class IdealOracleAdapter:
         else:
             loss_ss = setpoint - T_outdoor
         T_rad_ss = setpoint + loss_ss / coupling
-        denom = p.gain_heater * (p.T_water - T_rad_ss)
+        denom = p.gain_heater * (T_water - T_rad_ss)
         if denom <= 0.0:
             return 100.0  # cannot reach setpoint with this water temperature
         return max(0.0, min(100.0, 100.0 * (T_rad_ss - setpoint) / denom))
@@ -179,7 +183,9 @@ class IdealOracleAdapter:
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Return steady-state valve percent plus aggressive feedback correction."""
         sp = ctx.target_temperature
-        u_ff_percent = self.steady_state_valve_percent(sp, ctx.outdoor_temperature)
+        u_ff_percent = self.steady_state_valve_percent(
+            sp, ctx.outdoor_temperature, ctx.flow_temperature
+        )
 
         # Aggressive P-feedback so the oracle reacts to transients quickly.
         # Feed back on the plant truth: the oracle is the perfect-knowledge
