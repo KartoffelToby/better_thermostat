@@ -168,9 +168,9 @@ def test_setpoint_steps_on_a_fast_prior_keep_the_narrow_bound() -> None:
             x = room.discrete_step(x, applied / 100.0, STEP_OUTDOOR)
             t_s += ROOM_STEP_S
 
-    up = max(room_c - 22.0 for hour, room_c, _ in samples if 1.0 <= hour < 3.0)
-    down = max(room_c - 21.0 for hour, room_c, _ in samples if hour >= 3.0)
-    late = max(21.0 - room_c for hour, room_c, _ in samples if hour >= 5.0)
+    up = max(T_room - 22.0 for hour, T_room, _ in samples if 1.0 <= hour < 3.0)
+    down = max(T_room - 21.0 for hour, T_room, _ in samples if hour >= 3.0)
+    late = max(21.0 - T_room for hour, T_room, _ in samples if hour >= 5.0)
     # The warm-up has to press the estimate against the rate bound, or the
     # bound was never tested.
     assert min(d for _, _, d in samples) == pytest.approx(-0.05)
