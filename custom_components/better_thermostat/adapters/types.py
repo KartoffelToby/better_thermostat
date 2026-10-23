@@ -143,7 +143,12 @@ class TrvAdapter(Protocol):
     async def set_calibration_offset(
         self, host: AdapterHost, entity_id: str, calibration_offset: float, /
     ) -> bool:
-        """Write a calibration offset, answering whether it went out."""
+        """Write a calibration offset, answering whether it went out.
+
+        The offset is the one the device is to hold, which the delegate has
+        taken out of Better Thermostat's convention; the command recorded in
+        ``last_calibration`` is taken back into it.
+        """
         ...
 
     async def set_valve(

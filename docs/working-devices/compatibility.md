@@ -59,6 +59,7 @@ Better Thermostat includes specific fixes and optimizations for the following de
 - BTH-RM
 - BTH-RM230Z
 - COZB0001 (Eurotronic Comet Zigbee)
+- Heater (TermoWeb electric radiator, through the ha-termoweb integration)
 - ME167 (Avatto)
 - SEA801-Zigbee / SEA802-Zigbee
 - SHTRV-01 (Shelly TRV, Gen1)

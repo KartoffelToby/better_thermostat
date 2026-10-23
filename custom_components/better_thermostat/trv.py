@@ -267,7 +267,9 @@ class Trv:
     # wire, after its own clamp to the device's declared offset range;
     # ``last_calibration_requested`` is the value asked for before that
     # clamp. Keeping them apart lets a device resting at a limit it
-    # declared be recognised as converged instead of rewritten.
+    # declared be recognised as converged instead of rewritten. Both count
+    # in Better Thermostat's convention, also for a device that holds the
+    # negated offset.
     last_calibration: float = 0.0
     last_calibration_requested: float | None = None
     # Identity of the offset command currently in flight. Each accepted write
