@@ -1071,9 +1071,7 @@ def heating_power_valve_position(
         return None
     _delta_kelvin = float(target_temperature) - float(room_temperature)
 
-    # Guard against negative delta_kelvin (room warmer than target)
-    # This can occur in TRV override edge case when temperature rises
-    # above target but TRV still reports heating (delayed update)
+    # A room at or above its target needs no valve opening.
     if _delta_kelvin <= 0:
         _LOGGER.debug(
             f"better_thermostat {self.device_name}: {entity_id} "

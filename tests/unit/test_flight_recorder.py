@@ -403,7 +403,10 @@ def test_restored_running_maintenance_without_timestamp_never_blocks():
     state_from_dict loads running_since=None alongside phase "running"
     as IDLE; the restored region must not pre-empt control forever.
     """
-    from custom_components.better_thermostat.core.fsm.maintenance import MaintenanceIdle
+    from custom_components.better_thermostat.core.fsm.maintenance import (
+        DUE_AT_FIRST_TICK,
+        MaintenanceIdle,
+    )
 
     recorder = FlightRecorder()
     desired, _ = decide(_snapshot(), running_kernel_state())
@@ -415,7 +418,7 @@ def test_restored_running_maintenance_without_timestamp_never_blocks():
         "running_since": None,
     }
     rebuilt = state_from_dict(_json_object(entry["state"]))
-    assert rebuilt.maintenance == MaintenanceIdle()
+    assert rebuilt.maintenance == MaintenanceIdle(next_due=DUE_AT_FIRST_TICK)
     assert rebuilt.maintenance.is_blocking(now_monotonic=0.0) is False
     assert rebuilt.maintenance.is_blocking(now_monotonic=99_999.0) is False
     matches, _ = replay(entry)
@@ -424,7 +427,10 @@ def test_restored_running_maintenance_without_timestamp_never_blocks():
 
 def test_restored_start_timestamp_outside_running_is_dropped():
     """A start timestamp next to a non-RUNNING phase loads without it."""
-    from custom_components.better_thermostat.core.fsm.maintenance import MaintenanceDue
+    from custom_components.better_thermostat.core.fsm.maintenance import (
+        DUE_AT_FIRST_TICK,
+        MaintenanceDue,
+    )
 
     recorder = FlightRecorder()
     desired, _ = decide(_snapshot(), running_kernel_state())
@@ -436,7 +442,42 @@ def test_restored_start_timestamp_outside_running_is_dropped():
         "running_since": 900.0,
     }
     rebuilt = state_from_dict(_json_object(entry["state"]))
-    assert rebuilt.maintenance == MaintenanceDue()
+    assert rebuilt.maintenance == MaintenanceDue(next_due=DUE_AT_FIRST_TICK)
+
+
+def test_restored_idle_maintenance_without_schedule_is_due_at_the_first_tick():
+    """An exported IDLE region with ``next_due: null`` loads and replays.
+
+    It loads with the schedule of a region that has none of its own, so
+    the first scheduler tick arms it.
+    """
+    from custom_components.better_thermostat.core.fsm.maintenance import (
+        DUE_AT_FIRST_TICK,
+        MaintenanceDue,
+        MaintenanceIdle,
+        evaluate_tick,
+    )
+
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["state"]["maintenance"] = {
+        "phase": "idle",
+        "next_due": None,
+        "running_since": None,
+    }
+    rebuilt = state_from_dict(_json_object(entry["state"]))
+    assert rebuilt.maintenance == MaintenanceIdle(next_due=DUE_AT_FIRST_TICK)
+    armed = evaluate_tick(
+        rebuilt.maintenance,
+        datetime(2026, 1, 2, 8, 30, tzinfo=UTC),
+        window_open=False,
+        has_enabled_trvs=True,
+    )
+    assert isinstance(armed, MaintenanceDue)
+    matches, _ = replay(entry)
+    assert matches is True
 
 
 def test_restored_unknown_maintenance_phase_is_rejected():

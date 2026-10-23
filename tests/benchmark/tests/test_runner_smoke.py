@@ -316,3 +316,30 @@ def test_without_a_committed_reading_the_controller_sees_the_trv():
     assert first.trv_temperature is not None
     assert first.trv_temperature > first.raw_room_temperature + 1.0
     assert first.room_temperature == first.trv_temperature
+
+
+class _SensorAdoptingAdapter(_ConstantValveAdapter):
+    """Records every room sensor it is asked to adopt."""
+
+    def __init__(self, valve_percent: float) -> None:
+        super().__init__(valve_percent)
+        self.adopted: list[SensorParams] = []
+
+    def adopt_sensor(self, sensor: SensorParams) -> None:
+        self.adopted.append(sensor)
+
+
+@pytest.mark.parametrize("learned_sensor", [False, True])
+def test_a_learned_sensor_is_handed_to_the_adapter_before_the_first_step(
+    learned_sensor: bool,
+) -> None:
+    """Only a learned-sensor run hands over the scenario's room sensor."""
+    sensor = SensorParams(report_threshold_K=0.5, heartbeat_s=3600.0)
+    scenario = replace(
+        _COLD_ROOM_WINDOW_OPEN, window_open_schedule=None, sensor_params=sensor
+    )
+    adapter = _SensorAdoptingAdapter(40.0)
+
+    run_scenario(adapter, scenario, learned_sensor=learned_sensor)
+
+    assert adapter.adopted == ([sensor] if learned_sensor else [])

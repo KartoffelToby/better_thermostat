@@ -1627,3 +1627,224 @@ def test_a_prior_change_before_the_first_cycle_seeds_from_the_measurement() -> N
     assert state.controller is not None
     assert state.controller.plant_fine.params.tau_room_min == after.plant.tau_room_min
     assert float(state.controller.kalman.x_hat[0]) == pytest.approx(16.0, abs=0.05)
+
+
+@pytest.mark.parametrize(
+    ("window_open", "heating_allowed"),
+    [
+        pytest.param(True, True, id="window_open"),
+        pytest.param(False, False, id="heating_off"),
+    ],
+)
+def test_a_short_pause_teaches_the_disturbance_estimate_nothing(
+    window_open: bool, heating_allowed: bool
+) -> None:
+    """The first cycle after a pause tracks the room but keeps the disturbance.
+
+    Four minutes of airing cool the room by a kelvin with the valve shut,
+    while the observer still holds the command from before. The interval is
+    short enough to count as a regular control interval, so only the pause
+    tells the observer that the drop is no standing load.
+    """
+    plant = PlantParams()
+    room = PlantModelRC2(plant, dt_s=30.0)
+    params = MpcV2Params(plant=plant)
+    x = np.array([21.0, 40.0])
+    state: MpcV2State | None = None
+    applied: float | None = None
+    t_s = 1_700_000_000.0
+    for _ in range(240):
+        out, state = compute_mpc_v2(
+            _baseline_input(
+                target_temperature=21.0,
+                room_temperature=float(x[0]),
+                applied_valve_percent=applied,
+            ),
+            params,
+            state,
+            now=t_s,
+        )
+        assert out is not None
+        applied = float(out.valve_percent)
+        for _step in range(2):
+            x = room.discrete_step(x, applied / 100.0, 5.0)
+            t_s += 30.0
+    assert state is not None and state.controller is not None
+    before = state.controller.dob.D_hat_K_per_min
+    planning_before = state.controller.dob.planning_filtered
+
+    for _ in range(4):
+        out, state = compute_mpc_v2(
+            _baseline_input(
+                target_temperature=21.0,
+                room_temperature=float(x[0]),
+                window_open=window_open,
+                heating_allowed=heating_allowed,
+            ),
+            params,
+            state,
+            now=t_s,
+        )
+        assert out is None
+        for _step in range(2):
+            x = room.discrete_step(x, 0.0, 5.0, -0.25)
+            t_s += 30.0
+    assert float(x[0]) < 20.2
+
+    out, state = compute_mpc_v2(
+        _baseline_input(target_temperature=21.0, room_temperature=float(x[0])),
+        params,
+        state,
+        now=t_s,
+    )
+
+    assert out is not None
+    assert state.controller is not None
+    assert state.controller.dob.D_hat_K_per_min == pytest.approx(before, abs=1e-12)
+    assert state.controller.dob.planning_filtered == pytest.approx(
+        planning_before, abs=1e-12
+    )
+    assert state.controller.kalman.x_hat[0] < 20.5
+
+    # The cycles after it learn again: a standing gain shows up in the estimate.
+    applied = float(out.valve_percent)
+    for _ in range(30):
+        for _step in range(2):
+            x = room.discrete_step(x, applied / 100.0, 5.0, 0.02)
+            t_s += 30.0
+        out, state = compute_mpc_v2(
+            _baseline_input(
+                target_temperature=21.0,
+                room_temperature=float(x[0]),
+                applied_valve_percent=applied,
+            ),
+            params,
+            state,
+            now=t_s,
+        )
+        assert out is not None
+        applied = float(out.valve_percent)
+    assert state.controller is not None
+    assert state.controller.dob.D_hat_K_per_min > before + 0.005
+
+
+def _fast_prior_run(
+    params: MpcV2Params, hours: float, state: MpcV2State | None, t_s: float
+) -> tuple[MpcV2State, float]:
+    """Hold 21 °C in the default room for ``hours`` on five-minute cycles."""
+    room = PlantModelRC2(PlantParams(), dt_s=30.0)
+    x = np.array([21.0, 37.0])
+    applied: float | None = None
+    for _ in range(round(hours * 12)):
+        out, state = compute_mpc_v2(
+            _baseline_input(
+                target_temperature=21.0,
+                room_temperature=float(x[0]),
+                applied_valve_percent=applied,
+            ),
+            params,
+            state,
+            now=t_s,
+        )
+        assert out is not None
+        applied = float(out.valve_percent)
+        for _step in range(10):
+            x = room.discrete_step(x, applied / 100.0, 5.0)
+            t_s += 30.0
+    assert state is not None
+    return state, t_s
+
+
+def test_a_pause_narrows_the_widened_disturbance_bound() -> None:
+    """After a window or heating pause the bound falls back to what is in use."""
+    params = MpcV2Params(plant=replace(PlantParams(), tau_room_min=60.0))
+    state, t_s = _fast_prior_run(params, 8.0, None, 1_700_000_000.0)
+    assert state.controller is not None
+    dob = state.controller.dob
+    assert dob.bound_K_per_min > 0.3
+
+    out, state = compute_mpc_v2(
+        _baseline_input(
+            target_temperature=21.0, room_temperature=21.0, window_open=True
+        ),
+        params,
+        state,
+        now=t_s,
+    )
+    assert out is None
+    out, state = compute_mpc_v2(
+        _baseline_input(target_temperature=21.0, room_temperature=21.0),
+        params,
+        state,
+        now=t_s + 300.0,
+    )
+
+    assert out is not None
+    assert state.controller is not None
+    in_use = max(0.05, abs(dob.D_hat_K_per_min), abs(dob.planning_filtered))
+    assert dob.bound_K_per_min == pytest.approx(in_use)
+    assert state.controller.kalman.disturbance_bound_K_per_min == pytest.approx(in_use)
+
+
+def test_a_restored_load_beyond_the_rate_bound_reaches_the_observer() -> None:
+    """A stored disturbance past 0.05 K/min on a fast prior is restored whole."""
+    params = MpcV2Params(plant=replace(PlantParams(), tau_room_min=60.0))
+    snap = ControllerSnapshot.from_mapping(
+        {
+            "v": SNAPSHOT_VERSION,
+            "x_hat": [21.0, 30.0],
+            "D_hat_K_per_min": -0.2,
+            "planning_disturbance": -0.18,
+        }
+    )
+    assert snap is not None
+    controller = MpcV2Controller(params)
+
+    controller.restore_snapshot(snap)
+
+    assert controller.dob.D_hat_K_per_min == pytest.approx(-0.2)
+    assert controller.kalman.disturbance_K_per_min == pytest.approx(-0.2)
+    assert controller.kalman.disturbance_bound_K_per_min == pytest.approx(0.2)
+
+
+def test_a_prior_change_after_a_pause_keeps_the_pause() -> None:
+    """A controller rebuilt for a new prior learns nothing from the pause either.
+
+    The rebuild takes over the observer state; the cycle it runs still spans
+    the window opening, so the disturbance and its planning reading stay put.
+    The whole pause is shorter than a regular control interval may be, so
+    only the pause itself keeps the drop out of the estimate.
+    """
+    params = MpcV2Params(plant=replace(PlantParams(), tau_room_min=60.0))
+    state, t_s = _fast_prior_run(params, 4.0, None, 1_700_000_000.0)
+    # The last cycle ran 300 s before ``t_s``.
+    last_cycle_s = t_s - 300.0
+    assert state.controller is not None
+    before = state.controller.dob.D_hat_K_per_min
+    planning_before = state.controller.dob.planning_filtered
+
+    out, state = compute_mpc_v2(
+        _baseline_input(
+            target_temperature=21.0, room_temperature=21.0, window_open=True
+        ),
+        params,
+        state,
+        now=last_cycle_s + 60.0,
+    )
+    assert out is None
+    previous = state.controller
+    rebuilt = MpcV2Params(plant=replace(PlantParams(), tau_room_min=90.0))
+    out, state = compute_mpc_v2(
+        _baseline_input(target_temperature=21.0, room_temperature=20.2),
+        rebuilt,
+        state,
+        now=last_cycle_s + 240.0,
+    )
+
+    assert out is not None
+    assert state.controller is not None
+    assert state.controller is not previous
+    assert state.controller.dob.D_hat_K_per_min == pytest.approx(before, abs=1e-12)
+    assert state.controller.dob.planning_filtered == pytest.approx(
+        planning_before, abs=1e-12
+    )

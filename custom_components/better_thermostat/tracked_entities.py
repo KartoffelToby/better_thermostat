@@ -61,15 +61,15 @@ class TrackedEntities:
         The unique_ids of the diagnostic sensors of each calibration
         algorithm that has them. An algorithm whose sensors are all removed
         is dropped from it.
-    preset_numbers : dict[str | None, PresetNumberRef]
+    preset_numbers : dict[str, PresetNumberRef]
         The preset number entities and the preset each one sets.
-    pid_numbers : dict[str | None, PidNumberRef]
+    pid_numbers : dict[str, PidNumberRef]
         The PID number entities and the TRV and gain each one sets.
-    switches : dict[str | None, SwitchRef]
+    switches : dict[str, SwitchRef]
         The per-TRV switch entities and the TRV and kind of each one.
     """
 
     algorithm_sensors: dict[CalibrationMode, list[str]] = field(default_factory=dict)
-    preset_numbers: dict[str | None, PresetNumberRef] = field(default_factory=dict)
-    pid_numbers: dict[str | None, PidNumberRef] = field(default_factory=dict)
-    switches: dict[str | None, SwitchRef] = field(default_factory=dict)
+    preset_numbers: dict[str, PresetNumberRef] = field(default_factory=dict)
+    pid_numbers: dict[str, PidNumberRef] = field(default_factory=dict)
+    switches: dict[str, SwitchRef] = field(default_factory=dict)

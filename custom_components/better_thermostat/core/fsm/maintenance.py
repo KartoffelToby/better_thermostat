@@ -13,17 +13,22 @@ timestamp and no state can be RUNNING without one.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Final
 
 # A valve exercise takes a few minutes per TRV; an hour means it died.
 MAX_RUN_S = 3600.0
+
+# Schedule of a region that has none of its own yet: earlier than any
+# clock reading, so the first scheduler tick finds it due.
+DUE_AT_FIRST_TICK: Final = datetime.min.replace(tzinfo=UTC)
 
 
 @dataclass(frozen=True)
 class MaintenanceIdle:
     """Maintenance region waiting for ``next_due``."""
 
-    next_due: datetime | None = None
+    next_due: datetime
 
     def is_blocking(
         self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
@@ -36,7 +41,7 @@ class MaintenanceIdle:
 class MaintenanceDue:
     """Maintenance region with a run armed but not yet started."""
 
-    next_due: datetime | None = None
+    next_due: datetime
 
     def is_blocking(
         self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
@@ -54,7 +59,7 @@ class MaintenanceRunning:
     """
 
     running_since: float
-    next_due: datetime | None = None
+    next_due: datetime
 
     def is_blocking(
         self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
@@ -110,7 +115,7 @@ def evaluate_tick(
     """
     if not isinstance(state, MaintenanceIdle):
         return state
-    if state.next_due is not None and now < state.next_due:
+    if now < state.next_due:
         return state
     if window_open or devices_released:
         return MaintenanceIdle(next_due=now + timedelta(hours=1))
@@ -139,7 +144,7 @@ def start_run(state: MaintenanceState, now_monotonic: float) -> MaintenanceState
     return MaintenanceRunning(running_since=now_monotonic, next_due=state.next_due)
 
 
-def reschedule(state: MaintenanceState, next_due: datetime | None) -> MaintenanceState:
+def reschedule(state: MaintenanceState, next_due: datetime) -> MaintenanceState:
     """Move the schedule to ``next_due``, keeping the phase.
 
     A running exercise keeps its start, so rescheduling never changes
@@ -149,7 +154,7 @@ def reschedule(state: MaintenanceState, next_due: datetime | None) -> Maintenanc
     ----------
     state : MaintenanceState
         Current maintenance state.
-    next_due : datetime | None
+    next_due : datetime
         When the next maintenance check is due.
 
     Returns
@@ -160,7 +165,7 @@ def reschedule(state: MaintenanceState, next_due: datetime | None) -> Maintenanc
     return replace(state, next_due=next_due)
 
 
-def finish_run(state: MaintenanceState, next_due: datetime | None) -> MaintenanceIdle:
+def finish_run(state: MaintenanceState, next_due: datetime) -> MaintenanceIdle:
     """Return the region to IDLE with the new schedule.
 
     Finishing is unconditional so the region can never stay RUNNING.
@@ -169,7 +174,7 @@ def finish_run(state: MaintenanceState, next_due: datetime | None) -> Maintenanc
     ----------
     state : MaintenanceState
         Current maintenance state.
-    next_due : datetime | None
+    next_due : datetime
         When the next maintenance check is scheduled.
 
     Returns

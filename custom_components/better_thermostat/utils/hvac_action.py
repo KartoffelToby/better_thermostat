@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import logging
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
-
-_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -28,17 +25,6 @@ class HvacActionResult:
     new_hold_active: bool
 
 
-@dataclass(frozen=True)
-class TrvSnapshot:
-    """Pre-resolved, immutable view of a single TRV's relevant state."""
-
-    entity_id: str
-    ignore_trv_states: bool = False
-    hvac_action: HVACAction | None = None
-    valve_position: float | None = None
-    last_valve_percent: float | None = None
-
-
 def parse_hvac_action(value: object) -> HVACAction | None:
     """Return the HVAC action a device reports, or None for one it does not name.
 
@@ -50,22 +36,6 @@ def parse_hvac_action(value: object) -> HVACAction | None:
         return HVACAction(str(value).strip().lower())
     except ValueError:
         return None
-
-
-def to_percent(value: float | str | None) -> float | None:
-    """Normalise a valve value to percent (0-100).
-
-    Values in [0, 1) are treated as fractions and multiplied by 100.
-    Values >= 1 are returned as-is (already percent).
-    Returns *None* for non-numeric / unparseable input.
-    """
-    if value is None:
-        return None
-    try:
-        v = float(value)
-    except TypeError, ValueError:
-        return None
-    return v * 100.0 if 0.0 <= v < 1.0 else v
 
 
 def should_heat_with_tolerance(
@@ -123,9 +93,6 @@ def should_cool_with_tolerance(
     return room_temperature >= cool_target_temperature + tolerance
 
 
-_VALVE_THRESH = 0.0
-
-
 def compute_hvac_action(
     hysteresis: ToleranceHysteresis,
     room_temperature: float | None,
@@ -135,10 +102,7 @@ def compute_hvac_action(
     bt_hvac_mode: HVACMode | None,
     window_open: bool | None,
     tolerance: float,
-    ignore_states: bool,
-    trv_snapshots: list[TrvSnapshot],
     cool_previously_active: bool = False,
-    device_name: str = "",
 ) -> HvacActionResult:
     """Compute the current HVAC action without mutating *hysteresis*.
 
@@ -150,7 +114,8 @@ def compute_hvac_action(
     - Cooling when ``heat_cool``, the cooling hysteresis calls for it and the
       room is above the heating target. ``cool_previously_active`` carries the
       band's hold edge, which the caller seeds the way the cooler command does.
-    - Otherwise IDLE, unless a TRV explicitly reports heating.
+    - Otherwise IDLE. What a TRV reports about its own valve does not enter:
+      the action is the room's decision, not a mirror of the devices.
     """
     prev_action = hysteresis.last_action
 
@@ -214,62 +179,8 @@ def compute_hvac_action(
         action = HVACAction.COOLING
         tolerance_hold = False
 
-    # TRV override: if base decision is IDLE but any TRV is active, show HEATING.
-    # Suppressed at or above target so a still-closing valve cannot lift the
-    # displayed action above IDLE once the hysteresis decided to stop.
-    if action == HVACAction.IDLE:
-        if ignore_states or window_open or room_temperature >= heat_target_temperature:
-            return HvacActionResult(
-                action=HVACAction.IDLE,
-                tolerance_decision=tolerance_decision,
-                new_last_action=HVACAction.IDLE,
-                new_hold_active=tolerance_hold,
-            )
-
-        for snap in trv_snapshots:
-            if snap.ignore_trv_states:
-                continue
-
-            if snap.hvac_action == HVACAction.HEATING:
-                _LOGGER.debug(
-                    "better_thermostat %s: overriding hvac_action to HEATING "
-                    "(TRV %s reports heating)",
-                    device_name,
-                    snap.entity_id,
-                )
-                action = HVACAction.HEATING
-                break
-
-            valve_position_percent = to_percent(snap.valve_position)
-            if (
-                valve_position_percent is not None
-                and valve_position_percent > _VALVE_THRESH
-            ):
-                _LOGGER.debug(
-                    "better_thermostat %s: overriding hvac_action to HEATING "
-                    "(valve_position %.1f%%, TRV %s)",
-                    device_name,
-                    valve_position_percent,
-                    snap.entity_id,
-                )
-                action = HVACAction.HEATING
-                break
-
-            last_percent = to_percent(snap.last_valve_percent)
-            if last_percent is not None and last_percent > _VALVE_THRESH:
-                _LOGGER.debug(
-                    "better_thermostat %s: overriding hvac_action to HEATING "
-                    "(last_valve_percent %.1f%%, TRV %s)",
-                    device_name,
-                    last_percent,
-                    snap.entity_id,
-                )
-                action = HVACAction.HEATING
-                break
-
-    # Hysteresis state follows tolerance_decision, not the TRV-overridden action.
-    # A TRV still physically heating must not keep the state machine in the
-    # lenient "was-heating" mode, which would cause heating past target + tolerance.
+    # The heating hysteresis remembers the heating decision; a cooling action
+    # leaves it idle.
     new_last_action = (
         HVACAction.HEATING
         if tolerance_decision == HVACAction.HEATING

@@ -3,8 +3,8 @@
 Covers:
   - should_heat_with_tolerance  (hysteresis helper)
   - should_cool_with_tolerance  (hysteresis helper)
-  - to_percent                      (valve normalisation)
-  - compute_hvac_action         (main FSM, TRV overrides, idempotency)
+  - parse_hvac_action           (device report parsing)
+  - compute_hvac_action         (main FSM, idempotency)
   - Hysteresis state transitions
 """
 
@@ -13,11 +13,10 @@ import pytest
 
 from custom_components.better_thermostat.utils.hvac_action import (
     ToleranceHysteresis,
-    TrvSnapshot,
     compute_hvac_action,
+    parse_hvac_action,
     should_cool_with_tolerance,
     should_heat_with_tolerance,
-    to_percent,
 )
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -34,9 +33,6 @@ def _default_kwargs(**overrides):
         "bt_hvac_mode": HVACMode.HEAT,
         "window_open": False,
         "tolerance": 0.5,
-        "ignore_states": False,
-        "trv_snapshots": list[TrvSnapshot](),
-        "device_name": "Test",
     }
     base.update(overrides)
     return base
@@ -162,41 +158,7 @@ class TestShouldCoolWithTolerance:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Group 3: to_percent
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-class TestToPct:
-    """Tests for to percent."""
-
-    def test_fraction_to_percent(self):
-        """Test Fraction to percent."""
-        assert to_percent(0.5) == 50.0
-
-    def test_already_percent(self):
-        """Test Already percent."""
-        assert to_percent(50) == 50.0
-
-    def test_zero(self):
-        """Test Zero."""
-        assert to_percent(0.0) == 0.0
-
-    def test_one_stays(self):
-        """1.0 is NOT in [0, 1) → returned as-is (already percent)."""
-        assert to_percent(1.0) == 1.0
-
-    def test_invalid_returns_none(self):
-        """Test Invalid returns none."""
-        assert to_percent("abc") is None
-        assert to_percent(None) is None
-
-    def test_string_number(self):
-        """Test String number."""
-        assert to_percent("0.5") == 50.0
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Group 4: compute_hvac_action
+# Group 3: compute_hvac_action
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -261,6 +223,15 @@ class TestComputeHvacAction:
         )
         assert r.action == HVACAction.IDLE
 
+    def test_mode_without_heating_neither_heats_nor_holds(self):
+        """A mode that allows no heating stays idle and holds no band."""
+        r = compute_hvac_action(
+            **_default_kwargs(hvac_mode=HVACMode.COOL, room_temperature=18.0)
+        )
+        assert r.action == HVACAction.IDLE
+        assert r.tolerance_decision == HVACAction.IDLE
+        assert r.new_hold_active is False
+
     # --- cooling -----------------------------------------------------------
 
     def test_cooling_in_heat_cool(self):
@@ -289,122 +260,6 @@ class TestComputeHvacAction:
         )
         assert r.action != HVACAction.COOLING
 
-    # --- TRV override ------------------------------------------------------
-
-    def test_trv_hvac_action_override(self):
-        """Test Trv hvac action override."""
-        snap = TrvSnapshot(entity_id="trv1", hvac_action=HVACAction.HEATING)
-        r = compute_hvac_action(
-            **_default_kwargs(room_temperature=20.7, trv_snapshots=[snap])
-        )
-        assert r.action == HVACAction.HEATING
-
-    def test_trv_valve_position_override(self):
-        """Test Trv valve position override."""
-        snap = TrvSnapshot(entity_id="trv1", valve_position=0.5)
-        r = compute_hvac_action(
-            **_default_kwargs(room_temperature=20.7, trv_snapshots=[snap])
-        )
-        assert r.action == HVACAction.HEATING
-
-    def test_trv_last_valve_percent_override(self):
-        """Test Trv last valve percent override."""
-        snap = TrvSnapshot(entity_id="trv1", last_valve_percent=30.0)
-        r = compute_hvac_action(
-            **_default_kwargs(room_temperature=20.7, trv_snapshots=[snap])
-        )
-        assert r.action == HVACAction.HEATING
-
-    def test_ignore_states_skips_trv_override(self):
-        """Test Ignore states skips trv override."""
-        snap = TrvSnapshot(entity_id="trv1", hvac_action=HVACAction.HEATING)
-        r = compute_hvac_action(
-            **_default_kwargs(
-                room_temperature=20.7, ignore_states=True, trv_snapshots=[snap]
-            )
-        )
-        assert r.action == HVACAction.IDLE
-
-    def test_ignore_trv_states_per_trv(self):
-        """Test Ignore trv states per trv."""
-        snap = TrvSnapshot(
-            entity_id="trv1", ignore_trv_states=True, hvac_action=HVACAction.HEATING
-        )
-        r = compute_hvac_action(
-            **_default_kwargs(room_temperature=20.7, trv_snapshots=[snap])
-        )
-        assert r.action == HVACAction.IDLE
-
-    def test_trv_zero_valve_no_override(self):
-        """Test Trv zero valve no override."""
-        snap = TrvSnapshot(entity_id="trv1", valve_position=0.0)
-        r = compute_hvac_action(
-            **_default_kwargs(room_temperature=20.7, trv_snapshots=[snap])
-        )
-        assert r.action == HVACAction.IDLE
-
-    # --- TRV override suppressed above target ------------------------------
-
-    def test_trv_hvac_action_no_override_above_target(self):
-        """Above target, a TRV reporting heating must not lift action above IDLE."""
-        snap = TrvSnapshot(entity_id="trv1", hvac_action=HVACAction.HEATING)
-        r = compute_hvac_action(
-            **_default_kwargs(
-                room_temperature=21.3,
-                heat_target_temperature=21.0,
-                trv_snapshots=[snap],
-            )
-        )
-        assert r.action == HVACAction.IDLE
-
-    def test_trv_valve_position_no_override_above_target(self):
-        """Valve still partially open after overshoot must not lift action above IDLE."""
-        snap = TrvSnapshot(entity_id="trv1", valve_position=0.15)
-        r = compute_hvac_action(
-            **_default_kwargs(
-                room_temperature=21.3,
-                heat_target_temperature=21.0,
-                trv_snapshots=[snap],
-            )
-        )
-        assert r.action == HVACAction.IDLE
-
-    def test_trv_last_valve_percent_no_override_above_target(self):
-        """Stale last_valve_percent above target must not lift action above IDLE."""
-        snap = TrvSnapshot(entity_id="trv1", last_valve_percent=30.0)
-        r = compute_hvac_action(
-            **_default_kwargs(
-                room_temperature=21.3,
-                heat_target_temperature=21.0,
-                trv_snapshots=[snap],
-            )
-        )
-        assert r.action == HVACAction.IDLE
-
-    def test_trv_override_at_target_boundary(self):
-        """At cur == target, override is suppressed (heat-off threshold reached)."""
-        snap = TrvSnapshot(entity_id="trv1", hvac_action=HVACAction.HEATING)
-        r = compute_hvac_action(
-            **_default_kwargs(
-                room_temperature=21.0,
-                heat_target_temperature=21.0,
-                trv_snapshots=[snap],
-            )
-        )
-        assert r.action == HVACAction.IDLE
-
-    def test_trv_override_still_fires_in_band(self):
-        """Inside the hysteresis band (below target), TRV override still fires."""
-        snap = TrvSnapshot(entity_id="trv1", hvac_action=HVACAction.HEATING)
-        r = compute_hvac_action(
-            **_default_kwargs(
-                room_temperature=20.7,
-                heat_target_temperature=21.0,
-                trv_snapshots=[snap],
-            )
-        )
-        assert r.action == HVACAction.HEATING
-
     # --- idempotency -------------------------------------------------------
 
     def test_hysteresis_not_mutated(self):
@@ -422,30 +277,12 @@ class TestComputeHvacAction:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Group 5: Hysteresis state transitions
+# Group 4: Hysteresis state transitions
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestHysteresisTransitions:
     """Tests for hysteresis transitions."""
-
-    def test_tolerance_decision_not_corrupted_by_trv(self):
-        """TRV override must not change tolerance_decision.
-
-        Scenario: in-band (below target), previously IDLE → tolerance says IDLE
-        (no restart in band), TRV overrides displayed action to HEATING.
-        The FSM state and tolerance_decision must still reflect tolerance.
-        """
-        hyst = ToleranceHysteresis(last_action=HVACAction.IDLE)
-        snap = TrvSnapshot(entity_id="trv1", hvac_action=HVACAction.HEATING)
-        r = compute_hvac_action(
-            **_default_kwargs(
-                hysteresis=hyst, room_temperature=20.7, trv_snapshots=[snap]
-            )
-        )
-        assert r.tolerance_decision == HVACAction.IDLE
-        assert r.action == HVACAction.HEATING
-        assert r.new_last_action == HVACAction.IDLE
 
     def test_hold_active_set_in_band(self):
         """Test Hold active set in band."""
@@ -531,3 +368,22 @@ class TestHysteresisTransitions:
         )
         assert r.new_last_action == HVACAction.IDLE
         assert r.new_hold_active is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Group 5: parse_hvac_action
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestParseHvacAction:
+    """Tests for parse hvac action."""
+
+    @pytest.mark.parametrize("reported", ["heating", "HEATING", " heating "])
+    def test_matches_regardless_of_case_and_whitespace(self, reported):
+        """A reported action in another spelling still names the HVAC action."""
+        assert parse_hvac_action(reported) is HVACAction.HEATING
+
+    @pytest.mark.parametrize("reported", ["lock", "", None])
+    def test_value_naming_no_action_yields_none(self, reported):
+        """A value that names no HVAC action leaves the action unknown."""
+        assert parse_hvac_action(reported) is None

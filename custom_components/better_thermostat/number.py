@@ -169,8 +169,8 @@ async def async_setup_entry(
         return
 
     numbers: list[NumberEntity] = []
-    preset_unique_ids: dict[str | None, PresetNumberRef] = {}
-    pid_unique_ids: dict[str | None, PidNumberRef] = {}
+    preset_unique_ids: dict[str, PresetNumberRef] = {}
+    pid_unique_ids: dict[str, PidNumberRef] = {}
     # Create number entities for each preset mode (except NONE)
     _LOGGER.debug(
         "Better Thermostat Number: Found preset modes: %s", bt_climate.preset_modes
@@ -181,17 +181,19 @@ async def async_setup_entry(
         if preset_mode == PRESET_NONE:
             continue
         if has_heater:
-            preset_number = BetterThermostatPresetNumber(bt_climate, preset_mode)
-            numbers.append(preset_number)
-            preset_unique_ids[preset_number._attr_unique_id] = PresetNumberRef(
-                preset_mode
-            )
+            numbers.append(BetterThermostatPresetNumber(bt_climate, preset_mode))
+            preset_unique_ids[
+                BetterThermostatPresetNumber.build_unique_id(
+                    bt_climate.unique_id, preset_mode
+                )
+            ] = PresetNumberRef(preset_mode)
         if has_cooler:
-            cool_number = BetterThermostatPresetCoolNumber(bt_climate, preset_mode)
-            numbers.append(cool_number)
-            preset_unique_ids[cool_number._attr_unique_id] = PresetNumberRef(
-                preset_mode
-            )
+            numbers.append(BetterThermostatPresetCoolNumber(bt_climate, preset_mode))
+            preset_unique_ids[
+                BetterThermostatPresetCoolNumber.build_unique_id(
+                    bt_climate.unique_id, preset_mode
+                )
+            ] = PresetNumberRef(preset_mode)
 
     # Create PID numbers for each TRV if PID calibration is enabled
     has_multiple_trvs = len(bt_climate.all_trvs) > 1
@@ -206,13 +208,16 @@ async def async_setup_entry(
 
         if calibration_mode == CalibrationMode.PID_CALIBRATION:
             for gain in _PID_GAIN_SETTINGS:
-                pid_number = BetterThermostatPIDNumber(
-                    bt_climate, trv_entity_id, gain, has_multiple_trvs
+                numbers.append(
+                    BetterThermostatPIDNumber(
+                        bt_climate, trv_entity_id, gain, has_multiple_trvs
+                    )
                 )
-                numbers.append(pid_number)
-                pid_unique_ids[pid_number._attr_unique_id] = PidNumberRef(
-                    trv_entity_id, gain
-                )
+                pid_unique_ids[
+                    BetterThermostatPIDNumber.build_unique_id(
+                        bt_climate.unique_id, trv_entity_id, gain
+                    )
+                ] = PidNumberRef(trv_entity_id, gain)
 
         if calibration_output == CalibrationOutput.DIRECT_VALVE_BASED:
             numbers.append(
@@ -257,11 +262,18 @@ class BetterThermostatPresetNumber(FollowsThermostat, NumberEntity, RestoreEntit
     _attr_mode = NumberMode.BOX
     _attr_entity_category = EntityCategory.CONFIG
 
+    @staticmethod
+    def build_unique_id(bt_unique_id: str, preset_mode: str) -> str:
+        """Return the unique id of the number for ``preset_mode``."""
+        return f"{bt_unique_id}_preset_{preset_mode}"
+
     def __init__(self, bt_climate: BetterThermostat, preset_mode: str) -> None:
         """Initialize the number."""
         self._bt_climate = bt_climate
         self._preset_mode = preset_mode
-        self._attr_unique_id = f"{bt_climate.unique_id}_preset_{preset_mode}"
+        self._attr_unique_id = BetterThermostatPresetNumber.build_unique_id(
+            bt_climate.unique_id, preset_mode
+        )
         if bt_climate.cooler_entity_id is not None:
             self._attr_translation_key = _PRESET_MIN_TRANSLATION_KEYS[preset_mode]
         else:
@@ -386,6 +398,12 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
     and are applied immediately when the represented preset is active.
     """
 
+    @staticmethod
+    @override
+    def build_unique_id(bt_unique_id: str, preset_mode: str) -> str:
+        """Return the unique id of the cooling number for ``preset_mode``."""
+        return f"{bt_unique_id}_preset_{preset_mode}_cool"
+
     def __init__(self, bt_climate: BetterThermostat, preset_mode: str) -> None:
         """Initialize the cooling preset number.
 
@@ -397,7 +415,9 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
             Preset mode represented by this number entity.
         """
         super().__init__(bt_climate, preset_mode)
-        self._attr_unique_id = f"{bt_climate.unique_id}_preset_{preset_mode}_cool"
+        self._attr_unique_id = BetterThermostatPresetCoolNumber.build_unique_id(
+            bt_climate.unique_id, preset_mode
+        )
         self._attr_translation_key = _PRESET_MAX_TRANSLATION_KEYS[preset_mode]
 
     @override
@@ -515,6 +535,13 @@ class BetterThermostatPIDNumber(
     _attr_mode = NumberMode.BOX
     _attr_entity_category = EntityCategory.CONFIG
 
+    @staticmethod
+    def build_unique_id(
+        bt_unique_id: str, trv_entity_id: str, parameter: PidGain
+    ) -> str:
+        """Return the unique id of the number for one TRV's PID gain."""
+        return f"{bt_unique_id}_{trv_entity_id}_pid_{parameter}"
+
     def __init__(
         self,
         bt_climate: BetterThermostat,
@@ -526,7 +553,9 @@ class BetterThermostatPIDNumber(
         self._bt_climate = bt_climate
         self._trv_entity_id = trv_entity_id
         self._parameter = parameter
-        self._attr_unique_id = f"{bt_climate.unique_id}_{trv_entity_id}_pid_{parameter}"
+        self._attr_unique_id = BetterThermostatPIDNumber.build_unique_id(
+            bt_climate.unique_id, trv_entity_id, parameter
+        )
 
         if show_trv_name:
             self._attr_translation_key = f"pid_{parameter}"

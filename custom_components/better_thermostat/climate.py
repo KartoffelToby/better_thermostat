@@ -122,12 +122,7 @@ from .events.temperature import (
 )
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import (
-    initial_tweak,
-    load_model_quirks,
-    lowest_setpoint,
-    trv_report_is_unreadable,
-)
+from .model_fixes.model_quirks import initial_tweak, load_model_quirks, lowest_setpoint
 from .model_fixes.types import ExternalTemperatureQuirk
 from .switch import restored_child_lock, restored_window_detection
 from .trv import Trv
@@ -148,6 +143,7 @@ from .utils.const import (
     ATTR_STATE_HEATING_POWER,
     ATTR_STATE_LEARNING_PAUSED,
     ATTR_STATE_MAIN_MODE,
+    ATTR_STATE_NEXT_VALVE_MAINTENANCE,
     ATTR_STATE_OFF_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
@@ -245,9 +241,7 @@ from .utils.helpers import (
 from .utils.hvac_action import (
     HvacActionResult,
     ToleranceHysteresis,
-    TrvSnapshot,
     compute_hvac_action,
-    parse_hvac_action,
     should_heat_with_tolerance,
 )
 from .utils.migrate_v0_stores import migrate_v0_stores
@@ -284,8 +278,9 @@ from .utils.thermal_learning import (
 from .utils.valve_maintenance import (
     build_trv_snapshots,
     collect_maintenance_trvs,
-    compute_initial_maintenance,
     compute_next_maintenance,
+    first_maintenance_due,
+    restored_maintenance_due,
     run_valve_maintenance,
 )
 from .utils.watcher import (
@@ -498,6 +493,54 @@ def _restored_attribute(old_state: State, name: str) -> object:
     if value is None:
         value = old_state.attributes.get(DEPRECATED_STATE_ATTRIBUTES[name])
     return value
+
+
+def _seed_maintenance_schedule(self: BetterThermostat) -> list[str]:
+    """Take up the valve maintenance schedule for this run.
+
+    The schedule the restored state publishes is kept, so a restart
+    does not move it; ``first_maintenance_due`` says when a new one is
+    rolled instead.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The thermostat whose schedule is seeded.
+
+    Returns
+    -------
+    list[str]
+        The TRVs with valve maintenance enabled; empty when none has it
+        or the options cannot be read, and the schedule is then left as
+        it is.
+    """
+    try:
+        maint_trvs = collect_maintenance_trvs(self.real_trvs)
+    except Exception:
+        _LOGGER.warning(
+            "better_thermostat %s: could not read which TRVs have valve "
+            "maintenance enabled; the maintenance tick stays off",
+            self.device_name,
+            exc_info=True,
+        )
+        return []
+    if not maint_trvs:
+        return []
+    restored = (
+        restored_maintenance_due(
+            self._saved_state.attributes.get(ATTR_STATE_NEXT_VALVE_MAINTENANCE)
+        )
+        if self._saved_state is not None
+        else None
+    )
+    first_due = first_maintenance_due(
+        self.real_trvs, maint_trvs, restored, now=self.clock.now()
+    )
+    self.kernel_state = replace(
+        self.kernel_state,
+        maintenance=maintenance_reschedule(self.kernel_state.maintenance, first_due),
+    )
+    return maint_trvs
 
 
 async def _refresh_trv_model(self: BetterThermostat, entity_id: str) -> None:
@@ -3358,6 +3401,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             ),
         )
         await self._startup_control_trvs()
+        # The schedule is in place before the first state goes out, so the
+        # published date is the one that holds.
+        maint_trvs = _seed_maintenance_schedule(self)
         self._available = True
         self.async_write_ha_state()
 
@@ -3476,7 +3522,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         active_calibration_modes = set()
         try:
             for trv in self.real_trvs.values():
-                advanced = trv.advanced or {}
+                advanced = trv.advanced
 
                 balance_value = advanced.get("balance_mode", "")
                 if isinstance(balance_value, str):
@@ -3548,25 +3594,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
         # Valve maintenance is orthogonal to balance/calibration: enable its
         # tick whenever at least one TRV has it turned on.
-        try:
-            maint_trvs = collect_maintenance_trvs(self.real_trvs)
-        except Exception:
-            _LOGGER.warning(
-                "better_thermostat %s: could not read which TRVs have valve "
-                "maintenance enabled; the maintenance tick stays off",
-                self.device_name,
-                exc_info=True,
-            )
-            maint_trvs: list[str] = []
-
         if maint_trvs:
-            first_due = compute_initial_maintenance(self.real_trvs, maint_trvs)
-            self.kernel_state = replace(
-                self.kernel_state,
-                maintenance=maintenance_reschedule(
-                    self.kernel_state.maintenance, first_due
-                ),
-            )
             self.async_on_remove(
                 async_track_time_interval(
                     self.hass,
@@ -3581,7 +3609,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             _LOGGER.debug(
                 "better_thermostat %s: valve maintenance tick enabled (5min), first run at %s",
                 self.device_name,
-                first_due,
+                self.kernel_state.maintenance.next_due,
             )
         else:
             _LOGGER.debug(
@@ -4049,9 +4077,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             if control_needed or self.bt_hvac_mode != HVACMode.OFF:
                 try:
                     request_control_cycle(self)
-                except AttributeError:
-                    # Queue not ready; the periodic tick will catch up.
-                    pass
                 except Exception:
                     # This is the last statement of the ``finally``: an
                     # exception leaving here replaces the one the maintenance
@@ -4351,10 +4376,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self.preset_mgr.temperatures
             ),
         }
-        # Optional: next scheduled valve maintenance (ISO8601)
-        next_due = self.kernel_state.maintenance.next_due
-        if next_due is not None:
-            dev_specific["next_valve_maintenance"] = next_due.isoformat()
+        # The schedule is published only while a TRV has valve maintenance
+        # enabled: without one, no run happens on the date it names.
+        if collect_maintenance_trvs(self.real_trvs):
+            dev_specific[ATTR_STATE_NEXT_VALVE_MAINTENANCE] = (
+                self.kernel_state.maintenance.next_due.isoformat()
+            )
         if self.has_contact_sensor:
             dev_specific[ATTR_STATE_WINDOW_DETECTION] = (
                 self.kernel_state.window_detection
@@ -4556,45 +4583,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.room_temperature, self.heat_target_temperature, tol, previous_action
         )
 
-    def _build_trv_snapshots(self) -> list[TrvSnapshot]:
-        """Build TrvSnapshot list from real_trvs with hass state fallback.
-
-        A TRV whose state reads as the device being gone is left out: its
-        last action and valve position describe a device that no longer
-        reports, and they must not lift the room's action to heating.
-        """
-        snapshots: list[TrvSnapshot] = []
-        for entity_id, info in (self.real_trvs or {}).items():
-            if not isinstance(info, Trv):
-                continue
-
-            trv_state = self.hass.states.get(entity_id)
-            if trv_report_is_unreadable(self, entity_id, trv_state):
-                continue
-
-            # Resolve hvac_action: cached first, hass state fallback
-            action = info.hvac_action
-            if action is None:
-                action_raw = None
-                if trv_state is not None:
-                    action_raw = trv_state.attributes.get("hvac_action")
-                    if action_raw is None:
-                        action_raw = trv_state.attributes.get("action")
-                if action_raw is not None:
-                    action = parse_hvac_action(action_raw)
-                    info.hvac_action = action
-
-            snapshots.append(
-                TrvSnapshot(
-                    entity_id=entity_id,
-                    ignore_trv_states=info.ignore_trv_states,
-                    hvac_action=action,
-                    valve_position=info.valve_position,
-                    last_valve_percent=info.last_valve_percent,
-                )
-            )
-        return snapshots
-
     def _compute_hvac_action(self) -> HVACAction:
         """Return the current HVAC action enum value."""
         result = self._compute_hvac_action_pure()
@@ -4632,11 +4620,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             hvac_mode=self.hvac_mode,
             bt_hvac_mode=self.bt_hvac_mode,
             window_open=self.contact_open,
-            tolerance=self.tolerance or 0.0,
-            ignore_states=self.ignore_states,
-            trv_snapshots=self._build_trv_snapshots(),
+            tolerance=self.tolerance,
             cool_previously_active=self._cooler_previously_active(),
-            device_name=self.device_name,
         )
 
     def _commit_hvac_action(self, result: HvacActionResult) -> None:
@@ -5192,7 +5177,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """
         applied = self._applied_target(stored, cooling=True)
         heating = self.heat_target_temperature
-        if heating is None or applied > heating:
+        if applied > heating:
             return applied
         return _cool_target_above(
             heating,
@@ -5786,8 +5771,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
 
             self.async_write_ha_state()
-            if self.control_queue_task is not None:
-                request_control_cycle(self)
+            request_control_cycle(self)
         finally:
             self.bt_update_lock = False
 

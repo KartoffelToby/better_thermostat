@@ -29,6 +29,7 @@ from tests.benchmark.adapters.passive_modes import (
 )
 from tests.benchmark.adapters.pid_adapter import PidAdapter
 from tests.benchmark.adapters.tpi_adapter import TpiAdapter
+from tests.benchmark.sensor import SensorParams
 
 _ADAPTERS = [
     pytest.param(MpcAdapter, id="mpc"),
@@ -266,3 +267,27 @@ def test_mpc_v2_adapter_closes_the_valve_while_the_window_is_open():
     ctx = _ctx_at(0.0, target=22.0, current=18.0)
     out = adapter.step(replace(ctx, window_open=True, last_valve_percent=60.0))
     assert out.valve_percent == 0.0
+
+
+@pytest.mark.parametrize(
+    ("report_threshold_K", "resolution_K", "learned_K"),
+    [
+        pytest.param(0.5, 0.1, 0.5, id="threshold"),
+        pytest.param(0.0, 0.3, 0.3, id="every-change-at-resolution"),
+        pytest.param(0.4, 0.3, 0.6, id="threshold-between-resolution-steps"),
+        pytest.param(0.27, 0.09, 0.27, id="threshold-on-a-resolution-step"),
+        pytest.param(0.4, 0.0, 0.4, id="unrounded"),
+    ],
+)
+def test_mpc_v2_adapter_adopts_the_sensor_threshold_and_keeps_it(
+    report_threshold_K: float, resolution_K: float, learned_K: float
+) -> None:
+    """The report band starts learned and survives the first control step."""
+    adapter = MpcV2Adapter()
+    adapter.adopt_sensor(
+        SensorParams(report_threshold_K=report_threshold_K, resolution_K=resolution_K)
+    )
+    adapter.step(_ctx_at(0.0))
+    controller = adapter._state.controller
+    assert controller is not None
+    assert controller.report_band.threshold_K == pytest.approx(learned_K)
