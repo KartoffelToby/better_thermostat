@@ -76,6 +76,7 @@ from .sensor import REALISTIC_SENSOR_PARAMS, Sensor, trv_sensor_reading
 ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     "mpc": MpcAdapter,
     "mpc_v2": MpcV2Adapter,
+    "mpc_v2+flow_temperature": lambda: MpcV2Adapter(configure_flow_temperature=True),
     "tpi": TpiAdapter,
     "pid": PidAdapter,
     "heating_power": HeatingPowerAdapter,
@@ -170,6 +171,16 @@ def _plant_time_scale(
     return _scale(plant) / ref_scale
 
 
+def flow_temperature_at(scenario: ScenarioConfig, t: float) -> float | None:
+    """Return the flow temperature reaching the radiators at ``t``, in °C.
+
+    ``None`` when the scenario keeps the plant's own ``T_water``.
+    """
+    if scenario.flow_temperature_schedule is None:
+        return None
+    return scenario.flow_temperature_schedule(t)
+
+
 def _stabilise_plant(
     plant: TwoStatePlant,
     scenario: ScenarioConfig,
@@ -185,6 +196,7 @@ def _stabilise_plant(
         return
     pre_setpoint = scenario.setpoint_schedule(0.0)
     pre_outdoor = scenario.outdoor_schedule(0.0)
+    pre_flow = flow_temperature_at(scenario, 0.0)
     oracle = IdealOracleAdapter(plant_params=scenario.plant)
     steps = round(stabilisation_min * 60.0 / step_s)
     for _ in range(steps):
@@ -196,10 +208,11 @@ def _stabilise_plant(
             raw_room_temperature=plant.state.T_room,
             trv_temperature=plant.state.T_rad,
             outdoor_temperature=pre_outdoor,
+            flow_temperature=pre_flow,
         )
         out = oracle.step(ctx)
         u = (out.valve_percent or 0.0) / 100.0
-        plant.step(step_s, u, pre_outdoor)
+        plant.step(step_s, u, pre_outdoor, flow_temperature=pre_flow)
 
 
 class PlantFacade(Protocol):
@@ -228,9 +241,15 @@ class PlantFacade(Protocol):
         ...
 
     def apply(
-        self, dt_s: float, valve_percent: float, T_outdoor: float, Q_K_per_min: float
+        self,
+        dt_s: float,
+        valve_percent: float,
+        T_outdoor: float,
+        Q_K_per_min: float,
+        flow_temperature: float | None,
+        heat_delivered: bool,
     ) -> None:
-        """Step the plant forward by ``dt_s`` seconds under the given valve and outdoor inputs."""
+        """Step the plant forward by ``dt_s`` seconds under the given valve, outdoor and heat-source inputs."""
         ...
 
 
@@ -254,10 +273,23 @@ class _SingleTrvFacade:
         return self._plant.heat_to_room_K_per_min
 
     def apply(
-        self, dt_s: float, valve_percent: float, T_outdoor: float, Q_K_per_min: float
+        self,
+        dt_s: float,
+        valve_percent: float,
+        T_outdoor: float,
+        Q_K_per_min: float,
+        flow_temperature: float | None,
+        heat_delivered: bool,
     ) -> None:
         u = self._actuator.apply(valve_percent)
-        self._plant.step(dt_s, u, T_outdoor, Q_K_per_min=Q_K_per_min)
+        self._plant.step(
+            dt_s,
+            u,
+            T_outdoor,
+            Q_K_per_min=Q_K_per_min,
+            flow_temperature=flow_temperature,
+            heat_delivered=heat_delivered,
+        )
 
 
 def _drive_adapter(
@@ -268,6 +300,7 @@ def _drive_adapter(
     duration_s: float,
     handle_controller_restart: bool,
     learned_sensor: bool = False,
+    nominal_flow_temperature: float | None = None,
 ) -> TimeSeries:
     """Drive an adapter through one scenario, returning the recorded series.
 
@@ -275,7 +308,9 @@ def _drive_adapter(
     only difference between the two is *how* the valve command reaches
     the plant, which the facade encapsulates. With ``learned_sensor`` an
     adapter that offers ``adopt_sensor`` is handed the room sensor's
-    parameters before the first step.
+    parameters before the first step. ``nominal_flow_temperature`` is the
+    simulated plant's ``T_water``, which the context reports as the value an
+    installer configures.
     """
     sensor_params = scenario.sensor_params or REALISTIC_SENSOR_PARAMS
     # Derive a stable per-scenario seed so sensor noise/jitter is
@@ -352,6 +387,12 @@ def _drive_adapter(
             if scenario.controller_solar_schedule is not None
             else solar_intensity
         )
+        flow_temperature = flow_temperature_at(scenario, t)
+        heat_delivered = (
+            scenario.heat_delivery_schedule(t)
+            if scenario.heat_delivery_schedule is not None
+            else True
+        )
         # On dropout the sensor returns None and the input stage holds its
         # last committed value rather than handing over the plant truth.
         room_input.update(t, sensor.read(t, facade.T_room))
@@ -392,6 +433,13 @@ def _drive_adapter(
             ),
             control_event=control_event,
             control_tick=control_tick,
+            flow_temperature=(
+                nominal_flow_temperature
+                if flow_temperature is None
+                else flow_temperature
+            ),
+            nominal_flow_temperature=nominal_flow_temperature,
+            heat_delivered=heat_delivered,
         )
 
         out = adapter.step(ctx)
@@ -415,7 +463,14 @@ def _drive_adapter(
 
         Q_solar = solar_intensity * scenario.solar_max_K_per_min
         Q_window = -scenario.window_loss_K_per_min if window_open else 0.0
-        facade.apply(step_s, valve_percent, T_outdoor, Q_K_per_min=Q_solar + Q_window)
+        facade.apply(
+            step_s,
+            valve_percent,
+            T_outdoor,
+            Q_K_per_min=Q_solar + Q_window,
+            flow_temperature=flow_temperature,
+            heat_delivered=heat_delivered,
+        )
         t += step_s
 
     return TimeSeries(
@@ -500,6 +555,7 @@ def run_scenario(
         duration_s,
         handle_controller_restart=True,
         learned_sensor=learned_sensor,
+        nominal_flow_temperature=actual_plant.T_water,
     )
     return ScenarioResult(
         controller=adapter.name,

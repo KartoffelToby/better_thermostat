@@ -362,9 +362,19 @@ ignores this hunts and wears the motor.
 | `S23_boiler_limited` (42 °C supply HP) | Low supply temperature — limited authority. |
 | `S29_heatpump_steady_state` | Valve sweet-spot residency for heat-pump COP. |
 | `S27_pipe_fill_after_idle` (120 s delay) | Boiler→radiator transport lag from cold. |
+| `S39_heat_pump_heating_curve` (7 d, flow 28–41 °C) | A flow temperature that a heating curve moves with the weather. |
+| `S40_heat_pump_hot_water` (S39 + 2 × 45 min a day) | A heat source that stops heating the radiators while it makes hot water. |
 
 *Why:* BT runs on radiators, underfloor and heat pumps; a controller must
 not assume a hot, fast, instantly-responding radiator.
+
+S39 and S40 run on `PROFILE_HEAT_PUMP_CURVE`, whose radiator is sized for
+low flow temperatures (three times the standard radiator-to-room
+coupling). Its `T_water` of 35 °C is the value an installer would enter for
+the room; the scenario's `flow_temperature_schedule` sets the water that
+actually reaches the radiator, and `heat_delivery_schedule` switches the
+heat off. The oracle reads the actual flow temperature from the context,
+so the two scenarios score a controller against one that knows it.
 
 Every scenario leaves the oracle headroom: its steady-state valve stays at
 or below 90 % at every five-minute sample of the setpoint and outdoor

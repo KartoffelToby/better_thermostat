@@ -12,7 +12,7 @@ from ..mpc_v2_internals.governor import GovernorParams
 from ..mpc_v2_internals.kalman import KalmanParams
 from ..mpc_v2_internals.plant import TAU_ROOM_BOUNDS_MIN, PlantParams
 from ..mpc_v2_internals.qp_optimiser import QpParams
-from ..plant_preset import MpcV2PlantPreset
+from ..plant_preset import DEFAULT_FLOW_TEMPERATURE, MpcV2PlantPreset
 
 
 @dataclass
@@ -80,3 +80,26 @@ def make_plant_prior(
     # heating_power not mapped yet — the gain stays at the prior default.
     _ = heating_power
     return params
+
+
+# Room temperature at which a radiator sized for one flow temperature gives
+# the same valve opening as one sized for another, in °C.
+_RADIATOR_SIZING_ROOM_TEMPERATURE: Final = 21.0
+
+
+def coupling_for_flow_temperature(flow_temperature: float) -> float:
+    """Return the radiator-to-room coupling of a radiator sized for ``flow_temperature``.
+
+    The prior's ``coupling_rad_room`` describes a radiator sized for
+    :data:`DEFAULT_FLOW_TEMPERATURE`. A heating system that runs cooler
+    carries larger radiators, so that the radiator's excess over the room
+    shrinks with the flow's excess over the room. The coupling scales by
+    the inverse of that excess, which keeps the valve opening that holds
+    the room at :data:`_RADIATOR_SIZING_ROOM_TEMPERATURE` what it is at the
+    default flow temperature, at every outdoor temperature.
+    ``flow_temperature`` is in °C and lies above the room temperature, as
+    :data:`FLOW_TEMPERATURE_BOUNDS` guarantees.
+    """
+    excess_at_default = DEFAULT_FLOW_TEMPERATURE - _RADIATOR_SIZING_ROOM_TEMPERATURE
+    excess = flow_temperature - _RADIATOR_SIZING_ROOM_TEMPERATURE
+    return PlantParams.coupling_rad_room * excess_at_default / excess

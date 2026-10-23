@@ -245,6 +245,20 @@ PROFILE_BOILER_LIMITED = PlantParams(
 )
 
 
+# Heat pump on a heating curve: radiators sized for low flow temperatures,
+# three times STANDARD's radiator-to-room coupling, so that about 40 °C
+# flow holds 21 °C at -10 °C outdoor with the valve about 60 % open.
+# ``T_water`` is the flow temperature an installer would configure for the
+# room; a scenario's flow temperature schedule moves the real one.
+PROFILE_HEAT_PUMP_CURVE = PlantParams(
+    tau_room_min=480.0,
+    tau_rad_min=15.0,
+    gain_heater=2.0,
+    coupling_rad_room=3.0,
+    T_water=35.0,
+)
+
+
 # DOE Reference Building–derived envelope classes.
 #
 # Lumped-parameter approximations of the three residential envelope
@@ -357,9 +371,22 @@ class TwoStatePlant:
         return p.coupling_rad_room * (s.T_rad - s.T_room) / p.tau_room_min
 
     def step(
-        self, dt_s: float, u: float, T_outdoor: float, Q_K_per_min: float = 0.0
+        self,
+        dt_s: float,
+        u: float,
+        T_outdoor: float,
+        Q_K_per_min: float = 0.0,
+        flow_temperature: float | None = None,
+        heat_delivered: bool = True,
     ) -> PlantState:
-        """Advance the plant by ``dt_s`` seconds. Returns the new state."""
+        """Advance the plant by ``dt_s`` seconds. Returns the new state.
+
+        ``flow_temperature`` replaces ``params.T_water`` for this step, as a
+        heating curve moves it with the outdoor temperature. While
+        ``heat_delivered`` is ``False`` no heating water flows, as while a
+        heat pump heats hot water: the radiator only gives off what it holds,
+        whatever the valve.
+        """
         if dt_s <= 0.0:
             return self.state
 
@@ -388,9 +415,11 @@ class TwoStatePlant:
             u_clamped = self._u_delay_buffer.popleft()
 
         # Radiator dynamics — identical in RC2 and RC3.
-        dT_rad = (
-            p.gain_heater * u_clamped * (p.T_water - s.T_rad) - (s.T_rad - s.T_room)
-        ) / p.tau_rad_min
+        T_water = p.T_water if flow_temperature is None else flow_temperature
+        heat_in = (
+            p.gain_heater * u_clamped * (T_water - s.T_rad) if heat_delivered else 0.0
+        )
+        dT_rad = (heat_in - (s.T_rad - s.T_room)) / p.tau_rad_min
 
         if p.tau_wall_min > 0.0:
             # RC3 dynamics: room exchanges with the wall instead of outdoor.

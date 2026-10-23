@@ -20,6 +20,7 @@ from .actuator import ActuatorParams, ActuatorProfile
 from .plant import (
     PROFILE_BOILER_LIMITED,
     PROFILE_COLD_CLIMATE,
+    PROFILE_HEAT_PUMP_CURVE,
     PROFILE_STANDARD,
     PROFILE_UNDERFLOOR,
     PlantParams,
@@ -88,6 +89,13 @@ class ScenarioConfig:
     controller_solar_schedule: Callable[[float], float] | None = None
     window_loss_K_per_min: float = 0.5  # heat lost per minute while window is open
     solar_max_K_per_min: float = 0.03  # plant-side heat gain at full solar (1.0)
+    # Heat source. ``flow_temperature_schedule`` (t_s -> °C) replaces the
+    # plant's ``T_water``, as a heating curve moves it with the outdoor
+    # temperature; ``heat_delivery_schedule`` (t_s -> bool) is ``False``
+    # while the source delivers no heat, as while a heat pump heats hot
+    # water. ``None`` keeps a constant ``T_water`` that never stops.
+    flow_temperature_schedule: Callable[[float], float] | None = None
+    heat_delivery_schedule: Callable[[float], bool] | None = None
     sensor_params: SensorParams | None = None
     # Share of the radiator's excess the TRV's own sensor picks up.
     trv_sensor_rad_fraction: float = TRV_SENSOR_RAD_FRACTION
@@ -529,6 +537,44 @@ S38_WINTER_WEEK_SEMI_ARID = _build_synthetic_weather_scenario(
 )
 
 
+def _build_heat_pump_week(
+    name: str, description: str, hot_water: Callable[[float], bool] | None
+) -> ScenarioConfig:
+    """Build a winter week on a heat pump whose heating curve moves the flow.
+
+    The curve rises 0.6 K per kelvin of frost below 21 °C, so the flow
+    temperature follows the synthetic weather between about 30 and 45 °C.
+    The plant's ``T_water`` stays at the 35 °C an installer would configure.
+    """
+    week = _build_synthetic_weather_scenario(
+        name=name, climate=CHICAGO_LIKE, seed=39, start_day_of_year=14
+    )
+    return replace(
+        week,
+        description=description,
+        initial=InitialConditions(T_room=21.0, T_rad=29.0),
+        plant=PROFILE_HEAT_PUMP_CURVE,
+        flow_temperature_schedule=schedules.heating_curve(
+            week.outdoor_schedule, slope=0.6, minimum=25.0, maximum=45.0
+        ),
+        heat_delivery_schedule=hot_water,
+    )
+
+
+S39_HEAT_PUMP_HEATING_CURVE = _build_heat_pump_week(
+    name="S39_heat_pump_heating_curve",
+    description="7 d winter week on a heat pump whose heating curve moves the flow temperature",
+    hot_water=None,
+)
+
+
+S40_HEAT_PUMP_HOT_WATER = _build_heat_pump_week(
+    name="S40_heat_pump_hot_water",
+    description="S39 with the heat pump heating hot water for 45 min at 06:00 and 18:00",
+    hot_water=schedules.daily_interruptions((6.0, 18.0), duration_min=45.0),
+)
+
+
 S28_INDIRECT_TRV_TADO = ScenarioConfig(
     name="S28_indirect_trv_tado",
     description=(
@@ -729,4 +775,6 @@ ALL_SCENARIOS: dict[str, ScenarioConfig] = {
     S28_INDIRECT_TRV_TADO.name: S28_INDIRECT_TRV_TADO,
     S37_WINTER_WEEK_HUMID_CONT.name: S37_WINTER_WEEK_HUMID_CONT,
     S38_WINTER_WEEK_SEMI_ARID.name: S38_WINTER_WEEK_SEMI_ARID,
+    S39_HEAT_PUMP_HEATING_CURVE.name: S39_HEAT_PUMP_HEATING_CURVE,
+    S40_HEAT_PUMP_HOT_WATER.name: S40_HEAT_PUMP_HOT_WATER,
 }

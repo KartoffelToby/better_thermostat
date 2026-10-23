@@ -25,12 +25,12 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 σ = population stdev across scenarios (lower = steadier per dimension).
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
- *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   36
-  mpc_v2                0.858  0.097    0.975  0.027     0.577  0.313    0.988  0.026   36
-  tpi                   0.779  0.177    0.783  0.220     0.626  0.340    1.000  0.002   36
-  pid                   0.764  0.137    0.860  0.131     0.453  0.363    0.991  0.025   36
-  mpc                   0.717  0.126    0.870  0.138     0.277  0.298    0.993  0.026   36
-  bangbang              0.662  0.139    0.804  0.158     0.216  0.303    0.973  0.045   36
+ *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   38
+  mpc_v2                0.852  0.102    0.975  0.026     0.557  0.333    0.988  0.030   38
+  tpi                   0.770  0.177    0.779  0.215     0.603  0.348    1.000  0.002   38
+  pid                   0.760  0.135    0.866  0.130     0.429  0.367    0.991  0.025   38
+  mpc                   0.714  0.124    0.873  0.135     0.263  0.297    0.993  0.025   38
+  bangbang              0.662  0.136    0.810  0.156     0.205  0.299    0.975  0.044   38
 ```
 
 Higher is better. Each dimension is **oracle-normalised**: `1.0` matches
@@ -224,6 +224,16 @@ radiators, while aggressive ones (PID, BangBang) divergence-amplify.
 This is the closer-to-reality benchmark for **multi-radiator rooms**
 (living rooms, larger kitchens) — common in residential setups. For
 single-radiator rooms the single-TRV matrix is the relevant one.
+
+### Configured flow temperature (`mpc_v2+flow_temperature`)
+
+MPC v2 with the flow temperature an installer enters for the room
+(`mpc_v2_flow_temperature`), taken from the scenario plant's `T_water`.
+The plain `mpc_v2` row keeps the 65 °C default, as a room where nobody
+entered a value. The two rows differ only on plants whose `T_water` is not
+65 °C. On S39 and S40 the heating curve moves the real flow temperature
+around the configured 35 °C; no controller sees that movement except the
+oracle.
 
 ### Indirect TRVs (`pid+indirect_trv`, `tpi+indirect_trv`, `mpc+indirect_trv`, `mpc_v2+indirect_trv`)
 
