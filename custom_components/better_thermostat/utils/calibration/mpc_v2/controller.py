@@ -258,17 +258,19 @@ class MpcV2Controller:
             )
         self.plant_fine = PlantModelRC2(mpc_params.plant, dt_s=mpc_params.plant_step_s)
         self.plant_coarse = PlantModelRC2(mpc_params.plant, dt_s=mpc_params.qp.step_s)
+        self.dob = DisturbanceObserver(
+            mpc_params.dob, tau_room_min=mpc_params.plant.tau_room_min
+        )
         self.kalman = KalmanObserver(
             self.plant_fine,
             mpc_params.kalman,
-            disturbance_bound_K_per_min=mpc_params.dob.max_abs_K_per_min,
+            disturbance_bound_K_per_min=self.dob.bound_K_per_min,
         )
         self.report_band = ReportBand()
         # The Smith predictor replays the command history, which holds one
         # entry per MPC re-plan — its time base is the QP step, so it runs
         # on the coarse plant, not the fine observer plant.
         self.smith = SmithPredictor(self.plant_coarse)
-        self.dob = DisturbanceObserver(mpc_params.dob)
         self.optimiser = QpOptimiser(self.plant_coarse, mpc_params.qp)
         self.governor = ScalarReferenceGovernor(self.plant_coarse, mpc_params.governor)
 
@@ -284,6 +286,7 @@ class MpcV2Controller:
         self._next_mpc_t_s: float | None = None
         self._last_mpc_t_s: float | None = None
         self._initialised: bool = False
+        self._paused: bool = False
 
     @property
     def initialised(self) -> bool:
@@ -371,7 +374,15 @@ class MpcV2Controller:
         # (typically five-minute) Home Assistant updates.
         # An interval beyond ``max_reading_interval_s`` spans a pause of the
         # controller; what the room did then is no load it carries now.
-        learn = not learning_paused and dt_s <= self.params.dob.max_reading_interval_s
+        learn = (
+            not learning_paused
+            and not self._paused
+            and dt_s <= self.params.dob.max_reading_interval_s
+        )
+        self.kalman.disturbance_bound_K_per_min = self.dob.track_settling(
+            t_s, T_room, T_target, paused=not learn
+        )
+        self._paused = False
         band_K = self._report_band_for(T_room, learn, room_reading_from_trvs)
         x_hat = self.kalman.update(
             T_room,
@@ -383,7 +394,9 @@ class MpcV2Controller:
             learn_disturbance=learn,
         )
         if not learning_paused:
-            self.dob.follow(self.kalman.disturbance_K_per_min, dt_s)
+            # An interval that learns nothing leaves the planning reading
+            # where it stood, as one that spans a pause of the controller.
+            self.dob.follow(self.kalman.disturbance_K_per_min, dt_s if learn else 0.0)
 
         # The governor runs behind the observer and judges which setpoints are
         # reachable on this cycle's fast estimate. The QP plans with the slow
@@ -432,6 +445,20 @@ class MpcV2Controller:
         self._next_mpc_t_s = t_s + self.params.qp.step_s
 
         return u, self._diagnostics()
+
+    @property
+    def paused(self) -> bool:
+        """Return whether the next cycle follows a skipped one."""
+        return self._paused
+
+    def mark_paused(self) -> None:
+        """Note that the controller skipped a cycle (window open, heating off).
+
+        The next cycle's interval then spans the pause, in which the room
+        followed an input the controller did not command; the observer tracks
+        the room across it but learns no disturbance from it.
+        """
+        self._paused = True
 
     def _report_band_for(
         self, T_room: float, learn: bool, from_trvs: bool
@@ -515,6 +542,7 @@ class MpcV2Controller:
                 "its default uncertainty and re-learns"
             )
         self.dob.restore(snap.D_hat_K_per_min, snap.planning_disturbance)
+        self.kalman.disturbance_bound_K_per_min = self.dob.bound_K_per_min
         self.kalman.restore_disturbance(self.dob.D_hat_K_per_min)
         self.report_band.restore(snap.last_room_reading, snap.room_report_steps)
         self.optimiser.e_integral_K_min = snap.e_integral_K_min

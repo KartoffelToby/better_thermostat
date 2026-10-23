@@ -159,3 +159,123 @@ def test_restore_bounds_both_readings(
     dob.restore(estimate, planning)
 
     assert (dob.D_hat_K_per_min, dob.planning_filtered) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("tau_room_min", "expected"),
+    [
+        pytest.param(60.0, 0.4, id="tau60"),
+        pytest.param(180.0, 24.0 / 180.0, id="tau180"),
+        pytest.param(480.0, 0.05, id="tau480"),
+        pytest.param(720.0, 0.05, id="tau720"),
+        pytest.param(0.0, 0.05, id="tau0"),
+    ],
+)
+def test_bound_covers_the_loss_equivalent_model_error_on_a_fast_prior(
+    tau_room_min: float, expected: float
+) -> None:
+    """A fast prior gets the rate that covers ``max_abs_loss_K``.
+
+    A slow prior keeps ``max_abs_K_per_min``, and so does a time constant
+    that is not positive.
+    """
+    params = DobParams(max_abs_K_per_min=0.05, max_abs_loss_K=24.0)
+
+    assert params.bound_K_per_min(tau_room_min) == pytest.approx(expected)
+
+
+def _settle(
+    dob: DisturbanceObserver,
+    hours: float,
+    *,
+    start_s: float = 0.0,
+    room: float | None = None,
+    room_drift_K_per_h: float = 0.0,
+    setpoint: float = 21.0,
+) -> float:
+    """Feed five-minute cycles for ``hours`` and return the time reached."""
+    t_s = start_s
+    for _ in range(round(hours * 12)):
+        reading = (21.0 if room is None else room) + room_drift_K_per_h * t_s / 3600.0
+        dob.track_settling(t_s, reading, setpoint, paused=False)
+        t_s += 300.0
+    return t_s
+
+
+def test_a_fresh_observer_clips_at_the_rate_bound_on_a_fast_prior() -> None:
+    """The bound starts narrow, whatever the ceiling the prior allows."""
+    dob = DisturbanceObserver(DobParams(), tau_room_min=60.0)
+
+    assert dob.ceiling_K_per_min == pytest.approx(0.4)
+    assert dob.follow(-5.0, dt_s=300.0) == pytest.approx(-0.05)
+
+
+def test_the_bound_widens_at_its_growth_rate_once_the_room_has_settled() -> None:
+    """After ``settle_s`` of a settled room the bound grows, up to the ceiling.
+
+    6 K of loss-equivalent temperature per hour is 0.1 K/min per hour on a
+    60 min prior.
+    """
+    params = DobParams(settle_s=3600.0, bound_growth_K_per_h=6.0)
+    dob = DisturbanceObserver(params, tau_room_min=60.0)
+
+    t_s = _settle(dob, 1.0)
+    assert dob.bound_K_per_min == pytest.approx(0.05)
+    t_s = _settle(dob, 1.0, start_s=t_s)
+    assert dob.bound_K_per_min == pytest.approx(0.05 + 0.1, abs=0.01)
+    _settle(dob, 6.0, start_s=t_s)
+    assert dob.bound_K_per_min == pytest.approx(0.4)
+
+
+def test_a_moving_room_keeps_the_bound() -> None:
+    """A room drifting faster than ``settle_slope_K_per_h`` is no settled room."""
+    dob = DisturbanceObserver(DobParams(), tau_room_min=60.0)
+
+    _settle(dob, 6.0, room_drift_K_per_h=1.0)
+
+    assert dob.bound_K_per_min == pytest.approx(0.05)
+
+
+def test_a_slow_prior_or_none_never_widens() -> None:
+    """At the default τ_room, or without one, the bound stays at the rate bound."""
+    for dob in (
+        DisturbanceObserver(DobParams(), tau_room_min=480.0),
+        DisturbanceObserver(DobParams()),
+    ):
+        _settle(dob, 12.0)
+        assert dob.bound_K_per_min == pytest.approx(0.05)
+
+
+@pytest.mark.parametrize("event", ["setpoint", "pause"])
+def test_a_setpoint_change_or_pause_narrows_to_what_the_estimates_use(
+    event: str,
+) -> None:
+    """The learned load stays, the headroom above it goes."""
+    dob = DisturbanceObserver(DobParams(), tau_room_min=60.0)
+    t_s = _settle(dob, 8.0)
+    assert dob.bound_K_per_min == pytest.approx(0.4)
+    for _ in range(40):
+        dob.follow(-0.12, dt_s=300.0)
+
+    if event == "setpoint":
+        dob.track_settling(t_s, 21.0, 22.0, paused=False)
+    else:
+        dob.track_settling(t_s, 21.0, 21.0, paused=True)
+
+    assert dob.bound_K_per_min == pytest.approx(
+        max(abs(dob.D_hat_K_per_min), abs(dob.planning_filtered))
+    )
+    assert dob.bound_K_per_min == pytest.approx(0.12, abs=0.01)
+    assert dob.D_hat_K_per_min == pytest.approx(-0.12)
+
+
+def test_restore_reopens_the_bound_as_far_as_the_stored_estimates_need() -> None:
+    """Stored estimates keep their size up to the ceiling."""
+    dob = DisturbanceObserver(DobParams(), tau_room_min=60.0)
+    dob.restore(-0.1, -0.08)
+    assert dob.bound_K_per_min == pytest.approx(0.1)
+    assert dob.D_hat_K_per_min == pytest.approx(-0.1)
+
+    dob.restore(0.5, 0.5)
+    assert dob.bound_K_per_min == pytest.approx(0.4)
+    assert dob.planning_filtered == pytest.approx(0.4)
