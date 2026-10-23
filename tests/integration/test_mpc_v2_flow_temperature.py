@@ -15,6 +15,9 @@ from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+    coupling_for_flow_temperature,
+)
 from custom_components.better_thermostat.utils.const import (
     CONF_MPC_V2_FLOW_TEMPERATURE,
     CONF_TEMPERATURE_SENSOR,
@@ -202,8 +205,18 @@ async def test_the_controller_models_the_stored_flow_temperature(
     live = await _live_controllers(hass, bt, target)
 
     assert {
-        key: state.controller.plant_coarse.params.T_water for key, state in live.items()
-    } == {key: pytest.approx(modelled) for key in live}
+        key: (
+            state.controller.plant_coarse.params.T_water,
+            state.controller.plant_coarse.params.coupling_rad_room,
+        )
+        for key, state in live.items()
+    } == {
+        key: (
+            pytest.approx(modelled),
+            pytest.approx(coupling_for_flow_temperature(modelled)),
+        )
+        for key in live
+    }
 
 
 @pytest.mark.parametrize("fake_trv", [MPC_V2_VALVE_TRV], indirect=True)
@@ -235,6 +248,9 @@ async def test_a_changed_flow_temperature_reaches_the_controller_with_its_state(
     after = await _live_controllers(hass, reloaded, 24.0)
     for key, state in after.items():
         assert state.controller.plant_coarse.params.T_water == 38.0
+        assert state.controller.plant_coarse.params.coupling_rad_room == (
+            coupling_for_flow_temperature(38.0)
+        )
         assert state.controller is not before[key].controller
         assert state.created_ts == before[key].created_ts
         history = list(state.controller._u_history)

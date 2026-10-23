@@ -12,9 +12,10 @@ held-out segment. Only a fit that predicts the held-out transient
 measurably better than the current prior is offered for adoption;
 everything else leaves the prior untouched.
 
-``tau_rad_min`` and ``coupling_rad_room`` stay at their defaults: with a
+``tau_rad_min`` and ``coupling_rad_room`` stay as the prior has them: with a
 room-temperature output they are weakly identifiable, and across realistic
 building profiles a fixed value is more robust than per-room derivation.
+The prior's coupling follows the configured flow temperature.
 
 Everything here is pure CPU work with no HA dependencies. The caller runs
 :func:`run_reid_fit` in an executor and applies an accepted result through

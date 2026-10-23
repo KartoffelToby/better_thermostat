@@ -9,7 +9,9 @@ The plant prior is built the way production builds it for a room on the AUTO
 preset before any heat-loss learning or offline re-identification exists:
 ``make_plant_prior()`` with no inputs. With ``configure_flow_temperature`` the
 prior carries the flow temperature an installer enters for the room, the
-context's ``nominal_flow_temperature``; without it the prior keeps the default.
+context's ``nominal_flow_temperature``, and the coupling of a radiator sized
+for it, as production builds the prior; without it the prior keeps the
+default.
 
 This is benchmark-only code: never imported by production.
 """
@@ -26,6 +28,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Params,
     MpcV2State,
     compute_mpc_v2,
+    coupling_for_flow_temperature,
     export_mpc_v2_state,
     import_mpc_v2_state,
     make_plant_prior,
@@ -98,6 +101,9 @@ class MpcV2Adapter(ControlCycleGate):
             and ctx.nominal_flow_temperature is not None
         ):
             self._params.plant.T_water = ctx.nominal_flow_temperature
+            self._params.plant.coupling_rad_room = coupling_for_flow_temperature(
+                ctx.nominal_flow_temperature
+            )
         inp = MpcV2Input(
             key=self._key,
             target_temperature=ctx.target_temperature,

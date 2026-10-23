@@ -40,6 +40,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     ReidOutcome,
     ReidSample,
     compute_mpc_v2,
+    coupling_for_flow_temperature,
     make_plant_prior,
     run_reid_fit,
 )
@@ -910,6 +911,7 @@ def _compute_mpc_v2_balance(
         plant_prior = PlantParams(
             tau_room_min=reid_result.tau_room_minutes,
             gain_heater=reid_result.gain_heater,
+            coupling_rad_room=coupling_for_flow_temperature(flow_temperature),
             T_water=flow_temperature,
         )
     else:
@@ -919,6 +921,7 @@ def _compute_mpc_v2_balance(
                 heat_loss_rate=self.heat_loss_rate,
                 preset=preset,
             ),
+            coupling_rad_room=coupling_for_flow_temperature(flow_temperature),
             T_water=flow_temperature,
         )
     v2_params = MpcV2Params(plant=plant_prior)

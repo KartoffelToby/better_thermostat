@@ -24,6 +24,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     ReidConfig,
     ReidSample,
     compute_mpc_v2,
+    coupling_for_flow_temperature,
     export_mpc_v2_state,
     import_mpc_v2_state,
 )
@@ -919,6 +920,9 @@ def test_the_controller_models_the_configured_flow_temperature(
     controller = _live_controller(bt)
     assert controller.plant_coarse.params.T_water == pytest.approx(flow_temperature)
     assert controller.plant_fine.params.T_water == pytest.approx(flow_temperature)
+    assert controller.plant_coarse.params.coupling_rad_room == pytest.approx(
+        coupling_for_flow_temperature(flow_temperature)
+    )
 
 
 def test_a_thermostat_without_a_flow_temperature_models_the_default() -> None:
@@ -942,7 +946,9 @@ def test_every_plant_preset_models_the_configured_flow_temperature(
 
     _compute_mpc_v2_balance(bt, "climate.x")
 
-    assert _live_controller(bt).plant_coarse.params.T_water == 38.0
+    plant = _live_controller(bt).plant_coarse.params
+    assert plant.T_water == 38.0
+    assert plant.coupling_rad_room == coupling_for_flow_temperature(38.0)
 
 
 def test_an_accepted_fit_records_the_flow_temperature_it_was_fitted_under(
@@ -1014,6 +1020,7 @@ def test_a_fit_seeds_the_prior_only_under_its_own_flow_temperature(
     assert out is not None
     plant = _live_controller(bt).plant_coarse.params
     assert plant.T_water == configured
+    assert plant.coupling_rad_room == coupling_for_flow_temperature(configured)
     assert (plant.tau_room_min == _REID.tau_room_minutes) is applies
     assert (plant.gain_heater == _REID.gain_heater) is applies
     debug = bt.real_trvs["climate.x"].calibration_balance["debug"]

@@ -16,7 +16,13 @@ from ..mpc_v2_internals.plant import PlantParams
 from .compute import compute_mpc_v2
 from .controller import SNAPSHOT_VERSION, ControllerSnapshot, MpcV2Controller
 from .io import MpcV2Diagnostics, MpcV2Input, MpcV2Output
-from .params import PLANT_PRESETS, MpcV2Params, MpcV2PlantPreset, make_plant_prior
+from .params import (
+    PLANT_PRESETS,
+    MpcV2Params,
+    MpcV2PlantPreset,
+    coupling_for_flow_temperature,
+    make_plant_prior,
+)
 from .reid import ReidBuffer, ReidConfig, ReidFit, ReidOutcome, ReidSample, run_reid_fit
 from .state import MpcV2State, export_mpc_v2_state, import_mpc_v2_state
 
@@ -36,6 +42,7 @@ __all__ = [
     "ReidOutcome",
     "ReidSample",
     "compute_mpc_v2",
+    "coupling_for_flow_temperature",
     "export_mpc_v2_state",
     "import_mpc_v2_state",
     "make_plant_prior",
