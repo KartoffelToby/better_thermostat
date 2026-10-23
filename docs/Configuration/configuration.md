@@ -38,7 +38,7 @@ defaults.
 
 **The cooling device (optional)** This is an optional field. A climate entity used for cooling, such as an air conditioner. BT controls it alongside the TRVs; the tolerance section below describes how the cooling band works.
 
-**Temperature sensor** This is a required field. This is the temperature sensor you want to use to control the real climate entity. It's used to get a more accurate temperature reading than the sensor in the real climate entity because you can place it in the middle of the room and not close to the radiator.
+**Room temperature sensor** This is a required field. This is the temperature sensor you want to use to control the real climate entity. It's used to get a more accurate temperature reading than the sensor in the real climate entity because you can place it in the middle of the room and not close to the radiator.
 
 **Humidity sensor** This is an optional field. For now, the humidity is only used to display it in the UI. In the future, it will be used to make a better calculation of the temperature or set it up to a *feels-like* temperature.
 
