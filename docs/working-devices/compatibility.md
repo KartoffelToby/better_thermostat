@@ -31,6 +31,26 @@ Direct valve control requires both:
 
 Devices that expose a controllable valve position work best with the advanced control modes (MPC/PID), because BT can set the valve opening directly. Select the **Direct Valve Based** calibration type to use it.
 
+### Shelly BLU TRV (direct valve control)
+
+Use Home Assistant's native Shelly integration with a compatible BLU gateway. The BLU TRV's own automatic temperature control must be disabled in Shelly's settings. Home Assistant then exposes its writable **Valve position** `number` instead of the read-only position sensor. Wait for the number to become available before configuring Better Thermostat. It must belong to the same TRV device as the `climate` entity; a gateway can serve several TRVs.
+
+In Better Thermostat, select the physical TRV and the room temperature sensor, then set the **Calibration type** to **Direct Valve Based** and the **Calibration mode** to **AI Time Based**, **MPC**, **MPC v2**, **PID** or **TPI**. The calibration modes External Sensor Offset Only (stored as Normal), Aggressive and No Calibration do not produce a valve opening and are rejected for this combination in both setup and options. A stored configuration with an incompatible or unknown calibration mode raises a Repairs issue; BT requests 0% and blocks opening that valve, including Boost, until its options are corrected. The entry stays loaded to retry closure if the device is temporarily unreachable. BT does not replace the saved calibration mode automatically.
+
+During regulation, the valve percentage is the only actuator: Better Thermostat does not send a setpoint, HVAC mode or calibration offset to the BLU TRV. A device that still reports a target temperature follows the same rule. Change the room's target and mode on Better Thermostat; setpoint or mode reports from the physical TRV do not change them. Temperature and availability reports are still read. Periodic reconciliation checks the valve position, leaving differences in thermostat settings alone. An OFF or open-contact decision closes the valve rather than switching the device's thermostat off. Standard startup tweaks and the common valve-maintenance routine are unchanged.
+
+This policy is specific to an adopted BLU TRV valve. The Shelly TRV Gen1 also exposes a valve number, but its thermostat keeps running; that number does not enable this direct-control path. Ordinary target-temperature and offset control retain their existing behaviour.
+
+#### Switching back to Shelly's temperature control
+
+First set Better Thermostat to OFF and wait until the valve reports 0%. Stop any other automation that writes the valve. Re-enable automatic temperature control in Shelly, wait for Home Assistant to update the device's entities, then set the **Calibration type** in Better Thermostat to **Target Temperature Based** (or stop using Better Thermostat for that device). For direct control again, disable Shelly's automatic control, wait for the writable number, and set the calibration type to Direct Valve Based with a supported calibration mode. Do not switch Shelly modes while Better Thermostat is actively controlling the valve.
+
+#### Unavailable devices and outages
+
+An unavailable valve number does not cause Better Thermostat to fall back to setpoint or HVAC commands. The normal write budget and retry handling apply; there is no extra sleep inside the control lock for BLU TRVs. Restore the gateway connection or reload the Shelly integration after a firmware update if its entities do not recover. If an entity was disabled, re-enable it; if the device's mode changed, restore the intended mode and reconfigure BT.
+
+Direct control depends on Home Assistant, the gateway and the Bluetooth link. If these stop working, Better Thermostat cannot send commands and the last valve position may remain in effect. If neither the room sensor nor any TRV temperature is usable and BT enters HOLD, it requests a fixed emergency opening of 25% for a valve-only device because its thermostat cannot take over. This preserves limited heating without retaining a potentially fully open valve, and Boost does not override it. Normal regulation resumes after the sensor-recovery stability period. The command uses the normal write and retry path and requires a reachable device. OFF, open windows or doors, and an invalid stored calibration mode still request closure; the invalid configuration also raises a repair issue. A fixed opening cannot guarantee frost protection or provide a local automatic shutoff or boiler timeout. Any zone-relay timeout or independent temperature limit belongs outside Better Thermostat.
+
 ## Devices that are known to work
 
 Better Thermostat includes specific fixes and optimizations for the following devices to ensure they work correctly:

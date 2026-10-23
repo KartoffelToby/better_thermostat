@@ -31,6 +31,18 @@ quality steps down a ladder, one rung at a time:
    and the TRVs keep their last commanded state. Frost protection stays
    enforced on every write.
 
+For a device using its valve as the only actuator, such as a Shelly BLU
+TRV under Direct Valve Based control, HOLD requests a fixed emergency
+opening of 25% because its own thermostat cannot take over. This
+preserves limited heating without retaining a potentially fully open
+valve. Boost does not override this opening. OFF and open windows or
+doors still close the valve, as does an invalid stored calibration mode,
+which raises a separate repair issue. BT uses the normal write and retry
+path and resumes regulation after the sensor-recovery stability period.
+The device must remain reachable for the command to succeed. A fixed
+opening cannot guarantee frost protection and does not provide a local
+fallback during a Home Assistant or network outage.
+
 TRVs that regulate on a room temperature Better Thermostat writes into
 them, such as the Sonoff TRVZB, stop receiving it while the room sensor
 gives no reading. Better Thermostat does not keep sending the sensor's last

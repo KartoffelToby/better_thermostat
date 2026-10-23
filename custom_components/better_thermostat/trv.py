@@ -32,7 +32,10 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
-from custom_components.better_thermostat.utils.helpers import device_offers_mode
+from custom_components.better_thermostat.utils.helpers import (
+    configured_calibration_output,
+    device_offers_mode,
+)
 
 if TYPE_CHECKING:
     from custom_components.better_thermostat.adapters.delegate import (
@@ -473,4 +476,22 @@ class Trv:
             supports_offset_write=offset_write,
             supports_valve_write=valve_write or quirk_valve,
             supports_off_mode=not no_off,
+        )
+
+    @property
+    def uses_valve_only_control(self) -> bool:
+        """Whether this device's configured actuator is solely its adopted valve.
+
+        A temporarily unavailable valve keeps its identity and this policy;
+        an outage must not switch the device back to thermostat commands.
+        Adapters decide which devices' valve entities they adopt.
+        """
+        declared = self.adapter.CAPABILITIES if self.adapter is not None else None
+        return bool(
+            declared is not None
+            and declared.valve_only
+            and self.valve_position_entity
+            and self.valve_position_writable
+            and configured_calibration_output(self.advanced)
+            == CalibrationOutput.DIRECT_VALVE_BASED
         )

@@ -150,6 +150,7 @@ class DeviceProfile:
     offset_translation_key: str = "local_temperature_calibration"
     mode_write_setpoint: float | None = None
     setpoint_ceiling: float | None = None
+    valve_unique_id: str | None = None
 
 
 def published_unit(profile: DeviceProfile) -> UnitOfTemperature:
@@ -448,6 +449,20 @@ what makes it discoverable and writable; direct valve control is the one
 calibration strategy that puts a percentage on the wire at all.
 """
 
+SHELLY_BLU_VALVE_TRV = DeviceProfile(
+    name="shelly_blu_valve_trv",
+    integration="shelly",
+    calibration="direct_valve_based",
+    calibration_mode="heating_power_calibration",
+    has_device_registry_entry=True,
+    model="Shelly BLU TRV",
+    hvac_modes=(HVACMode.HEAT,),
+    target_temperature=None,
+    valve_channel=ValveChannel.NUMBER_ENTITY,
+    valve_unique_id="aabbccddeeff-blutrv:200-valve_position",
+)
+"""A BLU TRV whose own thermostat is disabled, exposing its valve number."""
+
 ZHA_VALVE_QUIRK_TRV = DeviceProfile(
     name="zha_valve_quirk_trv",
     integration="zha",
@@ -695,6 +710,7 @@ SINGLE_ROLE_PROFILES = (
     ZWAVE_CAPPED_TRV,
     TADO_OFFSET_TRV,
     VALVE_TRV,
+    SHELLY_BLU_VALVE_TRV,
     RANGE_ONLY_HEAT_TRV,
 )
 """Every profile a test can drive as the single controlled device."""
@@ -706,6 +722,7 @@ GROUP_SCENARIOS = (GROUP_OF_THREE, MIXED_GRID_GROUP, VALVE_GROUP)
 """Every group of heads a test can drive as one room."""
 
 SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario | GroupScenario] = {
+    "a BLU TRV controlled only through its valve number": SHELLY_BLU_VALVE_TRV,
     "a head that offers no heating mode at all": AUTO_COOL_AC,
     "a head whose calibration is a number entity on its device": MQTT_OFFSET_TRV,
     "one entity wired as thermostat and as cooler": DUAL_ROLE,

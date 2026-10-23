@@ -1,8 +1,8 @@
 """Tests for the Shelly adapter.
 
-The adapter offers a valve channel only through the valve number a Shelly
-BLU TRV publishes while its own thermostat is switched off, and leaves out
-the setpoint such a TRV has no place for.
+The adapter offers a valve channel through the valve number a Shelly BLU TRV
+publishes while its own thermostat is switched off. Its thermostat settings
+remain independent of Better Thermostat's valve controller.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -54,7 +54,9 @@ def _thermostat(calibration=None, head_attributes=None):
     }
     bt.hass.states.get = states.get
     advanced: TrvAdvanced = {} if calibration is None else {"calibration": calibration}
-    bt.real_trvs = {ENTITY_ID: trv_record(entity_id=ENTITY_ID, advanced=advanced)}
+    bt.real_trvs = {
+        ENTITY_ID: trv_record(entity_id=ENTITY_ID, advanced=advanced, adapter=shelly)
+    }
     return bt
 
 
@@ -118,34 +120,33 @@ class TestValveCapability:
 
 
 class TestSetpoint:
-    """A setpoint goes out unless the TRV runs on its valve without one."""
+    """Direct valve control leaves thermostat settings independent."""
 
     @pytest.mark.asyncio
-    async def test_no_setpoint_while_the_valve_runs_without_a_target(self):
-        """Direct valve control on a TRV that reports no target skips the write."""
-        bt = _thermostat(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+    @pytest.mark.parametrize("head_attributes", [{}, {"temperature": 20.0}])
+    async def test_no_setpoint_while_bt_controls_only_the_valve(self, head_attributes):
+        """A cached device target must not enable a competing thermostat write."""
+        bt = _thermostat(
+            calibration=CalibrationOutput.DIRECT_VALVE_BASED,
+            head_attributes=head_attributes,
+        )
         with _registry_patch(_registry()):
             await shelly.init(bt, ENTITY_ID)
 
         await shelly.set_temperature(bt, ENTITY_ID, 21.0)
 
-        bt.hass.services.async_call.assert_not_awaited()
+        bt.hass.services.async_call.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("calibration", "head_attributes", "valve_entity"),
         [
-            (CalibrationOutput.DIRECT_VALVE_BASED, {"temperature": 20.0}, VALVE_ENTITY),
             (CalibrationOutput.TARGET_TEMP_BASED, {}, VALVE_ENTITY),
+            (CalibrationOutput.LOCAL_BASED, {}, VALVE_ENTITY),
             (CalibrationOutput.DIRECT_VALVE_BASED, {}, None),
             (CalibrationOutput.DIRECT_VALVE_BASED, {}, "sensor.blu_trv_valve_position"),
         ],
-        ids=[
-            "target-reported",
-            "not-direct-valve",
-            "no-valve-channel",
-            "read-only-valve",
-        ],
+        ids=["target-based", "offset-based", "no-valve-channel", "read-only-valve"],
     )
     async def test_the_setpoint_goes_out_otherwise(
         self, calibration, head_attributes, valve_entity
@@ -162,6 +163,26 @@ class TestSetpoint:
         domain, service, data = bt.hass.services.async_call.await_args.args[:3]
         assert (domain, service) == ("climate", "set_temperature")
         assert data["entity_id"] == ENTITY_ID
+
+    @pytest.mark.asyncio
+    async def test_valve_control_leaves_the_device_thermostat_untouched(self):
+        """The valve actuator must not re-enable or recalibrate its thermostat."""
+        bt = _thermostat(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        with _registry_patch(_registry()):
+            await shelly.init(bt, ENTITY_ID)
+        await shelly.set_hvac_mode(bt, ENTITY_ID, "heat")
+        assert await shelly.set_calibration_offset(bt, ENTITY_ID, 2.0) is False
+        bt.hass.services.async_call.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_gen1_keeps_its_thermostat_commands(self):
+        """A Gen1 valve number must not select the BLU thermostat policy."""
+        bt = _thermostat(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        with _registry_patch(_registry(GEN1_VALVE_UID)):
+            await shelly.init(bt, ENTITY_ID)
+        await shelly.set_hvac_mode(bt, ENTITY_ID, "heat")
+        bt.hass.services.async_call.assert_awaited_once()
+        assert bt.real_trvs[ENTITY_ID].uses_valve_only_control is False
 
 
 class TestValveWrite:

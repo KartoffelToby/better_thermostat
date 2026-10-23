@@ -387,6 +387,8 @@ class SimulatedValveNumber(_SimulatedNumber):
     def __init__(self, profile: DeviceProfile):
         """Start the device out with a closed valve."""
         super().__init__(profile, "valve_position")
+        if profile.valve_unique_id is not None:
+            self._attr_unique_id = profile.valve_unique_id
         self._attr_native_value = 0.0
 
 

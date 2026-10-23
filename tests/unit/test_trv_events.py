@@ -19,6 +19,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.async_ import create_eager_task
 import pytest
 
+from custom_components.better_thermostat.adapters import shelly
 from custom_components.better_thermostat.calibration import effective_room_temperature
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -180,6 +181,36 @@ def _make_event(bt, new_state=None, old_state=None, entity_id=ENTITY_ID):
     }
     event.context = MagicMock()  # differs from bt.context
     return event
+
+
+@pytest.mark.parametrize("request_cycle", [True, False])
+@pytest.mark.parametrize("devices_released", [True, False])
+async def test_valve_only_temperature_report_preserves_room_settings(
+    mock_bt, request_cycle, devices_released
+):
+    """Device temperature keeps BLU regulation current without adopting its settings."""
+    trv = mock_bt.real_trvs[ENTITY_ID]
+    trv.adapter = shelly
+    trv.valve_position_entity = "number.test_trv_valve"
+    trv.valve_position_writable = True
+    trv.advanced["calibration"] = CalibrationOutput.DIRECT_VALVE_BASED
+    mock_bt.devices_released = devices_released
+    state = _make_state("off", {"current_temperature": 20.5, "temperature": 15.0})
+    mock_bt.hass.states.get.return_value = state
+    with patch(
+        "custom_components.better_thermostat.events.trv.request_control_cycle"
+    ) as schedule:
+        await trigger_trv_change(
+            mock_bt, _make_event(mock_bt, new_state=state), request_cycle=request_cycle
+        )
+    assert trv.current_temperature == 20.5
+    assert trv.hvac_mode == HVACMode.OFF
+    assert mock_bt.heat_target_temperature == 19.0
+    assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+    if request_cycle and not devices_released:
+        schedule.assert_called_once_with(mock_bt)
+    else:
+        schedule.assert_not_called()
 
 
 def _add_homematicip_peer(bt):
@@ -3492,8 +3523,9 @@ class TestConvertOutboundStates:
         assert result["temperature"] == 5.0
         assert result["system_mode"] is None
 
-    def test_no_off_system_mode_flag(self, mock_bt):
+    def test_no_off_system_mode_flag(self, mock_bt, caplog):
         """no_off_system_mode + OFF → min_temp, system_mode=None."""
+        caplog.set_level(logging.DEBUG)
         mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
 
@@ -3512,6 +3544,7 @@ class TestConvertOutboundStates:
         assert result is not None
         assert result["temperature"] == 5.0
         assert result["system_mode"] is None
+        assert "sending 5.0°C to the TRV" in caplog.text
 
     def test_off_mode_not_in_hvac_modes(self, mock_bt):
         """OFF not in hvac_modes → min_temp, system_mode=None."""
