@@ -47,6 +47,14 @@ class BenchmarkContext:
     # adds one for the modes that register it.
     control_event: bool = True
     control_tick: bool = True
+    # The heating water reaching the radiator, as a flow sensor reports it,
+    # and the value an installer configures for it; ``None`` where the
+    # caller does not model the heat source.
+    flow_temperature: float | None = None
+    nominal_flow_temperature: float | None = None
+    # ``False`` while the heat source delivers no heat, as while a heat
+    # pump heats hot water.
+    heat_delivered: bool = True
 
 
 @dataclass(frozen=True)
