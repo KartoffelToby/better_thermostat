@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Final
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 
+from ..model_fixes.model_quirks import offset_from_device
 from ..utils.const import CalibrationOutput
 from ..utils.helpers import (
     celsius_to_system_temperature,
@@ -532,7 +533,9 @@ async def set_calibration_offset(
                 context=self.context,
             )
 
-        self.real_trvs[entity_id].last_calibration = calibration_offset
+        self.real_trvs[entity_id].last_calibration = offset_from_device(
+            self, entity_id, calibration_offset
+        )
         last_hvac_mode = self.real_trvs[entity_id].last_hvac_mode
         if last_hvac_mode is not None and last_hvac_mode != "off":
             # Some heads drop out of their mode when their offset is written,

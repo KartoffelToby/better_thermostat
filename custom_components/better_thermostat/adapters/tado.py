@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Final
 
+from ..model_fixes.model_quirks import offset_from_device
 from ..utils.helpers import state_is_live
 from .base import AdapterCapabilities, DeviceChannels
 from .generic import set_hvac_mode, set_temperature
@@ -121,7 +122,9 @@ async def set_calibration_offset(
         blocking=True,
         context=self.context,
     )
-    self.real_trvs[entity_id].last_calibration = calibration_offset
+    self.real_trvs[entity_id].last_calibration = offset_from_device(
+        self, entity_id, calibration_offset
+    )
     return True
 
 
