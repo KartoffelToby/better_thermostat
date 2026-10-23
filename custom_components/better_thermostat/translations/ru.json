@@ -8,7 +8,7 @@
           "name": "Имя",
           "thermostat": "Физический термостат",
           "cooler": "Устройство охлаждения (необязательно)",
-          "temperature_sensor": "Датчик температуры",
+          "temperature_sensor": "Датчик температуры в помещении",
           "humidity_sensor": "Датчик влажности",
           "window_sensors": "Датчики окон",
           "door_sensors": "Датчики дверей",
@@ -110,7 +110,7 @@
         "data": {
           "name": "Имя",
           "thermostat": "Физический термостат",
-          "temperature_sensor": "Датчик температуры",
+          "temperature_sensor": "Датчик температуры в помещении",
           "humidity_sensor": "Датчик влажности",
           "window_sensors": "Датчики окон",
           "door_sensors": "Датчики дверей",
