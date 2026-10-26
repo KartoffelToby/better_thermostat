@@ -71,7 +71,6 @@ def test_multi_trv_plant_follows_the_heat_source() -> None:
         gain_heaters=[1.0, 1.0],
         coupling_rad_room=[0.5, 0.5],
         T_water=65.0,
-        trv_sensor_offsets_K=[0.0, 0.0],
     )
 
     def _run(**step_kwargs: Any) -> MultiTrvPlantState:

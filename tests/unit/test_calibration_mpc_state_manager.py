@@ -145,13 +145,12 @@ def test_mpc_failed_compute_on_a_healthy_state_leaves_the_store_alone() -> None:
     assert state_mgr.mpc[build_mpc_key(bt, "climate.trv")] is healthy
 
 
-def test_mpc_balance_clamps_a_boosted_trv_to_its_own_max_opening() -> None:
-    """A cold TRV's distributed share stops at its own ``valve_max_opening``.
+def test_mpc_balance_clamps_a_trv_to_its_own_max_opening() -> None:
+    """A TRV's share of the group command stops at its own ``valve_max_opening``.
 
-    The controller only sees the warmest TRV's cap, so the distribution can
-    hand a colder TRV a share above its own limit. Without direct valve
-    control that share becomes a setpoint or offset, so no later write path
-    clamps it.
+    The controller only sees the warmest TRV's cap, so the group command can
+    lie above another TRV's limit. Without direct valve control that share
+    becomes a setpoint or offset, so no later write path clamps it.
     """
     state_mgr = _MpcStateStub()
     bt = _make_bt(state_mgr)
@@ -182,3 +181,35 @@ def test_mpc_balance_clamps_a_boosted_trv_to_its_own_max_opening() -> None:
     assert balance["debug"]["group_valve_pct"] > 40.0
     assert balance["valve_percent"] == 40
     assert payload.valve_percent == 40
+
+
+def test_mpc_balance_holds_a_group_only_to_its_widest_cap() -> None:
+    """A TRV capped low does not cap the TRVs of its group that are not.
+
+    The capped TRV is the warmest, so a controller held to the warmest TRV's
+    cap would hold every TRV of the group to it.
+    """
+    state_mgr = _MpcStateStub()
+    bt = _make_bt(state_mgr)
+    bt.heat_target_temperature = 25.0
+    bt.room_temperature = 15.0
+    bt.real_trvs["climate.trv"] = trv_record(
+        entity_id="climate.trv",
+        advanced={},
+        current_temperature=15.0,
+        min_temp=5.0,
+        max_temp=30.0,
+    )
+    bt.real_trvs["climate.trv2"] = trv_record(
+        entity_id="climate.trv2",
+        advanced={},
+        current_temperature=22.0,
+        min_temp=5.0,
+        max_temp=30.0,
+        valve_max_opening=40.0,
+    )
+
+    payload, _ = _compute_mpc_balance(bt, "climate.trv")
+
+    assert payload is not None
+    assert payload.valve_percent > 40
