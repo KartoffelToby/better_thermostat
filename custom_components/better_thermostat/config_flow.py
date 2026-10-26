@@ -20,7 +20,7 @@ from homeassistant.components.climate.const import (
     HVACMode,
 )
 from homeassistant.const import CONF_NAME
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.helpers.dispatcher import dispatcher_send
 import voluptuous as vol
@@ -43,6 +43,7 @@ from .utils.const import (
     CONF_MPC_V2_PLANT_PRESET,
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_OFF_TEMPERATURE,
+    CONF_ON_OFF_CONTROL,
     CONF_OUTDOOR_SENSOR,
     CONF_PRESETS,
     CONF_PROTECT_OVERHEATING,
@@ -391,6 +392,9 @@ def _build_advanced_fields(
         )
     ] = bool
     ordered[
+        vol.Optional(CONF_ON_OFF_CONTROL, default=get_bool(CONF_ON_OFF_CONTROL, False))
+    ] = bool
+    ordered[
         vol.Optional(
             CONF_HEAT_AUTO_SWAPPED, default=get_bool(CONF_HEAT_AUTO_SWAPPED, False)
         )
@@ -424,6 +428,9 @@ def _normalize_advanced_submission(
     normalized[CONF_NO_SYSTEM_MODE_OFF] = _as_bool(
         normalized.get(CONF_NO_SYSTEM_MODE_OFF), False
     )
+    normalized[CONF_ON_OFF_CONTROL] = _as_bool(
+        normalized.get(CONF_ON_OFF_CONTROL), False
+    )
     normalized[CONF_HEAT_AUTO_SWAPPED] = _as_bool(
         normalized.get(CONF_HEAT_AUTO_SWAPPED), False
     )
@@ -454,6 +461,25 @@ def _duration_dict_to_seconds(duration: int | float | dict[str, int] | None) -> 
     return 0
 
 
+def _on_off_control_errors(
+    hass: HomeAssistant, entity_id: str, advanced: Mapping[str, Any]
+) -> dict[str, str]:
+    """Require a real OFF command for optional binary heater control."""
+    if not advanced.get(CONF_ON_OFF_CONTROL, False):
+        return {}
+    if advanced.get(CONF_NO_SYSTEM_MODE_OFF, False):
+        return {CONF_ON_OFF_CONTROL: "on_off_control_conflict"}
+    if advanced.get(CONF_VALVE_MAINTENANCE, False):
+        # Valve exercises deliberately send temperature extremes; a binary
+        # actuator must never be scheduled for that independent write path.
+        return {CONF_ON_OFF_CONTROL: "on_off_control_valve_maintenance"}
+    state = hass.states.get(entity_id)
+    modes = state.attributes.get("hvac_modes", []) if state is not None else []
+    if not device_offers_mode(modes or [], HVACMode.OFF):
+        return {CONF_ON_OFF_CONTROL: "on_off_control_requires_off"}
+    return {}
+
+
 def _seconds_to_duration_dict(value: int | float | str | None) -> dict[str, int]:
     try:
         total = int(value or 0)
@@ -463,6 +489,28 @@ def _seconds_to_duration_dict(value: int | float | str | None) -> dict[str, int]
     hours, remainder = divmod(total, 3600)
     minutes, seconds = divmod(remainder, 60)
     return {"hours": int(hours), "minutes": int(minutes), "seconds": int(seconds)}
+
+
+def _show_on_off_control_error(flow, ctx, advanced, errors):
+    """Keep the advanced form open without saving incompatible options."""
+    info = ctx.get("info", {})
+    fields = _build_advanced_fields(
+        sources=(advanced,),
+        default_calibration=ctx["default_calibration"],
+        homematic=ctx["homematic"],
+        has_auto=ctx["has_auto"],
+        support_valve=info.get("support_valve", False),
+        support_offset=info.get("support_offset", False),
+    )
+    return flow.async_show_form(
+        step_id="advanced",
+        data_schema=vol.Schema(fields),
+        errors=errors,
+        description_placeholders={
+            "trv": ctx.get("trv_id") or "-",
+            "docs_url": CONFIG_WALKTHROUGH_URL,
+        },
+    )
 
 
 def _build_user_fields(
@@ -974,6 +1022,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 homematic=ctx["homematic"],
                 has_auto=ctx["has_auto"],
             )
+            errors = _on_off_control_errors(self.hass, ctx["trv_id"], advanced_data)
+            if errors:
+                return _show_on_off_control_error(self, ctx, advanced_data, errors)
             _LOGGER.debug(
                 "ConfigFlow advanced step storing data for %s (index %s): %s",
                 trv_cfg.get("trv"),
@@ -1140,6 +1191,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 homematic=ctx["homematic"],
                 has_auto=ctx["has_auto"],
             )
+            errors = _on_off_control_errors(self.hass, ctx["trv_id"], advanced_data)
+            if errors:
+                return _show_on_off_control_error(self, ctx, advanced_data, errors)
             _LOGGER.debug(
                 "OptionsFlow advanced step storing data for %s (index %s): %s",
                 trv_cfg.get("trv"),

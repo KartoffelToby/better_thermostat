@@ -33,6 +33,7 @@
       "advanced": {
         "description": "Προηγμένη ρύθμιση {trv}\n\n**Λεπτομερείς πληροφορίες:** {docs_url}",
         "data": {
+          "on_off_control": "On/off heater control",
           "protect_overheating": "Προστασία από υπερθέρμανση;",
           "heat_auto_swapped": "Αν το αυτόματο σημαίνει θέρμανση για το TRV σας και θέλετε να το ανταλλάξετε",
           "child_lock": "Αγνοήστε όλες τις εισόδους στο TRV όπως λειτουργία κλειδώματος παιδιών",
@@ -43,6 +44,7 @@
           "no_off_system_mode": "Εάν το TRV σας δεν μπορεί να διαχειριστεί τη λειτουργία απενεργοποίησης, μπορείτε να ενεργοποιήσετε αυτήν την επιλογή για να χρησιμοποιήσετε ως θερμοκρασία στόχο 5°C"
         },
         "data_description": {
+          "on_off_control": "Use the room sensor and tolerance to switch the heater between heating and OFF. No target temperature, offset or valve position is sent to the device. Requires a real OFF mode and is incompatible with the no-off-mode option. Calibration settings are ignored in this mode.",
           "protect_overheating": "Μερικά TRVs δεν κλείνουν πλήρως τη βαλβίδα όταν επιτυγχάνεται η επιθυμητή θερμοκρασία. Ή ο θερμοσίφωνας διαθέτει πολλή υπολειμματική θερμότητα. Αυτό μπορεί να προκαλέσει υπερθέρμανση. Αυτή η επιλογή μπορεί να το αποτρέψει.",
           "calibration_mode": "Ο τρόπος υπολογισμού της βαθμονόμησης\n***Κανονική***: Σε αυτή τη λειτουργία, ο εσωτερικός αισθητήρας θερμοκρασίας του TRV καθορίζεται από τον εξωτερικό αισθητήρα θερμοκρασίας.\n***Επιθετική***: Σε αυτή τη λειτουργία, ο εσωτερικός αισθητήρας θερμοκρασίας του TRV καθορίζεται από τον εξωτερικό αισθητήρα θερμοκρασίας αλλά ρυθμίζεται πολύ χαμηλότερα/υψηλότερα για ταχύτερη ενίσχυση.\n***Βασισμένη στον Χρόνο με AI***: Σε αυτή τη λειτουργία, ο εσωτερικός αισθητήρας θερμοκρασίας του TRV καθορίζεται από τον εξωτερικό αισθητήρα θερμοκρασίας, αλλά μια προσαρμοσμένη αλγοριθμική μέθοδος υπολογίζει την τιμή για τη βελτίωση του εσωτερικού αλγορίθμου του TRV.",
           "calibration": "Πώς πρέπει να εφαρμοστεί η βαθμονόμηση στο TRV (Θερμοκρασία στόχος ή μετατόπιση)\n***Βασισμένη στη Θερμοκρασία Στόχο***: Εφαρμόστε τη βαθμονόμηση στη θερμοκρασία στόχο.\n***Βασισμένη στη Μετατόπιση***: Εφαρμόστε τη βαθμονόμηση στη μετατόπιση."
@@ -54,6 +56,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Disable the no-off-mode option before enabling on/off control.",
+      "on_off_control_valve_maintenance": "Disable valve maintenance before enabling on/off control; binary heaters have no valve to exercise.",
+      "on_off_control_requires_off": "On/off control requires a device that advertises an OFF mode. Make sure the device is available.",
       "failed": "Κάτι πήγε στραβά.",
       "no_name": "Παρακαλώ εισάγετε ένα όνομα.",
       "no_heater": "Παρακαλώ επιλέξτε τουλάχιστον ένα πραγματικό θερμοστάτη.",
@@ -103,6 +108,7 @@
       "advanced": {
         "description": "Προηγμένη ρύθμιση {trv}\n\n**Λεπτομερείς πληροφορίες:** {docs_url}",
         "data": {
+          "on_off_control": "On/off heater control",
           "protect_overheating": "Προστασία από υπερθέρμανση;",
           "heat_auto_swapped": "Αν το αυτόματο σημαίνει θέρμανση για το TRV σας και θέλετε να το ανταλλάξετε",
           "child_lock": "Αγνοήστε όλες τις εισόδους στο TRV όπως λειτουργία κλειδώματος παιδιών",
@@ -113,6 +119,7 @@
           "no_off_system_mode": "Εάν το TRV σας δεν μπορεί να διαχειριστεί τη λειτουργία απενεργοποίησης, μπορείτε να ενεργοποιήσετε αυτήν την επιλογή για να χρησιμοποιήσετε ως θερμοκρασία στόχο 5°C"
         },
         "data_description": {
+          "on_off_control": "Use the room sensor and tolerance to switch the heater between heating and OFF. No target temperature, offset or valve position is sent to the device. Requires a real OFF mode and is incompatible with the no-off-mode option. Calibration settings are ignored in this mode.",
           "protect_overheating": "Μερικά TRVs δεν κλείνουν πλήρως τη βαλβίδα όταν επιτυγχάνεται η επιθυμητή θερμοκρασία. Ή ο θερμοσίφωνας διαθέτει πολλή υπολειμματική θερμότητα. Αυτό μπορεί να προκαλέσει υπερθέρμανση. Αυτή η επιλογή μπορεί να το αποτρέψει.",
           "calibration_mode": "Ο τρόπος υπολογισμού της βαθμονόμησης\n***Κανονική***: Σε αυτή τη λειτουργία, ο εσωτερικός αισθητήρας θερμοκρασίας του TRV καθορίζεται από τον εξωτερικό αισθητήρα θερμοκρασίας.\n***Επιθετική***: Σε αυτή τη λειτουργία, ο εσωτερικός αισθητήρας θερμοκρασίας του TRV καθορίζεται από τον εξωτερικό αισθητήρα θερμοκρασίας αλλά ρυθμίζεται πολύ χαμηλότερα/υψηλότερα για ταχύτερη ενίσχυση.\n***Βασισμένη στον Χρόνο με AI***: Σε αυτή τη λειτουργία, ο εσωτερικός αισθητήρας θερμοκρασίας του TRV καθορίζεται από τον εξωτερικό αισθητήρα θερμοκρασίας, αλλά μια προσαρμοσμένη αλγοριθμική μέθοδος υπολογίζει την τιμή για τη βελτίωση του εσωτερικού αλγορίθμου του TRV.",
           "calibration": "Πώς πρέπει να εφαρμοστεί η βαθμονόμηση στο TRV (Θερμοκρασία στόχος ή μετατόπιση)\n***Βασισμένη στη Θερμοκρασία Στόχο***: Εφαρμόστε τη βαθμονόμηση στη θερμοκρασία στόχο.\n***Βασισμένη στη Μετατόπιση***: Εφαρμόστε τη βαθμονόμηση στη μετατόπιση."
@@ -120,6 +127,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Disable the no-off-mode option before enabling on/off control.",
+      "on_off_control_valve_maintenance": "Disable valve maintenance before enabling on/off control; binary heaters have no valve to exercise.",
+      "on_off_control_requires_off": "On/off control requires a device that advertises an OFF mode. Make sure the device is available.",
       "failed": "Κάτι πήγε στραβά.",
       "no_name": "Παρακαλώ εισάγετε ένα όνομα.",
       "no_heater": "Παρακαλώ επιλέξτε τουλάχιστον ένα πραγματικό θερμοστάτη.",

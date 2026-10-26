@@ -33,6 +33,7 @@
       "advanced": {
         "description": "Einstellungen für {trv}\n\n**Detaillierte Infos:** {docs_url}",
         "data": {
+          "on_off_control": "On/off heater control",
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
           "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
@@ -43,6 +44,7 @@
           "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
         },
         "data_description": {
+          "on_off_control": "Use the room sensor and tolerance to switch the heater between heating and OFF. No target temperature, offset or valve position is sent to the device. Requires a real OFF mode and is incompatible with the no-off-mode option. Calibration settings are ignored in this mode.",
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso, falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
           "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggressive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.\n\n***MPC Predictive (Beta)***: Nutzt den MPC-Prädiktivregler, um eine Ventilöffnung vorherzusagen und wandelt sie bei fehlender Ventilsteuerung in Temperatur- oder Offset-Anpassungen um.\n\n***PID Controller***: Verwendet einen PID-Regler, um die Ventilposition dynamisch basierend auf Temperaturfehler, proportionalem Anteil, integraler Akkumulation und derivativem Vorhersage anzupassen.\n\n***TPI Controller***: Verwendet einen Zeit-Proportional-Integral-Regler für stabile und präzise Temperatursteuerung über die Zeit.",
           "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
@@ -54,6 +56,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Disable the no-off-mode option before enabling on/off control.",
+      "on_off_control_valve_maintenance": "Disable valve maintenance before enabling on/off control; binary heaters have no valve to exercise.",
+      "on_off_control_requires_off": "On/off control requires a device that advertises an OFF mode. Make sure the device is available.",
       "failed": "Ups, hier stimmt was nicht!",
       "no_name": "Du musst einen Namen vergeben.",
       "no_heater": "Bitte wähle mindestens ein echtes Thermostat aus.",
@@ -103,6 +108,7 @@
       "advanced": {
         "description": "Aktualisiere die Einstellungen für {trv}\n\n**Detaillierte Infos:** {docs_url}",
         "data": {
+          "on_off_control": "On/off heater control",
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
           "child_lock": "Ignoriere alle manuellen Einstellungen am realen Thermostat (Kindersicherung).",
@@ -113,6 +119,7 @@
           "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
         },
         "data_description": {
+          "on_off_control": "Use the room sensor and tolerance to switch the heater between heating and OFF. No target temperature, offset or valve position is sent to the device. Requires a real OFF mode and is incompatible with the no-off-mode option. Calibration settings are ignored in this mode.",
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
           "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggressive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.\n\n***MPC Predictive (Beta)***: Nutzt den MPC-Prädiktivregler, um eine Ventilöffnung vorherzusagen und wandelt sie bei fehlender Ventilsteuerung in Temperatur- oder Offset-Anpassungen um.\n\n***PID Controller***: Verwendet einen PID-Regler, um die Ventilposition dynamisch basierend auf Temperaturfehler, proportionalem Anteil, integraler Akkumulation und derivativem Vorhersage anzupassen.\n\n***TPI Controller***: Verwendet einen Zeit-Proportional-Integral-Regler für stabile und präzise Temperatursteuerung über die Zeit.",
           "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
@@ -120,6 +127,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Disable the no-off-mode option before enabling on/off control.",
+      "on_off_control_valve_maintenance": "Disable valve maintenance before enabling on/off control; binary heaters have no valve to exercise.",
+      "on_off_control_requires_off": "On/off control requires a device that advertises an OFF mode. Make sure the device is available.",
       "failed": "Ups, hier stimmt was nicht!",
       "no_name": "Du musst einen Namen vergeben.",
       "no_heater": "Bitte wähle mindestens ein echtes Thermostat aus.",

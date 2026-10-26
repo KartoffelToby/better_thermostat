@@ -33,6 +33,7 @@
       "advanced": {
         "description": "Configuration avancée {trv}\n\n**Infos détaillées :** {docs_url}",
         "data": {
+          "on_off_control": "Pilotage marche/arrêt du chauffage",
           "protect_overheating": "Protection contre la surchauffe ?",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
@@ -43,6 +44,7 @@
           "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place"
         },
         "data_description": {
+          "on_off_control": "Utiliser la sonde ambiante et la tolérance pour commander le chauffage en marche/arrêt. Aucune consigne, calibration ou position de vanne n'est envoyée à l'appareil. Nécessite un véritable mode arrêt et est incompatible avec l'option sans mode arrêt. Les réglages de calibrage sont ignorés dans ce mode.",
           "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
           "calibration_mode": "Le type de calcul du calibrage\n***Normal*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe.\n***Aggressif*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe mais réglé beaucoup plus bas/haut pour obtenir un boost plus rapide.\n***AI Time Based*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe, mais la valeur est calculée par un algorithme personnalisé pour améliorer l'algorithme interne du TRV.\n***MPC Predictive (Beta)*** : Utilise le contrôleur prédictif MPC pour dériver une ouverture de vanne et la convertir en décalages ou points de consigne lorsque le contrôle direct de la vanne n'est pas disponible.\n***PID Controller*** : Utilise un contrôleur PID pour ajuster dynamiquement la position de la vanne en fonction de l'erreur de température, du terme proportionnel, de l'accumulation intégrale et de la prédiction dérivée.\n***TPI Controller*** : Utilise un contrôleur Proportionnel Intégral Temporel pour un contrôle de température stable et précis dans le temps.",
           "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage."
@@ -54,6 +56,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Désactivez l'option sans mode arrêt avant d'activer le pilotage marche/arrêt.",
+      "on_off_control_valve_maintenance": "Désactivez la maintenance de vanne avant d'activer le pilotage marche/arrêt : ces appareils n'ont pas de vanne à entretenir.",
+      "on_off_control_requires_off": "Le pilotage marche/arrêt nécessite un appareil qui expose un mode arrêt. Vérifiez que l'appareil est disponible.",
       "failed": "quelque chose s'est mal passé.",
       "no_name": "Veuillez entrer un nom.",
       "no_heater": "Veuillez sélectionner au moins un vrai thermostat.",
@@ -103,6 +108,7 @@
       "advanced": {
         "description": "Configuration avancée {trv}\n\n**Infos détaillées :** {docs_url}",
         "data": {
+          "on_off_control": "Pilotage marche/arrêt du chauffage",
           "protect_overheating": "Protection contre la surchauffe ?",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
@@ -113,6 +119,7 @@
           "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place"
         },
         "data_description": {
+          "on_off_control": "Utiliser la sonde ambiante et la tolérance pour commander le chauffage en marche/arrêt. Aucune consigne, calibration ou position de vanne n'est envoyée à l'appareil. Nécessite un véritable mode arrêt et est incompatible avec l'option sans mode arrêt. Les réglages de calibrage sont ignorés dans ce mode.",
           "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
           "calibration_mode": "Le type de calcul du calibrage\n***Normal*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe.\n***Aggressif*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe mais réglé beaucoup plus bas/haut pour obtenir un boost plus rapide.\n***AI Time Based*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe, mais la valeur est calculée par un algorithme personnalisé pour améliorer l'algorithme interne du TRV.\n***MPC Predictive (Beta)*** : Utilise le contrôleur prédictif MPC pour dériver une ouverture de vanne et la convertir en décalages ou points de consigne lorsque le contrôle direct de la vanne n'est pas disponible.\n***PID Controller*** : Utilise un contrôleur PID pour ajuster dynamiquement la position de la vanne en fonction de l'erreur de température, du terme proportionnel, de l'accumulation intégrale et de la prédiction dérivée.\n***TPI Controller*** : Utilise un contrôleur Proportionnel Intégral Temporel pour un contrôle de température stable et précis dans le temps.",
           "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage."
@@ -120,6 +127,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Désactivez l'option sans mode arrêt avant d'activer le pilotage marche/arrêt.",
+      "on_off_control_valve_maintenance": "Désactivez la maintenance de vanne avant d'activer le pilotage marche/arrêt : ces appareils n'ont pas de vanne à entretenir.",
+      "on_off_control_requires_off": "Le pilotage marche/arrêt nécessite un appareil qui expose un mode arrêt. Vérifiez que l'appareil est disponible.",
       "failed": "quelque chose s'est mal passé.",
       "no_name": "Veuillez entrer un nom.",
       "no_heater": "Veuillez sélectionner au moins un vrai thermostat.",

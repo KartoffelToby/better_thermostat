@@ -25,6 +25,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
+    CONF_ON_OFF_CONTROL,
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationType,
@@ -878,18 +879,26 @@ async def control_trv(self, heater_entity_id=None):
             _calibration_type = self.real_trvs[heater_entity_id].advanced.get(
                 "calibration", CalibrationType.TARGET_TEMP_BASED
             )
+            _on_off_control = self.real_trvs[heater_entity_id].advanced.get(
+                CONF_ON_OFF_CONTROL, False
+            )
             # Pair the forced 100 % valve with a max-temp setpoint so the TRV
             # firmware does not fight the valve command.
             if (
                 _is_boost_heating_active(self)
+                and not _on_off_control
                 and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
             ):
                 _temperature = self.real_trvs[heater_entity_id].max_temp
 
             # Optional: set valve position if supported (e.g., MQTT/Z2M)
             try:
-                valve_settings, _source = _get_valve_control(
-                    self, heater_entity_id, _calibration_mode, _calibration_type
+                valve_settings, _source = (
+                    (None, None)
+                    if _on_off_control
+                    else _get_valve_control(
+                        self, heater_entity_id, _calibration_mode, _calibration_type
+                    )
                 )
                 if valve_settings is not None:
                     target_pct = int(round(valve_settings.get("valve_percent", 0)))
@@ -930,6 +939,7 @@ async def control_trv(self, heater_entity_id=None):
             # TARGET_TEMP_BASED control via offset / setpoint instead.
             if (
                 _is_boost_heating_active(self)
+                and not _on_off_control
                 and _new_hvac_mode == HVACMode.OFF
                 and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
             ):

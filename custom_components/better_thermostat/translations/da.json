@@ -33,6 +33,7 @@
       "advanced": {
         "description": "Avanceret konfiguration {trv}\n\n**Detaljerede oplysninger:** {docs_url}",
         "data": {
+          "on_off_control": "On/off heater control",
           "protect_overheating": "Overophedningsbeskyttelse?",
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
@@ -43,6 +44,7 @@
           "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet"
         },
         "data_description": {
+          "on_off_control": "Use the room sensor and tolerance to switch the heater between heating and OFF. No target temperature, offset or valve position is sent to the device. Requires a real OFF mode and is incompatible with the no-off-mode option. Calibration settings are ignored in this mode.",
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
           "calibration_mode": "Hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fastgjort af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
           "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
@@ -54,6 +56,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Disable the no-off-mode option before enabling on/off control.",
+      "on_off_control_valve_maintenance": "Disable valve maintenance before enabling on/off control; binary heaters have no valve to exercise.",
+      "on_off_control_requires_off": "On/off control requires a device that advertises an OFF mode. Make sure the device is available.",
       "failed": "Noget gik galt.",
       "no_name": "Indtast venligst et navn.",
       "no_heater": "Vælg venligst mindst én rigtig termostat.",
@@ -103,6 +108,7 @@
       "advanced": {
         "description": "Avanceret konfiguration {trv}\n\n**Detaljerede oplysninger:** {docs_url}",
         "data": {
+          "on_off_control": "On/off heater control",
           "protect_overheating": "Overophedningsbeskyttelse?",
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
@@ -113,6 +119,7 @@
           "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet"
         },
         "data_description": {
+          "on_off_control": "Use the room sensor and tolerance to switch the heater between heating and OFF. No target temperature, offset or valve position is sent to the device. Requires a real OFF mode and is incompatible with the no-off-mode option. Calibration settings are ignored in this mode.",
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
           "calibration_mode": "Hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
           "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
@@ -120,6 +127,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Disable the no-off-mode option before enabling on/off control.",
+      "on_off_control_valve_maintenance": "Disable valve maintenance before enabling on/off control; binary heaters have no valve to exercise.",
+      "on_off_control_requires_off": "On/off control requires a device that advertises an OFF mode. Make sure the device is available.",
       "failed": "Noget gik galt.",
       "no_name": "Indtast venligst et navn.",
       "no_heater": "Vælg venligst mindst én rigtig termostat.",
