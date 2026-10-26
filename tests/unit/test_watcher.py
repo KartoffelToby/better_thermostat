@@ -2358,3 +2358,58 @@ class TestBatteryStatusCalls:
 
                 # Should not be called for unavailable TRVs
                 read_battery.assert_not_called()
+
+
+class TestRoomSensorReading:
+    """The room temperature read from the room sensor's state, in Celsius.
+
+    A sensor that names its unit is read in that unit; one that names none
+    reports in the Home Assistant system unit, like every other entity.
+    """
+
+    @pytest.mark.parametrize(
+        ("system_unit", "attributes", "value", "expected"),
+        [
+            pytest.param("°F", {}, "68", 20.0, id="unitless-on-fahrenheit"),
+            pytest.param("°C", {}, "20", 20.0, id="unitless-on-celsius"),
+            pytest.param(
+                "°F",
+                {"unit_of_measurement": "°C"},
+                "20",
+                20.0,
+                id="celsius-sensor-on-fahrenheit",
+            ),
+            pytest.param(
+                "°C",
+                {"unit_of_measurement": "°F"},
+                "68",
+                20.0,
+                id="fahrenheit-sensor-on-celsius",
+            ),
+        ],
+    )
+    def test_the_reading_is_in_celsius(
+        self, mock_bt_instance, system_unit, attributes, value, expected
+    ):
+        """Each reading lands on the same Celsius value whatever unit carries it."""
+        from custom_components.better_thermostat.utils.watcher import (
+            room_sensor_reading,
+        )
+
+        mock_bt_instance.hass.config.units.temperature_unit = system_unit
+        state = State("sensor.room_temp", value, attributes)
+
+        assert room_sensor_reading(mock_bt_instance, state) == pytest.approx(expected)
+
+    def test_a_unitless_fahrenheit_reading_is_not_taken_for_celsius(
+        self, mock_bt_instance
+    ):
+        """50 °F is 10 °C, not the 50 °C the plausibility range would let pass."""
+        from custom_components.better_thermostat.utils.watcher import (
+            room_sensor_reading,
+        )
+
+        mock_bt_instance.hass.config.units.temperature_unit = "°F"
+        state = State("sensor.room_temp", "50")
+
+        assert room_sensor_reading(mock_bt_instance, state) == pytest.approx(10.0)

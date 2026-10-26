@@ -32,6 +32,7 @@ from custom_components.better_thermostat.utils.helpers import (
     entry_issue_id,
     is_reasonable_temperature,
     state_is_live,
+    state_temperature_unit,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.watcher import room_sensor_reading
@@ -372,7 +373,9 @@ async def trigger_temperature_change(
         new_state.state,
         self.device_name,
         "external_temperature",
-        unit_of_measurement=new_state.attributes.get("unit_of_measurement"),
+        unit_of_measurement=state_temperature_unit(
+            new_state.attributes, self.hass.config.units.temperature_unit
+        ),
     )
     # Quantize to 2 decimals to avoid floating-point artifacts
     _incoming_temperature_q = (

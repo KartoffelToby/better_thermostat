@@ -44,6 +44,7 @@ from custom_components.better_thermostat.utils.helpers import (
     device_released,
     entry_issue_id,
     is_reasonable_temperature,
+    state_temperature_unit,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
@@ -145,7 +146,8 @@ def room_sensor_reading(self: BetterThermostat, state: State | None) -> float | 
 
     An available sensor whose state is no number, or a number outside the
     plausible range, carries no room temperature any more than a missing
-    one does: the room cannot be controlled on it.
+    one does: the room cannot be controlled on it. A state that names no
+    unit is read in the Home Assistant system unit.
 
     Parameters
     ----------
@@ -166,7 +168,9 @@ def room_sensor_reading(self: BetterThermostat, state: State | None) -> float | 
         state.state,
         self.device_name,
         "room_sensor_reading()",
-        unit_of_measurement=state.attributes.get("unit_of_measurement"),
+        unit_of_measurement=state_temperature_unit(
+            state.attributes, self.hass.config.units.temperature_unit
+        ),
     )
     if not is_reasonable_temperature(value):
         return None
