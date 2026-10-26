@@ -294,7 +294,8 @@ def _adopt_reported_range(
     in the modes it has no range of its own for. A range read in any of those
     would let setpoints through that the device refuses once it heats, so
     only a report whose mode decodes to heat replaces it. A bound the report
-    does not publish keeps its value.
+    does not publish keeps its value. The bounds are also kept as published,
+    as the TRV's heating range the room's own range is derived from.
 
     Returns
     -------
@@ -309,6 +310,7 @@ def _adopt_reported_range(
     _min_temp = read_bound_celsius(
         self, state, "min_temp", lower=True, context="trigger_trv_change()"
     )
+    trv.heating_range = (_min_temp, _max_temp)
     _ceiling = trv.max_temp if _max_temp is None else _max_temp
     _floor = (
         trv.min_temp
@@ -474,9 +476,12 @@ async def trigger_trv_change(
         return
     # The device's range is read before the report is told apart from BT's
     # own writes: the report that follows BT switching the device on is the
-    # one that carries the range it heats in. A changed range asks for a
-    # cycle of its own, which rewrites a setpoint the old range let through.
+    # one that carries the range it heats in. A changed range bounds the
+    # room's heating range anew and asks for a cycle of its own, which
+    # rewrites a setpoint the old range let through.
     _range_changed = _adopt_reported_range(self, entity_id, trv, _org_trv_state)
+    if _range_changed:
+        self._refresh_heating_range()
     if event.context == self.context and _reports_only_own_writes(
         self, trv, entity_id, old_state, new_state
     ):

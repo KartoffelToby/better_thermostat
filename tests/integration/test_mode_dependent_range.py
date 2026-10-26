@@ -30,7 +30,14 @@ from .conftest import (
     wait_for,
     wait_for_startup,
 )
-from .device_profiles import GENERIC_HEAT_TRV, TRV_ID
+from .device_profiles import (
+    COOLER_ID,
+    GENERIC_HEAT_TRV,
+    ROOM_AC_COOLER,
+    TRV_ID,
+    GroupScenario,
+    RoleScenario,
+)
 
 OFF_RANGE = (7.0, 35.0)
 """The range Home Assistant publishes for a HomeKit thermostat that is off."""
@@ -229,3 +236,138 @@ async def test_a_report_that_only_narrows_the_range_brings_the_setpoint_into_it(
         timeout_seconds=PROMPT_WRITE_SECONDS,
     )
     assert (trv.min_temp, trv.max_temp) == HEAT_RANGE
+
+
+@pytest.mark.parametrize("fake_trv", [HOMEKIT_TRV], indirect=True)
+async def test_the_rooms_heating_range_follows_the_range_the_trv_heats_in(
+    hass, fake_trv
+):
+    """The room's range and target are bounded by the TRV's heating range."""
+    bt = await _start(hass, fake_trv)
+    assert (bt.bt_min_temp, bt.bt_max_temp) == OFF_RANGE
+
+    await _heat_at(hass, 30.0)
+
+    assert await wait_for(hass, lambda: (bt.bt_min_temp, bt.bt_max_temp) == HEAT_RANGE)
+    assert bt.heat_target_temperature == HEAT_RANGE[1]
+
+
+def _homekit_head(letter: str):
+    return replace(
+        HOMEKIT_TRV,
+        name=f"homekit_trv_{letter}",
+        entity_id=f"climate.homekit_trv_{letter}",
+        entity_name=f"homekit trv {letter}",
+    )
+
+
+WIDER_TOP = 28.0
+"""A top above the heating range and below the off default."""
+
+HOMEKIT_PAIR = GroupScenario(
+    name="homekit_pair", profiles=(_homekit_head("a"), _homekit_head("b"))
+)
+"""Two HomeKit-style heads in one room, both off at startup."""
+
+
+@pytest.mark.parametrize("trv_group", [HOMEKIT_PAIR], indirect=True)
+async def test_a_head_switched_off_keeps_its_heating_range_in_the_rooms(
+    hass, trv_group
+):
+    """A head that is off counts with the range it heats in, not the off default.
+
+    The other head widens its range, so both of the off head's bounds are
+    the ones that bound the room.
+    """
+    head_a, head_b = trv_group.entities
+    for head in (head_a, head_b):
+        _publish_range_by_mode(head)
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(trv_group.scenario)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await _heat_at(hass, 21.0)
+    assert await wait_for(hass, lambda: (bt.bt_min_temp, bt.bt_max_temp) == HEAT_RANGE)
+
+    _report_from_the_device(head_a, HVACMode.OFF, *OFF_RANGE)
+    await hass.async_block_till_done()
+    _report_from_the_device(head_b, HVACMode.HEAT, HEAT_RANGE[0], WIDER_TOP)
+
+    trv_b = bt.real_trvs[head_b.entity_id]
+    assert await wait_for(hass, lambda: trv_b.max_temp == WIDER_TOP)
+    assert (bt.bt_min_temp, bt.bt_max_temp) == HEAT_RANGE
+
+
+HOMEKIT_ROOM_WITH_COOLER = RoleScenario(
+    name="homekit_room_with_cooler",
+    trv=HOMEKIT_TRV,
+    cooler=ROOM_AC_COOLER,
+    cooler_entity_id=COOLER_ID,
+)
+"""A HomeKit-style head and a separate cooler that is off."""
+
+COOLER_RANGE = (ROOM_AC_COOLER.min_temp, ROOM_AC_COOLER.max_temp)
+
+
+@pytest.mark.parametrize("device_role", [HOMEKIT_ROOM_WITH_COOLER], indirect=True)
+async def test_a_trvs_heating_range_leaves_the_coolers_range_alone(hass, device_role):
+    """The heating range is bounded anew without reading the cooler again.
+
+    The cooler publishes another range while it is off, as an integration
+    may; the range it was read with stays the cooling channel's.
+    """
+    _publish_range_by_mode(device_role.thermostat)
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(device_role.scenario)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    assert (bt.cool_min_temperature, bt.cool_max_temperature) == COOLER_RANGE
+
+    _report_from_the_device(device_role.cooler, HVACMode.OFF, *OFF_RANGE)
+    await hass.async_block_till_done()
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_HVAC_MODE,
+        {ATTR_ENTITY_ID: BT_ENTITY, "hvac_mode": HVACMode.HEAT_COOL},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    assert await wait_for(hass, lambda: (bt.bt_min_temp, bt.bt_max_temp) == HEAT_RANGE)
+    assert (bt.cool_min_temperature, bt.cool_max_temperature) == COOLER_RANGE
+
+
+HOMEKIT_PAIR_HEATING = GroupScenario(
+    name="homekit_pair_heating",
+    profiles=tuple(
+        replace(
+            head,
+            hvac_mode=HVACMode.HEAT,
+            min_temp=HEAT_RANGE[0],
+            max_temp=HEAT_RANGE[1],
+        )
+        for head in HOMEKIT_PAIR.profiles
+    ),
+)
+"""The same two heads, both heating at startup."""
+
+
+@pytest.mark.parametrize("trv_group", [HOMEKIT_PAIR_HEATING], indirect=True)
+async def test_a_head_heating_at_startup_keeps_that_range_in_the_rooms(hass, trv_group):
+    """The range a head heats in at startup bounds the room once it is off."""
+    head_a, head_b = trv_group.entities
+    for head in (head_a, head_b):
+        _publish_range_by_mode(head)
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(trv_group.scenario)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    assert (bt.bt_min_temp, bt.bt_max_temp) == HEAT_RANGE
+
+    _report_from_the_device(head_a, HVACMode.OFF, *OFF_RANGE)
+    await hass.async_block_till_done()
+    _report_from_the_device(head_b, HVACMode.HEAT, HEAT_RANGE[0], WIDER_TOP)
+
+    trv_b = bt.real_trvs[head_b.entity_id]
+    assert await wait_for(hass, lambda: trv_b.max_temp == WIDER_TOP)
+    assert (bt.bt_min_temp, bt.bt_max_temp) == HEAT_RANGE
