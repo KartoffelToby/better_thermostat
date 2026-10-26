@@ -5167,3 +5167,89 @@ class TestReleasedTrv:
 
         assert mock_bt.heat_target_temperature == 19.0
         mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+
+class TestReportedRange:
+    """The range a TRV publishes while it heats becomes the range it is driven in."""
+
+    OFF_RANGE = {"min_temp": 7.0, "max_temp": 35.0}
+    HEAT_RANGE = {"min_temp": 5.0, "max_temp": 25.0}
+
+    @staticmethod
+    def _report(state_str, bounds, **attributes):
+        return _make_state(state_str, attributes={**bounds, **attributes})
+
+    @pytest.mark.asyncio
+    async def test_a_heating_report_that_drops_auto_is_decoded_against_its_own_modes(
+        self, mock_bt
+    ):
+        """A swapped device reporting HEAT_COOL without AUTO heats in that range."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["heat_auto_swapped"] = True
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.AUTO, HVACMode.HEAT_COOL]
+        trv.min_temp, trv.max_temp = 7.0, 35.0
+        report = self._report(
+            HVACMode.HEAT_COOL,
+            self.HEAT_RANGE,
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT_COOL],
+        )
+        mock_bt.hass.states.get.return_value = report
+        event = _make_event(mock_bt, new_state=report, old_state=_make_state())
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert (trv.min_temp, trv.max_temp) == (5.0, 25.0)
+
+    @pytest.mark.asyncio
+    async def test_a_queued_heating_report_is_decoded_against_its_own_modes(
+        self, mock_bt
+    ):
+        """A registry that offers AUTO again does not hide the event's heat range."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["heat_auto_swapped"] = True
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT_COOL]
+        trv.min_temp, trv.max_temp = 7.0, 35.0
+        registry_modes = [HVACMode.OFF, HVACMode.AUTO, HVACMode.HEAT_COOL]
+        heating = self._report(
+            HVACMode.HEAT_COOL,
+            self.HEAT_RANGE,
+            hvac_modes=[HVACMode.OFF, HVACMode.HEAT_COOL],
+        )
+        mock_bt.hass.states.get.return_value = self._report(
+            HVACMode.OFF, self.OFF_RANGE, hvac_modes=registry_modes
+        )
+        event = _make_event(mock_bt, new_state=heating, old_state=_make_state())
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.OFF,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert (trv.min_temp, trv.max_temp) == (5.0, 25.0)
+        assert trv.hvac_modes == registry_modes
+
+    @pytest.mark.asyncio
+    async def test_a_heating_report_is_read_although_the_registry_moved_on_to_off(
+        self, mock_bt
+    ):
+        """The event's heating report carries the range, not the later off report."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.min_temp, trv.max_temp = 7.0, 35.0
+        heating = self._report(HVACMode.HEAT, self.HEAT_RANGE)
+        mock_bt.hass.states.get.return_value = self._report(
+            HVACMode.OFF, self.OFF_RANGE
+        )
+        event = _make_event(mock_bt, new_state=heating, old_state=_make_state())
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.OFF,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert (trv.min_temp, trv.max_temp) == (5.0, 25.0)
