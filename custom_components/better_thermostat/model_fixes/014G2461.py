@@ -106,6 +106,11 @@ _ROOM_SENSOR_REFRESH_SECONDS: Final = 0
 # resolution a written value carries.
 _HELD_VALUE_TOLERANCE_KELVIN: Final = 0.05
 
+# Seconds a write is given before the value the device reports counts as its
+# answer to it. Zigbee2MQTT publishes the new value within a second or two;
+# until then the state still shows the value from before the write.
+_WRITE_ECHO_GRACE_SECONDS: Final = 60
+
 
 def _counts_in_hundredths(attributes: Mapping[str, object]) -> bool:
     """Answer whether the input counts in hundredths of a degree Celsius.
@@ -258,16 +263,21 @@ def _write_is_due(
     Returns
     -------
     bool
-        True when nothing was written yet, the device holds a different
-        value from the one written, the temperature moved by at least
-        0.1 °C, or ``refresh_seconds`` has passed since the last write.
+        True when nothing was written yet, the device still holds a
+        different value from the one written once the write has had time to
+        land, the temperature moved by at least 0.1 °C, or
+        ``refresh_seconds`` has passed since the last write.
     """
     written_celsius = scratchpad.get("_danfoss_external_sensor_celsius")
     written_at = scratchpad.get("_danfoss_external_sensor_written_at")
     if written_celsius is None or written_at is None:
         return True
-    if held_celsius is not None and not math.isclose(
-        held_celsius, written_celsius, abs_tol=_HELD_VALUE_TOLERANCE_KELVIN
+    if (
+        held_celsius is not None
+        and now - written_at >= _WRITE_ECHO_GRACE_SECONDS
+        and not math.isclose(
+            held_celsius, written_celsius, abs_tol=_HELD_VALUE_TOLERANCE_KELVIN
+        )
     ):
         return True
     if round(abs(celsius - written_celsius), 2) >= _SIGNIFICANT_CHANGE_KELVIN:
@@ -300,7 +310,7 @@ async def maybe_set_external_temperature(
     bool
         True when the input was written, False when the write was not due,
         the device has no such input, the room sensor is the TRV's own, the
-        value is not a number, or the device refused it.
+        value is not a finite number, or the device refused it.
     """
     try:
         trv = self.real_trvs[entity_id]
@@ -355,6 +365,13 @@ async def maybe_set_external_temperature(
         except TypeError, ValueError:
             _LOGGER.debug(
                 "better_thermostat %s: Danfoss Ally maybe_set_external_temperature got non-float: %s",
+                self.device_name,
+                temperature,
+            )
+            return False
+        if not math.isfinite(celsius):
+            _LOGGER.debug(
+                "better_thermostat %s: Danfoss Ally maybe_set_external_temperature got non-finite: %s",
                 self.device_name,
                 temperature,
             )

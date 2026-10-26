@@ -309,12 +309,15 @@ class TestTheRoomTemperatureReachesTheInput:
         mock_self.hass.services.async_call.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_a_reading_that_is_no_number_is_not_written(self, monkeypatch):
-        """The input takes numbers only."""
+    @pytest.mark.parametrize("reading", ["warm", float("inf"), float("nan")])
+    async def test_a_reading_that_is_no_finite_number_is_not_written(
+        self, monkeypatch, reading
+    ):
+        """The input takes finite numbers only."""
         mock_self = _make_self(monkeypatch)
 
         assert (
-            await ally.maybe_set_external_temperature(mock_self, ENTITY, "warm")
+            await ally.maybe_set_external_temperature(mock_self, ENTITY, reading)
             is False
         )
         mock_self.hass.services.async_call.assert_not_awaited()
@@ -430,6 +433,26 @@ class TestWritesFollowTheDeviceRateLimit:
         mock_self = _make_self(monkeypatch, radiator_covered=reported)
 
         assert await self._write_then(mock_self, 60, 20.1)
+
+    @pytest.mark.asyncio
+    async def test_the_state_from_before_the_write_does_not_count_as_dropped(
+        self, monkeypatch
+    ):
+        """Until Zigbee2MQTT publishes the written value, the old one still shows.
+
+        Readings that arrive in that window are not written again for it.
+        """
+        mock_self = _make_self(monkeypatch)
+        assert await ally.maybe_set_external_temperature(mock_self, ENTITY, 20.1)
+        mock_self._clock.advance(10)
+        assert await ally.maybe_set_external_temperature(mock_self, ENTITY, 20.13) is (
+            False
+        )
+        mock_self._clock.advance(10)
+        assert await ally.maybe_set_external_temperature(mock_self, ENTITY, 20.12) is (
+            False
+        )
+        assert _written_values(mock_self) == [2010.0]
 
     @pytest.mark.asyncio
     async def test_a_device_that_dropped_the_value_gets_it_again(self, monkeypatch):
