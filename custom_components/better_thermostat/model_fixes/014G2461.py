@@ -190,7 +190,10 @@ def _input_value(state: State | None, celsius: float) -> float:
         except KeyError, TypeError, ValueError:
             return published(fallback_celsius)
 
-    return max(bound("min", _INPUT_MIN), min(bound("max", _INPUT_MAX), value))
+    # The floor never reaches the input's own minimum: there it stands for
+    # no value, which would drop the temperature instead of writing it.
+    floor = max(bound("min", _INPUT_MIN), published(_INPUT_MIN))
+    return max(floor, min(bound("max", _INPUT_MAX), value))
 
 
 def _input_celsius(state: State | None, value: float) -> float:

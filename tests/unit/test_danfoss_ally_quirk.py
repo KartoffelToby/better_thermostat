@@ -123,6 +123,7 @@ def _written_values(mock_self):
     payloads = []
     for call in mock_self.hass.services.async_call.await_args_list:
         domain, service, data = call.args[:3]
+        assert call.kwargs == {"blocking": True, "context": mock_self.context}
         assert (domain, service, data["entity_id"]) == (
             "number",
             "set_value",
@@ -202,13 +203,23 @@ class TestTheRoomTemperatureReachesTheInput:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("room", "written"),
-        [(20.1, 2010.0), (21.456, 2146.0), (19.994, 1999.0), (40.0, 3500.0)],
-        ids=["tenths", "hundredths", "rounded-down", "clamped-to-max"],
+        [
+            (20.1, 2010.0),
+            (21.456, 2146.0),
+            (19.994, 1999.0),
+            (40.0, 3500.0),
+            (-90.0, -7999.0),
+        ],
+        ids=["tenths", "hundredths", "rounded-down", "clamped-to-max", "above-min"],
     )
     async def test_the_raw_input_takes_hundredths_of_a_degree(
         self, monkeypatch, room, written
     ):
-        """Zigbee2MQTT publishes the raw attribute: 21 °C is written as 2100."""
+        """Zigbee2MQTT publishes the raw attribute: 21 °C is written as 2100.
+
+        Its minimum, -8000, stands for no value, so nothing lower than -7999
+        is written.
+        """
         mock_self = _make_self(monkeypatch)
 
         assert await ally.maybe_set_external_temperature(mock_self, ENTITY, room)
