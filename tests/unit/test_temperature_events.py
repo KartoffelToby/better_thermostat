@@ -689,6 +689,36 @@ class TestTemperatureAcceptance:
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_a_unitless_reading_is_taken_in_the_system_unit(self, mock_bt):
+        """A sensor naming no unit reports in Fahrenheit on a Fahrenheit system."""
+        mock_bt.hass.config.units.temperature_unit = "°F"
+        mock_bt.room_temperature = 20.0
+        event = _make_event(State(SENSOR_ID, "70.0"))
+
+        await trigger_temperature_change(mock_bt, event)
+
+        assert mock_bt.room_temperature == pytest.approx(21.11)
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_reading_is_taken_in_the_sensors_own_unit(self, mock_bt):
+        """unit_of_measurement decides, whatever other unit attribute the state carries."""
+        mock_bt.hass.config.units.temperature_unit = "°C"
+        mock_bt.room_temperature = 20.0
+        event = _make_event(
+            State(
+                SENSOR_ID,
+                "70.0",
+                {"unit_of_measurement": "°F", "temperature_unit": "°C"},
+            )
+        )
+
+        await trigger_temperature_change(mock_bt, event)
+
+        assert mock_bt.room_temperature == pytest.approx(21.11)
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_accepted_temperature_written_to_room_temperature(self, mock_bt):
         """Write the accepted temperature to room_temperature."""
         mock_bt.room_temperature = 20.0
