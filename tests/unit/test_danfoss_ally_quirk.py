@@ -281,7 +281,7 @@ class TestTheRoomTemperatureReachesTheInput:
         assert await ally.maybe_set_external_temperature(mock_self, ENTITY, 20.1) is (
             False
         )
-        mock_self.hass.services.async_call.assert_not_awaited()
+        mock_self.hass.services.async_call.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_a_device_without_the_input_gets_no_write(self, monkeypatch):
@@ -291,7 +291,7 @@ class TestTheRoomTemperatureReachesTheInput:
         assert await ally.maybe_set_external_temperature(mock_self, ENTITY, 20.1) is (
             False
         )
-        mock_self.hass.services.async_call.assert_not_awaited()
+        mock_self.hass.services.async_call.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_a_trv_without_a_device_gets_no_write(self, monkeypatch):
@@ -306,7 +306,7 @@ class TestTheRoomTemperatureReachesTheInput:
         assert await ally.maybe_set_external_temperature(mock_self, ENTITY, 20.1) is (
             False
         )
-        mock_self.hass.services.async_call.assert_not_awaited()
+        mock_self.hass.services.async_call.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("reading", ["warm", float("inf"), float("nan")])
@@ -320,7 +320,7 @@ class TestTheRoomTemperatureReachesTheInput:
             await ally.maybe_set_external_temperature(mock_self, ENTITY, reading)
             is False
         )
-        mock_self.hass.services.async_call.assert_not_awaited()
+        mock_self.hass.services.async_call.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_a_refused_write_is_retried_on_the_next_reading(self, monkeypatch):
