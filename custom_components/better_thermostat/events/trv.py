@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State, callback
 from homeassistant.util import dt as dt_util
@@ -25,6 +25,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
+    CONF_ON_OFF_CONTROL,
     CalibrationMode,
     CalibrationType,
 )
@@ -309,6 +310,8 @@ async def trigger_trv_change(self, event):
     if (
         _setpoint is not None
         and _old_heating_setpoint is not None
+        # A binary actuator's published setpoint is not the room's target.
+        and not advanced.get(CONF_ON_OFF_CONTROL, False)
         and (self.bt_hvac_mode != HVACMode.OFF or _is_no_off_device)
     ):
         _LOGGER.debug(
@@ -518,6 +521,27 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
     advanced = self.real_trvs[entity_id].advanced or {}
 
     try:
+        if advanced.get(CONF_ON_OFF_CONTROL, False):
+            # Reuse BT's hysteresis decision, not the device-reported action:
+            # a heater still reporting HEATING must not keep itself on.
+            if advanced.get("no_off_system_mode", False) or not device_offers_mode(
+                self.real_trvs[entity_id].hvac_modes or [], HVACMode.OFF
+            ):
+                raise ValueError(
+                    "On/off control requires a device with a real OFF mode"
+                )
+            decision = self._compute_hvac_action_pure().tolerance_decision
+            mode = (
+                HVACMode.HEAT
+                if decision == HVACAction.HEATING
+                and hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL)
+                else HVACMode.OFF
+            )
+            return {
+                "temperature": None,
+                "system_mode": mode_remap(self, entity_id, mode, False),
+            }
+
         _calibration_type = advanced.get("calibration")
         _calibration_mode = advanced.get("calibration_mode")
 

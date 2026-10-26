@@ -33,6 +33,7 @@
       "advanced": {
         "description": "Расширенная настройка {trv}\n\n**Подробная информация:** {docs_url}",
         "data": {
+          "on_off_control": "On/off heater control",
           "protect_overheating": "Защита от перегрева",
           "heat_auto_swapped": "Поменять местами режимы «авто» и «обогрев» на термоголовке",
           "child_lock": "Игнорировать все команды на термоголовке (детский замок)",
@@ -43,6 +44,7 @@
           "no_off_system_mode": "Использовать 5°C вместо режима «выкл.» (если термоголовка не поддерживает отключение)"
         },
         "data_description": {
+          "on_off_control": "Use the room sensor and tolerance to switch the heater between heating and OFF. No target temperature, offset or valve position is sent to the device. Requires a real OFF mode and is incompatible with the no-off-mode option. Calibration settings are ignored in this mode.",
           "protect_overheating": "Некоторые термоголовки не закрывают клапан полностью при достижении температуры, либо батарея долго остывает — это может приводить к перегреву. Данная опция позволяет этого избежать.",
           "calibration_mode": "Алгоритм расчёта калибровки.\n***Обычный***: Внутренний датчик термоголовки корректируется по внешнему датчику температуры.\n***Агрессивный***: Внутренний датчик корректируется по внешнему, но со значительным смещением для более быстрого прогрева/охлаждения.\n***AI на основе времени***: Внутренний датчик корректируется по внешнему, а специальный алгоритм дополнительно оптимизирует работу встроенного регулятора термоголовки.\n***MPC-предиктивный (бета)***: Использует предиктивный MPC-контроллер для расчёта открытия клапана с последующим преобразованием в смещения или уставки при отсутствии прямого управления клапаном.\n***PID-регулятор***: Динамически управляет положением клапана на основе ошибки температуры, пропорциональной составляющей, накопленного интеграла и производной.\n***TPI-регулятор***: Пропорционально-интегральный регулятор с временны́м квантованием для стабильного и точного поддержания температуры.",
           "calibration": "Способ применения калибровки к термоголовке.\n***По целевой температуре***: Калибровка применяется к заданной температуре.\n***По смещению***: Калибровка применяется как смещение."
@@ -54,6 +56,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Disable the no-off-mode option before enabling on/off control.",
+      "on_off_control_valve_maintenance": "Disable valve maintenance before enabling on/off control; binary heaters have no valve to exercise.",
+      "on_off_control_requires_off": "On/off control requires a device that advertises an OFF mode. Make sure the device is available.",
       "failed": "Что-то пошло не так.",
       "no_name": "Укажите название.",
       "no_heater": "Пожалуйста, выберите хотя бы один реальный термостат.",
@@ -103,6 +108,7 @@
       "advanced": {
         "description": "Расширенная настройка {trv}\n\n**Подробная информация:** {docs_url}",
         "data": {
+          "on_off_control": "On/off heater control",
           "protect_overheating": "Защита от перегрева",
           "heat_auto_swapped": "Поменять местами режимы «авто» и «обогрев» на термоголовке",
           "child_lock": "Игнорировать все команды на термоголовке (детский замок)",
@@ -113,6 +119,7 @@
           "no_off_system_mode": "Использовать 5°C вместо режима «выкл.» (если термоголовка не поддерживает отключение)"
         },
         "data_description": {
+          "on_off_control": "Use the room sensor and tolerance to switch the heater between heating and OFF. No target temperature, offset or valve position is sent to the device. Requires a real OFF mode and is incompatible with the no-off-mode option. Calibration settings are ignored in this mode.",
           "protect_overheating": "Некоторые термоголовки не закрывают клапан полностью при достижении температуры, либо батарея долго остывает — это может приводить к перегреву. Данная опция позволяет этого избежать.",
           "calibration_mode": "Алгоритм расчёта калибровки.\n***Обычный***: Внутренний датчик термоголовки корректируется по внешнему датчику температуры.\n***Агрессивный***: Внутренний датчик корректируется по внешнему, но со значительным смещением для более быстрого прогрева/охлаждения.\n***AI на основе времени***: Внутренний датчик корректируется по внешнему, а специальный алгоритм дополнительно оптимизирует работу встроенного регулятора термоголовки.\n***MPC-предиктивный (бета)***: Использует алгоритм гидравлического баланса MPC для расчёта открытия клапана с последующим преобразованием в смещения или уставки при отсутствии прямого управления клапаном.\n***PID-регулятор***: Динамически управляет положением клапана на основе ошибки температуры, пропорциональной составляющей, накопленного интеграла и производной.\n***TPI-регулятор***: Пропорционально-интегральный регулятор с временны́м квантованием для стабильного и точного поддержания температуры.",
           "calibration": "Способ применения калибровки к термоголовке.\n***По целевой температуре***: Калибровка применяется к заданной температуре.\n***По смещению***: Калибровка применяется как смещение."
@@ -120,6 +127,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Disable the no-off-mode option before enabling on/off control.",
+      "on_off_control_valve_maintenance": "Disable valve maintenance before enabling on/off control; binary heaters have no valve to exercise.",
+      "on_off_control_requires_off": "On/off control requires a device that advertises an OFF mode. Make sure the device is available.",
       "failed": "Что-то пошло не так.",
       "no_name": "Укажите название.",
       "no_heater": "Пожалуйста, выберите хотя бы один реальный термостат.",

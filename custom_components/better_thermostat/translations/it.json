@@ -33,6 +33,7 @@
       "advanced": {
         "description": "Configurazione avanzata {trv}\n\n**Informazioni dettagliate:** {docs_url}",
         "data": {
+          "on_off_control": "On/off heater control",
           "protect_overheating": "Protezione dal surriscaldamento?",
           "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",
           "child_lock": "Ignora tutti gli input sul TRV come un blocco bambini",
@@ -43,6 +44,7 @@
           "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target"
         },
         "data_description": {
+          "on_off_control": "Use the room sensor and tolerance to switch the heater between heating and OFF. No target temperature, offset or valve position is sent to the device. Requires a real OFF mode and is incompatible with the no-off-mode option. Calibration settings are ignored in this mode.",
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
           "calibration_mode": "Modalità di calcolo della calibrazione\n***Normale***: Il sensore interno di temperatura del TRV è corretto da quello esterno.\n***Aggressiva***: Il sensore interno del TRV è corretto da quello esterno ma impostato molto più basso/alto per ottenere una risposta più rapida.\n***Basata sul tempo AI***: Il sensore interno del TRV è corretto da quello esterno, ma un algoritmo personalizzato calcola il valore per migliorare l’algoritmo interno del TRV.\n***MPC Predictive (Beta)***: Utilizza il controllore predittivo MPC per derivare un'apertura della valvola e convertirla in offset o setpoint quando il controllo diretto della valvola non è disponibile.\n***PID Controller***: Utilizza un controllore PID per regolare dinamicamente la posizione della valvola in base all'errore di temperatura, al termine proporzionale, all'accumulo integrale e alla previsione derivata.\n***TPI Controller***: Utilizza un controllore Proporzionale Integrale Temporale per un controllo della temperatura stabile e preciso nel tempo.",
           "calibration": "Come deve essere applicata la calibrazione sul TRV (temperatura target o offset)\n***Basata sulla temperatura target***: Applica la calibrazione alla temperatura impostata.\n***Basata su offset***: Applica la calibrazione come offset."
@@ -54,6 +56,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Disable the no-off-mode option before enabling on/off control.",
+      "on_off_control_valve_maintenance": "Disable valve maintenance before enabling on/off control; binary heaters have no valve to exercise.",
+      "on_off_control_requires_off": "On/off control requires a device that advertises an OFF mode. Make sure the device is available.",
       "failed": "Qualcosa è andato storto.",
       "no_name": "Per favore inserisci un nome.",
       "no_heater": "Seleziona almeno un vero termostato.",
@@ -103,6 +108,7 @@
       "advanced": {
         "description": "Configurazione avanzata {trv}\n\n**Informazioni dettagliate:** {docs_url}",
         "data": {
+          "on_off_control": "On/off heater control",
           "protect_overheating": "Protezione dal surriscaldamento?",
           "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",
           "child_lock": "Ignora tutti gli input sul TRV come un blocco bambini",
@@ -113,6 +119,7 @@
           "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target"
         },
         "data_description": {
+          "on_off_control": "Use the room sensor and tolerance to switch the heater between heating and OFF. No target temperature, offset or valve position is sent to the device. Requires a real OFF mode and is incompatible with the no-off-mode option. Calibration settings are ignored in this mode.",
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
           "calibration_mode": "Modalità di calcolo della calibrazione\n***Normale***: Il sensore interno di temperatura del TRV è corretto da quello esterno.\n***Aggressiva***: Il sensore interno del TRV è corretto da quello esterno ma impostato molto più basso/alto per ottenere una risposta più rapida.\n***Basata sul tempo AI***: Il sensore interno del TRV è corretto da quello esterno, ma un algoritmo personalizzato calcola il valore per migliorare l’algoritmo interno del TRV.\n***MPC Predictive (Beta)***: Utilizza il controllore predittivo MPC per derivare un'apertura della valvola e convertirla in offset o setpoint quando il controllo diretto della valvola non è disponibile.\n***PID Controller***: Utilizza un controllore PID per regolare dinamicamente la posizione della valvola in base all'errore di temperatura, al termine proporzionale, all'accumulo integrale e alla previsione derivata.\n***TPI Controller***: Utilizza un controllore Proporzionale Integrale Temporale per un controllo della temperatura stabile e preciso nel tempo.",
           "calibration": "Come deve essere applicata la calibrazione sul TRV (temperatura target o offset)\n***Basata sulla temperatura target***: Applica la calibrazione alla temperatura impostata.\n***Basata su offset***: Applica la calibrazione come offset."
@@ -120,6 +127,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Disable the no-off-mode option before enabling on/off control.",
+      "on_off_control_valve_maintenance": "Disable valve maintenance before enabling on/off control; binary heaters have no valve to exercise.",
+      "on_off_control_requires_off": "On/off control requires a device that advertises an OFF mode. Make sure the device is available.",
       "failed": "Qualcosa è andato storto.",
       "no_name": "Per favore inserisci un nome.",
       "no_heater": "Seleziona almeno un vero termostato.",

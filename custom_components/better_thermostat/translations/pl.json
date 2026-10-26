@@ -33,6 +33,7 @@
       "advanced": {
         "description": "Zaawansowana konfiguracja {trv}\n\n**Szczegółowe informacje:** {docs_url}",
         "data": {
+          "on_off_control": "On/off heater control",
           "protect_overheating": "Zabezpieczenie przed przegrzaniem?",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
           "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
@@ -43,6 +44,7 @@
           "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C"
         },
         "data_description": {
+          "on_off_control": "Use the room sensor and tolerance to switch the heater between heating and OFF. No target temperature, offset or valve position is sent to the device. Requires a real OFF mode and is incompatible with the no-off-mode option. Calibration settings are ignored in this mode.",
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
           "calibration_mode": "Rodzaj sposobu obliczania kalibracji\n***Normalny***: W tym trybie wewnętrzny czujnik temperatury TRV jest zależny od zewnętrznego czujnika temperatury.\n***Agresywny***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale jest ustawiony znacznie niżej/wyżej, aby uzyskać szybsze przyspieszenie.\n***AI Time Based***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale wartość jest obliczana przez niestandardowy algorytm w celu ulepszenia wewnętrznego algorytmu TRV.",
           "calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia."
@@ -54,6 +56,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Disable the no-off-mode option before enabling on/off control.",
+      "on_off_control_valve_maintenance": "Disable valve maintenance before enabling on/off control; binary heaters have no valve to exercise.",
+      "on_off_control_requires_off": "On/off control requires a device that advertises an OFF mode. Make sure the device is available.",
       "failed": "coś poszło nie tak.",
       "no_name": "Proszę podać nazwę.",
       "no_heater": "Proszę wybrać przynajmniej jeden prawdziwy termostat.",
@@ -103,6 +108,7 @@
       "advanced": {
         "description": "Zaawansowana konfiguracja {trv}\n\n**Szczegółowe informacje:** {docs_url}",
         "data": {
+          "on_off_control": "On/off heater control",
           "protect_overheating": "Zabezpieczenie przed przegrzaniem?",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
           "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
@@ -113,6 +119,7 @@
           "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C"
         },
         "data_description": {
+          "on_off_control": "Use the room sensor and tolerance to switch the heater between heating and OFF. No target temperature, offset or valve position is sent to the device. Requires a real OFF mode and is incompatible with the no-off-mode option. Calibration settings are ignored in this mode.",
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
           "calibration_mode": "Rodzaj sposobu obliczania kalibracji\n***Normalny***: W tym trybie wewnętrzny czujnik temperatury TRV jest zależny od zewnętrznego czujnika temperatury.\n***Agresywny***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale jest ustawiony znacznie niżej/wyżej, aby uzyskać szybsze przyspieszenie.\n***AI Time Based***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale wartość jest obliczana przez niestandardowy algorytm w celu ulepszenia wewnętrznego algorytmu TRV.",
           "calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia."
@@ -120,6 +127,9 @@
       }
     },
     "error": {
+      "on_off_control_conflict": "Disable the no-off-mode option before enabling on/off control.",
+      "on_off_control_valve_maintenance": "Disable valve maintenance before enabling on/off control; binary heaters have no valve to exercise.",
+      "on_off_control_requires_off": "On/off control requires a device that advertises an OFF mode. Make sure the device is available.",
       "failed": "coś poszło nie tak.",
       "no_name": "Proszę podać nazwę.",
       "no_heater": "Proszę wybrać przynajmniej jeden prawdziwy termostat.",
