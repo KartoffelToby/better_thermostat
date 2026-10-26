@@ -26,6 +26,7 @@ from custom_components.better_thermostat.calibration import (
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.model_fixes.model_quirks import (
+    lowest_setpoint,
     trv_report_is_unreadable,
 )
 from custom_components.better_thermostat.trv import UnreadReport
@@ -56,6 +57,7 @@ from custom_components.better_thermostat.utils.helpers import (
     mode_remap,
     normalize_step,
     published_in_whole_fahrenheit,
+    read_bound_celsius,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
@@ -280,6 +282,57 @@ def _held_setpoint(self: BetterThermostat, state: State | None) -> float | None:
     return read_setpoint_celsius(self, state, TRV_SETPOINT_KEYS, "_hold_report()")
 
 
+def _adopt_reported_range(
+    self: BetterThermostat, entity_id: str, trv: Trv, state: State
+) -> bool:
+    """Take the range a TRV publishes while it heats as the range it is driven in.
+
+    Some integrations publish a range that depends on the device's mode, and
+    Home Assistant checks a setpoint against the range of the mode the device
+    is in: HomeKit Controller publishes the device's own range while a
+    thermostat heats and Home Assistant's defaults of 7 to 35 °C in off and
+    in the modes it has no range of its own for. A range read in any of those
+    would let setpoints through that the device refuses once it heats, so
+    only a report whose mode decodes to heat replaces it. A bound the report
+    does not publish keeps its value. The bounds are also kept as published,
+    as the TRV's heating range the room's own range is derived from.
+
+    Returns
+    -------
+    bool
+        True when the report changed the range.
+    """
+    if mode_remap(self, entity_id, state.state, True) != HVACMode.HEAT:
+        return False
+    _max_temp = read_bound_celsius(
+        self, state, "max_temp", lower=False, context="trigger_trv_change()"
+    )
+    _min_temp = read_bound_celsius(
+        self, state, "min_temp", lower=True, context="trigger_trv_change()"
+    )
+    trv.heating_range = (_min_temp, _max_temp)
+    _ceiling = trv.max_temp if _max_temp is None else _max_temp
+    _floor = (
+        trv.min_temp
+        if _min_temp is None
+        else lowest_setpoint(self, entity_id, _min_temp)
+    )
+    if (_floor, _ceiling) == (trv.min_temp, trv.max_temp):
+        return False
+    _LOGGER.info(
+        "better_thermostat %s: TRV %s now publishes the range %s to %s (was %s to %s)",
+        self.device_name,
+        entity_id,
+        _floor,
+        _ceiling,
+        trv.min_temp,
+        trv.max_temp,
+    )
+    trv.min_temp = _floor
+    trv.max_temp = _ceiling
+    return True
+
+
 def _read_internal_temperature_later(
     self: BetterThermostat, trv: Trv, entity_id: str, interval_seconds: float
 ) -> None:
@@ -421,9 +474,20 @@ async def trigger_trv_change(
             entity_id,
         )
         return
+    # The device's range is read before the report is told apart from BT's
+    # own writes: the report that follows BT switching the device on is the
+    # one that carries the range it heats in. A changed range bounds the
+    # room's heating range anew and asks for a cycle of its own, which
+    # rewrites a setpoint the old range let through.
+    _range_changed = _adopt_reported_range(self, entity_id, trv, _org_trv_state)
+    if _range_changed:
+        self._refresh_heating_range()
     if event.context == self.context and _reports_only_own_writes(
         self, trv, entity_id, old_state, new_state
     ):
+        if _range_changed and request_cycle:
+            self.async_write_ha_state()
+            request_control_cycle(self)
         return
 
     if trv_report_is_unreadable(self, entity_id, _org_trv_state):
@@ -566,7 +630,7 @@ async def trigger_trv_change(
 
     if self.ignore_states:
         _hold_report(self, trv, old_state, new_state)
-        if _main_change:
+        if _main_change or _range_changed:
             trv.temperature_moved_while_held = True
         return
 
@@ -935,7 +999,7 @@ async def trigger_trv_change(
             if (self.bt_hvac_mode, self.cool_target_temperature) != _room_before:
                 _main_change = True
 
-    if _main_change is True and request_cycle:
+    if (_main_change is True or _range_changed) and request_cycle:
         self.async_write_ha_state()
         return request_control_cycle(self)
 
