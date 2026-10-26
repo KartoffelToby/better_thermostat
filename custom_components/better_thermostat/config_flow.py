@@ -7,7 +7,6 @@ from collections.abc import Collection, Iterable, Mapping
 import copy
 from dataclasses import dataclass, replace
 import logging
-import math
 from typing import Final, Literal, NotRequired, TypedDict, override
 
 from homeassistant import config_entries
@@ -43,10 +42,6 @@ from .adapters.delegate import load_adapter
 from .adapters.types import TrvAdapter
 from .model_fixes.model_quirks import load_model_quirks, quirk_writes_valve
 from .utils.advanced_flags import as_bool as _as_bool
-from .utils.calibration.plant_preset import (
-    DEFAULT_FLOW_TEMPERATURE,
-    FLOW_TEMPERATURE_BOUNDS,
-)
 from .utils.const import (
     CONF_AVAILABILITY_GUARD,
     CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
@@ -61,7 +56,6 @@ from .utils.const import (
     CONF_HOMEMATICIP,
     CONF_HUMIDITY_SENSOR,
     CONF_MODEL,
-    CONF_MPC_V2_FLOW_TEMPERATURE,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_NO_OFF_SYSTEM_MODE,
     CONF_OFF_TEMPERATURE,
@@ -210,51 +204,6 @@ _MPC_V2_PLANT_PRESET_CHOICES: tuple[MpcV2PlantPreset, ...] = (
 )
 
 
-def _celsius_in_system_unit(celsius: float, system_unit: str) -> float:
-    """Return a temperature given in °C in the system unit."""
-    if system_unit == UnitOfTemperature.FAHRENHEIT:
-        return TemperatureConverter.convert(
-            celsius, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
-        )
-    return celsius
-
-
-def _flow_temperature_selector(system_unit: str) -> selector.NumberSelector:
-    """Return the flow-temperature field, bounded and labelled in the system unit."""
-    lower, upper = (
-        _celsius_in_system_unit(bound, system_unit) for bound in FLOW_TEMPERATURE_BOUNDS
-    )
-    return selector.NumberSelector(
-        selector.NumberSelectorConfig(
-            min=lower,
-            max=upper,
-            step=1,
-            unit_of_measurement=(
-                UnitOfTemperature.FAHRENHEIT
-                if system_unit == UnitOfTemperature.FAHRENHEIT
-                else UnitOfTemperature.CELSIUS
-            ),
-            mode=selector.NumberSelectorMode.BOX,
-        )
-    )
-
-
-def _flow_temperature_default(stored: object, system_unit: str) -> float:
-    """Return the flow temperature the form suggests, in the system unit.
-
-    A stored value outside the range the field accepts, or one that is not a
-    number, would be refused when the user submits the form unchanged, so the
-    default flow temperature takes its place.
-    """
-    lower, upper = (
-        _celsius_in_system_unit(bound, system_unit) for bound in FLOW_TEMPERATURE_BOUNDS
-    )
-    value = _float_or(stored, math.nan)
-    if lower <= value <= upper:
-        return value
-    return _celsius_in_system_unit(DEFAULT_FLOW_TEMPERATURE, system_unit)
-
-
 MPC_V2_PLANT_PRESET_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=list(_MPC_V2_PLANT_PRESET_CHOICES),
@@ -351,7 +300,6 @@ _AdvancedDraft = TypedDict(  # noqa: UP013
         "calibration": StoredChoice,
         "calibration_mode": StoredChoice,
         "mpc_v2_plant_preset": NotRequired[StoredChoice],
-        "mpc_v2_flow_temperature": NotRequired[float],
         "protect_overheating": bool,
         "no_off_system_mode": bool,
         "heat_auto_swapped": bool,
@@ -502,8 +450,6 @@ def _stored_advanced(draft: _AdvancedDraft) -> TrvAdvanced:
     }
     if CONF_MPC_V2_PLANT_PRESET in draft:
         stored[CONF_MPC_V2_PLANT_PRESET] = draft[CONF_MPC_V2_PLANT_PRESET]
-    if CONF_MPC_V2_FLOW_TEMPERATURE in draft:
-        stored[CONF_MPC_V2_FLOW_TEMPERATURE] = draft[CONF_MPC_V2_FLOW_TEMPERATURE]
     stored[CONF_PROTECT_OVERHEATING] = draft[CONF_PROTECT_OVERHEATING]
     stored[CONF_NO_OFF_SYSTEM_MODE] = draft[CONF_NO_OFF_SYSTEM_MODE]
     stored[CONF_HEAT_AUTO_SWAPPED] = draft[CONF_HEAT_AUTO_SWAPPED]
@@ -719,14 +665,6 @@ def _build_advanced_fields(
             ),
         )
     ] = MPC_V2_PLANT_PRESET_SELECTOR
-    ordered[
-        vol.Optional(
-            CONF_MPC_V2_FLOW_TEMPERATURE,
-            default=_flow_temperature_default(
-                get_value(CONF_MPC_V2_FLOW_TEMPERATURE, None), system_unit
-            ),
-        )
-    ] = _flow_temperature_selector(system_unit)
 
     ordered[
         vol.Optional(
@@ -784,9 +722,6 @@ def _normalize_advanced_submission(
         normalized[CONF_MPC_V2_PLANT_PRESET] = _submitted_choice(
             data[CONF_MPC_V2_PLANT_PRESET], MpcV2PlantPreset.AUTO
         )
-    flow_temperature = _float_or(data.get(CONF_MPC_V2_FLOW_TEMPERATURE), math.nan)
-    if math.isfinite(flow_temperature):
-        normalized[CONF_MPC_V2_FLOW_TEMPERATURE] = flow_temperature
 
     _LOGGER.debug("Normalized advanced submission: %s", normalized)
 
