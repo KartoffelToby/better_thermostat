@@ -79,6 +79,17 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Floor for the commanded-vs-reported offset comparison. One declared offset
+# step is the right window only while that step describes the grid the device
+# reports on; an adapter declaring a nominal 0.01 K step describes a
+# continuous range instead, and any report rounded coarser than that then reads
+# as a divergence the write gate re-asserts on every control cycle. The floor
+# covers those roundings and stays below the 0.1 K resolution a TRV reports its
+# own temperature at, so no calibration error the room can feel hides beneath
+# it. The setpoint channel's read-back tolerance describes a different
+# comparison, so the offset channel carries its own floor.
+OFFSET_MATCH_TOLERANCE_K = 0.05
+
 
 class _CalibrationConfiguredTrv(Protocol):
     """The per-TRV record a calibration-mode question reads."""
@@ -3243,3 +3254,43 @@ def is_bt_climate_entity(entry: er.RegistryEntry) -> bool:
     this integration (platform) and be a climate entity (domain).
     """
     return entry.platform == DOMAIN and entry.domain == CLIMATE_DOMAIN
+
+
+def calibration_match_tolerance(self: BetterThermostat, trv: Trv) -> float:
+    """Per-device tolerance for the commanded-vs-reported offset comparison.
+
+    A written offset travels to the device as a count of its declared
+    step, and the ZHA number platform truncates that count toward zero
+    (``int(value / step)``). Float division lands just short of the
+    whole number, so a value written as 6.3 arrives as
+    ``int(6.3 / 0.1) == 62`` counts and the device reports 6.2: the
+    truncated count lands one step nearer zero than the command, in
+    either sign. A device whose own grid is one declared step coarser
+    lands there too. A report within one step of the command is
+    therefore the command or its truncated neighbour, and a report
+    further away is a lost write.
+    OFFSET_MATCH_TOLERANCE_K is the floor: it covers devices that report
+    no usable step and those whose declared step is finer than the grid
+    they actually report on.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    trv : Trv
+        The TRV whose offset step decides the tolerance
+
+    Returns
+    -------
+    float
+        Tolerance in Kelvin for an offset comparison
+    """
+    step = convert_to_float(
+        str(trv.local_calibration_step),
+        self.device_name,
+        "calibration_match_tolerance()",
+    )
+    if step is None or step <= 0:
+        return OFFSET_MATCH_TOLERANCE_K
+    # Slack against float noise when the difference is exactly one step.
+    return max(OFFSET_MATCH_TOLERANCE_K, step + 1e-6)

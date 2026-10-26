@@ -43,6 +43,7 @@ from custom_components.better_thermostat.utils.helpers import (
     SentCommand,
     adopt_reported_hvac_modes,
     attr_to_celsius,
+    calibration_match_tolerance,
     configured_calibration_mode,
     configured_calibration_output,
     convert_to_float,
@@ -549,7 +550,17 @@ async def trigger_trv_change(
             )
             _main_change = False
             if trv.calibration is CalibrationOutput.LOCAL_BASED:
+                _sent_offset = trv.last_calibration
                 trv.last_calibration = await get_calibration_offset(self, entity_id)
+                # A device that holds the offset it was sent reports a
+                # temperature measured under that offset, so the offset is
+                # derived from it right away rather than when the room sensor
+                # reports next. A device still holding another offset reports
+                # a temperature the offset read back does not describe; the
+                # next report is controlled on instead.
+                _main_change = abs(
+                    trv.last_calibration - _sent_offset
+                ) <= calibration_match_tolerance(self, trv)
 
         # Under SENSOR_FALLBACK the TRV readings are the room temperature,
         # so a new one is controlled on even when it confirms an offset write.

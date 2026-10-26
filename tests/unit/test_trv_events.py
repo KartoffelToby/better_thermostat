@@ -859,6 +859,59 @@ class TestInternalTemperatureChange:
             assert mock_bt.real_trvs[ENTITY_ID].last_calibration == 0.0
 
     @pytest.mark.parametrize(
+        ("sent_offset", "held_offset", "controls"),
+        [
+            # The device holds the offset it was sent.
+            (2.5, 2.5, True),
+            # The device holds it truncated one step toward zero.
+            (2.5, 2.0, True),
+            # The device still holds an earlier offset.
+            (0.0, 2.5, False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_confirming_report_controls_when_the_device_holds_the_offset(
+        self, mock_bt, sent_offset, held_offset, controls
+    ):
+        """A report confirming an offset write is controlled on like any other.
+
+        Its temperature is measured under the offset the device holds, so a
+        TRV that warms up while the room sensor is silent gets a new offset
+        at once. A device still holding another offset reports a temperature
+        the read-back offset does not describe, and no cycle runs on it.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.calibration_received = False
+        trv.calibration = CalibrationOutput.LOCAL_BASED
+        trv.local_calibration_step = 0.5
+        trv.last_calibration = sent_offset
+        trv.current_temperature = 18.0
+        trv_state = _make_state(attributes={"current_temperature": 20.0})
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.get_calibration_offset",
+                autospec=True,
+                return_value=held_offset,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert trv.calibration_received is True
+        assert trv.last_calibration == held_offset
+        if controls:
+            mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
+        else:
+            mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.parametrize(
         ("calibration", "taken"),
         [
             (CalibrationOutput.LOCAL_BASED, True),

@@ -35,16 +35,18 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import (
-    OFFSET_MATCH_TOLERANCE_K,
     RECONCILE_TOLERANCE_K,
     WRITE_CONFIRM_TIMEOUT_S,
-    _calibration_match_tolerance,
     _get_valve_control,
     _reconcile_tolerance,
     advance_hvac_action,
     check_calibration,
     check_system_mode,
     check_target_temperature,
+)
+from custom_components.better_thermostat.utils.helpers import (
+    OFFSET_MATCH_TOLERANCE_K,
+    calibration_match_tolerance,
 )
 from custom_components.better_thermostat.utils.telemetry import HeatingPowerBalance
 from tests.factories import ThermostatStandIn, make_snapshot, trv_record
@@ -1652,7 +1654,7 @@ class TestCheckCalibrationGeneration:
 
 
 class TestCalibrationMatchTolerance:
-    """Tests for _calibration_match_tolerance()."""
+    """Tests for calibration_match_tolerance()."""
 
     @staticmethod
     def _mock_self(step):
@@ -1663,22 +1665,22 @@ class TestCalibrationMatchTolerance:
                 entity_id="climate.trv1", local_calibration_step=step
             )
         }
-        return mock_self
+        return mock_self, mock_self.real_trvs["climate.trv1"]
 
     @pytest.mark.parametrize("step", [0.1, 0.5, 1.0])
     def test_step_yields_a_full_step(self, step):
         """A truncated offset count sits one step nearer zero than the command."""
-        tolerance = _calibration_match_tolerance(self._mock_self(step), "climate.trv1")
+        tolerance = calibration_match_tolerance(*self._mock_self(step))
         assert tolerance == pytest.approx(step, abs=1e-5)
 
     def test_unusable_step_falls_back_to_the_floor(self):
         """Without a usable step there is no grid to derive a tolerance from."""
-        tolerance = _calibration_match_tolerance(self._mock_self(0), "climate.trv1")
+        tolerance = calibration_match_tolerance(*self._mock_self(0))
         assert tolerance == OFFSET_MATCH_TOLERANCE_K
 
     def test_step_below_the_floor_does_not_narrow_it(self):
         """A declared step finer than the reported grid does not narrow it."""
-        tolerance = _calibration_match_tolerance(self._mock_self(0.01), "climate.trv1")
+        tolerance = calibration_match_tolerance(*self._mock_self(0.01))
         assert tolerance == OFFSET_MATCH_TOLERANCE_K
 
     def test_the_floor_is_the_offset_channel_s_own(self):

@@ -92,6 +92,7 @@ from custom_components.better_thermostat.utils.helpers import (
     SentCommand,
     as_published_setpoint,
     attr_to_celsius,
+    calibration_match_tolerance,
     clamp_valve_percent,
     configured_calibration_mode,
     configured_calibration_output,
@@ -152,16 +153,6 @@ MIN_WRITE_INTERVAL_S = 30.0
 HOMEMATICIP_MIN_WRITE_INTERVAL_S = 600.0
 # Device tolerance when comparing commanded vs reported setpoints.
 RECONCILE_TOLERANCE_K = 0.05
-# Floor for the commanded-vs-reported offset comparison. One declared offset
-# step is the right window only while that step describes the grid the device
-# reports on; an adapter declaring a nominal 0.01 K step describes a
-# continuous range instead, and any report rounded coarser than that then reads
-# as a divergence the write gate re-asserts on every control cycle. The floor
-# covers those roundings and stays below the 0.1 K resolution a TRV reports its
-# own temperature at, so no calibration error the room can feel hides beneath
-# it. The setpoint channel's read-back tolerance describes a different
-# comparison, so the offset channel carries its own floor.
-OFFSET_MATCH_TOLERANCE_K = 0.05
 # Resend throttle for the cooler path: cooler commands go straight to the
 # service call (no reconciler in between), so an identical command is
 # suppressed while the device's state feedback lags. A changed desired value
@@ -625,46 +616,6 @@ def _reconcile_tolerance(self: BetterThermostat, state: State) -> float:
     return max(RECONCILE_TOLERANCE_K, step / 2.0 + 1e-6)
 
 
-def _calibration_match_tolerance(self: BetterThermostat, entity_id: str) -> float:
-    """Per-device tolerance for the commanded-vs-reported offset comparison.
-
-    A written offset travels to the device as a count of its declared
-    step, and the ZHA number platform truncates that count toward zero
-    (``int(value / step)``). Float division lands just short of the
-    whole number, so a value written as 6.3 arrives as
-    ``int(6.3 / 0.1) == 62`` counts and the device reports 6.2: the
-    truncated count lands one step nearer zero than the command, in
-    either sign. A device whose own grid is one declared step coarser
-    lands there too. A report within one step of the command is
-    therefore the command or its truncated neighbour, and a report
-    further away is a lost write.
-    OFFSET_MATCH_TOLERANCE_K is the floor: it covers devices that report
-    no usable step and those whose declared step is finer than the grid
-    they actually report on.
-
-    Parameters
-    ----------
-    self : BetterThermostat
-        The Better Thermostat climate entity instance
-    entity_id : str
-        Entity ID of the TRV whose offset step decides the tolerance
-
-    Returns
-    -------
-    float
-        Tolerance in Kelvin for an offset comparison
-    """
-    step = convert_to_float(
-        str(self.real_trvs[entity_id].local_calibration_step),
-        self.device_name,
-        "controlling()",
-    )
-    if step is None or step <= 0:
-        return OFFSET_MATCH_TOLERANCE_K
-    # Slack against float noise when the difference is exactly one step.
-    return max(OFFSET_MATCH_TOLERANCE_K, step + 1e-6)
-
-
 def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
     """Whether the device's calibration offset left the commanded value.
 
@@ -694,9 +645,7 @@ def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
     reported = offset_from_device(
         self, trv.entity_id, published_to_offset(offset_scale(state), reported)
     )
-    return abs(trv.last_calibration - reported) > _calibration_match_tolerance(
-        self, trv.entity_id
-    )
+    return abs(trv.last_calibration - reported) > calibration_match_tolerance(self, trv)
 
 
 def _valve_diverges(self: BetterThermostat, trv: Trv) -> bool:
@@ -2823,7 +2772,7 @@ async def control_trv(
                     )
 
                 trv = self.real_trvs[entity_id]
-                _offset_tolerance = _calibration_match_tolerance(self, entity_id)
+                _offset_tolerance = calibration_match_tolerance(self, trv)
 
                 # COMMAND: what the adapter actually put on the wire. Only
                 # that value can be acknowledged; before the first write it is
@@ -3424,7 +3373,7 @@ async def check_calibration(
     """
     _timeout = 0
     trv = self.real_trvs[entity_id]
-    _tolerance = _calibration_match_tolerance(self, entity_id)
+    _tolerance = calibration_match_tolerance(self, trv)
     try:
         while True:
             if trv.calibration_write_generation != generation:
