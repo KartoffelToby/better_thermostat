@@ -59,6 +59,10 @@ decides on a damped outdoor temperature with a time constant of 24 hours, and a 
 pushes that average up. See [Summer mode](/deep-explanations/summer-mode/) for how the decision
 works and where to mount the sensor.
 
+## Can Better Thermostat use my flow temperature?
+
+No. Better Thermostat does not ask for the flow temperature and does not read a flow temperature sensor. It looks like an obvious improvement, but it did not hold up in the project's benchmark. See [Why MPC v2 does not use the flow temperature](/calibration_algorithms/#why-mpc-v2-does-not-use-the-flow-temperature).
+
 ## Where do I find advanced tuning info?
 
 See:
