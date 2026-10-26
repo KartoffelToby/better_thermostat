@@ -8,7 +8,7 @@
           "name": "Name",
           "thermostat": "The real thermostat",
           "cooler": "The cooling device (optional)",
-          "temperature_sensor": "Temperature sensor",
+          "temperature_sensor": "Room temperature sensor",
           "humidity_sensor": "Humidity sensor",
           "window_sensors": "Window sensor",
           "door_sensors": "Door sensor",
@@ -111,7 +111,7 @@
         "data": {
           "name": "Name",
           "thermostat": "The real thermostat",
-          "temperature_sensor": "Temperature Sensor",
+          "temperature_sensor": "Room temperature sensor",
           "humidity_sensor": "Humidity sensor",
           "window_sensors": "Window Sensor",
           "door_sensors": "Door sensor",

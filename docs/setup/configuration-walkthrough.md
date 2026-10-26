@@ -24,7 +24,7 @@ This page explains the two setup screens in plain language and gives practical d
 - **Name**: A friendly name for this room's thermostat (e.g., "Living Room Heating").
 - **The real thermostat**: Select the smart radiator valves or thermostats in this room.
 - **The cooling device (optional)**: If you have an AC or cooler, select it here to control it alongside your heating.
-- **Temperature sensor**: Your separate room temperature sensor. Accurate control depends on this one.
+- **Room temperature sensor**: Your separate room temperature sensor. Accurate control depends on this one.
 - **Humidity sensor**: Currently just displays the humidity on your dashboard.
 - **Outdoor temperature sensor**: Select your outdoor sensor to let the system know when it's warm outside. Mount it in the shade: a sensor in the sun can keep the heating off on a cold day.
 - **Window sensor**: Select your window sensor so the heating pauses automatically when you open a window.
