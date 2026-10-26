@@ -22,7 +22,12 @@ from .metrics import compute_metrics
 from .multi_trv_plant import MultiTrvPlant, MultiTrvPlantParams, MultiTrvPlantState
 from .plant import PlantParams
 from .reporter import ScenarioResult
-from .runner import _drive_adapter, _plant_time_scale, flow_temperature_at
+from .runner import (
+    _drive_adapter,
+    _plant_time_scale,
+    flow_temperature_at,
+    heat_delivered_at,
+)
 from .scenarios import ScenarioConfig
 
 
@@ -73,6 +78,7 @@ def _stabilise_multi_trv(
     pre_setpoint = scenario.setpoint_schedule(0.0)
     pre_outdoor = scenario.outdoor_schedule(0.0)
     pre_flow = flow_temperature_at(scenario, 0.0)
+    pre_heat_delivered = heat_delivered_at(scenario, 0.0)
     equiv = _equivalent_single_plant(plant.params)
     oracle = IdealOracleAdapter(plant_params=equiv)
     steps = round(stabilisation_min * 60.0 / step_s)
@@ -86,13 +92,20 @@ def _stabilise_multi_trv(
             trv_temperature=sum(plant.state.T_rads) / plant.params.n_trvs,
             outdoor_temperature=pre_outdoor,
             flow_temperature=pre_flow,
+            heat_delivered=pre_heat_delivered,
         )
         out = oracle.step(ctx)
         u_total = (out.valve_percent or 0.0) / 100.0
         # Even pre-warm uses distribute_valve_percent so the radiator
         # state diverges naturally with the sensor offsets.
         u_per_trv = _distribute(u_total * 100.0, plant)
-        plant.step(step_s, u_per_trv, pre_outdoor, flow_temperature=pre_flow)
+        plant.step(
+            step_s,
+            u_per_trv,
+            pre_outdoor,
+            flow_temperature=pre_flow,
+            heat_delivered=pre_heat_delivered,
+        )
 
 
 def _distribute(u_total_percent: float, plant: MultiTrvPlant) -> list[float]:

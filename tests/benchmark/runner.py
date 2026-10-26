@@ -181,6 +181,16 @@ def flow_temperature_at(scenario: ScenarioConfig, t: float) -> float | None:
     return scenario.flow_temperature_schedule(t)
 
 
+def heat_delivered_at(scenario: ScenarioConfig, t: float) -> bool:
+    """Return whether heating water reaches the radiators at ``t``.
+
+    ``True`` when the scenario schedules no heat delivery pause.
+    """
+    if scenario.heat_delivery_schedule is None:
+        return True
+    return scenario.heat_delivery_schedule(t)
+
+
 def _stabilise_plant(
     plant: TwoStatePlant,
     scenario: ScenarioConfig,
@@ -197,11 +207,7 @@ def _stabilise_plant(
     pre_setpoint = scenario.setpoint_schedule(0.0)
     pre_outdoor = scenario.outdoor_schedule(0.0)
     pre_flow = flow_temperature_at(scenario, 0.0)
-    pre_heat_delivered = (
-        scenario.heat_delivery_schedule(0.0)
-        if scenario.heat_delivery_schedule is not None
-        else True
-    )
+    pre_heat_delivered = heat_delivered_at(scenario, 0.0)
     oracle = IdealOracleAdapter(plant_params=scenario.plant)
     steps = round(stabilisation_min * 60.0 / step_s)
     for _ in range(steps):
@@ -400,11 +406,7 @@ def _drive_adapter(
             else solar_intensity
         )
         flow_temperature = flow_temperature_at(scenario, t)
-        heat_delivered = (
-            scenario.heat_delivery_schedule(t)
-            if scenario.heat_delivery_schedule is not None
-            else True
-        )
+        heat_delivered = heat_delivered_at(scenario, t)
         # On dropout the sensor returns None and the input stage holds its
         # last committed value rather than handing over the plant truth.
         room_input.update(t, sensor.read(t, facade.T_room))
