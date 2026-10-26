@@ -472,11 +472,22 @@ async def trigger_trv_change(
             entity_id,
         )
         return
+    # The offered mode list changes at runtime on devices whose
+    # heating/cooling changeover is driven centrally, so every mode is judged
+    # against the currently reported list rather than the startup snapshot.
+    # The adoption precedes every inbound remapping because the state carried
+    # by this event is a state of the capabilities it reports: remapping it
+    # against the previous list decodes it into a mode of a device that no
+    # longer exists, and the entity mode that follows from it is emitted
+    # before any later cache update could correct it.
+    adopt_reported_hvac_modes(trv, _org_trv_state.attributes.get("hvac_modes"))
     # The device's range is read before the report is told apart from BT's
     # own writes: the report that follows BT switching the device on is the
-    # one that carries the range it heats in. A changed range asks for a
-    # cycle of its own, which rewrites a setpoint the old range let through.
-    _range_changed = _adopt_reported_range(self, entity_id, trv, _org_trv_state)
+    # one that carries the range it heats in. It is read from the event's own
+    # report, because the registry may already hold a later report in a mode
+    # whose range does not count. A changed range asks for a cycle of its
+    # own, which rewrites a setpoint the old range let through.
+    _range_changed = _adopt_reported_range(self, entity_id, trv, new_state)
     if event.context == self.context and _reports_only_own_writes(
         self, trv, entity_id, old_state, new_state
     ):
@@ -628,16 +639,6 @@ async def trigger_trv_change(
         if _main_change or _range_changed:
             trv.temperature_moved_while_held = True
         return
-
-    # The offered mode list changes at runtime on devices whose
-    # heating/cooling changeover is driven centrally, so every mode is judged
-    # against the currently reported list rather than the startup snapshot.
-    # The adoption precedes the inbound remapping below because the state
-    # carried by this event is a state of the capabilities it reports:
-    # remapping it against the previous list decodes it into a mode of a
-    # device that no longer exists, and the entity mode that follows from it
-    # is emitted before any later cache update could correct it.
-    adopt_reported_hvac_modes(trv, _org_trv_state.attributes.get("hvac_modes"))
 
     mapped_state = convert_inbound_states(self, entity_id, _org_trv_state)
 
