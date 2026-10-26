@@ -370,8 +370,7 @@ not assume a hot, fast, instantly-responding radiator.
 
 S39 and S40 run on `PROFILE_HEAT_PUMP_CURVE`, whose radiator is sized for
 low flow temperatures (three times the standard radiator-to-room
-coupling). Its `T_water` of 35 °C is the value an installer would enter for
-the room; the scenario's `flow_temperature_schedule` sets the water that
+coupling). Its `T_water` of 35 °C is the nominal flow temperature; the scenario's `flow_temperature_schedule` sets the water that
 actually reaches the radiator, and `heat_delivery_schedule` switches the
 heat off. The oracle reads the actual flow temperature from the context,
 so the two scenarios score a controller against one that knows it.

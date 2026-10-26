@@ -184,7 +184,7 @@ def _plant_water_temperature(adapter: MpcV2Adapter, nominal: float) -> float:
 
 
 def test_the_configured_variant_runs_on_the_nominal_flow_temperature() -> None:
-    """``configure_flow_temperature`` hands the controller the installer's value."""
+    """``configure_flow_temperature`` hands the controller the nominal value."""
     configured = MpcV2Adapter(configure_flow_temperature=True)
     assert configured.name == "mpc_v2+flow_temperature"
     assert _plant_water_temperature(configured, 35.0) == 35.0

@@ -8,8 +8,8 @@ keeps its own ``MpcV2State`` so concurrent instances never share learned state.
 The plant prior is built the way production builds it for a room on the AUTO
 preset before any heat-loss learning or offline re-identification exists:
 ``make_plant_prior()`` with no inputs. With ``configure_flow_temperature`` the
-prior carries the flow temperature an installer enters for the room, the
-context's ``nominal_flow_temperature``; without it the prior keeps the default.
+prior carries the context's ``nominal_flow_temperature``, as if the flow
+temperature were known; without it the prior keeps the 65 °C production uses.
 
 This is benchmark-only code: never imported by production.
 """

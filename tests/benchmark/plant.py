@@ -248,8 +248,8 @@ PROFILE_BOILER_LIMITED = PlantParams(
 # Heat pump on a heating curve: radiators sized for low flow temperatures,
 # three times STANDARD's radiator-to-room coupling, so that about 40 °C
 # flow holds 21 °C at -10 °C outdoor with the valve about 60 % open.
-# ``T_water`` is the flow temperature an installer would configure for the
-# room; a scenario's flow temperature schedule moves the real one.
+# ``T_water`` is the nominal flow temperature the radiator is sized for; a
+# scenario's flow temperature schedule moves the real one.
 PROFILE_HEAT_PUMP_CURVE = PlantParams(
     tau_room_min=480.0,
     tau_rad_min=15.0,

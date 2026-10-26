@@ -309,8 +309,8 @@ def _drive_adapter(
     the plant, which the facade encapsulates. With ``learned_sensor`` an
     adapter that offers ``adopt_sensor`` is handed the room sensor's
     parameters before the first step. ``nominal_flow_temperature`` is the
-    simulated plant's ``T_water``, which the context reports as the value an
-    installer configures.
+    simulated plant's ``T_water``, which the context reports as the nominal
+    flow temperature.
     """
     sensor_params = scenario.sensor_params or REALISTIC_SENSOR_PARAMS
     # Derive a stable per-scenario seed so sensor noise/jitter is

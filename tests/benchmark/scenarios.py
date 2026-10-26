@@ -544,7 +544,7 @@ def _build_heat_pump_week(
 
     The curve rises 0.6 K per kelvin of frost below 21 °C, so the flow
     temperature follows the synthetic weather between about 30 and 45 °C.
-    The plant's ``T_water`` stays at the 35 °C an installer would configure.
+    The plant's ``T_water`` stays at the nominal 35 °C.
     """
     week = _build_synthetic_weather_scenario(
         name=name, climate=CHICAGO_LIKE, seed=39, start_day_of_year=14

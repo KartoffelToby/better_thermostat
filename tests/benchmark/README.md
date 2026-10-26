@@ -225,15 +225,14 @@ This is the closer-to-reality benchmark for **multi-radiator rooms**
 (living rooms, larger kitchens) — common in residential setups. For
 single-radiator rooms the single-TRV matrix is the relevant one.
 
-### Configured flow temperature (`mpc_v2+flow_temperature`)
+### Known flow temperature (`mpc_v2+flow_temperature`)
 
-MPC v2 with the flow temperature an installer enters for the room
-(`mpc_v2_flow_temperature`), taken from the scenario plant's `T_water`.
-The plain `mpc_v2` row keeps the 65 °C default, as a room where nobody
-entered a value. The two rows differ only on plants whose `T_water` is not
-65 °C. On S39 and S40 the heating curve moves the real flow temperature
-around the configured 35 °C; no controller sees that movement except the
-oracle.
+MPC v2 with its plant model set to the scenario plant's `T_water`, as if it
+were given the nominal flow temperature. The plain `mpc_v2` row models
+65 °C, as the integration does. The two rows differ only on plants whose
+`T_water` is not 65 °C. On S39 and S40 the heating curve moves the real flow
+temperature around the nominal 35 °C; no controller sees that movement
+except the oracle.
 
 ### Indirect TRVs (`pid+indirect_trv`, `tpi+indirect_trv`, `mpc+indirect_trv`, `mpc_v2+indirect_trv`)
 
