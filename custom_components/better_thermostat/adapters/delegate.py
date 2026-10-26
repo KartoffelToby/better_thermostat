@@ -21,6 +21,11 @@ from custom_components.better_thermostat.utils.helpers import (
     sibling_disabled_at_write,
 )
 
+from ..model_fixes.model_quirks import (
+    local_calibration_inverted,
+    offset_from_device,
+    offset_to_device,
+)
 from ..model_fixes.types import ValveChannelQuirk, ValveQuirk
 from ..utils.retry import (
     DeviceCallTimeoutError,
@@ -158,8 +163,11 @@ async def init(self: AdapterHost, entity_id: str) -> None:
 
 @async_retry(retries=5)
 async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
-    """Get current offset."""
-    return await _adapter(self, entity_id).get_calibration_offset(self, entity_id)
+    """Get current offset, in Better Thermostat's convention."""
+    device_offset = await _adapter(self, entity_id).get_calibration_offset(
+        self, entity_id
+    )
+    return offset_from_device(self, entity_id, device_offset)
 
 
 @async_retry(retries=5)
@@ -170,14 +178,32 @@ async def get_calibration_offset_step(self: AdapterHost, entity_id: str) -> floa
 
 @async_retry(retries=5)
 async def get_min_calibration_offset(self: AdapterHost, entity_id: str) -> float:
-    """Get min offset."""
-    return await _adapter(self, entity_id).get_min_calibration_offset(self, entity_id)
+    """Get min offset, in Better Thermostat's convention.
+
+    For a device that negates its offset this is the negation of the
+    highest offset the device accepts.
+    """
+    adapter = _adapter(self, entity_id)
+    if local_calibration_inverted(self, entity_id):
+        return offset_from_device(
+            self, entity_id, await adapter.get_max_calibration_offset(self, entity_id)
+        )
+    return await adapter.get_min_calibration_offset(self, entity_id)
 
 
 @async_retry(retries=5)
 async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> float:
-    """Get max offset."""
-    return await _adapter(self, entity_id).get_max_calibration_offset(self, entity_id)
+    """Get max offset, in Better Thermostat's convention.
+
+    For a device that negates its offset this is the negation of the
+    lowest offset the device accepts.
+    """
+    adapter = _adapter(self, entity_id)
+    if local_calibration_inverted(self, entity_id):
+        return offset_from_device(
+            self, entity_id, await adapter.get_min_calibration_offset(self, entity_id)
+        )
+    return await adapter.get_max_calibration_offset(self, entity_id)
 
 
 def setpoint_write_step(self: BetterThermostat, entity_id: str) -> float:
@@ -571,7 +597,9 @@ async def set_calibration_offset(
     entity_id : str
         Entity ID of the TRV to write to
     calibration_offset : float
-        The offset asked for, before the adapter's own range clamp
+        The offset asked for, in Better Thermostat's convention and before
+        the adapter's own range clamp; a device that negates its offset is
+        written the negation
 
     Returns
     -------
@@ -586,7 +614,12 @@ async def set_calibration_offset(
     write = _adapter(self, entity_id).set_calibration_offset
     try:
         wrote = await _write_on_channel(
-            self, entity_id, "offset", "calibration offset", write, calibration_offset
+            self,
+            entity_id,
+            "offset",
+            "calibration offset",
+            write,
+            offset_to_device(self, entity_id, calibration_offset),
         )
     except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
         return False
