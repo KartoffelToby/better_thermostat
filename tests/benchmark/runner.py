@@ -197,6 +197,11 @@ def _stabilise_plant(
     pre_setpoint = scenario.setpoint_schedule(0.0)
     pre_outdoor = scenario.outdoor_schedule(0.0)
     pre_flow = flow_temperature_at(scenario, 0.0)
+    pre_heat_delivered = (
+        scenario.heat_delivery_schedule(0.0)
+        if scenario.heat_delivery_schedule is not None
+        else True
+    )
     oracle = IdealOracleAdapter(plant_params=scenario.plant)
     steps = round(stabilisation_min * 60.0 / step_s)
     for _ in range(steps):
@@ -209,10 +214,17 @@ def _stabilise_plant(
             trv_temperature=plant.state.T_rad,
             outdoor_temperature=pre_outdoor,
             flow_temperature=pre_flow,
+            heat_delivered=pre_heat_delivered,
         )
         out = oracle.step(ctx)
         u = (out.valve_percent or 0.0) / 100.0
-        plant.step(step_s, u, pre_outdoor, flow_temperature=pre_flow)
+        plant.step(
+            step_s,
+            u,
+            pre_outdoor,
+            flow_temperature=pre_flow,
+            heat_delivered=pre_heat_delivered,
+        )
 
 
 class PlantFacade(Protocol):

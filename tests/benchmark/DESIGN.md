@@ -273,7 +273,7 @@ controller wins, not just the overall.
 
 ## §7 — Scenario taxonomy: what is covered and why
 
-The 36 scenarios are not arbitrary. Each probes a specific stress that a
+The 38 scenarios are not arbitrary. Each probes a specific stress that a
 real Better Thermostat install encounters. They group into families;
 within a family, scenarios vary magnitude or plant to expose where a
 controller breaks.
