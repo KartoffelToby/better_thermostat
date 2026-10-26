@@ -86,13 +86,22 @@ The **MPC v2 room size** option sets the room model it starts from. *Auto* deriv
 
 Under *Auto* the room model follows the learned heat-loss rate. When it moves, or when you switch the room size, MPC v2 carries its estimates of the room over to the new model and continues from there instead of starting over.
 
-MPC v2 has no flow temperature option. Its room model assumes radiators sized for the flow temperature they run at. In simulation, it keeps a room heated by a heat pump or a weather-compensated boiler as close to the target as a room heated by a boiler. Better Thermostat does not read a flow temperature sensor. While a heat pump heats domestic hot water, the radiators cool down, and the room temperature dips briefly; Better Thermostat cannot compensate for that.
-
 MPC v2 plans a new valve opening at most every 1.5 to 5 minutes, depending on how fast the room model is, and keeps sending that opening until the next plan. A valve position the TRV reports in between feeds the room model and the next plan, but does not replace the planned opening. The TRV's *Valve Max Opening* is the upper limit of every plan, so a valve held at that limit while the room stays just below the target does not build up demand that would overheat the room once the limit no longer binds.
 
 Many room sensors send a new value only after the temperature has changed by a fixed step. MPC v2 recognises that step from the values your sensor reports. Until a new value arrives, it treats the last one as "the room is still within one step of it", not as an exact measurement. The coarser the step, the more calmly MPC v2 moves the valve, which saves valve wear and battery. In simulation, a sensor that reports every 0.1 °C keeps the room closest to the target temperature; coarser sensors reduce valve movement but do not reduce the deviation. If your sensor lets you set how small a change it reports, choose 0.1 °C.
 
 Its estimates show up in the *MPC v2 Virtual Temperature*, *MPC v2 Coupling*, *MPC v2 Disturbance* and *MPC v2 Room Time Constant* sensors. They start disabled on new installations; see [Entities](/setup/entities/#mpc-v2).
+
+#### Why MPC v2 does not use the flow temperature
+
+It seems obvious that MPC v2 would control better if it knew the flow temperature, the temperature of the heating water that reaches the radiators. A heat pump or a weather-compensated boiler runs at 30 to 45 °C for most of the season, while MPC v2 models a boiler at 65 °C. The project's benchmark simulates rooms with both kinds of heat source, and it does not bear the idea out:
+
+- **A fixed value does not help.** How far the valve has to open to hold the room depends on how large the radiator is compared to the flow temperature, not on the flow temperature alone. A radiator sized for a heat pump at 35 °C gives about as much heat per percent of valve opening as a smaller radiator at 65 °C, and that is what MPC v2 models. When the benchmark gave MPC v2 the correct 35 °C but kept its boiler-sized radiator, the room deviated more than twice as much from the target and the valve moved almost four times as far. When the radiator size in the model followed the flow temperature, the result was the same as with 65 °C.
+- **Better Thermostat cannot know the radiator size.** Entering the flow temperature helped only where the radiators were too small for it. You cannot tell which of the two cases your installation is, so there is no value you could enter safely.
+- **A flow temperature sensor helps little, and only with the right radiator size.** On a heating curve, the flow temperature follows the weather. Read live from a sensor, it lowered the mean deviation from the target from 0.044 to 0.028 K, less than a room sensor resolves, and reduced valve movement by about 45 %. That holds only when the radiator size in the model is right, which brings back the radiator-size problem.
+- **Hot water dips cannot be compensated.** While a heat pump heats domestic hot water, no heat reaches the radiators. Every controller in the benchmark lost the same amount there, including a reference controller that knows the exact flow temperature.
+
+If a room does not reach its target because the flow temperature is too low, the radiators are too small for that flow temperature. Raise the heating curve or the flow temperature at the heat source; no valve position can make up for heat that does not arrive.
 
 ---
 
