@@ -44,7 +44,6 @@ from custom_components.better_thermostat.utils.helpers import (
     device_released,
     entry_issue_id,
     is_reasonable_temperature,
-    state_temperature_unit,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
@@ -141,6 +140,29 @@ def is_trv_available(self: BetterThermostat, entity_id: str) -> bool:
     )
 
 
+def room_sensor_unit(state: State, system_unit: str) -> str:
+    """Return the unit a room sensor state reports its temperature in.
+
+    A sensor states its unit in ``unit_of_measurement``; any other unit
+    attribute it carries does not describe its state. A sensor that names
+    no unit reports in the Home Assistant system unit.
+
+    Parameters
+    ----------
+    state : State
+        The state the room sensor publishes
+    system_unit : str
+        The configured system temperature unit, used as fallback
+
+    Returns
+    -------
+    str
+        The unit of the state's value
+    """
+    unit = state.attributes.get("unit_of_measurement")
+    return unit if isinstance(unit, str) else system_unit
+
+
 def room_sensor_reading(self: BetterThermostat, state: State | None) -> float | None:
     """Return the room temperature a room sensor state carries.
 
@@ -168,8 +190,8 @@ def room_sensor_reading(self: BetterThermostat, state: State | None) -> float | 
         state.state,
         self.device_name,
         "room_sensor_reading()",
-        unit_of_measurement=state_temperature_unit(
-            state.attributes, self.hass.config.units.temperature_unit
+        unit_of_measurement=room_sensor_unit(
+            state, self.hass.config.units.temperature_unit
         ),
     )
     if not is_reasonable_temperature(value):

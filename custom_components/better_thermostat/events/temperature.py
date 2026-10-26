@@ -32,10 +32,12 @@ from custom_components.better_thermostat.utils.helpers import (
     entry_issue_id,
     is_reasonable_temperature,
     state_is_live,
-    state_temperature_unit,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
-from custom_components.better_thermostat.utils.watcher import room_sensor_reading
+from custom_components.better_thermostat.utils.watcher import (
+    room_sensor_reading,
+    room_sensor_unit,
+)
 
 if TYPE_CHECKING:
     from homeassistant.core import Event, EventStateChangedData
@@ -373,8 +375,8 @@ async def trigger_temperature_change(
         new_state.state,
         self.device_name,
         "external_temperature",
-        unit_of_measurement=state_temperature_unit(
-            new_state.attributes, self.hass.config.units.temperature_unit
+        unit_of_measurement=room_sensor_unit(
+            new_state, self.hass.config.units.temperature_unit
         ),
     )
     # Quantize to 2 decimals to avoid floating-point artifacts

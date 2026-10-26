@@ -2386,6 +2386,13 @@ class TestRoomSensorReading:
                 20.0,
                 id="fahrenheit-sensor-on-celsius",
             ),
+            pytest.param(
+                "°C",
+                {"unit_of_measurement": "°F", "temperature_unit": "°C"},
+                "68",
+                20.0,
+                id="unit-of-measurement-over-other-unit-attribute",
+            ),
         ],
     )
     def test_the_reading_is_in_celsius(
