@@ -145,7 +145,7 @@ def room_sensor_unit(state: State, system_unit: str) -> str:
 
     A sensor states its unit in ``unit_of_measurement``; any other unit
     attribute it carries does not describe its state. A sensor that names
-    no unit reports in the Home Assistant system unit.
+    no unit, or an empty one, reports in the Home Assistant system unit.
 
     Parameters
     ----------
@@ -160,7 +160,7 @@ def room_sensor_unit(state: State, system_unit: str) -> str:
         The unit of the state's value
     """
     unit = state.attributes.get("unit_of_measurement")
-    return unit if isinstance(unit, str) else system_unit
+    return unit if isinstance(unit, str) and unit else system_unit
 
 
 def room_sensor_reading(self: BetterThermostat, state: State | None) -> float | None:

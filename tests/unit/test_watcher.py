@@ -2374,6 +2374,13 @@ class TestRoomSensorReading:
             pytest.param("°C", {}, "20", 20.0, id="unitless-on-celsius"),
             pytest.param(
                 "°F",
+                {"unit_of_measurement": ""},
+                "68",
+                20.0,
+                id="empty-unit-on-fahrenheit",
+            ),
+            pytest.param(
+                "°F",
                 {"unit_of_measurement": "°C"},
                 "20",
                 20.0,
