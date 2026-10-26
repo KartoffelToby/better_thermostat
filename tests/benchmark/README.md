@@ -209,17 +209,23 @@ scenario.
 
 ### Multi-TRV (`--multi-trv`)
 
-Parallel radiators share one room state; BT's
-`distribute_valve_percent` heuristic splits the single-output u across
-them. Plant variants run independently — `multi-symmetric`,
-`multi-asymmetric` (position-induced sensor offsets),
+Parallel radiators share one room state, and each gets the controller's
+single output u, as BT gives every TRV of a group the same command.
+Plant variants run independently — `multi-symmetric`,
+`multi-asymmetric` (radiators of different size and coupling),
 `multi-heterogeneous` (one TRV has a wide actuator deadband). Each
 emits its own score matrix.
 
-What it tests: does the controller's output shape *survive* the
-distribution stage? Multi-TRV often inverts the single-TRV ranking —
-smooth outputs (TPI, MPC) tend to distribute cleanly across the
+What it tests: does the controller's output shape *survive* radiators
+that answer it differently? Multi-TRV often inverts the single-TRV
+ranking — smooth outputs (TPI, MPC) carry over cleanly across the
 radiators, while aggressive ones (PID, BangBang) divergence-amplify.
+
+The room is one node, so the plant cannot show a TRV in a colder part of
+the room. Splitting u by the TRVs' own readings (8 % per K below the
+warmest TRV) scored lower than the even split on `multi-asymmetric` and
+`multi-heterogeneous` for MPC v1, MPC v2 and TPI, and the same on
+`multi-symmetric`.
 
 This is the closer-to-reality benchmark for **multi-radiator rooms**
 (living rooms, larger kitchens) — common in residential setups. For

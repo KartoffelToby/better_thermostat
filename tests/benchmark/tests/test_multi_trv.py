@@ -53,13 +53,6 @@ def test_plant_init_validates_coupling_length():
         MultiTrvPlant(params=bad, initial=_initial())
 
 
-def test_plant_init_validates_offset_length():
-    """Plant init validates offset length."""
-    bad = MultiTrvPlantParams(n_trvs=3, trv_sensor_offsets_K=[0.0])
-    with pytest.raises(ValueError, match="trv_sensor_offsets_K"):
-        MultiTrvPlant(params=bad, initial=_initial())
-
-
 def test_step_rejects_wrong_u_length():
     """Step rejects wrong u length."""
     plant = MultiTrvPlant(PROFILE_MULTI_SYMMETRIC, _initial())
@@ -104,17 +97,6 @@ def test_heterogeneous_profile_zeroes_deadband_trv():
         plant.step(dt_s=30.0, u_per_trv=[0.10, 0.10, 0.10], T_outdoor=10.0)
     assert plant.state.T_rads[0] > plant.state.T_rads[1]
     assert plant.state.T_rads[2] > plant.state.T_rads[1]
-
-
-def test_reported_temps_apply_sensor_offset():
-    """Reported temps apply sensor offset."""
-    plant = MultiTrvPlant(PROFILE_MULTI_ASYMMETRIC, _initial(T0=20.0))
-    reported = plant.reported_trv_temps()
-    actual = plant.state.T_rads
-    # Asymmetric profile: offsets [-1.5, 0.0, 0.5]
-    assert math.isclose(reported[0], actual[0] - 1.5)
-    assert math.isclose(reported[1], actual[1])
-    assert math.isclose(reported[2], actual[2] + 0.5)
 
 
 def test_valve_clamping_below_zero_and_above_one():

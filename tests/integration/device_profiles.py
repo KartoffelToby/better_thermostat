@@ -661,8 +661,9 @@ VALVE_GROUP_COLD = DeviceProfile(
 )
 """The head by the draughty window, three Kelvin colder than its partner.
 
-Same model as its partner and different only in what it measures, so the
-opening the two are commanded can differ for one reason alone.
+Same model as its partner and different only in what it measures, so a
+difference between the openings the two are commanded could come from that
+reading alone.
 """
 
 VALVE_GROUP = GroupScenario(
@@ -670,9 +671,8 @@ VALVE_GROUP = GroupScenario(
 )
 """A room whose two heads are driven by valve position rather than setpoint.
 
-Distributing one group-level valve command across the heads is the only
-calibration path that reads more than one head's temperature, and it runs
-under the MPC modes alone.
+One group-level valve command reaches both heads, and it runs under the MPC
+modes alone.
 """
 
 HEAT_ONLY = RoleScenario(

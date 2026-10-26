@@ -1,6 +1,6 @@
 """Integration-level tests for ``_compute_mpc_v2_balance`` dispatch.
 
-Covers the multi-TRV branch (group key + ``distribute_valve_percent``)
+Covers the multi-TRV branch (group key, one command for every TRV)
 that the controller-level tests can't exercise — the dispatcher reads
 ``self.real_trvs``, ``self.heat_target_temperature`` and friends off the BT entity.
 """
@@ -154,8 +154,8 @@ def _make_trv(
     )
 
 
-def test_multi_trv_distributes_group_valve() -> None:
-    """Cold TRV gets more opening than warm TRV out of the same group %."""
+def test_multi_trv_gives_every_trv_the_group_valve() -> None:
+    """A cold and a warm TRV both get the group command as their opening."""
     real_trvs = {
         "climate.living_cold": _make_trv(
             "climate.living_cold", current_temperature=19.0, supports_valve=True
@@ -168,8 +168,8 @@ def test_multi_trv_distributes_group_valve() -> None:
 
     # Dispatch each TRV. The group MPC controller is stateful and advances one
     # step per dispatch, so the two calls observe slightly different group
-    # commands; the cold-favouring split is therefore asserted directly on
-    # distribute_valve_percent below rather than across the two outputs.
+    # commands; each TRV's share is therefore compared with the group command
+    # of its own dispatch.
     out_cold, _ = _compute_mpc_v2_balance(bt, "climate.living_cold")
     out_warm, _ = _compute_mpc_v2_balance(bt, "climate.living_warm")
 
@@ -181,19 +181,19 @@ def test_multi_trv_distributes_group_valve() -> None:
     assert cal_cold["debug"]["controller_version"] == "v2"
     assert cal_warm["debug"]["controller_version"] == "v2"
 
-    # The cold-favouring split is verified through the dispatcher's own
-    # per-TRV distributed output (the real wiring), not a standalone call.
-    assert _debug_number(cal_cold, "distributed_valve_pct") >= _debug_number(
-        cal_warm, "distributed_valve_pct"
-    )
+    # Neither TRV's reading moves its share off the group command.
+    for cal in (cal_cold, cal_warm):
+        assert _debug_number(cal, "distributed_valve_pct") == _debug_number(
+            cal, "group_valve_pct"
+        )
 
 
 def test_multi_trv_clamps_to_per_trv_max_opening() -> None:
-    """A boosted cold TRV is clamped to its own configured max opening.
+    """A TRV with a lower cap is clamped to its own configured max opening.
 
-    The controller only sees the warmest TRV's cap, so the distribution can
-    hand the cold TRV a share above its own limit; the dispatcher must clamp
-    the per-TRV command to that TRV's ``valve_max_opening``.
+    The controller only sees the warmest TRV's cap, so the group command can
+    lie above another TRV's limit; the dispatcher must clamp the per-TRV
+    command to that TRV's ``valve_max_opening``.
     """
     real_trvs = {
         "climate.living_cold": _make_trv(
@@ -214,15 +214,43 @@ def test_multi_trv_clamps_to_per_trv_max_opening() -> None:
 
     assert out_cold is not None
     cal_cold = _published_balance(real_trvs["climate.living_cold"])
-    # The group command exceeds the cold TRV's cap, so the clamp is exercised
-    # (the distribution only ever adds to the group value for a colder TRV).
+    # The group command exceeds the cold TRV's cap, so the clamp is exercised.
     assert _debug_number(cal_cold, "group_valve_pct") > 40.0
     assert cal_cold["valve_percent"] == 40
     assert out_cold.valve_percent == 40
 
 
-def test_single_trv_passes_through_without_distribution() -> None:
-    """One TRV ⇒ no distribute_valve_percent splitting, group == per-TRV."""
+def test_one_trvs_cap_does_not_hold_back_the_others() -> None:
+    """A TRV capped low does not cap the TRVs of its group that are not.
+
+    The capped TRV is the warmest, so a controller held to the warmest TRV's
+    cap would hold every TRV of the group to it.
+    """
+    real_trvs = {
+        "climate.living_cold": _make_trv(
+            "climate.living_cold", current_temperature=15.0, supports_valve=True
+        ),
+        "climate.living_warm": _make_trv(
+            "climate.living_warm",
+            current_temperature=22.0,
+            supports_valve=True,
+            valve_max_opening=40.0,
+        ),
+    }
+    bt = _make_bt(real_trvs=real_trvs)
+    bt.heat_target_temperature = 25.0
+    bt.room_temperature = 15.0
+
+    out_cold, _ = _compute_mpc_v2_balance(bt, "climate.living_cold")
+    out_warm, _ = _compute_mpc_v2_balance(bt, "climate.living_warm")
+
+    assert out_cold is not None and out_warm is not None
+    assert out_cold.valve_percent > 40
+    assert out_warm.valve_percent == 40
+
+
+def test_single_trv_passes_the_group_valve_through() -> None:
+    """One TRV ⇒ group == per-TRV."""
     real_trvs = {
         "climate.solo": _make_trv(
             "climate.solo", current_temperature=19.0, supports_valve=True

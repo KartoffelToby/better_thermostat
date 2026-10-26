@@ -14,7 +14,6 @@ import pytest
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_module
 from custom_components.better_thermostat.utils.calibration.mpc import (
-    DISTRIBUTE_COMPENSATION_PCT_PER_K,
     MpcDebugInfo,
     MpcInput,
     MpcOutput,
@@ -32,7 +31,6 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     build_mpc_group_key,
     build_mpc_key,
     compute_mpc as _compute_mpc_raw,
-    distribute_valve_percent,
     sanitize_mpc_state,
 )
 from custom_components.better_thermostat.utils.state_manager import deserialize_mpc
@@ -1664,75 +1662,6 @@ class TestBuildMpcGroupKey:
 
 
 # ===================================================================
-# 15. DISTRIBUTE VALVE PERCENT (multi-TRV compensation)
-# ===================================================================
-
-
-class TestDistributeValvePercent:
-    """Tests for distribute_valve_percent."""
-
-    def test_empty_dict(self):
-        """Empty TRV dict returns empty result."""
-        assert distribute_valve_percent(50.0, {}) == {}
-
-    def test_single_trv_passthrough(self):
-        """Single TRV returns the group percentage unchanged."""
-        result = distribute_valve_percent(60.0, {"trv_a": 20.0})
-        assert result["trv_a"] == pytest.approx(60.0)
-
-    def test_zero_command_gives_zero(self):
-        """When group command is 0%, all TRVs get 0%."""
-        result = distribute_valve_percent(0.0, {"a": 18.0, "b": 25.0})
-        assert all(v == pytest.approx(0.0) for v in result.values())
-
-    def test_uniform_same_temps(self):
-        """TRVs with same temperature get uniform distribution."""
-        result = distribute_valve_percent(50.0, {"a": 20.0, "b": 20.0})
-        assert result["a"] == pytest.approx(50.0)
-        assert result["b"] == pytest.approx(50.0)
-
-    def test_colder_trv_gets_boost(self):
-        """Colder TRV gets higher valve % than warmer one."""
-        result = distribute_valve_percent(50.0, {"warm": 22.0, "cold": 19.0})
-        # Warmest TRV = reference, gets baseline
-        assert result["warm"] == pytest.approx(50.0)
-        # cold is 3K below warm, boost = 3 * COMPENSATION_PCT_PER_K
-        expected_cold = min(100.0, 50.0 + 3.0 * DISTRIBUTE_COMPENSATION_PCT_PER_K)
-        assert result["cold"] == pytest.approx(expected_cold)
-
-    def test_none_temps_get_baseline(self):
-        """TRVs with None temperature get the baseline (no boost)."""
-        result = distribute_valve_percent(50.0, {"a": 22.0, "b": None})
-        assert result["a"] == pytest.approx(50.0)
-        assert result["b"] == pytest.approx(50.0)
-
-    def test_all_none_temps_uniform(self):
-        """All None temps produce uniform distribution."""
-        result = distribute_valve_percent(40.0, {"a": None, "b": None})
-        assert result["a"] == pytest.approx(40.0)
-        assert result["b"] == pytest.approx(40.0)
-
-    def test_result_clamped_to_100(self):
-        """Boost should not exceed 100%."""
-        # Cold TRV with high baseline: boost pushes above 100
-        result = distribute_valve_percent(90.0, {"warm": 25.0, "cold": 15.0})
-        assert result["cold"] <= 100.0
-
-    def test_result_not_negative(self):
-        """Result should never be negative."""
-        result = distribute_valve_percent(0.0, {"a": 20.0, "b": 18.0})
-        assert all(v >= 0.0 for v in result.values())
-
-    def test_warmest_is_reference(self):
-        """The warmest TRV always receives exactly the MPC output."""
-        for percent in [0.0, 25.0, 50.0, 75.0, 100.0]:
-            result = distribute_valve_percent(
-                percent, {"cold": 18.0, "warm": 22.0, "mid": 20.0}
-            )
-            assert result["warm"] == pytest.approx(percent)
-
-
-# ===================================================================
 # 16. KALMAN FILTER (virtual temperature)
 # ===================================================================
 
@@ -2395,23 +2324,6 @@ class TestTargetChangeBoundary:
         # but the key is that target_changed didn't block it)
         # Checking debug would be ideal but we at least check no crash
         assert state.gain_est is not None
-
-
-# ===================================================================
-# 28. DISTRIBUTE VALVE PERCENT — NEGATIVE INPUT
-# ===================================================================
-
-
-class TestDistributeNegativeInput:
-    """Tests for distribute_valve_percent with negative u_total_percent."""
-
-    def test_negative_u_total_clamped_to_zero(self):
-        """Negative u_total_percent should be clamped to 0% for all TRVs."""
-        result = distribute_valve_percent(-10.0, {"a": 20.0, "b": 18.0})
-        assert all(v >= 0.0 for v in result.values())
-        # Fast-path returns max(0, min(100, u_total_percent)) for each when u_total_percent <= 0
-        assert result["a"] == pytest.approx(0.0)
-        assert result["b"] == pytest.approx(0.0)
 
 
 # ===================================================================
