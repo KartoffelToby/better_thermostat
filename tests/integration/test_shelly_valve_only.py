@@ -7,15 +7,17 @@ from unittest.mock import patch
 from homeassistant.components.climate import HVACMode
 from homeassistant.core import Context
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 import pytest
 
 from custom_components.better_thermostat.adapters import shelly
 from custom_components.better_thermostat.utils import controlling
+from custom_components.better_thermostat.utils.calibration.plant_preset import (
+    MpcV2PlantPreset,
+)
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
-    CONF_MPC_V2_FLOW_TEMPERATURE,
+    CONF_MPC_V2_PLANT_PRESET,
     CalibrationMode,
     CalibrationOutput,
 )
@@ -300,7 +302,6 @@ async def test_valve_outage_does_not_fall_back_to_the_thermostat(hass, fake_trv)
     ids=profile_id,
 )
 @pytest.mark.parametrize("options", [False, True], ids=["create", "options"])
-@pytest.mark.parametrize("fahrenheit", [False, True], ids=["celsius", "fahrenheit"])
 @pytest.mark.parametrize("accepted_output", list(CalibrationOutput))
 @pytest.mark.parametrize(
     "algorithm",
@@ -311,12 +312,9 @@ async def test_valve_outage_does_not_fall_back_to_the_thermostat(hass, fake_trv)
     ],
 )
 async def test_flow_requires_an_algorithm_with_valve_output(
-    hass, fake_trv, options, algorithm, accepted_output, fahrenheit
+    hass, fake_trv, options, algorithm, accepted_output
 ):
     """A BLU valve configuration must not save a controller with no valve output."""
-    if fahrenheit:
-        hass.config.units = US_CUSTOMARY_SYSTEM
-    flow_temperature = 104.0 if fahrenheit else 40.0
     set_room_sensor(hass, 18.0)
     if options:
         entry = make_entry(fake_trv.profile)
@@ -349,7 +347,7 @@ async def test_flow_requires_an_algorithm_with_valve_output(
         {
             CONF_CALIBRATION: CalibrationOutput.DIRECT_VALVE_BASED,
             CONF_CALIBRATION_MODE: algorithm,
-            CONF_MPC_V2_FLOW_TEMPERATURE: flow_temperature,
+            CONF_MPC_V2_PLANT_PRESET: MpcV2PlantPreset.LARGE_ROOM,
         },
     )
     assert result["type"] is FlowResultType.FORM
@@ -357,11 +355,7 @@ async def test_flow_requires_an_algorithm_with_valve_output(
     assert result["errors"] == {CONF_CALIBRATION_MODE: "valve_only_calibration_mode"}
     assert result["last_step"] is options
     assert result["description_placeholders"] == placeholders
-    assert form_default(result, CONF_MPC_V2_FLOW_TEMPERATURE) == flow_temperature
-    field = result["data_schema"].schema[CONF_MPC_V2_FLOW_TEMPERATURE]
-    assert field.config["unit_of_measurement"] == ("°F" if fahrenheit else "°C")
-    assert field.config["min"] == (77.0 if fahrenheit else 25.0)
-    assert field.config["max"] == (194.0 if fahrenheit else 90.0)
+    assert form_default(result, CONF_MPC_V2_PLANT_PRESET) == MpcV2PlantPreset.LARGE_ROOM
     result = await manager.async_configure(
         result["flow_id"],
         {

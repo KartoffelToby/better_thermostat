@@ -1,9 +1,8 @@
-"""The configurable parts of the MPC v2 plant prior.
+"""The plant-prior presets and the flow temperature of MPC v2.
 
-The preset enum and the flow-temperature defaults sit outside the ``mpc_v2``
-package so the configuration constants can name them without importing the
-controller and, through it, numpy. Like ``mpc_v2`` this module imports
-nothing from Home Assistant.
+They sit outside the ``mpc_v2`` package so the configuration constants and
+the stored state can name them without importing the controller and, through
+it, numpy. Like ``mpc_v2`` this module imports nothing from Home Assistant.
 """
 
 from __future__ import annotations
@@ -11,13 +10,9 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Final
 
-# Supply water temperature the plant prior assumes, in °C, when none is
-# configured: a boiler running a fixed heating curve.
+# Flow temperature the plant prior assumes, in °C: a boiler running a fixed
+# heating curve.
 DEFAULT_FLOW_TEMPERATURE: Final = 65.0
-
-# The flow temperatures the configuration accepts, in °C and inclusive at both
-# ends: from a heat pump on a mild day to a boiler at its limit.
-FLOW_TEMPERATURE_BOUNDS: Final = (25.0, 90.0)
 
 
 class MpcV2PlantPreset(StrEnum):

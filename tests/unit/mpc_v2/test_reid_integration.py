@@ -860,15 +860,7 @@ def test_a_fit_that_cannot_be_scheduled_frees_the_next_attempt(caplog) -> None:
 # -- Missing state store ------------------------------------------------------
 
 
-# -- Configured flow temperature ----------------------------------------------
-
-
-def _hass_in(unit: str) -> SimpleNamespace:
-    """Return a hass double whose system unit is ``unit``."""
-    return SimpleNamespace(
-        config=SimpleNamespace(units=SimpleNamespace(temperature_unit=unit)),
-        async_add_executor_job=lambda func, *args: _FakeFuture(func(*args)),
-    )
+# -- Flow temperature ---------------------------------------------------------
 
 
 def _live_controller(bt: Any) -> Any:
@@ -878,71 +870,22 @@ def _live_controller(bt: Any) -> Any:
     return live.controller
 
 
-@pytest.mark.parametrize(
-    ("stored", "unit", "flow_temperature"),
-    [
-        (40.0, "°C", 40.0),
-        (104.0, "°F", 40.0),
-        ("45", "°C", 45.0),
-        (149.0, "°C", DEFAULT_FLOW_TEMPERATURE),
-        (20.0, "°C", DEFAULT_FLOW_TEMPERATURE),
-        ("warm", "°C", DEFAULT_FLOW_TEMPERATURE),
-        (True, "°C", DEFAULT_FLOW_TEMPERATURE),
-        (None, "°C", DEFAULT_FLOW_TEMPERATURE),
-    ],
-    ids=[
-        "celsius",
-        "fahrenheit",
-        "text",
-        "above_the_range",
-        "below_the_range",
-        "not_a_number",
-        "flag",
-        "null",
-    ],
-)
-def test_the_controller_models_the_configured_flow_temperature(
-    stored: object, unit: str, flow_temperature: float
+@pytest.mark.parametrize("preset", list(MpcV2PlantPreset))
+@pytest.mark.parametrize("stored", [None, 40.0, "45"], ids=["absent", "number", "text"])
+def test_the_controller_models_the_default_flow_temperature(
+    preset: MpcV2PlantPreset, stored: object
 ) -> None:
-    """The flow temperature the TRV stores, in °C, is the plant's supply water.
-
-    It is stored in the system unit; a value the flows could not have
-    written leaves the room on the default.
-    """
-    bt = _make_bt()
-    bt.hass = _hass_in(unit)
-    bt.real_trvs["climate.x"].advanced["mpc_v2_flow_temperature"] = stored
+    """Every room model runs on 65 °C, whatever flow temperature the TRV stores."""
+    bt = _make_bt(preset)
+    if stored is not None:
+        bt.real_trvs["climate.x"].advanced["mpc_v2_flow_temperature"] = stored
 
     out, _ = _compute_mpc_v2_balance(bt, "climate.x")
 
     assert out is not None
     controller = _live_controller(bt)
-    assert controller.plant_coarse.params.T_water == pytest.approx(flow_temperature)
-    assert controller.plant_fine.params.T_water == pytest.approx(flow_temperature)
-
-
-def test_a_thermostat_without_a_flow_temperature_models_the_default() -> None:
-    """An entry written before the setting existed runs on 65 °C supply water."""
-    bt = _make_bt()
-    assert "mpc_v2_flow_temperature" not in bt.real_trvs["climate.x"].advanced
-
-    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
-
-    assert out is not None
-    assert _live_controller(bt).plant_coarse.params.T_water == 65.0
-
-
-@pytest.mark.parametrize("preset", list(MpcV2PlantPreset))
-def test_every_plant_preset_models_the_configured_flow_temperature(
-    preset: MpcV2PlantPreset,
-) -> None:
-    """The flow temperature applies whichever room model the preset picks."""
-    bt = _make_bt(preset)
-    bt.real_trvs["climate.x"].advanced["mpc_v2_flow_temperature"] = 38.0
-
-    _compute_mpc_v2_balance(bt, "climate.x")
-
-    assert _live_controller(bt).plant_coarse.params.T_water == 38.0
+    assert controller.plant_coarse.params.T_water == DEFAULT_FLOW_TEMPERATURE
+    assert controller.plant_fine.params.T_water == DEFAULT_FLOW_TEMPERATURE
 
 
 def test_an_accepted_fit_records_the_flow_temperature_it_was_fitted_under(
@@ -988,24 +931,22 @@ def test_an_accepted_fit_records_the_flow_temperature_it_was_fitted_under(
 
 @pytest.mark.parametrize("shared", [True, False], ids=["shared_key", "bucket_key"])
 @pytest.mark.parametrize(
-    ("fitted", "configured", "applies"),
-    [(65.0, 65.0, True), (40.0, 40.0, True), (65.0, 40.0, False)],
-    ids=["default_flow", "same_low_flow", "other_flow"],
+    ("fitted", "applies"),
+    [(DEFAULT_FLOW_TEMPERATURE, True), (40.0, False)],
+    ids=["default_flow", "other_flow"],
 )
-def test_a_fit_seeds_the_prior_only_under_its_own_flow_temperature(
-    shared: bool, fitted: float, configured: float, applies: bool
+def test_a_fit_seeds_the_prior_only_under_the_modelled_flow_temperature(
+    shared: bool, fitted: float, applies: bool
 ) -> None:
-    """A gain fitted under one flow temperature misstates the room under another.
+    """A gain fitted under another flow temperature misstates the room.
 
-    A result seeds the prior while the flow temperature it was fitted under
-    is configured, and the plant models that flow temperature with it. Under
-    another one the room runs on the heat-loss prior until a fit under the
-    new value is adopted, wherever the old result is stored.
+    A result fitted under the flow temperature the plant models seeds the
+    prior. One fitted under another leaves the room on the heat-loss prior
+    until a new fit is adopted, wherever the old result is stored.
     """
     from custom_components.better_thermostat import calibration as cal
 
     bt = _make_bt()
-    bt.real_trvs["climate.x"].advanced["mpc_v2_flow_temperature"] = configured
     key = cal._build_mpc_v2_reid_key(bt) if shared else "bt:climate.x:t21.0"
     bt.state_mgr.adopt_mpc_v2_reid(key, replace(_REID, flow_temperature=fitted))
 
@@ -1013,7 +954,7 @@ def test_a_fit_seeds_the_prior_only_under_its_own_flow_temperature(
 
     assert out is not None
     plant = _live_controller(bt).plant_coarse.params
-    assert plant.T_water == configured
+    assert plant.T_water == DEFAULT_FLOW_TEMPERATURE
     assert (plant.tau_room_min == _REID.tau_room_minutes) is applies
     assert (plant.gain_heater == _REID.gain_heater) is applies
     debug = bt.real_trvs["climate.x"].calibration_balance["debug"]
