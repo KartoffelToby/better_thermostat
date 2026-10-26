@@ -159,6 +159,24 @@ class ModelFixHost(Protocol):
         ...
 
 
+class OffsetConventionHost(Protocol):
+    """Surface the offset sign conversion reads from its caller.
+
+    The conversion runs inside the adapters as well as in the shell, so it
+    asks for no more than an adapter's host provides.
+    """
+
+    @property
+    def hass(self) -> HomeAssistant:
+        """Home Assistant core the caller is attached to."""
+        ...
+
+    @property
+    def real_trvs(self) -> Mapping[str, ModelFixTrv]:
+        """Per-TRV records, keyed by climate entity id."""
+        ...
+
+
 class QuirkLoaderHost(Protocol):
     """Surface the quirk loader reads from its caller."""
 
@@ -251,6 +269,17 @@ class SetpointOffsetQuirk(Protocol):
 
 
 @runtime_checkable
+class InvertedOffsetQuirk(Protocol):
+    """A quirk that knows its device applies the offset with the opposite sign."""
+
+    def local_calibration_inverted(
+        self, host: OffsetConventionHost, entity_id: str, /
+    ) -> bool:
+        """Whether the device subtracts the offset from its reading."""
+        ...
+
+
+@runtime_checkable
 class ValveQuirk(Protocol):
     """A quirk that drives its device's valve itself."""
 
@@ -297,11 +326,13 @@ __all__ = [
     "DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS",
     "ExternalTemperatureQuirk",
     "InitialTweakQuirk",
+    "InvertedOffsetQuirk",
     "LowestSetpointQuirk",
     "MaintenanceIntervalQuirk",
     "ModelFixHost",
     "ModelFixTrv",
     "ModelQuirks",
+    "OffsetConventionHost",
     "QuirkLoaderHost",
     "QuirkScratchpad",
     "SetpointOffsetQuirk",

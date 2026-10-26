@@ -8,7 +8,7 @@
           "name": "Nazwa",
           "thermostat": "Twój termostat",
           "cooler": "Urządzenie chłodzące (opcjonalnie)",
-          "temperature_sensor": "Sensor temperatury",
+          "temperature_sensor": "Czujnik temperatury pomieszczenia",
           "humidity_sensor": "Sensor wilgotności",
           "window_sensors": "Sensor okna",
           "door_sensors": "Sensor drzwi",
@@ -18,7 +18,7 @@
           "window_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu okna",
           "door_off_delay": "Opóźnienie wyłączenia termostatu po otwarciu drzwi",
           "door_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu drzwi",
-          "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
+          "outdoor_sensor": "Czujnik temperatury zewnętrznej",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
           "availability_guard": "Strażnik dostępności",
           "availability_guard_grace_seconds": "Okres karencji po włączeniu strażnika dostępności",
@@ -62,8 +62,7 @@
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Użyj temperatury minimalnej zamiast 'wyłączony'",
-          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia",
-          "mpc_v2_flow_temperature": "MPC v2 temperatura zasilania"
+          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
@@ -74,8 +73,7 @@
           "calibration": "Jak kalibracja jest stosowana w TRV\n***Na podstawie temperatury docelowej***: Zastosuj kalibrację do temperatury docelowej.\n***Na podstawie przesunięcia***: Zastosuj kalibrację do przesunięcia temperatury. Dostępne tylko, gdy TRV ma zapisywalne przesunięcie temperatury.\n***Bezpośrednie sterowanie zaworem***: Ustaw otwarcie zaworu bezpośrednio. Dostępne tylko, gdy TRV ma zapisywalną pozycję zaworu. Tryby kalibracji, które nie wyznaczają otwarcia zaworu, wysyłają zamiast tego temperaturę docelową.",
           "calibration_mode": "Jak obliczana jest kalibracja\n***AI na podstawie czasu (domyślne)***: Z czasem uczy się mocy grzewczej pomieszczenia i wyznacza z niej kalibrację.\n***Tylko przesunięcie czujnika zewnętrznego***: Koryguje wewnętrzny czujnik TRV za pomocą zewnętrznego czujnika temperatury. Żaden regulator nie działa dodatkowo.\n***Predykcyjne MPC (beta)***: Przewiduje temperaturę pomieszczenia i oblicza z niej otwarcie zaworu. Uczy się zachowania cieplnego pomieszczenia.\n***(AI) MPC v2 (QP + Kalman, eksperymentalne)***: Szacuje stan pomieszczenia filtrem Kalmana i oblicza otwarcie zaworu regulatorem predykcyjnym z modelem. Ustawienie MPC v2 wielkość pomieszczenia wybiera model pomieszczenia: wyuczony w pomieszczeniu (Automatycznie) lub stały dla danej wielkości (małe, średnie, duże).\n***Agresywne***: Podbija kalibrację, gdy pomieszczenie się nagrzewa, i pomija opóźnienie tolerancji, aby TRV zaczął grzać wcześniej. Przydatne, gdy pomieszczenie nagrzewa się powoli.\n***Regulator TPI***: Oblicza czas załączenia cykli grzewczych na podstawie różnicy temperatur.\n***Regulator PID***: Oblicza otwarcie zaworu z uchybu temperatury za pomocą członu proporcjonalnego, całkującego i różniczkującego.\n***Bez kalibracji***: Wysyła temperaturę docelową do TRV bez zmian i nie stosuje żadnej korekty.",
           "no_off_system_mode": "Przy tej opcji Better Thermostat wysyła do TRV jego temperaturę minimalną zamiast 'wyłączony'. TRV, który zgłasza swoją temperaturę minimalną, uznaje się za wyłączony: gdy wszystkie TRV w pomieszczeniu są wyłączone, pomieszczenie się wyłącza, a podkręcenie pokrętła włącza je ponownie. Liczy się też obrót przy otwartym oknie lub drzwiach; ogrzewanie czeka wtedy, aż wszystkie okna i drzwi zostaną zamknięte. TRV bez trybu wyłączenia otrzymuje swoją temperaturę minimalną także bez tej opcji. Włącz ją dla TRV, którego tryb wyłączenia nie działa, albo dla TRV bez trybu wyłączenia, którego pokrętło ma włączać i wyłączać Better Thermostat.",
-          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia.",
-          "mpc_v2_flow_temperature": "Używane tylko przez tryb kalibracji MPC v2. Temperatura wody grzewczej płynącej do grzejników. Pozostaw 65 °C (149 °F) dla kotła ze stałą krzywą grzewczą. Dla pompy ciepła lub kotła sterowanego pogodowo wpisz typową wartość dla sezonu grzewczego, na przykład od 35 do 45 °C (od 95 do 113 °F). Po zmianie MPC v2 uczy się modelu pomieszczenia od nowa przy nowej wartości."
+          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia."
         }
       },
       "confirm": {
@@ -110,7 +108,7 @@
         "data": {
           "name": "Nazwa",
           "thermostat": "Prawdziwy termostat",
-          "temperature_sensor": "Sensor temperatury",
+          "temperature_sensor": "Czujnik temperatury pomieszczenia",
           "humidity_sensor": "Sensor wilgotności",
           "window_sensors": "Sensor okna",
           "door_sensors": "Sensor drzwi",
@@ -120,7 +118,7 @@
           "window_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu okna",
           "door_off_delay": "Opóźnienie wyłączenia termostatu po otwarciu drzwi",
           "door_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu drzwi",
-          "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
+          "outdoor_sensor": "Czujnik temperatury zewnętrznej",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
           "availability_guard": "Strażnik dostępności",
           "availability_guard_grace_seconds": "Okres karencji po włączeniu strażnika dostępności",
@@ -165,8 +163,7 @@
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Użyj temperatury minimalnej zamiast 'wyłączony'",
-          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia",
-          "mpc_v2_flow_temperature": "MPC v2 temperatura zasilania"
+          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
@@ -177,8 +174,7 @@
           "calibration": "Jak kalibracja jest stosowana w TRV\n***Na podstawie temperatury docelowej***: Zastosuj kalibrację do temperatury docelowej.\n***Na podstawie przesunięcia***: Zastosuj kalibrację do przesunięcia temperatury. Dostępne tylko, gdy TRV ma zapisywalne przesunięcie temperatury.\n***Bezpośrednie sterowanie zaworem***: Ustaw otwarcie zaworu bezpośrednio. Dostępne tylko, gdy TRV ma zapisywalną pozycję zaworu. Tryby kalibracji, które nie wyznaczają otwarcia zaworu, wysyłają zamiast tego temperaturę docelową.",
           "calibration_mode": "Jak obliczana jest kalibracja\n***AI na podstawie czasu (domyślne)***: Z czasem uczy się mocy grzewczej pomieszczenia i wyznacza z niej kalibrację.\n***Tylko przesunięcie czujnika zewnętrznego***: Koryguje wewnętrzny czujnik TRV za pomocą zewnętrznego czujnika temperatury. Żaden regulator nie działa dodatkowo.\n***Predykcyjne MPC (beta)***: Przewiduje temperaturę pomieszczenia i oblicza z niej otwarcie zaworu. Uczy się zachowania cieplnego pomieszczenia.\n***(AI) MPC v2 (QP + Kalman, eksperymentalne)***: Szacuje stan pomieszczenia filtrem Kalmana i oblicza otwarcie zaworu regulatorem predykcyjnym z modelem. Ustawienie MPC v2 wielkość pomieszczenia wybiera model pomieszczenia: wyuczony w pomieszczeniu (Automatycznie) lub stały dla danej wielkości (małe, średnie, duże).\n***Agresywne***: Podbija kalibrację, gdy pomieszczenie się nagrzewa, i pomija opóźnienie tolerancji, aby TRV zaczął grzać wcześniej. Przydatne, gdy pomieszczenie nagrzewa się powoli.\n***Regulator TPI***: Oblicza czas załączenia cykli grzewczych na podstawie różnicy temperatur.\n***Regulator PID***: Oblicza otwarcie zaworu z uchybu temperatury za pomocą członu proporcjonalnego, całkującego i różniczkującego.\n***Bez kalibracji***: Wysyła temperaturę docelową do TRV bez zmian i nie stosuje żadnej korekty.",
           "no_off_system_mode": "Przy tej opcji Better Thermostat wysyła do TRV jego temperaturę minimalną zamiast 'wyłączony'. TRV, który zgłasza swoją temperaturę minimalną, uznaje się za wyłączony: gdy wszystkie TRV w pomieszczeniu są wyłączone, pomieszczenie się wyłącza, a podkręcenie pokrętła włącza je ponownie. Liczy się też obrót przy otwartym oknie lub drzwiach; ogrzewanie czeka wtedy, aż wszystkie okna i drzwi zostaną zamknięte. TRV bez trybu wyłączenia otrzymuje swoją temperaturę minimalną także bez tej opcji. Włącz ją dla TRV, którego tryb wyłączenia nie działa, albo dla TRV bez trybu wyłączenia, którego pokrętło ma włączać i wyłączać Better Thermostat.",
-          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia.",
-          "mpc_v2_flow_temperature": "Używane tylko przez tryb kalibracji MPC v2. Temperatura wody grzewczej płynącej do grzejników. Pozostaw 65 °C (149 °F) dla kotła ze stałą krzywą grzewczą. Dla pompy ciepła lub kotła sterowanego pogodowo wpisz typową wartość dla sezonu grzewczego, na przykład od 35 do 45 °C (od 95 do 113 °F). Po zmianie MPC v2 uczy się modelu pomieszczenia od nowa przy nowej wartości."
+          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia."
         }
       }
     },

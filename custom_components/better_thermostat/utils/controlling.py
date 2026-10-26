@@ -63,6 +63,7 @@ from custom_components.better_thermostat.events.trv import (
     trigger_trv_change,
 )
 from custom_components.better_thermostat.model_fixes.model_quirks import (
+    offset_from_device,
     override_set_hvac_mode,
     override_set_temperature,
     trv_report_is_unreadable,
@@ -690,7 +691,9 @@ def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
     reported = convert_to_float(state.state, self.device_name, "reconcile()")
     if reported is None:
         return False
-    reported = published_to_offset(offset_scale(state), reported)
+    reported = offset_from_device(
+        self, trv.entity_id, published_to_offset(offset_scale(state), reported)
+    )
     return abs(trv.last_calibration - reported) > _calibration_match_tolerance(
         self, trv.entity_id
     )
