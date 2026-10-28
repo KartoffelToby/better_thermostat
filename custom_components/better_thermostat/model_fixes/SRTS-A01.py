@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Mapping
+from datetime import datetime
 import logging
 import time
 
@@ -46,7 +47,7 @@ from homeassistant.const import (
 from homeassistant.core import Event, EventStateChangedData, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
@@ -167,7 +168,8 @@ _SELECTOR_LOCKS: dict[str, asyncio.Lock] = {}
 # switch seconds later, and until it does the selector still reports the old
 # option; a check in between waits for the confirmation instead of sending the
 # switch again. One that has not arrived after ``_SWITCH_CONFIRM_S`` counts as
-# lost, and the next check sends the switch again.
+# lost, and the next check sends the switch again; one check runs when that
+# window ends, so a quiet room does not leave the lost switch unsent.
 _PENDING_SWITCHES: dict[str, tuple[str, float]] = {}
 _SWITCH_CONFIRM_S = 30.0
 
@@ -402,8 +404,15 @@ async def _keep_selector_now(self: ModelFixHost, entity_id: str) -> str | None:
         )
         return None
     _PENDING_SWITCHES[entity_id] = (wanted, time.monotonic())
+    _recheck_when_unconfirmed(self, entity_id)
+    # A device that keeps losing the switch gets it again every window; the
+    # change it announces is logged once, not with every resend.
+    level = (
+        logging.DEBUG if pending is not None and pending[0] == wanted else logging.INFO
+    )
     if wanted == _INTERNAL_SENSOR_OPTION:
-        _LOGGER.info(
+        _LOGGER.log(
+            level,
             "better_thermostat %s: control mode '%s' leaves the room sensor, "
             "SRTS-A01 %s regulates on its own sensor until it is back",
             self.device_name,
@@ -411,7 +420,8 @@ async def _keep_selector_now(self: ModelFixHost, entity_id: str) -> str | None:
             entity_id,
         )
     else:
-        _LOGGER.info(
+        _LOGGER.log(
+            level,
             "better_thermostat %s: control mode '%s', SRTS-A01 %s regulates on "
             "the room temperature",
             self.device_name,
@@ -419,6 +429,42 @@ async def _keep_selector_now(self: ModelFixHost, entity_id: str) -> str | None:
             entity_id,
         )
     return None
+
+
+def _recheck_when_unconfirmed(self: ModelFixHost, entity_id: str) -> None:
+    """Check the selector once more when the switch just sent goes unconfirmed.
+
+    The watch answers state changes only, and Home Assistant reports none
+    while neither the thermostat nor the selector changes. A switch the
+    device lost would then stay unsent until something in the room changes.
+    The check runs a second past the confirmation window, which it then
+    finds over, and is skipped once the switch is confirmed or replaced. A
+    thermostat reloaded meanwhile leaves the check to the one watching the
+    TRV now, which found the switch pending and scheduled none of its own.
+    """
+    sent = _PENDING_SWITCHES[entity_id]
+
+    @callback
+    def _check(now: datetime) -> None:
+        if _PENDING_SWITCHES.get(entity_id) is not sent:
+            return
+        host = self
+        if host.is_removed:
+            watch = _SELECTOR_WATCHES.get(entity_id)
+            if watch is None or watch[0].is_removed:
+                return
+            host = watch[0]
+        _LOGGER.debug(
+            "better_thermostat %s: SRTS-A01 %s did not confirm '%s' within %.0f s, "
+            "checking its sensor selector again",
+            host.device_name,
+            entity_id,
+            sent[0],
+            _SWITCH_CONFIRM_S,
+        )
+        _start_keeping(host, entity_id)
+
+    async_call_later(self.hass, _SWITCH_CONFIRM_S + 1.0, _check)
 
 
 async def _keep_selector_once(self: ModelFixHost, entity_id: str) -> None:

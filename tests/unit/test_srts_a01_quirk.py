@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
+from datetime import datetime
 import importlib
 from unittest.mock import AsyncMock, MagicMock
 
@@ -114,6 +115,15 @@ def _make_self(
         return MagicMock(side_effect=lambda: unsubscribed.append(listener))
 
     monkeypatch.setattr(quirk, "async_track_state_change_event", _track)
+
+    timers: list[tuple[float, Callable[[datetime], None]]] = []
+    mock_self.timers = timers
+
+    def _call_later(hass, delay, action):
+        timers.append((delay, action))
+        return MagicMock()
+
+    monkeypatch.setattr(quirk, "async_call_later", _call_later)
     return mock_self
 
 
@@ -468,6 +478,136 @@ class TestSelectorKeeping:
         await quirk._keep_selector(mock_self, TRV)
 
         assert _payloads(mock_self) == [_to_internal(), _to_internal()]
+
+    async def test_an_unconfirmed_switch_is_sent_again_in_a_quiet_room(
+        self, monkeypatch
+    ):
+        """No state changes after the switch; the window's end checks once more."""
+        mock_self = _make_self(
+            monkeypatch, selected="external", mode=ControlMode.SENSOR_FALLBACK
+        )
+        mock_self.hass.services.async_call = AsyncMock()
+
+        await quirk._keep_selector(mock_self, TRV)
+        [(delay, recheck)] = mock_self.timers
+        monkeypatch.setattr(quirk, "_SWITCH_CONFIRM_S", 0.0)
+        recheck(datetime.now())
+        await _settle()
+
+        assert delay > 30.0
+        assert _payloads(mock_self) == [_to_internal(), _to_internal()]
+
+    async def test_a_confirmed_switch_needs_no_second_check(self, monkeypatch):
+        """The device took the switch before the window ended."""
+        mock_self = _make_self(
+            monkeypatch, selected="external", mode=ControlMode.SENSOR_FALLBACK
+        )
+        task_manager = MagicMock()
+        mock_self.task_manager = task_manager
+
+        await quirk._keep_selector(mock_self, TRV)
+        await quirk._keep_selector(mock_self, TRV)
+        mock_self.timers[0][1](datetime.now())
+
+        task_manager.create_task.assert_not_called()
+        assert _payloads(mock_self) == [_to_internal()]
+
+    async def test_a_removed_thermostat_checks_nothing_when_the_window_ends(
+        self, monkeypatch
+    ):
+        """The timer outliving its thermostat starts no check."""
+        mock_self = _make_self(
+            monkeypatch, selected="external", mode=ControlMode.SENSOR_FALLBACK
+        )
+        mock_self.hass.services.async_call = AsyncMock()
+        task_manager = MagicMock()
+
+        await quirk._keep_selector(mock_self, TRV)
+        mock_self.task_manager = task_manager
+        mock_self.is_removed = True
+        mock_self.timers[0][1](datetime.now())
+
+        task_manager.create_task.assert_not_called()
+
+    async def test_a_reloaded_thermostat_takes_over_the_window_end_check(
+        self, monkeypatch
+    ):
+        """The new thermostat found the switch pending and scheduled no check."""
+        old_self = _make_self(
+            monkeypatch, selected="external", mode=ControlMode.SENSOR_FALLBACK
+        )
+        old_self.hass.services.async_call = AsyncMock()
+        quirk._watch_selector(old_self, TRV)
+        await quirk._keep_selector(old_self, TRV)
+        [(_, recheck)] = old_self.timers
+        old_self.is_removed = True
+        new_self = _make_self(
+            monkeypatch, selected="external", mode=ControlMode.SENSOR_FALLBACK
+        )
+        task_manager = MagicMock()
+        task_manager.create_task = MagicMock(
+            side_effect=lambda coro, name: coro.close()
+        )
+        new_self.task_manager = task_manager
+        quirk._watch_selector(new_self, TRV)
+
+        recheck(datetime.now())
+
+        task_manager.create_task.assert_called_once()
+
+    async def test_a_window_end_check_with_no_thermostat_left_does_nothing(
+        self, monkeypatch
+    ):
+        """The thermostat watching the TRV is gone as well."""
+        mock_self = _make_self(
+            monkeypatch, selected="external", mode=ControlMode.SENSOR_FALLBACK
+        )
+        mock_self.hass.services.async_call = AsyncMock()
+        quirk._watch_selector(mock_self, TRV)
+        task_manager = MagicMock()
+
+        await quirk._keep_selector(mock_self, TRV)
+        mock_self.task_manager = task_manager
+        mock_self.is_removed = True
+        mock_self.timers[0][1](datetime.now())
+
+        task_manager.create_task.assert_not_called()
+
+    async def test_a_replaced_switch_leaves_its_window_end_check_idle(
+        self, monkeypatch
+    ):
+        """Only the check of the switch pending now runs."""
+        mock_self = _make_self(
+            monkeypatch, selected="external", mode=ControlMode.SENSOR_FALLBACK
+        )
+        mock_self.hass.services.async_call = AsyncMock()
+        task_manager = MagicMock()
+
+        await quirk._keep_selector(mock_self, TRV)
+        mock_self.task_manager = task_manager
+        quirk._PENDING_SWITCHES[TRV] = ("internal", 0.0)
+        mock_self.timers[0][1](datetime.now())
+
+        task_manager.create_task.assert_not_called()
+
+    async def test_a_resent_switch_is_announced_once(self, monkeypatch, caplog):
+        """The change is logged when it is sent first, not with every resend."""
+        monkeypatch.setattr(quirk, "_SWITCH_CONFIRM_S", 0.0)
+        mock_self = _make_self(
+            monkeypatch, selected="external", mode=ControlMode.SENSOR_FALLBACK
+        )
+        mock_self.hass.services.async_call = AsyncMock()
+
+        with caplog.at_level("DEBUG", logger=quirk.__name__):
+            await quirk._keep_selector(mock_self, TRV)
+            await quirk._keep_selector(mock_self, TRV)
+
+        announced = [
+            record.levelname
+            for record in caplog.records
+            if "regulates on its own sensor" in record.getMessage()
+        ]
+        assert announced == ["INFO", "DEBUG"]
 
     async def test_a_confirmed_switch_is_no_longer_awaited(self, monkeypatch):
         """Once the selector reports the option, nothing waits for it."""
