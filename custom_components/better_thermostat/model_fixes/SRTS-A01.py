@@ -59,7 +59,10 @@ from custom_components.better_thermostat.model_fixes.types import (
     ModelFixHost,
     ModelQuirks,
 )
-from custom_components.better_thermostat.utils.helpers import is_sibling_entry
+from custom_components.better_thermostat.utils.helpers import (
+    device_released,
+    is_sibling_entry,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -337,6 +340,10 @@ async def _keep_selector(self: ModelFixHost, entity_id: str) -> str | None:
 
 async def _keep_selector_now(self: ModelFixHost, entity_id: str) -> str | None:
     """Run one check of ``_keep_selector`` under the TRV's lock."""
+    if device_released(self, entity_id):
+        # The device is the user's: an option set by hand stays, and nothing
+        # is written to it.
+        return None
     selector = _sensor_selector(self, entity_id)
     if selector is None:
         _LOGGER.debug(
@@ -469,6 +476,17 @@ def _start_keeping(self: ModelFixHost, entity_id: str) -> None:
     if task is None:
         # The thermostat is being removed and started nothing.
         _KEEPING.discard(entity_id)
+        return
+
+    def _forget_cancelled(done: asyncio.Task[None]) -> None:
+        # A task cancelled before its first step never enters the run, so
+        # the run's own cleanup does not clear the mark; left behind, it
+        # would keep a reloaded thermostat from checking the TRV at all.
+        if done.cancelled():
+            _KEEPING.discard(entity_id)
+            _KEEP_AGAIN.discard(entity_id)
+
+    task.add_done_callback(_forget_cancelled)
 
 
 def _stop_watching(self: ModelFixHost, entity_id: str) -> None:

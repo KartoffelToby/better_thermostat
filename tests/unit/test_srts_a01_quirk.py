@@ -61,6 +61,8 @@ def _make_self(
     mock_self.device_name = "test_thermostat"
     mock_self.context = MagicMock()
     mock_self.is_removed = False
+    mock_self.devices_released = False
+    mock_self.released_trvs = set()
     mock_self.entity_id = BT
     mock_self.room_temperature = room
     mock_self.kernel_state = make_state(control_mode=ControlModeState(mode=mode))
@@ -527,6 +529,38 @@ class TestSelectorKeeping:
         assert TRV not in quirk._SELECTOR_WATCHES
         assert _payloads(mock_self) == []
 
+    @pytest.mark.parametrize("scope", ["room", "trv"])
+    async def test_a_released_device_keeps_the_option_set_by_hand(
+        self, monkeypatch, scope
+    ):
+        """The device is the user's: neither the selector nor the input is touched."""
+        mock_self = _make_self(monkeypatch, selected="external")
+        quirk._watch_selector(mock_self, TRV)
+        if scope == "room":
+            mock_self.devices_released = True
+        else:
+            mock_self.released_trvs = {TRV}
+
+        await _change(mock_self, _selector("internal"))
+        await _step(mock_self, ControlMode.SENSOR_FALLBACK)
+        await _step(mock_self, ControlMode.OPTIMAL)
+
+        assert _payloads(mock_self) == []
+        assert mock_self.states[SELECTOR].state == "internal"
+
+    async def test_the_initial_tweak_leaves_a_released_device_alone(self, monkeypatch):
+        """The default tweaks skip a released TRV, and so does the selector."""
+        mock_self = _make_self(
+            monkeypatch, selected="external", mode=ControlMode.SENSOR_FALLBACK
+        )
+        mock_self.released_trvs = {TRV}
+        monkeypatch.setattr(quirk, "default_initial_tweak", AsyncMock())
+
+        await quirk.initial_tweak(mock_self, TRV)
+        await _settle()
+
+        assert _payloads(mock_self) == []
+
     async def test_a_removed_thermostat_stops_watching(self, monkeypatch):
         """The listener outliving its thermostat writes to no device."""
         mock_self = _make_self(monkeypatch, selected="external")
@@ -680,6 +714,30 @@ class TestEdges:
         quirk._start_keeping(mock_self, TRV)
 
         assert TRV not in quirk._KEEPING
+
+    async def test_a_check_cancelled_before_it_starts_leaves_no_mark(self, monkeypatch):
+        """A mark left behind would keep a reloaded thermostat from checking."""
+        mock_self = _make_self(monkeypatch, selected="internal")
+        started: list[asyncio.Task[None]] = []
+
+        def _create_task(coro, name):
+            task = asyncio.get_running_loop().create_task(coro, name=name)
+            started.append(task)
+            return task
+
+        task_manager = MagicMock()
+        task_manager.create_task = MagicMock(side_effect=_create_task)
+        mock_self.task_manager = task_manager
+
+        quirk._start_keeping(mock_self, TRV)
+        quirk._start_keeping(mock_self, TRV)
+        started[0].cancel()
+        await _settle()
+
+        assert started[0].cancelled()
+        assert TRV not in quirk._KEEPING
+        assert TRV not in quirk._KEEP_AGAIN
+        assert _payloads(mock_self) == []
 
     async def test_the_watch_of_another_thermostat_is_left_in_place(self, monkeypatch):
         """Only the thermostat that registered a watch takes it down."""
