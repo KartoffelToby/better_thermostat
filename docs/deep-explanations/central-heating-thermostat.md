@@ -9,9 +9,9 @@ If your home has **both** room radiator TRVs **and** a central wall thermostat (
 
 ```mermaid
 flowchart LR
-    R1["Living Room BT (hvac_action: heating, blocked_by: none)"] --> AUTO["Boiler Automation: Any unblocked room heating?"]
+    R1["Living Room BT (hvac_action: heating, heating_blocked_by: none)"] --> AUTO["Boiler Automation: Any unblocked room heating?"]
     R2["Bedroom BT (hvac_action: idle)"] --> AUTO
-    R3["Office BT (hvac_action: heating, blocked_by: devices_released)"] --> AUTO
+    R3["Office BT (hvac_action: heating, heating_blocked_by: devices_released)"] --> AUTO
     AUTO -->|"Yes (>= 1 room heating & unblocked)"| ON["Central Thermostat: 22 °C / Boiler ON"]
     AUTO -->|"No (all rooms idle, off, or blocked)"| OFF["Central Thermostat: 15 °C / Boiler OFF"]
 ```
