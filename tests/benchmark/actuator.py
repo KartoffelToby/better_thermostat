@@ -6,9 +6,9 @@ produces the same fractional change in delivered flow, which gives
 the controller a roughly constant loop gain across the operating
 range. See DESIGN.md §8 (actuator modelling; Karlsson 1980).
 
-flow = (pct/100)^alpha       (alpha ≈ 3 for typical residential TRVs)
+flow = (percent/100)^alpha       (alpha ≈ 3 for typical residential TRVs)
 
-QUADRATIC is a fixed curve, ``flow = (pct/100)^2`` — the alpha=2
+QUADRATIC is a fixed curve, ``flow = (percent/100)^2`` — the alpha=2
 special case of the power law, kept as a mild-curvature step between
 LINEAR and EQUAL_PERCENTAGE. It ignores ``equal_percentage_exponent``.
 
@@ -36,16 +36,16 @@ class ActuatorParams:
     """Parameters describing actuator behaviour."""
 
     profile: ActuatorProfile = ActuatorProfile.LINEAR
-    dead_zone_pct: float = 0.0
-    hysteresis_pct: float = 0.0
-    quantize_pct: float = 0.0  # 0 = continuous, e.g. 1.0 = integer percent
+    dead_zone_percent: float = 0.0
+    hysteresis_percent: float = 0.0
+    quantize_percent: float = 0.0  # 0 = continuous, e.g. 1.0 = integer percent
     # Exponent for equal-percentage profile; ignored by other profiles.
     # Typical values for residential TRVs: 2.5 - 4.0.
     equal_percentage_exponent: float = 3.0
     # Generic deadband: commands strictly below this percent produce zero
-    # flow regardless of the profile. Distinct from ``dead_zone_pct``,
+    # flow regardless of the profile. Distinct from ``dead_zone_percent``,
     # which only applies inside the THRESHOLD profile.
-    deadband_pct: float = 0.0
+    deadband_percent: float = 0.0
 
     def __post_init__(self) -> None:
         """Reject non-physical actuator parameters.
@@ -57,16 +57,21 @@ class ActuatorParams:
             outside [0, 100], or the equal-percentage exponent is < 1.
         """
         for name in (
-            "dead_zone_pct",
-            "hysteresis_pct",
-            "quantize_pct",
+            "dead_zone_percent",
+            "hysteresis_percent",
+            "quantize_percent",
             "equal_percentage_exponent",
-            "deadband_pct",
+            "deadband_percent",
         ):
             value = getattr(self, name)
             if not math.isfinite(value):
                 raise ValueError(f"ActuatorParams {name} must be finite, got {value}")
-        for name in ("dead_zone_pct", "hysteresis_pct", "quantize_pct", "deadband_pct"):
+        for name in (
+            "dead_zone_percent",
+            "hysteresis_percent",
+            "quantize_percent",
+            "deadband_percent",
+        ):
             value = getattr(self, name)
             if not (0.0 <= value <= 100.0):
                 raise ValueError(
@@ -84,41 +89,45 @@ class Actuator:
 
     def __init__(self, params: ActuatorParams) -> None:
         self.params = params
-        self._last_applied_pct: float = 0.0
+        self._last_applied_percent: float = 0.0
 
-    def apply(self, cmd_pct: float) -> float:
+    def apply(self, command_percent: float) -> float:
         """Translate a commanded percent into an effective flow in [0, 1]."""
         p = self.params
-        pct = max(0.0, min(100.0, cmd_pct))
+        percent = max(0.0, min(100.0, command_percent))
 
-        if p.hysteresis_pct > 0.0:
-            if abs(pct - self._last_applied_pct) < p.hysteresis_pct:
-                pct = self._last_applied_pct
+        # A close command drives the valve onto its seat, so hysteresis
+        # holds intermediate positions only: a valve at 5 % commanded to
+        # 0 % closes. The drive loop relies on this to close the valve
+        # while a window is open.
+        if p.hysteresis_percent > 0.0 and percent > 0.0:
+            if abs(percent - self._last_applied_percent) < p.hysteresis_percent:
+                percent = self._last_applied_percent
 
-        if p.quantize_pct > 0.0:
-            pct = round(pct / p.quantize_pct) * p.quantize_pct
-            pct = max(0.0, min(100.0, pct))
+        if p.quantize_percent > 0.0:
+            percent = round(percent / p.quantize_percent) * p.quantize_percent
+            percent = max(0.0, min(100.0, percent))
 
-        if p.deadband_pct > 0.0 and pct < p.deadband_pct:
-            self._last_applied_pct = pct
+        if p.deadband_percent > 0.0 and percent < p.deadband_percent:
+            self._last_applied_percent = percent
             return 0.0
 
         if p.profile == ActuatorProfile.THRESHOLD:
-            if pct < p.dead_zone_pct:
+            if percent < p.dead_zone_percent:
                 flow = 0.0
             else:
-                span = 100.0 - p.dead_zone_pct
-                flow = (pct - p.dead_zone_pct) / span if span > 0.0 else 1.0
+                span = 100.0 - p.dead_zone_percent
+                flow = (percent - p.dead_zone_percent) / span if span > 0.0 else 1.0
         elif p.profile == ActuatorProfile.QUADRATIC:
             # Fixed quadratic curve (power law with alpha = 2).
-            flow = (pct / 100.0) ** 2
+            flow = (percent / 100.0) ** 2
         elif p.profile == ActuatorProfile.EQUAL_PERCENTAGE:
             # Realistic TRV characteristic: equal-percentage curve
             # (modified power-law approximation, exponent >= 1 enforced
             # at construction).
-            flow = (pct / 100.0) ** p.equal_percentage_exponent
+            flow = (percent / 100.0) ** p.equal_percentage_exponent
         else:  # LINEAR
-            flow = pct / 100.0
+            flow = percent / 100.0
 
-        self._last_applied_pct = pct
+        self._last_applied_percent = percent
         return max(0.0, min(1.0, flow))

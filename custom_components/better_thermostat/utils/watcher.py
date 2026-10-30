@@ -11,18 +11,48 @@ operation.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from dataclasses import replace
+from datetime import datetime, timedelta
 import logging
+import math
+from typing import TYPE_CHECKING, Final, TypedDict
 
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import (
+    STATE_OFF,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import issue_registry as ir
-from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    LadderParams,
+    step as control_mode_step,
+    step_ladder as control_mode_step_ladder,
+)
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_state_unknown_as_available,
 )
+from custom_components.better_thermostat.utils.helpers import (
+    async_fire_logbook_entry,
+    attr_to_celsius,
+    configured_calibration_mode,
+    convert_to_float_celsius,
+    device_released,
+    entry_issue_id,
+    is_reasonable_temperature,
+)
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
-from .const import DOMAIN
+from .const import CONF_CALIBRATION_MODE, DOMAIN, VALVE_CALIBRATION_MODES
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from custom_components.better_thermostat.climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,12 +70,28 @@ STARTUP_DEGRADED_GRACE_PERIOD = timedelta(minutes=5)
 STARTUP_CRITICAL_GRACE_PERIOD = timedelta(minutes=2)
 
 # States considered unavailable
-UNAVAILABLE_STATES = (STATE_UNAVAILABLE, None, "missing", "unavail", "unavailable")
+UNAVAILABLE_STATES: Final[frozenset[str | None]] = frozenset(
+    {STATE_UNAVAILABLE, None, "missing", "unavail"}
+)
 
-UNKNOWN_STATES = (STATE_UNKNOWN, "unknown")
+# Held apart from the above because a TRV can report ``unknown`` while it is
+# reachable and taking commands: the mode it is driven through is not one its
+# climate entity describes.
+UNKNOWN_STATES: Final[frozenset[str | None]] = frozenset({STATE_UNKNOWN})
+
+# States in which an entity reports nothing usable.
+UNAVAILABLE_OR_UNKNOWN_STATES: Final = UNAVAILABLE_STATES | UNKNOWN_STATES
+
+# Seconds a battery entity that had nothing to report is left alone before it
+# is read again. Both availability checks run on nearly every event, so
+# without the pause an entity that publishes no level would cost a state
+# lookup and an entity state write on every one of them.
+BATTERY_REREAD_DELAY_SECONDS = 300.0
 
 
-def is_entity_available(hass, entity, state_unknown_as_available=False) -> bool:
+def is_entity_available(
+    hass: HomeAssistant, entity: str | None, state_unknown_as_available: bool = False
+) -> bool:
     """Check if an entity is available without side effects.
 
     Parameters
@@ -55,8 +101,9 @@ def is_entity_available(hass, entity, state_unknown_as_available=False) -> bool:
     entity : str
         Entity ID to check
     state_unknown_as_available : bool
-        If True, treat ``STATE_UNKNOWN`` as available. If False (default), treat
-        ``STATE_UNKNOWN`` as unavailable.
+        Whether an ``unknown`` state counts as available. Only a model
+        whose quirk says so passes True here; by default an entity that
+        says nothing leaves its device unaccounted for.
 
     Returns
     -------
@@ -70,65 +117,167 @@ def is_entity_available(hass, entity, state_unknown_as_available=False) -> bool:
         return False
     if state_unknown_as_available:
         return entity_states.state not in UNAVAILABLE_STATES
-    return entity_states.state not in (UNAVAILABLE_STATES + UNKNOWN_STATES)
+    return entity_states.state not in UNAVAILABLE_OR_UNKNOWN_STATES
 
 
-async def check_entity(self, entity) -> bool:
-    """Check if a specific entity is present and available.
+def is_trv_available(self: BetterThermostat, entity_id: str) -> bool:
+    """Check if a TRV is available, its model's reading of ``unknown`` included.
 
-    Returns True if the entity is available and known to Home Assistant,
-    otherwise raises an issue and returns False.
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity ID of the TRV to check
+
+    Returns
+    -------
+    bool
+        True if the TRV exists and is in a state it can be driven in
     """
-    if entity is None:
-        return False
-    entity_states = self.hass.states.get(entity)
-    if entity_states is None:
-        return False
-    state_unknown_as_available = trv_state_unknown_as_available(self, entity)
-    if not is_entity_available(self.hass, entity, state_unknown_as_available):
-        _LOGGER.debug(
-            "better_thermostat %s: %s is unavailable. with state %s",
-            self.device_name,
-            entity,
-            entity_states.state,
-        )
-        return False
-    recovered = entity in self.devices_errors
-    if recovered:
-        self.devices_errors.remove(entity)
-        self.async_write_ha_state()
-        ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
-    schedule_battery_refresh(self, entity, recovered=recovered)
-    return True
+    return is_entity_available(
+        self.hass, entity_id, trv_state_unknown_as_available(self, entity_id)
+    )
 
 
-async def get_battery_status(self, entity):
+def room_sensor_reading(self: BetterThermostat, state: State | None) -> float | None:
+    """Return the room temperature a room sensor state carries.
+
+    An available sensor whose state is no number, or a number outside the
+    plausible range, carries no room temperature any more than a missing
+    one does: the room cannot be controlled on it.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    state : State | None
+        The state the room sensor publishes
+
+    Returns
+    -------
+    float | None
+        The room temperature in Celsius, or ``None`` when the state carries
+        no plausible one
+    """
+    if state is None or state.state in UNAVAILABLE_OR_UNKNOWN_STATES:
+        return None
+    value = convert_to_float_celsius(
+        state.state,
+        self.device_name,
+        "room_sensor_reading()",
+        unit_of_measurement=state.attributes.get("unit_of_measurement"),
+    )
+    if not is_reasonable_temperature(value):
+        return None
+    return value
+
+
+def reachable_trv_temperature(self: BetterThermostat, entity_id: str) -> float | None:
+    """Return a TRV's stored internal temperature while the TRV reports one.
+
+    A stored reading only counts while its TRV is available and its current
+    state carries a convertible, plausible internal temperature: a value kept
+    from before an outage describes a device that no longer reports, and the
+    handler keeps the stored value across a report it cannot use, such as a
+    marker value, which the device does not confirm either.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity ID of the TRV to read
+
+    Returns
+    -------
+    float | None
+        The internal temperature in °C, or None when the TRV is not tracked,
+        not available, holds no finite reading, or reports no usable one
+    """
+    trv = self.real_trvs.get(entity_id)
+    if trv is None:
+        return None
+    value = trv.current_temperature
+    if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        return None
+    if not is_trv_available(self, entity_id):
+        return None
+    reported = attr_to_celsius(
+        self,
+        self.hass.states.get(entity_id),
+        "current_temperature",
+        None,
+        "reachable_trv_temperature()",
+    )
+    if not is_reasonable_temperature(reported):
+        return None
+    return float(value)
+
+
+class BatteryReading(TypedDict):
+    """The battery entity of a device and the level it last reported.
+
+    ``battery`` is the battery entity's state as published, and ``None``
+    until it has reported a level.
+    """
+
+    battery_id: str
+    battery: str | None
+
+
+def get_battery_status(self: BetterThermostat, entity: str) -> None:
     """Read a battery entity for a device and update internal state.
 
     Uses the provided mapping stored in `self.devices_states`.
+
+    A battery entity that is itself unavailable, or that has not published a
+    level yet, has nothing worth storing: the placeholder would take the place
+    of a reading. The stored slot is left untouched in that case and the read
+    is retried once ``BATTERY_REREAD_DELAY_SECONDS`` have passed.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity : str
+        Entity ID of the device whose battery entity is read
     """
-    if entity in self.devices_states:
-        battery_id = self.devices_states[entity].get("battery_id")
-        if battery_id is not None:
-            new_battery = self.hass.states.get(battery_id)
-            if new_battery is not None:
-                battery = new_battery.state
-                self.devices_states[entity] = {
-                    "battery": battery,
-                    "battery_id": battery_id,
-                }
-                self.async_write_ha_state()
-                return
+    info = self.devices_states.get(entity)
+    if info is None:
+        return
+    battery_id = info.get("battery_id")
+    if battery_id is None:
+        return
+
+    battery_state = self.hass.states.get(battery_id)
+    level = None if battery_state is None else battery_state.state
+    if level in UNAVAILABLE_OR_UNKNOWN_STATES:
+        self._next_battery_read[entity] = (
+            self.clock.monotonic() + BATTERY_REREAD_DELAY_SECONDS
+        )
+        return
+
+    self._next_battery_read.pop(entity, None)
+    self.devices_states[entity] = {"battery": level, "battery_id": battery_id}
+    self.async_write_ha_state()
 
 
-def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
-    """Queue a battery read for an available entity, but only when it says something new.
+def refresh_battery_reading(
+    self: BetterThermostat, entity: str, *, recovered: bool
+) -> None:
+    """Read an available entity's battery, but only when it says something new.
 
     Both availability checks run on nearly every event, and each read costs
-    a background task plus an entity state write. A battery value is only
-    ever new on the first pass after startup, while it is still unpopulated,
-    or when the entity has just come back from an outage, so those are the
-    passes that read it.
+    an entity state write. A pass therefore reads the battery only on the
+    first pass after startup, while it is still unpopulated, when the entity
+    has just come back from an outage, or when the battery entity reports a
+    level other than the stored one. Comparing against that level is an
+    in-memory state lookup.
+
+    An unpopulated reading can also mean that the battery entity itself had
+    nothing to report, which would otherwise put a read on every pass, so
+    those retries wait out ``BATTERY_REREAD_DELAY_SECONDS``.
 
     Parameters
     ----------
@@ -146,46 +295,40 @@ def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
         # get_battery_status to read.
         return
 
-    if recovered or info.get("battery") is None:
-        self.hass.async_create_background_task(
-            get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
-        )
+    # Coming back from an outage is the one moment worth reading whatever the
+    # earlier passes found, so neither reason to skip applies to it.
+    if not recovered:
+        retry_at = self._next_battery_read.get(entity)
+        if retry_at is not None:
+            # A retry is pending because the battery entity had nothing to
+            # report. Whatever level is stored is the one from before that,
+            # so holding a level is not a reason to skip here — only the
+            # wait is, or the reading would stay stale until the next outage.
+            if self.clock.monotonic() < retry_at:
+                return
+        elif info.get("battery") is not None:
+            # A stored level stays current only as long as the battery entity
+            # agrees with it, and it ages while its device stays available.
+            # A battery entity with no level to offer leaves the stored one
+            # standing.
+            battery_state = self.hass.states.get(info["battery_id"])
+            level = None if battery_state is None else battery_state.state
+            if level == info["battery"] or level in UNAVAILABLE_OR_UNKNOWN_STATES:
+                return
+
+    get_battery_status(self, entity)
 
 
-async def check_all_entities(self) -> bool:
-    """Verify all configured entities and report missing ones as issues.
-
-    Returns True if all entities are available.
-    """
-    entities = self.all_entities
-    for entity in entities:
-        if not await check_entity(self, entity):
-            name = entity
-            self.devices_errors.append(name)
-            self.async_write_ha_state()
-            ir.async_create_issue(
-                hass=self.hass,
-                domain=DOMAIN,
-                issue_id=f"missing_entity_{name}",
-                is_fixable=True,
-                is_persistent=False,
-                learn_more_url="https://better-thermostat.org/faq/missing-entity",
-                severity=ir.IssueSeverity.WARNING,
-                translation_key="missing_entity",
-                translation_placeholders={
-                    "entity": str(name),
-                    "name": str(self.device_name),
-                },
-            )
-            return False
-    return True
-
-
-def get_optional_sensors(self) -> list:
+def get_optional_sensors(self: BetterThermostat) -> list[str]:
     """Return list of optional sensor entity IDs.
 
     Optional sensors are those that can be unavailable without
     blocking thermostat operation (degraded mode).
+
+    The contact sensors (window, door) belong here precisely because a
+    lost one counts as closed: heating continues, so the outage has no
+    other visible symptom and degraded mode is the only thing that
+    surfaces it.
 
     The cooler belongs here too: while it is unavailable the heating
     side keeps running, so the outage has no other visible symptom and
@@ -196,71 +339,146 @@ def get_optional_sensors(self) -> list:
     list
         List of optional sensor entity IDs
     """
-    optional = []
-    if getattr(self, "window_id", None):
-        optional.append(self.window_id)
-    if getattr(self, "door_id", None):
-        optional.append(self.door_id)
-    if getattr(self, "humidity_sensor_entity_id", None):
+    optional: list[str] = []
+    if self.window_sensor_entity_id:
+        optional.append(self.window_sensor_entity_id)
+    if self.door_sensor_entity_id:
+        optional.append(self.door_sensor_entity_id)
+    if self.humidity_sensor_entity_id:
         optional.append(self.humidity_sensor_entity_id)
-    if getattr(self, "outdoor_sensor", None):
-        optional.append(self.outdoor_sensor)
-    if getattr(self, "weather_entity", None):
-        optional.append(self.weather_entity)
+    if self.outdoor_sensor_entity_id:
+        optional.append(self.outdoor_sensor_entity_id)
+    if self.weather_entity_id:
+        optional.append(self.weather_entity_id)
     # An actuator rather than a sensor, watched on the same terms because
     # its loss leaves the thermostat running.
-    if getattr(self, "cooler_entity_id", None):
+    if self.cooler_entity_id:
         optional.append(self.cooler_entity_id)
     return optional
 
 
-def get_critical_entities(self) -> dict:
-    """Return critical TRV entity policies.
+def should_report_unavailable_trvs(
+    guard: State | None, now: datetime, grace_seconds: float
+) -> bool:
+    """Decide whether an unavailable TRV is reported, as the availability guard sees it.
 
-    Critical entities are TRVs - without them the thermostat cannot function.
-    The room temperature sensor is semi-critical (can fall back to TRV temp).
+    The guard is an entity that says whether the TRVs are expected to have
+    power: ``on`` when they are, ``off`` when the heating system that feeds
+    them is switched off. A TRV that is unavailable while it is expected to
+    be unpowered is not a fault. One that is still unavailable once the
+    guard has been ``on`` for the grace period is.
+
+    Parameters
+    ----------
+    guard : State | None
+        The guard's state, or ``None`` when no guard is configured or the
+        configured one does not exist.
+    now : datetime
+        The current time.
+    grace_seconds : float
+        How long after the guard turned ``on`` a TRV is given to come back.
 
     Returns
     -------
-    dict
-        Dictionary of critical entity IDs (TRVs) and their state_unknown_as_available flag
+    bool
+        True when an unavailable TRV is reported. Without a guard, and with a
+        guard in any state other than ``on`` or ``off``, it is: a guard that
+        says nothing cannot vouch for an outage.
     """
-    critical = {}
-    if hasattr(self, "real_trvs") and self.real_trvs:
-        for trv_id in self.real_trvs.keys():
-            critical[trv_id] = trv_state_unknown_as_available(self, trv_id)
+    if guard is None:
+        return True
+    if guard.state == STATE_OFF:
+        return False
+    if guard.state != STATE_ON:
+        return True
+    return now - guard.last_changed >= timedelta(seconds=grace_seconds)
+
+
+def availability_guard_state(self: BetterThermostat) -> State | None:
+    """Return the state of the configured availability guard, if there is one."""
+    guard_entity_id = self.availability_guard_entity_id
+    if guard_entity_id is None:
+        return None
+    return self.hass.states.get(guard_entity_id)
+
+
+def unavailable_trvs_reportable(self: BetterThermostat) -> bool:
+    """Return whether an unavailable TRV of this thermostat is reported now."""
+    guard = availability_guard_state(self)
+    if guard is None:
+        return True
+    return should_report_unavailable_trvs(
+        guard, self.clock.now(), self.availability_guard_grace_seconds
+    )
+
+
+def get_critical_entities(self: BetterThermostat) -> list[str]:
+    """Return list of critical entity IDs.
+
+    Critical entities are TRVs - without them the thermostat cannot function.
+    The room temperature sensor is semi-critical (can fall back to TRV temperature).
+
+    Returns
+    -------
+    list
+        List of critical entity IDs (TRVs)
+    """
+    critical: list[str] = []
+    if self.real_trvs:
+        critical.extend(list(self.real_trvs.keys()))
     return critical
 
 
-async def check_critical_entities(self) -> bool:
-    """Check only critical entities (TRVs).
+async def check_critical_entities(self: BetterThermostat) -> None:
+    """Keep the error list and the repair issues of the TRVs current.
 
-    Returns True if all TRVs are available. Does not block on optional sensors.
+    Every event handler runs it, and none waits on its outcome: an
+    unavailable TRV holds back no event, because the control cycle leaves
+    unreachable TRVs out and serves the rest of the room. Optional sensors
+    are not checked here.
 
     During a startup grace period (``_critical_grace_until``), unavailable
     TRVs do not raise a Home Assistant repair issue — slow integrations
     (e.g. cloud-backed Tado valves) are given time to come online. The issue
     is created once the grace window elapses if the entity is still missing.
 
+    While the availability guard says the TRVs have no power, or has said
+    they have it for less than its grace period, an unavailable TRV is not
+    an error: it raises no issue, and one it raised before the guard turned
+    off is withdrawn, also during a startup grace period. Should it still be unavailable once the guard has been
+    ``on`` for the grace period, it is reported then.
+
     When an entity becomes available again, any previously raised
     ``missing_entity_*`` issue is cleared automatically (and idempotently,
     so stale issues from a previous run are also removed).
 
-    Returns
-    -------
-    bool
-        True if all critical entities are available
+    While the devices are released, an outage is the user's business: no
+    TRV is reported, and an issue an earlier outage raised is withdrawn. The
+    same holds for a TRV released on its own. The check after the devices
+    or the TRV are taken back reports what is still missing.
     """
     critical = get_critical_entities(self)
-    grace_until = getattr(self, "_critical_grace_until", None)
-    in_grace = grace_until is not None and dt_util.now() < grace_until
+    in_grace = self.clock.now() < self._critical_grace_until
+    reportable = unavailable_trvs_reportable(self)
 
-    all_available = True
-    for entity, entity_state_unknown_as_available in critical.items():
-        if not is_entity_available(
-            self.hass, entity, entity_state_unknown_as_available
-        ):
-            if in_grace:
+    for entity in critical:
+        if device_released(self, entity):
+            if entity in self.devices_errors:
+                self.devices_errors.remove(entity)
+                self.async_write_ha_state()
+            ir.async_delete_issue(
+                self.hass,
+                DOMAIN,
+                entry_issue_id(self._config_entry_id, "missing_entity", entity),
+            )
+            continue
+        if not is_trv_available(self, entity):
+            # The guard goes first: the startup grace only defers new
+            # reports, and a report made before it was armed again still
+            # goes with the guard.
+            if not reportable:
+                _withdraw_outage_report(self, entity)
+            elif in_grace:
                 _LOGGER.debug(
                     "better_thermostat %s: Critical entity %s is unavailable "
                     "during startup grace period; deferring repair issue",
@@ -283,28 +501,238 @@ async def check_critical_entities(self) -> bool:
                 ir.async_create_issue(
                     hass=self.hass,
                     domain=DOMAIN,
-                    issue_id=f"missing_entity_{entity}",
-                    is_fixable=True,
+                    issue_id=entry_issue_id(
+                        self._config_entry_id, "missing_entity", entity
+                    ),
+                    is_fixable=False,
                     is_persistent=False,
                     learn_more_url="https://better-thermostat.org/faq/missing-entity",
                     severity=ir.IssueSeverity.ERROR,
                     translation_key="missing_entity",
                     translation_placeholders={
-                        "entity": str(entity),
-                        "name": str(self.device_name),
+                        "entity": entity,
+                        "name": self.device_name,
                     },
                 )
-            all_available = False
         else:
             recovered = entity in self.devices_errors
             # Clear error if entity is now available (covers recovery after an
             # outage and stale issues from a previous run).
             if recovered:
+                _LOGGER.info(
+                    "better_thermostat %s: Critical entity %s is available again",
+                    self.device_name,
+                    entity,
+                )
                 self.devices_errors.remove(entity)
                 self.async_write_ha_state()
-            ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
-            schedule_battery_refresh(self, entity, recovered=recovered)
-    return all_available
+            ir.async_delete_issue(
+                self.hass,
+                DOMAIN,
+                entry_issue_id(self._config_entry_id, "missing_entity", entity),
+            )
+            refresh_battery_reading(self, entity, recovered=recovered)
+
+
+def _withdraw_outage_report(self: BetterThermostat, entity: str) -> None:
+    """Take back the error and the repair issue of a TRV the guard excuses.
+
+    The guard can turn off after the TRVs have dropped out, so a TRV may
+    already have been reported. The report goes with the guard rather than
+    with the TRV: the TRV is reported anew if it is still unavailable once
+    the guard has been on for its grace period.
+    """
+    if entity in self.devices_errors:
+        _LOGGER.info(
+            "better_thermostat %s: Critical entity %s is unavailable while the "
+            "availability guard %s does not expect it to be reachable; no longer "
+            "reported",
+            self.device_name,
+            entity,
+            self.availability_guard_entity_id,
+        )
+        self.devices_errors.remove(entity)
+        self.async_write_ha_state()
+    else:
+        _LOGGER.debug(
+            "better_thermostat %s: Critical entity %s is unavailable while the "
+            "availability guard %s does not expect it to be reachable",
+            self.device_name,
+            entity,
+            self.availability_guard_entity_id,
+        )
+    ir.async_delete_issue(
+        self.hass,
+        DOMAIN,
+        entry_issue_id(self._config_entry_id, "missing_entity", entity),
+    )
+
+
+def get_device_errors(self: BetterThermostat) -> list[str]:
+    """Return the TRVs the thermostat's ``errors`` attribute lists.
+
+    A TRV is listed while it is unavailable and while it does not take the
+    setpoint Better Thermostat keeps writing to it, each TRV once.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+
+    Returns
+    -------
+    list[str]
+        Entity ids of the TRVs in error, the unavailable ones first
+    """
+    errors = list(self.devices_errors)
+    errors.extend(
+        entity_id
+        for entity_id, trv in self.real_trvs.items()
+        if trv.setpoint_unapplied_reported and entity_id not in errors
+    )
+    return errors
+
+
+def _displayed_temperature(self: BetterThermostat, celsius: float) -> str:
+    """Return a setpoint in °C as a repair issue shows it, in the system unit."""
+    unit = self.hass.config.units.temperature_unit
+    value = TemperatureConverter.convert(celsius, UnitOfTemperature.CELSIUS, unit)
+    return f"{round(value, 1)} {unit}"
+
+
+def report_invalid_valve_calibration(self: BetterThermostat, entity_id: str) -> None:
+    """Flag a stored controller that cannot drive the device's sole actuator.
+
+    Called before device writes in each control cycle, including the initial
+    startup cycle. The entry stays loaded so the ordinary valve path can close
+    it and retry failures; changing its options reloads it and removes the issue.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance.
+    entity_id : str
+        Entity id of the TRV whose stored controller is checked.
+    """
+    trv = self.real_trvs[entity_id]
+    if (
+        not trv.uses_valve_only_control
+        or configured_calibration_mode(trv.advanced) in VALVE_CALIBRATION_MODES
+    ):
+        return
+    ir.async_create_issue(
+        hass=self.hass,
+        domain=DOMAIN,
+        issue_id=entry_issue_id(
+            self._config_entry_id, "invalid_valve_calibration", entity_id
+        ),
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.ERROR,
+        learn_more_url="https://better-thermostat.org/working-devices/compatibility",
+        translation_key="invalid_valve_calibration",
+        translation_placeholders={
+            "name": self.device_name,
+            "entity": entity_id,
+            "mode": str(trv.advanced.get(CONF_CALIBRATION_MODE)),
+        },
+    )
+
+
+def report_unapplied_setpoint(
+    self: BetterThermostat,
+    entity_id: str,
+    wanted: float,
+    held: float,
+    retry_interval_seconds: float,
+) -> None:
+    """Report a TRV that does not take the setpoint written to it.
+
+    The TRV joins the thermostat's errors and gets a repair issue, once per
+    run of writes it did not take; ``clear_unapplied_setpoint`` takes both
+    back. Every further report of the run brings the issue's setpoints up to
+    date, so it names what the latest cycle wants and the TRV holds. The
+    registry leaves an issue whose shown values did not change untouched.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity id of the TRV
+    wanted : float
+        The setpoint in °C Better Thermostat writes
+    held : float
+        The setpoint in °C the TRV reports instead
+    retry_interval_seconds : float
+        How long Better Thermostat waits before it writes the setpoint again
+    """
+    trv = self.real_trvs[entity_id]
+    first_report = not trv.setpoint_unapplied_reported
+    if first_report:
+        trv.setpoint_unapplied_reported = True
+        _LOGGER.warning(
+            "better_thermostat %s: TRV %s did not take the target temperature %s "
+            "after %d writes and reports %s; writing it again every %.0f minutes "
+            "at most",
+            self.device_name,
+            entity_id,
+            wanted,
+            trv.unapplied_setpoint_writes,
+            held,
+            retry_interval_seconds / 60.0,
+        )
+    ir.async_create_issue(
+        hass=self.hass,
+        domain=DOMAIN,
+        issue_id=entry_issue_id(
+            self._config_entry_id, "setpoint_not_applied", entity_id
+        ),
+        is_fixable=False,
+        is_persistent=False,
+        learn_more_url="https://better-thermostat.org/faq/setpoint-not-applied",
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="setpoint_not_applied",
+        translation_placeholders={
+            "name": self.device_name,
+            "entity": entity_id,
+            "wanted": _displayed_temperature(self, wanted),
+            "held": _displayed_temperature(self, held),
+        },
+    )
+    if first_report:
+        self.async_write_ha_state()
+
+
+def clear_unapplied_setpoint(self: BetterThermostat, entity_id: str) -> None:
+    """End a TRV's run of setpoint writes it did not take.
+
+    Called when the TRV is seen holding what Better Thermostat wants or last
+    wrote. A raised report is taken back with the run.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity id of the TRV
+    """
+    trv = self.real_trvs[entity_id]
+    trv.unapplied_setpoint_writes = 0
+    if not trv.setpoint_unapplied_reported:
+        return
+    trv.setpoint_unapplied_reported = False
+    _LOGGER.info(
+        "better_thermostat %s: TRV %s holds the target temperature again",
+        self.device_name,
+        entity_id,
+    )
+    ir.async_delete_issue(
+        self.hass,
+        DOMAIN,
+        entry_issue_id(self._config_entry_id, "setpoint_not_applied", entity_id),
+    )
+    self.async_write_ha_state()
 
 
 # Default delays for the optional-sensor startup retry loop.
@@ -314,17 +742,17 @@ DEFAULT_OPTIONAL_SENSOR_DELAYS: tuple[int, ...] = (3, 5, 10, 15, 25)
 
 
 async def await_optional_sensors(
-    self,
+    self: BetterThermostat,
     delays: tuple[int, ...] | list[int] = DEFAULT_OPTIONAL_SENSOR_DELAYS,
-    _sleep=None,
+    _sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> list[str]:
     """Wait for optional sensors to become available with increasing delays.
 
     After a reboot, optional sensors (outdoor, weather, window, door,
     humidity) frequently need a few seconds to initialise.  This helper
     retries with increasing intervals so that
-    ``check_and_update_degraded_mode`` is not called while sensors are still
-    starting up.
+    ``check_and_update_degraded_mode`` is not called while sensors are
+    still starting up.
 
     Parameters
     ----------
@@ -351,6 +779,11 @@ async def await_optional_sensors(
     pending: list[str] = []
 
     for idx, delay in enumerate(delays):
+        # The entity may be torn down mid-wait; stop retrying immediately
+        # instead of running out the (up to ~60 s) schedule against a
+        # being-removed instance.
+        if self.is_removed:
+            return pending
         pending = [
             eid
             for eid in get_optional_sensors(self)
@@ -374,6 +807,8 @@ async def await_optional_sensors(
         )
         await _sleep(delay)
         elapsed += delay
+        if self.is_removed:
+            return pending
 
     # Final check after the last sleep
     pending = [
@@ -398,9 +833,9 @@ DEFAULT_CRITICAL_ENTITY_DELAYS: tuple[int, ...] = (3, 5, 10, 15, 25, 30)
 
 
 async def await_critical_entities(
-    self,
+    self: BetterThermostat,
     delays: tuple[int, ...] | list[int] = DEFAULT_CRITICAL_ENTITY_DELAYS,
-    _sleep=None,
+    _sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> list[str]:
     """Wait for critical entities (TRVs) to become available with retry delays.
 
@@ -439,12 +874,12 @@ async def await_critical_entities(
         # The entity may be torn down mid-wait; stop retrying immediately
         # instead of running out the (up to ~90 s) schedule against a
         # being-removed instance.
-        if getattr(self, "is_removed", False):
+        if self.is_removed:
             return pending
         pending = [
             eid
-            for eid, state_unknown_as_available in get_critical_entities(self).items()
-            if not is_entity_available(self.hass, eid, state_unknown_as_available)
+            for eid in get_critical_entities(self)
+            if not is_trv_available(self, eid)
         ]
         if not pending:
             _LOGGER.debug(
@@ -464,14 +899,12 @@ async def await_critical_entities(
         )
         await _sleep(delay)
         elapsed += delay
-        if getattr(self, "is_removed", False):
+        if self.is_removed:
             return pending
 
     # Final check after the last sleep
     pending = [
-        eid
-        for eid, state_unknown_as_available in get_critical_entities(self).items()
-        if not is_entity_available(self.hass, eid, state_unknown_as_available)
+        eid for eid in get_critical_entities(self) if not is_trv_available(self, eid)
     ]
     if not pending:
         _LOGGER.debug(
@@ -482,11 +915,24 @@ async def await_critical_entities(
     return pending
 
 
-async def check_and_update_degraded_mode(self) -> bool:
+async def check_and_update_degraded_mode(
+    self: BetterThermostat, room_sensor_state: State | None = None
+) -> bool:
     """Check optional sensors and update degraded mode status.
 
-    Sets self.degraded_mode to True if any optional sensor is unavailable.
-    Updates self.unavailable_sensors with list of unavailable optional sensors.
+    Advances the control-mode region (whose ``degraded`` the entity
+    exposes as the ``degraded_mode`` property) and updates
+    self.unavailable_sensors with the unavailable optional sensors.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    room_sensor_state : State | None
+        The room sensor state a reading handler is about to apply. The
+        handler can wait for its turn until the sensor has reported again,
+        and the ladder observes the reading the room gets rather than the
+        one after it. Without it, the sensor's current state is observed.
 
     Returns
     -------
@@ -497,7 +943,7 @@ async def check_and_update_degraded_mode(self) -> bool:
     unavailable = []
     # Still the previous pass's list at this point, so it says which sensors
     # are coming back from an outage on this one.
-    previously_unavailable = set(getattr(self, "unavailable_sensors", None) or ())
+    previously_unavailable = set(self.unavailable_sensors)
 
     for entity in optional:
         if not is_entity_available(self.hass, entity):
@@ -508,37 +954,87 @@ async def check_and_update_degraded_mode(self) -> bool:
                 entity,
             )
         else:
-            schedule_battery_refresh(
+            refresh_battery_reading(
                 self, entity, recovered=entity in previously_unavailable
             )
 
     # Check room temperature sensor - special case with TRV fallback
-    sensor_available = is_entity_available(self.hass, self.sensor_entity_id)
+    sensor_entity_id = self.sensor_entity_id
+    if room_sensor_state is None:
+        room_sensor_state = self.hass.states.get(sensor_entity_id)
+    sensor_available = (
+        room_sensor_state is not None
+        and room_sensor_state.state not in UNAVAILABLE_OR_UNKNOWN_STATES
+    )
     if not sensor_available:
-        unavailable.append(self.sensor_entity_id)
-        _LOGGER.warning(
-            "better_thermostat %s: Room temperature sensor %s unavailable, "
-            "falling back to TRV internal temperature",
-            self.device_name,
-            self.sensor_entity_id,
-        )
+        unavailable.append(sensor_entity_id)
+        if sensor_entity_id not in previously_unavailable:
+            # The fallback lasts as long as the outage does, while this check
+            # runs on every trigger, so the warning follows the transition
+            # into the outage rather than repeating for its whole length.
+            _LOGGER.warning(
+                "better_thermostat %s: Room temperature sensor %s unavailable, "
+                "falling back to TRV internal temperature",
+                self.device_name,
+                sensor_entity_id,
+            )
     else:
-        schedule_battery_refresh(
-            self,
-            self.sensor_entity_id,
-            recovered=self.sensor_entity_id in previously_unavailable,
+        if sensor_entity_id in previously_unavailable:
+            _LOGGER.info(
+                "better_thermostat %s: Room temperature sensor %s is available again",
+                self.device_name,
+                sensor_entity_id,
+            )
+        refresh_battery_reading(
+            self, sensor_entity_id, recovered=sensor_entity_id in previously_unavailable
         )
 
-    # Update instance state
-    old_degraded = getattr(self, "degraded_mode", False)
-    self.degraded_mode = len(unavailable) > 0
+    # The ladder asks more of the room sensor than availability: a sensor
+    # that stays available while reporting implausible values leaves the
+    # room without a temperature to control on, the same as a lost one.
+    room_sensor_ok = sensor_available and (
+        room_sensor_reading(self, room_sensor_state) is not None
+    )
+
+    # The control-mode region is the typed record; the entity's
+    # degraded_mode property derives from it.
+    old_degraded = self.kernel_state.control_mode.degraded
+    old_rung = self.kernel_state.control_mode.mode
+    self.kernel_state = replace(
+        self.kernel_state,
+        control_mode=control_mode_step(
+            self.kernel_state.control_mode, unavailable, self.clock.monotonic()
+        ),
+    )
+    # A stored reading only counts while its TRV is actually reachable;
+    # otherwise a pre-outage value would keep HOLD unreachable forever.
+    trv_temperature_ok = any(
+        reachable_trv_temperature(self, entity_id) is not None
+        for entity_id in self.real_trvs
+    )
+    self.kernel_state = replace(
+        self.kernel_state,
+        control_mode=control_mode_step_ladder(
+            self.kernel_state.control_mode,
+            room_sensor_ok=room_sensor_ok,
+            trv_temperature_ok=trv_temperature_ok,
+            now=self.clock.monotonic(),
+            params=LadderParams(),
+        ),
+    )
     self.unavailable_sensors = unavailable
+    # A committed rung changes the room temperature the control law reads,
+    # so the devices are driven from the new source now rather than on the
+    # next unrelated trigger. Valve maintenance requests its own cycle when
+    # it ends.
+    if self.kernel_state.control_mode.mode != old_rung and not self.in_maintenance:
+        request_control_cycle(self)
+    degraded = self.kernel_state.control_mode.degraded
 
-    grace_until = getattr(self, "_degraded_grace_until", None)
-    in_grace = grace_until is not None and dt_util.now() < grace_until
-    has_warned = getattr(self, "_degraded_warning_emitted", False)
+    in_grace = self.kernel_state.lifecycle.in_grace(self.clock.now())
+    has_warned = self._degraded_warning_emitted
 
-    if self.degraded_mode and not has_warned and not in_grace:
+    if degraded and not has_warned and not in_grace:
         _LOGGER.warning(
             "better_thermostat %s: Entering degraded mode. Unavailable sensors: %s",
             self.device_name,
@@ -547,46 +1043,40 @@ async def check_and_update_degraded_mode(self) -> bool:
         ir.async_create_issue(
             hass=self.hass,
             domain=DOMAIN,
-            issue_id=f"degraded_mode_{self.device_name}",
+            issue_id=entry_issue_id(self._config_entry_id, "degraded_mode"),
             is_fixable=False,
             is_persistent=False,
             learn_more_url="https://better-thermostat.org/faq/degraded-mode",
             severity=ir.IssueSeverity.WARNING,
             translation_key="degraded_mode",
             translation_placeholders={
-                "name": str(self.device_name),
+                "name": self.device_name,
                 "sensors": ", ".join(unavailable),
             },
         )
         self._degraded_warning_emitted = True
-
-        from custom_components.better_thermostat.utils.helpers import (
-            async_fire_logbook_entry,
-        )
 
         await async_fire_logbook_entry(
             self,
             "degraded_mode_entered",
             "entered degraded mode because some sensors are unavailable",
         )
-    elif self.degraded_mode and in_grace and not old_degraded:
+    elif degraded and in_grace and not old_degraded:
         _LOGGER.debug(
             "better_thermostat %s: degraded mode during startup grace period "
             "(unavailable: %s); waiting for sensors before warning",
             self.device_name,
             ", ".join(unavailable),
         )
-    elif not self.degraded_mode and has_warned:
+    elif not degraded and has_warned:
         _LOGGER.info(
             "better_thermostat %s: Exiting degraded mode. All sensors available.",
             self.device_name,
         )
-        ir.async_delete_issue(self.hass, DOMAIN, f"degraded_mode_{self.device_name}")
-        self._degraded_warning_emitted = False
-
-        from custom_components.better_thermostat.utils.helpers import (
-            async_fire_logbook_entry,
+        ir.async_delete_issue(
+            self.hass, DOMAIN, entry_issue_id(self._config_entry_id, "degraded_mode")
         )
+        self._degraded_warning_emitted = False
 
         await async_fire_logbook_entry(
             self,
@@ -595,4 +1085,4 @@ async def check_and_update_degraded_mode(self) -> bool:
         )
 
     self.async_write_ha_state()
-    return self.degraded_mode
+    return degraded

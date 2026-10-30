@@ -7,15 +7,16 @@ away.
 """
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 from homeassistant.components.climate.const import HVACAction
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from tests.factories import ThermostatStandIn
 
 
 def _bt():
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.attr_hvac_action = None
     bt._compute_hvac_action_pure = Mock(
         return_value=SimpleNamespace(action=HVACAction.IDLE)
@@ -26,8 +27,8 @@ def _bt():
 def test_first_read_computes_once_and_caches():
     """Repeated reads before the first commit compute only once."""
     bt = _bt()
-    first = BetterThermostat.hvac_action.fget(bt)
-    second = BetterThermostat.hvac_action.fget(bt)
+    first = BetterThermostat.hvac_action.__get__(bt)
+    second = BetterThermostat.hvac_action.__get__(bt)
 
     assert first is HVACAction.IDLE
     assert second is HVACAction.IDLE
@@ -37,8 +38,8 @@ def test_first_read_computes_once_and_caches():
 def test_committed_action_wins_over_the_cache():
     """A committed action replaces whatever the property cached."""
     bt = _bt()
-    BetterThermostat.hvac_action.fget(bt)
+    BetterThermostat.hvac_action.__get__(bt)
     bt.attr_hvac_action = HVACAction.HEATING
 
-    assert BetterThermostat.hvac_action.fget(bt) is HVACAction.HEATING
+    assert BetterThermostat.hvac_action.__get__(bt) is HVACAction.HEATING
     bt._compute_hvac_action_pure.assert_called_once()

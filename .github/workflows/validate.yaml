@@ -7,6 +7,9 @@ on:
   schedule:
     - cron: "0 0 * * *"
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -16,8 +19,10 @@ jobs:
     runs-on: "ubuntu-latest"
     timeout-minutes: 5
     steps:
-      - uses: "actions/checkout@v6"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       - name: HACS validation
-        uses: "hacs/action@22.5.0"
+        uses: hacs/action@d556e736723344f83838d08488c983a15381059a  # 22.5.0
         with:
           category: "integration"

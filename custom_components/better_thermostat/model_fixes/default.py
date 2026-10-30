@@ -12,73 +12,86 @@ from homeassistant.components.lock import LockState
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.helpers import entity_registry as er
 
-from ..utils.helpers import find_device_entity
+from custom_components.better_thermostat.model_fixes.types import (
+    DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS,
+    InitialTweakQuirk,
+    MaintenanceIntervalQuirk,
+    ModelFixHost,
+    ModelQuirks,
+    UnknownStateQuirk,
+)
+
+from ..adapters.base import offset_scale, offset_to_published
+from ..utils.advanced_flags import as_bool
+from ..utils.const import CONF_CHILD_LOCK
+from ..utils.helpers import device_released, find_child_lock_entity, find_device_entity
 
 _LOGGER = logging.getLogger(__name__)
 
-VALVE_MAINTENANCE_INTERVAL_HOURS = 168  # Default: 7 days
+VALVE_MAINTENANCE_INTERVAL_HOURS = DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS
 
 
-def trv_state_unknown_as_available(self, entity_id):
-    """Return True if this TRV is operating when its Climate entity state is STATE_UNKNOWN.
-
-    This default implementation always returns ``False`` without delegating
-    to another model quirks implementation.
+def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
+    """Answer whether the TRV is operating while its state reads ``unknown``.
 
     Parameters
     ----------
-    self : BetterThermostat
-        Better Thermostat instance. It is unused by the default policy.
+    self : ModelFixHost
+        Host providing Home Assistant access and the per-TRV records.
+        Unused by the default policy.
     entity_id : str
-        TRV entity identifier. It is unused by the default policy.
+        Entity ID of the TRV being judged. Unused by the default policy.
 
     Returns
     -------
     bool
-        Always ``False``.
+        False: an entity that says nothing about its device leaves the
+        device unaccounted for.
     """
     return False
 
 
-def fix_local_calibration(self, entity_id, offset):
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Return the given local calibration offset unchanged."""
-    return offset
+    return calibration_offset
 
 
-def fix_valve_calibration(self, entity_id, valve):
-    """Return the given valve calibration unchanged."""
-    return valve
-
-
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """Return the given target temperature unchanged."""
     return temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
     """Do not override HVAC mode by default."""
     return False
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """Do not override set temperature by default."""
     return False
 
 
-async def override_set_valve(self, entity_id, percent: int):
-    """Do not override valve by default."""
-    return False
+async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
+    """Run initial tweaks for the device.
 
-
-async def initial_tweak(self, entity_id):
-    """Run initial tweaks for the device."""
+    Each tweak is a write of its own. The device can be released while an
+    earlier one is under way, and the tweaks after it are not sent then.
+    """
     entity_registry = er.async_get(self.hass)
     reg_entity = entity_registry.async_get(entity_id)
 
     if reg_entity is not None and reg_entity.device_id is not None:
         device_id = reg_entity.device_id
 
-        def find_entity(domains, keywords):
+        def find_entity(domains: list[str], keywords: list[str]) -> str | None:
             return find_device_entity(entity_registry, device_id, domains, keywords)
 
         # 1. Local calibration -> 0
@@ -93,10 +106,17 @@ async def initial_tweak(self, entity_id):
                     self.device_name,
                     cal_entity,
                 )
-                await self.hass.services.async_call(
-                    "number", "set_value", {"entity_id": cal_entity, "value": 0}
+                zero = offset_to_published(
+                    offset_scale(self.hass.states.get(cal_entity)), 0.0
                 )
-            except Exception as e:
+                await self.hass.services.async_call(
+                    "number",
+                    "set_value",
+                    {"entity_id": cal_entity, "value": zero},
+                    blocking=True,
+                    context=self.context,
+                )
+            except Exception as e:  # noqa: BLE001 - a device failure arrives as any exception type
                 _LOGGER.warning(
                     "better_thermostat %s: Failed to reset calibration for %s: %s",
                     self.device_name,
@@ -105,12 +125,12 @@ async def initial_tweak(self, entity_id):
                 )
 
         # 2. Child lock sync setting
-        child_lock_setting = self.real_trvs[entity_id].advanced.get("child_lock")
-        if child_lock_setting is not None:
-            # Look for switch (Z2M) or lock
-            cl_entity = find_entity(
-                ["switch", "lock"], ["child_lock", "child lock", "lock"]
-            )
+        if device_released(self, entity_id):
+            return
+        stored_child_lock = self.real_trvs[entity_id].advanced.get(CONF_CHILD_LOCK)
+        if stored_child_lock is not None:
+            child_lock_setting = as_bool(stored_child_lock)
+            cl_entity = find_child_lock_entity(entity_registry, device_id)
             if cl_entity:
                 target_state = STATE_ON if child_lock_setting else STATE_OFF
                 domain = cl_entity.split(".")[0]
@@ -127,7 +147,11 @@ async def initial_tweak(self, entity_id):
                             )
                             service = "turn_on" if child_lock_setting else "turn_off"
                             await self.hass.services.async_call(
-                                "switch", service, {"entity_id": cl_entity}
+                                "switch",
+                                service,
+                                {"entity_id": cl_entity},
+                                blocking=True,
+                                context=self.context,
                             )
                     elif domain == "lock":
                         target_lock = (
@@ -145,9 +169,13 @@ async def initial_tweak(self, entity_id):
                             )
                             service = "lock" if child_lock_setting else "unlock"
                             await self.hass.services.async_call(
-                                "lock", service, {"entity_id": cl_entity}
+                                "lock",
+                                service,
+                                {"entity_id": cl_entity},
+                                blocking=True,
+                                context=self.context,
                             )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - a device failure arrives as any exception type
                     _LOGGER.warning(
                         "better_thermostat %s: Failed to set child lock for %s: %s",
                         self.device_name,
@@ -156,6 +184,8 @@ async def initial_tweak(self, entity_id):
                     )
 
         # 3. Away / Window detection -> Off
+        if device_released(self, entity_id):
+            return
         # Window detection disable the interal trv window detection, its handled by better_thermostat
         win_entity = find_entity(
             ["switch"],
@@ -171,9 +201,13 @@ async def initial_tweak(self, entity_id):
                         win_entity,
                     )
                     await self.hass.services.async_call(
-                        "switch", "turn_off", {"entity_id": win_entity}
+                        "switch",
+                        "turn_off",
+                        {"entity_id": win_entity},
+                        blocking=True,
+                        context=self.context,
                     )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - a device failure arrives as any exception type
                 _LOGGER.warning(
                     "better_thermostat %s: Failed to disable window detection for %s: %s",
                     self.device_name,
@@ -182,6 +216,8 @@ async def initial_tweak(self, entity_id):
                 )
 
         # Away mode -> Off
+        if device_released(self, entity_id):
+            return
         # Disable the away mode on the device if available
         away_entity = find_entity(
             ["switch"], ["away_mode", "away mode", "holiday_mode", "holiday"]
@@ -196,12 +232,36 @@ async def initial_tweak(self, entity_id):
                         away_entity,
                     )
                     await self.hass.services.async_call(
-                        "switch", "turn_off", {"entity_id": away_entity}
+                        "switch",
+                        "turn_off",
+                        {"entity_id": away_entity},
+                        blocking=True,
+                        context=self.context,
                     )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - a device failure arrives as any exception type
                 _LOGGER.warning(
                     "better_thermostat %s: Failed to disable away mode for %s: %s",
                     self.device_name,
                     away_entity,
                     e,
                 )
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+    VALVE_MAINTENANCE_INTERVAL_HOURS = VALVE_MAINTENANCE_INTERVAL_HOURS
+    initial_tweak = staticmethod(initial_tweak)
+    trv_state_unknown_as_available = staticmethod(trv_state_unknown_as_available)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()
+_INITIAL_TWEAK_QUIRK: InitialTweakQuirk = _Surface()
+_MAINTENANCE_INTERVAL_QUIRK: MaintenanceIntervalQuirk = _Surface()
+_UNKNOWN_STATE_QUIRK: UnknownStateQuirk = _Surface()

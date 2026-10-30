@@ -83,7 +83,7 @@ action:
         data:
           title: "Better Thermostat – High humidity"
           message: >
-            ⚠️ {{ device_attr(trigger.device_id, 'name') }} reports humidity
+            ⚠️ {{ device_attr(thermostat_device, 'name') }} reports humidity
             above {{ humidity_threshold }}%. Please ventilate the room.
 
   - if:
@@ -95,6 +95,7 @@ action:
           entity_id: !input ventilation_switch
 
 variables:
+  thermostat_device: !input thermostat_device
   notify_target: !input notify_target
   enable_notify: !input enable_notify
   ventilation_switch: !input ventilation_switch

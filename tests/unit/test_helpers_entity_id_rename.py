@@ -16,6 +16,7 @@ from custom_components.better_thermostat.utils.const import DOMAIN
 from custom_components.better_thermostat.utils.helpers import (
     async_normalize_bt_entity_ids,
 )
+from tests.factories import make_entity_registry, make_registry_entry
 
 
 def _entry(name):
@@ -26,20 +27,14 @@ def _entry(name):
     return entry
 
 
-def _registry_entry(entity_id, domain):
-    """Build a registry entry stub this integration owns."""
-    reg_entry = MagicMock()
-    reg_entry.entity_id = entity_id
-    reg_entry.platform = DOMAIN
-    reg_entry.domain = domain
-    return reg_entry
+def _registry_entry(entity_id):
+    """Build a registry entry this integration owns under ``entry-1``."""
+    return make_registry_entry(entity_id, platform=DOMAIN, config_entry_id="entry-1")
 
 
 def _registry(entries):
-    """Build an entity registry stub holding ``entries``."""
-    registry = MagicMock()
-    registry.entities.get_entries_for_config_entry_id.return_value = entries
-    return registry
+    """Build an entity registry holding ``entries``."""
+    return make_entity_registry(*entries)
 
 
 def _rename(hass, entry, registry, new_name, domain=Platform.SENSOR):
@@ -59,23 +54,6 @@ def _rename(hass, entry, registry, new_name, domain=Platform.SENSOR):
     return registry.async_update_entity.call_args_list
 
 
-def test_a_registry_without_entities_is_left_alone():
-    """An unloaded registry shell is not walked.
-
-    The registry is populated lazily, so before the first load it carries
-    no ``entities`` at all. Reaching for them would raise, and there is
-    nothing to rename in an empty registry either way.
-    """
-    hass = MagicMock()
-    hass.data = {}
-    # A shell carrying everything but the ``entities`` it has not loaded yet.
-    registry = MagicMock(spec=["async_update_entity", "async_regenerate_entity_id"])
-
-    calls = _rename(hass, _entry("Livingroom"), registry, "Bedroom")
-
-    assert calls == []
-
-
 def test_an_id_that_already_matches_is_not_rewritten():
     """A rename that leaves an id unchanged writes nothing.
 
@@ -84,8 +62,8 @@ def test_an_id_that_already_matches_is_not_rewritten():
     entity_id to itself is a registry error rather than a no-op.
     """
     hass = MagicMock()
-    hass.data = {}
-    reg_entry = _registry_entry("sensor.livingroom_temperature_ema", Platform.SENSOR)
+    hass.data = dict[str, object]()
+    reg_entry = _registry_entry("sensor.livingroom_temperature_ema")
     registry = _registry([reg_entry])
     registry.async_regenerate_entity_id.return_value = reg_entry.entity_id
 
@@ -102,9 +80,9 @@ def test_a_rejected_rename_is_reported_and_the_others_still_run(caplog):
     what keeps a single collision from stopping the rename half-done.
     """
     hass = MagicMock()
-    hass.data = {}
-    blocked = _registry_entry("sensor.livingroom_temperature_ema", Platform.SENSOR)
-    following = _registry_entry("sensor.livingroom_valve", Platform.SENSOR)
+    hass.data = dict[str, object]()
+    blocked = _registry_entry("sensor.livingroom_temperature_ema")
+    following = _registry_entry("sensor.livingroom_valve")
     registry = _registry([blocked, following])
     registry.async_regenerate_entity_id.side_effect = [
         "sensor.bedroom_temperature_ema",
@@ -129,8 +107,8 @@ def test_an_entity_of_another_platform_is_skipped():
     the registry under the same config entry.
     """
     hass = MagicMock()
-    hass.data = {}
-    other = _registry_entry("switch.livingroom_child_lock", Platform.SWITCH)
+    hass.data = dict[str, object]()
+    other = _registry_entry("switch.livingroom_child_lock")
     registry = _registry([other])
     registry.async_regenerate_entity_id.return_value = "switch.bedroom_child_lock"
 

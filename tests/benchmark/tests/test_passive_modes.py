@@ -19,11 +19,11 @@ def _ctx(
     return BenchmarkContext(
         t=0.0,
         dt=30.0,
-        target_temp_C=target,
-        current_temp_C=current,
-        raw_room_temp_C=current,
-        trv_temp_C=trv,
-        outdoor_temp_C=5.0,
+        target_temperature=target,
+        room_temperature=current,
+        raw_room_temperature=current,
+        trv_temperature=trv,
+        outdoor_temperature=5.0,
     )
 
 
@@ -54,7 +54,7 @@ def test_default_saturates_at_100():
     assert out.valve_percent == 100.0
 
 
-def test_default_ignores_trv_temp():
+def test_default_ignores_trv_temperature():
     """DEFAULT regulates against the external sensor, not the TRV body."""
     # External says 20, TRV body says 25. DEFAULT must use the external value.
     out = DefaultCalibrationAdapter().step(_ctx(target=21.0, current=20.0, trv=25.0))
@@ -116,7 +116,7 @@ def test_aggressive_is_stateless():
 
 
 def test_no_calibration_uses_trv_internal_sensor():
-    """NO_CALIBRATION regulates against ``trv_temp_C``, not the room sensor."""
+    """NO_CALIBRATION regulates against ``trv_temperature``, not the room sensor."""
     # Room says 20 (cold), TRV body says 22 (warm radiator backsplash).
     # The TRV's P-loop sees target − trv = 21 − 22 = −1 → clamped to 0 %.
     out = NoCalibrationAdapter().step(_ctx(target=21.0, current=20.0, trv=22.0))
@@ -135,10 +135,10 @@ def test_no_calibration_proportional_to_trv_error():
     assert out.valve_percent == pytest.approx(30.0)
 
 
-def test_no_calibration_diagnostics_show_which_temp_was_used():
-    """``trv_temp_used_C`` reflects the actual reference temperature."""
+def test_no_calibration_diagnostics_show_which_temperature_was_used():
+    """``trv_temperature_used`` reflects the actual reference temperature."""
     out = NoCalibrationAdapter().step(_ctx(target=21.0, current=20.0, trv=20.5))
-    assert out.diagnostics["trv_temp_used_C"] == 20.5
+    assert out.diagnostics["trv_temperature_used"] == 20.5
 
 
 # -- Cross-cutting -----------------------------------------------------------

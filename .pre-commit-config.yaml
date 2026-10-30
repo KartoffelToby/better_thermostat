@@ -14,5 +14,6 @@ repos:
         name: ruff format
         entry: uv run --frozen --only-group dev ruff format
         language: system
-        types_or: [python, pyi]
+        # ruff formats the Python code blocks in Markdown files as well.
+        types_or: [python, pyi, markdown]
         require_serial: true

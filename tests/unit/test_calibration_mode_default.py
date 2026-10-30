@@ -21,55 +21,59 @@ from custom_components.better_thermostat import (
     config_flow as config_flow_module,
 )
 from custom_components.better_thermostat.calibration import calculate_calibration_local
-from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils import controlling as controlling_module
+from custom_components.better_thermostat.utils import (
+    controlling as controlling_module,
+    helpers as helpers_module,
+)
 from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
 )
+from custom_components.better_thermostat.utils.entry_schema import StoredChoice
 from custom_components.better_thermostat.utils.helpers import (
-    is_calibration_mode,
+    configured_calibration_mode,
     normalize_calibration_mode,
 )
+from tests.factories import ThermostatStandIn, make_state, trv_record
 
 _RUNTIME_MODULES = (calibration_module, controlling_module)
 
 
-def _thermostat_without_target(stored_mode: object) -> MagicMock:
-    """A thermostat carrying *stored_mode* and no target temperature.
+def _thermostat_inside_the_band(stored_mode: StoredChoice) -> ThermostatStandIn:
+    """A thermostat carrying *stored_mode* with the room inside its tolerance band.
 
-    Without a target, only a mode that needs none produces a value, which
+    Inside the band a mode with a tolerance band holds the last calibration
+    (2.0) while DEFAULT, which has none, recomputes the offset (0.0). That
     makes the resolved mode observable from the return value alone.
     """
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = make_state()
     bt.name = "better_thermostat"
     bt.device_name = "Test BT"
     bt.tolerance = 0.5
     bt.attr_hvac_action = None
     bt.hvac_action = None
-    bt.cur_temp = 20.0
-    bt.bt_target_temp = None
+    bt.room_temperature = 20.0
+    bt.heat_target_temperature = 20.25
 
     quirks = MagicMock()
-    quirks.fix_local_calibration.side_effect = lambda _self, _entity_id, offset: float(
-        offset
+    quirks.fix_local_calibration.side_effect = (
+        lambda _self, _entity_id, calibration_offset: float(calibration_offset)
     )
 
     bt.real_trvs = {
-        "climate.trv": Trv.from_legacy_dict(
-            "climate.trv",
-            {
-                "advanced": {"calibration_mode": stored_mode},
-                "current_temperature": 22.0,
-                "last_calibration": 2.0,
-                "local_calibration_step": 0.1,
-                "local_calibration_min": -5.0,
-                "local_calibration_max": 5.0,
-                "target_temp_step": 0.5,
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "model_quirks": quirks,
-            },
+        "climate.trv": trv_record(
+            entity_id="climate.trv",
+            advanced={"calibration_mode": stored_mode},
+            current_temperature=22.0,
+            last_calibration=2.0,
+            local_calibration_step=0.1,
+            min_local_calibration=-5.0,
+            max_local_calibration=5.0,
+            target_temp_step=0.5,
+            min_temp=5.0,
+            max_temp=30.0,
+            model_quirks=quirks,
         )
     }
     return bt
@@ -89,17 +93,22 @@ def test_default_is_not_a_beta_mode():
 
 
 def test_no_runtime_fallback_hardcodes_a_mode():
-    """Runtime fallbacks read the shared default instead of naming a mode."""
+    """Runtime readers take the mode from the one helper that knows the default."""
     for module in _RUNTIME_MODULES:
         source = inspect.getsource(module)
         assert '"calibration_mode", CalibrationMode.' not in source, (
             f"{module.__name__} hardcodes a calibration-mode fallback"
         )
-        assert '"calibration_mode", DEFAULT_CALIBRATION_MODE' in source
+        assert 'get("calibration_mode"' not in source, (
+            f"{module.__name__} reads the calibration mode around the helper"
+        )
+        assert "configured_calibration_mode(" in source
         assert "_calibration_mode = CalibrationMode." not in source, (
             f"{module.__name__} rewrites an unresolved mode to a named one "
             "instead of the shared default"
         )
+    helper_source = inspect.getsource(configured_calibration_mode)
+    assert "return DEFAULT_CALIBRATION_MODE" in helper_source
 
 
 @pytest.mark.parametrize("stored_mode", [None, 3], ids=["null", "unmappable-number"])
@@ -108,14 +117,14 @@ def test_unresolvable_stored_mode_falls_back_to_the_shared_default(
 ):
     """A stored mode that normalizes to ``None`` resolves to the shared default.
 
-    The default is swapped for a mode that works without a target, so a
-    returned value proves the fallback read the constant rather than
-    naming a mode of its own.
+    The default is swapped for DEFAULT, the one mode without a tolerance
+    band, so a recomputed offset proves the fallback read the constant
+    rather than naming a mode of its own.
     """
     monkeypatch.setattr(
-        calibration_module, "DEFAULT_CALIBRATION_MODE", CalibrationMode.DEFAULT
+        helpers_module, "DEFAULT_CALIBRATION_MODE", CalibrationMode.DEFAULT
     )
-    thermostat = _thermostat_without_target(stored_mode)
+    thermostat = _thermostat_inside_the_band(stored_mode)
 
     assert calculate_calibration_local(thermostat, "climate.trv") == 0.0
 
@@ -123,25 +132,22 @@ def test_unresolvable_stored_mode_falls_back_to_the_shared_default(
 def test_a_named_but_unknown_mode_does_not_become_the_default(monkeypatch):
     """A string naming a mode this version does not know stays unresolved.
 
-    ``normalize_calibration_mode`` hands an unrecognized string back
-    unchanged instead of returning ``None``, and that is the answer the
-    rest of the code reads: ``is_calibration_mode`` reports ``False`` for
-    it against every mode. A config that names something is not a config
-    that names nothing, so it does not take the shared default.
+    ``normalize_calibration_mode`` reads it as no mode, but a config that
+    names something is not a config that names nothing, so it does not
+    take the shared default.
     """
-    assert normalize_calibration_mode("a mode from another version") == (
-        "a mode from another version"
-    )
-    assert not is_calibration_mode(
-        "a mode from another version", DEFAULT_CALIBRATION_MODE
+    assert normalize_calibration_mode("a mode from another version") is None
+    assert (
+        configured_calibration_mode({"calibration_mode": "a mode from another version"})
+        is None
     )
 
     monkeypatch.setattr(
-        calibration_module, "DEFAULT_CALIBRATION_MODE", CalibrationMode.DEFAULT
+        helpers_module, "DEFAULT_CALIBRATION_MODE", CalibrationMode.DEFAULT
     )
-    thermostat = _thermostat_without_target("a mode from another version")
+    thermostat = _thermostat_inside_the_band("a mode from another version")
 
-    assert calculate_calibration_local(thermostat, "climate.trv") is None
+    assert calculate_calibration_local(thermostat, "climate.trv") == 2.0
 
 
 def test_config_flow_uses_the_shared_default():

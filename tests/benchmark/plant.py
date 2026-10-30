@@ -3,7 +3,7 @@
 RC2 mode (``tau_wall_min == 0``):
 
     dT_rad/dt  = (1 / tau_rad_min) * (
-        gain_heater * u * (T_water_C - T_rad)
+        gain_heater * u * (T_water - T_rad)
         - (T_rad - T_room)
     )
     dT_room/dt = (1 / tau_room_min) * (
@@ -14,7 +14,7 @@ RC2 mode (``tau_wall_min == 0``):
 RC3 mode (``tau_wall_min > 0``):
 
     dT_rad/dt  = (1 / tau_rad_min) * (
-        gain_heater * u * (T_water_C - T_rad)
+        gain_heater * u * (T_water - T_rad)
         - (T_rad - T_room)
     )
     dT_room/dt = (1 / tau_room_min) * (
@@ -55,8 +55,6 @@ from collections import deque
 from dataclasses import dataclass
 import math
 
-from .sensor import SensorParams
-
 
 @dataclass
 class PlantParams:
@@ -70,7 +68,7 @@ class PlantParams:
     tau_rad_min: float = 15.0
     gain_heater: float = 0.5
     coupling_rad_room: float = 1.0
-    T_water_C: float = 65.0
+    T_water: float = 65.0
     # RC3 wall layer (opt-in via ``tau_wall_min > 0``).
     tau_wall_min: float = 0.0
     r_room_wall: float = 1.0
@@ -93,7 +91,7 @@ class PlantParams:
             "tau_rad_min",
             "gain_heater",
             "coupling_rad_room",
-            "T_water_C",
+            "T_water",
             "tau_wall_min",
             "r_room_wall",
             "valve_command_delay_s",
@@ -131,14 +129,14 @@ class PlantParams:
 class PlantState:
     """Mutable simulator state.
 
-    ``T_wall_C`` is only meaningful in RC3 mode; in RC2 mode it stays at
+    ``T_wall`` is only meaningful in RC3 mode; in RC2 mode it stays at
     whatever value it was initialised to. The plant initialises it to the
     room temperature if the caller leaves it ``None``.
     """
 
-    T_room_C: float
-    T_rad_C: float
-    T_wall_C: float | None = None
+    T_room: float
+    T_rad: float
+    T_wall: float | None = None
 
 
 # --- RC2 profiles ---
@@ -148,7 +146,7 @@ PROFILE_FAST_SMALL = PlantParams(
     tau_rad_min=8.0,
     gain_heater=1.5,
     coupling_rad_room=1.0,
-    T_water_C=65.0,
+    T_water=65.0,
 )
 
 PROFILE_STANDARD = PlantParams(
@@ -156,7 +154,18 @@ PROFILE_STANDARD = PlantParams(
     tau_rad_min=15.0,
     gain_heater=2.0,
     coupling_rad_room=1.0,
-    T_water_C=65.0,
+    T_water=65.0,
+)
+
+# STANDARD with a radiator sized for a -15 °C design outdoor temperature:
+# 1.4x the radiator-to-room coupling holds 21 °C at -15 °C with the valve
+# about 70 % open; STANDARD needs more than 90 % below about -7 °C.
+PROFILE_COLD_CLIMATE = PlantParams(
+    tau_room_min=480.0,
+    tau_rad_min=15.0,
+    gain_heater=2.0,
+    coupling_rad_room=1.4,
+    T_water=65.0,
 )
 
 PROFILE_LARGE_SLOW = PlantParams(
@@ -164,7 +173,7 @@ PROFILE_LARGE_SLOW = PlantParams(
     tau_rad_min=25.0,
     gain_heater=2.5,
     coupling_rad_room=1.0,
-    T_water_C=65.0,
+    T_water=65.0,
 )
 
 PROFILE_UNDERFLOOR = PlantParams(
@@ -172,7 +181,7 @@ PROFILE_UNDERFLOOR = PlantParams(
     tau_rad_min=60.0,
     gain_heater=2.5,
     coupling_rad_room=0.8,
-    T_water_C=45.0,
+    T_water=45.0,
 )
 
 # Representative-residential profiles derived from cooling-window fits to
@@ -184,7 +193,7 @@ PROFILE_REAL_LIVING_ROOM = PlantParams(
     tau_rad_min=15.0,
     gain_heater=2.0,
     coupling_rad_room=1.0,
-    T_water_C=65.0,
+    T_water=65.0,
 )
 
 PROFILE_REAL_KITCHEN = PlantParams(
@@ -192,7 +201,7 @@ PROFILE_REAL_KITCHEN = PlantParams(
     tau_rad_min=15.0,
     gain_heater=2.0,
     coupling_rad_room=1.0,
-    T_water_C=65.0,
+    T_water=65.0,
 )
 
 
@@ -207,7 +216,7 @@ PROFILE_STANDARD_RC3 = PlantParams(
     tau_rad_min=15.0,
     gain_heater=2.0,
     coupling_rad_room=1.0,
-    T_water_C=65.0,
+    T_water=65.0,
     tau_wall_min=900.0,
     r_room_wall=1.0,
 )
@@ -217,7 +226,7 @@ PROFILE_REAL_LIVING_ROOM_RC3 = PlantParams(
     tau_rad_min=15.0,
     gain_heater=2.0,
     coupling_rad_room=1.0,
-    T_water_C=65.0,
+    T_water=65.0,
     tau_wall_min=1100.0,
     r_room_wall=1.0,
 )
@@ -232,7 +241,21 @@ PROFILE_BOILER_LIMITED = PlantParams(
     tau_rad_min=15.0,
     gain_heater=2.0,
     coupling_rad_room=1.0,
-    T_water_C=42.0,
+    T_water=42.0,
+)
+
+
+# Heat pump on a heating curve: radiators sized for low flow temperatures,
+# three times STANDARD's radiator-to-room coupling, so that about 40 °C
+# flow holds 21 °C at -10 °C outdoor with the valve about 60 % open.
+# ``T_water`` is the nominal flow temperature the radiator is sized for; a
+# scenario's flow temperature schedule moves the real one.
+PROFILE_HEAT_PUMP_CURVE = PlantParams(
+    tau_room_min=480.0,
+    tau_rad_min=15.0,
+    gain_heater=2.0,
+    coupling_rad_room=3.0,
+    T_water=35.0,
 )
 
 
@@ -264,7 +287,7 @@ PROFILE_DOE_SFD_PRE1980 = PlantParams(
     tau_rad_min=20.0,
     gain_heater=2.5,
     coupling_rad_room=1.0,
-    T_water_C=70.0,
+    T_water=70.0,
 )
 
 PROFILE_DOE_SFD_2004 = PlantParams(
@@ -274,17 +297,17 @@ PROFILE_DOE_SFD_2004 = PlantParams(
     tau_rad_min=15.0,
     gain_heater=2.0,
     coupling_rad_room=1.0,
-    T_water_C=65.0,
+    T_water=65.0,
 )
 
 PROFILE_DOE_SFD_2010 = PlantParams(
     # Energy-efficient single-family at 2012+ IECC / EnEV 2009 envelope.
-    # Wall U ≈ 0.20 W/m²K, triple-pane windows, ACH ≈ 0.3, low-temp heating.
+    # Wall U ≈ 0.20 W/m²K, triple-pane windows, ACH ≈ 0.3, low-temperature heating.
     tau_room_min=720.0,
     tau_rad_min=15.0,
     gain_heater=1.8,
     coupling_rad_room=1.0,
-    T_water_C=55.0,
+    T_water=55.0,
 )
 
 PROFILE_DOE_MIDRISE_APT = PlantParams(
@@ -294,21 +317,7 @@ PROFILE_DOE_MIDRISE_APT = PlantParams(
     tau_rad_min=15.0,
     gain_heater=2.0,
     coupling_rad_room=1.0,
-    T_water_C=60.0,
-)
-
-
-# Reverse-acting "cooling" plant — same RC structure, but the radiator
-# circuit carries chilled water (≈ 15 °C). At u > 0 the radiator cools
-# the room instead of heating it. Used by S26 to expose how the BT/PID
-# controllers behave when the system's sign is flipped relative to their
-# design assumption (heating only).
-PROFILE_COOLING = PlantParams(
-    tau_room_min=480.0,
-    tau_rad_min=15.0,
-    gain_heater=2.0,
-    coupling_rad_room=1.0,
-    T_water_C=15.0,
+    T_water=60.0,
 )
 
 
@@ -322,21 +331,10 @@ PROFILE_REALISTIC = PlantParams(
     tau_rad_min=15.0,
     gain_heater=2.0,
     coupling_rad_room=1.0,
-    T_water_C=65.0,
+    T_water=65.0,
     tau_wall_min=1100.0,
     r_room_wall=1.0,
     valve_command_delay_s=60.0,  # 1 min boiler→radiator transport
-)
-
-
-# Realistic sensor settings to combine with PROFILE_REALISTIC. Not used
-# automatically by any scenario; opt-in via ``scenario.sensor_params``.
-
-REALISTIC_SENSOR_PARAMS = SensorParams(
-    sample_interval_s=60.0,
-    ema_alpha=0.7,
-    noise_std_K=0.05,
-    thermal_lag_s=90.0,  # 1.5 min sensor thermal mass
 )
 
 
@@ -351,10 +349,8 @@ class TwoStatePlant:
     def __init__(self, params: PlantParams, initial: PlantState) -> None:
         self.params = params
         # Default T_wall to T_room when not provided. Important for RC3.
-        wall = initial.T_wall_C if initial.T_wall_C is not None else initial.T_room_C
-        self.state = PlantState(
-            T_room_C=initial.T_room_C, T_rad_C=initial.T_rad_C, T_wall_C=wall
-        )
+        wall = initial.T_wall if initial.T_wall is not None else initial.T_room
+        self.state = PlantState(T_room=initial.T_room, T_rad=initial.T_rad, T_wall=wall)
         # Pipe-delay buffer is allocated lazily on the first step() call,
         # once we know the simulator's step size.
         self._u_delay_buffer: deque[float] = deque()
@@ -363,10 +359,34 @@ class TwoStatePlant:
         # transport delay is only correct while dt_s stays constant.
         self._delay_dt_s: float | None = None
 
+    @property
+    def heat_to_room_K_per_min(self) -> float:
+        """Heat the radiator currently delivers to the room, in room-K/min.
+
+        This is the radiator term of ``dT_room/dt``: the rate at which the
+        radiator alone would raise the room air temperature.
+        """
+        p = self.params
+        s = self.state
+        return p.coupling_rad_room * (s.T_rad - s.T_room) / p.tau_room_min
+
     def step(
-        self, dt_s: float, u: float, T_outdoor_C: float, Q_K_per_min: float = 0.0
+        self,
+        dt_s: float,
+        u: float,
+        T_outdoor: float,
+        Q_K_per_min: float = 0.0,
+        flow_temperature: float | None = None,
+        heat_delivered: bool = True,
     ) -> PlantState:
-        """Advance the plant by ``dt_s`` seconds. Returns the new state."""
+        """Advance the plant by ``dt_s`` seconds. Returns the new state.
+
+        ``flow_temperature`` replaces ``params.T_water`` for this step, as a
+        heating curve moves it with the outdoor temperature. While
+        ``heat_delivered`` is ``False`` no heating water flows, as while a
+        heat pump heats hot water: the radiator only gives off what it holds,
+        whatever the valve.
+        """
         if dt_s <= 0.0:
             return self.state
 
@@ -395,35 +415,35 @@ class TwoStatePlant:
             u_clamped = self._u_delay_buffer.popleft()
 
         # Radiator dynamics — identical in RC2 and RC3.
-        dT_rad = (
-            p.gain_heater * u_clamped * (p.T_water_C - s.T_rad_C)
-            - (s.T_rad_C - s.T_room_C)
-        ) / p.tau_rad_min
+        T_water = p.T_water if flow_temperature is None else flow_temperature
+        heat_in = (
+            p.gain_heater * u_clamped * (T_water - s.T_rad) if heat_delivered else 0.0
+        )
+        dT_rad = (heat_in - (s.T_rad - s.T_room)) / p.tau_rad_min
 
         if p.tau_wall_min > 0.0:
             # RC3 dynamics: room exchanges with the wall instead of outdoor.
-            wall = s.T_wall_C if s.T_wall_C is not None else s.T_room_C
+            wall = s.T_wall if s.T_wall is not None else s.T_room
 
             dT_room = (
-                p.coupling_rad_room * (s.T_rad_C - s.T_room_C)
-                - p.r_room_wall * (s.T_room_C - wall)
+                p.coupling_rad_room * (s.T_rad - s.T_room)
+                - p.r_room_wall * (s.T_room - wall)
             ) / p.tau_room_min
 
             dT_wall = (
-                p.r_room_wall * (s.T_room_C - wall) - (wall - T_outdoor_C)
+                p.r_room_wall * (s.T_room - wall) - (wall - T_outdoor)
             ) / p.tau_wall_min
 
-            s.T_rad_C += dT_rad * dt_min
-            s.T_room_C += (dT_room + Q_K_per_min) * dt_min
-            s.T_wall_C = wall + dT_wall * dt_min
+            s.T_rad += dT_rad * dt_min
+            s.T_room += (dT_room + Q_K_per_min) * dt_min
+            s.T_wall = wall + dT_wall * dt_min
         else:
             # RC2 dynamics: room exchanges directly with outdoor.
             dT_room = (
-                p.coupling_rad_room * (s.T_rad_C - s.T_room_C)
-                - (s.T_room_C - T_outdoor_C)
+                p.coupling_rad_room * (s.T_rad - s.T_room) - (s.T_room - T_outdoor)
             ) / p.tau_room_min
 
-            s.T_rad_C += dT_rad * dt_min
-            s.T_room_C += (dT_room + Q_K_per_min) * dt_min
+            s.T_rad += dT_rad * dt_min
+            s.T_room += (dT_room + Q_K_per_min) * dt_min
 
         return s
