@@ -1414,6 +1414,11 @@ export class BtConfigurator extends LitElement {
     if (hasExtra('window')) {
       screen1.push(
         {
+          field: 'Window sensor',
+          value: 'Select your window sensor or group',
+          hint: 'Pauses heating when a window is open after the configured delay.'
+        },
+        {
           field: 'Delay before the thermostat should turn off when the window is opened',
           value: '00:02:00 (2 min)',
           hint: 'Ignores brief openings (letting a pet out or grabbing mail) before closing the valve.'
@@ -1428,6 +1433,11 @@ export class BtConfigurator extends LitElement {
 
     if (hasExtra('door')) {
       screen1.push(
+        {
+          field: 'Door sensor',
+          value: 'Select your door sensor or group',
+          hint: 'Pauses heating when a door is open after the configured delay.'
+        },
         {
           field: 'Delay before the thermostat should turn off when the door is opened',
           value: '00:02:30 (2 min 30 s)',
@@ -1454,12 +1464,19 @@ export class BtConfigurator extends LitElement {
           : roomProfile === 'cold_drafty' || roomProfile === 'compact_bath'
             ? '16 °C (~61 °F)'
             : '15 °C (~59 °F)';
-      screen1.push({
-        field: 'The outdoor temperature when the thermostat should turn off',
-        value: threshold,
-        hint: `Entered in your Home Assistant system unit (lowered from 20 °C / 68 °F default). Uses 24h exponential outdoor damping and resumes heating below ${resumeTemp} (1 °C / 1.8 °F hysteresis).`,
-        highlight: true
-      });
+      screen1.push(
+        {
+          field: 'Outdoor temperature sensor / Weather entity to get the outdoor temperature',
+          value: 'Select your outdoor sensor or weather entity',
+          hint: 'The outdoor sensor takes priority if both are selected.'
+        },
+        {
+          field: 'The outdoor temperature when the thermostat should turn off',
+          value: threshold,
+          hint: `Entered in your Home Assistant system unit (lowered from 20 °C / 68 °F default). Uses 24h exponential outdoor damping and resumes heating below ${resumeTemp} (1 °C / 1.8 °F hysteresis).`,
+          highlight: true
+        }
+      );
     }
 
     if (hasExtra('power_cut')) {
