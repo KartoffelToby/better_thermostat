@@ -2,20 +2,23 @@
 title: Interactive Configurator
 sidebar:
   order: 4
-description: 6-step wizard to get tailored Screen 1 and Screen 2 settings for your room and radiator valve.
+description: 6-step Better Thermostat 2.0 setup assistant generating exact Screen 1, Screen 2, and device-page recommendations backed by the thermal controller benchmark.
 ---
 
 import { BtConfigurator } from '../../website/src/components/Configurator.ts';
 
-A small, well-insulated bedroom with a direct-valve Sonoff TRVZB needs very different settings than a drafty old-building living room or an underfloor heating zone. Answer six quick questions below to get a tailored **Screen 1 & Screen 2** starting profile.
+A well-insulated bedroom with a direct-valve **Sonoff TRVZB** or **Shelly BLU TRV** needs completely different settings than a covered radiator behind curtains, an **868 MHz HomematicIP** valve, or an underfloor heating zone.
+
+Answer **six quick questions** below about your valve hardware, radiator layout, room sensor, and optional **Better Thermostat 2.0** features (separate door contacts, AC cooling, presets, or fireplace/boiler learning pauses). You will get exact **Screen 1** and **Screen 2** values matching Home Assistant's setup dialog—and you can click any summary tag afterward to compare "what-if" changes live.
 
 <BtConfigurator client:load></BtConfigurator>
 
-## How to apply these settings in Home Assistant
+## How to apply your profile in Home Assistant
 
 1. Open **Settings → Devices & Services → Better Thermostat**.
-2. Click **Configure** next to the room (or **+ Add Integration → Better Thermostat** for a new room).
-3. On **Screen 1**, enter the recommended **`Tolerance`**, **window/door open & close delays**, and **outdoor shutdown threshold**.
-4. Click **Submit** to open **Screen 2**, then pick the recommended **`Calibration type`**, **`Calibration mode`** (plus **`MPC v2 room size`** if using MPC v2), and **`Overheating protection?`**.
+2. Click **Configure** next to an existing room (or **+ Add Integration → Better Thermostat** for a new room).
+3. **Screen 1 (Room, Sensors & Presets)**: Enter the recommended **`Tolerance`**, **`hh:mm:ss` window and door delays**, **outdoor shutdown threshold**, **optional cooling device**, and **`Enabled Presets`**, then click **Submit**.
+4. **Screen 2 (Per-TRV Hardware & Control Settings)**: Pick the recommended **`Calibration type`** and **`Calibration mode`** (plus **`MPC v2 room size`** when using MPC v2) and check the hardware toggles. *(If you grouped 2+ radiators in one room, Screen 2 repeats once for each TRV.)*
+5. **Device Page (Post-Setup)**: Open the newly created Better Thermostat device in Home Assistant to set your preset temperatures (`Eco`, `Comfort`, `Sleep`, `Away`), cap oversized radiators via **`Valve Max Opening`**, or automate **`Pause Learning`**.
 
-Want to see the exact numbers behind how each option works? Read **[Calibration types & algorithms](/calibration_algorithms/)** and **[All settings reference](/configuration/)**.
+Want to see the exact math and benchmark numbers behind each option? Read **[Calibration types & algorithms](/calibration_algorithms/)**, **[Supported devices & compatibility](/working-devices/compatibility/)**, and **[All settings reference](/configuration/)**.
