@@ -1370,24 +1370,26 @@ export class BtConfigurator extends LitElement {
         'Measures your room’s actual warming and cooling rate over 2–3 heating cycles and scales heating demand automatically—giving reliable, hands-off everyday comfort with low battery wear.';
     }
 
-    // 3. Tolerance (Screen 1)
-    let tolerance = '0.3';
+    // 3. Tolerance (Screen 1 — entered in Home Assistant's system unit: °C or °F)
+    let tolerance = '0.3 °C (~0.5 °F)';
     let toleranceHint =
-      'Replaces the 0.0 default so heating waits until 0.3 °C below target before restarting—stopping valve chatter and battery drain.';
+      'Entered in your Home Assistant system unit: replaces the 0.0 default so heating waits until 0.3 °C (~0.5 °F) below target before restarting—stopping valve chatter and battery drain.';
     if (isUnderfloor) {
-      tolerance = '0.5';
-      toleranceHint = 'Wider 0.5 °C band avoids fighting multi-hour slab or cast-iron thermal inertia.';
+      tolerance = '0.5 °C (~0.9 °F)';
+      toleranceHint =
+        'Entered in your Home Assistant system unit: wider 0.5 °C (~0.9 °F) band avoids fighting multi-hour slab or cast-iron thermal inertia.';
     } else if (isDirectValve && priority === 'comfort_first') {
-      tolerance = '0.2';
-      toleranceHint = 'Tighter 0.2 °C hysteresis band suited to fast sensors and direct 0–100 % valve modulation.';
+      tolerance = '0.2 °C (~0.4 °F)';
+      toleranceHint =
+        'Entered in your Home Assistant system unit: tighter 0.2 °C (~0.4 °F) hysteresis band suited to fast sensors and direct 0–100 % valve modulation.';
     } else if (priority === 'longevity_first' || isHomematic) {
-      tolerance = '0.3';
+      tolerance = '0.3 °C (~0.5 °F)';
       toleranceHint =
-        '0.3 °C (up to 0.4 °C in very noisy rooms) cuts unnecessary micro-cycles and preserves battery & radio budget.';
+        'Entered in your Home Assistant system unit: 0.3 °C (~0.5 °F; up to 0.4 °C / ~0.7 °F in noisy rooms) cuts micro-cycles and preserves battery & radio budget.';
     } else if (isSmartInternal) {
-      tolerance = '0.3';
+      tolerance = '0.3 °C (~0.5 °F)';
       toleranceHint =
-        'Inactive in External Sensor Offset Only, but safe to store at 0.3 °C in case you switch controllers later.';
+        'Inactive in External Sensor Offset Only, but safe to store at 0.3 °C (~0.5 °F) in case you switch controllers later.';
     }
 
     // 4. Screen 1 settings (exact verbatim strings.json field labels)
@@ -1404,7 +1406,7 @@ export class BtConfigurator extends LitElement {
 
     screen1.push({
       field: 'Tolerance, to prevent the thermostat from turning on and off too often',
-      value: `${tolerance} (${tolerance} °C)`,
+      value: tolerance,
       hint: toleranceHint,
       highlight: true
     });
@@ -1442,16 +1444,20 @@ export class BtConfigurator extends LitElement {
     if (hasExtra('outdoor')) {
       const threshold =
         roomProfile === 'well_insulated'
-          ? '15 (15 °C)'
+          ? '15 °C (~59 °F)'
           : roomProfile === 'cold_drafty' || roomProfile === 'compact_bath'
-            ? '17 (17 °C)'
-            : '16 (16 °C)';
+            ? '17 °C (~63 °F)'
+            : '16 °C (~61 °F)';
       const resumeTemp =
-        roomProfile === 'well_insulated' ? '14 °C' : roomProfile === 'cold_drafty' || roomProfile === 'compact_bath' ? '16 °C' : '15 °C';
+        roomProfile === 'well_insulated'
+          ? '14 °C (~57 °F)'
+          : roomProfile === 'cold_drafty' || roomProfile === 'compact_bath'
+            ? '16 °C (~61 °F)'
+            : '15 °C (~59 °F)';
       screen1.push({
         field: 'The outdoor temperature when the thermostat should turn off',
         value: threshold,
-        hint: `Lowered from the 20 °C default. Uses a ~24h outdoor average and resumes heating automatically at ${resumeTemp} (1 °C hysteresis).`,
+        hint: `Entered in your Home Assistant system unit (lowered from 20 °C / 68 °F default). Uses 24h exponential outdoor damping and resumes heating below ${resumeTemp} (1 °C / 1.8 °F hysteresis).`,
         highlight: true
       });
     }

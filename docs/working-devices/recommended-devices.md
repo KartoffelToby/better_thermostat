@@ -77,7 +77,7 @@ Need a reliable Zigbee USB coordinator?
 ## Complete tested starter setups
 
 ### Tested Setup 1: Budget-friendly & silent (`SEA801` / `SEA802`)
-- **TRV:** Saswell `SEA801-Zigbee` / `SEA802-Zigbee` ([Amazon link](https://amzn.to/4aDFMW3))
+- **TRV:** Saswell `SEA801-Zigbee` / `SEA802-Zigbee`
 - **Room Sensor:** Aqara Temperature & Humidity Sensor `WSDCGQ11LM` ([Amazon link](https://amzn.to/40jCClw))
 - **Window Sensor:** Aqara Door & Window Sensor `MCCGQ11LM` ([Amazon link](https://amzn.to/4cB4zwz))
 - **Recommended Better Thermostat settings:**

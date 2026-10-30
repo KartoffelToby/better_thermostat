@@ -24,11 +24,11 @@ Every control cycle, the active algorithm computes a desired valve opening betwe
 Better Thermostat then applies that percentage through your TRV's configured **[`Calibration type`](/calibration_algorithms/)**:
 
 1. **`Direct Valve Based` *(True motor positioning)*:**
-   - Writes the exact percentage directly to the TRV's valve motor (for example `45 %` opening; on Sonoff `TRVZB` where a closing-degree entity exists, it sets closing degree to `100 − 45 = 55 %` as well).
+   - Scales the requested `0–100 %` opening onto each valve entity's own `min`, `max`, and `step` attributes (so the written position may be quantized to the entity's supported increments; on Sonoff `TRVZB` where a closing-degree entity exists, it sets closing degree to `100 − opening` as well).
    - **Capping an oversized radiator (`Valve Max Opening`):** Every direct-valve TRV gets its own `number.<trv>_valve_max_opening` slider (default `100 %`). Lowering a fast guest-bathroom radiator to **`60 %`** restricts its peak water flow so slower rooms down the hall receive hot water faster and the small room stops overshooting!
 2. **`Offset Based` & `Target Temperature Based` *(Mapped proportional setpoint)*:**
-   - Even when a TRV has no direct valve entity, Better Thermostat maps `0–100 %` smoothly between the **TRV's current internal reading (`0 %` = close valve)** and the **TRV's maximum setpoint (`100 %` = open wide)**.
-   - Example: If the TRV currently reads `23.0 °C` and its maximum setpoint is `30.0 °C`, a **`50 %` demand** places the effective TRV target midway (~`26.5 °C`) rather than slamming it to `30.0 °C`, nudging the TRV's internal stepper motor to a partial opening.
+   - Even when a TRV has no direct valve entity, Better Thermostat maps `0–100 %` between the **TRV's current internal reading (`0 %` = close valve)** and the **TRV's maximum setpoint (`100 %` = open wide)**, then rounds the resulting offset or setpoint onto the device's supported step grid.
+   - Example: If the TRV currently reads `23.0 °C` and its maximum setpoint is `30.0 °C`, a **`50 %` demand** places the effective TRV target midway (~`26.5 °C`, rounded to the TRV's supported step) rather than slamming it to `30.0 °C`, nudging the TRV's internal stepper motor to a partial opening.
 
 ---
 

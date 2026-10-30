@@ -9,9 +9,10 @@ A TRV measures temperature next to its own hot valve, so it throttles
 too early. Calibration corrects this using the external room sensor,
 through one of three **channels** depending on what the device supports:
 
-- **Direct valve** — when the device exposes a writable valve opening and the
-  configured mode is in `VALVE_CALIBRATION_MODES`, Better Thermostat writes the
-  `0–100 %` valve opening (capped by `Valve Max Opening`) directly.
+- **Direct valve** — when `Calibration type` is `DIRECT_VALVE_BASED`, the
+  device exposes a writable valve channel, and the configured mode is in
+  `VALVE_CALIBRATION_MODES` (or `Boost` is active), Better Thermostat writes
+  the `0–100 %` valve opening (capped by `Valve Max Opening`) directly.
 - **Local offset** — the device exposes a calibration entity; Better
   Thermostat writes an offset so the TRV's internal reading matches the
   room sensor.

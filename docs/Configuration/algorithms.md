@@ -24,7 +24,7 @@ Understanding this split clears up almost every mystery about what you see on yo
 
 ## Part 1: `Calibration type` — How Better Thermostat talks to your TRV
 
-Better Thermostat automatically inspects each TRV and only offers the `Calibration type` options that your hardware and integration expose.
+Better Thermostat always offers **`Target Temperature Based`**, and automatically adds **`Direct Valve Based`** and **`Offset Based`** whenever your TRV hardware and integration expose those writable channels.
 
 To see what each option actually sends over the radio, imagine this everyday snapshot:
 
@@ -38,7 +38,7 @@ To see what each option actually sends over the radio, imagine this everyday sna
 - **What it brings:** Zero guesswork about how the TRV's own firmware reacts to offsets or setpoints. Enables fine proportional modulation without slamming the valve fully open and shut.
 - **Supported hardware:** Offered automatically when your integration exposes a writable valve-opening entity or quirk—such as **Sonoff `TRVZB`** (Zigbee2MQTT), **Shelly BLU TRV** (Shelly integration via BLU Gateway Gen3), **Eurotronic Spirit Zigbee (`SPZB0001`)** & **Z-Wave (`ZWA021`)**, and several Danfoss/Popp/Hive TRVs in Zigbee2MQTT.
 - **Compatible algorithms:** Works with the **5 valve-computing modes**: `(AI) Time Based (Default)`, `TPI Controller`, `(AI) MPC v2 (QP + Kalman, experimental)`, `PID Controller`, and `MPC Predictive (Beta)`.
-  - If you pair `Direct Valve Based` with `Aggressive`, `External Sensor Offset Only`, or `No Calibration`, standard TRVs automatically fall back to setpoint control (`Target Temperature Based`). Valve-only devices like the **Shelly BLU TRV** raise a Home Assistant Repair warning and run `(AI) Time Based (Default)` instead.
+  - If you pair `Direct Valve Based` with `Aggressive`, `External Sensor Offset Only`, or `No Calibration`, standard TRVs automatically fall back to setpoint control (`Target Temperature Based`). On valve-only TRVs like the **Shelly BLU TRV**, setup rejects incompatible modes—and if a stored configuration carries one, Better Thermostat returns a **`0 %` valve command** (raising a Home Assistant Repair warning and blocking heating, including `Boost`) until you select a compatible controller.
   - Activating the **`Boost`** preset opens direct-valve TRVs straight to `100 %` (or your `Valve Max Opening` limit).
 
 ### 2. `Offset Based` *(Local temperature calibration)*
@@ -55,10 +55,10 @@ Many TRVs clamp their local offset in firmware (for example `±2.5 °C` on Saswe
 **The fix:** Switch `Calibration type` from `Offset Based` to **`Target Temperature Based`** (or **`Direct Valve Based`** if available).
 :::
 
-### 3. `Target Temperature Based` *(Universal — works with every TRV)*
+### 3. `Target Temperature Based` *(Always available for setpoint-capable TRVs)*
 
 - **What it sends:** Leaves the TRV's internal offset untouched and instead shifts the **target temperature** sent to the TRV—for example, sending **`25.0 °C`** (or higher depending on the algorithm's demand) so the TRV opens its valve despite reading `23.0 °C` at the pipe. As the room approaches `21.0 °C`, Better Thermostat lowers the TRV setpoint smoothly until the valve closes right on target.
-- **What it brings:** Works reliably with **every** Home Assistant `climate` TRV (including ZHA, tado°, HomematicIP without offset entities, and radiators hidden behind curtains or furniture because it is not restricted by narrow `±2.5–5 °C` offset caps).
+- **What it brings:** Works reliably with Home Assistant `climate` entities that expose either a single target temperature or a target temperature range (including ZHA, tado°, HomematicIP without offset entities, and radiators hidden behind curtains or furniture because it is not restricted by narrow `±2.5–5 °C` offset caps).
 - **What you'll notice on the TRV screen:** Seeing **`26 °C` or `30 °C`** on the radiator's physical display while heating is **completely normal and expected**. Better Thermostat is temporarily pulling the valve open and will throttle it back down before your room exceeds `21.0 °C`.
 
 :::tip[How 0–100 % algorithms work on Offset Based and Target Temperature Based TRVs]
@@ -69,13 +69,15 @@ Even without `Direct Valve Based`, algorithms like `(AI) Time Based`, `TPI`, and
 
 ## Part 2: Quick comparison of all 8 `Calibration mode` algorithms
 
+Qualitative ratings below reflect the single-TRV `balanced` profile of Better Thermostat's thermal benchmark (`uv run python -m tests.benchmark.runner`); actual behavior depends on your room insulation, radiator sizing, hardware channel (`Direct Valve Based` vs. offset/setpoint), and room-sensor resolution (`0.1 °C` vs. `0.5 °C`).
+
 | Exact UI name (`Calibration mode`) | Needs learning? | Overshoot protection | Warm-up speed | Valve & battery wear | Works with `Direct Valve`? | Uses `Overheating protection?` toggle? | Best for |
 |---|---|---|---|---|---|---|---|
 | **`(AI) Time Based (Default)`** | Yes (~2–3 cycles) | Good | Medium–Fast | Low | **Yes** | **Yes** (non-valve) | Everyday rooms; set-and-forget default |
-| **`TPI Controller`** | **No** (instant) | **Very high** | Steady / Gentle | **Very low** | **Yes** | No (built-in) | Bedrooms, well-insulated rooms, multi-TRV rooms, overshoot issues |
-| **`(AI) MPC v2 (QP + Kalman, experimental)`** | Optional (`Auto` adapts) | **Highest** | Fast & smooth | Low–Medium | **Yes (designed for it)** | No (built-in) | **Direct-valve TRVs** (Sonoff TRVZB, Shelly BLU, Spirit) |
-| **`PID Controller`** *(Beta)* | Auto-Tune or manual | High (once tuned) | Fast | Medium–High | **Yes (best)** | No (built-in) | Sunny rooms, kitchens, hallways with sudden heat/cold swings (`0.1 °C` sensor) |
-| **`Aggressive`** | No | Low (can overshoot) | **Fastest** (`+2.5 °C` push) | Low–Medium | No (falls back) | **Yes** | Drafty, poorly insulated, or sluggish rooms where fast heat-up beats precision |
+| **`TPI Controller`** | **No** (instant) | **Very high** *(in steady rooms)* | Steady / Gentle | **Very low** *(steady proportional)* | **Yes** | No (built-in) | Bedrooms, well-insulated rooms, multi-TRV rooms, overshoot issues |
+| **`(AI) MPC v2 (QP + Kalman, experimental)`** | Optional (`Auto` adapts) | **Very high** *(on direct valve)* | Fast & smooth *(direct valve)* | Low–Medium *(direct valve)* | **Yes (designed for it)** | No (built-in) | **Direct-valve TRVs** (Sonoff TRVZB, Shelly BLU, Spirit) |
+| **`PID Controller`** *(Beta)* | Auto-Tune or manual | High *(once tuned, `≤0.2 °C` sensor)* | Fast *(direct valve)* | Medium–High *(higher on `0.5 °C` sensors)* | **Yes (best)** | No (built-in) | Sunny rooms, kitchens, hallways with sudden heat/cold swings (`0.1 °C` sensor) |
+| **`Aggressive`** | No | Low (can overshoot) | **Fast** *(`+2.5 °C` boost, non-valve)* | Low–Medium | No (falls back) | **Yes** | Drafty, poorly insulated, or sluggish rooms where fast heat-up beats precision |
 | **`External Sensor Offset Only`** | No | TRV's own loop | TRV's own loop | Very low | No (falls back) | No | Smart TRVs (e.g. tado°) whose internal controller you like—just fixes sensor bias |
 | **`MPC Predictive (Beta)`** | Yes (continuous) | Medium | Fast | **High** | Yes | No | Earlier 30-min predictive beta; prefer **TPI** or **MPC v2** for most rooms |
 | **`No Calibration`** | No | TRV's own loop | TRV's own loop | Lowest | No (falls back) | No | Using BT only for window/door pause, Summer Mode, presets, or grouping |
@@ -109,7 +111,7 @@ Still unsure? Run the **[Interactive Configurator](/setup/configurator/)** for a
   | Average room (initial default) | `0.01 °C/min` | **~47 %** | Balanced mid-opening |
   | Slow, heavy, or cold room | `0.005 °C/min` | **~91 %** | Pushes hard so the room doesn't stall |
 
-- **What `Overheating protection?` adds here:** Once the room reaches target and goes `idle`, if residual radiator heat pushes the room past `target + tolerance`, Better Thermostat multiplies that excess by **`8×`** in the closing direction (e.g. `0.2 °C` past the band pushes the offset/setpoint by `1.6 °C` toward closed) so stubborn valves seal completely.
+- **What `Overheating protection?` adds here (non-valve channels only):** On `Offset Based` and `Target Temperature Based` channels, once the room reaches target and goes `idle`, if residual radiator heat pushes the room past `target + tolerance`, Better Thermostat multiplies that excess by **`8×`** in the closing direction (e.g. `0.2 °C` past the band pushes the offset/setpoint by `1.6 °C` toward closed) so stubborn valves seal completely. *(When `(AI) Time Based` runs on `Direct Valve Based`, or when using direct controller modes like `TPI`, `PID`, or `MPC v2`, the `8×` post-adjustment does not apply because the valve closes to `0 %` directly.)*
 - **Tips & maintenance:**
   - Turn on the **`Pause Learning`** switch while a wood stove/fireplace burns or while your boiler stops radiator flow for domestic hot water ([Pausing learning](/setup/pause-learning/)).
   - If you relocate your room sensor, bleed a previously air-locked radiator, or change your boiler's flow temperature, reset the learned speed via **Developer Tools → Actions → `better_thermostat.reset_heating_power`**.
@@ -144,8 +146,8 @@ Still unsure? Run the **[Interactive Configurator](/setup/configurator/)** for a
   - **Smooth quadratic-program (QP) horizon:** Penalizes both temperature error *and* unnecessary valve travel, keeping motors quiet.
   - **Automatic disturbance & parameter adaptation:** Tracks unmodeled heat gains like sunshine or people (`MPC v2 Disturbance`) and refines its room physics (`MPC v2 Coupling`, `MPC v2 Room Time Constant`) cleanly in the background once enough history accumulates.
 - **Choosing `MPC v2 room size` (Screen 2):**
-  - **`Auto` (Default):** Starts with balanced medium priors (`τ ≈ 6 h`, radiator coupling `12 °C`) and re-identifies your room's exact thermal parameters over several days.
-  - **`Small` / `Medium` / `Large`:** Fixes a starting thermal profile (`Small`: fast ~`3 h` room; `Medium`: ~`6 h`; `Large`: high-mass ~`12 h` room) when you want tailored dynamics from Hour 1.
+  - **`Auto` (Default):** Derives the initial room time constant from learned heat-loss behavior (falling back to a default ~`8 h` residential envelope) and re-identifies your room's exact thermal parameters over several days.
+  - **`Small` / `Medium` / `Large`:** Fixes a starting thermal profile (`Small`: fast ~`3 h` envelope; `Medium`: standard ~`8 h` envelope; `Large`: slow ~`12 h` envelope) when you want a specific time-constant prior from Hour 1.
 - **Diagnostic entities:** Enable the 4 opt-in sensors (`MPC v2 Virtual Temperature`, `MPC v2 Coupling`, `MPC v2 Disturbance`, `MPC v2 Room Time Constant`) on the device page if you want to inspect the live model ([Entities & attributes](/setup/entities/)).
 - **Best for:** Rooms with **`Direct Valve Based`** TRVs (Sonoff TRVZB, Shelly BLU TRV, Eurotronic Spirit) where you want tight comfort with minimal overshoot. *(On `Offset Based` or `Target Temperature Based` TRVs, its fine 1–2 % valve adjustments get rounded by the TRV's `0.5 °C` setpoint grid—use `TPI Controller` or `(AI) Time Based` there instead.)*
 

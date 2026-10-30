@@ -31,7 +31,7 @@ Screen 1 configures the room, its sensors, its comfort deadband (`Tolerance`), a
 
 #### `Room temperature sensor` *(Required)*
 - **What it does:** The standalone thermometer (`sensor.*`) placed in the living area of the room (`1.2–1.5 m` high, away from radiators, sun, and drafts).
-- **If it goes offline:** After 2 minutes without a valid reading between `-50 °C` and `60 °C`, Better Thermostat steps down gracefully to the average of your TRVs' built-in thermometers (`sensor_fallback`) and raises a self-clearing [Degraded mode](/faq/degraded-mode/) repair notice.
+- **If it goes offline or reports invalid values:** After 2 minutes without a valid reading between `-50 °C` and `60 °C`, Better Thermostat steps down gracefully to the average of your TRVs' built-in thermometers (`sensor_fallback`). A self-clearing [Degraded mode](/faq/degraded-mode/) repair notice is raised only when the room sensor state is `unavailable` or `unknown` (out-of-range numeric readings trigger `sensor_fallback` without creating that repair notice).
 
 #### `The cooling device (optional)`
 - **What it does:** Adds an air conditioner or cooling `climate` entity alongside your radiators.
@@ -99,7 +99,7 @@ For the full explanation of 24-hour exponential smoothing and hysteresis, read *
 - **What it does:** Chooses which preset modes (`Eco`, `Away`, `Boost`, `Comfort`, `Home`, `Sleep`, `Activity`) appear on this thermostat. Every enabled preset creates its own configurable temperature slider (`number.<room>_<preset>`) under the device's **Configuration** section ([Presets](/setup/presets/)).
 
 #### `Target minimum temperature`, `Target maximum temperature` & `Target temperature step`
-- **What they do:** Bound the range and `+`/`−` step size (`0.1`, `0.5`, or `1.0 °C`) users and voice assistants can set on Better Thermostat. Leave min and max on **`Auto`** to inherit the limits your physical TRVs support.
+- **What they do:** Bound the range and `+`/`−` step size users and voice assistants can set on Better Thermostat. `Target temperature step` offers **`Auto`** (plus **`Auto (legacy)`** for migrated entries), **`0.1 °C`**, **`0.2 °C`**, **`0.25 °C`**, **`0.5 °C`**, and **`1.0 °C`** (labeled `1 °C` in the dropdown). Leave min, max, and step on **`Auto`** to inherit the limits and grid your physical TRVs support.
 
 #### `Availability guard` & `Grace period after the availability guard turns on` *(Default grace: `10 min`)*
 - **What they do:** Optional `binary_sensor`, `switch`, or `input_boolean` that is `on` when your thermostats have mains power and `off` when powered down (for example, wired floor/wall thermostats powered directly by a heat pump or boiler circuit). While the guard is `off`—and for `10 minutes` after power returns—offline TRVs suppress log warnings and [Missing entity](/faq/missing-entity/) repair alerts while booting up.
@@ -127,7 +127,7 @@ Chooses one of the **8 control algorithms**—see **[Calibration types & algorit
 - **`No Calibration`** — Sends target temperatures unchanged while keeping window pause, Summer Mode, presets, and grouping.
 
 #### `MPC v2 room size` *(Default: `Auto`)*
-- **What it does:** Only used when `Calibration mode` is `(AI) MPC v2 (QP + Kalman, experimental)`. `Auto` adapts from learned thermal behavior; `Small` (~10 m²), `Medium` (~20 m²), and `Large` (~40 m²) fix a starting thermal mass preset immediately.
+- **What it does:** Only used when `Calibration mode` is `(AI) MPC v2 (QP + Kalman, experimental)`. `Auto` adapts from learned thermal behavior, while `Small`, `Medium`, and `Large` fix a starting thermal envelope profile with approximate **3-hour**, **8-hour**, and **12-hour** room time constants (`tau_room_min = 180`, `480`, and `720` minutes), respectively.
 
 #### `Overheating protection?` *(Default: `On`)*
 - **What happens when enabled:** Only active in **`(AI) Time Based (Default)`** (non-direct-valve) and **`Aggressive`** modes. If residual radiator heat pushes the room above `target + tolerance` while Better Thermostat is already `idle`, it multiplies the excess temperature by **`8×`** in the closing direction to force leaky or sluggish TRV pins completely shut. *(TPI, PID, and MPC handle overshoot natively and ignore this checkbox.)*

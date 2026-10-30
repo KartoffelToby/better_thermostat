@@ -50,9 +50,9 @@ Setup has **two screens** (see the full [Setup dialog walkthrough](/setup/config
 ### Screen 1 — Room, sensors & comfort band
 
 1. Pick your **real thermostat(s)** and your **room temperature sensor** (plus optional window, door, outdoor/weather, or cooling entities).
-2. **Set `Tolerance` to `0.3` °C** *(important: the form starts at `0.0`, which reacts to every tiny `0.1 °C` dip and moves the valve motor more often; `0.3 °C` gives quiet, battery-friendly comfort for radiator rooms, or `0.5 °C` for underfloor heating)*.
+2. **Set `Tolerance` to `0.3 °C` (or `~0.5 °F` if Home Assistant uses Fahrenheit)** *(important: `Tolerance` uses your Home Assistant system temperature unit and starts at `0.0`, which reacts to every tiny `0.1 °C` / `0.2 °F` dip and moves the valve motor more often; `0.3 °C` / `~0.5 °F` gives quiet, battery-friendly comfort for radiator rooms, or `0.5 °C` / `~0.9 °F` for underfloor heating)*.
 3. If you added a **Window sensor**, set both open and close delays to **`120`–`180` seconds** (2–3 minutes) so briefly opening a balcony door does not cycle the valve, and cold air near the window can mix before heating resumes.
-4. If you added an **Outdoor sensor** or **Weather entity**, set the outdoor shutdown threshold to **`16`–`17` °C** *(Better Thermostat smooths outdoor temperatures over 24 hours including cool nights, so the default `20 °C` keeps heating active even on warm `23 °C` spring days!)*.
+4. If you added an **Outdoor sensor** or **Weather entity**, set the outdoor shutdown threshold—which also uses your Home Assistant system temperature unit—to **`16`–`17 °C` (or `~61`–`63 °F`)** *(Better Thermostat smooths outdoor temperatures over 24 hours including cool nights, so the default `20 °C` / `68 °F` keeps heating active even on warm spring days!)*.
 
 ### Screen 2 — How Better Thermostat drives each TRV
 
@@ -72,7 +72,7 @@ Better Thermostat creates a standard Home Assistant `climate.<room_name>` entity
 
 - Home Assistant's built-in **Thermostat card** and **Tile card**
 - Voice assistants (**Assist**, **Google Home**, **Amazon Alexa**, **Apple HomeKit**)
-- The optional companion **[Better Thermostat UI Card](https://github.com/KartoffelToby/better_thermostat_ui_card)** (available in HACS under *Frontend*), which displays window status, summer mode, ambient humidity, and heating/cooling state right on the dial.
+- The optional companion **[Better Thermostat UI Card](https://github.com/KartoffelToby/better-thermostat-ui-card)** (available in HACS under *Frontend*), which displays window status, summer mode, ambient humidity, and heating/cooling state right on the dial.
 
 :::note[Using Better Thermostat UI Card v3.0 or newer in YAML?]
 Version 3.0 split the card into two separate custom elements. Use `type: custom:better-thermostat-normal-climate-card` (full dial) or `type: custom:better-thermostat-mini-climate-card` (compact row) instead of the legacy `custom:better-thermostat-ui-card` tag.

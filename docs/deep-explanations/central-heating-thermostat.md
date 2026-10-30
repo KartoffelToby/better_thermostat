@@ -9,11 +9,11 @@ If your home has **both** room radiator TRVs **and** a central wall thermostat (
 
 ```mermaid
 flowchart LR
-    R1["Living Room BT (hvac_action: heating)"] --> AUTO["Boiler Automation: Any room heating?"]
+    R1["Living Room BT (hvac_action: heating, blocked_by: none)"] --> AUTO["Boiler Automation: Any unblocked room heating?"]
     R2["Bedroom BT (hvac_action: idle)"] --> AUTO
-    R3["Office BT (hvac_action: idle)"] --> AUTO
-    AUTO -->|"Yes (>= 1 room heating)"| ON["Central Thermostat: 22 °C / Boiler ON"]
-    AUTO -->|"No (all rooms idle or off)"| OFF["Central Thermostat: 15 °C / Boiler OFF"]
+    R3["Office BT (hvac_action: heating, blocked_by: devices_released)"] --> AUTO
+    AUTO -->|"Yes (>= 1 room heating & unblocked)"| ON["Central Thermostat: 22 °C / Boiler ON"]
+    AUTO -->|"No (all rooms idle, off, or blocked)"| OFF["Central Thermostat: 15 °C / Boiler OFF"]
 ```
 
 ## Why leaving the central thermostat on its own schedule causes overshoot
@@ -28,12 +28,12 @@ Driving the central boiler from the rooms' combined demand eliminates that hidde
 
 ---
 
-## The right signal: `hvac_action == 'heating'`
+## The right signal: `hvac_action == 'heating'` and `heating_blocked_by` is `none`
 
-Watch the **`hvac_action`** attribute on all of your Better Thermostat entities. It reports `'heating'` whenever a room genuinely needs heat right now, and `'idle'` (or `'off'`) once the room is satisfied, a window is open, or Summer Mode is active.
+Watch both **`hvac_action`** and **`heating_blocked_by`** on all of your Better Thermostat entities. Enable the boiler only when at least one room reports **`hvac_action == 'heating'`** *and* **`heating_blocked_by` is `none`** (`is none` in Jinja2 templates—meaning no active block such as `devices_released`, `valve_maintenance`, or `startup`, which can publish a block without running a control cycle that clears `hvac_action`). Include `heating_blocked_by` state changes in your automation triggers so the boiler decision reevaluates immediately whenever a block starts or clears.
 
 :::danger[Never use call_for_heat to trigger your boiler!]
-`call_for_heat` is only the **Summer Mode** outdoor-weather flag (`true` all winter long even when every room is already warm at `21 °C`!). Driving a boiler from `call_for_heat` will run your boiler 24/7 all winter. Always check **`hvac_action == 'heating'`**.
+`call_for_heat` is only the **Summer Mode** outdoor-weather flag (`true` all winter long even when every room is already warm at `21 °C`!). Driving a boiler from `call_for_heat` will run your boiler 24/7 all winter. Always require **`hvac_action == 'heating'`** together with **`heating_blocked_by` being `none`**.
 :::
 
 ### Example A: Driving a central `climate` wall thermostat
@@ -46,6 +46,12 @@ triggers:
       - climate.bedroom
       - climate.office
     attribute: hvac_action
+  - trigger: state
+    entity_id:
+      - climate.living_room
+      - climate.bedroom
+      - climate.office
+    attribute: heating_blocked_by
   - trigger: homeassistant
     event: start
 actions:
@@ -56,6 +62,7 @@ actions:
       temperature: >
         {{ 22 if expand('climate.living_room', 'climate.bedroom', 'climate.office')
              | selectattr('attributes.hvac_action', 'eq', 'heating')
+             | selectattr('attributes.heating_blocked_by', 'none')
              | list | count > 0
            else 15 }}
 ```
@@ -76,12 +83,21 @@ triggers:
     attribute: hvac_action
     for:
       minutes: 1
+  - trigger: state
+    entity_id:
+      - climate.living_room
+      - climate.bedroom
+      - climate.office
+    attribute: heating_blocked_by
+    for:
+      minutes: 1
   - trigger: homeassistant
     event: start
 actions:
   - action: >
       switch.turn_{{ 'on' if expand('climate.living_room', 'climate.bedroom', 'climate.office')
         | selectattr('attributes.hvac_action', 'eq', 'heating')
+        | selectattr('attributes.heating_blocked_by', 'none')
         | list | count > 0 else 'off' }}
     target:
       entity_id: switch.boiler_heat_demand

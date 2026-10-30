@@ -38,7 +38,7 @@ flowchart TB
 
 ### Combining Better Thermostat with other Home Assistant tools
 
-- **Better Thermostat UI Card (Frontend companion):** Available in HACS under *Frontend* ([`better-thermostat-ui-card`](https://github.com/KartoffelToby/better_thermostat_ui_card)). Shows open-window icons, Summer Mode status, ambient humidity, and dual heating/cooling dials. *(In UI Card **v3.0+**, use `custom:better-thermostat-normal-climate-card` or `custom:better-thermostat-mini-climate-card` in YAML instead of the retired `custom:better-thermostat-ui-card` tag.)*
+- **Better Thermostat UI Card (Frontend companion):** Available in HACS under *Frontend* ([`better-thermostat-ui-card`](https://github.com/KartoffelToby/better-thermostat-ui-card)). Shows open-window icons, Summer Mode status, ambient humidity, and dual heating/cooling dials. *(In UI Card **v3.0+**, use `custom:better-thermostat-normal-climate-card` or `custom:better-thermostat-mini-climate-card` in YAML instead of the retired `custom:better-thermostat-ui-card` tag.)*
 - **Bundled Blueprints vs. *Advanced Heating Control (AHC)*:**
   - Out of the box, Better Thermostat ships **9 ready-made [Automation Blueprints](/setup/automation-blueprints/)**, including a 4-slot **Weekly Heating Schedule** with presence-based `Away` setback and pause switch.
   - Want party timers, guest modes, or complex multi-person presence calendars? You can point the popular *Advanced Heating Control* blueprint at your `climate.<better_thermostat>` entity! **Important:** Leave AHC's own TRV calibration *disabled* when targeting a Better Thermostat entity so two integrations never double-calibrate the same radiator.
@@ -94,7 +94,7 @@ Normally Better Thermostat reconciles its devices back to its calculated state w
 - **868 MHz airtime protection:** Enable the **HomematicIP** option so background writes are spaced to **10 minutes**, keeping your Access Point / OpenCCU well below its 1 % radio limit.
 
 ### 12. Firing a central gas boiler or heat pump only when at least one room needs heat
-- **Solution:** Watch your Better Thermostat entities for `hvac_action == 'heating'` in a single Home Assistant automation to switch your central wall thermostat or boiler relay ([Central heating & boiler control](/deep-explanations/central-heating-thermostat/)).
+- **Solution:** Watch your Better Thermostat entities for both `hvac_action == 'heating'` and `heating_blocked_by` being `none` (triggering on state changes to both attributes) in a single Home Assistant automation to switch your central wall thermostat or boiler relay ([Central heating & boiler control](/deep-explanations/central-heating-thermostat/)).
 
 ---
 
