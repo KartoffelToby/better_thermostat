@@ -1,22 +1,21 @@
 ---
 title: Interactive Configurator
-sidebar: 
-    order: 3
-description: Step-by-step wizard to find the best Better Thermostat settings for your room.
+sidebar:
+  order: 4
+description: 6-step wizard to get tailored Screen 1 and Screen 2 settings for your room and radiator valve.
 ---
 
 import { BtConfigurator } from '../../website/src/components/Configurator.ts';
 
-A small, well-insulated bathroom needs different heating settings than a large, draughty living room. Answer a few questions about the room below and the configurator suggests settings to start from.
+A small, well-insulated bedroom with a direct-valve Sonoff TRVZB needs very different settings than a drafty old-building living room or an underfloor heating zone. Answer six quick questions below to get a tailored **Screen 1 & Screen 2** starting profile.
 
 <BtConfigurator client:load></BtConfigurator>
 
-## How to use these settings
+## How to apply these settings in Home Assistant
 
-Once you have your recommended settings:
-1. Go to your Home Assistant dashboard.
-2. Navigate to **Settings** > **Devices & Services** > **Better Thermostat**.
-3. Click on **Configure** for the specific room/thermostat.
-4. Apply the recommended **Calibration mode**, **Tolerance**, and **Delay before the thermostat should turn off when the window is opened**.
+1. Open **Settings → Devices & Services → Better Thermostat**.
+2. Click **Configure** next to the room (or **+ Add Integration → Better Thermostat** for a new room).
+3. On **Screen 1**, enter the recommended **`Tolerance`**, **window/door open & close delays**, and **outdoor shutdown threshold**.
+4. Click **Submit** to open **Screen 2**, then pick the recommended **`Calibration type`**, **`Calibration mode`** (plus **`MPC v2 room size`** if using MPC v2), and **`Overheating protection?`**.
 
-For the reasoning behind the suggestions, see [Algorithm selection](/optimal-settings/algorithm-selection/) and [Hydraulic balance](/deep-explanations/hydraulic-balance/).
+Want to see the exact numbers behind how each option works? Read **[Calibration types & algorithms](/calibration_algorithms/)** and **[All settings reference](/configuration/)**.

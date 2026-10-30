@@ -1,121 +1,96 @@
 ---
-title: Recommended Devices
-description: The best TRVs and sensors to use with Better Thermostat.
+title: Recommended TRVs, sensors & Zigbee
+description: Buying and setup guide for the best radiator valves, external room sensors, contact sensors, and Zigbee integrations for Better Thermostat 2.0.
 ---
 
-When choosing a Smart Radiator Valve (TRV) or temperature sensor for Better Thermostat, hardware capabilities and integration quality differ enough to change how well Better Thermostat can control them.
+Hardware quality and how your Home Assistant integration exposes a device make a noticeable difference in comfort, motor noise, and battery life. See **[Supported devices & compatibility](/working-devices/compatibility/)** for the complete quirk matrix.
 
-## What makes a TRV a good fit
+## What makes a radiator valve (TRV) shine with Better Thermostat?
 
-The best TRVs for Better Thermostat have the following features:
-1. **Local Temperature Calibration**: Allows Better Thermostat to send an offset to the TRV, making the TRV's internal logic work with your external room sensor.
-2. **Direct Valve Control**: Allows Better Thermostat to directly set the valve opening percentage (e.g., 0-100%). Every algorithm runs without it; with it, the algorithm's decision reaches the valve without the TRV's own controller in between.
-3. **Fast Reporting**: Sends temperature and state updates frequently without aggressive battery-saving sleep modes that delay commands.
+1. **Direct Valve Control (`0–100 %`)**: The gold standard. Lets Better Thermostat position the valve pin directly (`Direct Valve Based`) without having to reverse-engineer the TRV's own thermostat firmware.
+2. **Wide Local Offset or External Sensor Input**: Lets Better Thermostat feed your true room temperature into the TRV (`Offset Based`) while keeping the physical radiator screen showing your real target temperature.
+3. **Quiet Motor & Reliable Wake-Up**: Smooth stepping without loud gear whining in bedrooms, and dependable Zigbee/Bluetooth reporting.
+
+---
 
 ## Recommended TRVs
 
-Based on community feedback and what the integrations expose:
+### 1. Sonoff `TRVZB` *(Best overall Zigbee value — supports Direct Valve!)*
+- **Why we recommend it:** Fast Zigbee2MQTT support, quiet motor, exposes **Direct Valve Control (`0–100 %`)**, wide **`Offset Based`** calibration (down to `-12.7 °C`), *and* a dedicated external temperature register that Better Thermostat automatically mirrors your room sensor into.
+- **Recommended Screen 2 setup:** `Direct Valve Based` + **`(AI) MPC v2 (QP + Kalman, experimental)`** or **`TPI Controller`** (or `(AI) Time Based (Default)`).
+- *(Note on the newer **Sonoff `TRV-ZBT` Gen2**: Better Thermostat automatically mirrors your external room sensor into it too, so `Offset Based` / external-sensor regulation works great, though Gen2 does not expose direct `0–100 %` motor positioning.)*
 
-### 1. Sonoff TRVZB
+### 2. Shelly BLU TRV *(Best non-Zigbee Direct-Valve choice)*
+- **Why we recommend it:** Uses Bluetooth Low Energy via a **Shelly BLU Gateway Gen3** with Home Assistant's native Shelly integration. Once Shelly's internal auto-temperature mode is disabled, Better Thermostat drives the `0–100 %` valve motor directly with dedicated safety handling ([Shelly BLU setup rules](/working-devices/compatibility/#shelly-blu-trv-direct-valve-control--repair-warning)).
+- **Recommended Screen 2 setup:** `Direct Valve Based` + **`(AI) MPC v2 (QP + Kalman, experimental)`** or **`TPI Controller`**.
 
-- Good Zigbee2MQTT support, fast response times and reliable local temperature calibration. It also has specific model fixes built into Better Thermostat to ensure smooth operation.
-- Suggested algorithms: AI Time Based, Aggressive or MPC Predictive.
+### 3. Eurotronic Spirit Zigbee (`SPZB0001`) / Spirit Z-Wave (`ZWA021`)
+- **Why we recommend it:** Strong mechanical motor and native **`Direct Valve Based`** support on both Zigbee2MQTT (`SPZB0001`) and Z-Wave JS (`ZWA021`). *(Motor noise is slightly louder than Sonoff/tado°, making it better suited to living rooms than light-sleeper bedrooms.)*
+- **Recommended Screen 2 setup:** `Direct Valve Based` + **`TPI Controller`**, **`(AI) MPC v2`**, or **`PID Controller`**.
 
-### 2. Eurotronic Spirit Zigbee (SPZB0001)
+### 4. HomematicIP (`HmIP-eTRV` series) & tado°
+- **Why we recommend them:** Rock-solid build quality and very quiet motors.
+  - On **tado°**, use `Offset Based` or `Target Temperature Based` with **`(AI) Time Based (Default)`**, **`TPI Controller`**, or **`External Sensor Offset Only`**.
+  - On **HomematicIP / OpenCCU**, un-ignore `TEMPERATURE_OFFSET` ([setup steps](/configuration/#homematicip--openccu-enabling-offset-based-calibration)) and keep the **HomematicIP** 10-minute radio write-spacing checkbox enabled!
 
-- One of the few TRVs that reliably supports **Direct Valve Control**, so Better Thermostat's decision reaches the valve without the TRV's own controller in between.
-- Suggested algorithms: MPC Predictive or PID Controller.
+### 5. Budget Tuya / Saswell (`SEA801` / `SEA802` / `TS0601` / Avatto `ME167`)
+- **Why people pick them:** Inexpensive and quiet, with built-in rounding and quirk fixes in Better Thermostat.
+- **Crucial setup tip:** Many budget OEM valves restrict local offsets to a tiny window (e.g. `±2.5 °C` on `SEA801`/`SEA802`). If the gap between the hot pipe and your room exceeds `2.5 °C`, switch `Calibration type` to **`Target Temperature Based`** + **`(AI) Time Based (Default)`** or **`TPI Controller`**.
 
-### 3. Moes / Tuya TS0601 Series
+---
 
-- Very affordable and widely available. Better Thermostat includes extensive model fixes for these devices to correct their often-quirky default behaviors and make them reliable.
-- Suggested algorithms: AI Time Based or MPC Predictive.
+## External room temperature sensors *(Mandatory!)*
 
-### 4. Tado Smart Radiator Thermostats
+Better Thermostat **requires** a separate room temperature sensor—setup cannot complete without one.
 
-- Solid build quality and native integration support for local calibration.
-- Suggested algorithm: AI Time Based.
+### What to look for
+- **`0.1 °C`–`0.2 °C` reporting resolution** with prompt updates (every 1–5 minutes on change). Avoid cheap sensors that wait for a `0.5 °C` or `1.0 °C` jump before transmitting, especially if you want to run `PID Controller`.
+- **Smart placement:** `1.2–1.5 m` high on an interior wall or shelf—never above a radiator, in direct sun, on a cold outer window frame, or on top of a warm TV/router.
 
-## External sensors
+### Proven sensors
+- **Aqara Temperature & Humidity Sensor (`WSDCGQ11LM`)**: Compact, long battery life, reliable Zigbee reporting.
+- **Sonoff `SNZB-02D` / `SNZB-02P` or Xiaomi Mijia (BLE / Zigbee firmware)**: Clear e-ink/LCD room display plus crisp `0.1 °C` updates.
+- **Shelly H&T Gen3 / Shelly BLU H&T**: Great Wi-Fi or BLE options if you don't run Zigbee.
 
-Better Thermostat relies heavily on accurate room temperature readings. The internal sensor of a TRV is too close to the radiator to be accurate. **You must use an external room sensor for the best experience.**
+---
 
-### What makes a good external sensor
+## Window & door contact sensors *(Optional, big energy saver)*
 
-- **Frequent Updates**: The sensor should report temperature changes of 0.1°C or 0.2°C immediately.
-- **Placement**: Place it at eye level, away from direct sunlight, drafts, and the radiator itself.
+- **Aqara Door & Window Sensor (`MCCGQ11LM`)**: Tiny, instant Zigbee open/close events.
+- **Sonoff `SNZB-04` / `SNZB-04P`**: Inexpensive standard Zigbee 3.0 contact sensor.
+- **Shelly BLU Door/Window**: Fast Bluetooth contact sensor with long coin-cell battery life.
 
-### Suggestions
+---
 
-- **Aqara Temperature and Humidity Sensor**: Affordable, reliable, and updates frequently enough for most rooms.
-- **Xiaomi Mijia Bluetooth/Zigbee Sensors**: Very accurate and easy to place anywhere.
-- **Shelly Temperature Sensor**: long battery life and good precision.
+## Zigbee2MQTT vs. ZHA — Which Zigbee integration should I use?
 
-## Window and door sensors
+Both work with Better Thermostat, **but Zigbee2MQTT (Z2M) is strongly recommended for Zigbee TRVs**:
+- **Zigbee2MQTT** exposes `number.<trv>_local_temperature_calibration` (`Offset Based`), `number.<trv>_valve_opening_degree` (`Direct Valve Based` on TRVZB/Spirit), child locks, and external sensor registers across dozens of TRV models. *(Tip: enable **Availability** in Z2M's settings so offline room sensors trigger Better Thermostat's [Degraded mode](/faq/degraded-mode/) fallback!)*
+- **ZHA** often exposes only the base `climate` entity without offset or valve-position numbers. Better Thermostat still controls ZHA TRVs accurately by preselecting **`Target Temperature Based`**.
 
-A window sensor lets Better Thermostat pause the heating as soon as a window opens, instead of letting the TRV heat the outside.
+Need a reliable Zigbee USB coordinator?
+- **[Home Assistant Connect ZBT-2](https://www.home-assistant.io/connect/zbt-2/)**: Official first-party coordinator maintained by the Home Assistant team.
+- **[SONOFF Zigbee 3.0 USB Dongle Plus](https://amzn.to/4rt9aWt)**: Proven, widely used community coordinator for Zigbee2MQTT.
 
-### What makes a good window sensor
+---
 
-- **Instant Reporting**: The sensor must report its state change (open/closed) immediately without delay.
-- **Reliability**: It shouldn't drop off the network or miss state changes.
+## Complete tested starter setups
 
-### Suggestions
+### Tested Setup 1: Budget-friendly & silent (`SEA801` / `SEA802`)
+- **TRV:** Saswell `SEA801-Zigbee` / `SEA802-Zigbee` ([Amazon link](https://amzn.to/4aDFMW3))
+- **Room Sensor:** Aqara Temperature & Humidity Sensor `WSDCGQ11LM` ([Amazon link](https://amzn.to/40jCClw))
+- **Window Sensor:** Aqara Door & Window Sensor `MCCGQ11LM` ([Amazon link](https://amzn.to/4cB4zwz))
+- **Recommended Better Thermostat settings:**
+  - **`Calibration type`:** `Offset Based` *(switch to **`Target Temperature Based`** if the radiator sits behind a sofa/curtain or has > `2.5 °C` heat-pocket delta!)*
+  - **`Calibration mode`:** **`(AI) Time Based (Default)`** or **`TPI Controller`**
+  - **`Tolerance`:** **`0.3 °C`**
 
-- **Aqara Door and Window Sensor**: reliable, reports instantly, small.
-- **Sonoff SNZB-04**: Affordable, uses standard Zigbee, and reports instantly.
-- **Shelly Door/Window 2**: a Wi-Fi option if you have no Zigbee network; includes tilt and temperature sensors.
-
-## Integrations
-
-For the Zigbee TRVs above we recommend **Zigbee2MQTT (Z2M)**: it exposes the local-calibration and valve-position entities Better Thermostat writes to, where ZHA and deCONZ do not always expose them. Which of the two exists depends on the TRV as much as on the integration. Where neither does, the setup form preselects the **Target Temperature Based** calibration type and Better Thermostat steers the device through its setpoint instead. Tado is the exception in the list above: it runs on its own native integration.
-
-If you are looking for a good Zigbee coordinator, the [SONOFF Zigbee 3.0 USB Dongle Plus](https://amzn.to/4rt9aWt) is a popular choice that works well with Zigbee2MQTT and supports a wide range of devices. If you also want to support Home Assistant itself, consider the [ZBT-2](https://www.home-assistant.io/connect/zbt-2/): it costs a little more and Home Assistant maintains it as a first-party Zigbee coordinator.
-
-## Tested setups
-
-Complete setups that people run successfully.
-
-### Setup 1: The "SEA801/SEA802" Setup
-
-An affordable setup built from widely available Zigbee devices.
-
-- **TRV**: SEA801-Zigbee / SEA802-Zigbee (TS0601) [Buying Link](https://amzn.to/4aDFMW3)
-- **Room Sensor**: Aqara Temperature and Humidity Sensor (WSDCGQ11LM / lumi.weather) [Buying Link](https://amzn.to/40jCClw)
-- **Window Sensor**: Aqara Door and Window Sensor (MCCGQ11LM / lumi.sensor_magnet.aq2) [Buying Link](https://amzn.to/4cB4zwz)
-- **Weather Integration**: Meteorologisk institutt (Met.no)
-
-**Configuration:**
-- **Algorithm**: MPC Predictive or AI Time Based
-- **Calibration Type**: Offset Based (Default)
-- **Important Note for Large Temperature Gaps**: The SEA801/SEA802 TRVs only allow a small offset calibration via Zigbee2MQTT. If you have a room with a **large temperature difference** between the radiator and the room sensor, the standard local offset calibration won't be enough. In this specific case, you need to switch the Calibration Type to **Target Temperature Based**. This bypasses the TRV's offset limit and directly manipulates the target temperature to achieve the desired room temperature.
-
-**Pros:**
-- Silent operation
-- Can handle local calibration
-- Good if you want to change the target temperature on the TRV itself
-
-**Cons:**
-- Does not support direct valve control
-
-### Setup 2: The "Eurotronic Spirit" Setup
-
-This setup uses the powerful Eurotronic Spirit TRV, which supports both local offset and direct valve control.
-
-- **TRV**: Eurotronic Spirit Zigbee (SPZB0001) [Buying Link](https://amzn.to/40mKByg)
-- **Room Sensor**: Aqara Temperature and Humidity Sensor (WSDCGQ11LM / lumi.weather) [Buying Link](https://amzn.to/40jCClw)
-- **Window Sensor**: Aqara Door and Window Sensor (MCCGQ11LM / lumi.sensor_magnet.aq2) [Buying Link](https://amzn.to/4cB4zwz)
-- **Weather Integration**: Meteorologisk institutt (Met.no)
-
-**Configuration:**
-- **Algorithm**: AI Time Based or Aggressive
-- **Calibration Type**: Offset Based or Direct Valve Based (both work well)
-
-**Pros:**
-- Can handle both valve-based and local-based calibration
-- Strong motor
-- Reacts quickly
-
-**Cons:**
-- Loud operation
-- When using valve calibration mode, it's not possible to set the target temperature on the TRV itself
+### Tested Setup 2: Direct-valve control (`Eurotronic Spirit Zigbee`)
+- **TRV:** Eurotronic Spirit Zigbee `SPZB0001` ([Amazon link](https://amzn.to/40mKByg)) *(or Sonoff `TRVZB`)*
+- **Room Sensor:** Aqara Temperature & Humidity Sensor `WSDCGQ11LM` ([Amazon link](https://amzn.to/40jCClw))
+- **Window Sensor:** Aqara Door & Window Sensor `MCCGQ11LM` ([Amazon link](https://amzn.to/4cB4zwz))
+- **Recommended Better Thermostat settings:**
+  - **`Calibration type`:** **`Direct Valve Based`**
+  - **`Calibration mode`:** **`(AI) MPC v2 (QP + Kalman, experimental)`** or **`TPI Controller`** *(or `(AI) Time Based (Default)`)*
+  - **`Tolerance`:** **`0.2–0.3 °C`**
+  - *(Note: When using `Direct Valve Based`, always change target temperatures on the Better Thermostat entity in Home Assistant rather than on the physical TRV buttons.)*

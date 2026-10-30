@@ -1,22 +1,23 @@
 ---
 title: Welcome to Better Thermostat
-description: Get started with Better Thermostat for Home Assistant.
+description: Turn your radiator valves and room sensors into one smart, accurate room thermostat for Home Assistant.
 template: splash
 hero:
-  tagline: Get started with Better Thermostat for Home Assistant.
+  tagline: Turn your radiator valves and room sensors into one smart, accurate room thermostat for Home Assistant.
   image:
     file: ../../assets/logo.png
   actions:
-    - text: Read the Documentation
+    - text: 5-Minute Quickstart
       link: /setup/getting-started/
       icon: right-arrow
-    - text: Go to the Project
+    - text: Interactive Configurator
+      link: /setup/configurator/
+      icon: setting
+      variant: secondary
+    - text: GitHub
       link: https://github.com/KartoffelToby/better_thermostat
       icon: external
       variant: minimal
-    - text: Want to support this project?
-      link: /support
-      icon: external
 ---
 
 import { Card, CardGrid } from '/node_modules/@astrojs/starlight/components';
@@ -28,29 +29,96 @@ import { Card, CardGrid } from '/node_modules/@astrojs/starlight/components';
 
 </div>
 
-Better Thermostat is a Home Assistant integration that turns the radiator thermostats (TRVs) of a room into one thermostat that regulates by a separate room temperature sensor. A TRV measures the temperature right at the radiator, which is warmer than the room; Better Thermostat corrects for that through the TRV's target, its calibration offset or its valve, whichever the device supports.
+## Why Better Thermostat exists
 
-It pauses the heating while a window or door is open, switches it off when it is warm outside, and offers presets, an air conditioner alongside the radiators, and several control algorithms that learn how your room heats. It works with TRVs from any integration Home Assistant supports, such as Zigbee2MQTT, ZHA, deCONZ, Z-Wave, Shelly, tado° and HomematicIP.
+Every smart radiator thermostat (TRV) has the same physical flaw: **its built-in thermometer sits millimeters away from a 55–70 °C hot water pipe.**
 
-## Next steps
+Within minutes of opening the valve, trapped heat around the radiator makes the TRV read **23 °C** and throttle back—even though your sofa in the middle of the room is still **19 °C**. Behind curtains, covers, or furniture, the heat pocket is even worse and the room never reaches your target temperature.
+
+Better Thermostat fixes this by wrapping your radiator valves and a **separate room temperature sensor** into **one virtual `climate` entity** in Home Assistant.
+
+```mermaid
+flowchart LR
+    subgraph Inputs["Your Existing Room Entities"]
+        RS["Room Temp Sensor (Required)"]
+        TRV["1 or More Radiator TRVs"]
+        WD["Window & Door Sensors (Optional)"]
+        OUT["Outdoor Sensor / Weather (Optional)"]
+        AC["Cooling / AC Device (Optional)"]
+    end
+
+    BT["Better Thermostat (One Virtual climate Entity)"]
+
+    subgraph Control["What You Control From Now On"]
+        UI["Dashboard & BT UI Card"]
+        SCH["Schedules & Blueprints"]
+        VA["Voice Assistants (Google / Alexa / Assist)"]
+    end
+
+    RS --> BT
+    TRV <--> BT
+    WD --> BT
+    OUT --> BT
+    AC <--> BT
+    UI --> BT
+    SCH --> BT
+    VA --> BT
+```
+
+### The Golden Rule
+
+Once a room is set up, **all dashboards, schedules, automations, and voice assistants control only the `Better Thermostat` entity**—never the physical TRVs directly.
+
+If someone turns the physical knob on a radiator by hand, Better Thermostat detects that manual change and adopts the new target temperature automatically (unless you turn on the **Child Lock** switch).
+
+---
+
+## What it does vs. what it intentionally does NOT do
+
+Better Thermostat separates **HOW** a room reaches and holds its temperature from **WHEN** you want that temperature scheduled:
+
+| What Better Thermostat DOES ("HOW to heat") | What it intentionally DOES NOT DO ("WHEN to heat") |
+|---|---|
+| **True room-center control:** Continuously corrects your TRV using its calibration offset, target setpoint, or direct 0–100 % valve position. | **No built-in timetable:** Presets (`Comfort`, `Eco`, `Sleep`, `Away`) hold temperatures, not clock times. Use the bundled [Weekly Heating Schedule blueprint](/setup/automation-blueprints/), HA Schedule helpers, or *Advanced Heating Control*. |
+| **Multi-radiator grouping:** Drives 2, 3, or more TRVs in one large room as a single synchronized thermostat. | **Does not switch your central boiler / heat pump directly:** If your boiler needs a demand signal, add a small automation watching `hvac_action == 'heating'` ([guide](/deep-explanations/central-heating-thermostat/)). |
+| **8 control algorithms:** From zero-tuning **TPI** and self-learning **(AI) Time Based** to **PID** and physics-based **(AI) MPC v2** for direct-valve TRVs. | **Cannot run without a separate room sensor:** A standalone room temperature sensor away from the radiator is mandatory. |
+| **Automatic energy guards:** Debounced window & door pause, 24h-damped **Summer Mode** outdoor cutoff, and coordinated AC cooling without heating/cooling fights. | **Does not replace Zigbee / Z-Wave integrations:** Pair your hardware first in Zigbee2MQTT, ZHA, Shelly, HomematicIP, Z-Wave JS, tado°, or deCONZ—Better Thermostat wraps the entities they expose. |
+| **Fail-soft & battery-safe:** Spaces radio writes to save TRV batteries and steps down safely (`optimal` → `sensor_fallback` → `hold`) if a room sensor battery dies. | **Does not regulate by humidity:** Humidity is displayed on the entity and triggers ventilation/alert blueprints, without altering target temperatures. |
+
+---
+
+## Highlights in Better Thermostat 2.0
+
+- **Fail-soft protection:** If a room sensor drops offline, Better Thermostat automatically falls back to the average of your TRVs' internal sensors (`sensor_fallback`) instead of leaving the room uncontrolled, and surfaces a self-clearing Home Assistant Repair warning ([Degraded mode](/faq/degraded-mode/)). Offline window or door sensors count as closed so dead batteries never freeze a room.
+- **`(AI) MPC v2` for Direct-Valve TRVs:** New Kalman-observer + quadratic-program predictive controller built specifically for direct-valve TRVs (such as Sonoff TRVZB, Shelly BLU TRV, and Eurotronic Spirit) to anticipate thermal inertia and prevent overshoot.
+- **24-hour damped Summer Mode:** Outdoor sensors and weather forecasts are smoothed over 24 hours with a `1.0 °C` (`1.8 °F`) hysteresis margin so cool mornings or sunny sensor spikes no longer flip heating on and off erratically ([Summer mode explained](/deep-explanations/summer-mode/)).
+- **Separate Door Sensors, Pause Learning & Device Release:** Configure independent open/close delays for interior doors, freeze model learning while a fireplace burns or the boiler heats tap water ([Pausing learning](/setup/pause-learning/)), or hand TRVs back to manual control with one switch ([Releasing devices](/setup/releasing-devices/)).
+
+Already running version 1.9? Read **[Upgrading from 1.9 to 2.0](/setup/upgrading-to-2-0/)**.
+
+---
+
+## Where to go next
 
 <CardGrid stagger>
-	<Card title="Install Better Thermostat" icon="download">
-		<a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=KartoffelToby&amp;repository=better_thermostat&amp;category=integration"><img alt="image" src="https://my.home-assistant.io/badges/hacs_repository.svg" /></a>
-	</Card>
-	<Card title="Add a new Devices to HA" icon="add-document">
-<a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=better_thermostat" target="_blank"><img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Open your Home Assistant instance and start setting up a new integration."/></a>
-	</Card>
-  <Card title="Check working devices" icon="approve-check">
-    See [compatibility details](/working-devices/compatibility/).
+  <Card title="1. Install in 5 minutes" icon="rocket">
+    Check your prerequisites, place your room sensor properly, and set up your first room in [5-minute quickstart](/setup/getting-started/).
+    <br /><br />
+    <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=KartoffelToby&amp;repository=better_thermostat&amp;category=integration"><img alt="Open in HACS" src="https://my.home-assistant.io/badges/hacs_repository.svg" /></a>
   </Card>
-  <Card title="Tune optimal settings" icon="star">
-    Start with [recommended settings](/optimal-settings/recommended-settings/).
+  <Card title="2. Understand types & algorithms" icon="puzzle">
+    Finally understand the difference between **Calibration type** (how BT talks to your TRV) and **Calibration mode** (the 8 control brains) with concrete numbers in [Calibration types & algorithms](/calibration_algorithms/).
   </Card>
-  <Card title="Read FAQ" icon="comment-alt">
-    Open [common questions](/faq/common-questions/).
-	</Card>
-	<Card title="Read the docs" icon="open-book">
-    Start here: [Getting started](/setup/getting-started/).
-	</Card>
+  <Card title="3. Find your room's ideal settings" icon="setting">
+    Answer 6 quick questions about your room and TRV in the [Interactive Configurator](/setup/configurator/) or grab proven profiles in [Recommended settings](/optimal-settings/recommended-settings/).
+  </Card>
+  <Card title="4. Check hardware & Zigbee tips" icon="approve-check">
+    Compare Zigbee2MQTT vs. ZHA, Direct Valve support, Shelly BLU TRV, and built-in model quirks in [Supported devices](/working-devices/compatibility/) and [Recommended TRVs](/working-devices/recommended-devices/).
+  </Card>
+  <Card title="5. Add schedules & boiler control" icon="list-format">
+    Import one-click [Automation Blueprints & schedules](/setup/automation-blueprints/) or connect a central wall thermostat / gas boiler in [Central heating & boiler control](/deep-explanations/central-heating-thermostat/).
+  </Card>
+  <Card title="6. Fix a misbehaving room" icon="warning">
+    Radiator staying cold, overheating, or showing `30 °C` on the display? Check the symptom-by-symptom table in [Troubleshooting & FAQ](/faq/common-questions/) or [Support the project](/support/).
+  </Card>
 </CardGrid>

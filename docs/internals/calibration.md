@@ -1,24 +1,27 @@
 ---
 title: Calibration
-description: The two calibration channels, the per-mode traits table, the controllers, and the standby contract.
+description: The calibration channels (offset, setpoint, direct valve), the per-mode traits table, the controllers, and the standby contract.
 sidebar:
   order: 5
 ---
 
 A TRV measures temperature next to its own hot valve, so it throttles
 too early. Calibration corrects this using the external room sensor,
-through one of two **channels** depending on what the device supports:
+through one of three **channels** depending on what the device supports:
 
+- **Direct valve** — when the device exposes a writable valve opening and the
+  configured mode is in `VALVE_CALIBRATION_MODES`, Better Thermostat writes the
+  `0–100 %` valve opening (capped by `Valve Max Opening`) directly.
 - **Local offset** — the device exposes a calibration entity; Better
   Thermostat writes an offset so the TRV's internal reading matches the
   room sensor.
-- **Setpoint** — no calibration entity; Better Thermostat shifts the
+- **Setpoint** — no calibration or valve entity; Better Thermostat shifts the
   *target* it sends so the device's internal logic lands on the real
   room target.
 
-Both channels share one cascade (base value, controller contribution,
-per-mode adjustments, direction-aware rounding) and differ only in
-direction and reference values.
+The offset and setpoint channels share one cascade (base value, controller
+contribution, per-mode adjustments, direction-aware rounding) and differ only
+in direction and reference values.
 
 ## The traits table
 

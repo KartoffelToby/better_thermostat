@@ -1,21 +1,15 @@
 ---
-title: Automation Blueprints
-sidebar: 
-    order: 5
-description: Ready-made Home Assistant automation blueprints for Better Thermostat's purpose-specific device triggers.
+title: Blueprints & schedules
+sidebar:
+  order: 5
+description: Ready-made Home Assistant automation blueprints for weekly heating schedules, night mode, presence setbacks, pause learning, and alerts.
 ---
 
-# Automation Blueprints
+Because Better Thermostat focuses on **how** to regulate your room hardware rather than embedding a rigid internal timetable, it ships **9 ready-made Home Assistant automation blueprints** for **when** to switch presets, pause learning, and send alerts.
 
-Better Thermostat ships a collection of **ready-made automation blueprints**. The first
-four use Better Thermostat's purpose-specific device triggers; the night mode, presence,
-weekly schedule and pause learning blueprints react to helpers, presence entities, sensors
-and the clock instead.  
-Each blueprint can be imported into Home Assistant with one click and customised through
-the standard UI, so no YAML editing is required.
+The first four use Better Thermostat's purpose-specific device triggers; the night mode, presence, weekly schedule, and pause-learning blueprints react to schedule helpers, presence entities, sensors, and the clock instead. Every blueprint imports into Home Assistant with one click and is configured cleanly in the UI—no YAML editing required.
 
-For situations no blueprint covers, [Automation recipes](/setup/automation-recipes/)
-has automations built on Better Thermostat's switches, numbers and presets.
+For custom scenarios no blueprint covers, see **[Automation recipes](/setup/automation-recipes/)**.
 
 ---
 

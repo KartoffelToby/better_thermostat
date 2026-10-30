@@ -1,76 +1,103 @@
 ---
-title: What you can use it for
-description: Typical rooms and problems Better Thermostat solves, and the feature behind each one.
+title: How it works & use cases
+sidebar:
+  order: 2
+description: How Better Thermostat's wrapper architecture fits into Home Assistant, how it compares to other heating tools, and 12 everyday room problems it solves.
 ---
 
-Each section below starts from a situation in a real home and names the part of Better Thermostat that handles it. Situations that need a decision Better Thermostat cannot make itself, such as when a fireplace is lit or when the heating season ends, are handled by an automation; [Automation recipes](/setup/automation-recipes/) collects them.
+## How Better Thermostat fits into Home Assistant
 
-## The TRV reads the radiator, not the room
+Smart heating in Home Assistant splits naturally into **two layers**:
 
-A TRV measures the temperature right next to the radiator, which is warmer than the rest of the room. The TRV shuts off early and the room stays too cold, or you turn it up and the room overshoots later.
+```mermaid
+flowchart TB
+    subgraph Layer1["Layer 1 — WHEN to heat (Your Timetable & Occupancy)"]
+        BP["Bundled Weekly Heating Schedule Blueprint"]
+        HA["Home Assistant Schedule Helpers & Automations"]
+        AHC["Advanced Heating Control Blueprint"]
+    end
 
-Give Better Thermostat a temperature sensor placed in the room. It regulates on that sensor and corrects the TRV through its calibration offset, its target temperature or its valve, whichever the TRV supports. This is the **Temperature sensor** and the **Calibration type** in the [setup](/configuration/), and the [calibration modes](/calibration_algorithms/) decide how the correction is computed.
+    subgraph Layer2["Layer 2 — HOW to heat (Better Thermostat)"]
+        BT["Better Thermostat (climate.<room>)"]
+    end
 
-## Several radiators in one room
+    subgraph Layer3["Layer 3 — Physical Room Hardware"]
+        S["External Room Temp + Window / Door / Outdoor Sensors"]
+        T["1 or More Physical TRVs (+ Optional AC Cooler)"]
+    end
 
-A large living room with two or three radiators should have one thermostat, not three that you set one by one.
+    BP -->|"climate.set_preset_mode (Comfort / Eco / Sleep / Away)"| BT
+    HA -->|"climate.set_temperature / set_hvac_mode"| BT
+    AHC -->|"Drives virtual BT entity"| BT
+    S --> BT
+    BT <-->|"Direct Valve % / Offset / Calibrated Setpoint"| T
+```
 
-Select all TRVs of the room under **The real thermostat**. Better Thermostat controls them together, with one target temperature and one room sensor. Each TRV keeps its own calibration settings, so a TRV with a writable valve can use direct valve control next to one that only takes a target temperature.
+- **Better Thermostat owns Layer 2 ("HOW to heat"):** It reads your room sensor, pauses for open windows/doors, suppresses heating during warm 24h-smoothed outdoor weather, coordinates multiple radiators (and an optional AC cooler), spaces out radio commands to protect batteries, and computes the exact valve opening, offset, or setpoint each TRV needs.
+- **Home Assistant automations own Layer 1 ("WHEN to heat"):** Clock timetables, presence setbacks, and holiday modes tell `climate.<your_bt_room>` *which preset or target temperature* should apply right now.
 
-## Airing the room
+### Combining Better Thermostat with other Home Assistant tools
 
-Opening a window in winter with the heating on wastes energy, because the TRV feels the cold air and keeps heating.
+- **Better Thermostat UI Card (Frontend companion):** Available in HACS under *Frontend* ([`better-thermostat-ui-card`](https://github.com/KartoffelToby/better_thermostat_ui_card)). Shows open-window icons, Summer Mode status, ambient humidity, and dual heating/cooling dials. *(In UI Card **v3.0+**, use `custom:better-thermostat-normal-climate-card` or `custom:better-thermostat-mini-climate-card` in YAML instead of the retired `custom:better-thermostat-ui-card` tag.)*
+- **Bundled Blueprints vs. *Advanced Heating Control (AHC)*:**
+  - Out of the box, Better Thermostat ships **9 ready-made [Automation Blueprints](/setup/automation-blueprints/)**, including a 4-slot **Weekly Heating Schedule** with presence-based `Away` setback and pause switch.
+  - Want party timers, guest modes, or complex multi-person presence calendars? You can point the popular *Advanced Heating Control* blueprint at your `climate.<better_thermostat>` entity! **Important:** Leave AHC's own TRV calibration *disabled* when targeting a Better Thermostat entity so two integrations never double-calibrate the same radiator.
+- **Better Thermostat vs. *Versatile Thermostat*:**
+  - **Better Thermostat** specializes in **hydronic radiator TRVs** (plus optional AC coolers): it speaks all 3 TRV hardware channels (`Direct Valve Based`, `Offset Based`, `Target Temperature Based`), includes built-in firmware quirk fixes for 15+ popular Zigbee/Z-Wave/Wi-Fi TRV models, and runs self-learning thermal models (`(AI) Time Based`, `(AI) MPC v2`, `PID`, `TPI`).
+  - **Versatile Thermostat** focuses primarily on **electric heaters** switched via `switch.*` relays or French *fil pilote* pilot wires, central boiler relays, and electrical load shedding.
 
-Add a window sensor, or a group of window sensors. When it reports open, Better Thermostat turns the heating off; when every window is closed again, heating resumes. The two delays keep a short opening from switching anything. A door sensor works the same way with delays of its own. See [Window sensor](/faq/window-sensor/) and [Door sensor states](/faq/door-sensor/).
+---
 
-To keep heating at a lower temperature instead of switching off, or to resume heating before the close delay has run out, turn the **Window Detection** switch off and use an automation of your own. See [Turning window detection off](/faq/window-sensor/#turning-window-detection-off).
+## Everyday use cases
 
-## Heating only while it is cold outside
+Each scenario below describes a common real-home problem and the Better Thermostat feature built for it. Situations requiring custom house rules are collected in **[Automation recipes](/setup/automation-recipes/)**.
 
-In spring and autumn the heating does not need to run on a mild day.
+### 1. The radiator valve reads the hot pipe, not the sofa
+A TRV's built-in sensor sits centimeters from hot water pipes, so it reads `23 °C` and shuts off while the room is still `19 °C`—especially behind curtains, covers, or sofas.
+- **Solution:** Place a standalone **`Room temperature sensor`** in the living space (`1.2–1.5 m` high). Better Thermostat regulates by that sensor via your chosen **[`Calibration type` and `Calibration mode`](/calibration_algorithms/)**.
 
-Add an outdoor temperature sensor or a weather entity and set **The outdoor temperature when the thermostat should turn off**. While it is warmer outside than that, the room does not heat. Better Thermostat does not compare the current reading but a damped outdoor temperature: each reading counts for as long as it was current, and older readings fade out exponentially with a time constant of 24 hours. A short warm spell therefore moves it only a little, though a large or lasting rise, or a damped value already close to the threshold, can still stop the heating. See [Summer mode](/deep-explanations/summer-mode/).
+### 2. Two or three radiators in one open living room
+Setting three TRV dials one by one leads to one radiator doing all the work while the others stay cold.
+- **Solution:** Select all TRVs of the room under **`The real thermostat`** ([All settings reference](/configuration/)). Better Thermostat drives them as one synchronized thermostat—even if they are different brands (for instance, a direct-valve Sonoff TRVZB paired with a setpoint-only ZHA valve).
 
-## Heating and cooling in the same room
+### 3. Airing out rooms without heating the street
+Opening a winter window blasts cold air onto a standalone TRV, tricking it into opening 100 %!
+- **Solution:** Attach a **`Window sensor`** (or Binary Sensor Group Helper) and/or **`Door sensor`** with independent open/close delays ([Window sensor](/faq/window-sensor/), [Door sensor](/faq/door-sensor/)). Want to drop to `Eco` instead of `off` while airing? Toggle **`Window Detection`** off and use a 10-line [automation recipe](/faq/window-sensor/#turning-window-detection-off).
 
-A room with radiators and an air conditioner should not heat and cool against itself.
+### 4. Automatic spring/summer shutdown without morning false starts
+On sunny spring afternoons you don't want radiators kicking on just because a north bedroom dipped by `0.2 °C`—nor do you want a chilly `6 °C` morning after a `22 °C` week flipping the heating back on for an hour.
+- **Solution:** Add an **`Outdoor temperature sensor`** or **`Weather entity`** and set **`The outdoor temperature when the thermostat should turn off`** (typically `15–17 °C`). Better Thermostat smooths outdoor readings exponentially over **24 hours** with a `1.0 °C` hysteresis band ([Summer mode explained](/deep-explanations/summer-mode/)).
 
-Select the air conditioner as **The cooling device**. Better Thermostat then keeps a heating target and a cooling target, runs the TRVs below the one and the air conditioner above the other, and gives each preset a heating and a cooling temperature. The **Tolerance** setting sets how far the room may drift before the cooler starts.
+### 5. Radiators + Air Conditioner in the same room
+Running separate radiator and AC cards risks heating to `22 °C` while the AC tries to cool to `21 °C`.
+- **Solution:** Add your AC under **`The cooling device (optional)`**. Better Thermostat maintains separate heating and cooling targets (`Min` / `Max` preset sliders), enforces a minimum `0.2 °C` cooling band plus a 4-minute compressor guard, and keeps the AC strictly `off` until cooling is actually needed.
 
-Better Thermostat decides whether the air conditioner runs. While it should be off, it is switched off and gets no target temperature, because some integrations start an air conditioner on any target temperature write. When it starts, it is switched to cooling first and gets its target temperature after that. An air conditioner that starts while Better Thermostat holds it off, after an outage or from its own remote or app, is switched off again right away. One that is switched off while Better Thermostat wants it cooling is switched back on with the next control cycle, at the latest after five minutes.
+### 6. Night, Away, and Comfort temperatures without losing manual tweaks
+- **Solution:** Enable the **[Presets](/setup/presets/)** you use (`Comfort`, `Eco`, `Sleep`, `Away`, `Home`, `Activity`, `Boost`). Each gets its own `number` slider on the device, and switching back to `none` restores your baseline manual target. Automate them with our **[Automation Blueprints](/setup/automation-blueprints/)**.
 
-## A lower temperature at night or while you are away
+### 7. Taming rooms that overshoot—or waking up rooms that heat too slowly
+- **Solution:** Match the algorithm to the room ([Quick algorithm selector](/optimal-settings/algorithm-selection/)): **`TPI Controller`** (or **`(AI) MPC v2`** on direct-valve TRVs) eliminates overshoot quietly; **`Aggressive`** adds an immediate `+2.5 °C` push for cold, leaky rooms; **`Overheating protection?`** gives `(AI) Time Based` and `Aggressive` an `8×` closing push past `target + tolerance`.
 
-Presets give a temperature a name, such as Sleep, Away or Eco. Enable the ones you want and set their temperatures on the device; see [Presets](/setup/presets/). Switching between them is up to you or an automation. The [automation blueprints](/setup/automation-blueprints/) include a night mode, an away preset when nobody is home and a weekly heating schedule.
+### 8. Throttling one oversized radiator
+One small study or bathroom radiator heats twice as fast as the rest of the apartment.
+- **Solution:** With `Direct Valve Based` control, lower that TRV's **`Valve Max Opening`** slider (for example to `65 %`) ([Virtual hydraulic balancing](/deep-explanations/hydraulic-balance/)).
 
-## A room that overshoots or heats too slowly
+### 9. Keeping kids or guests from spinning the radiator dial
+- **Solution:** Turn on **`Ignore all inputs on the TRV like a child lock`** (or toggle the per-TRV **`Child Lock`** switch live). Better Thermostat reverts physical knob turns and engages the TRV's hardware child lock where available.
 
-A heavy radiator keeps heating after the valve closes; a cold, poorly insulated room takes hours to warm up. Pick the calibration mode for the room: TPI Controller for a room that overshoots, Aggressive for one that heats slowly, and AI Time Based, the default, for most others. In AI Time Based and Aggressive, **Overheating protection** helps with TRVs that do not close fully. See [Algorithm selection](/optimal-settings/algorithm-selection/).
+### 10. Taking manual control temporarily (bleeding radiators, AC self-clean, towel warm-up)
+Normally Better Thermostat reconciles its devices back to its calculated state within minutes.
+- **Solution:** Flip on the room-wide **`Release devices`** switch—or a single radiator's **`Release`** switch—to hand hardware control back to you cleanly while freezing model learning ([Releasing devices](/setup/releasing-devices/)).
 
-## Limiting one radiator
+### 11. Preventing stuck valve pins over summer & HomematicIP duty-cycle errors
+- **Valve pin exercise:** Enable **`If your thermostat has no own maintenance mode, you can use this one`** (or call `better_thermostat.run_valve_maintenance`) so pins never seize from mineral scale.
+- **868 MHz airtime protection:** Enable the **HomematicIP** option so background writes are spaced to **10 minutes**, keeping your Access Point / OpenCCU well below its 1 % radio limit.
 
-One radiator heats much faster than the others in the house, or it is oversized for its room. With direct valve control, the **Valve Max Opening** number caps how far Better Thermostat opens that TRV. See [Hydraulic balance](/deep-explanations/hydraulic-balance/).
+### 12. Firing a central gas boiler or heat pump only when at least one room needs heat
+- **Solution:** Watch your Better Thermostat entities for `hvac_action == 'heating'` in a single Home Assistant automation to switch your central wall thermostat or boiler relay ([Central heating & boiler control](/deep-explanations/central-heating-thermostat/)).
 
-## Children or guests turn the knob
-
-Enable **Ignore all inputs on the TRV like a child lock**. Better Thermostat then reverts any change made on the TRV and accepts changes only on its own thermostat entity. The *Child Lock* switch on the device turns this on and off, together with the TRV's own child lock where it has one.
-
-## Running a device yourself for a while
-
-An air conditioner's self-cleaning sequence, radiators held open while the heating system is filled, or an air conditioner run by hand: Better Thermostat would put each of them back. Turn on the **Release devices** switch for that time. Better Thermostat then leaves the room's devices alone until you turn it off again. To run one radiator of the room yourself and leave the others to Better Thermostat, turn on that TRV's own **Release** switch instead. See [Releasing the devices](/setup/releasing-devices/).
-
-## TRVs that stick after the summer
-
-A valve that has not moved for months can get stuck. If your TRV has no maintenance routine of its own, enable **If your thermostat has no own maintenance mode, you can use this one**. Better Thermostat then opens and closes the valve from time to time.
-
-## HomematicIP and its radio limit
-
-HomematicIP devices share a tight radio duty cycle that too many writes use up. With the **HomematicIP** option enabled, Better Thermostat writes to the TRV at most once every ten minutes; the first change after you adjust the thermostat still goes out at the normal pace.
-
-## Driving the boiler from the rooms
-
-Better Thermostat does not control a boiler, but each room reports whether it wants heat. An automation can watch the rooms and switch a central thermostat on while any room is heating. [A central thermostat alongside TRVs](/deep-explanations/central-heating-thermostat/) has a complete example.
+---
 
 ## Use cases it does not cover
 
-Better Thermostat does not switch a boiler or set a flow temperature itself, has no built-in schedule and does not regulate on humidity. It also needs a separate room temperature sensor. The [known limitations](/working-devices/compatibility/#known-limitations) list these and the device-related limits.
+Better Thermostat intentionally does **not** include an internal clock timetable, does **not** switch a boiler relay or calculate boiler flow curves natively, does **not** adjust target temperatures by humidity, and **cannot** operate without a separate external room temperature sensor. See **[Supported devices & known limitations](/working-devices/compatibility/#known-limitations)** for hardware details.
