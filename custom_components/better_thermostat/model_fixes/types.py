@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Any, Final, Protocol, TypedDict, runtime_check
 if TYPE_CHECKING:
     from homeassistant.core import Context, HomeAssistant
 
+    from custom_components.better_thermostat.core.decide import KernelState
+
 
 class QuirkScratchpad(TypedDict, total=False):
     """Write state the quirk modules keep on a TRV record.
@@ -136,6 +138,21 @@ class ModelFixHost(Protocol):
     @property
     def hass(self) -> HomeAssistant:
         """Home Assistant core the BetterThermostat instance is attached to."""
+        ...
+
+    @property
+    def entity_id(self) -> str:
+        """Entity id of the Better Thermostat climate entity itself."""
+        ...
+
+    @property
+    def kernel_state(self) -> KernelState:
+        """Controller-side state of the thermostat.
+
+        Its control mode names the temperature the room is controlled on:
+        the room sensor's while it stands on ``OPTIMAL``, the TRVs' own on
+        the rungs below.
+        """
         ...
 
     @property
