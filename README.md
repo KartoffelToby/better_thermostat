@@ -6,132 +6,89 @@
 [![Discord](https://img.shields.io/discord/925725316540923914.svg?style=for-the-badge)](https://discord.gg/9BUegWTG3K)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 
-**For more info visit: <https://better-thermostat.org/>**
+**Full documentation & Interactive Configurator: <https://better-thermostat.org/>**
+
+## What is Better Thermostat?
+
+Every smart radiator thermostat (TRV) measures temperature millimeters away from its own hot water pipe, causing it to read several degrees too warm and shut off while your room is still cold.
+
+**Better Thermostat** wraps one or more radiator valves (plus an optional air-conditioning cooler) and a **separate room temperature sensor** into **one smart virtual `climate` entity** in Home Assistant. It regulates your room accurately through whichever hardware channel each TRV supports (**Direct Valve `0–100 %`**, **Local Offset**, or **Target Setpoint**), pauses heating for open windows and doors, shuts off automatically during warm weather, and protects TRV batteries by spacing radio writes.
 
 ## Requirements
 
 - Minimum required Home Assistant version: `2026.9.0`
   (_continuously tested against Home Assistant_ [![Tested Home Assistant version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FKartoffelToby%2Fbetter_thermostat%2Fdevelop%2Fpyproject.toml&search=homeassistant%3E%3D%28%5B0-9.%5D%2B%29&replace=%241&label=&color=009688)](pyproject.toml))
+- At least **1 radiator/wall thermostat (`climate.*`)** and **1 separate room temperature sensor (`sensor.*`)** per room.
 
-### Companion UI
+### Companion UI Card
 
-We've created a companion UI element which can display more information than the default thermostat element in Home Assistant. Check it out via HACS: [better-thermostat-ui-card](https://github.com/KartoffelToby/better-thermostat-ui-card)
+Display open-window status, Summer Mode, ambient humidity, and heating/cooling state with our companion frontend card via HACS: [better-thermostat-ui-card](https://github.com/KartoffelToby/better-thermostat-ui-card) *(note: in UI Card v3.0+, use `custom:better-thermostat-normal-climate-card` or `custom:better-thermostat-mini-climate-card` in YAML)*.
 
-- If you have a question or need help please create a new [discussion](https://github.com/KartoffelToby/better_thermostat/discussions) or check if your question is already answered
-- If you have a suggestion, found a bug, or want to add a new device or function create a new [issue](https://github.com/KartoffelToby/better_thermostat/issues)
-- If you want to contribute to this project create a new [pull request](https://github.com/KartoffelToby/better_thermostat/pulls); the architecture is documented under [Internals](https://better-thermostat.org/internals/architecture/)
-
-### Features
-
-This integration brings some smartness to your connected radiator thermostats setup:
-
-- Uses a temperature sensor far away from the radiators to measure the real room temperature
-- Makes your TRVs fully compatible with Google Home
-- Let your windows disable your heating (avoid programming this via an automation)
-- Your weather forecast provider will turn your heat on/off
-- Or an outside air temperature sensor can do this as well
-- Does some valve maintenance automatically, to avoid them getting stuck closed over the summer
-- Group multiple TRVs to one (e.g. for a room with multiple radiators)
-- Enhance the default TRV Algorithm with some smartness to reduce energy consumption
-- Dynamic preset temperature learning & persistence (baseline/"no preset" remembers the last temperature you set and survives restarts)
-- **Advanced Control Algorithms**: Choose between AI Time Based, MPC, MPC v2, PID, TPI, Aggressive, External Sensor Offset Only or No Calibration.
-- **Selectable Presets**: Configure which preset modes are available for your thermostat during setup.
-- **Fail-soft and observable**: keeps controlling while a usable temperature source remains (a dead room sensor falls back to the TRV-internal mean). When none is left it drops to HOLD, keeping the mode, holding the device on the raw user target, pausing calibration and enforcing the frost floor. Both steps are surfaced as repair issues. Radio writes are spaced out to protect TRV batteries, and the diagnostics download ships a flight recorder for bug reports.
-
-### Advanced Control Algorithms
-
-Better Thermostat now supports multiple advanced control strategies to optimize your heating:
-
-- **MPC (Model Predictive Control)**: Uses a physical model of your room and radiator to predict future temperature changes and optimize valve opening.
-- **PID Controller**: A classic Proportional-Integral-Derivative controller that learns your room's characteristics to maintain a stable temperature. It features auto-tuning (currently in beta) to automatically find the best parameters (Kp, Ki, Kd) for your room.
-- **TPI (Time Proportional Integral)**: A control method that cycles the valve on and off (or modulates it) to maintain a stable temperature, reducing overshoot.
-- **AI Time Based**: Uses a custom algorithm based on simple measurements and calculations (not actual AI) to calculate the required heating power and adjusts the TRV calibration to achieve it. This improves upon the standard TRV internal algorithm. It is the default.
-- **MPC v2** (experimental): A predictive controller with a Kalman observer and a quadratic-program optimiser, written for TRVs with direct valve control.
-- **Aggressive**: Pushes the TRV harder while heating for a faster warm-up, at the price of more overshoot.
-- **External Sensor Offset Only**: Corrects the TRV's internal sensor with your room sensor and nothing more.
-- **No Calibration**: Passes your target temperature to the TRV unchanged.
-
-**Not sure which to pick? A quick guide:**
-
-| Algorithm | Best For | Trade-off |
-|-----------|----------|-----------|
-| **TPI** | A robust default — steady across room types, gentle on valve & battery, good with multiple radiators | Slightly looser setpoint tracking than PID/MPC |
-| **PID** | Tight setpoint tracking in a stable, well-characterised room | More valve activity; varies more by room; autotune is still in beta |
-| **MPC** | Anticipating solar / known disturbances when the room is modelled well | Most valve activity; can over-react with several radiators; still in beta |
-| **AI Time Based** | Quick setup, no tuning | Looser comfort, weaker in complex rooms |
-
-Start with **AI Time Based** (the default) or **TPI**. Try **PID** for tighter tracking in a stable room, or **MPC** for disturbance anticipation. The [algorithm documentation](https://better-thermostat.org/calibration_algorithms/) describes every mode.
-
-These modes can be selected in the advanced configuration of the device.
-
-### Preset Temperature Configuration
-
-Preset temperatures are now fully configurable via dedicated `number` entities.
-
-How it works:
-
-1. During setup or configuration, you can select which **Presets** you want to enable for this thermostat.
-2. For each enabled preset mode (e.g. Eco, Comfort, Sleep), a corresponding `number` entity is created (e.g., `number.<device>_eco`, where `<device>` is the name of your Better Thermostat device).
-3. These entities are located in the **Configuration** category of the device.
-4. You can adjust the temperature for each preset directly using these number sliders.
-5. The values are automatically persisted across Home Assistant restarts.
-6. Changing a preset temperature via the number entity immediately updates the thermostat if that preset is currently active.
-
-Default starting values:
-
-```text
-Away:            16.0 °C
-Boost:           24.0 °C
-Comfort:         21.0 °C
-Eco:             19.0 °C
-Home:            20.0 °C
-Sleep:           18.0 °C
-Activity:        22.0 °C
-```
-
-### Which hardware do we support?
-
-We support all thermostats which are compatible with Home Assistant as long as they are shown up as a climate entity.
-
-**_Integrations that are tested_**
-
-- Zigbee2Mqtt
-- Deconz
-- Tado
-- Z-Wave JS
-- generic_thermostat
-
-### How to setup
-
-Install this integration via HACS or copy the files from the [latest release](https://github.com/KartoffelToby/better_thermostat/releases/latest)
-
-Configuration details can be found in the [documentation](docs/Configuration/configuration.md) or on our website: [better-thermostat.org](https://better-thermostat.org/configuration)
-
-Some nice-to-know config tips for the configuration.yaml
-
-#### Example Window/Door - Sensor config
-
-```yaml
-group:
-  livingroom_windows:
-    name: Livingroom Windows
-    icon: mdi:window-open-variant
-    all: false
-    entities:
-      - binary_sensor.openclose_1
-      - binary_sensor.openclose_2
-      - binary_sensor.openclose_3
-```
-
-#### Combine multiple TRV to one (Group)
-
-No worry, Better Thermostat supports grouping out of the box
+- Questions or setup help: [GitHub Discussions](https://github.com/KartoffelToby/better_thermostat/discussions)
+- Bug reports or feature/quirk requests: [GitHub Issues](https://github.com/KartoffelToby/better_thermostat/issues)
+- Contributing & developer internals: [CONTRIBUTING.md](CONTRIBUTING.md) and [Internals documentation](https://better-thermostat.org/internals/architecture/)
 
 ---
 
-## Contributing?
+## Key Features (v2.0)
 
-checkout the [CONTRIBUTING.md](CONTRIBUTING.md) file
+- **True room-center regulation:** Drives TRVs via **Direct Valve (`0–100 %`)**, **Local Offset**, or **Target Temperature** calibration, plus automatic external room-temperature mirroring on supported models (such as Sonoff `TRVZB` & `TRV-ZBT`).
+- **Multi-TRV grouping & optional AC cooling:** Synchronizes multiple radiators in one room (even mixed brands) and optionally coordinates an air conditioner without heating/cooling fights.
+- **Window & separate Door pause:** Independent open/close debounce delays; offline contact sensors count as closed so dead coin-cell batteries never freeze a room.
+- **24-hour damped Summer Mode:** Smooths outdoor sensors or weather forecasts over 24 hours with a `1.0 °C` (`1.8 °F`) hysteresis band so sunny sensor spikes or cool spring mornings don't flip heating erratically.
+- **Selectable Presets with live sliders:** Enable `Eco`, `Comfort`, `Sleep`, `Away`, `Home`, `Activity`, or `Boost`—each backed by persistent `number` entities (`Min`/`Max` pairs when a cooler is configured).
+- **Pause Learning & Device Release switches:** Freeze model adaptation while a fireplace burns or a boiler heats tap water, or hand TRVs back to manual control with one toggle.
+- **9 ready-made Automation Blueprints:** Including a 4-slot [Weekly Heating Schedule](https://better-thermostat.org/setup/automation-blueprints/), Night Mode, Presence Away, Pause Learning, and battery/humidity alerts.
+- **Fail-soft & observable:** Steps down gracefully (`optimal` → `sensor_fallback` → `hold`) if sensors drop offline, spaces radio writes (30 s default / 10 min HomematicIP) to protect batteries, and includes a 50-cycle deterministic flight recorder in Home Assistant Diagnostics.
+
+---
+
+## Control Algorithms (`Calibration mode`)
+
+Better Thermostat offers **8 control algorithms**—see [Calibration types & algorithms](https://better-thermostat.org/calibration_algorithms/) for concrete numerical examples:
+
+| Algorithm | Best For | Trade-off |
+|---|---|---|
+| **`(AI) Time Based (Default)`** | Everyday rooms — learns your room's actual warming speed locally over 2–3 cycles | Needs a few cycles to adapt after setup |
+| **`TPI Controller`** | Zero-learning comfort, bedrooms, well-insulated rooms, and multi-radiator rooms (holds a smooth proportional opening, no noisy on/off clicking) | Slightly gentler initial heat-up than PID/Aggressive |
+| **`(AI) MPC v2`** *(experimental)* | **Direct-valve TRVs** (Sonoff `TRVZB`, Shelly BLU TRV, Eurotronic Spirit) — Kalman observer + QP predictive braking | Experimental; designed for direct-valve hardware |
+| **`PID Controller`** *(Beta)* | Kitchens, sunny rooms, and hallways with sudden disturbances (`Direct Valve` + `0.1 °C` room sensor recommended) | Higher valve motor activity; Auto-Tune is in beta |
+| **`Aggressive`** | Drafty, poorly insulated rooms that warm up too slowly (`+2.5 °C` boost while heating) | Higher overshoot risk; non-direct-valve only |
+| **`External Sensor Offset Only`** | Smart TRVs (e.g. tado°) whose internal controller you want to keep—pure 1:1 sensor bias fix | No tolerance band or extra controller modulation |
+| **`MPC Predictive`** *(Beta)* | First-generation 30-min predictive model | Higher valve wear; prefer **TPI** or **MPC v2** |
+| **`No Calibration`** | Using Better Thermostat only for window/door pause, Summer Mode, presets, or multi-TRV grouping | Passes target temperature unchanged |
+
+Not sure which combination fits your room? Try the **[Interactive Configurator](https://better-thermostat.org/setup/configurator/)**.
+
+---
+
+## Supported Hardware & Integrations
+
+Any thermostat exposed as a Home Assistant `climate` entity with a writable target temperature works out of the box. Tested integrations include:
+
+- **Zigbee2MQTT** *(recommended for Zigbee TRVs — unlocks local offsets and direct valve position)*
+- **ZHA (Zigbee Home Automation)** & **deCONZ**
+- **Shelly** *(including dedicated direct-valve support for **Shelly BLU TRV** via BLU Gateway)*
+- **Homematic(IP) Local / OpenCCU** *(supports `select` temperature offsets + 10-minute radio duty-cycle protection)*
+- **Z-Wave JS** *(including Eurotronic Spirit Z / Aeotec `ZWA021` direct-valve mode)*
+- **tado°** & **`generic_thermostat`**
+
+Built-in quirk fixes are included for 15+ popular models (`TRVZB`, `TRV-ZBT`, `SPZB0001`, `ZWA021`, `COZB0001`, `SHTRV-01`, `SEA801`/`802`, `BTH-RM`, `ME167`, `TS0601`, `TV02-Zigbee`, `BHT-002-GCLZB`, TermoWeb `Heater`, and more)—see [Supported devices & compatibility](https://better-thermostat.org/working-devices/compatibility/).
+
+---
+
+## Quick Setup
+
+1. Install **Better Thermostat** via **HACS** (or copy `custom_components/better_thermostat` from the [latest release](https://github.com/KartoffelToby/better_thermostat/releases/latest)) and **restart Home Assistant**.
+2. If a room has multiple window or door contacts, combine them first under **Settings → Devices & Services → Helpers → + Create Helper → Group → Binary sensor group**.
+3. Go to **Settings → Devices & Services → + Add Integration → Better Thermostat** and follow the [5-minute quickstart](https://better-thermostat.org/setup/getting-started/).
+4. Upgrading from version 1.9? Read [Upgrading from 1.9 to 2.0](https://better-thermostat.org/setup/upgrading-to-2-0/).
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## ☕ Support
 
