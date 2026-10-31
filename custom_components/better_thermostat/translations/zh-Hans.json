@@ -1,0 +1,523 @@
+{
+  "title": "Better Thermostat",
+  "config": {
+    "step": {
+      "user": {
+        "description": "设置你的 Better Thermostat 以集成到 Home Assistant\n\n**详细信息：** {docs_url}",
+        "data": {
+          "name": "名称",
+          "thermostat": "真实温控器",
+          "cooler": "制冷设备（可选）",
+          "min_cooler_resend_interval": "重复制冷命令之间的最小秒数（0 = 禁用）",
+          "temperature_sensor": "温度传感器",
+          "humidity_sensor": "湿度传感器",
+          "window_sensors": "窗户传感器",
+          "door_sensors": "门传感器",
+          "off_temperature": "温控器应关闭时的室外温度",
+          "tolerance": "容差，用于防止温控器过于频繁地开启和关闭",
+          "window_off_delay": "窗户打开后温控器关闭前的延迟",
+          "window_off_delay_after": "窗户关闭后温控器开启前的延迟",
+          "door_off_delay": "门打开后温控器关闭前的延迟",
+          "door_off_delay_after": "门关闭后温控器开启前的延迟",
+          "outdoor_sensor": "室外温度传感器",
+          "weather": "用于获取室外温度的天气实体",
+          "target_temp_min": "目标最低温度",
+          "target_temp_max": "目标最高温度",
+          "target_temp_step": "目标温度步长",
+          "presets": "启用的预设"
+        },
+        "data_description": {
+          "presets": "选择你希望此温控器可用的预设。"
+        }
+      },
+      "advanced": {
+        "description": "高级配置 {trv}\n\n**详细信息：** {docs_url}",
+        "data": {
+          "protect_overheating": "过热保护？",
+          "heat_auto_swapped": "如果你的 TRV 的 '自动' 表示 '制热'，而你想互换它",
+          "child_lock": "像童锁一样忽略 TRV 上的所有输入",
+          "homematicip": "如果你使用 HomematicIP，应启用此项以减慢请求，防止占空比限制",
+          "valve_maintenance": "如果你的温控器没有自己的维护模式，可以使用此项",
+          "calibration": "校准类型",
+          "calibration_mode": "校准模式",
+          "no_off_system_mode": "如果你的 TRV 不支持 '关闭' 模式，请启用此项以改用 5°C 的目标温度"
+        },
+        "data_description": {
+          "protect_overheating": "有些 TRV 在达到温度时不会完全关闭阀门，或者散热器有较多余热。这可能导致过热。此选项可以防止这种情况。",
+          "calibration_mode": "校准如何计算\n***普通***：使用你的外部温度传感器来校正 TRV 的内部传感器。简单可靠，适合大多数配置。\n***激进***：与普通类似，但会更用力地推动 TRV 以更快达到温度。适合房间升温较慢的情况。\n***AI 基于时间***：随时间学习你房间的供暖模式并自动调整。平衡舒适性与效率。\n***MPC 预测***：预测温度变化并优化阀门位置的高级算法。最适合稳定、高效且超调最小的供暖。会学习你房间的热行为。\n***PID 控制器***：响应温度误差的经典控制方法。适合供暖功率变化或存在外部干扰的系统。\n***TPI 控制器***：根据温差计算供暖占空比。简单有效，适合一致的供暖模式。",
+          "calibration": "校准如何应用到 TRV\n***基于目标温度***：将校准应用于目标温度。\n***基于偏移***：将校准应用于温度偏移。"
+        }
+      },
+      "confirm": {
+        "title": "确认添加 Better Thermostat",
+        "description": "你即将把 `{name}` 添加到 Home Assistant。\n以 {trv} 作为真实温控器"
+      }
+    },
+    "error": {
+      "failed": "出现问题。",
+      "no_name": "请输入名称。",
+      "no_heater": "请至少选择一个真实温控器。",
+      "no_off_mode": "你的设备比较特殊，没有关闭模式 :(\nBetter Thermostat 将改用最低目标温度。",
+      "target_temp_min_above_max": "目标最低温度不得超过目标最高温度。",
+      "no_outside_temp": "你没有室外温度传感器。Better Thermostat 将改用天气实体。",
+      "no_data": "未收到数据。请重试。"
+    },
+    "abort": {
+      "single_instance_allowed": "每个真实温控器只允许有一个 Better Thermostat。",
+      "no_devices_found": "未找到温控器实体，请确保你的 Home Assistant 中有 climate 实体"
+    }
+  },
+  "options": {
+    "step": {
+      "user": {
+        "description": "更新你的 Better Thermostat 设置\n\n**详细信息：** {docs_url}",
+        "data": {
+          "name": "名称",
+          "thermostat": "真实温控器",
+          "temperature_sensor": "温度传感器",
+          "humidity_sensor": "湿度传感器",
+          "window_sensors": "窗户传感器",
+          "door_sensors": "门传感器",
+          "off_temperature": "温控器应关闭时的室外温度",
+          "tolerance": "容差，用于防止温控器过于频繁地开启和关闭",
+          "window_off_delay": "窗户打开后温控器关闭前的延迟",
+          "window_off_delay_after": "窗户关闭后温控器开启前的延迟",
+          "door_off_delay": "门打开后温控器关闭前的延迟",
+          "door_off_delay_after": "门关闭后温控器开启前的延迟",
+          "outdoor_sensor": "室外温度传感器",
+          "weather": "用于获取室外温度的天气实体",
+          "target_temp_min": "目标最低温度",
+          "target_temp_max": "目标最高温度",
+          "target_temp_step": "目标温度步长",
+          "presets": "启用的预设",
+          "valve_maintenance": "如果你的温控器没有自己的维护模式，可以使用此项",
+          "calibration": "校准类型",
+          "heat_auto_swapped": "如果你的 TRV 的 '自动' 表示 '制热'，而你想互换它",
+          "child_lock": "像童锁一样忽略 TRV 上的所有输入",
+          "homematicip": "如果你使用 HomematicIP，应启用此项以减慢请求，防止占空比限制"
+        },
+        "data_description": {
+          "presets": "选择你希望此温控器可用的预设。"
+        }
+      },
+      "advanced": {
+        "description": "高级配置 {trv}\n\n**详细信息：** {docs_url}",
+        "data": {
+          "protect_overheating": "过热保护？",
+          "heat_auto_swapped": "如果你的 TRV 的 '自动' 表示 '制热'，而你想互换它",
+          "child_lock": "像童锁一样忽略 TRV 上的所有输入",
+          "homematicip": "如果你使用 HomematicIP，应启用此项以减慢请求，防止占空比限制",
+          "valve_maintenance": "如果你的温控器没有自己的维护模式，可以使用此项",
+          "calibration": "校准类型",
+          "calibration_mode": "校准模式",
+          "no_off_system_mode": "如果你的 TRV 不支持 '关闭' 模式，请启用此项以改用 5°C 的目标温度"
+        },
+        "data_description": {
+          "protect_overheating": "有些 TRV 在达到温度时不会完全关闭阀门，或者散热器有较多余热。这可能导致过热。此选项可以防止这种情况。",
+          "calibration_mode": "校准如何计算\n***普通***：使用你的外部温度传感器来校正 TRV 的内部传感器。简单可靠，适合大多数配置。\n***激进***：与普通类似，但会更用力地推动 TRV 以更快达到温度。适合房间升温较慢的情况。\n***AI 基于时间***：随时间学习你房间的供暖模式并自动调整。平衡舒适性与效率。\n***MPC 预测***：预测温度变化并优化阀门位置的高级算法。最适合稳定、高效且超调最小的供暖。会学习你房间的热行为。\n***PID 控制器***：响应温度误差的经典控制方法。适合供暖功率变化或存在外部干扰的系统。\n***TPI 控制器***：根据温差计算供暖占空比。简单有效，适合一致的供暖模式。",
+          "calibration": "校准如何应用到 TRV\n***基于目标温度***：将校准应用于目标温度。\n***基于偏移***：将校准应用于温度偏移。"
+        }
+      }
+    },
+    "error": {
+      "failed": "出现问题。",
+      "no_name": "请输入名称。",
+      "no_heater": "请至少选择一个真实温控器。",
+      "no_off_mode": "你的设备比较特殊，没有关闭模式 :(\nBetter Thermostat 将改用最低目标温度。",
+      "target_temp_min_above_max": "目标最低温度不得超过目标最高温度。",
+      "no_outside_temp": "你没有室外温度传感器。Better Thermostat 将改用天气实体。",
+      "no_data": "未收到数据。请重试。"
+    }
+  },
+  "issues": {
+    "missing_entity": {
+      "title": "BT: {name} - 相关实体缺失",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "相关实体 {entity} 缺失",
+            "description": "原因是实体（{entity}）在你的 Home Assistant 中不可用。\n\n你可以检查设备电池是否电量充足，或将其重新连接到 HA 来修复此问题。继续之前，请确保该实体已恢复到 HA 中。"
+          }
+        }
+      }
+    },
+    "degraded_mode": {
+      "title": "BT: {name} - 传感器错误：{sensors} 正在以降级模式运行",
+      "description": "Better Thermostat 正在以降级模式运行，因为部分传感器不可用：{sensors}\n\n温控器将继续以降低的功能运行。例如：\n- 如果室内温度传感器不可用，将改用 TRV 的内部传感器。\n- 如果窗户或门传感器不可用，其最后已知状态将继续生效：处于关闭状态的触点会保持供暖启用，处于打开状态的触点会保持供暖抑制，直到传感器再次报告关闭。只有在启动时，不可用的触点传感器才会被视为关闭。\n- 如果室外/天气传感器不可用，供暖将始终启用。\n\n请检查受影响的设备是否存在电池问题或连接问题。"
+    },
+    "invalid_window_state": {
+      "title": "BT: {name} - 窗户传感器状态无效",
+      "description": "Better Thermostat {name} 的窗户传感器报告了无法识别的状态：{state}。\n\n预期状态为：'on'、'off'、'true'、'false'、'open'、'closed'。\n\n请检查你的窗户传感器配置。"
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - 门传感器状态无效",
+      "description": "Better Thermostat {name} 的门传感器报告了无法识别的状态：{state}。\n\n预期状态为：'on'、'off'、'true'、'false'、'open'、'closed'。\n\n请检查你的门传感器配置。"
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - 外部温度无效",
+      "description": "Better Thermostat {name} 的外部温度传感器报告了不合理值：{value}。\n\n该读数超出合理范围，已被忽略。请检查你的温度传感器配置。"
+    }
+  },
+  "services": {
+    "run_valve_maintenance": {
+      "name": "立即运行阀门维护",
+      "description": "立即为此 Better Thermostat 实体运行阀门维护周期。"
+    },
+    "reset_heating_power": {
+      "name": "重置供暖功率",
+      "description": "将供暖功率重置为默认值。"
+    },
+    "reset_pid_learnings": {
+      "name": "重置 PID 学习数据",
+      "description": "清除此实体的所有已学习 PID 状态。",
+      "fields": {
+        "apply_pid_defaults": {
+          "name": "重置后应用 PID 默认值",
+          "description": "如果启用，将使用 PID 默认增益（kp/ki/kd）初始化当前目标桶。你可以在下方覆盖默认值。"
+        },
+        "defaults_kp": {
+          "name": "默认 kp",
+          "description": "重置后用于初始化的比例增益（如果未提供，则回退到 BalanceParams.kp）。"
+        },
+        "defaults_ki": {
+          "name": "默认 ki",
+          "description": "重置后用于初始化的积分增益（如果未提供，则回退到 BalanceParams.ki）。"
+        },
+        "defaults_kd": {
+          "name": "默认 kd",
+          "description": "重置后用于初始化的微分增益（如果未提供，则回退到 BalanceParams.kd）。"
+        }
+      }
+    }
+  },
+  "selector": {
+    "presets": {
+      "options": {
+        "eco": "节能",
+        "away": "离家",
+        "boost": "强劲",
+        "comfort": "舒适",
+        "home": "在家",
+        "sleep": "睡眠",
+        "activity": "活动"
+      }
+    },
+    "target_temp_min": {
+      "options": {
+        "auto": "自动",
+        "min_max_0": "0 °C",
+        "min_max_1": "1 °C",
+        "min_max_2": "2 °C",
+        "min_max_3": "3 °C",
+        "min_max_4": "4 °C",
+        "min_max_5": "5 °C",
+        "min_max_6": "6 °C",
+        "min_max_7": "7 °C",
+        "min_max_8": "8 °C",
+        "min_max_9": "9 °C",
+        "min_max_10": "10 °C",
+        "min_max_11": "11 °C",
+        "min_max_12": "12 °C",
+        "min_max_13": "13 °C",
+        "min_max_14": "14 °C",
+        "min_max_15": "15 °C",
+        "min_max_16": "16 °C",
+        "min_max_17": "17 °C",
+        "min_max_18": "18 °C",
+        "min_max_19": "19 °C",
+        "min_max_20": "20 °C",
+        "min_max_21": "21 °C",
+        "min_max_22": "22 °C",
+        "min_max_23": "23 °C",
+        "min_max_24": "24 °C",
+        "min_max_25": "25 °C",
+        "min_max_26": "26 °C",
+        "min_max_27": "27 °C",
+        "min_max_28": "28 °C",
+        "min_max_29": "29 °C",
+        "min_max_30": "30 °C",
+        "min_max_31": "31 °C",
+        "min_max_32": "32 °C",
+        "min_max_33": "33 °C",
+        "min_max_34": "34 °C",
+        "min_max_35": "35 °C",
+        "min_max_36": "36 °C",
+        "min_max_37": "37 °C",
+        "min_max_38": "38 °C",
+        "min_max_39": "39 °C",
+        "min_max_40": "40 °C"
+      }
+    },
+    "target_temp_max": {
+      "options": {
+        "auto": "自动",
+        "min_max_0": "0 °C",
+        "min_max_1": "1 °C",
+        "min_max_2": "2 °C",
+        "min_max_3": "3 °C",
+        "min_max_4": "4 °C",
+        "min_max_5": "5 °C",
+        "min_max_6": "6 °C",
+        "min_max_7": "7 °C",
+        "min_max_8": "8 °C",
+        "min_max_9": "9 °C",
+        "min_max_10": "10 °C",
+        "min_max_11": "11 °C",
+        "min_max_12": "12 °C",
+        "min_max_13": "13 °C",
+        "min_max_14": "14 °C",
+        "min_max_15": "15 °C",
+        "min_max_16": "16 °C",
+        "min_max_17": "17 °C",
+        "min_max_18": "18 °C",
+        "min_max_19": "19 °C",
+        "min_max_20": "20 °C",
+        "min_max_21": "21 °C",
+        "min_max_22": "22 °C",
+        "min_max_23": "23 °C",
+        "min_max_24": "24 °C",
+        "min_max_25": "25 °C",
+        "min_max_26": "26 °C",
+        "min_max_27": "27 °C",
+        "min_max_28": "28 °C",
+        "min_max_29": "29 °C",
+        "min_max_30": "30 °C",
+        "min_max_31": "31 °C",
+        "min_max_32": "32 °C",
+        "min_max_33": "33 °C",
+        "min_max_34": "34 °C",
+        "min_max_35": "35 °C",
+        "min_max_36": "36 °C",
+        "min_max_37": "37 °C",
+        "min_max_38": "38 °C",
+        "min_max_39": "39 °C",
+        "min_max_40": "40 °C"
+      }
+    },
+    "target_temp_step": {
+      "options": {
+        "auto_legacy": "自动（旧版）",
+        "auto": "自动",
+        "step_0_1": "0.1 °C",
+        "step_0_2": "0.2 °C",
+        "step_0_25": "0.25 °C",
+        "step_0_5": "0.5 °C",
+        "step_1_0": "1 °C"
+      }
+    },
+    "calibration_mode": {
+      "options": {
+        "heating_power_calibration": "(AI) 基于时间（默认）",
+        "default": "仅外部传感器偏移",
+        "mpc_calibration": "MPC 预测（Beta）",
+        "mpc_v2_calibration": "(AI) MPC v2（QP + Kalman，实验性）",
+        "fix_calibration": "激进",
+        "tpi_calibration": "TPI 控制器",
+        "pid_calibration": "PID 控制器",
+        "no_calibration": "无校准"
+      }
+    },
+    "calibration_type": {
+      "options": {
+        "direct_valve_based": "基于阀门直接控制",
+        "target_temp_based": "基于目标温度",
+        "local_calibration_based": "基于偏移"
+      }
+    },
+    "mpc_v2_plant_preset": {
+      "options": {
+        "auto": "自动（使用学习到的热损失率）",
+        "small_room": "小房间（约 10 m²，快速响应）",
+        "medium_room": "中等房间（约 20 m²，标准）",
+        "large_room": "大房间（约 40 m²，慢速响应）"
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "pid_kp": {
+        "name": "{trv_name} PID Kp（比例）"
+      },
+      "pid_ki": {
+        "name": "{trv_name} PID Ki（积分）"
+      },
+      "pid_kd": {
+        "name": "{trv_name} PID Kd（微分）"
+      },
+      "pid_kp_no_trv": {
+        "name": "PID Kp（比例）"
+      },
+      "pid_ki_no_trv": {
+        "name": "PID Ki（积分）"
+      },
+      "pid_kd_no_trv": {
+        "name": "PID Kd（微分）"
+      },
+      "preset_eco": {
+        "name": "节能"
+      },
+      "preset_eco_min": {
+        "name": "节能最小"
+      },
+      "preset_eco_max": {
+        "name": "节能最大"
+      },
+      "preset_away": {
+        "name": "离家"
+      },
+      "preset_away_min": {
+        "name": "离家最小"
+      },
+      "preset_away_max": {
+        "name": "离家最大"
+      },
+      "preset_boost": {
+        "name": "强劲"
+      },
+      "preset_boost_min": {
+        "name": "强劲最小"
+      },
+      "preset_boost_max": {
+        "name": "强劲最大"
+      },
+      "preset_comfort": {
+        "name": "舒适"
+      },
+      "preset_comfort_min": {
+        "name": "舒适最小"
+      },
+      "preset_comfort_max": {
+        "name": "舒适最大"
+      },
+      "preset_home": {
+        "name": "在家"
+      },
+      "preset_home_min": {
+        "name": "在家最小"
+      },
+      "preset_home_max": {
+        "name": "在家最大"
+      },
+      "preset_sleep": {
+        "name": "睡眠"
+      },
+      "preset_sleep_min": {
+        "name": "睡眠最小"
+      },
+      "preset_sleep_max": {
+        "name": "睡眠最大"
+      },
+      "preset_activity": {
+        "name": "活动"
+      },
+      "preset_activity_min": {
+        "name": "活动最小"
+      },
+      "preset_activity_max": {
+        "name": "活动最大"
+      },
+      "valve_max_opening": {
+        "name": "{trv_name} 阀门最大开度"
+      },
+      "valve_max_opening_no_trv": {
+        "name": "阀门最大开度"
+      }
+    },
+    "switch": {
+      "pid_auto_tune": {
+        "name": "{trv_name} PID 自动调参"
+      },
+      "pid_auto_tune_no_trv": {
+        "name": "PID 自动调参"
+      },
+      "child_lock": {
+        "name": "{trv_name} 童锁"
+      },
+      "child_lock_no_trv": {
+        "name": "童锁"
+      }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "因窗户打开而关闭",
+          "window_close": "因窗户关闭而恢复供暖",
+          "summer_mode_on": "因室外温度过高而关闭",
+          "summer_mode_off": "因室外温度下降而恢复供暖",
+          "degraded_mode_entered": "因部分传感器不可用而进入降级模式",
+          "degraded_mode_resolved": "因所有传感器可用而退出降级模式",
+          "door_open": "因门打开而关闭",
+          "door_close": "因门关闭而恢复供暖"
+        }
+      },
+      "external_temp_ema": {
+        "name": "温度 EMA"
+      },
+      "external_temp_ema_1h": {
+        "name": "温度 EMA 1h"
+      },
+      "temp_slope": {
+        "name": "温度斜率"
+      },
+      "heating_power": {
+        "name": "供暖功率"
+      },
+      "heat_loss": {
+        "name": "热损失"
+      },
+      "virtual_temp": {
+        "name": "虚拟温度"
+      },
+      "mpc_gain": {
+        "name": "MPC 增益"
+      },
+      "mpc_loss": {
+        "name": "MPC 损失"
+      },
+      "mpc_ka": {
+        "name": "MPC 保温性 (Ka)"
+      },
+      "pid_kp": {
+        "name": "PID Kp"
+      },
+      "pid_ki": {
+        "name": "PID Ki"
+      },
+      "pid_kd": {
+        "name": "PID Kd"
+      },
+      "pid_output": {
+        "name": "PID 输出"
+      },
+      "pid_error": {
+        "name": "PID 误差"
+      },
+      "solar_intensity": {
+        "name": "日照强度加热"
+      }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "heating_active": "温控器切换到供暖",
+      "heating_stopped": "温控器停止供暖",
+      "humidity_high": "湿度超过阈值",
+      "window_opened": "窗户打开",
+      "window_closed": "窗户关闭",
+      "battery_low": "电量低",
+      "device_error": "检测到设备错误",
+      "target_temp_reached": "达到目标温度",
+      "hvac_mode_changed": "HVAC 模式已更改",
+      "current_temperature_changed": "当前温度已更改",
+      "current_humidity_changed": "当前湿度已更改"
+    },
+    "condition_type": {
+      "is_hvac_mode": "温控器设置为特定 HVAC 模式",
+      "is_hvac_action": "温控器正在执行特定 HVAC 动作"
+    },
+    "action_type": {
+      "set_hvac_mode": "设置 HVAC 模式",
+      "set_temperature": "设置目标温度"
+    }
+  }
+}

@@ -10,7 +10,8 @@
         "pl",
         "ru",
         "sk",
-        "tr"
+        "tr",
+        "zh-Hans"
     ],
     "modules": [
         "https://cdn.jsdelivr.net/npm/@inlang/plugin-i18next@4/dist/index.js",
