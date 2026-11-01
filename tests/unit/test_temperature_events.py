@@ -10,7 +10,8 @@ from datetime import timedelta
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.core import State
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import Event, State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.util import dt as dt_util
 import pytest
@@ -1244,6 +1245,51 @@ class TestKeepaliveTick:
         assert not blocked, f"keepalive blocked: {blocked}"
         assert quirks.writes == [("climate.trv1", 22.0), ("climate.trv1", 22.0)]
         assert mock_bt.control_queue_task.qsize() == 1
+
+
+class TestReadingAfterAnOutage:
+    """The first reading after the sensor gave none reaches the TRVs at once."""
+
+    @pytest.mark.parametrize("lost", [STATE_UNAVAILABLE, STATE_UNKNOWN])
+    @pytest.mark.asyncio
+    async def test_a_tick_skipped_in_a_short_gap_is_made_up_when_the_sensor_returns(
+        self, mock_bt, lost
+    ):
+        """A gap too short for the TRV fallback still ends with a write.
+
+        The keepalive tick that lands in the gap writes nothing. The sensor
+        then returns with the reading it had before, which the noise filter
+        would hold back; without a write now the TRV would hear nothing until
+        the next tick, an hour after the last write.
+        """
+        quirks = MagicMock()
+        quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv(entity_id="climate.trv1", model_quirks=quirks)
+        }
+        gone = State(SENSOR_ID, lost)
+        reading = State(SENSOR_ID, "20.0", {"unit_of_measurement": "°C"})
+
+        mock_bt.hass.states.get = MagicMock(return_value=gone)
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later"
+        ):
+            await trigger_temperature_change(
+                mock_bt,
+                Event("state_changed", {"old_state": reading, "new_state": gone}),
+            )
+        await BetterThermostat._external_temperature_keepalive(mock_bt)
+        assert quirks.maybe_set_external_temperature.await_count == 0
+
+        mock_bt.hass.states.get = MagicMock(return_value=reading)
+        await trigger_temperature_change(
+            mock_bt, Event("state_changed", {"old_state": gone, "new_state": reading})
+        )
+
+        assert [
+            call.args[1:]
+            for call in quirks.maybe_set_external_temperature.await_args_list
+        ] == [("climate.trv1", 20.0)]
 
 
 class TestPlateauTimerTurn:

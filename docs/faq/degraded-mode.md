@@ -19,8 +19,8 @@ TRVs that regulate on a room temperature Better Thermostat writes into
 them, such as the Sonoff TRVZB, stop receiving it while the room sensor
 gives no reading. Better Thermostat does not keep sending the sensor's last
 value, so the TRV falls back to its own sensor after its own timeout (two
-hours on a TRVZB). Once the sensor reports again, its reading is written
-to the TRV.
+hours on a TRVZB). The first reading after the outage is written to the
+TRV at once.
 
 During Home Assistant startup, sensors are often briefly unavailable
 while their integrations load. Better Thermostat waits out a grace

@@ -1306,8 +1306,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                     )
                     return
-                if not _room_sensor_reads(self):
-                    return
 
                 # Use the known TRV entity IDs (keys in real_trvs)
                 trv_ids = list(self.real_trvs.keys())
