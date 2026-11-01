@@ -51,10 +51,20 @@ An unavailable valve number does not cause Better Thermostat to fall back to set
 
 Direct control depends on Home Assistant, the gateway and the Bluetooth link. If these stop working, Better Thermostat cannot send commands and the last valve position may remain in effect. If neither the room sensor nor any TRV temperature is usable and BT enters HOLD, it requests a fixed emergency opening of 25% for a valve-only device because its thermostat cannot take over. This preserves limited heating without retaining a potentially fully open valve, and Boost does not override it. Normal regulation resumes after the sensor-recovery stability period. The command uses the normal write and retry path and requires a reachable device. OFF, open windows or doors, and an invalid stored calibration mode still request closure; the invalid configuration also raises a repair issue. A fixed opening cannot guarantee frost protection or provide a local automatic shutoff or boiler timeout. Any zone-relay timeout or independent temperature limit belongs outside Better Thermostat.
 
+## Room temperature written to the TRV
+
+Some TRVs can regulate on a room temperature sent to them instead of their own sensor. For these models Better Thermostat writes its room temperature to the device:
+
+- **Sonoff TRVZB and TRV-ZBT** (Zigbee2MQTT): to `external_temperature_input`, and switches the device's temperature sensor selection to it.
+- **Danfoss Ally, Popp 701721, Hive UK7004240** (Zigbee2MQTT): to `external_measured_room_sensor`, in hundredths of a degree Celsius as Zigbee2MQTT expects, but only with the calibration mode **No Calibration**. The device corrects for its own sensor itself once it has the room temperature, so any other calibration mode would correct the same bias a second time. A change of at least 0.1 °C is written at once. An unchanged value goes out again with Better Thermostat's 30-minute refresh, which stays within the time after which the device drops the value and returns to its own sensor: 3 hours, or 35 minutes with `radiator_covered` on. Better Thermostat does not change `radiator_covered`; set it to match how the radiator is mounted. Open windows are not reported through `window_open_external`, and `heat_available` is not used.
+
+No value is written while the room sensor gives no reading, or when the room sensor belongs to the TRV itself.
+
 ## Devices that are known to work
 
 Better Thermostat includes specific fixes and optimizations for the following devices to ensure they work correctly:
 
+- 014G2461 (Danfoss Ally, also Danfoss 014G2463, Popp 701721 and Hive UK7004240)
 - BHT-002-GCLZB
 - BTH-RM
 - BTH-RM230Z

@@ -43,6 +43,13 @@ class QuirkScratchpad(TypedDict, total=False):
     _zwa021_valve_mode_engaged: bool
     """Whether the ZWA021 manufacturer-specific valve mode went through."""
 
+    _danfoss_external_sensor_celsius: float
+    """Room temperature the Danfoss Ally external room sensor input was last
+    written, in degrees Celsius, as the input holds it."""
+
+    _danfoss_external_sensor_written_at: float
+    """Monotonic clock reading, in seconds, of that write."""
+
 
 class ModelFixTrv(Protocol):
     """Minimal per-TRV record the model fixes read."""

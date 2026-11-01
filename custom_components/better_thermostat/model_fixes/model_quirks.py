@@ -34,8 +34,16 @@ _LOGGER = logging.getLogger(__name__)
 # module that drives them instead. The Eurotronic Spirit Z and the Aeotec
 # ZWA021 are one device sold under two names, so one module covers both.
 # ZVIDAR Z-TRV-V01 is a clone of the same device and drives its valve the same
-# way, so it resolves onto that module too.
-_QUIRK_MODULE_ALIASES = {"Spirit": "ZWA021", "Z-TRV-V01": "ZWA021"}
+# way, so it resolves onto that module too. Zigbee2MQTT drives the Danfoss
+# Ally 014G2463, the Popp 701721 and the Hive UK7004240 through the
+# definition of the Danfoss Ally 014G2461, under their own model names.
+_QUIRK_MODULE_ALIASES = {
+    "Spirit": "ZWA021",
+    "Z-TRV-V01": "ZWA021",
+    "014G2463": "014G2461",
+    "701721": "014G2461",
+    "UK7004240": "014G2461",
+}
 
 
 def get_model_quirks_name(model: str) -> str:
