@@ -109,5 +109,10 @@ class ModelFixHost(Protocol):
         """Home Assistant core the BetterThermostat instance is attached to."""
         ...
 
+    @property
+    def sensor_entity_id(self) -> str | None:
+        """Entity id of the room temperature sensor, None when none is set."""
+        ...
+
 
 __all__ = ["ModelFixHost"]
