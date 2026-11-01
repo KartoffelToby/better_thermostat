@@ -5,6 +5,8 @@ import contextlib
 import importlib
 from unittest.mock import AsyncMock, MagicMock
 
+from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
+from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
@@ -670,3 +672,97 @@ class TestExternalTemperatureWriteTheDeviceRefuses:
             await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.42)
             is False
         )
+
+
+EXTERNAL_INPUT = "number.trv1_external_temperature_input"
+
+
+def _input_attributes(unit, low=None, high=None):
+    """Attributes of an external temperature input published in ``unit``."""
+    attributes: dict[str, object] = {ATTR_UNIT_OF_MEASUREMENT: unit}
+    if low is not None:
+        attributes["min"] = low
+    if high is not None:
+        attributes["max"] = high
+    return attributes
+
+
+class TestExternalTemperatureIsWrittenInTheInputsUnit:
+    """Home Assistant checks a written value against the unit the input shows.
+
+    Zigbee2MQTT publishes the input in Celsius and Home Assistant shows it in
+    the system unit, so on a Fahrenheit system the input takes Fahrenheit
+    and refuses a Celsius reading below its published minimum.
+    """
+
+    @pytest.mark.parametrize(
+        ("attributes", "celsius", "written"),
+        [
+            pytest.param(
+                _input_attributes(UnitOfTemperature.FAHRENHEIT, 32, 211.9),
+                21.42,
+                70.52,
+                id="fahrenheit_in_range",
+            ),
+            pytest.param(
+                _input_attributes(UnitOfTemperature.FAHRENHEIT, 32, 211.9),
+                -5.0,
+                32.0,
+                id="fahrenheit_below_the_input",
+            ),
+            pytest.param(
+                _input_attributes(UnitOfTemperature.CELSIUS, 0, 99.9),
+                21.42,
+                21.4,
+                id="celsius_in_range",
+            ),
+            pytest.param(
+                _input_attributes(UnitOfTemperature.CELSIUS),
+                120.0,
+                99.9,
+                id="celsius_without_bounds",
+            ),
+            pytest.param(
+                _input_attributes(UnitOfTemperature.FAHRENHEIT),
+                -20.0,
+                32.0,
+                id="fahrenheit_without_bounds",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_reading_is_converted_and_held_inside_the_input(
+        self, monkeypatch, attributes, celsius, written
+    ):
+        """The Celsius reading reaches the input in its unit and its range."""
+        trv = _registry_entry("climate.trv1", domain="climate")
+        number = _registry_entry(
+            EXTERNAL_INPUT,
+            domain="number",
+            translation_key="external_temperature_input",
+        )
+        selector = _registry_entry(
+            "select.trv1_temperature_sensor_select",
+            domain="select",
+            translation_key="temperature_sensor_select",
+        )
+        mock_self = _make_selector_self("external", entries=[trv, number, selector])
+        selector_state = mock_self.hass.states.get.return_value
+        input_state = State(EXTERNAL_INPUT, "70.0", attributes)
+        mock_self.hass.states.get.side_effect = lambda entity_id: (
+            input_state if entity_id == EXTERNAL_INPUT else selector_state
+        )
+        mock_self.real_trvs = {
+            "climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")
+        }
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", celsius
+        )
+
+        payload = mock_self.hass.services.async_call.await_args_list[0].args[2]
+        assert payload["entity_id"] == EXTERNAL_INPUT
+        assert payload["value"] == pytest.approx(written)
