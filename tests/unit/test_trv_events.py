@@ -8,6 +8,7 @@ and the convert_inbound_states / convert_outbound_states helpers.
 import asyncio
 from datetime import timedelta
 from functools import partial
+import importlib
 import logging
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
@@ -4394,3 +4395,19 @@ class TestReportedRange:
 
         assert (trv.min_temp, trv.max_temp) == (5.0, 25.0)
         assert trv.temperature_moved_while_held is True
+
+    @pytest.mark.asyncio
+    async def test_a_heating_report_keeps_the_floor_the_model_quirk_sets(self, mock_bt):
+        """A Shelly TRV's minimum stays one grid step above the one it publishes."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.model_quirks = importlib.import_module(
+            "custom_components.better_thermostat.model_fixes.SHTRV-01"
+        )
+        trv.min_temp, trv.max_temp = 7.0, 35.0
+        heating = self._report(HVACMode.HEAT, {"min_temp": 4.0, "max_temp": 30.0})
+        mock_bt.hass.states.get.return_value = heating
+        event = _make_event(mock_bt, new_state=heating, old_state=_make_state())
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert (trv.min_temp, trv.max_temp) == (4.5, 30.0)
