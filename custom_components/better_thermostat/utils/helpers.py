@@ -25,6 +25,7 @@ from homeassistant.components.climate.const import (
     HVACMode,
 )
 from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
     CONF_NAME,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
@@ -370,6 +371,116 @@ def find_device_entity(
         ):
             return ent.entity_id
     return None
+
+
+def find_keyed_device_entity(
+    entity_registry: er.EntityRegistry,
+    device_id: str | None,
+    domain: str,
+    translation_keys: frozenset[str],
+    id_fragment: str,
+) -> str | None:
+    """Return a sibling entity of ``device_id`` in ``domain``, or ``None``.
+
+    The translation key is the stable, language-independent handle and is
+    tried first; the id fragment is the fallback for a registry entry that
+    carries none.
+
+    Parameters
+    ----------
+    entity_registry : er.EntityRegistry
+        The registry to search.
+    device_id : str | None
+        The device the sibling has to belong to. ``None`` is no device and
+        matches nothing: every entity that belongs to no device would
+        otherwise be a candidate. A disabled entry is no sibling either.
+    domain : str
+        The entity domain to search.
+    translation_keys : frozenset[str]
+        The translation keys that name the wanted entity.
+    id_fragment : str
+        Matched against the entity id, unique id and original name of a
+        registry entry that carries no translation key.
+
+    Returns
+    -------
+    str | None
+        The entity id of the sibling whose translation key names it, the
+        first id fragment match when no sibling carries one of the keys, or
+        ``None`` when the device has no such entity.
+    """
+    siblings = [
+        ent
+        for ent in entity_registry.entities.values()
+        if is_sibling_entry(ent, device_id) and ent.domain == domain
+    ]
+    for ent in siblings:
+        if ent.translation_key in translation_keys:
+            return ent.entity_id
+    # The registry hands its entities out in insertion order, so a fragment
+    # match tried per entry beats the canonical key of an entry behind it.
+    # The fallback therefore runs as a second pass, and only over the entries
+    # that name themselves nothing.
+    for ent in siblings:
+        if ent.translation_key is not None:
+            continue
+        haystacks = (
+            (ent.entity_id or "").lower(),
+            (ent.unique_id or "").lower(),
+            (ent.original_name or "").lower().replace(" ", "_"),
+        )
+        if any(id_fragment in haystack for haystack in haystacks):
+            return ent.entity_id
+    return None
+
+
+def external_temperature_input_value(
+    state: State | None, celsius: float, fallback_min_c: float, fallback_max_c: float
+) -> float:
+    """Return the value the external temperature input takes for ``celsius``.
+
+    Zigbee2MQTT publishes the input as a ``temperature`` number in Celsius,
+    which Home Assistant converts into the system unit, and checks a written
+    value against the ``min`` and ``max`` it publishes in that unit. The
+    reading is rounded once to the device's tenth of a degree Celsius, then
+    converted into the unit the input publishes and held inside its bounds.
+
+    Parameters
+    ----------
+    state : State or None
+        State of the external temperature input, or None when it has none.
+    celsius : float
+        The room temperature in degrees Celsius.
+    fallback_min_c, fallback_max_c : float
+        The device's range in degrees Celsius, for an input that publishes
+        no ``min`` or ``max`` of its own.
+
+    Returns
+    -------
+    float
+        The value to write, in the input's published unit.
+    """
+    attributes: Mapping[str, object] = state.attributes if state is not None else {}
+    declared_unit = attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+    unit = (
+        declared_unit
+        if isinstance(declared_unit, str)
+        and declared_unit in TemperatureConverter.VALID_UNITS
+        else UnitOfTemperature.CELSIUS
+    )
+
+    def published(degrees: float) -> float:
+        return TemperatureConverter.convert(degrees, UnitOfTemperature.CELSIUS, unit)
+
+    def bound(name: str, fallback_celsius: float) -> float:
+        try:
+            return float(str(attributes[name]))
+        except KeyError, TypeError, ValueError:
+            return published(fallback_celsius)
+
+    low = bound("min", fallback_min_c)
+    high = bound("max", fallback_max_c)
+    return max(low, min(high, published(round(celsius, 1))))
 
 
 _CHILD_LOCK_DOMAINS = ("switch", "lock")
