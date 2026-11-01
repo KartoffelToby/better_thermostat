@@ -5323,3 +5323,50 @@ class TestReportedRange:
         assert (trv.min_temp, trv.max_temp) == (7.0, 35.0)
         assert trv.heating_range is None
         refresh.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_first_heating_range_bounds_the_room(self, mock_bt):
+        """A first heating range that leaves the TRV's own range still reaches the room."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.min_temp, trv.max_temp = 5.0, 30.0
+        report = self._report(HVACMode.HEAT, {"min_temp": 5.0, "max_temp": 30.0})
+        mock_bt.hass.states.get.return_value = report
+        event = _make_event(mock_bt, new_state=report, old_state=_make_state())
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+            patch.object(mock_bt, "_refresh_heating_range") as refresh,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert trv.heating_range == (5.0, 30.0)
+        refresh.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    async def test_a_room_bounded_anew_asks_for_a_cycle(self, mock_bt):
+        """A heating range that moves the room's bounds asks for a cycle."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.min_temp, trv.max_temp = 5.0, 30.0
+        mock_bt.bt_max_temp = 35.0
+        report = self._report(HVACMode.HEAT, {"min_temp": 5.0, "max_temp": 30.0})
+        mock_bt.hass.states.get.return_value = report
+        event = _make_event(mock_bt, new_state=report, old_state=_make_state())
+
+        def narrow_the_room() -> None:
+            mock_bt.bt_max_temp = 30.0
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+            patch.object(
+                mock_bt, "_refresh_heating_range", side_effect=narrow_the_room
+            ),
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        mock_bt.control_queue_task.put_nowait.assert_called()
