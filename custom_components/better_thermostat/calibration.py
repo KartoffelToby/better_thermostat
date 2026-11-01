@@ -770,8 +770,9 @@ def _compute_mpc_v2_balance(
     """Run the MPC v2 (QP + Kalman) balance algorithm.
 
     Routes through ``compute_mpc_v2`` so the receding-horizon QP controller
-    produces the valve recommendation. Multi-TRV setups share one controller,
-    and every TRV receives its command, each held to its own maximum opening.
+    produces the valve recommendation. Multi-TRV setups share one controller
+    that steps once per control cycle, and every TRV receives the command of
+    that step, each held to its own maximum opening.
     """
     trv_state = self.real_trvs[entity_id]
 
@@ -852,29 +853,39 @@ def _compute_mpc_v2_balance(
         else None
     )
 
+    # A group's controller steps once per control cycle, so every TRV of the
+    # group takes the command of that one step. Outside a control cycle each
+    # call is a step of its own.
+    cycle = self.dispatched_control_cycle if is_multi_trv else None
     try:
         mpc_v2_state = state_mgr.get_mpc_v2_live(mpc_key, v2_params)
-        mpc_output, mpc_v2_state = compute_mpc_v2(
-            MpcV2Input(
-                key=mpc_key,
-                target_temperature=self.heat_target_temperature,
-                room_temperature=mpc_room_temperature,
-                trv_temperature=trv_state.current_temperature,
-                window_open=self.contact_open,
-                heating_allowed=True,
-                bt_name=self.device_name,
-                entity_id=entity_id,
-                outdoor_temperature=outdoor_temperature,
-                max_opening_percent=max_opening_percent,
-                applied_valve_percent=controller_applied_percent,
-                learning_paused=self.learning_held,
-                room_temperature_from_trvs=(
-                    self.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+        if cycle is not None and mpc_v2_state.stepped_cycle is cycle:
+            mpc_output = mpc_v2_state.cycle_output
+        else:
+            mpc_output, mpc_v2_state = compute_mpc_v2(
+                MpcV2Input(
+                    key=mpc_key,
+                    target_temperature=self.heat_target_temperature,
+                    room_temperature=mpc_room_temperature,
+                    trv_temperature=trv_state.current_temperature,
+                    window_open=self.contact_open,
+                    heating_allowed=True,
+                    bt_name=self.device_name,
+                    entity_id=entity_id,
+                    outdoor_temperature=outdoor_temperature,
+                    max_opening_percent=max_opening_percent,
+                    applied_valve_percent=controller_applied_percent,
+                    learning_paused=self.learning_held,
+                    room_temperature_from_trvs=(
+                        self.kernel_state.control_mode.mode
+                        == ControlMode.SENSOR_FALLBACK
+                    ),
                 ),
-            ),
-            v2_params,
-            state=mpc_v2_state,
-        )
+                v2_params,
+                state=mpc_v2_state,
+            )
+            mpc_v2_state.stepped_cycle = cycle
+            mpc_v2_state.cycle_output = mpc_output
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: MPC v2 compute failed for %s: %s",

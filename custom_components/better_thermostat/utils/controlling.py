@@ -2469,6 +2469,7 @@ async def control_trv(
             # standalone invocation is its own cycle.
             if cycle is None:
                 cycle = compute_control_cycle(self)
+            self.dispatched_control_cycle = cycle
             snapshot, desired = cycle
             if desired.devices_released or _released_during_cycle(self, entity_id):
                 # The device is the user's: not commanded, and not missing.

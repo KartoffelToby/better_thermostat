@@ -273,6 +273,7 @@ _CONSTRUCTOR_DEFAULTED = (
     "_outdoor_check_lock",
     "_temperature_filter_lock",
     "control_cycle_started_monotonic",
+    "dispatched_control_cycle",
     "devices_released",
     "released_trvs",
     "heating_blocked_by",

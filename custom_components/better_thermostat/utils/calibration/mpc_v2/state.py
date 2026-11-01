@@ -10,6 +10,7 @@ from typing import NamedTuple, TypedDict
 
 from ...stored_values import is_json_object, stored_float
 from .controller import ControllerSnapshot, MpcV2Controller
+from .io import MpcV2Output
 from .params import MpcV2Params
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,6 +41,11 @@ class MpcV2State:
     # Latched once the controller falls back to a hardcoded outdoor temperature;
     # used to throttle the WARN to one line per controller instance.
     outdoor_fallback_logged: bool = False
+    # A controller shared by a group of TRVs steps once per control cycle:
+    # the cycle it stepped for, compared by identity, and the command that
+    # step produced, which every further TRV of the group takes in that cycle.
+    stepped_cycle: object | None = None
+    cycle_output: MpcV2Output | None = None
 
 
 def _plant_signature_of(params: MpcV2Params) -> PlantSignature:
