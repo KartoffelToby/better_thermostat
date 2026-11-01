@@ -117,10 +117,29 @@ def _is_boost_heating_active(self) -> bool:
     )
 
 
+# Calibration modes whose controller publishes a valve percentage.
+_VALVE_BALANCE_MODES = frozenset(
+    {
+        CalibrationMode.MPC_CALIBRATION,
+        CalibrationMode.MPC_V2_CALIBRATION,
+        CalibrationMode.TPI_CALIBRATION,
+        CalibrationMode.PID_CALIBRATION,
+        CalibrationMode.HEATING_POWER_CALIBRATION,
+    }
+)
+
+
 def _get_valve_control(
-    self, heater_entity_id: str, calibration_mode, calibration_type
+    self, heater_entity_id: str, calibration_mode, calibration_type, *, hvac_mode
 ) -> tuple[dict | None, str | None]:
-    """Determine valve control settings based on boost mode or calibration.
+    """Determine valve control settings from the effective mode, boost or calibration.
+
+    ``hvac_mode`` is the mode the TRV is about to receive. OFF (BT off, an
+    open window or door, no call for heat) closes the valve wherever BT
+    drives it, under a calibration mode that writes the valve or under
+    boost: the controllers publish no valve percentage then, so the valve
+    would otherwise stay at its last opening. Under any other mode BT would
+    not reopen the valve, so it does not close it either.
 
     Returns a tuple of (valve_settings_dict, source_name).
     valve_settings_dict contains 'valve_percent' and 'apply_valve' keys.
@@ -128,10 +147,15 @@ def _get_valve_control(
     """
     # Forcing the valve on a non-direct-valve TRV bypasses the calibration chain
     # and leaves the valve stuck open after boost ends.
-    if (
-        _is_boost_heating_active(self)
-        and calibration_type == CalibrationType.DIRECT_VALVE_BASED
-    ):
+    if calibration_type != CalibrationType.DIRECT_VALVE_BASED:
+        return None, None
+
+    if hvac_mode == HVACMode.OFF:
+        if calibration_mode in _VALVE_BALANCE_MODES or _is_boost_heating_active(self):
+            return {"valve_percent": 0, "apply_valve": True}, "hvac_off"
+        return None, None
+
+    if _is_boost_heating_active(self):
         _trv = self.real_trvs.get(heater_entity_id)
         max_opening = _trv.valve_max_opening if _trv is not None else 100
         if isinstance(max_opening, (int, float)):
@@ -139,10 +163,6 @@ def _get_valve_control(
         else:
             target_pct = 100
         return {"valve_percent": target_pct, "apply_valve": True}, "boost_mode"
-
-    # Check calibration-based valve control
-    if calibration_type != CalibrationType.DIRECT_VALVE_BASED:
-        return None, None
 
     # Try calibration balance from various calibration modes
     cal_bal = self.real_trvs[heater_entity_id].calibration_balance
@@ -1298,7 +1318,7 @@ async def control_trv(self, heater_entity_id=None):
         current calibration offset could be read).
         False if heater_entity_id is missing or not in real_trvs, if
         convert_outbound_states did not return a dict, if a valve write
-        (the regular valve position or the boost safety reset to 0 %) spent
+        (the regular valve position or the close to 0 % on OFF) spent
         its attempts, or if the TRV refused the mode. The remaining writes of
         the cycle still go out in the last two cases. control_queue counts a
         False result, like a raised exception, as a failed cycle and retries
@@ -1366,11 +1386,35 @@ async def control_trv(self, heater_entity_id=None):
             ):
                 _temperature = self.real_trvs[heater_entity_id].max_temp
 
+            _new_hvac_mode = handle_contact_open(self, _remapped_states)
+
+            # if we don't need to heat, we force HVACMode to be off
+            if self.call_for_heat is False:
+                _new_hvac_mode = HVACMode.OFF
+
             # Optional: set valve position if supported (e.g., MQTT/Z2M)
             try:
                 valve_settings, _source = _get_valve_control(
-                    self, heater_entity_id, _calibration_mode, _calibration_type
+                    self,
+                    heater_entity_id,
+                    _calibration_mode,
+                    _calibration_type,
+                    hvac_mode=_new_hvac_mode,
                 )
+                # A valve already closed by an earlier cycle is not written
+                # again while the TRV stays off, unless the device reports it
+                # open again. The reported position is a fraction or a
+                # percentage depending on the device; any value above zero
+                # is open on either scale.
+                _off_trv = self.real_trvs[heater_entity_id]
+                if (
+                    _source == "hvac_off"
+                    and _off_trv.last_valve_percent == 0
+                    and (
+                        _off_trv.valve_position is None or _off_trv.valve_position <= 0
+                    )
+                ):
+                    valve_settings = None
                 if valve_settings is not None:
                     target_pct = int(round(valve_settings.get("valve_percent", 0)))
                     _LOGGER.debug(
@@ -1399,28 +1443,6 @@ async def control_trv(self, heater_entity_id=None):
                     self.device_name,
                     heater_entity_id,
                 )
-
-            _new_hvac_mode = handle_contact_open(self, _remapped_states)
-
-            # if we don't need to heat, we force HVACMode to be off
-            if self.call_for_heat is False:
-                _new_hvac_mode = HVACMode.OFF
-
-            # Safety override: if boost mode was active but we forced OFF (open contact/no-heat),
-            # ensure valve is reset to 0% to prevent overheating. Only direct-valve
-            # calibration types accept valve commands; LOCAL_BASED and
-            # TARGET_TEMP_BASED control via offset / setpoint instead.
-            if (
-                _is_boost_heating_active(self)
-                and _new_hvac_mode == HVACMode.OFF
-                and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
-            ):
-                _LOGGER.debug(
-                    "better_thermostat %s: Boost safety override - resetting valve to 0%% because HVAC mode is OFF",
-                    self.device_name,
-                )
-                if await set_valve(self, heater_entity_id, 0) is False:
-                    _valve_write_failed = True
 
             # Manage TRVs with no HVACMode.OFF
             # The cache holds the device's own spelling, so whether it offers OFF

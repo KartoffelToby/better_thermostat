@@ -972,6 +972,7 @@ class TestGetValveControlBoostCalibrationType:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.HEAT,
         )
         assert source == "boost_mode"
         assert bal == {"valve_percent": 100, "apply_valve": True}
@@ -984,6 +985,7 @@ class TestGetValveControlBoostCalibrationType:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.LOCAL_BASED,
+            hvac_mode=HVACMode.HEAT,
         )
         assert bal is None
         assert source is None
@@ -996,6 +998,7 @@ class TestGetValveControlBoostCalibrationType:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.TARGET_TEMP_BASED,
+            hvac_mode=HVACMode.HEAT,
         )
         assert bal is None
         assert source is None
@@ -1030,6 +1033,7 @@ class TestGetValveControlBoostMaxOpening:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.HEAT,
         )
         assert source == "boost_mode"
         assert bal == {"valve_percent": 100, "apply_valve": True}
@@ -1042,6 +1046,7 @@ class TestGetValveControlBoostMaxOpening:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.HEAT,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
 
@@ -1053,6 +1058,7 @@ class TestGetValveControlBoostMaxOpening:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.HEAT,
         )
         assert source == "boost_mode"
         assert bal == {"valve_percent": 60, "apply_valve": True}
@@ -1065,6 +1071,7 @@ class TestGetValveControlBoostMaxOpening:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.HEAT,
         )
         assert bal == {"valve_percent": 73, "apply_valve": True}
 
@@ -1076,6 +1083,7 @@ class TestGetValveControlBoostMaxOpening:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.HEAT,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
 
@@ -1087,8 +1095,119 @@ class TestGetValveControlBoostMaxOpening:
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
             CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.HEAT,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
+
+
+class TestGetValveControlOffMode:
+    """An OFF mode closes the valve of a direct-valve TRV wherever BT drives it."""
+
+    _BALANCE = {"valve_percent": 80, "apply_valve": True}
+
+    def _mock(self, *, boost=False, balance=True):
+        mock_self = MagicMock()
+        mock_self.preset_mode = "boost" if boost else "none"
+        mock_self.cur_temp = 19.0
+        mock_self.bt_target_temp = 22.0
+        trv = Trv(entity_id="climate.trv1")
+        if balance:
+            trv.calibration_balance = dict(self._BALANCE)
+        mock_self.real_trvs = {"climate.trv1": trv}
+        return mock_self
+
+    def test_off_outranks_the_calibration_balance(self):
+        """A controller balance left open does not survive an OFF mode."""
+        bal, source = _get_valve_control(
+            self._mock(),
+            "climate.trv1",
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+            CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.OFF,
+        )
+        assert source == "hvac_off"
+        assert bal == {"valve_percent": 0, "apply_valve": True}
+
+    @pytest.mark.parametrize(
+        "calibration_mode",
+        [
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.MPC_V2_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+        ],
+    )
+    def test_off_closes_without_a_calibration_balance(self, calibration_mode):
+        """A controller that publishes nothing while off still gets the valve closed."""
+        bal, source = _get_valve_control(
+            self._mock(balance=False),
+            "climate.trv1",
+            calibration_mode,
+            CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.OFF,
+        )
+        assert source == "hvac_off"
+        assert bal == {"valve_percent": 0, "apply_valve": True}
+
+    def test_off_outranks_boost(self):
+        """Boost does not open a valve the mode holds off."""
+        bal, source = _get_valve_control(
+            self._mock(boost=True),
+            "climate.trv1",
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+            CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.OFF,
+        )
+        assert source == "hvac_off"
+        assert bal == {"valve_percent": 0, "apply_valve": True}
+
+    def test_off_leaves_a_non_valve_trv_alone(self):
+        """A TRV controlled by offset takes no valve command, off or not."""
+        bal, source = _get_valve_control(
+            self._mock(boost=True),
+            "climate.trv1",
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+            CalibrationType.LOCAL_BASED,
+            hvac_mode=HVACMode.OFF,
+        )
+        assert bal is None
+        assert source is None
+
+    def test_off_leaves_a_valve_bt_never_writes_alone(self):
+        """Under a mode that only sends setpoints, nothing would reopen the valve."""
+        bal, source = _get_valve_control(
+            self._mock(),
+            "climate.trv1",
+            CalibrationMode.DEFAULT,
+            CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.OFF,
+        )
+        assert bal is None
+        assert source is None
+
+    def test_off_closes_the_boost_valve_under_any_mode(self):
+        """Boost opens the valve under every mode, so the close follows it."""
+        bal, source = _get_valve_control(
+            self._mock(boost=True),
+            "climate.trv1",
+            CalibrationMode.DEFAULT,
+            CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.OFF,
+        )
+        assert source == "hvac_off"
+        assert bal == {"valve_percent": 0, "apply_valve": True}
+
+    def test_heat_follows_the_calibration_balance(self):
+        """Switched back on, the controller's balance drives the valve again."""
+        bal, source = _get_valve_control(
+            self._mock(),
+            "climate.trv1",
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+            CalibrationType.DIRECT_VALVE_BASED,
+            hvac_mode=HVACMode.HEAT,
+        )
+        assert source == "heating_power_calibration"
+        assert bal == self._BALANCE
 
 
 # ---------------------------------------------------------------------------
