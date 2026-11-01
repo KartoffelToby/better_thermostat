@@ -191,8 +191,8 @@ def test_multi_trv_gives_every_trv_the_group_valve() -> None:
 def test_multi_trv_clamps_to_per_trv_max_opening() -> None:
     """A TRV with a lower cap is clamped to its own configured max opening.
 
-    The controller only sees the warmest TRV's cap, so the group command can
-    lie above another TRV's limit; the dispatcher must clamp the per-TRV
+    The controller is held to the widest cap of the group, so the group
+    command can lie above a narrower TRV's limit; the dispatcher must clamp the per-TRV
     command to that TRV's ``valve_max_opening``.
     """
     real_trvs = {

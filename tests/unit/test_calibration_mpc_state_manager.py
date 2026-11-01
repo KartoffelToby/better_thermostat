@@ -148,8 +148,8 @@ def test_mpc_failed_compute_on_a_healthy_state_leaves_the_store_alone() -> None:
 def test_mpc_balance_clamps_a_trv_to_its_own_max_opening() -> None:
     """A TRV's share of the group command stops at its own ``valve_max_opening``.
 
-    The controller only sees the warmest TRV's cap, so the group command can
-    lie above another TRV's limit. Without direct valve control that share
+    The controller is held to the widest cap of the group, so the group
+    command can lie above a narrower TRV's limit. Without direct valve control that share
     becomes a setpoint or offset, so no later write path clamps it.
     """
     state_mgr = _MpcStateStub()
