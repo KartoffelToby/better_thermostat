@@ -1748,23 +1748,17 @@ class TestControlTrvAvailablePath:
 # ---------------------------------------------------------------------------
 
 
-class TestBoostModeSafetyOverride:
-    """Test safety override resets valve when HVAC is forced to OFF during boost mode.
+class TestOffModeClosesTheValve:
+    """An OFF mode closes the valve of a direct-valve TRV, during boost too.
 
-    When boost mode sets valve to 100% but then HVAC is forced to OFF
-    (window_open or call_for_heat=False), the valve must be reset to 0%
-    to avoid a dangerous valve 100% + HVAC OFF conflict.
+    Boost forces the valve open, but an open window or a missing call for
+    heat turns the TRV off; OFF outranks boost, so the valve gets one 0%
+    write and never the boost opening.
     """
 
     @pytest.mark.asyncio
-    async def test_window_open_resets_valve_during_boost(self):
-        """Test that window open resets valve to 0% when boost mode was active.
-
-        Scenario:
-        1. Boost mode sets valve to 100%
-        2. Window opens (window_open=True) which forces HVAC mode to OFF
-        3. Valve should be reset to 0% to avoid valve 100% + HVAC OFF conflict
-        """
+    async def test_window_open_closes_valve_during_boost(self):
+        """An open window during boost writes 0% to the valve, and nothing else."""
         mock_state = Mock()
         mock_state.state = HVACMode.HEAT
         mock_state.attributes = {"temperature": 20.0}
@@ -1832,21 +1826,11 @@ class TestBoostModeSafetyOverride:
 
             assert result is True
 
-            # First call: boost mode sets valve to 100%
-            # Second call: safety override resets valve to 0%
-            assert len(set_valve_calls) == 2
-            assert set_valve_calls[0][2] == 100  # Boost: 100%
-            assert set_valve_calls[1][2] == 0  # Safety reset: 0%
+            assert [call[2] for call in set_valve_calls] == [0]
 
     @pytest.mark.asyncio
-    async def test_no_heat_call_resets_valve_during_boost(self):
-        """Test that call_for_heat=False resets valve to 0% when boost mode was active.
-
-        Scenario:
-        1. Boost mode sets valve to 100%
-        2. call_for_heat becomes False which forces HVAC mode to OFF
-        3. Valve should be reset to 0% to avoid valve 100% + HVAC OFF conflict
-        """
+    async def test_no_heat_call_closes_valve_during_boost(self):
+        """No call for heat during boost writes 0% to the valve, and nothing else."""
         mock_state = Mock()
         mock_state.state = HVACMode.HEAT
         mock_state.attributes = {"temperature": 20.0}
@@ -1914,11 +1898,142 @@ class TestBoostModeSafetyOverride:
 
             assert result is True
 
-            # First call: boost mode sets valve to 100%
-            # Second call: safety override resets valve to 0%
-            assert len(set_valve_calls) == 2
-            assert set_valve_calls[0][2] == 100  # Boost: 100%
-            assert set_valve_calls[1][2] == 0  # Safety reset: 0%
+            assert [call[2] for call in set_valve_calls] == [0]
+
+    @staticmethod
+    def _valve_trv(calibration_mode, balance):
+        trv = _default_trv_config(
+            advanced={
+                "calibration_mode": calibration_mode,
+                "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                "no_off_system_mode": False,
+            }
+        )
+        trv.calibration_balance = balance
+        return trv
+
+    async def _valve_writes(self, mock_self, system_mode):
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_valve"], new=AsyncMock(return_value=True)) as valve,
+            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": system_mode,
+            }
+            result = await control_trv(mock_self, "climate.trv1")
+        assert result is True
+        return [call.args[2] for call in valve.await_args_list]
+
+    @pytest.mark.parametrize(
+        "calibration_mode",
+        [
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.MPC_V2_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_switching_bt_off_closes_the_valve(self, calibration_mode):
+        """BT off: the controller clears its balance, and the valve still closes."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            bt_hvac_mode=HVACMode.OFF,
+            real_trvs={"climate.trv1": self._valve_trv(calibration_mode, None)},
+        )
+        assert await self._valve_writes(mock_self, HVACMode.OFF) == [0]
+
+    @pytest.mark.asyncio
+    async def test_the_close_is_sent_once_while_bt_stays_off(self):
+        """Closed once, the valve gets no further write until BT heats again."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            bt_hvac_mode=HVACMode.OFF,
+            real_trvs={
+                "climate.trv1": self._valve_trv(
+                    CalibrationMode.MPC_V2_CALIBRATION, None
+                )
+            },
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.last_valve_percent = 100
+
+        async def record(_self, _entity_id, percent):
+            trv.last_valve_percent = percent
+            return True
+
+        writes = []
+        for _ in range(3):
+            with (
+                patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+                patch(_PATCHES["set_valve"], side_effect=record) as valve,
+                patch(_PATCHES["set_temperature"], new=AsyncMock()),
+                patch(
+                    _PATCHES["override_set_hvac_mode"],
+                    new=AsyncMock(return_value=False),
+                ),
+                patch(
+                    _PATCHES["override_set_temperature"],
+                    new=AsyncMock(return_value=False),
+                ),
+                patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+                patch("asyncio.sleep", new=AsyncMock()),
+            ):
+                mock_convert.return_value = {
+                    "temperature": 20.0,
+                    "system_mode": HVACMode.OFF,
+                }
+                assert await control_trv(mock_self, "climate.trv1") is True
+            writes.append([call.args[2] for call in valve.await_args_list])
+
+        assert writes == [[0], [], []]
+
+        trv.calibration_balance = {"valve_percent": 80, "apply_valve": True}
+        mock_self.bt_hvac_mode = HVACMode.HEAT
+        assert await self._valve_writes(mock_self, HVACMode.HEAT) == [80]
+
+    @pytest.mark.asyncio
+    async def test_an_open_window_closes_the_valve_over_an_open_balance(self):
+        """An open window closes the valve although the balance still asks for 80%."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            window_open=True,
+            real_trvs={
+                "climate.trv1": self._valve_trv(
+                    CalibrationMode.MPC_V2_CALIBRATION,
+                    {"valve_percent": 80, "apply_valve": True},
+                )
+            },
+        )
+        assert await self._valve_writes(mock_self, HVACMode.HEAT) == [0]
+
+    @pytest.mark.asyncio
+    async def test_heating_follows_the_balance_again(self):
+        """Switched on, the controller's balance drives the valve again."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.OFF,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": self._valve_trv(
+                    CalibrationMode.MPC_V2_CALIBRATION,
+                    {"valve_percent": 80, "apply_valve": True},
+                )
+            },
+        )
+        assert await self._valve_writes(mock_self, HVACMode.HEAT) == [80]
 
 
 # ---------------------------------------------------------------------------
