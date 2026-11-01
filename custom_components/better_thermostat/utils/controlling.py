@@ -1402,10 +1402,17 @@ async def control_trv(self, heater_entity_id=None):
                     hvac_mode=_new_hvac_mode,
                 )
                 # A valve already closed by an earlier cycle is not written
-                # again while the TRV stays off.
+                # again while the TRV stays off, unless the device reports it
+                # open again. The reported position is a fraction or a
+                # percentage depending on the device; any value above zero
+                # is open on either scale.
+                _off_trv = self.real_trvs[heater_entity_id]
                 if (
                     _source == "hvac_off"
-                    and self.real_trvs[heater_entity_id].last_valve_percent == 0
+                    and _off_trv.last_valve_percent == 0
+                    and (
+                        _off_trv.valve_position is None or _off_trv.valve_position <= 0
+                    )
                 ):
                     valve_settings = None
                 if valve_settings is not None:

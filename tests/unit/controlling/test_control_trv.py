@@ -2004,6 +2004,83 @@ class TestOffModeClosesTheValve:
         mock_self.bt_hvac_mode = HVACMode.HEAT
         assert await self._valve_writes(mock_self, HVACMode.HEAT) == [80]
 
+    def _closed_trv_while_off(self, valve_position):
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.OFF,
+            trv_attrs={"temperature": 20.0},
+            bt_hvac_mode=HVACMode.OFF,
+            real_trvs={
+                "climate.trv1": self._valve_trv(
+                    CalibrationMode.MPC_V2_CALIBRATION, None
+                )
+            },
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.last_valve_percent = 0
+        trv.valve_position = valve_position
+        return mock_self
+
+    @pytest.mark.parametrize("valve_position", [60.0, 0.6])
+    @pytest.mark.asyncio
+    async def test_a_valve_reported_open_again_is_closed_again(self, valve_position):
+        """BT closed the valve, then the device reports it open: it is closed again.
+
+        The reported position is a percentage on some devices and a fraction
+        on others; both count as open.
+        """
+        mock_self = self._closed_trv_while_off(valve_position)
+        assert await self._valve_writes(mock_self, HVACMode.OFF) == [0]
+
+    @pytest.mark.parametrize("valve_position", [None, 0.0])
+    @pytest.mark.asyncio
+    async def test_a_valve_reported_closed_is_not_written_again(self, valve_position):
+        """BT closed the valve and the device agrees or reports nothing: no write."""
+        mock_self = self._closed_trv_while_off(valve_position)
+        assert await self._valve_writes(mock_self, HVACMode.OFF) == []
+
+    @pytest.mark.asyncio
+    async def test_a_failed_close_is_retried_on_the_next_cycle(self):
+        """A close no channel took records nothing, so the next cycle sends it again."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            bt_hvac_mode=HVACMode.OFF,
+            real_trvs={
+                "climate.trv1": self._valve_trv(
+                    CalibrationMode.MPC_V2_CALIBRATION, None
+                )
+            },
+        )
+        mock_self.real_trvs["climate.trv1"].last_valve_percent = 100
+
+        writes = []
+        for answer in (False, True):
+            with (
+                patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+                patch(
+                    _PATCHES["set_valve"], new=AsyncMock(return_value=answer)
+                ) as valve,
+                patch(_PATCHES["set_temperature"], new=AsyncMock()),
+                patch(
+                    _PATCHES["override_set_hvac_mode"],
+                    new=AsyncMock(return_value=False),
+                ),
+                patch(
+                    _PATCHES["override_set_temperature"],
+                    new=AsyncMock(return_value=False),
+                ),
+                patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+                patch("asyncio.sleep", new=AsyncMock()),
+            ):
+                mock_convert.return_value = {
+                    "temperature": 20.0,
+                    "system_mode": HVACMode.OFF,
+                }
+                result = await control_trv(mock_self, "climate.trv1")
+            writes.append(([call.args[2] for call in valve.await_args_list], result))
+
+        assert writes == [([0], False), ([0], True)]
+
     @pytest.mark.asyncio
     async def test_an_open_window_closes_the_valve_over_an_open_balance(self):
         """An open window closes the valve although the balance still asks for 80%."""
