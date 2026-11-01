@@ -64,6 +64,10 @@ from custom_components.better_thermostat.utils.hvac_action import (
     COOLER_MODE_HYSTERESIS_K,
     should_cool_with_tolerance,
 )
+from custom_components.better_thermostat.utils.retry import (
+    CommandCancelledError,
+    command_cancellation_as_disconnect,
+)
 from custom_components.better_thermostat.utils.watcher import (
     UNAVAILABLE_STATES,
     UNKNOWN_STATES,
@@ -787,7 +791,7 @@ async def control_queue(self):
                         failures = [
                             (controlled_trvs[i], res)
                             for i, res in enumerate(results)
-                            if isinstance(res, Exception) or res is False
+                            if isinstance(res, BaseException) or res is False
                         ]
 
                         # Retry the cycle if some TRVs failed. The backoff sits
@@ -1204,16 +1208,19 @@ async def control_cooler(self):
         self.last_sent_cooler_temp = desired_temp
         self.last_sent_cooler_temp_ts = now_ts
         _sent = False
+        # A command the device's client library cancelled fails like a
+        # rejected one; a cancellation of this task itself propagates.
         try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_temperature",
-                _payload,
-                blocking=True,
-                context=self.context,
-            )
+            with command_cancellation_as_disconnect():
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    _payload,
+                    blocking=True,
+                    context=self.context,
+                )
             _sent = True
-        except HomeAssistantError as err:
+        except (HomeAssistantError, CommandCancelledError) as err:
             _LOGGER.warning(
                 "better_thermostat %s: set_temperature for cooler %s failed (%s); "
                 "will retry on the next cycle",
@@ -1257,14 +1264,15 @@ async def control_cooler(self):
             desired_mode,
         )
         try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
-                blocking=True,
-                context=self.context,
-            )
-        except HomeAssistantError as err:
+            with command_cancellation_as_disconnect():
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
+                    blocking=True,
+                    context=self.context,
+                )
+        except (HomeAssistantError, CommandCancelledError) as err:
             _LOGGER.warning(
                 "better_thermostat %s: set_hvac_mode for cooler %s failed (%s); "
                 "will retry on the next cycle",

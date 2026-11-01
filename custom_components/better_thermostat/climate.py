@@ -196,6 +196,7 @@ from .utils.restore import (
     saved_cooling_target,
     saved_heating_target,
 )
+from .utils.retry import command_cancellation_as_disconnect
 from .utils.state_manager import StateManager
 from .utils.telemetry import (
     collect_balance_attrs,
@@ -2154,8 +2155,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _LOGGER.debug(
                 "better_thermostat %s: initializing TRV %s", self.device_name, trv
             )
+            # A device whose client library drops its connection mid-command
+            # cancels the command; that fails this TRV's start like any other
+            # device error instead of ending the whole startup.
             try:
-                await asyncio.wait_for(init(self, trv), timeout=30)
+                with command_cancellation_as_disconnect():
+                    await asyncio.wait_for(init(self, trv), timeout=30)
                 _LOGGER.debug(
                     "better_thermostat %s: TRV %s initialized", self.device_name, trv
                 )
@@ -2174,7 +2179,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
 
             try:
-                await initial_tweak(self, trv)
+                with command_cancellation_as_disconnect():
+                    await initial_tweak(self, trv)
             except Exception as exc:
                 _LOGGER.error(
                     "better_thermostat %s: Error running initial tweak for TRV %s: %s",

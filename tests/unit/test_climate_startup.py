@@ -1991,6 +1991,49 @@ class TestInitializeTrvCurrentTemperature:
         assert bt.real_trvs[TRV_ID].current_temperature is None
 
 
+class TestInitializeTrvLibraryCancellation:
+    """A command the device's client library cancelled fails one TRV's start.
+
+    The Z-Wave JS and Matter clients cancel every command in flight when
+    their connection drops, and a connection still settling while Home
+    Assistant boots is the likeliest moment for it. The cancellation reaches
+    a startup nobody cancelled.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("step", ["init", "initial_tweak"])
+    async def test_the_startup_goes_on_past_a_cancelled_command(self, bt, step):
+        """The TRV's range is still read and its first control still runs."""
+
+        async def _cancelled_by_the_library(*_call):
+            future = asyncio.get_running_loop().create_future()
+            future.cancel()
+            await future
+
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.hass.config.units.temperature_unit = "°C"
+        bt.hass.states.get.return_value = _make_trv_state(
+            attrs={"min_temp": 7.0, "max_temp": 28.0, "temperature": 21.0}
+        )
+        control = AsyncMock(return_value=True)
+        steps = {"init": AsyncMock(), "initial_tweak": AsyncMock()}
+        steps[step] = AsyncMock(side_effect=_cancelled_by_the_library)
+
+        with (
+            patch("custom_components.better_thermostat.climate.init", steps["init"]),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak",
+                steps["initial_tweak"],
+            ),
+            patch("custom_components.better_thermostat.climate.control_trv", control),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+        assert steps[step].await_count == 1
+        assert bt.real_trvs[TRV_ID].max_temp == 28.0
+        control.assert_awaited_once()
+
+
 class TestInitializeTrvRangeFallback:
     """A device that publishes no range is given 5 to 30 °C, on any system.
 
