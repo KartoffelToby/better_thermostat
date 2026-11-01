@@ -222,6 +222,41 @@ class TestControlQueue:
         assert sorted(called_trvs) == ["climate.trv1", "climate.trv2", "climate.trv3"]
 
     @pytest.mark.asyncio
+    async def test_every_trv_of_a_pass_is_driven_by_the_same_cycle(self):
+        """The pass computes one cycle and hands that object to every TRV.
+
+        A TRV group's controller steps once per cycle object, so a TRV handed
+        a cycle of its own would step the controller again within the pass.
+        """
+        mock_self = _idle_room()
+        mock_self.real_trvs = {
+            entity_id: _tracked_trv(entity_id)
+            for entity_id in ("climate.trv1", "climate.trv2")
+        }
+        queue = asyncio.Queue()
+        mock_self.control_queue_task = queue
+        await queue.put(mock_self)
+
+        with (
+            patch(
+                "custom_components.better_thermostat.utils.controlling.compute_control_cycle",
+                side_effect=lambda _bt: (Mock(), Mock(devices_released=False)),
+            ) as mock_cycle,
+            patch(
+                "custom_components.better_thermostat.utils.controlling.control_trv",
+                new=AsyncMock(return_value=True),
+            ) as mock_control_trv,
+        ):
+            queue_task = asyncio.create_task(control_queue(mock_self))
+            await asyncio.wait_for(queue.join(), timeout=1)
+            await _stop(queue_task)
+
+        assert mock_cycle.call_count == 1
+        cycles = [call.kwargs["cycle"] for call in mock_control_trv.call_args_list]
+        assert len(cycles) == 2
+        assert cycles[0] is cycles[1] is not None
+
+    @pytest.mark.asyncio
     async def test_handles_control_trv_exceptions(self):
         """A TRV that raises does not keep the others from being controlled."""
         mock_self = _idle_room()
