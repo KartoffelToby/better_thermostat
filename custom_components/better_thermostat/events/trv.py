@@ -30,6 +30,7 @@ from custom_components.better_thermostat.events.temperature import (
 )
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
+    lowest_setpoint,
     trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
@@ -51,6 +52,7 @@ from custom_components.better_thermostat.utils.helpers import (
     mode_remap,
     normalize_step,
     published_in_whole_fahrenheit,
+    read_bound_celsius,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
@@ -176,6 +178,96 @@ def _reports_on(state: State | None) -> bool:
 def _held_setpoint(self, state: State | None) -> float | None:
     """Return the setpoint a held report's state carries, or None."""
     return read_setpoint_celsius(self, state, TRV_SETPOINT_KEYS, "_hold_report()")
+
+
+def _adopt_reported_range(self, entity_id: str, trv: Trv, state: State) -> bool:
+    """Take the range a TRV publishes while it heats as the range it is driven in.
+
+    Some integrations publish a range that depends on the device's mode, and
+    Home Assistant checks a setpoint against the range of the mode the device
+    is in: HomeKit Controller publishes the device's own range while a
+    thermostat heats and Home Assistant's defaults of 7 to 35 °C in off and
+    in the modes it has no range of its own for. A range read in any of those
+    would let setpoints through that the device refuses once it heats, so
+    only a report whose mode decodes to heat replaces it. A bound the report
+    does not publish keeps its value.
+
+    Returns
+    -------
+    bool
+        True when the report changed the range.
+    """
+    if mode_remap(self, entity_id, state.state, True) != HVACMode.HEAT:
+        return False
+    _max_temp = read_bound_celsius(
+        self, state, "max_temp", lower=False, context="trigger_trv_change()"
+    )
+    _min_temp = read_bound_celsius(
+        self, state, "min_temp", lower=True, context="trigger_trv_change()"
+    )
+    _ceiling = trv.max_temp if _max_temp is None else _max_temp
+    _floor = (
+        trv.min_temp
+        if _min_temp is None
+        else lowest_setpoint(self, entity_id, _min_temp)
+    )
+    if (_floor, _ceiling) == (trv.min_temp, trv.max_temp):
+        return False
+    _LOGGER.info(
+        "better_thermostat %s: TRV %s now publishes the range %s to %s (was %s to %s)",
+        self.device_name,
+        entity_id,
+        _floor,
+        _ceiling,
+        trv.min_temp,
+        trv.max_temp,
+    )
+    trv.min_temp = _floor
+    trv.max_temp = _ceiling
+    return True
+
+
+def _adopt_range_of_report(self, entity_id: str, trv: Trv, report: State) -> bool:
+    """Read the range a report publishes, decoded against the report's own modes.
+
+    The registry may already hold a later report in a mode whose range does
+    not count, so the mode is decoded against the list the report carries.
+    Everything after this reads the registry, so the cache then takes the
+    registry's list.
+
+    Returns
+    -------
+    bool
+        True when the report changed the range.
+    """
+    adopt_reported_hvac_modes(trv, report.attributes.get("hvac_modes"))
+    _range_changed = _adopt_reported_range(self, entity_id, trv, report)
+    _registry_state = self.hass.states.get(entity_id)
+    if _registry_state is not None:
+        adopt_reported_hvac_modes(trv, _registry_state.attributes.get("hvac_modes"))
+    return _range_changed
+
+
+def _own_write_report_changed_range(self, event) -> bool:
+    """Read the range of a TRV report that carries BT's own context.
+
+    Such a report is otherwise not read: it confirms a write BT made.
+
+    Returns
+    -------
+    bool
+        True when the report changed the range.
+    """
+    if event.context != self.context:
+        return False
+    new_state = event.data.get("new_state")
+    entity_id = event.data.get("entity_id")
+    if not isinstance(new_state, State) or not isinstance(entity_id, str):
+        return False
+    trv = self.real_trvs.get(entity_id)
+    if trv is None:
+        return False
+    return _adopt_range_of_report(self, entity_id, trv, new_state)
 
 
 def _read_internal_temperature_later(
@@ -315,6 +407,13 @@ async def trigger_trv_change(
     _room_temperature_changed = False
     resolved_event = resolve_state_change_event(self, event, "TRV")
     if resolved_event is None:
+        # The report that follows BT switching the device on carries BT's
+        # context, and it is the one that carries the range the device heats
+        # in. A changed range asks for a cycle of its own, which rewrites a
+        # setpoint the old range let through.
+        if _own_write_report_changed_range(self, event) and request_cycle:
+            self.async_write_ha_state()
+            queue_control_cycle(self)
         return
     old_state, new_state, entity_id = resolved_event
 
@@ -523,26 +622,27 @@ async def trigger_trv_change(
             self.async_write_ha_state()
             _main_change = True
 
+    # The offered HVAC modes change at runtime on devices whose heating /
+    # cooling changeover is driven centrally, so every mode is judged against
+    # the list reported with it rather than the startup snapshot: a state
+    # remapped against another list decodes into a mode of a device that no
+    # longer exists, and the entity mode that follows from it is emitted
+    # before any later cache update could correct it. The range is read
+    # before a running cycle holds the report, so the cycle's end rewrites a
+    # setpoint the old range let through.
+    _range_changed = _adopt_range_of_report(self, entity_id, trv, new_state)
+
     if self.ignore_states:
         # A control cycle is running and the rest of the report is held
         # for its end. An internal temperature it took, and with it a room
-        # temperature it changed during the room sensor fallback, asks the
-        # end of the cycle for one more; the confirmation of an offset
-        # write, which cleared _main_change, does not.
+        # temperature it changed during the room sensor fallback, or a
+        # changed range asks the end of the cycle for one more; the
+        # confirmation of an offset write, which cleared _main_change, does
+        # not.
         _hold_report(self, trv, old_state, new_state)
-        if _main_change:
+        if _main_change or _range_changed:
             trv.temperature_moved_while_held = True
         return
-
-    # The offered HVAC modes change at runtime on devices whose heating /
-    # cooling changeover is driven centrally, so every mode is judged against
-    # the currently reported list rather than the startup snapshot. The
-    # adoption precedes the inbound remapping below because the state carried
-    # by this event is a state of the capabilities it reports: remapping it
-    # against the previous list decodes it into a mode of a device that no
-    # longer exists, and the entity mode that follows from it is emitted
-    # before any later cache update could correct it.
-    adopt_reported_hvac_modes(trv, _org_trv_state.attributes.get("hvac_modes"))
 
     try:
         mapped_state = convert_inbound_states(self, entity_id, _org_trv_state)
@@ -901,7 +1001,7 @@ async def trigger_trv_change(
             if (self.bt_hvac_mode, self.bt_target_cooltemp) != _room_before:
                 _main_change = True
 
-    if _main_change is True and request_cycle:
+    if (_main_change is True or _range_changed) and request_cycle:
         self.async_write_ha_state()
         return await self.control_queue_task.put(self)
 
