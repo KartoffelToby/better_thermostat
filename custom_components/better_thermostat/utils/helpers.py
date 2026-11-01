@@ -2234,6 +2234,8 @@ _CALIBRATION_TRANSLATION_KEYS: set[str] = {
     "local_temperature_offset",
     # eq3btsmart uses "offset" as translation_key for its temperature offset
     "offset",
+    # Home Assistant's tuya integration names the offset of a TRV this way
+    "temp_correction",
 }
 
 # Domains the calibration write path can address (number.set_value or
@@ -2311,6 +2313,7 @@ async def find_local_calibration_entity(self, entity_id):
                 "temperature_calibration" in descriptor
                 or "temperature_offset" in descriptor
                 or "temperatur_offset" in descriptor
+                or "temperature_correction" in descriptor
                 or "local_temperature" in descriptor
             ):
                 if entity.disabled_by is not None:
