@@ -1050,9 +1050,22 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         if _overheating_protection is True:
             if self.hvac_action == HVACAction.IDLE:
                 if _cur_external_temp > _cur_target_temp + self.tolerance:
-                    _new_trv_calibration += (
+                    _overheating_term = (
                         _cur_external_temp - (_cur_target_temp + self.tolerance)
                     ) * 8.0
+                    _new_trv_calibration += _overheating_term
+                    _LOGGER.debug(
+                        "better_thermostat %s: %s - overheating protection adds "
+                        "%s to the local calibration: %s | external_temp: %s, "
+                        "target_temp: %s, tolerance: %s",
+                        self.device_name,
+                        entity_id,
+                        round(_overheating_term, 2),
+                        round(_new_trv_calibration, 2),
+                        round(_cur_external_temp, 2),
+                        round(_cur_target_temp, 2),
+                        self.tolerance,
+                    )
 
     # Direction-aware rounding for local calibration offset.
     # Calibration offset works inversely to setpoint: a positive offset makes
@@ -1415,9 +1428,22 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         if _overheating_protection is True:
             if self.hvac_action == HVACAction.IDLE:
                 if _cur_external_temp > _cur_target_temp + self.tolerance:
-                    _calibrated_setpoint -= (
+                    _overheating_term = (
                         _cur_external_temp - (_cur_target_temp + self.tolerance)
                     ) * 8.0
+                    _calibrated_setpoint -= _overheating_term
+                    _LOGGER.debug(
+                        "better_thermostat %s: %s - overheating protection takes "
+                        "%s off the setpoint: %s | external_temp: %s, "
+                        "target_temp: %s, tolerance: %s",
+                        self.device_name,
+                        entity_id,
+                        round(_overheating_term, 2),
+                        round(_calibrated_setpoint, 2),
+                        round(_cur_external_temp, 2),
+                        round(_cur_target_temp, 2),
+                        self.tolerance,
+                    )
 
     # Direction-aware rounding: idle and cooling round the setpoint DOWN so the
     # TRV sees a target below its current temperature and closes the valve.
