@@ -7,6 +7,7 @@ that the controller-level tests can't exercise — the dispatcher reads
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, Literal
 from unittest.mock import MagicMock
@@ -293,10 +294,22 @@ def test_group_controller_steps_once_per_control_cycle(monkeypatch) -> None:
 def test_a_cycles_group_command_is_held_to_each_trvs_own_cap(monkeypatch) -> None:
     """The cycle's one command reaches each TRV held to that TRV's own cap.
 
-    The first TRV dispatched is the one capped low, so a cycle that kept its
-    capped command would hold the second TRV to that cap as well.
+    The controller is held to a 90 % command. The first TRV dispatched is the
+    one capped low, so a cycle that kept its capped command would hold the
+    second TRV to that cap as well.
     """
-    seen = _capture_controller_input(monkeypatch)
+    from custom_components.better_thermostat import calibration
+
+    real_compute = calibration.compute_mpc_v2
+    steps: list[Any] = []
+
+    def _fixed_command(inp, params, state=None, **kwargs):
+        steps.append(inp)
+        output, new_state = real_compute(inp, params, state=state, **kwargs)
+        assert output is not None
+        return replace(output, valve_percent=90), new_state
+
+    monkeypatch.setattr(calibration, "compute_mpc_v2", _fixed_command)
     real_trvs = {
         "climate.living_a": _make_trv(
             "climate.living_a",
@@ -312,17 +325,15 @@ def test_a_cycles_group_command_is_held_to_each_trvs_own_cap(monkeypatch) -> Non
         ),
     }
     bt = _make_bt(real_trvs=real_trvs)
-    bt.heat_target_temperature = 25.0
-    bt.room_temperature = 15.0
     bt.dispatched_control_cycle = object()
 
     out_a, _ = _compute_mpc_v2_balance(bt, "climate.living_a")
     out_b, _ = _compute_mpc_v2_balance(bt, "climate.living_b")
 
     assert out_a is not None and out_b is not None
-    assert len(seen) == 1
+    assert len(steps) == 1
     assert out_a.valve_percent == 40
-    assert 40 < out_b.valve_percent <= 80
+    assert out_b.valve_percent == 80
 
 
 def test_single_trv_passes_the_group_valve_through() -> None:
