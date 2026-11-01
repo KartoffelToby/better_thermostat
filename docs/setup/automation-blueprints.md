@@ -215,7 +215,7 @@ Better Thermostat climate entity:
 | `humidity_high` | `humidity` attribute exceeds configured threshold |
 | `battery_low` | Minimum TRV battery drops below configured threshold |
 | `device_error` | `errors` attribute contains at least one error |
-| `target_temp_reached` | Current temperature ≥ target temperature |
+| `target_temp_reached` | Current temperature ≥ target temperature; with a cooler, the lower end of the target range counts as the target |
 
 You can also use these triggers directly in your own automations via the
 **Automation editor → Add trigger → Device**. Select your Better Thermostat
