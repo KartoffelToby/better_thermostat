@@ -218,6 +218,27 @@ class TestPIDController:
         assert state.pid_kd == 0.0
         assert state.pid_ki == pytest.approx(params.ki_min)
 
+    def test_auto_tune_starts_from_a_kp_set_to_zero(self):
+        """A Kp of 0 is tuned from 0, so an overshoot lifts it to ``kp_min``."""
+        params = PIDParams(
+            auto_tune=True, tune_min_interval_s=0.0, overshoot_threshold_K=0.5
+        )
+        key = "test_zero_kp"
+        self._states[key] = PIDState(pid_kp=0.0, pid_ki=0.01, pid_kd=2000.0)
+
+        for current_temp in (20.0, 22.05):
+            self._compute(
+                params=params,
+                inp_target_temp_C=22.0,
+                inp_current_temp_C=current_temp,
+                inp_trv_temp_C=21.0,
+                inp_temp_slope_K_per_min=0.0,
+                key=key,
+            )
+
+        state = self._state(key)
+        assert state.pid_kp == pytest.approx(params.kp_min)
+
     def test_auto_tune_sluggish(self):
         """Test auto-tuning for sluggish response."""
         params = PIDParams(
