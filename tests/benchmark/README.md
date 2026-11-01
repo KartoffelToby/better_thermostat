@@ -225,12 +225,13 @@ ranking — smooth outputs (TPI, MPC) carry over cleanly across the
 radiators, while aggressive ones (PID, BangBang) divergence-amplify.
 
 The room is one node, so the plant cannot show a TRV in a colder part of
-the room. Splitting u by the TRVs' own readings (8 % per K below the
-warmest TRV) scored lower than the even split on `multi-asymmetric` and
+the room. A split of u by the TRVs' own readings (8 % per K below the
+warmest TRV) was measured with the split runner this benchmark no longer
+carries, on readings made of each radiator's temperature plus a fixed
+offset (-1.5, 0 and +0.5 K on `multi-asymmetric`, none elsewhere). It
+scored lower than the even split on `multi-asymmetric` and
 `multi-heterogeneous` for MPC v1, MPC v2 and TPI, and the same on
-`multi-symmetric`. The split read each radiator's temperature plus its
-configured offset, not a modelled TRV reading, so it measures the
-split's rule rather than the sensor a TRV reads it from.
+`multi-symmetric`.
 
 This is the closer-to-reality benchmark for **multi-radiator rooms**
 (living rooms, larger kitchens) — common in residential setups. For
