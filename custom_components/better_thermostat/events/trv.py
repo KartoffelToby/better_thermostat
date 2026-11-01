@@ -310,7 +310,11 @@ def _adopt_reported_range(
     _min_temp = read_bound_celsius(
         self, state, "min_temp", lower=True, context="trigger_trv_change()"
     )
-    trv.heating_range = (_min_temp, _max_temp)
+    _last_low, _last_high = trv.heating_range or (None, None)
+    trv.heating_range = (
+        _last_low if _min_temp is None else _min_temp,
+        _last_high if _max_temp is None else _max_temp,
+    )
     _ceiling = trv.max_temp if _max_temp is None else _max_temp
     _floor = (
         trv.min_temp

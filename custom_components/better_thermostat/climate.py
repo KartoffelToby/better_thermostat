@@ -3153,12 +3153,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 self, _s, "min_temp", lower=True, context="startup"
             )
             trv.max_temp = 30.0 if _max_temp is None else _max_temp
-            # A device that is heating already publishes the range it heats in.
-            if (
-                _s is not None
-                and mode_remap(self, entity_id, _s.state, True) == HVACMode.HEAT
-            ):
-                trv.heating_range = (_min_temp, _max_temp)
             # A model whose device reads a setpoint at its minimum as
             # something else gets a higher floor from its quirk module.
             trv.min_temp = lowest_setpoint(
@@ -3188,6 +3182,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             else:
                 trv.target_temp_step = 0.5
             trv.hvac_modes = _attrs.get("hvac_modes", None)
+            # A device that is heating already publishes the range it heats in;
+            # its mode is decoded against the modes it offers, as at runtime.
+            if (
+                _s is not None
+                and mode_remap(self, entity_id, _s.state, True) == HVACMode.HEAT
+            ):
+                trv.heating_range = (_min_temp, _max_temp)
             trv.hvac_mode = _s.state if _s else None
             trv.last_hvac_mode = _s.state if _s else None
             _reported_setpoint = attr_to_celsius(

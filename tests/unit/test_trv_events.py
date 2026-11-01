@@ -5253,3 +5253,21 @@ class TestReportedRange:
             await trigger_trv_change(mock_bt, event)
 
         assert (trv.min_temp, trv.max_temp) == (5.0, 25.0)
+
+    @pytest.mark.asyncio
+    async def test_a_heating_report_without_a_bound_keeps_the_one_it_had(self, mock_bt):
+        """A bound the heating report leaves out keeps its last published value."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.min_temp, trv.max_temp = 5.0, 25.0
+        trv.heating_range = (5.0, 25.0)
+        report = self._report(HVACMode.HEAT, {"max_temp": 25.0})
+        mock_bt.hass.states.get.return_value = report
+        event = _make_event(mock_bt, new_state=report, old_state=_make_state())
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert trv.heating_range == (5.0, 25.0)

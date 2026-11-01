@@ -371,3 +371,25 @@ async def test_a_head_heating_at_startup_keeps_that_range_in_the_rooms(hass, trv
     trv_b = bt.real_trvs[head_b.entity_id]
     assert await wait_for(hass, lambda: trv_b.max_temp == WIDER_TOP)
     assert (bt.bt_min_temp, bt.bt_max_temp) == HEAT_RANGE
+
+
+SWAPPED_HEAD_IN_HEAT_COOL = replace(
+    HOMEKIT_TRV,
+    name="swapped_trv",
+    hvac_mode=HVACMode.HEAT_COOL,
+    hvac_modes=(HVACMode.OFF, HVACMode.AUTO, HVACMode.HEAT_COOL),
+)
+"""A heat/auto-swapped head that offers auto and reports heat_cool at startup."""
+
+
+@pytest.mark.parametrize("fake_trv", [SWAPPED_HEAD_IN_HEAT_COOL], indirect=True)
+async def test_a_swapped_head_not_heating_at_startup_gives_no_heating_range(
+    hass, fake_trv
+):
+    """The startup report is decoded against the modes the head offers."""
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(fake_trv.profile, heat_auto_swapped=True)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    assert bt.real_trvs[TRV_ID].heating_range is None
