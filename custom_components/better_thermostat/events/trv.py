@@ -300,7 +300,8 @@ def _adopt_reported_range(
     Returns
     -------
     bool
-        True when the report changed the range.
+        True when the report changed the range or the heating range kept for
+        the room, which a quirk's higher floor can leave apart.
     """
     if mode_remap(self, entity_id, state.state, True) != HVACMode.HEAT:
         return False
@@ -310,7 +311,8 @@ def _adopt_reported_range(
     _min_temp = read_bound_celsius(
         self, state, "min_temp", lower=True, context="trigger_trv_change()"
     )
-    _last_low, _last_high = trv.heating_range or (None, None)
+    _previous_heating_range = trv.heating_range
+    _last_low, _last_high = _previous_heating_range or (None, None)
     trv.heating_range = (
         _last_low if _min_temp is None else _min_temp,
         _last_high if _max_temp is None else _max_temp,
@@ -322,7 +324,9 @@ def _adopt_reported_range(
         else lowest_setpoint(self, entity_id, _min_temp)
     )
     if (_floor, _ceiling) == (trv.min_temp, trv.max_temp):
-        return False
+        # A first heating range bounds the room as the live report it came
+        # with already does; only a stored one that moved is news to it.
+        return _previous_heating_range not in (None, trv.heating_range)
     _LOGGER.info(
         "better_thermostat %s: TRV %s now publishes the range %s to %s (was %s to %s)",
         self.device_name,
@@ -494,8 +498,12 @@ async def trigger_trv_change(
     # cycle of its own, which rewrites a setpoint the old range let through.
     # Everything after it reads the registry, so the cache then takes the
     # registry's list.
+    # A released device is the user's, so its reports leave the room's
+    # settings alone; its range is read once it is taken back.
     adopt_reported_hvac_modes(trv, new_state.attributes.get("hvac_modes"))
-    _range_changed = _adopt_reported_range(self, entity_id, trv, new_state)
+    _range_changed = not device_released(self, entity_id) and _adopt_reported_range(
+        self, entity_id, trv, new_state
+    )
     adopt_reported_hvac_modes(trv, _org_trv_state.attributes.get("hvac_modes"))
     if _range_changed:
         self._refresh_heating_range()

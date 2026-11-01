@@ -5271,3 +5271,55 @@ class TestReportedRange:
             await trigger_trv_change(mock_bt, event)
 
         assert trv.heating_range == (5.0, 25.0)
+
+    @pytest.mark.asyncio
+    async def test_a_new_heating_bound_under_a_quirks_floor_bounds_the_room_anew(
+        self, mock_bt
+    ):
+        """A heating range that moves under a quirk's floor still reaches the room."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.min_temp, trv.max_temp = 6.0, 25.0
+        trv.heating_range = (5.0, 25.0)
+        report = self._report(HVACMode.HEAT, {"min_temp": 4.0, "max_temp": 25.0})
+        mock_bt.hass.states.get.return_value = report
+        event = _make_event(mock_bt, new_state=report, old_state=_make_state())
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.lowest_setpoint",
+                return_value=6.0,
+            ),
+            patch.object(mock_bt, "_refresh_heating_range") as refresh,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert trv.heating_range == (4.0, 25.0)
+        assert (trv.min_temp, trv.max_temp) == (6.0, 25.0)
+        refresh.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    async def test_a_released_heads_heating_report_leaves_the_room_alone(self, mock_bt):
+        """A report from a released head changes neither its range nor the room's."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        mock_bt.released_trvs = {ENTITY_ID}
+        trv.min_temp, trv.max_temp = 7.0, 35.0
+        report = self._report(HVACMode.HEAT, self.HEAT_RANGE)
+        mock_bt.hass.states.get.return_value = report
+        event = _make_event(mock_bt, new_state=report, old_state=_make_state())
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+            patch.object(mock_bt, "_refresh_heating_range") as refresh,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert (trv.min_temp, trv.max_temp) == (7.0, 35.0)
+        assert trv.heating_range is None
+        refresh.assert_not_called()
