@@ -18,6 +18,7 @@ import traceback
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 import pytest
 
@@ -807,6 +808,52 @@ class TestCheckTargetTemperature:
         assert result is True
         assert trv.confirmed_setpoint is None
         assert trv.echo_setpoint_values() == [23.0]
+
+    @pytest.mark.asyncio
+    async def test_a_watchdog_that_gives_up_records_the_setpoint_the_device_holds(self):
+        """The setpoint a device holds instead of the write is BT's own.
+
+        The device takes the write of 29.0 as 28.0, the highest setpoint it
+        holds, and reports 28.0 until the watchdog gives up. From then on a
+        report of 28.0 is the write as the device took it, not a press. The
+        write itself stays the command and a value the device may still echo,
+        so the control loop keeps telling the device it has not converged.
+        """
+        trv = Trv.from_legacy_dict(
+            "climate.trv1",
+            {
+                "last_temperature": 29.0,
+                "confirmed_setpoint": 20.5,
+                "target_temp_received": False,
+            },
+        )
+        watched = trv.remember_setpoint_written(29.0)
+
+        mock_hass = MagicMock()
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 28.0}
+        )
+
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+
+        with (
+            patch(f"{_CTRL}.WRITE_CONFIRM_TIMEOUT_S", 3),
+            _instant_sleep() as durations,
+        ):
+            result = await check_target_temperature(
+                mock_self, "climate.trv1", watched, 29.0
+            )
+
+        assert result is True
+        assert durations.count(1) == 4
+        assert trv.confirmed_setpoint == 28.0
+        assert trv.last_temperature == 29.0
+        assert trv.echo_setpoint_values() == [29.0]
+        assert trv.target_temp_received is True
 
     @pytest.mark.asyncio
     async def test_unreadable_setpoint_ends_the_wait_without_a_confirmation(self):
