@@ -210,7 +210,10 @@ scenario.
 ### Multi-TRV (`--multi-trv`)
 
 Parallel radiators share one room state, and each gets the controller's
-single output u, as BT gives every TRV of a group the same command.
+single output u, as BT gives every TRV of a group the same command. The
+TRVs here have no maximum opening: BT holds each TRV's command to its
+own cap, so a 60 % command reaches TRVs capped at 100 % and 30 % as
+60 % and 30 %, which the plant does not model.
 Plant variants run independently — `multi-symmetric`,
 `multi-asymmetric` (radiators of different size and coupling),
 `multi-heterogeneous` (one TRV has a wide actuator deadband). Each
@@ -225,7 +228,9 @@ The room is one node, so the plant cannot show a TRV in a colder part of
 the room. Splitting u by the TRVs' own readings (8 % per K below the
 warmest TRV) scored lower than the even split on `multi-asymmetric` and
 `multi-heterogeneous` for MPC v1, MPC v2 and TPI, and the same on
-`multi-symmetric`.
+`multi-symmetric`. The split read each radiator's temperature plus its
+configured offset, not a modelled TRV reading, so it measures the
+split's rule rather than the sensor a TRV reads it from.
 
 This is the closer-to-reality benchmark for **multi-radiator rooms**
 (living rooms, larger kitchens) — common in residential setups. For
