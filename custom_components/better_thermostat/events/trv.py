@@ -710,7 +710,7 @@ async def trigger_trv_change(
         # Keep device telemetry, but its thermostat is not the room's input.
         trv.hvac_mode = _org_trv_state.state
         self.async_write_ha_state()
-        if request_cycle and _main_change:
+        if request_cycle and (_main_change or _range_changed):
             request_control_cycle(self)
         return
 

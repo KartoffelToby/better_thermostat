@@ -873,10 +873,11 @@ def _heating_bounds(
     """Return the lower and upper heating bounds of the heaters among ``states``.
 
     Every state but the cooler's is a heater's, and a device that is both
-    counts as one. A TRV that is not heating gives the bounds it last
-    published while it heated, once it has: an integration may publish a
-    range for off that the device does not heat in. Before that, while it
-    heats, and for any other heater, the state's bounds are read.
+    counts as one. A TRV gives the heating range kept for it once it has
+    published one while it heated: an integration may publish a range for
+    off that the device does not heat in, and a heating report may leave out
+    a bound the kept range still holds. Before that, and for any other
+    heater, the state's bounds are read.
     """
     minimums: list[float] = []
     maxes: list[float] = []
@@ -890,11 +891,7 @@ def _heating_bounds(
             self, s, ATTR_MAX_TEMP, lower=False, context="_heating_bounds(max)"
         )
         trv = self.real_trvs.get(s.entity_id)
-        if (
-            trv is not None
-            and trv.heating_range is not None
-            and mode_remap(self, s.entity_id, s.state, True) != HVACMode.HEAT
-        ):
+        if trv is not None and trv.heating_range is not None:
             _low, _high = trv.heating_range
         if _low is not None:
             minimums.append(_low)
