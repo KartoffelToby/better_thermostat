@@ -34,6 +34,7 @@ from .utils.calibration.pid import (
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
     DEFAULT_PID_KP,
+    PID_GAIN_LIMITS,
     build_pid_key,
 )
 from .utils.const import (
@@ -464,16 +465,16 @@ class BetterThermostatPIDNumber(TrvNamedEntity, NumberEntity, RestoreEntity):
             self._attr_translation_key = f"pid_{parameter}_no_trv"
 
         if parameter == "kp":
-            self._attr_native_min_value = 0.0
-            self._attr_native_max_value = 1000.0
+            self._attr_native_min_value = PID_GAIN_LIMITS["kp"][0]
+            self._attr_native_max_value = PID_GAIN_LIMITS["kp"][1]
             self._attr_native_step = 0.1
         elif parameter == "ki":
-            self._attr_native_min_value = 0.0
-            self._attr_native_max_value = 100.0
+            self._attr_native_min_value = PID_GAIN_LIMITS["ki"][0]
+            self._attr_native_max_value = PID_GAIN_LIMITS["ki"][1]
             self._attr_native_step = 0.001
         elif parameter == "kd":
-            self._attr_native_min_value = 0.0
-            self._attr_native_max_value = 10000.0
+            self._attr_native_min_value = PID_GAIN_LIMITS["kd"][0]
+            self._attr_native_max_value = PID_GAIN_LIMITS["kd"][1]
             self._attr_native_step = 1.0
 
     async def async_added_to_hass(self) -> None:
