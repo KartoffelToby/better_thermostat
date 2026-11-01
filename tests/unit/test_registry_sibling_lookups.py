@@ -169,9 +169,9 @@ async def _battery_found(host, _registry, candidate):
     return await helpers.find_battery_entity(host, TRV_ID) == candidate
 
 
-async def _trvzb_sibling_found(_host, registry, candidate):
+async def _keyed_sibling_found(_host, registry, candidate):
     device_id = registry.async_get(TRV_ID).device_id
-    found = TRVZB._find_device_entity(
+    found = helpers.find_keyed_device_entity(
         registry,
         device_id,
         "select",
@@ -283,9 +283,9 @@ LOOKUPS = {
             {"original_device_class": "battery"},
         ),
         Lookup(
-            "TRVZB._find_device_entity",
+            "find_keyed_device_entity",
             "select.trv_temperature_sensor_select",
-            _trvzb_sibling_found,
+            _keyed_sibling_found,
             {"translation_key": "temperature_sensor_select"},
         ),
         Lookup(
@@ -522,7 +522,7 @@ async def test_a_disabled_entry_beside_an_enabled_sibling_goes_unnamed(name, cap
 
 
 # These two are handed the TRV's device id rather than the TRV itself.
-TAKE_A_DEVICE_ID = TAKES_ITS_DEVICE_FROM_THE_CALLER | {"TRVZB._find_device_entity"}
+TAKE_A_DEVICE_ID = TAKES_ITS_DEVICE_FROM_THE_CALLER | {"find_keyed_device_entity"}
 
 
 @pytest.mark.parametrize(

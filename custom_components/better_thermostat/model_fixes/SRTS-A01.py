@@ -33,22 +33,16 @@ Everything else stays as the default quirks have it.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from datetime import datetime
 import logging
 import time
 
-from homeassistant.const import (
-    ATTR_UNIT_OF_MEASUREMENT,
-    STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
-    UnitOfTemperature,
-)
-from homeassistant.core import Event, EventStateChangedData, State, callback
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import Event, EventStateChangedData, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
-from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.model_fixes.default import (
@@ -62,7 +56,8 @@ from custom_components.better_thermostat.model_fixes.types import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     device_released,
-    is_sibling_entry,
+    external_temperature_input_value,
+    find_keyed_device_entity,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -174,73 +169,13 @@ _PENDING_SWITCHES: dict[str, tuple[str, float]] = {}
 _SWITCH_CONFIRM_S = 30.0
 
 
-def _find_device_entity(
-    entity_registry: er.EntityRegistry,
-    device_id: str | None,
-    domain: str,
-    translation_keys: frozenset[str],
-    id_fragment: str,
-) -> str | None:
-    """Return a sibling entity of ``device_id`` in ``domain``, or ``None``.
-
-    The translation key is the stable, language-independent handle and is
-    tried first; the id fragment is the fallback for a registry entry that
-    carries none.
-
-    Parameters
-    ----------
-    entity_registry : er.EntityRegistry
-        The registry to search.
-    device_id : str | None
-        The device the sibling has to belong to. ``None`` is no device and
-        matches nothing. A disabled entry is no sibling either.
-    domain : str
-        The entity domain to search, ``number`` or ``select`` here.
-    translation_keys : frozenset[str]
-        The translation keys that name the wanted entity.
-    id_fragment : str
-        Matched against the entity id, unique id and original name of a
-        registry entry that carries no translation key.
-
-    Returns
-    -------
-    str | None
-        The entity id of the sibling whose translation key names it, the
-        first id fragment match when no sibling carries one of the keys, or
-        ``None`` when the device has no such entity.
-    """
-    siblings = [
-        ent
-        for ent in entity_registry.entities.values()
-        if is_sibling_entry(ent, device_id) and ent.domain == domain
-    ]
-    for ent in siblings:
-        if ent.translation_key in translation_keys:
-            return ent.entity_id
-    # The registry hands its entities out in insertion order, so a fragment
-    # match tried per entry beats the canonical key of an entry behind it.
-    # The fallback therefore runs as a second pass, and only over the entries
-    # that name themselves nothing.
-    for ent in siblings:
-        if ent.translation_key is not None:
-            continue
-        haystacks = (
-            (ent.entity_id or "").lower(),
-            (ent.unique_id or "").lower(),
-            (ent.original_name or "").lower().replace(" ", "_"),
-        )
-        if any(id_fragment in haystack for haystack in haystacks):
-            return ent.entity_id
-    return None
-
-
 def _sensor_selector(self: ModelFixHost, entity_id: str) -> str | None:
     """Return the ``sensor`` selector on the TRV's device, or ``None``."""
     entity_registry = er.async_get(self.hass)
     reg_entity = entity_registry.async_get(entity_id)
     if reg_entity is None:
         return None
-    return _find_device_entity(
+    return find_keyed_device_entity(
         entity_registry, reg_entity.device_id, "select", _TK_SENSOR_SELECT, "sensor"
     )
 
@@ -626,7 +561,7 @@ def _input_number(self: ModelFixHost, entity_id: str) -> str | None:
             entity_id,
         )
         return None
-    target = _find_device_entity(
+    target = find_keyed_device_entity(
         entity_registry,
         reg_entity.device_id,
         "number",
@@ -646,7 +581,12 @@ async def _write_input(
     self: ModelFixHost, entity_id: str, target: str, celsius: float
 ) -> None:
     """Write ``celsius`` into the external temperature input ``target``."""
-    value = _external_input_value(self.hass.states.get(target), celsius)
+    value = external_temperature_input_value(
+        self.hass.states.get(target),
+        celsius,
+        _EXTERNAL_TEMPERATURE_MIN_C,
+        _EXTERNAL_TEMPERATURE_MAX_C,
+    )
     await self.hass.services.async_call(
         "number",
         "set_value",
@@ -661,50 +601,6 @@ async def _write_input(
         target,
         entity_id,
     )
-
-
-def _external_input_value(state: State | None, celsius: float) -> float:
-    """Return the value the external temperature input takes for ``celsius``.
-
-    Zigbee2MQTT publishes the input as a ``temperature`` number in Celsius,
-    which Home Assistant converts into the system unit, and checks a written
-    value against the ``min`` and ``max`` it publishes in that unit. The
-    reading is rounded once to the device's tenth of a degree Celsius, then
-    converted into the unit the input publishes and held inside its bounds.
-
-    Parameters
-    ----------
-    state : State or None
-        State of the external temperature input, or None when it has none.
-    celsius : float
-        The room temperature in degrees Celsius.
-
-    Returns
-    -------
-    float
-        The value to write, in the input's published unit.
-    """
-    attributes: Mapping[str, object] = state.attributes if state is not None else {}
-    declared_unit = attributes.get(ATTR_UNIT_OF_MEASUREMENT)
-    unit = (
-        declared_unit
-        if isinstance(declared_unit, str)
-        and declared_unit in TemperatureConverter.VALID_UNITS
-        else UnitOfTemperature.CELSIUS
-    )
-
-    def published(degrees: float) -> float:
-        return TemperatureConverter.convert(degrees, UnitOfTemperature.CELSIUS, unit)
-
-    def bound(name: str, fallback_celsius: float) -> float:
-        try:
-            return float(str(attributes[name]))
-        except KeyError, TypeError, ValueError:
-            return published(fallback_celsius)
-
-    low = bound("min", _EXTERNAL_TEMPERATURE_MIN_C)
-    high = bound("max", _EXTERNAL_TEMPERATURE_MAX_C)
-    return max(low, min(high, published(round(celsius, 1))))
 
 
 async def maybe_set_external_temperature(
