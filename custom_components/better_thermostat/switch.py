@@ -209,7 +209,12 @@ def restored_child_lock(
     )
     if entity_id is None:
         return None
-    stored = restore_state.async_get(hass).last_states.get(entity_id)
+    restore_data = restore_state.async_get(hass)
+    stored = (
+        restore_data.async_get_stored_state(entity_id)
+        if hasattr(restore_data, "async_get_stored_state")
+        else restore_data.last_states.get(entity_id)
+    )
     if stored is None:
         return None
     extra = stored.extra_data.as_dict() if stored.extra_data else None
