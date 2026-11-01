@@ -2509,12 +2509,29 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     def _refresh_heating_range(self) -> None:
         """Bound the room's heating range by its TRVs' ranges, and its target by that.
 
-        A TRV whose heating range changed narrows or widens the room's. The
-        cooling channel keeps the range it has: the cooler's bounds are read
-        where the full range is resolved. A room whose TRVs publish no range
-        keeps its heating range as well.
+        A TRV whose heating range changed narrows or widens the room's. A TRV
+        that has no state for the moment still bounds the room by the heating
+        range kept for it, since it is driven again once its state is back.
+        The cooling channel keeps the range it has: the cooler's bounds are
+        read where the full range is resolved. A room whose TRVs publish no
+        range keeps its heating range as well.
         """
-        minimums, maxes = _heating_bounds(self, self._collect_trv_states())
+        states = self._collect_trv_states()
+        minimums, maxes = _heating_bounds(self, states)
+        _read = {state.entity_id for state in states}
+        for entity_id, trv in self.real_trvs.items():
+            if (
+                entity_id in _read
+                or trv.heating_range is None
+                or trv.awaiting_initialization
+                or not _read_at_startup(self, entity_id)
+            ):
+                continue
+            _low, _high = trv.heating_range
+            if _low is not None:
+                minimums.append(_low)
+            if _high is not None:
+                maxes.append(_high)
         if not minimums and not maxes:
             return
         _bound_heating_channel(self, minimums, maxes)

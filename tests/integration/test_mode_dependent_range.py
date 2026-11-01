@@ -393,3 +393,31 @@ async def test_a_swapped_head_not_heating_at_startup_gives_no_heating_range(
     bt = await wait_for_startup(hass, entry)
 
     assert bt.real_trvs[TRV_ID].heating_range is None
+
+
+@pytest.mark.parametrize("trv_group", [HOMEKIT_PAIR], indirect=True)
+async def test_a_head_without_a_state_keeps_its_heating_range_in_the_rooms(
+    hass, trv_group
+):
+    """A head whose state is gone still bounds the room by its kept range.
+
+    The other head widens its range while the first has no state, so the
+    first head's top is what holds the room.
+    """
+    head_a, head_b = trv_group.entities
+    for head in (head_a, head_b):
+        _publish_range_by_mode(head)
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(trv_group.scenario)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await _heat_at(hass, 21.0)
+    assert await wait_for(hass, lambda: (bt.bt_min_temp, bt.bt_max_temp) == HEAT_RANGE)
+
+    hass.states.async_remove(head_a.entity_id)
+    await hass.async_block_till_done()
+    _report_from_the_device(head_b, HVACMode.HEAT, HEAT_RANGE[0], WIDER_TOP)
+
+    trv_b = bt.real_trvs[head_b.entity_id]
+    assert await wait_for(hass, lambda: trv_b.max_temp == WIDER_TOP)
+    assert (bt.bt_min_temp, bt.bt_max_temp) == HEAT_RANGE
