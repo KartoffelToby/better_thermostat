@@ -10,6 +10,7 @@ import asyncio
 import logging
 from typing import NamedTuple
 
+from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -512,13 +513,23 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
         return False
 
 
-# Translation keys Zigbee2MQTT uses for the input the room temperature is
-# mirrored into.
-_TK_EXTERNAL_TEMP = frozenset({"external_temperature_input", "external_temperature"})
+# Translation keys for the input the room temperature is mirrored into:
+# Zigbee2MQTT's, and ZHA's ``external_temperature_sensor_value``.
+_TK_EXTERNAL_TEMP = frozenset(
+    {
+        "external_temperature_input",
+        "external_temperature",
+        "external_temperature_sensor_value",
+    }
+)
 
 # Translation keys Zigbee2MQTT uses for the selector that decides which sensor
 # the TRVZB regulates on.
 _TK_SENSOR_SELECT = frozenset({"temperature_sensor_select", "temperature_sensor"})
+
+# Translation key ZHA uses for the same choice, which it exposes as a switch:
+# on regulates on the external input, off on the device's own sensor.
+_TK_SENSOR_SWITCH = frozenset({"external_temperature_sensor"})
 
 # The option that hands regulation to the value BT writes, under each name
 # Zigbee2MQTT has given it: ``external`` up to 2.14.1, ``remote_temperature``
@@ -540,6 +551,9 @@ _ON_A_REMOTE_SENSOR = ("external", "remote_")
 def _sensor_selector(self: ModelFixHost, entity_id: str) -> tuple[str, State] | None:
     """Return the TRV's sensor selector and its state, or ``None``.
 
+    Zigbee2MQTT offers the choice as a select. ZHA offers it as a switch,
+    which stands in for the select on a device that carries none.
+
     Parameters
     ----------
     self : ModelFixHost
@@ -550,8 +564,8 @@ def _sensor_selector(self: ModelFixHost, entity_id: str) -> tuple[str, State] | 
     Returns
     -------
     tuple[str, State] | None
-        The selector's entity id and its state, or ``None`` when the device
-        has no selector or the selector is not reporting an option.
+        The entity id of the select or the switch and its state, or ``None``
+        when the device has neither or it is not reporting.
     """
     entity_registry = er.async_get(self.hass)
     reg_entity = entity_registry.async_get(entity_id)
@@ -564,6 +578,14 @@ def _sensor_selector(self: ModelFixHost, entity_id: str) -> tuple[str, State] | 
         _TK_SENSOR_SELECT,
         "temperature_sensor_select",
     )
+    if target is None:
+        target = find_keyed_device_entity(
+            entity_registry,
+            reg_entity.device_id,
+            "switch",
+            _TK_SENSOR_SWITCH,
+            "external_temperature_sensor",
+        )
     if target is None:
         _LOGGER.debug(
             "better_thermostat %s: TRVZB temperature sensor selector not found for %s",
@@ -579,6 +601,55 @@ def _sensor_selector(self: ModelFixHost, entity_id: str) -> tuple[str, State] | 
     return target, state
 
 
+def _is_sensor_switch(target: str) -> bool:
+    """Whether the sensor choice ``target`` is ZHA's switch, not a select."""
+    return target.split(".", 1)[0] == "switch"
+
+
+async def _set_sensor_switch(
+    self: ModelFixHost, entity_id: str, target: str, state: State, on: bool
+) -> bool:
+    """Turn ZHA's sensor switch ``target`` on or off unless it already is.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        The Better Thermostat instance, supplying ``hass`` and the context
+        the service call is made under.
+    entity_id : str
+        The TRV whose device carries the switch, for log lines.
+    target : str
+        The switch entity.
+    state : State
+        The state the switch reports.
+    on : bool
+        True to regulate on the external input, False on the own sensor.
+
+    Returns
+    -------
+    bool
+        True when this call switched it.
+    """
+    if state.state == (STATE_ON if on else STATE_OFF):
+        return False
+    await self.hass.services.async_call(
+        "switch",
+        "turn_on" if on else "turn_off",
+        {"entity_id": target},
+        blocking=True,
+        context=self.context,
+    )
+    _LOGGER.debug(
+        "better_thermostat %s: turned TRVZB %s %s from '%s' (for %s)",
+        self.device_name,
+        target,
+        "on" if on else "off",
+        state.state,
+        entity_id,
+    )
+    return True
+
+
 async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bool:
     """Point the TRV's sensor selector at the value BT writes.
 
@@ -588,7 +659,8 @@ async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bo
     alongside every write of the input it belongs to.
 
     A device already on an option naming an external sensor is left alone,
-    whichever of them it is: the choice between them is its owner's.
+    whichever of them it is: the choice between them is its owner's. ZHA's
+    switch is turned on unless it is on already.
 
     Parameters
     ----------
@@ -601,13 +673,16 @@ async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bo
     Returns
     -------
     bool
-        True when the selector is on an external option, whether this call
-        put it there or found it there.
+        True when the selector is on an external option, or the switch is
+        on, whether this call put it there or found it there.
     """
     selector = _sensor_selector(self, entity_id)
     if selector is None:
         return False
     target, state = selector
+    if _is_sensor_switch(target):
+        await _set_sensor_switch(self, entity_id, target, state, on=True)
+        return True
     if state.state.startswith(_ON_A_REMOTE_SENSOR):
         return True
     options = state.attributes.get("options")
@@ -652,7 +727,7 @@ async def maybe_select_internal_sensor(self: ModelFixHost, entity_id: str) -> bo
     A room sensor on the TRV's own device is that device's reading. A device
     regulating on a remote value it was fed from that reading reports the
     fed value as its own and stops following the room, so a selector found on
-    a remote option is moved back.
+    a remote option is moved back, and ZHA's switch found on is turned off.
 
     Parameters
     ----------
@@ -665,12 +740,15 @@ async def maybe_select_internal_sensor(self: ModelFixHost, entity_id: str) -> bo
     Returns
     -------
     bool
-        True when this call moved the selector onto the internal option.
+        True when this call moved the selector onto the internal option or
+        turned the switch off.
     """
     selector = _sensor_selector(self, entity_id)
     if selector is None:
         return False
     target, state = selector
+    if _is_sensor_switch(target):
+        return await _set_sensor_switch(self, entity_id, target, state, on=False)
     if not state.state.startswith(_ON_A_REMOTE_SENSOR):
         return False
     options = state.attributes.get("options")
@@ -720,8 +798,8 @@ async def maybe_set_external_temperature(
 ) -> bool:
     """Set Sonoff TRVZB external temperature input via a number entity on the same device.
 
-    Looks for number.* entity matching external_temperature_input and writes the
-    given temperature, rounded to a tenth of a degree Celsius and converted into
+    Looks for the number.* entity of the external temperature input, under
+    Zigbee2MQTT's or ZHA's translation key, and writes the given temperature, rounded to a tenth of a degree Celsius and converted into
     the unit the input publishes, held inside the range it publishes. The sensor
     selector is pointed at that input alongside the write, because a device
     regulating on its own sensor never reads it.
