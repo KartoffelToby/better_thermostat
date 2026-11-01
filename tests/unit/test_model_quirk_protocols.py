@@ -27,6 +27,7 @@ from custom_components.better_thermostat.model_fixes import (
 from custom_components.better_thermostat.model_fixes.types import (
     ExternalTemperatureQuirk,
     InitialTweakQuirk,
+    InvertedOffsetQuirk,
     LowestSetpointQuirk,
     MaintenanceIntervalQuirk,
     ModelQuirks,
@@ -46,6 +47,7 @@ PROTOCOLS = (
     ModelQuirks,
     ExternalTemperatureQuirk,
     InitialTweakQuirk,
+    InvertedOffsetQuirk,
     LowestSetpointQuirk,
     MaintenanceIntervalQuirk,
     SetpointOffsetQuirk,

@@ -16,9 +16,11 @@ from homeassistant.helpers.importlib import async_import_module
 
 from custom_components.better_thermostat.model_fixes.types import (
     InitialTweakQuirk,
+    InvertedOffsetQuirk,
     LowestSetpointQuirk,
     ModelFixHost,
     ModelQuirks,
+    OffsetConventionHost,
     QuirkLoaderHost,
     SetpointOffsetQuirk,
     UnknownStateQuirk,
@@ -32,8 +34,16 @@ _LOGGER = logging.getLogger(__name__)
 # module that drives them instead. The Eurotronic Spirit Z and the Aeotec
 # ZWA021 are one device sold under two names, so one module covers both.
 # ZVIDAR Z-TRV-V01 is a clone of the same device and drives its valve the same
-# way, so it resolves onto that module too.
-_QUIRK_MODULE_ALIASES = {"Spirit": "ZWA021", "Z-TRV-V01": "ZWA021"}
+# way, so it resolves onto that module too. Zigbee2MQTT drives the Danfoss
+# Ally 014G2463, the Popp 701721 and the Hive UK7004240 through the
+# definition of the Danfoss Ally 014G2461, under their own model names.
+_QUIRK_MODULE_ALIASES = {
+    "Spirit": "ZWA021",
+    "Z-TRV-V01": "ZWA021",
+    "014G2463": "014G2461",
+    "701721": "014G2461",
+    "UK7004240": "014G2461",
+}
 
 
 def get_model_quirks_name(model: str) -> str:
@@ -193,6 +203,93 @@ def local_calibration_shifts_setpoint(self: ModelFixHost, entity_id: str) -> boo
     if not isinstance(quirks, SetpointOffsetQuirk):
         return False
     return quirks.local_calibration_shifts_setpoint(self, entity_id)
+
+
+def local_calibration_inverted(self: OffsetConventionHost, entity_id: str) -> bool:
+    """Answer whether a TRV applies its calibration offset with the opposite sign.
+
+    Better Thermostat's offset is what a device adds to the temperature it
+    measures before it reports the reading. A device that subtracts its
+    offset instead reports the same reading for the negated offset, so the
+    offset it holds is the negation of Better Thermostat's. Only the
+    model's own quirk module knows which kind a device is; a device without
+    that answer adds its offset.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity id of the TRV the offset is read from and written to
+
+    Returns
+    -------
+    bool
+        True when the device subtracts the offset from its reading
+    """
+    trv = self.real_trvs.get(entity_id)
+    quirks: object = trv.model_quirks if trv is not None else None
+    if not isinstance(quirks, InvertedOffsetQuirk):
+        return False
+    return quirks.local_calibration_inverted(self, entity_id)
+
+
+def _negated_offset(calibration_offset: float) -> float:
+    """Return the offset with the opposite sign; a zero offset stays ``0.0``."""
+    return 0.0 - calibration_offset
+
+
+def offset_from_device(
+    self: OffsetConventionHost, entity_id: str, device_offset: float
+) -> float:
+    """Take an offset the device holds into Better Thermostat's convention.
+
+    Better Thermostat's offset is what a device adds to the temperature it
+    measures. A device whose quirk declares that it subtracts its offset
+    holds the negation of Better Thermostat's; every other device holds
+    Better Thermostat's offset itself.
+
+    Parameters
+    ----------
+    self : OffsetConventionHost
+        Host providing Home Assistant access and the per-TRV records
+    entity_id : str
+        Entity ID of the TRV the offset belongs to
+    device_offset : float
+        Offset in Kelvin as the device holds it
+
+    Returns
+    -------
+    float
+        Offset in Kelvin as Better Thermostat counts it
+    """
+    if local_calibration_inverted(self, entity_id):
+        return _negated_offset(device_offset)
+    return device_offset
+
+
+def offset_to_device(
+    self: OffsetConventionHost, entity_id: str, calibration_offset: float
+) -> float:
+    """Take an offset in Better Thermostat's convention to the one the device holds.
+
+    The conversion is a negation or nothing, so it is its own inverse.
+
+    Parameters
+    ----------
+    self : OffsetConventionHost
+        Host providing Home Assistant access and the per-TRV records
+    entity_id : str
+        Entity ID of the TRV the offset is written to
+    calibration_offset : float
+        Offset in Kelvin as Better Thermostat counts it
+
+    Returns
+    -------
+    float
+        Offset in Kelvin as the device is to hold it
+    """
+    return offset_from_device(self, entity_id, calibration_offset)
 
 
 def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:

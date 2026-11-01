@@ -24,6 +24,6 @@ If the sensor keeps sending invalid values, the room has no usable temperature. 
 ## How to fix it
 
 1. Open the sensor named in the issue under **Settings → Devices & services → Entities** and look at its history. Check that the values are room temperatures and that its unit is °C or °F.
-2. If the selected entity is the wrong one, open the Better Thermostat entry, choose **Configure** and pick the right sensor under **Temperature Sensor**.
+2. If the selected entity is the wrong one, open the Better Thermostat entry, choose **Configure** and pick the right sensor under **Room temperature sensor**.
 3. If the sensor sometimes publishes placeholder values, filter them out with a [template sensor](https://www.home-assistant.io/integrations/template/) or the [filter integration](https://www.home-assistant.io/integrations/filter/) and select that sensor instead.
 4. If the sensor is faulty, replace its battery or the sensor.

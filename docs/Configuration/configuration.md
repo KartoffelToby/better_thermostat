@@ -38,7 +38,7 @@ defaults.
 
 **The cooling device (optional)** This is an optional field. A climate entity used for cooling, such as an air conditioner. BT controls it alongside the TRVs; the tolerance section below describes how the cooling band works.
 
-**Temperature sensor** This is a required field. This is the temperature sensor you want to use to control the real climate entity. It's used to get a more accurate temperature reading than the sensor in the real climate entity because you can place it in the middle of the room and not close to the radiator.
+**Room temperature sensor** This is a required field. This is the temperature sensor you want to use to control the real climate entity. It's used to get a more accurate temperature reading than the sensor in the real climate entity because you can place it in the middle of the room and not close to the radiator.
 
 **Humidity sensor** This is an optional field. For now, the humidity is only used to display it in the UI. In the future, it will be used to make a better calculation of the temperature or set it up to a *feels-like* temperature.
 
@@ -144,8 +144,6 @@ Better Thermostat offers several algorithms to control your heating:
 - On HomeMatic IP/CCU, offset-based calibration handles SELECT entities automatically
 
 **MPC v2 room size** Only used by the MPC v2 mode. *Auto (use learned heat-loss rate)* derives the room model from the heat-loss rate BT has learned; the small, medium and large room presets start from a fixed model for a room of about 10, 20 or 40 m² instead.
-
-**MPC v2 flow temperature** Only used by the MPC v2 mode. The temperature of the heating water flowing to the radiators, in your system's temperature unit. Keep 65 °C (149 °F) for a boiler on a fixed heating curve. For a heat pump or a weather-compensated boiler, enter a typical value for the heating season, for example 35 to 45 °C (95 to 113 °F). See [MPC v2](/calibration_algorithms/#mpc-v2).
 
 **Overheating protection?** Enabled by default. Some TRVs don't close the valve completely when the temperature is reached, or the radiator holds a lot of residual heat. While the thermostat is idle, this option adds a correction that holds the TRV further closed. It only acts in the AI Time Based and Aggressive modes; the other modes ignore it.
 

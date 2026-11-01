@@ -43,6 +43,13 @@ class QuirkScratchpad(TypedDict, total=False):
     _zwa021_valve_mode_engaged: bool
     """Whether the ZWA021 manufacturer-specific valve mode went through."""
 
+    _danfoss_external_sensor_celsius: float
+    """Room temperature the Danfoss Ally external room sensor input was last
+    written, in degrees Celsius, as the input holds it."""
+
+    _danfoss_external_sensor_written_at: float
+    """Monotonic clock reading, in seconds, of that write."""
+
 
 class ModelFixTrv(Protocol):
     """Minimal per-TRV record the model fixes read."""
@@ -159,6 +166,24 @@ class ModelFixHost(Protocol):
         ...
 
 
+class OffsetConventionHost(Protocol):
+    """Surface the offset sign conversion reads from its caller.
+
+    The conversion runs inside the adapters as well as in the shell, so it
+    asks for no more than an adapter's host provides.
+    """
+
+    @property
+    def hass(self) -> HomeAssistant:
+        """Home Assistant core the caller is attached to."""
+        ...
+
+    @property
+    def real_trvs(self) -> Mapping[str, ModelFixTrv]:
+        """Per-TRV records, keyed by climate entity id."""
+        ...
+
+
 class QuirkLoaderHost(Protocol):
     """Surface the quirk loader reads from its caller."""
 
@@ -251,6 +276,17 @@ class SetpointOffsetQuirk(Protocol):
 
 
 @runtime_checkable
+class InvertedOffsetQuirk(Protocol):
+    """A quirk that knows its device applies the offset with the opposite sign."""
+
+    def local_calibration_inverted(
+        self, host: OffsetConventionHost, entity_id: str, /
+    ) -> bool:
+        """Whether the device subtracts the offset from its reading."""
+        ...
+
+
+@runtime_checkable
 class ValveQuirk(Protocol):
     """A quirk that drives its device's valve itself."""
 
@@ -297,11 +333,13 @@ __all__ = [
     "DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS",
     "ExternalTemperatureQuirk",
     "InitialTweakQuirk",
+    "InvertedOffsetQuirk",
     "LowestSetpointQuirk",
     "MaintenanceIntervalQuirk",
     "ModelFixHost",
     "ModelFixTrv",
     "ModelQuirks",
+    "OffsetConventionHost",
     "QuirkLoaderHost",
     "QuirkScratchpad",
     "SetpointOffsetQuirk",

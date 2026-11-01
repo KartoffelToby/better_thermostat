@@ -7,14 +7,16 @@ keeps its own ``MpcV2State`` so concurrent instances never share learned state.
 
 The plant prior is built the way production builds it for a room on the AUTO
 preset before any heat-loss learning or offline re-identification exists:
-``make_plant_prior()`` with no inputs.
+``make_plant_prior()`` with no inputs. With ``configure_flow_temperature`` the
+prior carries the context's ``nominal_flow_temperature``, as if the flow
+temperature were known; without it the prior keeps the 65 °C production uses.
 
 This is benchmark-only code: never imported by production.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from itertools import count
 import math
 from typing import Any, override
@@ -54,11 +56,19 @@ class MpcV2Adapter(ControlCycleGate):
     family: ControllerFamily = "valve"
 
     def __init__(
-        self, params: MpcV2Params | None = None, key: str | None = None
+        self,
+        params: MpcV2Params | None = None,
+        key: str | None = None,
+        configure_flow_temperature: bool = False,
     ) -> None:
-        self._params = (
-            params if params is not None else MpcV2Params(plant=make_plant_prior())
-        )
+        params = params if params is not None else MpcV2Params(plant=make_plant_prior())
+        # The controller reads the plant prior by reference, so a private copy
+        # lets the configured flow temperature reach it without touching the
+        # caller's object.
+        self._params = replace(params, plant=replace(params.plant))
+        self._configure_flow_temperature = configure_flow_temperature
+        if configure_flow_temperature:
+            self.name = "mpc_v2+flow_temperature"
         self._state = MpcV2State()
         self._key = key if key is not None else f"bench:trv:mpc_v2{next(_KEY_COUNTER)}"
 
@@ -83,6 +93,11 @@ class MpcV2Adapter(ControlCycleGate):
         ``applied_valve_percent``, as production passes the last confirmed write
         of a single direct-valve TRV.
         """
+        if (
+            self._configure_flow_temperature
+            and ctx.nominal_flow_temperature is not None
+        ):
+            self._params.plant.T_water = ctx.nominal_flow_temperature
         inp = MpcV2Input(
             key=self._key,
             target_temperature=ctx.target_temperature,

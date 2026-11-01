@@ -114,8 +114,14 @@ class MultiTrvPlant:
         u_per_trv: list[float],
         T_outdoor: float,
         Q_K_per_min: float = 0.0,
+        flow_temperature: float | None = None,
+        heat_delivered: bool = True,
     ) -> MultiTrvPlantState:
-        """Advance the plant by ``dt_s`` seconds. ``u_per_trv`` is one value in [0,1] per radiator."""
+        """Advance the plant by ``dt_s`` seconds. ``u_per_trv`` is one value in [0,1] per radiator.
+
+        ``flow_temperature`` and ``heat_delivered`` act as in
+        :meth:`TwoStatePlant.step`.
+        """
         if dt_s <= 0.0:
             return self.state
         p = self.params
@@ -126,13 +132,18 @@ class MultiTrvPlant:
             )
 
         dt_min = dt_s / 60.0
+        T_water = p.T_water if flow_temperature is None else flow_temperature
         dT_rads: list[float] = []
         Q_to_room = 0.0
         for i in range(p.n_trvs):
             u_i = max(0.0, min(1.0, u_per_trv[i]))
             if p.deadband_pcts_per_trv and (u_i * 100.0) < p.deadband_pcts_per_trv[i]:
                 u_i = 0.0
-            heat_in = p.gain_heaters[i] * u_i * (p.T_water - s.T_rads[i])
+            heat_in = (
+                p.gain_heaters[i] * u_i * (T_water - s.T_rads[i])
+                if heat_delivered
+                else 0.0
+            )
             heat_out = s.T_rads[i] - s.T_room
             dT_rad = (heat_in - heat_out) / p.tau_rad_min
             dT_rads.append(dT_rad)

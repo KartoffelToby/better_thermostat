@@ -74,6 +74,24 @@ unavailability is surfaced separately. The reverse, treating an absent
 reading as open, heats the street only when a window is actually open
 but freezes the occupant on every dead battery.
 
+**MPC v2 takes no flow temperature.** It models the heat source as a
+boiler at 65 °C and accepts neither a configured value nor a sensor.
+The valve opening that holds a room depends on the radiator's size
+relative to the flow temperature: a 65 °C model with a boiler-sized
+radiator and a 35 °C model with a radiator about three times as large
+need the same opening at every outdoor temperature. In the benchmark, a
+configured value without the matching radiator size hurt rooms on a
+heat pump (S39 and S40: mean deviation 0.108 vs 0.044 K, valve travel
+2928 vs 787 %/day). With the radiator size derived from it, it scored
+the same as the default and lost the gain it had on undersized
+radiators (S29, S33). A live sensor lowered the mean deviation by
+0.016 K and the valve travel by about 45 %, and only with the matching
+radiator size. The hot water pauses in S40 cost every controller the
+same, the oracle included. To revisit, run
+`uv run python -m tests.benchmark.runner --controller mpc_v2 --controller mpc_v2+flow_temperature --scenario S29_heatpump_steady_state --scenario S33_ufh_asymmetric --scenario S39_heat_pump_heating_curve --scenario S40_heat_pump_hot_water`.
+The benchmark does not run the re-identification yet, so how much of
+the radiator size *Auto* learns in operation is not measured.
+
 ## Chosen constants
 
 | Value | What | The two pressures | Anchor / revisit trigger |

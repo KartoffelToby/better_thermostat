@@ -11,8 +11,6 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
-from homeassistant.const import UnitOfTemperature
-from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
@@ -59,7 +57,6 @@ from custom_components.better_thermostat.utils.calibration.pid import (
 )
 from custom_components.better_thermostat.utils.calibration.plant_preset import (
     DEFAULT_FLOW_TEMPERATURE,
-    FLOW_TEMPERATURE_BOUNDS,
 )
 from custom_components.better_thermostat.utils.calibration.state_key import StateKey
 from custom_components.better_thermostat.utils.calibration.strategies import (
@@ -79,7 +76,6 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     sanitize_tpi_state,
 )
 from custom_components.better_thermostat.utils.const import (
-    CONF_MPC_V2_FLOW_TEMPERATURE,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_PROTECT_OVERHEATING,
     CalibrationMode,
@@ -543,35 +539,9 @@ def _build_mpc_v2_reid_key(self: BetterThermostat) -> str:
     return f"{uid}:reid"
 
 
-def _configured_flow_temperature(
-    advanced: Mapping[str, object], system_unit: str
-) -> float:
-    """Return the flow temperature MPC v2 models the room with, in °C.
-
-    The flows store it in the system unit. A thermostat without one, and one
-    whose stored value is not a number inside :data:`FLOW_TEMPERATURE_BOUNDS`,
-    runs on :data:`DEFAULT_FLOW_TEMPERATURE`.
-    """
-    stored = advanced.get(CONF_MPC_V2_FLOW_TEMPERATURE)
-    if not isinstance(stored, int | float | str) or isinstance(stored, bool):
-        return DEFAULT_FLOW_TEMPERATURE
-    try:
-        flow_temperature = float(stored)
-    except ValueError:
-        return DEFAULT_FLOW_TEMPERATURE
-    if system_unit == UnitOfTemperature.FAHRENHEIT:
-        flow_temperature = TemperatureConverter.convert(
-            flow_temperature, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
-        )
-    lower, upper = FLOW_TEMPERATURE_BOUNDS
-    if not lower <= flow_temperature <= upper:
-        return DEFAULT_FLOW_TEMPERATURE
-    return flow_temperature
-
-
-# A stored re-identification result counts as fitted under the configured
-# flow temperature when the two differ by less than this, in kelvin. It
-# absorbs the float error of a unit conversion, not a real change.
+# A stored re-identification result counts as fitted under the flow
+# temperature the plant model uses when the two differ by less than this, in
+# kelvin. It absorbs float error, not a real change.
 _REID_FLOW_TEMPERATURE_TOLERANCE_KELVIN: Final = 0.05
 
 
@@ -588,9 +558,8 @@ def _lookup_mpc_v2_reid(
     Only a result fitted under ``flow_temperature`` (°C) is returned: its
     heater gain carries whatever error the flow temperature of the fit had,
     so under another one it misstates the room. A mismatching result stays
-    stored and applies again if its flow temperature is configured again
-    before the next accepted fit. That fit is stored under ``reid_key`` with
-    the flow temperature configured at the time, so it replaces the result
+    stored until the next accepted fit, which is stored under ``reid_key``
+    with the flow temperature of the plant model, so it replaces the result
     and drops this thermostat's legacy bucket entries.
     """
     state_mgr = self.state_mgr
@@ -878,11 +847,11 @@ def _compute_mpc_v2_balance(
     else:
         mpc_key = build_mpc_key(self, entity_id)
 
-    # In a group all TRVs share one controller state, so the plant preset and
-    # the flow temperature must be group-stable: derive them from a
-    # deterministic representative (first TRV by entity_id) rather than
-    # whichever TRV is currently being dispatched, otherwise mixed per-TRV
-    # settings re-parameterize the shared controller.
+    # In a group all TRVs share one controller state, so the plant preset must
+    # be group-stable: derive it from a deterministic representative (first
+    # TRV by entity_id) rather than whichever TRV is currently being
+    # dispatched, otherwise mixed per-TRV settings re-parameterize the shared
+    # controller.
     preset_source_id = min(self.real_trvs) if is_multi_trv else entity_id
     advanced = self.real_trvs[preset_source_id].advanced
     preset_raw = advanced.get(CONF_MPC_V2_PLANT_PRESET, MpcV2PlantPreset.AUTO)
@@ -890,19 +859,13 @@ def _compute_mpc_v2_balance(
         preset = MpcV2PlantPreset(preset_raw)
     except ValueError:
         preset = MpcV2PlantPreset.AUTO
-    flow_temperature = _configured_flow_temperature(
-        advanced,
-        self.hass.config.units.temperature_unit
-        if self.hass is not None
-        else UnitOfTemperature.CELSIUS,
-    )
 
     # Plant-prior resolution: an explicit preset always wins; under AUTO a
     # validated offline re-identification result beats the heat-loss
     # heuristic, which remains the fallback until the first accepted fit.
     reid_key = _build_mpc_v2_reid_key(self)
     reid_result = (
-        _lookup_mpc_v2_reid(self, reid_key, mpc_key, flow_temperature)
+        _lookup_mpc_v2_reid(self, reid_key, mpc_key, DEFAULT_FLOW_TEMPERATURE)
         if preset == MpcV2PlantPreset.AUTO
         else None
     )
@@ -910,16 +873,12 @@ def _compute_mpc_v2_balance(
         plant_prior = PlantParams(
             tau_room_min=reid_result.tau_room_minutes,
             gain_heater=reid_result.gain_heater,
-            T_water=flow_temperature,
         )
     else:
-        plant_prior = replace(
-            make_plant_prior(
-                heating_power=self.heating_power,
-                heat_loss_rate=self.heat_loss_rate,
-                preset=preset,
-            ),
-            T_water=flow_temperature,
+        plant_prior = make_plant_prior(
+            heating_power=self.heating_power,
+            heat_loss_rate=self.heat_loss_rate,
+            preset=preset,
         )
     v2_params = MpcV2Params(plant=plant_prior)
 

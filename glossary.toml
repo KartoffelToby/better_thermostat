@@ -124,7 +124,7 @@ rejected = ["outdoor_temp", "outdoor_temp_C"]
 [[term]]
 name = "flow_temperature"
 zone = "B"
-definition = "Temperature of the heating water flowing to the radiators, which MPC v2 models the room with. Stored in the system unit as `mpc_v2_flow_temperature`, °C everywhere else; the control-theory notation writes it `T_water`."
+definition = "Temperature of the heating water flowing to the radiators, which MPC v2 models the room with, in °C; the control-theory notation writes it `T_water`."
 rejected = ["supply_temperature", "water_temperature", "supply_water_temperature"]
 
 [[term]]

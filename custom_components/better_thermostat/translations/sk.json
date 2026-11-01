@@ -8,7 +8,7 @@
           "name": "Názov",
           "thermostat": "Skutočný termostat",
           "cooler": "Chladiace zariadenie (voliteľné)",
-          "temperature_sensor": "Snímač teploty",
+          "temperature_sensor": "Snímač izbovej teploty",
           "humidity_sensor": "Snímač vlhkosti",
           "window_sensors": "Snímač okna",
           "door_sensors": "Snímač dverí",
@@ -18,7 +18,7 @@
           "window_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorenom okne",
           "door_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení dverí",
           "door_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorených dverách",
-          "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
+          "outdoor_sensor": "Snímač vonkajšej teploty",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
           "availability_guard": "Strážca dostupnosti",
           "availability_guard_grace_seconds": "Ochranná lehota po zapnutí strážcu dostupnosti",
@@ -62,8 +62,7 @@
           "calibration": "Typ kalibrácie",
           "calibration_mode": "Režim kalibrácie",
           "no_off_system_mode": "Použiť minimálnu teplotu namiesto 'vypnuté'",
-          "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti",
-          "mpc_v2_flow_temperature": "MPC v2 teplota prívodu"
+          "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti"
         },
         "data_description": {
           "protect_overheating": "Niektoré termostatické ventily úplne neuzatvoria ventil po dosiahnutí požadovanej teploty. Alebo má radiátor veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
@@ -74,8 +73,7 @@
           "calibration": "Ako sa kalibrácia použije na TRV\n***Podľa cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Podľa posunu***: Použite kalibráciu na posun teploty. Ponúka sa len vtedy, keď má TRV zapisovateľný posun teploty.\n***Priame ovládanie ventilu***: Nastavte otvorenie ventilu priamo. Ponúka sa len vtedy, keď má TRV zapisovateľnú polohu ventilu. Režimy kalibrácie, ktoré nevypočítajú otvorenie ventilu, namiesto toho posielajú cieľovú teplotu.",
           "calibration_mode": "Ako sa kalibrácia vypočíta\n***AI podľa času (predvolené)***: Postupne sa učí vykurovací výkon miestnosti a odvodí z neho kalibráciu.\n***Iba posun externého snímača***: Opraví interný snímač TRV podľa vášho externého snímača teploty. Navyše nebeží žiadny regulátor.\n***Prediktívne MPC (beta)***: Predpovedá teplotu v miestnosti a vypočíta z nej otvorenie ventilu. Učí sa tepelné správanie miestnosti.\n***(AI) MPC v2 (QP + Kalman, experimentálne)***: Odhaduje stav miestnosti Kalmanovým filtrom a vypočíta otvorenie ventilu modelovým prediktívnym regulátorom. Nastavenie MPC v2 veľkosť miestnosti vyberá model miestnosti: naučený z miestnosti (Automaticky) alebo pevný pre veľkosť miestnosti (malá, stredná, veľká).\n***Agresívne***: Pridá ku kalibrácii navýšenie, kým sa miestnosť vykuruje, a preskočí oneskorenie tolerancie, aby TRV začal kúriť skôr. Užitočné, ak sa miestnosť ohrieva pomaly.\n***Regulátor TPI***: Vypočíta dobu zopnutia vykurovacích cyklov z rozdielu teplôt.\n***Regulátor PID***: Vypočíta otvorenie ventilu z odchýlky teploty pomocou proporcionálnej, integračnej a derivačnej zložky.\n***Bez kalibrácie***: Pošle cieľovú teplotu do TRV bez zmeny a nepoužije žiadnu korekciu.",
           "no_off_system_mode": "S touto možnosťou Better Thermostat posiela TRV jeho minimálnu teplotu namiesto 'vypnuté'. TRV, ktorý hlási svoju minimálnu teplotu, sa považuje za vypnutý: keď sú všetky TRV v miestnosti vypnuté, miestnosť sa vypne, a otočenie gombíka nahor ju znova zapne. Počíta sa aj otočenie pri otvorenom okne alebo dverách; kúrenie potom čaká, kým nie sú všetky okná a dvere zatvorené. TRV bez režimu vypnutia dostane svoju minimálnu teplotu aj bez tejto možnosti. Zapnite ju pre TRV, ktorého režim vypnutia nefunguje, alebo pre TRV bez režimu vypnutia, ktorého gombík má zapínať a vypínať Better Thermostat.",
-          "mpc_v2_plant_preset": "Používa sa iba v režime kalibrácie MPC v2.\n***Automaticky***: Odvodí model miestnosti z toho, čo sa Better Thermostat o miestnosti naučil, napríklad z miery jej tepelných strát.\n***Malá, stredná alebo veľká miestnosť***: Začína s pevným modelom miestnosti pre túto veľkosť.",
-          "mpc_v2_flow_temperature": "Používa sa iba v režime kalibrácie MPC v2. Teplota vykurovacej vody, ktorá prúdi k radiátorom. Pre kotol s pevnou vykurovacou krivkou ponechajte 65 °C (149 °F). Pre tepelné čerpadlo alebo ekvitermicky riadený kotol zadajte typickú hodnotu vykurovacej sezóny, napríklad 35 až 45 °C (95 až 113 °F). Po zmene sa MPC v2 znova naučí model miestnosti pri novej hodnote."
+          "mpc_v2_plant_preset": "Používa sa iba v režime kalibrácie MPC v2.\n***Automaticky***: Odvodí model miestnosti z toho, čo sa Better Thermostat o miestnosti naučil, napríklad z miery jej tepelných strát.\n***Malá, stredná alebo veľká miestnosť***: Začína s pevným modelom miestnosti pre túto veľkosť."
         }
       },
       "confirm": {
@@ -110,7 +108,7 @@
         "data": {
           "name": "Názov",
           "thermostat": "Reálny thermostat",
-          "temperature_sensor": "Snímač teploty",
+          "temperature_sensor": "Snímač izbovej teploty",
           "humidity_sensor": "Snímač vlhkosti",
           "window_sensors": "Snímač okna",
           "door_sensors": "Snímač dverí",
@@ -120,7 +118,7 @@
           "window_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorenom okne",
           "door_off_delay": "Oneskorenie pred vypnutím termostatu pri otvorení dverí",
           "door_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorených dverách",
-          "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
+          "outdoor_sensor": "Snímač vonkajšej teploty",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
           "availability_guard": "Strážca dostupnosti",
           "availability_guard_grace_seconds": "Ochranná lehota po zapnutí strážcu dostupnosti",
@@ -165,8 +163,7 @@
           "calibration": "Druh kalibrácie, ktorý chcete použiť",
           "calibration_mode": "Režim kalibrácie",
           "no_off_system_mode": "Použiť minimálnu teplotu namiesto 'vypnuté'",
-          "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti",
-          "mpc_v2_flow_temperature": "MPC v2 teplota prívodu"
+          "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti"
         },
         "data_description": {
           "protect_overheating": "Niektoré TRV nezatvárajú ventil úplne, keď sa dosiahne požadovaná teplota. Alebo je v radiátore veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
@@ -177,8 +174,7 @@
           "calibration": "Ako sa kalibrácia použije na TRV\n***Podľa cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Podľa posunu***: Použite kalibráciu na posun teploty. Ponúka sa len vtedy, keď má TRV zapisovateľný posun teploty.\n***Priame ovládanie ventilu***: Nastavte otvorenie ventilu priamo. Ponúka sa len vtedy, keď má TRV zapisovateľnú polohu ventilu. Režimy kalibrácie, ktoré nevypočítajú otvorenie ventilu, namiesto toho posielajú cieľovú teplotu.",
           "calibration_mode": "Ako sa kalibrácia vypočíta\n***AI podľa času (predvolené)***: Postupne sa učí vykurovací výkon miestnosti a odvodí z neho kalibráciu.\n***Iba posun externého snímača***: Opraví interný snímač TRV podľa vášho externého snímača teploty. Navyše nebeží žiadny regulátor.\n***Prediktívne MPC (beta)***: Predpovedá teplotu v miestnosti a vypočíta z nej otvorenie ventilu. Učí sa tepelné správanie miestnosti.\n***(AI) MPC v2 (QP + Kalman, experimentálne)***: Odhaduje stav miestnosti Kalmanovým filtrom a vypočíta otvorenie ventilu modelovým prediktívnym regulátorom. Nastavenie MPC v2 veľkosť miestnosti vyberá model miestnosti: naučený z miestnosti (Automaticky) alebo pevný pre veľkosť miestnosti (malá, stredná, veľká).\n***Agresívne***: Pridá ku kalibrácii navýšenie, kým sa miestnosť vykuruje, a preskočí oneskorenie tolerancie, aby TRV začal kúriť skôr. Užitočné, ak sa miestnosť ohrieva pomaly.\n***Regulátor TPI***: Vypočíta dobu zopnutia vykurovacích cyklov z rozdielu teplôt.\n***Regulátor PID***: Vypočíta otvorenie ventilu z odchýlky teploty pomocou proporcionálnej, integračnej a derivačnej zložky.\n***Bez kalibrácie***: Pošle cieľovú teplotu do TRV bez zmeny a nepoužije žiadnu korekciu.",
           "no_off_system_mode": "S touto možnosťou Better Thermostat posiela TRV jeho minimálnu teplotu namiesto 'vypnuté'. TRV, ktorý hlási svoju minimálnu teplotu, sa považuje za vypnutý: keď sú všetky TRV v miestnosti vypnuté, miestnosť sa vypne, a otočenie gombíka nahor ju znova zapne. Počíta sa aj otočenie pri otvorenom okne alebo dverách; kúrenie potom čaká, kým nie sú všetky okná a dvere zatvorené. TRV bez režimu vypnutia dostane svoju minimálnu teplotu aj bez tejto možnosti. Zapnite ju pre TRV, ktorého režim vypnutia nefunguje, alebo pre TRV bez režimu vypnutia, ktorého gombík má zapínať a vypínať Better Thermostat.",
-          "mpc_v2_plant_preset": "Používa sa iba v režime kalibrácie MPC v2.\n***Automaticky***: Odvodí model miestnosti z toho, čo sa Better Thermostat o miestnosti naučil, napríklad z miery jej tepelných strát.\n***Malá, stredná alebo veľká miestnosť***: Začína s pevným modelom miestnosti pre túto veľkosť.",
-          "mpc_v2_flow_temperature": "Používa sa iba v režime kalibrácie MPC v2. Teplota vykurovacej vody, ktorá prúdi k radiátorom. Pre kotol s pevnou vykurovacou krivkou ponechajte 65 °C (149 °F). Pre tepelné čerpadlo alebo ekvitermicky riadený kotol zadajte typickú hodnotu vykurovacej sezóny, napríklad 35 až 45 °C (95 až 113 °F). Po zmene sa MPC v2 znova naučí model miestnosti pri novej hodnote."
+          "mpc_v2_plant_preset": "Používa sa iba v režime kalibrácie MPC v2.\n***Automaticky***: Odvodí model miestnosti z toho, čo sa Better Thermostat o miestnosti naučil, napríklad z miery jej tepelných strát.\n***Malá, stredná alebo veľká miestnosť***: Začína s pevným modelom miestnosti pre túto veľkosť."
         }
       }
     },

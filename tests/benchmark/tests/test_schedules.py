@@ -216,3 +216,50 @@ def test_solar_trapezoid_rejects_unordered_edges():
     """Zero-width or misordered edges are rejected (no divide-by-zero)."""
     with pytest.raises(ValueError):
         schedules.solar_trapezoid(100.0, 100.0, 200.0, 300.0)  # zero-width rise
+
+
+def test_heating_curve_rises_as_the_outdoor_temperature_falls():
+    """The flow rises by the slope per kelvin of frost and stays in its bounds."""
+    outdoor = {0.0: 21.0, 1.0: 1.0, 2.0: -40.0, 3.0: 30.0}
+    f = schedules.heating_curve(
+        outdoor.__getitem__, slope=0.5, minimum=25.0, maximum=45.0
+    )
+    assert f(1.0) == pytest.approx(31.0)
+    assert f(0.0) == 25.0
+    assert f(3.0) == 25.0
+    assert f(2.0) == 45.0
+
+
+@pytest.mark.parametrize(
+    ("slope", "minimum", "maximum"), [(-0.1, 25.0, 45.0), (0.5, 50.0, 45.0)]
+)
+def test_heating_curve_rejects_a_falling_or_empty_curve(slope, minimum, maximum):
+    """A negative slope or an empty range is a configuration error."""
+    with pytest.raises(ValueError):
+        schedules.heating_curve(
+            lambda t: 0.0, slope=slope, minimum=minimum, maximum=maximum
+        )
+
+
+def test_daily_interruptions_repeat_every_day_and_cross_midnight():
+    """Each start hour opens one interruption a day, also past midnight."""
+    f = schedules.daily_interruptions((6.0, 23.5), duration_min=60.0)
+    hour = 3600.0
+    for day in (0, 3):
+        base = day * 24 * hour
+        assert f(base + 5.99 * hour)
+        assert not f(base + 6.0 * hour)
+        assert not f(base + 6.99 * hour)
+        assert f(base + 7.0 * hour)
+        assert not f(base + 23.75 * hour)
+        assert not f(base + 24.25 * hour)
+        assert f(base + 24.5 * hour)
+
+
+@pytest.mark.parametrize(
+    ("start_hours", "duration_min"), [((24.0,), 30.0), ((6.0,), 0.0), ((6.0,), 1440.0)]
+)
+def test_daily_interruptions_reject_out_of_range_input(start_hours, duration_min):
+    """Start hours outside the day and empty or all-day interruptions are errors."""
+    with pytest.raises(ValueError):
+        schedules.daily_interruptions(start_hours, duration_min)
