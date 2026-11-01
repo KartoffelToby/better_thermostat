@@ -15,6 +15,13 @@ internal temperature reading, and unavailable optional sensors are
 simply left out of the control decisions. Expect less accurate control
 until all sensors are back.
 
+TRVs that regulate on a room temperature Better Thermostat writes into
+them, such as the Sonoff TRVZB, stop receiving it while the room sensor
+gives no reading. Better Thermostat does not keep sending the sensor's last
+value, so the TRV falls back to its own sensor after its own timeout (two
+hours on a TRVZB). Once the sensor reports again, its reading is written
+to the TRV.
+
 During Home Assistant startup, sensors are often briefly unavailable
 while their integrations load. Better Thermostat waits out a grace
 period before raising the issue, so a warning means a sensor stayed

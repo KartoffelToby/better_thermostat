@@ -1169,6 +1169,13 @@ class TestArrivalOrder:
 class TestKeepaliveTick:
     """The periodic re-send shares its turn with the readings."""
 
+    @pytest.fixture(autouse=True)
+    def _room_sensor_reads(self, mock_bt):
+        """The tick only re-sends while the room sensor gives a reading."""
+        mock_bt.hass.states.get = MagicMock(
+            return_value=State(SENSOR_ID, "20.0", {"unit_of_measurement": "°C"})
+        )
+
     @pytest.mark.asyncio
     async def test_the_tick_does_not_write_over_a_reading_it_overlapped(self, mock_bt):
         """A tick left standing between two TRVs must not undo an update.
