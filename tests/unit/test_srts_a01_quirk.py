@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Callable
 from datetime import datetime
 import importlib
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import Event, EventStateChangedData, State
@@ -358,16 +358,28 @@ class TestSelectorKeeping:
 
         assert _payloads(mock_self) == [_to_external(), _write(21.3)]
 
+    @pytest.mark.parametrize(
+        "unset",
+        [
+            PropertyMock(return_value=None),
+            PropertyMock(
+                side_effect=RuntimeError("room temperature read before startup set it")
+            ),
+        ],
+        ids=["host_answers_none", "thermostat_raises"],
+    )
     async def test_back_on_optimal_without_a_room_temperature_writes_none(
-        self, monkeypatch
+        self, monkeypatch, unset
     ):
-        """A thermostat with no temperature yet only has the selector moved."""
+        """A thermostat with no temperature yet only has the selector moved.
+
+        The host contract allows ``None`` for it; Better Thermostat's own
+        property raises on a read before startup has set it.
+        """
         mock_self = _make_self(
-            monkeypatch,
-            selected="internal",
-            mode=ControlMode.SENSOR_FALLBACK,
-            room=None,
+            monkeypatch, selected="internal", mode=ControlMode.SENSOR_FALLBACK
         )
+        type(mock_self).room_temperature = unset
         quirk._watch_selector(mock_self, TRV)
 
         await _step(mock_self, ControlMode.OPTIMAL)

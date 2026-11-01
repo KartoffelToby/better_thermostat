@@ -414,7 +414,12 @@ async def _keep_selector_once(self: ModelFixHost, entity_id: str) -> None:
         confirmed = await _keep_selector(self, entity_id)
         if confirmed != _EXTERNAL_SENSOR_OPTION:
             return
-        reading = self.room_temperature
+        try:
+            reading = self.room_temperature
+        except RuntimeError:
+            # Startup has set no room temperature yet; its first reading
+            # is written with the next write.
+            return
         target = _input_number(self, entity_id)
         if reading is not None and target is not None:
             await _write_input(self, entity_id, target, reading)
