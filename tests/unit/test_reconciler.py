@@ -824,6 +824,53 @@ class TestValveWriteBudget:
         set_valve.assert_called_once()
 
 
+class TestAClosedValveReportedOpen:
+    """A closed valve is not written again unless the device reports it open."""
+
+    async def _close(self, valve_position, percent=0, answered=False):
+        bt = _control_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.last_valve_percent = percent
+        trv.valve_position = valve_position
+        trv.valve_report_answered = answered
+        with (
+            patch(f"{_CTRL}.convert_outbound_states") as conv,
+            patch(
+                f"{_CTRL}._get_valve_control",
+                return_value=({"valve_percent": percent}, "hvac_off"),
+            ),
+            patch(f"{_CTRL}.set_valve", autospec=True, return_value=True) as set_valve,
+            patch(f"{_CTRL}.set_hvac_mode", autospec=True),
+            patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            conv.return_value = {"system_mode": HVACMode.OFF}
+            await control_trv(bt, "climate.trv")
+        return [call.args[2] for call in set_valve.await_args_list]
+
+    @pytest.mark.parametrize("valve_position", [60.0, 0.6])
+    @pytest.mark.asyncio
+    async def test_a_valve_reported_open_again_is_closed_again(self, valve_position):
+        """The position is a percentage on some devices and a fraction on others."""
+        assert await self._close(valve_position) == [0]
+
+    @pytest.mark.parametrize("valve_position", [None, 0.0])
+    @pytest.mark.asyncio
+    async def test_a_valve_reported_closed_is_not_written_again(self, valve_position):
+        """The device agrees or reports nothing: no write."""
+        assert await self._close(valve_position) == []
+
+    @pytest.mark.asyncio
+    async def test_a_report_already_answered_is_not_closed_again(self):
+        """The cached position stays open until the device reports again."""
+        assert await self._close(60.0, answered=True) == []
+
+    @pytest.mark.asyncio
+    async def test_an_open_valve_at_its_target_is_not_written_again(self):
+        """Only a closed valve is held against the report; 50 % is not rewritten."""
+        assert await self._close(0.5, percent=50) == []
+
+
 class TestReconcileOnADualRoleEntity:
     """A device named as both a controlled thermostat and the cooler.
 
