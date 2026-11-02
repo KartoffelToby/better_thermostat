@@ -12,9 +12,9 @@ boot sets the thermostat up from a stored config entry, with a
 temperature, and an automation that changes the target. The second boot runs
 without that automation. Each boot fails when Home Assistant does not start,
 when it logs an error or a deprecation report for Better Thermostat, or when
-the thermostat's entity was not live when Home Assistant stopped. The second
-boot also fails when the thermostat comes up without the target the first
-boot set.
+the thermostat's entity was not live when Home Assistant stopped, or when it
+did not hold the target the automation set: the first boot checks that the
+change took, the second that it survived the restart.
 
 Only the standard library is used, so the script runs without the project
 environment::
@@ -287,10 +287,11 @@ def _check_boot(config_dir: Path, boot: Boot, started: bool) -> list[str]:
     elif state["state"] in ("unavailable", "unknown"):
         problems.append(f"{THERMOSTAT_ENTITY} ended {state['state']}")
     target = state["attributes"].get("temperature")
-    if boot.number == 2 and target != TARGET_SET_ON_FIRST_BOOT:
+    if target != TARGET_SET_ON_FIRST_BOOT:
+        held = "was not set to" if boot.number == 1 else "did not come back up with"
         problems.append(
-            f"{THERMOSTAT_ENTITY} came up with target {target}, "
-            f"not the {TARGET_SET_ON_FIRST_BOOT} the first boot set"
+            f"{THERMOSTAT_ENTITY} {held} the target {TARGET_SET_ON_FIRST_BOOT}: "
+            f"it held {target}"
         )
     return problems
 
