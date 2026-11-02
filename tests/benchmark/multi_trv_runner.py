@@ -2,19 +2,15 @@
 
 Wraps :class:`MultiTrvPlant` with the same simulation loop that
 :func:`runner.run_scenario` uses for single-TRV plants, but with one
-extra step: the controller's u_total is distributed across the parallel
-radiators via BT's production ``distribute_valve_percent`` heuristic.
+extra step: the controller's u_total goes to every parallel radiator
+unchanged, as BT sends a group's command to each of its TRVs.
 
-This way the simulator measures how a single-output controller plus
-BT's distribution logic combine — which is the actual production
-behaviour, not an idealised perfect-allocation scenario.
+This way the simulator measures how a single-output controller drives
+radiators that differ in size, coupling and actuator, which is the actual
+production behaviour, not an idealised perfect-allocation scenario.
 """
 
 from __future__ import annotations
-
-from custom_components.better_thermostat.utils.calibration.mpc import (
-    distribute_valve_percent,
-)
 
 from .adapters.base import BenchmarkContext, ControllerAdapter
 from .adapters.baselines import IdealOracleAdapter
@@ -71,7 +67,7 @@ def _stabilise_multi_trv(
 
     The oracle is parametrised with the *equivalent* single-TRV plant
     (sum of gains, coupling) so its steady-state inversion is reasonable.
-    The distribution heuristic is applied so all radiators warm together.
+    Every radiator gets the oracle's command, as in the scenario itself.
     """
     if stabilisation_min <= 0.0:
         return
@@ -96,8 +92,8 @@ def _stabilise_multi_trv(
         )
         out = oracle.step(ctx)
         u_total = (out.valve_percent or 0.0) / 100.0
-        # Even pre-warm uses distribute_valve_percent so the radiator
-        # state diverges naturally with the sensor offsets.
+        # Even pre-warm splits the way the scenario does, so the radiator
+        # state diverges naturally with the radiators' gains and couplings.
         u_per_trv = _distribute(u_total * 100.0, plant)
         plant.step(
             step_s,
@@ -109,12 +105,9 @@ def _stabilise_multi_trv(
 
 
 def _distribute(u_total_percent: float, plant: MultiTrvPlant) -> list[float]:
-    """Call BT's distribute_valve_percent and return per-radiator u in [0,1]."""
-    trv_temps: dict[str, float | None] = {
-        f"trv_{i}": t for i, t in enumerate(plant.reported_trv_temps())
-    }
-    distribution = distribute_valve_percent(u_total_percent, trv_temps)
-    return [distribution[f"trv_{i}"] / 100.0 for i in range(plant.params.n_trvs)]
+    """Return the group command as every radiator's u in [0,1]."""
+    u = max(0.0, min(100.0, u_total_percent)) / 100.0
+    return [u] * plant.params.n_trvs
 
 
 class _MultiTrvFacade:
@@ -164,7 +157,7 @@ def run_multi_trv_scenario(
     step_s: float = 30.0,
     stabilisation_min: float = 60.0,
 ) -> ScenarioResult:
-    """Run a scenario against a multi-TRV plant with BT's distribute_valve_percent."""
+    """Run a scenario against a multi-TRV plant that gives every radiator u_total."""
     if step_s <= 0.0:
         raise ValueError("step_s must be > 0")
     plant = MultiTrvPlant(plant_params, initial_state)

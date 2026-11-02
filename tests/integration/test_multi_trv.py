@@ -52,9 +52,6 @@ from custom_components.better_thermostat.model_fixes import (
     ZWA021,
     default as default_quirks,
 )
-from custom_components.better_thermostat.utils.calibration.mpc import (
-    DISTRIBUTE_COMPENSATION_PCT_PER_K,
-)
 from custom_components.better_thermostat.utils.controlling import reconcile_tick
 from custom_components.better_thermostat.utils.helpers import entry_issue_id
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
@@ -597,28 +594,26 @@ async def test_a_head_the_registry_cannot_name_keeps_its_own_configured_model(
 
 
 @pytest.mark.parametrize("trv_group", [VALVE_GROUP], indirect=True, ids=profile_id)
-async def test_the_colder_head_of_a_valve_group_is_opened_further(hass, trv_group):
-    """One room-level valve command reaches the heads as two openings.
+async def test_every_head_of_a_valve_group_gets_the_rooms_opening(hass, trv_group):
+    """One room-level valve command reaches every head as the same opening.
 
     The heads of a room do not sit in the same air: one is by the window and
-    reads colder than the other. The controller computes a single opening for
-    the room, and splitting it means the colder head opens further while the
-    warmest gets the room's figure unchanged — which is the only thing that
-    makes the difference between the two openings mean anything.
+    reads colder than the other. Their readings are taken at the radiator and
+    say more about that radiator than about the room, so the controller's
+    single opening for the room goes to each head as it is.
 
-    The target is barely above the room, because the split is an addition on
-    top of the room's opening: a room that calls for everything the heads have
-    puts both of them at fully open, where no difference can show.
+    The target is barely above the room, so the opening sits off both stops
+    and a difference between the heads would show.
     """
     warm_head, cold_head = trv_group.entities
+    assert (
+        warm_head.profile.current_temperature != cold_head.profile.current_temperature
+    )
     set_room_sensor(hass, 19.5)
     entry = make_entry(trv_group.scenario)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
     warm_valve, cold_valve = warm_head.valve_number, cold_head.valve_number
-    expected_extra = DISTRIBUTE_COMPENSATION_PCT_PER_K * (
-        warm_head.profile.current_temperature - cold_head.profile.current_temperature
-    )
 
     with patch(WRITE_BUDGET, 0.0):
         await hass.services.async_call(
@@ -637,16 +632,12 @@ async def test_the_colder_head_of_a_valve_group_is_opened_further(hass, trv_grou
 
     opened_warm = warm_valve.set_value_calls[-1]
     opened_cold = cold_valve.set_value_calls[-1]
-    # Both ends of the split have to be off their stops for the difference to
-    # be the compensation rather than a clamp.
     assert 0.0 < opened_warm < 100.0
-    assert opened_cold < 100.0
-    assert opened_cold - opened_warm == pytest.approx(expected_extra, abs=1.0)
+    assert opened_cold == pytest.approx(opened_warm, abs=1.0)
     cold_valve_percent = bt.real_trvs[cold_head.entity_id].last_valve_percent
     warm_valve_percent = bt.real_trvs[warm_head.entity_id].last_valve_percent
     assert cold_valve_percent is not None
-    assert warm_valve_percent is not None
-    assert cold_valve_percent > warm_valve_percent
+    assert cold_valve_percent == warm_valve_percent
 
 
 DOOR_ID = "binary_sensor.door"
