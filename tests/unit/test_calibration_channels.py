@@ -227,6 +227,23 @@ def test_the_setpoint_channel_holds_an_open_valve_at_the_target_below_it():
     assert setpoint == pytest.approx(21.0)
 
 
+def test_the_setpoint_channel_closes_a_valve_its_max_opening_shuts():
+    """A max opening of 0 % keeps the TRV from heating on its own reading too."""
+    bt = _make_bt(
+        CalibrationMode.TPI_CALIBRATION,
+        room_temperature=19.0,
+        heat_target_temperature=21.0,
+        trv_temperature=23.0,
+    )
+    bt.real_trvs[ENTITY_ID].valve_max_opening = 0.0
+
+    with _controller_reports(40.0, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint is not None
+    assert setpoint < 23.0
+
+
 def test_the_setpoint_channel_leads_an_open_valve_by_at_least_one_trv_step():
     """A TRV on whole degrees gets its setpoint one full step above its reading."""
     bt = _make_bt(

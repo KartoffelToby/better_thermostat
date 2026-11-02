@@ -1592,7 +1592,12 @@ def calculate_calibration_setpoint(
 
     if traits.balance is not None:
         if _use_valve and _percent is not None:
-            if float(_percent) == 0.0:
+            # The TRV's max opening caps the command after the controller, so
+            # a cap of 0 % closes a valve the controller wants open.
+            _effective_percent = max(
+                0.0, min(float(_percent), _get_trv_max_opening(self, entity_id))
+            )
+            if _effective_percent == 0.0:
                 # Valve closed: push setpoint below TRV's own temperature so it doesn't
                 # heat by itself even though direct valve control already sent 0%.
                 _setpoint_drop = _compute_zero_open_offset(
