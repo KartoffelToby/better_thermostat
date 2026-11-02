@@ -54,6 +54,7 @@ def _full() -> dict[str, object]:
                     "valve_maintenance": True,
                     "child_lock": False,
                     "homematicip": False,
+                    "keep_sensor_selection": True,
                     "balance_mode": "none",
                 },
             }
@@ -78,6 +79,7 @@ def _full() -> dict[str, object]:
         "target_temp_max": "auto",
         "target_temp_step": "0.5",
         "presets": ["eco", "comfort"],
+        "distribute_valve_by_trv_temperature": True,
     }
 
 
@@ -169,6 +171,23 @@ def test_a_flag_stored_as_another_type_reads_as_the_options_flow_saves_it(stored
     advanced = parsed["thermostat"][0]["advanced"]
     assert advanced == {"child_lock": read, "valve_maintenance": read}
     assert advanced["child_lock"] is as_bool(stored)
+
+
+@pytest.mark.parametrize(
+    ("stored", "read"), [("false", False), (" On ", True), (1, True), (0, False)]
+)
+def test_the_group_split_flag_reads_as_the_options_flow_saves_it(stored, read):
+    raw = _minimal() | {const.CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE: stored}
+
+    parsed = parse_settings(raw)
+
+    assert parsed.get("distribute_valve_by_trv_temperature") is read
+
+
+def test_the_group_split_flag_stored_as_none_is_left_out():
+    raw = _minimal() | {const.CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE: None}
+
+    assert "distribute_valve_by_trv_temperature" not in parse_settings(raw)
 
 
 def test_a_flag_stored_as_none_is_left_out_so_each_reader_keeps_its_default():
@@ -275,6 +294,7 @@ def test_the_described_keys_are_the_ones_the_constants_hold():
         const.CONF_TARGET_TEMP_MAX,
         const.CONF_TARGET_TEMP_STEP,
         const.CONF_PRESETS,
+        const.CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE,
     }
     assert TrvSettings.__required_keys__ == {"trv", const.CONF_INTEGRATION}
     assert TrvSettings.__optional_keys__ == {const.CONF_MODEL, "advanced"}
@@ -289,6 +309,7 @@ def test_the_described_keys_are_the_ones_the_constants_hold():
         const.CONF_VALVE_MAINTENANCE,
         const.CONF_CHILD_LOCK,
         const.CONF_HOMEMATICIP,
+        const.CONF_KEEP_SENSOR_SELECTION,
         "balance_mode",
     }
 
