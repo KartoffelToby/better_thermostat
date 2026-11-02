@@ -226,11 +226,12 @@ With direct valve control, Better Thermostat can:
 
 ### Devices that support it
 
-Direct valve control is available for TRVs that expose valve position as a controllable entity, and for models with a valve control built into Better Thermostat, including:
+Direct valve control is available for TRVs that expose their valve position as a writable entity, and for the models marked *built-in* below, whose valve control is part of Better Thermostat:
 
-- **Sonoff TRVZB** (via Zigbee2MQTT or ZHA)
+- **Sonoff TRVZB** (via Zigbee2MQTT or ZHA), *built-in*: Better Thermostat writes the opening and closing degree the TRV exposes
 - **TRVs exposed via MQTT** with valve position entities
-- **Z-Wave JS TRVs** that expose a valve position entity, and the Eurotronic Spirit Z / Aeotec ZWA021
+- **Z-Wave JS TRVs** that expose a valve position entity
+- **Eurotronic Spirit Z / Aeotec ZWA021** (Z-Wave JS), *built-in*: Better Thermostat drives the valve through the Multilevel Switch command class
 - **Other Zigbee TRVs** that expose valve control through their integration
 
 Better Thermostat detects whether your TRV supports direct valve control and then offers the **Direct Valve Based** calibration type. It only writes the valve when you select that type.
