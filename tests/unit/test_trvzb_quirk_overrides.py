@@ -5,6 +5,7 @@ import contextlib
 import importlib
 from unittest.mock import AsyncMock, MagicMock, create_autospec
 
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
@@ -1411,3 +1412,156 @@ def test_a_trv_the_thermostat_does_not_hold_has_no_valve_readings():
     mock_self = _make_self()
     mock_self.real_trvs = dict[str, Trv]()
     assert quirk.valve_readings(mock_self, ENTITY, 30) == []
+
+
+ZHA_INPUT = "number.trv1_external_temperature_sensor_value"
+ZHA_SWITCH = "switch.trv1_external_temperature_sensor"
+
+
+def _make_zha_self(monkeypatch, switch_state, *, extra=(), room_sensor=None):
+    """A BT stand-in whose TRVZB is paired through ZHA.
+
+    ZHA names the input ``external_temperature_sensor_value`` and offers the
+    sensor choice as the ``external_temperature_sensor`` switch. Each entity
+    reports its own state; ``switch_state`` is the switch's, ``None`` for a
+    switch that publishes none.
+    """
+    entries = [
+        _registry_entry("climate.trv1"),
+        _registry_entry(ZHA_INPUT, translation_key="external_temperature_sensor_value"),
+        _registry_entry(ZHA_SWITCH, translation_key="external_temperature_sensor"),
+        *extra,
+    ]
+    if room_sensor is not None:
+        entries.append(room_sensor)
+    mock_self = _make_self()
+    mock_self._registry = make_entity_registry(*entries)
+    states = {ZHA_INPUT: State(ZHA_INPUT, "20.0", {"min": 0.0, "max": 99.9})}
+    if switch_state is not None:
+        states[ZHA_SWITCH] = State(ZHA_SWITCH, switch_state)
+    mock_self.hass.states.get.side_effect = states.get
+    mock_self._states = states
+    if room_sensor is not None:
+        mock_self.sensor_entity_id = room_sensor.entity_id
+    mock_self.real_trvs = {
+        "climate.trv1": trv_record(entity_id="climate.trv1", model="TRVZB")
+    }
+    monkeypatch.setattr(
+        quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+    )
+    return mock_self
+
+
+def _service_calls(mock_self):
+    """Every service call the quirk dispatched, as (domain, service, data)."""
+    return [
+        call.args[:3] for call in mock_self.hass.services.async_call.await_args_list
+    ]
+
+
+class TestATrvzbPairedThroughZha:
+    """ZHA exposes the input and the sensor choice under its own names."""
+
+    @pytest.mark.asyncio
+    async def test_the_room_temperature_reaches_the_input_and_the_switch_is_turned_on(
+        self, monkeypatch
+    ):
+        """The input is found under ZHA's key, and the switch has it read."""
+        mock_self = _make_zha_self(monkeypatch, STATE_OFF)
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.42
+        )
+
+        assert _service_calls(mock_self) == [
+            ("number", "set_value", {"entity_id": ZHA_INPUT, "value": 21.4}),
+            ("switch", "turn_on", {"entity_id": ZHA_SWITCH}),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_switch_already_on_is_left_alone(self, monkeypatch):
+        """Only the value goes out to a device already reading the input."""
+        mock_self = _make_zha_self(monkeypatch, STATE_ON)
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.42
+        )
+
+        assert _service_calls(mock_self) == [
+            ("number", "set_value", {"entity_id": ZHA_INPUT, "value": 21.4})
+        ]
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+    @pytest.mark.parametrize("switch_state", [None, STATE_UNAVAILABLE, STATE_UNKNOWN])
+    @pytest.mark.asyncio
+    async def test_a_switch_not_reporting_is_not_switched(
+        self, monkeypatch, switch_state
+    ):
+        """A device whose switch reports nothing is in no state to take a command."""
+        mock_self = _make_zha_self(monkeypatch, switch_state)
+
+        assert not await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+        assert not await quirk.maybe_select_internal_sensor(mock_self, "climate.trv1")
+
+        assert _service_calls(mock_self) == []
+
+    @pytest.mark.asyncio
+    async def test_a_device_with_a_select_is_switched_through_the_select(
+        self, monkeypatch
+    ):
+        """The switch only stands in for a select the device does not carry."""
+        selector = _registry_entry(
+            "select.trv1_temperature_sensor_select",
+            translation_key="temperature_sensor_select",
+        )
+        mock_self = _make_zha_self(monkeypatch, STATE_OFF, extra=[selector])
+        mock_self._states[selector.entity_id] = State(
+            selector.entity_id, "internal", {"options": ["internal", "external"]}
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _service_calls(mock_self) == [
+            (
+                "select",
+                "select_option",
+                {"entity_id": selector.entity_id, "option": "external"},
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_room_sensor_on_the_trv_itself_turns_the_switch_off(
+        self, monkeypatch
+    ):
+        """A TRV left on its own fed reading regulates on its own sensor again."""
+        mock_self = _make_zha_self(
+            monkeypatch,
+            STATE_ON,
+            room_sensor=_registry_entry("sensor.trv1_temperature"),
+        )
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.4)
+            is False
+        )
+
+        assert _service_calls(mock_self) == [
+            ("switch", "turn_off", {"entity_id": ZHA_SWITCH})
+        ]
+
+    @pytest.mark.parametrize(
+        ("switch_state", "switched"), [(STATE_ON, True), (STATE_OFF, False)]
+    )
+    @pytest.mark.asyncio
+    async def test_turning_back_reports_whether_this_call_switched(
+        self, monkeypatch, switch_state, switched
+    ):
+        """A switch already off takes no command and reports no move."""
+        mock_self = _make_zha_self(monkeypatch, switch_state)
+
+        assert (
+            await quirk.maybe_select_internal_sensor(mock_self, "climate.trv1")
+            is switched
+        )
+
+        assert len(_service_calls(mock_self)) == int(switched)

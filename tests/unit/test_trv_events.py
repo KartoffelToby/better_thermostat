@@ -1183,6 +1183,7 @@ class TestHvacActionAndValvePosition:
         )
         mock_bt.hass.states.get.return_value = trv_state
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+        mock_bt.real_trvs[ENTITY_ID].valve_report_answered = True
 
         with patch(
             "custom_components.better_thermostat.events.trv.convert_inbound_states",
@@ -1191,6 +1192,8 @@ class TestHvacActionAndValvePosition:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.real_trvs[ENTITY_ID].valve_position == 42.0
+        # A fresh report is open to a close again.
+        assert mock_bt.real_trvs[ENTITY_ID].valve_report_answered is False
 
     @pytest.mark.asyncio
     async def test_hvac_action_updated_from_attribute(self, mock_bt):

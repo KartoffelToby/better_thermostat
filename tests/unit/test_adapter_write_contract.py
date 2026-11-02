@@ -265,6 +265,7 @@ class TestAValveQuirkOutranksTheAdapter:
         assert _calls(thermostat) == []
         assert trv.last_valve_percent == 50
         assert trv.last_valve_method == "override"
+        assert trv.valve_report_answered is True
 
     @pytest.mark.parametrize("name", VALVE_ADAPTERS)
     @pytest.mark.asyncio
@@ -281,6 +282,7 @@ class TestAValveQuirkOutranksTheAdapter:
         assert answer is True
         assert len(_calls(thermostat)) == 1
         assert trv.last_valve_method == "adapter"
+        assert trv.valve_report_answered is True
 
 
 # Grids a number entity can publish, including the ones where the step does
