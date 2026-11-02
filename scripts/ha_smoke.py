@@ -229,36 +229,84 @@ def _wait_for_start(container: str) -> bool:
     return False
 
 
+def _cleanup(*args: str) -> None:
+    """Run a docker cleanup call, reporting rather than raising a failure.
+
+    It runs while the script may already be ending on another failure, which
+    it must not replace.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=DOCKER_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            f"cleanup: docker {args[0]} did not return within {DOCKER_TIMEOUT_SECONDS} s"
+        )
+        return
+    if result.returncode != 0:
+        print(f"cleanup: docker {args[0]} failed: {result.stderr.strip()}")
+
+
 def _run_boot(image: str, config_dir: Path, boot: int) -> tuple[Boot, bool]:
-    """Start Home Assistant, let it run, stop it, and return what it logged."""
+    """Start Home Assistant, let it run, stop it, and return what it logged.
+
+    The container is removed however the boot ends.
+    """
     _docker("rm", "-f", CONTAINER)
     started_at = datetime.now(UTC)
-    run = _docker(
+    try:
+        run = _docker(
+            "run",
+            "-d",
+            "--name",
+            CONTAINER,
+            "-v",
+            f"{config_dir}:/config",
+            "-e",
+            "TZ=Europe/Berlin",
+            image,
+        )
+        if run.returncode != 0:
+            sys.exit(f"docker run failed: {run.stderr.strip()}")
+        started = _wait_for_start(CONTAINER)
+        if started:
+            time.sleep(RUN_SECONDS[boot])
+        _docker(
+            "stop",
+            "-t",
+            str(STOP_TIMEOUT_SECONDS),
+            CONTAINER,
+            timeout=STOP_TIMEOUT_SECONDS + DOCKER_TIMEOUT_SECONDS,
+        )
+        logs = _docker("logs", CONTAINER)
+    finally:
+        _cleanup("rm", "-f", CONTAINER)
+    return Boot(boot, started_at, logs.stdout + logs.stderr), started
+
+
+def _return_ownership(image: str, config_dir: Path) -> None:
+    """Hand the files Home Assistant wrote back to the user running the script.
+
+    Home Assistant runs as root in its container, so the configuration
+    directory holds files the runner cannot delete without this.
+    """
+    _cleanup(
         "run",
-        "-d",
-        "--name",
-        CONTAINER,
+        "--rm",
         "-v",
         f"{config_dir}:/config",
-        "-e",
-        "TZ=Europe/Berlin",
+        "--entrypoint",
+        "chown",
         image,
+        "-R",
+        f"{os.getuid()}:{os.getgid()}",
+        "/config",
     )
-    if run.returncode != 0:
-        sys.exit(f"docker run failed: {run.stderr.strip()}")
-    started = _wait_for_start(CONTAINER)
-    if started:
-        time.sleep(RUN_SECONDS[boot])
-    _docker(
-        "stop",
-        "-t",
-        str(STOP_TIMEOUT_SECONDS),
-        CONTAINER,
-        timeout=STOP_TIMEOUT_SECONDS + DOCKER_TIMEOUT_SECONDS,
-    )
-    logs = _docker("logs", CONTAINER)
-    _docker("rm", "-f", CONTAINER)
-    return Boot(boot, started_at, logs.stdout + logs.stderr), started
 
 
 def _reported_lines(log: str) -> list[str]:
@@ -354,16 +402,19 @@ def main() -> int:
         prefix="bt-ha-smoke-", ignore_cleanup_errors=True
     ) as tmp:
         config_dir = Path(tmp)
-        for number in (1, 2):
-            _write_configuration(config_dir, number, args.integration)
-            boot, started = _run_boot(image, config_dir, number)
-            problems = _check_boot(config_dir, boot, started)
-            print(f"boot {number}: {'ok' if not problems else 'FAILED'}")
-            for problem in problems:
-                print(f"  {problem}")
-            failed = failed or bool(problems)
-            if not started:
-                break
+        try:
+            for number in (1, 2):
+                _write_configuration(config_dir, number, args.integration)
+                boot, started = _run_boot(image, config_dir, number)
+                problems = _check_boot(config_dir, boot, started)
+                print(f"boot {number}: {'ok' if not problems else 'FAILED'}")
+                for problem in problems:
+                    print(f"  {problem}")
+                failed = failed or bool(problems)
+                if not started:
+                    break
+        finally:
+            _return_ownership(image, config_dir)
     return 1 if failed else 0
 
 
