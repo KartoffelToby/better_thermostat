@@ -162,11 +162,17 @@ intent against what the devices report:
 - **offset** — the commanded calibration against the calibration
   entity, once the device confirmed the last write (in-flight writes
   remain the write path's business),
-- **valve** — the commanded percentage against every entity the last
-  valve write set, with a 5-point tolerance for device-side modulation.
-  An adapter write is read back from the valve number entity; a quirk
-  write from the numbers the quirk names, such as both the opening and
-  the closing degree of a Sonoff TRVZB. An entity whose state is
+- **valve** — what the last valve write sent against every entity it
+  set, in that entity's own units. An adapter write is read back from
+  the valve number entity, against the commanded percentage scaled onto
+  the `min`, `max` and `step` that entity publishes, exactly as the
+  write scaled it; a quirk write from the numbers the quirk names, such
+  as both the opening and the closing degree of a Sonoff TRVZB, against
+  the values the quirk sent. The tolerance is 5 % of the entity's range
+  either way, and at least one step below: ZHA truncates a number onto
+  its grid, so a write can land one step below the value sent, while no
+  device rounds a value already on the grid upwards. An
+  entity that publishes no usable range is not read. An entity whose state is
   `assumed_state` repeats the last command sent to it, so a matching one
   confirms nothing and is no divergence either; a different one means a
   later command replaced BT's,
