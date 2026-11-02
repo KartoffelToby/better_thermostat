@@ -305,7 +305,7 @@ class TestTheGenericAdapterWritesWholeCounts:
         assert generic._published_offset(state, 1.2) == 12.0
 
     def test_a_grid_that_misses_zero_counts_from_the_minimum(self):
-        """With -128 and a step of 3 the entity takes ..., 1, 4, 7, never 6."""
+        """A write lands on a value the entity takes: -128 + 45 * 3 = 7 for 6 counts."""
         state = _parameter(step=3, reserved=None)
 
         assert generic._published_offset(state, 0.6) == 7.0
