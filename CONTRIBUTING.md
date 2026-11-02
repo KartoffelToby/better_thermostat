@@ -543,6 +543,18 @@ Three more checks run on every pull request:
 Neither of the last two has a local command here; read their result on the pull
 request.
 
+The tests run against the Home Assistant that `uv.lock` pins, so they cannot
+see a coming release break the integration. A nightly workflow does: it boots
+`develop` and `1.9` twice each in the `stable`, `beta` and `dev` images of Home
+Assistant, and opens an issue when a boot fails. A boot fails when Home
+Assistant does not start, logs an error or a deprecation report for the
+integration, or comes up without the target the boot before set. It needs
+Docker locally:
+
+```bash
+uv run --no-project python scripts/ha_smoke.py --tag beta
+```
+
 Dependencies are declared in `pyproject.toml` (`[project]` for the runtime
 platform, `[dependency-groups].dev` for tooling) and pinned in `uv.lock`. To
 update a dependency, run e.g. `uv lock --upgrade-package homeassistant` and

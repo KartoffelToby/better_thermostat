@@ -149,7 +149,7 @@ CONFIG_ENTRIES = {
                     "tolerance": 0.3,
                     "off_temperature": 5,
                 },
-                "options": {},
+                "options": dict[str, object](),
                 "pref_disable_new_entities": False,
                 "pref_disable_polling": False,
                 "source": "user",

@@ -43,7 +43,9 @@ jobs:
         with:
           persist-credentials: false
           # A pull request tests its own integration on the develop row.
-          ref: ${{ (github.event_name == 'pull_request' && matrix.line == 'develop') && github.sha || matrix.line }}
+          ref: >-
+            ${{ (github.event_name == 'pull_request' && matrix.line == 'develop')
+            && github.sha || matrix.line }}
           path: under-test
 
       - name: Set up uv
@@ -61,19 +63,23 @@ jobs:
           TAG: ${{ matrix.tag }}
 
       - name: Open an issue
-        if: failure() && github.event_name == 'schedule' && github.repository == 'KartoffelToby/better_thermostat'
+        if: >-
+          failure() && github.event_name == 'schedule'
+          && github.repository == 'KartoffelToby/better_thermostat'
         env:
           GH_TOKEN: ${{ github.token }}
           TITLE: "Smoke test: ${{ matrix.line }} fails on Home Assistant ${{ matrix.tag }}"
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           # One open issue per line and tag; a failure that is already
           # reported adds nothing until that issue is closed.
-          if gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$TITLE\" in:title" --json title --jq '.[].title' | grep -qxF "$TITLE"; then
+          open_titles=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"$TITLE\" in:title" --json title --jq '.[].title')
+          if grep -qxF "$TITLE" <<< "$open_titles"; then
             exit 0
           fi
           {
-            echo "The nightly smoke test failed: $RUN_URL"
+            echo "The nightly smoke test failed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
             echo
             echo '```'
             cat smoke.log
