@@ -1275,7 +1275,7 @@ class TestValveReadings:
             for payload in _number_writes(mock_self)
         }
         assert {
-            reading.state.entity_id: reading.expected_percent for reading in readings
+            reading.state.entity_id: reading.expected_value for reading in readings
         } == written
         assert [reading.state for reading in readings] == [
             states[VALVE_OPENING],
@@ -1312,7 +1312,7 @@ class TestValveReadings:
             {"entity_id": "number.trv1_valve_target", "value": 30}
         ]
         assert [
-            (reading.state.entity_id, reading.expected_percent) for reading in readings
+            (reading.state.entity_id, reading.expected_value) for reading in readings
         ] == [("number.trv1_valve_target", 30.0)]
 
     @pytest.mark.asyncio

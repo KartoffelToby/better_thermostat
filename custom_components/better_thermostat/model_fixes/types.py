@@ -349,13 +349,13 @@ class ValveReading(NamedTuple):
     ----------
     state : State | None
         The entity's current state, None when it has none
-    expected_percent : float
+    expected_value : float
         The value the entity holds once the device took the commanded
-        opening, in percent of its range
+        opening, in the entity's own units: the value the write sent it
     """
 
     state: State | None
-    expected_percent: float
+    expected_value: float
 
 
 @runtime_checkable

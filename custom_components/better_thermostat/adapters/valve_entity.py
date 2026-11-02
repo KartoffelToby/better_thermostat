@@ -10,9 +10,11 @@ that entity itself publishes.
 from __future__ import annotations
 
 import logging
+from typing import NamedTuple
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.core import State
 
 from ..utils.helpers import find_local_calibration_entity, find_valve_entity
 from .base import DeviceChannels
@@ -23,6 +25,80 @@ _LOGGER = logging.getLogger(__name__)
 
 class ValveEntityUnreachableError(RuntimeError):
     """The valve entity has no state a valve position could be written to."""
+
+
+class ValveEntityRange(NamedTuple):
+    """The grid a valve number entity publishes for the values it takes.
+
+    Attributes
+    ----------
+    minimum : float
+        The entity's ``min``, the value of a fully closed valve
+    maximum : float
+        The entity's ``max``, the value of a fully open valve
+    step : float
+        The entity's ``step``; zero or less means no grid
+    """
+
+    minimum: float
+    maximum: float
+    step: float
+
+
+def valve_entity_range(state: State) -> ValveEntityRange:
+    """Read the grid a valve number entity publishes.
+
+    An entity that publishes no ``min``, ``max`` or ``step`` is taken to
+    span 0 to 100 in steps of 1, the grid of a plain percentage.
+
+    Parameters
+    ----------
+    state : State
+        The valve number entity's current state.
+
+    Returns
+    -------
+    ValveEntityRange
+        The entity's minimum, maximum and step.
+
+    Raises
+    ------
+    ValueError
+        When one of the three attributes is not a number.
+    """
+    return ValveEntityRange(
+        float(str(state.attributes.get("min", 0))),
+        float(str(state.attributes.get("max", 100))),
+        float(str(state.attributes.get("step", 1))),
+    )
+
+
+def valve_entity_value(valve_range: ValveEntityRange, valve_percent: float) -> float:
+    """Scale an opening degree onto a valve number entity's own grid.
+
+    The percentage is clamped to 0-100 and mapped linearly onto the range.
+    The result is quantized onto the step grid, which starts at the minimum
+    rather than at zero, and clamped again, so neither a rounding step nor
+    an out-of-range input leaves the entity's bounds.
+
+    Parameters
+    ----------
+    valve_range : ValveEntityRange
+        The grid the entity publishes.
+    valve_percent : float
+        Opening degree, 0-100.
+
+    Returns
+    -------
+    float
+        The value the entity takes for that opening.
+    """
+    minimum, maximum, step = valve_range
+    percent = max(0.0, min(100.0, valve_percent))
+    value = minimum + (percent / 100.0) * (maximum - minimum)
+    if step > 0:
+        value = minimum + round((value - minimum) / step) * step
+    return max(minimum, min(maximum, value))
 
 
 async def find_entity_channels(
@@ -96,12 +172,8 @@ async def write_valve_percent(
 ) -> None:
     """Write an opening degree to the TRV's valve number entity.
 
-    The request is scaled from 0-100 % onto the entity's own min/max/step,
-    clamping both the incoming percentage and the quantized result so a
-    rounding step or an out-of-range input never leaves the entity's
-    bounds. The step grid starts at the entity's minimum rather than at
-    zero, so a non-zero minimum still yields a value the entity itself
-    offers.
+    The request is scaled onto the grid the entity publishes, as
+    :func:`valve_entity_value` describes.
 
     Nothing is written for a TRV whose valve entity is known to be
     read-only or was never discovered; neither one is a valve channel.
@@ -153,14 +225,7 @@ async def write_valve_percent(
             "so it cannot take a valve position"
         )
 
-    min_valve = float(str(valve_entity.attributes.get("min", 0)))
-    max_valve = float(str(valve_entity.attributes.get("max", 100)))
-    percent = max(0.0, min(100.0, valve_percent))
-    value = min_valve + (percent / 100.0) * (max_valve - min_valve)
-    step = float(str(valve_entity.attributes.get("step", 1)))
-    if step > 0:
-        value = min_valve + round((value - min_valve) / step) * step
-    value = max(min_valve, min(max_valve, value))
+    value = valve_entity_value(valve_entity_range(valve_entity), valve_percent)
 
     await self.hass.services.async_call(
         "number",
