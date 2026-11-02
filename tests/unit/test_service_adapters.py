@@ -154,3 +154,42 @@ class TestTheOffsetReadToleratesAnUnreadableTrv:
             assert await adapter.get_calibration_offset(host, ENTITY_ID) == 0.0
 
         assert "Could not convert calibration offset 'n/a'" in caplog.text
+
+
+class TestTheTadoOffsetStaysInsideTheApiRange:
+    """Tado's API rejects an offset beyond ±9.99 K, so none goes out."""
+
+    @pytest.mark.asyncio
+    async def test_the_declared_range_is_the_api_range(self):
+        """The declared limits are the ones Tado's API enforces, not ±10."""
+        host = _host(State(ENTITY_ID, "heat"))
+
+        assert await tado.get_min_calibration_offset(host, ENTITY_ID) == -9.99
+        assert await tado.get_max_calibration_offset(host, ENTITY_ID) == 9.99
+
+    @pytest.mark.parametrize(
+        ("requested", "written"),
+        [
+            (-10.0, -9.99),
+            (-14.5, -9.99),
+            (10.0, 9.99),
+            (12.0, 9.99),
+            (-9.99, -9.99),
+            (-3.25, -3.25),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_write_is_clamped_to_the_api_range(self, requested, written):
+        """An offset beyond the limit reaches the service clamped to it.
+
+        The recorded command equals what went on the wire, so a device that
+        keeps its offset at the limit does not read as a diverged command.
+        """
+        host = _host(State(ENTITY_ID, "heat", {"offset_celsius": 0.0}))
+
+        assert await tado.set_calibration_offset(host, ENTITY_ID, requested) is True
+
+        call = host.hass.services.async_call.await_args
+        assert call.args[:2] == ("tado", "set_climate_temperature_offset")
+        assert call.args[2]["offset"] == written
+        assert host.real_trvs[ENTITY_ID].last_calibration == written

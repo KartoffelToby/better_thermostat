@@ -837,7 +837,11 @@ def _valve_repeat_readback(
     (int-rounded) target differs from the last commanded percentage.
     Otherwise the verdict on the last write: HOLDS and UNREADABLE need no
     write, a diverged entity and one whose state is only assumed take it
-    again.
+    again. A closed valve the device reports open again has diverged too:
+    the reported position is a fraction or a percentage depending on the
+    device, and any value above zero is open on either scale. One close
+    answers one report; the cached position stays open until the device
+    reports again.
     """
     trv = self.real_trvs[entity_id]
     if trv.last_valve_percent is None:
@@ -845,6 +849,13 @@ def _valve_repeat_readback(
     last_percent = round(trv.last_valve_percent)
     if last_percent != round(target_percent):
         return None
+    if (
+        last_percent == 0
+        and trv.valve_position is not None
+        and trv.valve_position > 0
+        and not trv.valve_report_answered
+    ):
+        return ValveReadback.DIVERGED
     return _valve_readback(self, trv, last_percent)
 
 
