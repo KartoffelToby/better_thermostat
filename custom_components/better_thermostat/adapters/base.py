@@ -15,7 +15,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import State
 
-from ..utils.helpers import device_released, state_is_live
+from ..utils.helpers import defers_to_bound_sensor, device_released, state_is_live
 from .types import AdapterHost
 
 _LOGGER = logging.getLogger(__name__)
@@ -261,7 +261,9 @@ async def wait_for_calibration_entity_or_timeout(
 ) -> None:
     """Wait for calibration entity to become available with timeout.
 
-    If the entity is not available after timeout, force set calibration to 0.
+    If the entity is not available after timeout, force set calibration to 0,
+    unless the TRV regulates on a remote sensor bound to it: that offset is
+    the user's.
 
     Parameters
     ----------
@@ -303,6 +305,17 @@ async def wait_for_calibration_entity_or_timeout(
             if device_released(self, entity_id):
                 return
             if _retry_count >= _max_retries:
+                if defers_to_bound_sensor(self.hass, entity_id):
+                    _LOGGER.info(
+                        "better_thermostat %s: local_temperature_calibration "
+                        "entity '%s' not available after timeout; '%s' "
+                        "regulates on a remote sensor, so its offset is left "
+                        "as set",
+                        self.device_name,
+                        calibration_entity,
+                        entity_id,
+                    )
+                    return
                 _LOGGER.warning(
                     "better_thermostat %s: local_temperature_calibration entity '%s' not available after timeout, forcing calibration to 0",
                     self.device_name,

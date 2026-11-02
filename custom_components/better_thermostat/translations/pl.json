@@ -92,7 +92,8 @@
       "trv_is_better_thermostat": "{trv} jest urządzeniem Better Thermostat. Wybierz zamiast niego prawdziwy termostat.",
       "trv_no_target_temperature": "{trv} nie przyjmuje temperatury docelowej. Wybierz termostat, który ją przyjmuje.",
       "cooler_is_better_thermostat": "{cooler} jest urządzeniem Better Thermostat. Wybierz zamiast niego prawdziwe urządzenie chłodzące.",
-      "cooler_no_target_temperature": "{cooler} nie przyjmuje temperatury docelowej. Wybierz urządzenie chłodzące, które ją przyjmuje."
+      "cooler_no_target_temperature": "{cooler} nie przyjmuje temperatury docelowej. Wybierz urządzenie chłodzące, które ją przyjmuje.",
+      "bound_sensor_calibration_mode": "Ten termostat reguluje według powiązanego z nim czujnika temperatury (Matter Binding) i sam steruje pomieszczeniem. Wybierz Bez kalibracji: każdy inny tryb dodaje drugą pętlę regulacji nad pętlą termostatu."
     },
     "abort": {
       "single_instance_allowed": "Dozwolony jest tylko jeden termostat dla jednego urządzenia.",
@@ -187,7 +188,8 @@
       "trv_is_better_thermostat": "{trv} jest urządzeniem Better Thermostat. Wybierz zamiast niego prawdziwy termostat.",
       "trv_no_target_temperature": "{trv} nie przyjmuje temperatury docelowej. Wybierz termostat, który ją przyjmuje.",
       "cooler_is_better_thermostat": "{cooler} jest urządzeniem Better Thermostat. Wybierz zamiast niego prawdziwe urządzenie chłodzące.",
-      "cooler_no_target_temperature": "{cooler} nie przyjmuje temperatury docelowej. Wybierz urządzenie chłodzące, które ją przyjmuje."
+      "cooler_no_target_temperature": "{cooler} nie przyjmuje temperatury docelowej. Wybierz urządzenie chłodzące, które ją przyjmuje.",
+      "bound_sensor_calibration_mode": "Ten termostat reguluje według powiązanego z nim czujnika temperatury (Matter Binding) i sam steruje pomieszczeniem. Wybierz Bez kalibracji: każdy inny tryb dodaje drugą pętlę regulacji nad pętlą termostatu."
     }
   },
   "issues": {

@@ -92,7 +92,8 @@
       "trv_is_better_thermostat": "{trv} è un Better Thermostat. Seleziona invece un termostato reale.",
       "trv_no_target_temperature": "{trv} non accetta una temperatura obiettivo. Seleziona un termostato che la accetti.",
       "cooler_is_better_thermostat": "{cooler} è un Better Thermostat. Seleziona invece un dispositivo di raffreddamento reale.",
-      "cooler_no_target_temperature": "{cooler} non accetta una temperatura obiettivo. Seleziona un dispositivo di raffreddamento che la accetti."
+      "cooler_no_target_temperature": "{cooler} non accetta una temperatura obiettivo. Seleziona un dispositivo di raffreddamento che la accetti.",
+      "bound_sensor_calibration_mode": "Questo termostato regola in base a un sensore di temperatura associato a esso (Matter Binding) e controlla da solo la stanza. Scegli Nessuna calibrazione: qualsiasi altra modalità aggiunge un secondo anello di regolazione sopra quello del termostato."
     },
     "abort": {
       "single_instance_allowed": "È consentito un solo termostato per ogni dispositivo reale.",
@@ -187,7 +188,8 @@
       "trv_is_better_thermostat": "{trv} è un Better Thermostat. Seleziona invece un termostato reale.",
       "trv_no_target_temperature": "{trv} non accetta una temperatura obiettivo. Seleziona un termostato che la accetti.",
       "cooler_is_better_thermostat": "{cooler} è un Better Thermostat. Seleziona invece un dispositivo di raffreddamento reale.",
-      "cooler_no_target_temperature": "{cooler} non accetta una temperatura obiettivo. Seleziona un dispositivo di raffreddamento che la accetti."
+      "cooler_no_target_temperature": "{cooler} non accetta una temperatura obiettivo. Seleziona un dispositivo di raffreddamento che la accetti.",
+      "bound_sensor_calibration_mode": "Questo termostato regola in base a un sensore di temperatura associato a esso (Matter Binding) e controlla da solo la stanza. Scegli Nessuna calibrazione: qualsiasi altra modalità aggiunge un secondo anello di regolazione sopra quello del termostato."
     }
   },
   "issues": {

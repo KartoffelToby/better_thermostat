@@ -92,7 +92,8 @@
       "trv_is_better_thermostat": "{trv} est un Better Thermostat. Sélectionnez plutôt un vrai thermostat.",
       "trv_no_target_temperature": "{trv} n’accepte pas de température cible. Sélectionnez un thermostat qui en accepte une.",
       "cooler_is_better_thermostat": "{cooler} est un Better Thermostat. Sélectionnez plutôt un vrai dispositif de refroidissement.",
-      "cooler_no_target_temperature": "{cooler} n’accepte pas de température cible. Sélectionnez un dispositif de refroidissement qui en accepte une."
+      "cooler_no_target_temperature": "{cooler} n’accepte pas de température cible. Sélectionnez un dispositif de refroidissement qui en accepte une.",
+      "bound_sensor_calibration_mode": "Ce thermostat régule sur un capteur de température qui lui est lié (Matter Binding) et pilote lui-même la pièce. Choisissez Sans étalonnage : tout autre mode ajoute une seconde boucle de régulation par-dessus celle du thermostat."
     },
     "abort": {
       "single_instance_allowed": "Seule une instance de thermostat pour chaque vrai thermostat est autorisée.",
@@ -187,7 +188,8 @@
       "trv_is_better_thermostat": "{trv} est un Better Thermostat. Sélectionnez plutôt un vrai thermostat.",
       "trv_no_target_temperature": "{trv} n’accepte pas de température cible. Sélectionnez un thermostat qui en accepte une.",
       "cooler_is_better_thermostat": "{cooler} est un Better Thermostat. Sélectionnez plutôt un vrai dispositif de refroidissement.",
-      "cooler_no_target_temperature": "{cooler} n’accepte pas de température cible. Sélectionnez un dispositif de refroidissement qui en accepte une."
+      "cooler_no_target_temperature": "{cooler} n’accepte pas de température cible. Sélectionnez un dispositif de refroidissement qui en accepte une.",
+      "bound_sensor_calibration_mode": "Ce thermostat régule sur un capteur de température qui lui est lié (Matter Binding) et pilote lui-même la pièce. Choisissez Sans étalonnage : tout autre mode ajoute une seconde boucle de régulation par-dessus celle du thermostat."
     }
   },
   "issues": {

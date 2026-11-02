@@ -27,6 +27,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     CONF_NAME,
+    STATE_ON,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     Platform,
@@ -432,6 +433,101 @@ def find_keyed_device_entity(
         if any(id_fragment in haystack for haystack in haystacks):
             return ent.entity_id
     return None
+
+
+# Translation key of the diagnostic binary sensor Home Assistant's Matter
+# integration creates from a thermostat's RemoteSensing attribute. It is on
+# while the thermostat takes its LocalTemperature from a remote sensor, such
+# as a room sensor bound to it over Matter Binding, instead of its own.
+REMOTE_SENSING_LOCAL_TEMPERATURE_KEY: Final = (
+    "thermostat_remote_sensing_local_temperature"
+)
+
+
+def remote_sensing_entity(hass: HomeAssistant, trv_entity_id: str) -> str | None:
+    """Return the remote-sensing binary sensor of a TRV's device, if it has one.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The Home Assistant instance whose entity registry is searched.
+    trv_entity_id : str
+        The climate entity of the TRV.
+
+    Returns
+    -------
+    str | None
+        The entity id of the enabled Matter binary sensor on the TRV's device
+        that tells whether the TRV's LocalTemperature is remotely sensed, or
+        ``None`` when the device has none.
+    """
+    registry = er.async_get(hass)
+    climate_entry = registry.async_get(trv_entity_id)
+    if climate_entry is None or climate_entry.device_id is None:
+        return None
+    for sibling in er.async_entries_for_device(registry, climate_entry.device_id):
+        if (
+            sibling.domain == Platform.BINARY_SENSOR
+            and sibling.platform == "matter"
+            and sibling.translation_key == REMOTE_SENSING_LOCAL_TEMPERATURE_KEY
+        ):
+            return sibling.entity_id
+    return None
+
+
+def regulates_on_bound_sensor(hass: HomeAssistant, trv_entity_id: str) -> bool | None:
+    """Whether a TRV regulates on a remote room sensor instead of its own.
+
+    A Matter thermostat bound to a room temperature sensor takes its
+    LocalTemperature from that sensor and controls the room on it. Its
+    local temperature calibration then shifts the room temperature the
+    thermostat controls on, so it belongs to the user and is never written.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The Home Assistant instance.
+    trv_entity_id : str
+        The climate entity of the TRV.
+
+    Returns
+    -------
+    bool | None
+        True while the TRV's remote-sensing binary sensor is on. False when
+        it is off or the TRV's device has no such sensor. None while the
+        sensor exists but reports no state, so nothing tells whether the
+        TRV regulates on a remote sensor.
+    """
+    entity_id = remote_sensing_entity(hass, trv_entity_id)
+    if entity_id is None:
+        return False
+    state = hass.states.get(entity_id)
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return None
+    return state.state == STATE_ON
+
+
+def defers_to_bound_sensor(hass: HomeAssistant, trv_entity_id: str) -> bool:
+    """Whether Better Thermostat leaves a TRV to regulate on a bound sensor.
+
+    Such a TRV gets the target temperature unchanged and its local
+    temperature calibration is left as the user set it. That holds while
+    the TRV regulates on a remote sensor, and while its remote-sensing
+    sensor reports no state and so cannot rule that out.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The Home Assistant instance.
+    trv_entity_id : str
+        The climate entity of the TRV.
+
+    Returns
+    -------
+    bool
+        True unless the TRV is known not to regulate on a remote sensor.
+    """
+    return regulates_on_bound_sensor(hass, trv_entity_id) is not False
 
 
 def external_temperature_input_value(

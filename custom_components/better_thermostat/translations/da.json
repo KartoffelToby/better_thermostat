@@ -92,7 +92,8 @@
       "trv_is_better_thermostat": "{trv} er en Better Thermostat. Vælg en rigtig termostat i stedet.",
       "trv_no_target_temperature": "{trv} accepterer ingen måltemperatur. Vælg en termostat, der gør.",
       "cooler_is_better_thermostat": "{cooler} er en Better Thermostat. Vælg en rigtig køleenhed i stedet.",
-      "cooler_no_target_temperature": "{cooler} accepterer ingen måltemperatur. Vælg en køleenhed, der gør."
+      "cooler_no_target_temperature": "{cooler} accepterer ingen måltemperatur. Vælg en køleenhed, der gør.",
+      "bound_sensor_calibration_mode": "Denne termostat regulerer efter en temperatursensor, der er bundet til den (Matter Binding), og styrer selv rummet. Vælg Ingen kalibrering: enhver anden tilstand lægger en ekstra reguleringssløjfe oven på termostatens egen."
     },
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
@@ -187,7 +188,8 @@
       "trv_is_better_thermostat": "{trv} er en Better Thermostat. Vælg en rigtig termostat i stedet.",
       "trv_no_target_temperature": "{trv} accepterer ingen måltemperatur. Vælg en termostat, der gør.",
       "cooler_is_better_thermostat": "{cooler} er en Better Thermostat. Vælg en rigtig køleenhed i stedet.",
-      "cooler_no_target_temperature": "{cooler} accepterer ingen måltemperatur. Vælg en køleenhed, der gør."
+      "cooler_no_target_temperature": "{cooler} accepterer ingen måltemperatur. Vælg en køleenhed, der gør.",
+      "bound_sensor_calibration_mode": "Denne termostat regulerer efter en temperatursensor, der er bundet til den (Matter Binding), og styrer selv rummet. Vælg Ingen kalibrering: enhver anden tilstand lægger en ekstra reguleringssløjfe oven på termostatens egen."
     }
   },
   "issues": {

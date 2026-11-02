@@ -92,7 +92,8 @@
       "trv_is_better_thermostat": "{trv} je Better Thermostat. Vyberte namiesto neho reálny termostat.",
       "trv_no_target_temperature": "{trv} neprijíma cieľovú teplotu. Vyberte termostat, ktorý ju prijíma.",
       "cooler_is_better_thermostat": "{cooler} je Better Thermostat. Vyberte namiesto neho reálne chladiace zariadenie.",
-      "cooler_no_target_temperature": "{cooler} neprijíma cieľovú teplotu. Vyberte chladiace zariadenie, ktoré ju prijíma."
+      "cooler_no_target_temperature": "{cooler} neprijíma cieľovú teplotu. Vyberte chladiace zariadenie, ktoré ju prijíma.",
+      "bound_sensor_calibration_mode": "Tento termostat reguluje podľa teplotného senzora, ktorý je k nemu viazaný (Matter Binding), a miestnosť riadi sám. Zvoľte Bez kalibrácie: každý iný režim pridá druhú regulačnú slučku nad vlastnú slučku termostatu."
     },
     "abort": {
       "single_instance_allowed": "Pre každý real je povolený len jeden termostat.",
@@ -187,7 +188,8 @@
       "trv_is_better_thermostat": "{trv} je Better Thermostat. Vyberte namiesto neho reálny termostat.",
       "trv_no_target_temperature": "{trv} neprijíma cieľovú teplotu. Vyberte termostat, ktorý ju prijíma.",
       "cooler_is_better_thermostat": "{cooler} je Better Thermostat. Vyberte namiesto neho reálne chladiace zariadenie.",
-      "cooler_no_target_temperature": "{cooler} neprijíma cieľovú teplotu. Vyberte chladiace zariadenie, ktoré ju prijíma."
+      "cooler_no_target_temperature": "{cooler} neprijíma cieľovú teplotu. Vyberte chladiace zariadenie, ktoré ju prijíma.",
+      "bound_sensor_calibration_mode": "Tento termostat reguluje podľa teplotného senzora, ktorý je k nemu viazaný (Matter Binding), a miestnosť riadi sám. Zvoľte Bez kalibrácie: každý iný režim pridá druhú regulačnú slučku nad vlastnú slučku termostatu."
     }
   },
   "issues": {

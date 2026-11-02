@@ -93,7 +93,8 @@
       "trv_no_target_temperature": "{trv} does not accept a target temperature. Select a thermostat that does.",
       "cooler_is_better_thermostat": "{cooler} is a Better Thermostat. Select a real cooling device instead.",
       "cooler_no_target_temperature": "{cooler} does not accept a target temperature. Select a cooling device that does.",
-      "valve_only_calibration_mode": "Direct valve control on this device requires a controller that produces a valve position. Choose AI Time Based, MPC, MPC v2, PID or TPI."
+      "valve_only_calibration_mode": "Direct valve control on this device requires a controller that produces a valve position. Choose AI Time Based, MPC, MPC v2, PID or TPI.",
+      "bound_sensor_calibration_mode": "This thermostat regulates on a temperature sensor bound to it (Matter Binding) and controls the room itself. Choose No Calibration: any other mode adds a second control loop on top of the thermostat's own."
     },
     "abort": {
       "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
@@ -189,7 +190,8 @@
       "trv_no_target_temperature": "{trv} does not accept a target temperature. Select a thermostat that does.",
       "cooler_is_better_thermostat": "{cooler} is a Better Thermostat. Select a real cooling device instead.",
       "cooler_no_target_temperature": "{cooler} does not accept a target temperature. Select a cooling device that does.",
-      "valve_only_calibration_mode": "Direct valve control on this device requires a controller that produces a valve position. Choose AI Time Based, MPC, MPC v2, PID or TPI."
+      "valve_only_calibration_mode": "Direct valve control on this device requires a controller that produces a valve position. Choose AI Time Based, MPC, MPC v2, PID or TPI.",
+      "bound_sensor_calibration_mode": "This thermostat regulates on a temperature sensor bound to it (Matter Binding) and controls the room itself. Choose No Calibration: any other mode adds a second control loop on top of the thermostat's own."
     }
   },
   "issues": {
