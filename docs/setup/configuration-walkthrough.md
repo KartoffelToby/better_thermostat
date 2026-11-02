@@ -81,7 +81,7 @@ Some devices expose offset as a `number`, others as a `select`. Better Thermosta
 
 This is the "brain" of Better Thermostat. How should it calculate the heating?
 
-- **Normal**: Basic mode. It just syncs the temperature from your room sensor to the radiator.
+- **External Sensor Offset Only**: Basic mode. It just syncs the temperature from your room sensor to the radiator.
 - **Aggressive**: Heats up faster by temporarily setting the radiator much higher, but might overshoot your target temperature.
 - **AI Time Based**: **Recommended for most users.** A smart algorithm that learns and adjusts to keep the temperature stable.
 - **MPC Predictive**: Advanced smart control that predicts how your room heats up to prevent overshooting and save energy.

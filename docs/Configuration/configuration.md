@@ -90,7 +90,7 @@ Only after this activation, the `select.{room}_temperature_offset` entity become
 
 Better Thermostat offers several algorithms to control your heating:
 
-- ***Normal***: Simple and reliable - uses your external sensor to correct the TRV's internal sensor
+- ***External Sensor Offset Only***: Simple and reliable - uses your external sensor to correct the TRV's internal sensor
 - ***Aggressive***: Pushes the TRV harder for faster heating (good for slow-heating rooms)
 - ***AI Time Based***: **[Recommended]** Learns your room's heating patterns and adapts automatically
 - ***MPC Predictive***: Advanced algorithm that predicts temperature changes for optimal efficiency
