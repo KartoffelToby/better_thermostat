@@ -25,7 +25,8 @@
           "target_temp_min": "Temperatura target minima",
           "target_temp_max": "Temperatura target massima",
           "target_temp_step": "Passo della temperatura target",
-          "presets": "Preset abilitati"
+          "presets": "Preset abilitati",
+          "distribute_valve_by_trv_temperature": "Ripartisci l'apertura della valvola in base alla temperatura propria di ogni TRV"
         },
         "data_description": {
           "name": "Il nome di questo termostato e del suo dispositivo in Home Assistant.",
@@ -48,7 +49,8 @@
           "target_temp_min": "L'obiettivo più basso impostabile. Auto usa l'intervallo indicato dai tuoi dispositivi.",
           "target_temp_max": "L'obiettivo più alto impostabile. Auto usa l'intervallo indicato dai tuoi dispositivi.",
           "target_temp_step": "Di quanto cambia l'obiettivo a ogni passo. Auto usa il passo più grossolano dei tuoi termostati.",
-          "presets": "Seleziona i preset che vuoi rendere disponibili per questo termostato."
+          "presets": "Seleziona i preset che vuoi rendere disponibili per questo termostato.",
+          "distribute_valve_by_trv_temperature": "Solo per due o più TRV con la modalità di calibrazione MPC o MPC v2. Disattivato: ogni TRV riceve la stessa apertura della valvola. Attivato: un TRV che misura più freddo del TRV più caldo della stanza si apre di più, dell'8 % per °C (4,4 % per °F) di differenza. Vengono confrontate le letture proprie dei TRV, quindi un Sonoff TRVZB o TRV-ZBT deve avere selezionato il proprio sensore e l'opzione «Mantieni la selezione del sensore del TRV» attiva. Un TRV calibrato tramite offset riceve l'apertura della valvola della stanza."
         }
       },
       "advanced": {
@@ -62,7 +64,8 @@
           "calibration": "Tipo di calibrazione",
           "calibration_mode": "Modalità di calibrazione",
           "no_off_system_mode": "Usa la temperatura minima invece di 'off'",
-          "mpc_v2_plant_preset": "MPC v2 dimensione della stanza"
+          "mpc_v2_plant_preset": "MPC v2 dimensione della stanza",
+          "keep_sensor_selection": "Mantieni la selezione del sensore del TRV"
         },
         "data_description": {
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
@@ -73,7 +76,8 @@
           "calibration": "Come viene applicata la calibrazione sul TRV\n***Basato sulla temperatura obiettivo***: Applica la calibrazione alla temperatura obiettivo.\n***Basato sull’offset***: Applica la calibrazione all'offset di temperatura. Disponibile solo se il TRV ha un offset di temperatura scrivibile.\n***Controllo diretto della valvola***: Imposta direttamente l'apertura della valvola. Disponibile solo se il TRV ha una posizione della valvola scrivibile. Le modalità di calibrazione che non calcolano un'apertura della valvola inviano invece una temperatura obiettivo.",
           "calibration_mode": "Come viene calcolata la calibrazione\n***IA basata sul tempo (predefinito)***: Impara nel tempo la potenza di riscaldamento della stanza e ne ricava la calibrazione.\n***Solo offset sensore esterno***: Corregge il sensore interno del TRV con il tuo sensore di temperatura esterno. Nessun regolatore lavora in aggiunta.\n***MPC predittivo (beta)***: Prevede la temperatura della stanza e ne calcola un'apertura della valvola. Impara il comportamento termico della stanza.\n***(IA) MPC v2 (QP + Kalman, sperimentale)***: Stima lo stato della stanza con un filtro di Kalman e calcola un'apertura della valvola con un regolatore predittivo basato su modello. L'impostazione MPC v2 dimensione della stanza sceglie il modello della stanza: appreso dalla stanza (Automatico) o fisso per una dimensione (piccola, media, grande).\n***Aggressivo***: Aggiunge una spinta alla calibrazione mentre la stanza si riscalda e salta il ritardo di tolleranza, così il TRV inizia a scaldare prima. Utile se la stanza si scalda lentamente.\n***Controller TPI***: Calcola la durata di accensione dei cicli di riscaldamento dalla differenza di temperatura.\n***Controller PID***: Calcola un'apertura della valvola dall'errore di temperatura con un termine proporzionale, integrale e derivativo.\n***Nessuna calibrazione***: Invia la temperatura obiettivo al TRV senza modificarla e non applica alcuna correzione.",
           "no_off_system_mode": "Con questa opzione, Better Thermostat invia al TRV la sua temperatura minima invece di 'off'. Un TRV che riporta la sua temperatura minima conta come spento: quando tutti i TRV della stanza sono spenti, la stanza si spegne, e ruotando una manopola verso l'alto si riaccende. Conta anche una rotazione mentre una finestra o una porta è aperta; il riscaldamento attende allora che tutte le finestre e le porte siano chiuse. Un TRV senza modalità 'off' riceve la sua temperatura minima anche senza questa opzione. Attivala per un TRV la cui modalità 'off' non funziona, o per un TRV senza modalità 'off' la cui manopola deve accendere e spegnere Better Thermostat.",
-          "mpc_v2_plant_preset": "Usato solo dalla modalità di calibrazione MPC v2.\n***Automatico***: Ricava il modello della stanza da ciò che Better Thermostat ha appreso sulla stanza, ad esempio il suo tasso di dispersione termica.\n***Stanza piccola, media o grande***: Parte da un modello fisso per quella dimensione della stanza."
+          "mpc_v2_plant_preset": "Usato solo dalla modalità di calibrazione MPC v2.\n***Automatico***: Ricava il modello della stanza da ciò che Better Thermostat ha appreso sulla stanza, ad esempio il suo tasso di dispersione termica.\n***Stanza piccola, media o grande***: Parte da un modello fisso per quella dimensione della stanza.",
+          "keep_sensor_selection": "Per i TRV che possono regolare su una temperatura esterna (Sonoff TRVZB e TRV-ZBT, Aqara SRTS-A01). Disattivato: Better Thermostat imposta il TRV sulla temperatura esterna che scrive, anche dopo un ripristino o un nuovo abbinamento. Attivato: il sensore selezionato sul TRV resta selezionato e la temperatura della stanza continua a essere scritta nell'ingresso esterno. Un TRV che torna al proprio sensore non viene quindi reimpostato."
         }
       },
       "confirm": {
@@ -92,7 +96,8 @@
       "trv_is_better_thermostat": "{trv} è un Better Thermostat. Seleziona invece un termostato reale.",
       "trv_no_target_temperature": "{trv} non accetta una temperatura obiettivo. Seleziona un termostato che la accetti.",
       "cooler_is_better_thermostat": "{cooler} è un Better Thermostat. Seleziona invece un dispositivo di raffreddamento reale.",
-      "cooler_no_target_temperature": "{cooler} non accetta una temperatura obiettivo. Seleziona un dispositivo di raffreddamento che la accetti."
+      "cooler_no_target_temperature": "{cooler} non accetta una temperatura obiettivo. Seleziona un dispositivo di raffreddamento che la accetti.",
+      "bound_sensor_calibration_mode": "Questo termostato regola in base a un sensore di temperatura associato a esso (Matter Binding) e controlla da solo la stanza. Scegli Nessuna calibrazione: qualsiasi altra modalità aggiunge un secondo anello di regolazione sopra quello del termostato."
     },
     "abort": {
       "single_instance_allowed": "È consentito un solo termostato per ogni dispositivo reale.",
@@ -126,7 +131,8 @@
           "target_temp_max": "Temperatura target massima",
           "target_temp_step": "Passo della temperatura target",
           "presets": "Preset abilitati",
-          "cooler": "Il dispositivo di raffreddamento (opzionale)"
+          "cooler": "Il dispositivo di raffreddamento (opzionale)",
+          "distribute_valve_by_trv_temperature": "Ripartisci l'apertura della valvola in base alla temperatura propria di ogni TRV"
         },
         "data_description": {
           "name": "Il nome di questo termostato e del suo dispositivo in Home Assistant.",
@@ -149,7 +155,8 @@
           "target_temp_max": "L'obiettivo più alto impostabile. Auto usa l'intervallo indicato dai tuoi dispositivi.",
           "target_temp_step": "Di quanto cambia l'obiettivo a ogni passo. Auto usa il passo più grossolano dei tuoi termostati.",
           "presets": "Seleziona i preset che vuoi rendere disponibili per questo termostato.",
-          "cooler": "Facoltativo. Un condizionatore o un'altra entità clima che raffredda questa stanza insieme ai termostati."
+          "cooler": "Facoltativo. Un condizionatore o un'altra entità clima che raffredda questa stanza insieme ai termostati.",
+          "distribute_valve_by_trv_temperature": "Solo per due o più TRV con la modalità di calibrazione MPC o MPC v2. Disattivato: ogni TRV riceve la stessa apertura della valvola. Attivato: un TRV che misura più freddo del TRV più caldo della stanza si apre di più, dell'8 % per °C (4,4 % per °F) di differenza. Vengono confrontate le letture proprie dei TRV, quindi un Sonoff TRVZB o TRV-ZBT deve avere selezionato il proprio sensore e l'opzione «Mantieni la selezione del sensore del TRV» attiva. Un TRV calibrato tramite offset riceve l'apertura della valvola della stanza."
         }
       },
       "advanced": {
@@ -163,7 +170,8 @@
           "calibration": "Tipo di calibrazione che vuoi usare",
           "calibration_mode": "Modalità di calibrazione",
           "no_off_system_mode": "Usa la temperatura minima invece di 'off'",
-          "mpc_v2_plant_preset": "MPC v2 dimensione della stanza"
+          "mpc_v2_plant_preset": "MPC v2 dimensione della stanza",
+          "keep_sensor_selection": "Mantieni la selezione del sensore del TRV"
         },
         "data_description": {
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
@@ -174,7 +182,8 @@
           "calibration": "Come viene applicata la calibrazione sul TRV\n***Basato sulla temperatura obiettivo***: Applica la calibrazione alla temperatura obiettivo.\n***Basato sull’offset***: Applica la calibrazione all'offset di temperatura. Disponibile solo se il TRV ha un offset di temperatura scrivibile.\n***Controllo diretto della valvola***: Imposta direttamente l'apertura della valvola. Disponibile solo se il TRV ha una posizione della valvola scrivibile. Le modalità di calibrazione che non calcolano un'apertura della valvola inviano invece una temperatura obiettivo.",
           "calibration_mode": "Come viene calcolata la calibrazione\n***IA basata sul tempo (predefinito)***: Impara nel tempo la potenza di riscaldamento della stanza e ne ricava la calibrazione.\n***Solo offset sensore esterno***: Corregge il sensore interno del TRV con il tuo sensore di temperatura esterno. Nessun regolatore lavora in aggiunta.\n***MPC predittivo (beta)***: Prevede la temperatura della stanza e ne calcola un'apertura della valvola. Impara il comportamento termico della stanza.\n***(IA) MPC v2 (QP + Kalman, sperimentale)***: Stima lo stato della stanza con un filtro di Kalman e calcola un'apertura della valvola con un regolatore predittivo basato su modello. L'impostazione MPC v2 dimensione della stanza sceglie il modello della stanza: appreso dalla stanza (Automatico) o fisso per una dimensione (piccola, media, grande).\n***Aggressivo***: Aggiunge una spinta alla calibrazione mentre la stanza si riscalda e salta il ritardo di tolleranza, così il TRV inizia a scaldare prima. Utile se la stanza si scalda lentamente.\n***Controller TPI***: Calcola la durata di accensione dei cicli di riscaldamento dalla differenza di temperatura.\n***Controller PID***: Calcola un'apertura della valvola dall'errore di temperatura con un termine proporzionale, integrale e derivativo.\n***Nessuna calibrazione***: Invia la temperatura obiettivo al TRV senza modificarla e non applica alcuna correzione.",
           "no_off_system_mode": "Con questa opzione, Better Thermostat invia al TRV la sua temperatura minima invece di 'off'. Un TRV che riporta la sua temperatura minima conta come spento: quando tutti i TRV della stanza sono spenti, la stanza si spegne, e ruotando una manopola verso l'alto si riaccende. Conta anche una rotazione mentre una finestra o una porta è aperta; il riscaldamento attende allora che tutte le finestre e le porte siano chiuse. Un TRV senza modalità 'off' riceve la sua temperatura minima anche senza questa opzione. Attivala per un TRV la cui modalità 'off' non funziona, o per un TRV senza modalità 'off' la cui manopola deve accendere e spegnere Better Thermostat.",
-          "mpc_v2_plant_preset": "Usato solo dalla modalità di calibrazione MPC v2.\n***Automatico***: Ricava il modello della stanza da ciò che Better Thermostat ha appreso sulla stanza, ad esempio il suo tasso di dispersione termica.\n***Stanza piccola, media o grande***: Parte da un modello fisso per quella dimensione della stanza."
+          "mpc_v2_plant_preset": "Usato solo dalla modalità di calibrazione MPC v2.\n***Automatico***: Ricava il modello della stanza da ciò che Better Thermostat ha appreso sulla stanza, ad esempio il suo tasso di dispersione termica.\n***Stanza piccola, media o grande***: Parte da un modello fisso per quella dimensione della stanza.",
+          "keep_sensor_selection": "Per i TRV che possono regolare su una temperatura esterna (Sonoff TRVZB e TRV-ZBT, Aqara SRTS-A01). Disattivato: Better Thermostat imposta il TRV sulla temperatura esterna che scrive, anche dopo un ripristino o un nuovo abbinamento. Attivato: il sensore selezionato sul TRV resta selezionato e la temperatura della stanza continua a essere scritta nell'ingresso esterno. Un TRV che torna al proprio sensore non viene quindi reimpostato."
         }
       }
     },
@@ -187,7 +196,8 @@
       "trv_is_better_thermostat": "{trv} è un Better Thermostat. Seleziona invece un termostato reale.",
       "trv_no_target_temperature": "{trv} non accetta una temperatura obiettivo. Seleziona un termostato che la accetti.",
       "cooler_is_better_thermostat": "{cooler} è un Better Thermostat. Seleziona invece un dispositivo di raffreddamento reale.",
-      "cooler_no_target_temperature": "{cooler} non accetta una temperatura obiettivo. Seleziona un dispositivo di raffreddamento che la accetti."
+      "cooler_no_target_temperature": "{cooler} non accetta una temperatura obiettivo. Seleziona un dispositivo di raffreddamento che la accetti.",
+      "bound_sensor_calibration_mode": "Questo termostato regola in base a un sensore di temperatura associato a esso (Matter Binding) e controlla da solo la stanza. Scegli Nessuna calibrazione: qualsiasi altra modalità aggiunge un secondo anello di regolazione sopra quello del termostato."
     }
   },
   "issues": {

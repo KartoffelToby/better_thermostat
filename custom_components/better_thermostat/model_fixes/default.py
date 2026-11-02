@@ -24,7 +24,12 @@ from custom_components.better_thermostat.model_fixes.types import (
 from ..adapters.base import offset_scale, offset_to_published
 from ..utils.advanced_flags import as_bool
 from ..utils.const import CONF_CHILD_LOCK
-from ..utils.helpers import device_released, find_child_lock_entity, find_device_entity
+from ..utils.helpers import (
+    defers_to_bound_sensor,
+    device_released,
+    find_child_lock_entity,
+    find_device_entity,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,14 +97,26 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
         device_id = reg_entity.device_id
 
         def find_entity(domains: list[str], keywords: list[str]) -> str | None:
-            return find_device_entity(entity_registry, device_id, domains, keywords)
+            return find_device_entity(
+                entity_registry, device_id, domains, keywords, owner=reg_entity
+            )
 
-        # 1. Local calibration -> 0
+        # 1. Local calibration -> 0, unless the TRV regulates on a remote
+        # sensor bound to it: that offset shifts the room temperature the
+        # TRV controls on, and it is the user's.
         cal_entity = find_entity(
             ["number"],
             ["local_temperature_calibration", "local_calibration", "calibration"],
         )
-        if cal_entity:
+        if cal_entity and defers_to_bound_sensor(self.hass, entity_id):
+            _LOGGER.info(
+                "better_thermostat %s: %s regulates on a remote sensor, its "
+                "calibration offset %s is left as set",
+                self.device_name,
+                entity_id,
+                cal_entity,
+            )
+        elif cal_entity:
             try:
                 _LOGGER.debug(
                     "better_thermostat %s: Resetting local calibration for %s to 0",

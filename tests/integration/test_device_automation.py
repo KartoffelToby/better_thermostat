@@ -38,6 +38,7 @@ from homeassistant.helpers import (
 from homeassistant.helpers.trigger import TriggerData, TriggerInfo
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
+import probatio as vol
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -45,7 +46,6 @@ from pytest_homeassistant_custom_component.common import (
     async_get_device_automations,
     async_mock_service,
 )
-import voluptuous as vol
 
 from custom_components.better_thermostat import (
     device_action,

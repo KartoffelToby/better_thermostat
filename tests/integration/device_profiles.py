@@ -32,6 +32,11 @@ _SETPOINT_FEATURES = (
     | ClimateEntityFeature.TURN_ON
 )
 
+# A Shelly BLU TRV offers no mode but heat and implements no mode write.
+_BLU_TRV_FEATURES = (
+    ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.TURN_ON
+)
+
 _RANGE_FEATURES = (
     ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
     | ClimateEntityFeature.TURN_OFF
@@ -108,6 +113,12 @@ class DeviceProfile:
     the device between that number and its own sensor comes with it and
     starts on ``external_sensor_selection``.
 
+    ``blu_trv_external_temperature`` puts the number a Shelly BLU TRV with its
+    own thermostat enabled regulates on onto the device: a ``temperature``
+    number in Celsius from -50 to 50 °C, registered under the translation key
+    and unique id Home Assistant's Shelly integration gives it, with no value
+    until one is written.
+
     ``off_target_temperature`` is the setpoint the device publishes while it
     is off, in place of the one it holds: a Tado unit shows its 5 °C minimum
     there. ``None`` publishes the held setpoint in every mode.
@@ -122,6 +133,10 @@ class DeviceProfile:
     ``setpoint_ceiling`` is the highest setpoint the device holds, below the
     ``max_temp`` it publishes: a write above it lands on the ceiling. ``None``
     holds every setpoint up to ``max_temp``.
+
+    ``rejects_hvac_mode_writes`` makes every mode write raise
+    ``NotImplementedError``, as Home Assistant's climate entity does for a
+    device that implements none: a Shelly BLU TRV.
     """
 
     name: str
@@ -160,6 +175,8 @@ class DeviceProfile:
     mode_write_setpoint: float | None = None
     setpoint_ceiling: float | None = None
     valve_unique_id: str | None = None
+    blu_trv_external_temperature: bool = False
+    rejects_hvac_mode_writes: bool = False
 
 
 def published_unit(profile: DeviceProfile) -> UnitOfTemperature:
@@ -213,6 +230,11 @@ def offset_number_id(profile: DeviceProfile) -> str:
 def external_temperature_input_id(profile: DeviceProfile) -> str:
     """Return the entity id of the external temperature input on this device."""
     return f"number.{profile.entity_id.split('.', 1)[1]}_external_temperature_input"
+
+
+def blu_trv_external_temperature_id(profile: DeviceProfile) -> str:
+    """Return the entity id of the BLU TRV external temperature on this device."""
+    return f"number.{profile.entity_id.split('.', 1)[1]}_external_temperature"
 
 
 def valve_number_id(profile: DeviceProfile) -> str:
@@ -485,11 +507,36 @@ SHELLY_BLU_VALVE_TRV = DeviceProfile(
     has_device_registry_entry=True,
     model="Shelly BLU TRV",
     hvac_modes=(HVACMode.HEAT,),
+    supported_features=_BLU_TRV_FEATURES,
+    rejects_hvac_mode_writes=True,
     target_temperature=None,
     valve_channel=ValveChannel.NUMBER_ENTITY,
     valve_unique_id="aabbccddeeff-blutrv:200-valve_position",
 )
 """A BLU TRV whose own thermostat is disabled, exposing its valve number."""
+
+SHELLY_BLU_THERMOSTAT_TRV = DeviceProfile(
+    name="shelly_blu_thermostat_trv",
+    integration="shelly",
+    calibration="target_temp_based",
+    calibration_mode="no_calibration",
+    has_device_registry_entry=True,
+    model="Shelly BLU TRV",
+    hvac_modes=(HVACMode.HEAT,),
+    supported_features=_BLU_TRV_FEATURES,
+    rejects_hvac_mode_writes=True,
+    min_temp=4.0,
+    max_temp=30.0,
+    target_temperature_step=0.1,
+    blu_trv_external_temperature=True,
+)
+"""A BLU TRV that runs its own thermostat on the room temperature BT writes.
+
+Its own thermostat is enabled, so the Shelly integration publishes no
+writable valve, only the setpoint and the external temperature number the
+TRV regulates on. Better Thermostat passes its target through unchanged and
+keeps that number on the room temperature.
+"""
 
 ZHA_VALVE_QUIRK_TRV = DeviceProfile(
     name="zha_valve_quirk_trv",
@@ -740,6 +787,7 @@ SINGLE_ROLE_PROFILES = (
     TADO_OFFSET_TRV,
     VALVE_TRV,
     SHELLY_BLU_VALVE_TRV,
+    SHELLY_BLU_THERMOSTAT_TRV,
     RANGE_ONLY_HEAT_TRV,
 )
 """Every profile a test can drive as the single controlled device."""
@@ -752,6 +800,9 @@ GROUP_SCENARIOS = (GROUP_OF_THREE, MIXED_GRID_GROUP, VALVE_GROUP)
 
 SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario | GroupScenario] = {
     "a BLU TRV controlled only through its valve number": SHELLY_BLU_VALVE_TRV,
+    "a BLU TRV that regulates on the room temperature it is given": (
+        SHELLY_BLU_THERMOSTAT_TRV
+    ),
     "a head that offers no heating mode at all": AUTO_COOL_AC,
     "a head whose calibration is a number entity on its device": MQTT_OFFSET_TRV,
     "one entity wired as thermostat and as cooler": DUAL_ROLE,
