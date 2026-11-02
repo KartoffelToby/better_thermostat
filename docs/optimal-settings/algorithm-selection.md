@@ -9,7 +9,7 @@ description: Pick the right control algorithm for your room behavior.
 - External Sensor Offset Only: stable and simple fallback.
 - Aggressive: faster warm-up, at the price of more overshoot.
 - MPC Predictive (Beta): aims at a steady arrival rather than a fast one, at the price of more valve movement.
-- MPC v2: experimental, for TRVs with direct valve control.
+- MPC v2: experimental predictive controller; writes the valve directly where the TRV allows it.
 - PID Controller: responsive control with auto-tuning.
 - TPI Controller: simple proportional-time behaviour.
 - No Calibration: the TRV regulates on its own sensor.

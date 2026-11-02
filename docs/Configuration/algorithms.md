@@ -17,7 +17,7 @@ Start here if you are unsure:
 | Temperature often overshoots | MPC Predictive |
 | You want fine control and know PID tuning | PID Controller |
 | You want something simple | External Sensor Offset Only or TPI Controller |
-| Your TRV supports direct valve control and you want to try an experimental controller | MPC v2 |
+| You want to try an experimental predictive controller | MPC v2 |
 | You want the TRV to regulate on its own | No Calibration |
 
 ## The algorithms
@@ -75,7 +75,7 @@ Pick it when you overshoot regularly, when a steady arrival matters more to you 
 
 The setup form labels this mode *(AI) MPC v2 (QP + Kalman, experimental)*.
 
-MPC v2 is an experimental predictive controller. It estimates the room's state with a Kalman observer and computes the valve opening by solving a small optimisation problem (a quadratic program) over a receding horizon. It is written for TRVs with direct valve control; see [Direct valve control](#direct-valve-control).
+MPC v2 is an experimental predictive controller. It estimates the room's state with a Kalman observer and computes the valve opening by solving a small optimisation problem (a quadratic program) over a receding horizon. With the Direct Valve Based calibration type that opening is written to the TRV as it stands (see [Direct valve control](#direct-valve-control)). With any other calibration type, MPC v2 turns the opening into a target temperature between the TRV's current reading and its maximum: the wider the opening, the higher the setpoint.
 
 The **MPC v2 room size** option sets the room model it starts from. *Auto* derives it from the heat-loss rate Better Thermostat has learned for the room; the small, medium and large room presets use a fixed model instead.
 

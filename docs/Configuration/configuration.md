@@ -62,6 +62,10 @@ group:
 
 - ***Offset Based***: Apply the calibration to the offset. This will not be an option if your TRV doesn't support offset mode.
 
+- ***Direct Valve Based***: Set the valve opening directly. This is only offered when your TRV exposes a writable valve position. The valve opening comes from the calibration mode: AI Time Based, MPC Predictive, MPC v2, TPI Controller and PID Controller produce one; the other modes send a target temperature, as with Target Temperature Based.
+
+The preselected type is Offset Based if your TRV supports it, otherwise Direct Valve Based if it supports valve control, otherwise Target Temperature Based.
+
 **Enhanced Compatibility:**
 
 - **NUMBER entities**: Traditional numeric offset controls (most TRVs)
@@ -96,6 +100,8 @@ Better Thermostat offers several algorithms to control your heating:
 - ***MPC Predictive***: Advanced algorithm that predicts temperature changes for optimal efficiency
 - ***PID Controller***: Classic control method that responds well to varying heating conditions
 - ***TPI Controller***: Simple duty-cycle based control for consistent heating
+- ***(AI) MPC v2 (QP + Kalman, experimental)***: Experimental predictive controller; writes the valve directly with Direct Valve Based, otherwise works through the target temperature
+- ***No Calibration***: BT passes your target temperature to the TRV unchanged and writes no offset
 
 **→ [Learn more about each algorithm and which one to choose](algorithms)**
 
