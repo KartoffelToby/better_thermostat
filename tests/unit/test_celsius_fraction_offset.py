@@ -299,9 +299,22 @@ class TestTheGenericAdapterWritesWholeCounts:
         assert generic._published_offset(state, 0.5) == 6.0
 
     def test_a_step_of_several_counts_is_kept(self):
+        """The grid counts from the published minimum: -128 + 28 * 5 = 12."""
         state = _parameter(step=5, reserved=None)
 
-        assert generic._published_offset(state, 1.2) == 10.0
+        assert generic._published_offset(state, 1.2) == 12.0
+
+    def test_a_grid_that_misses_zero_counts_from_the_minimum(self):
+        """With -128 and a step of 3 the entity takes ..., 1, 4, 7, never 6."""
+        state = _parameter(step=3, reserved=None)
+
+        assert generic._published_offset(state, 0.6) == 7.0
+
+    def test_a_maximum_off_the_grid_is_not_written(self):
+        """51 counts round up to 52, past the maximum of 50; 49 is the top value."""
+        state = _parameter(step=3, reserved=None)
+
+        assert generic._published_offset(state, 5.1) == 49.0
 
     def test_a_range_reserved_throughout_writes_what_was_asked(self):
         """With no free value inside the bounds there is nothing better to take."""

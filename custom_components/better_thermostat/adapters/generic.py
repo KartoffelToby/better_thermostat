@@ -454,7 +454,11 @@ def _published_offset(state: State | None, calibration_offset: float) -> float:
     if not counts_whole_fractions(scale):
         return _within(value, lowest, highest)
     step = published_step(state)
-    value = _within(_on_step_grid(value, step), lowest, highest)
+    origin = 0.0 if lowest is None else lowest
+    value = _on_step_grid(value, step, origin)
+    if highest is not None and value > highest:
+        value = _on_step_grid(value - step, step, origin)
+    value = _within(value, lowest, highest)
     return _nearest_unreserved(state, value, step, lowest, highest)
 
 
@@ -496,7 +500,7 @@ def _nearest_unreserved(
     toward_zero = -step if value > 0 else step
     for distance in range(1, len(reserved) + 1):
         for shift in (toward_zero * distance, -toward_zero * distance):
-            candidate = _on_step_grid(value + shift, step)
+            candidate = round(value + shift, 10)
             if (
                 candidate not in reserved
                 and (lowest is None or candidate >= lowest)
@@ -506,8 +510,11 @@ def _nearest_unreserved(
     return value
 
 
-def _on_step_grid(value: float, step: float) -> float:
-    """Return the multiple of ``step`` nearest to ``value``.
+def _on_step_grid(value: float, step: float, origin: float) -> float:
+    """Return the value of the grid ``origin + n * step`` nearest to ``value``.
+
+    A number entity takes ``min + n * step``, so its grid starts at its
+    published minimum, or at zero when it publishes none.
 
     Parameters
     ----------
@@ -515,13 +522,15 @@ def _on_step_grid(value: float, step: float) -> float:
         Value in the entity's published unit.
     step : float
         Positive step the entity publishes.
+    origin : float
+        Grid point the steps count from.
 
     Returns
     -------
     float
-        The nearest multiple, rid of the float error of the multiplication.
+        The nearest grid value, rid of the float error of the multiplication.
     """
-    return round(round(value / step) * step, 10)
+    return round(origin + round((value - origin) / step) * step, 10)
 
 
 async def set_calibration_offset(
