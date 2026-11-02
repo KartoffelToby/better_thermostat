@@ -51,12 +51,18 @@ An unavailable valve number does not cause Better Thermostat to fall back to set
 
 Direct control depends on Home Assistant, the gateway and the Bluetooth link. If these stop working, Better Thermostat cannot send commands and the last valve position may remain in effect. If neither the room sensor nor any TRV temperature is usable and BT enters HOLD, it requests a fixed emergency opening of 25% for a valve-only device because its thermostat cannot take over. This preserves limited heating without retaining a potentially fully open valve, and Boost does not override it. Normal regulation resumes after the sensor-recovery stability period. The command uses the normal write and retry path and requires a reachable device. OFF, open windows or doors, and an invalid stored calibration mode still request closure; the invalid configuration also raises a repair issue. A fixed opening cannot guarantee frost protection or provide a local automatic shutoff or boiler timeout. Any zone-relay timeout or independent temperature limit belongs outside Better Thermostat.
 
+## Shelly BLU TRV (own thermostat)
+
+To keep the BLU TRV's own automatic temperature control, set the **Calibration type** to **Target Temperature Based** and the **Calibration mode** to **No Calibration**. Better Thermostat then passes its target to the TRV unchanged and writes the room temperature to the TRV's **External temperature** `number`, so the TRV regulates on the room sensor; see [Room temperature written to the TRV](#room-temperature-written-to-the-trv). If that number is missing or disabled in Home Assistant, Better Thermostat logs a warning once and the TRV regulates without a room temperature (the gateway reports `ext_temp_missing`).
+
 ## Room temperature written to the TRV
 
 Some TRVs can regulate on a room temperature sent to them instead of their own sensor. For these models Better Thermostat writes its room temperature to the device:
 
 - **Sonoff TRVZB and TRV-ZBT** (Zigbee2MQTT): to `external_temperature_input`, and switches the device's temperature sensor selection to it. A TRVZB paired through ZHA gets it in `external_temperature_sensor_value`, and its `external_temperature_sensor` switch is turned on.
 - **Danfoss Ally, Popp 701721, Hive UK7004240** (Zigbee2MQTT): to `external_measured_room_sensor`, in hundredths of a degree Celsius as Zigbee2MQTT expects, but only with the calibration mode **No Calibration**. The device corrects for its own sensor itself once it has the room temperature, so any other calibration mode would correct the same bias a second time. A change of at least 0.1 °C is written at once. An unchanged value goes out again with Better Thermostat's 30-minute refresh, which stays within the time after which the device drops the value and returns to its own sensor: 3 hours, or 35 minutes with `radiator_covered` on. Better Thermostat does not change `radiator_covered`; set it to match how the radiator is mounted. Open windows are not reported through `window_open_external`, and `heat_available` is not used.
+
+- **Shelly BLU TRV** (SBTR-001AEU, Home Assistant's Shelly integration): to its **External temperature** number (`external_temperature`), but only with the calibration mode **No Calibration** and not under **Direct Valve Based** control, for the same reason as the Danfoss Ally: the TRV corrects for its own sensor once it has the room temperature, and under direct valve control its own thermostat is off. Only readings Better Thermostat accepts are written; its sensor filter can hold a small or flickering change back for a while. An accepted change of at least 0.1 °C is written at once. An unchanged value goes out again with the first accepted reading or 30-minute refresh that comes at least 5 minutes after the last write, so two writes stay less than 35 minutes apart. If the number is missing or disabled, a warning is logged once.
 
 No value is written while the room sensor gives no reading, or when the room sensor belongs to the TRV itself.
 
@@ -72,6 +78,7 @@ Better Thermostat includes specific fixes and optimizations for the following de
 - Heater (TermoWeb electric radiator, through the ha-termoweb integration)
 - ME167 (Avatto)
 - SEA801-Zigbee / SEA802-Zigbee
+- SBTR-001AEU (Shelly BLU TRV)
 - SHTRV-01 (Shelly TRV, Gen1)
 - SPZB0001 (Eurotronic Spirit Zigbee)
 - TRV-ZBT (Sonoff TRV-ZBT)
