@@ -152,9 +152,9 @@ While not recommended for most users, auto-tuning can be disabled through the ad
 
 ### TPI Controller
 
-TPI (Time Proportional Integral) turns the distance from your target into a duty cycle: what share of the time the valve should be open. At 60 % demand it might hold the valve fully open for six minutes, then closed for four.
+TPI (Time Proportional Integral) turns the distance from your target (plus, when an outdoor temperature is available, the difference between target and outdoor temperature) into a duty cycle between 0 and 100 %. Better Thermostat uses that duty cycle as a steady valve opening: at 60 % demand the valve is held 60 % open.
 
-The model is easy to follow and suits a radiator with real thermal inertia, where a slow on/off rhythm is closer to how the heat actually arrives. It does less than MPC or PID, and it adapts less readily when conditions change.
+The model is easy to follow and suits a radiator with real thermal inertia. It does less than MPC or PID, and it adapts less readily when conditions change.
 
 Pick it when your heating system is consistent and you want predictable behaviour without the machinery of the learning modes.
 
