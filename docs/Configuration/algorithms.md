@@ -67,7 +67,7 @@ From that prediction it picks the correction that reaches your target smoothly i
 
 It aims at arriving at the target rather than at arriving quickly, which is the whole point of predicting ahead. It is the most complex of the modes and it reacts deliberately rather than fast, which can read as sluggish at first. Give it about a day of operation before judging it.
 
-Pick it when you overshoot regularly, when a steady arrival matters more to you than reaction speed, and when your heating system itself is reasonably stable. In the project's benchmark it moves the valve more often than PID or TPI, and with several radiators in one room it can over-react.
+Pick it when you overshoot regularly, when a steady arrival matters more to you than reaction speed, and when your heating system itself is reasonably stable. In the project's benchmark it works the valve harder than PID or TPI, and with several radiators in one room it can over-react.
 
 ---
 
