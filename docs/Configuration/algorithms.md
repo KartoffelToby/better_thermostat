@@ -251,18 +251,19 @@ With direct valve control, Better Thermostat can:
 
 ### Devices that support it
 
-Direct valve control is available for TRVs that expose valve position as a controllable entity, and for models with a valve control built into Better Thermostat, including:
+Direct valve control is available for TRVs that expose their valve position as a writable entity, and for the models marked *built-in* below, whose valve control is part of Better Thermostat:
 
-- **Sonoff TRVZB** (via Zigbee2MQTT or ZHA)
+- **Sonoff TRVZB** (via Zigbee2MQTT or ZHA), *built-in*: Better Thermostat writes the opening and closing degree the TRV exposes
 - **TRVs exposed via MQTT** with valve position entities
 - **ZHA TRVs** whose quirk exposes the valve position as a number entity. A valve position that ZHA only shows as a sensor, such as the PI heating demand of the Bosch Radiator Thermostat II, reports the opening but cannot set it
-- **Z-Wave JS TRVs** that expose a valve position entity, and the Eurotronic Spirit Z / Aeotec ZWA021
+- **Z-Wave JS TRVs** that expose a valve position entity
+- **Eurotronic Spirit Z / Aeotec ZWA021** (Z-Wave JS), *built-in*: Better Thermostat drives the valve through the Multilevel Switch command class
 - **Shelly BLU TRV**, once its built-in thermostat is switched off on the Shelly side and Home Assistant shows its valve position entity. Reload Better Thermostat after switching, so it finds the entity
 - **Other Zigbee TRVs** that expose valve control through their integration
 
 Better Thermostat detects whether your TRV supports direct valve control and then offers the **Direct Valve Based** calibration type. It only writes the valve when you select that type.
 
-The valve entity has to accept writes. Where the device exposes both a writable valve number and a valve sensor that only reports the opening, Better Thermostat writes the number. A valve closing degree, such as the one on the Sonoff TRVZB, is never taken as the valve entity, because it holds the opposite of the opening. If the TRVZB's valve opening degree entity is disabled, the TRV has no direct valve control and Better Thermostat logs a warning naming that entity; enable it and reload Better Thermostat.
+Without a built-in control, the valve entity has to accept writes. Where the device exposes both a writable valve number and a valve sensor that only reports the opening, Better Thermostat writes the number. A valve closing degree, such as the one on the Sonoff TRVZB, is never taken as the valve entity, because it holds the opposite of the opening. If the TRVZB's valve opening degree entity is disabled, the TRV has no direct valve control and Better Thermostat logs a warning naming that entity; enable it and reload Better Thermostat.
 
 ### How the algorithms use it
 
