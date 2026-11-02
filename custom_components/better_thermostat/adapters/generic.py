@@ -26,10 +26,15 @@ from ..utils.helpers import (
 from .base import (
     AdapterCapabilities,
     DeviceChannels,
+    counts_whole_fractions,
     offset_scale,
     offset_to_published,
+    published_bound,
+    published_reading,
+    published_step,
     published_step_to_offset,
     published_to_offset,
+    reserved_published_values,
     wait_for_calibration_entity_or_timeout,
 )
 from .delegate import set_hvac_mode as delegate_set_hvac_mode
@@ -171,9 +176,7 @@ async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
         if not state_is_live(state):
             return 0.0
         try:
-            # For SELECT entities, remove the 'k' suffix if present (e.g., "1.5k" -> "1.5")
-            state_str = state.state.replace("k", "")
-            return published_to_offset(offset_scale(state), float(state_str))
+            reading = published_reading(state)
         except ValueError, TypeError:
             _LOGGER.warning(
                 "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
@@ -181,6 +184,15 @@ async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
                 state.state,
             )
             return 0.0
+        if reading is None:
+            _LOGGER.debug(
+                "better_thermostat %s: calibration entity %s holds the reserved value '%s', which is no offset; reading it as 0",
+                self.device_name,
+                calibration_entity,
+                state.state,
+            )
+            return 0.0
+        return reading
     else:
         return 0.0
 
@@ -292,9 +304,10 @@ async def get_min_calibration_offset(self: AdapterHost, entity_id: str) -> float
         return DEFAULT_OFFSET_MIN
     if state.domain == "select":
         return min(_offered_offsets(state), default=DEFAULT_OFFSET_MIN)
-    if "min" not in state.attributes:
+    lowest = published_bound(state, "min")
+    if lowest is None:
         return DEFAULT_OFFSET_MIN
-    return published_to_offset(offset_scale(state), float(str(state.attributes["min"])))
+    return published_to_offset(offset_scale(state), lowest)
 
 
 async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> float:
@@ -319,9 +332,10 @@ async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> float
         return DEFAULT_OFFSET_MAX
     if state.domain == "select":
         return max(_offered_offsets(state), default=DEFAULT_OFFSET_MAX)
-    if "max" not in state.attributes:
+    highest = published_bound(state, "max")
+    if highest is None:
         return DEFAULT_OFFSET_MAX
-    return published_to_offset(offset_scale(state), float(str(state.attributes["max"])))
+    return published_to_offset(offset_scale(state), highest)
 
 
 def _setpoint_payload(
@@ -412,7 +426,12 @@ def _published_offset(state: State | None, calibration_offset: float) -> float:
     Assistant checks a written value against. The offset was clamped in
     Kelvin already; holding the converted value inside the published bounds
     keeps the float error of the round trip from pushing a value at a bound
-    just outside it.
+    just outside it. A bound the entity reserves for a meaning of its own is
+    not taken. An entity counting fractions of a degree Celsius takes its
+    raw integers, so the value is put on its step grid first, where the
+    float error of the conversion would otherwise be truncated away by the
+    device, and a reserved value it lands on gives way to the nearest one
+    that is an offset.
 
     Parameters
     ----------
@@ -426,15 +445,83 @@ def _published_offset(state: State | None, calibration_offset: float) -> float:
     float
         The value to write, in the entity's published unit.
     """
-    value = offset_to_published(offset_scale(state), calibration_offset)
+    scale = offset_scale(state)
+    value = offset_to_published(scale, calibration_offset)
     if state is None:
         return value
-    for bound, pick in (("min", max), ("max", min)):
-        try:
-            value = pick(value, float(str(state.attributes[bound])))
-        except KeyError, TypeError, ValueError:
-            continue
+    lowest = published_bound(state, "min")
+    highest = published_bound(state, "max")
+    if not counts_whole_fractions(scale):
+        return _within(value, lowest, highest)
+    step = published_step(state)
+    value = _within(_on_step_grid(value, step), lowest, highest)
+    return _nearest_unreserved(state, value, step, lowest, highest)
+
+
+def _within(value: float, lowest: float | None, highest: float | None) -> float:
+    """Return ``value`` held inside the bounds that are given."""
+    if lowest is not None:
+        value = max(value, lowest)
+    if highest is not None:
+        value = min(value, highest)
     return value
+
+
+def _nearest_unreserved(
+    state: State, value: float, step: float, lowest: float | None, highest: float | None
+) -> float:
+    """Return the grid value nearest to ``value`` the entity does not reserve.
+
+    Parameters
+    ----------
+    state : State
+        State of the calibration number, carrying its reserved values.
+    value : float
+        Value on the step grid, in the entity's published unit.
+    step : float
+        Positive step the entity publishes.
+    lowest, highest : float or None
+        Bounds a write has to stay inside, None where the entity has none.
+
+    Returns
+    -------
+    float
+        ``value`` itself when it is no reserved value; otherwise the nearest
+        grid value inside the bounds that is none, the one towards zero
+        first, as it is the smaller offset; ``value`` when there is none.
+    """
+    reserved = reserved_published_values(state)
+    if value not in reserved:
+        return value
+    toward_zero = -step if value > 0 else step
+    for distance in range(1, len(reserved) + 1):
+        for shift in (toward_zero * distance, -toward_zero * distance):
+            candidate = _on_step_grid(value + shift, step)
+            if (
+                candidate not in reserved
+                and (lowest is None or candidate >= lowest)
+                and (highest is None or candidate <= highest)
+            ):
+                return candidate
+    return value
+
+
+def _on_step_grid(value: float, step: float) -> float:
+    """Return the multiple of ``step`` nearest to ``value``.
+
+    Parameters
+    ----------
+    value : float
+        Value in the entity's published unit.
+    step : float
+        Positive step the entity publishes.
+
+    Returns
+    -------
+    float
+        The nearest multiple, rid of the float error of the multiplication.
+    """
+    return round(round(value / step) * step, 10)
 
 
 async def set_calibration_offset(

@@ -12,7 +12,7 @@ Local calibration support depends on adapter support and TRV capabilities. Curre
 - Tado
 - Zigbee2MQTT
 - deCONZ
-- Z-Wave JS, when the TRV exposes a calibration entity. A configuration parameter is not used as one: its value counts in the parameter's own unit (the Eurotronic Spirit's temperature offset, parameter 8, counts tenths of a degree), so there is no need to enable it for Better Thermostat
+- Z-Wave JS, when the TRV exposes a calibration entity. A configuration parameter is used as one when its unit is degrees Celsius or a tenth or hundredth of one: the temperature offset of the Eurotronic Spirit and the Aeotec ZWA021, parameter 8, counts tenths of a degree and is read and written in that unit, and its reserved value -128 (external sensor) is never written. Home Assistant creates configuration parameters disabled, so enable that entity and reload Better Thermostat
 - Any other integration whose TRV exposes a calibration entity (a `number` or `select`) that Better Thermostat can find
 
 For device-level details, see [Working devices](/working-devices/compatibility/).
