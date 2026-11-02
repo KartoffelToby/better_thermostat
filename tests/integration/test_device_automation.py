@@ -172,6 +172,32 @@ def _republish(hass, **changes) -> State:
     return state
 
 
+async def _measure(hass, attribute: str, value: float) -> None:
+    """Have the room sensor report ``value`` and wait until the thermostat publishes it.
+
+    A test that counts the changes of a measured value cannot republish that
+    value: the thermostat keeps writing its own state from background work
+    the test does not wait for, and each of those writes puts the measured
+    value back. Fed through the sensor, the value is the thermostat's own,
+    and every write it makes carries it.
+
+    The room temperature filter holds back a reading that follows the last
+    accepted one within a few seconds; the last change is dated back so
+    the reading is taken at once.
+    """
+    if attribute == "current_humidity":
+        set_room_humidity(hass, value)
+    else:
+        (entry,) = hass.config_entries.async_entries(DOMAIN)
+        entry.runtime_data.climate.last_external_sensor_change = (
+            dt_util.now() - timedelta(hours=1)
+        )
+        set_room_sensor(hass, value)
+    assert await wait_for(
+        hass, lambda: hass.states.get(BT_ENTITY).attributes[attribute] == value
+    ), f"the thermostat never published {attribute}={value}"
+
+
 async def test_the_device_offers_every_declared_trigger(hass, fake_trv):
     """Home Assistant is offered each trigger type the platform declares.
 
@@ -1141,12 +1167,10 @@ async def test_target_reached_fires_on_the_heating_end_of_a_range(
     )
     low = state.attributes["target_temp_low"]
     calls = await _automation_on(hass, device_id, "target_temp_reached")
-    _republish(hass, current_temperature=low - 2.0)
-    await hass.async_block_till_done()
+    await _measure(hass, "current_temperature", low - 2.0)
     assert not calls
 
-    _republish(hass, current_temperature=low)
-    await hass.async_block_till_done()
+    await _measure(hass, "current_temperature", low)
 
     assert len(calls) == 1
 
@@ -1164,14 +1188,12 @@ async def test_a_value_trigger_without_a_threshold_fires_on_every_change(
     """Without ``above`` or ``below`` the value trigger fires whenever the value moves."""
     _entry, device_id = await _entry_with_device(hass)
     first, *changes = values
-    _republish(hass, **{attribute: first})
-    await hass.async_block_till_done()
+    await _measure(hass, attribute, first)
     calls = await _automation_on(hass, device_id, trigger_type)
 
     for value in changes:
-        _republish(hass, **{attribute: value})
-        await hass.async_block_till_done()
-    _republish(hass, **{attribute: changes[-1]}, window_open=True)
+        await _measure(hass, attribute, value)
+    _republish(hass, window_open=True)
     await hass.async_block_till_done()
 
     assert len(calls) == len(changes)
