@@ -75,7 +75,7 @@ Pick it when you overshoot regularly, when a steady arrival matters more to you 
 
 The setup form labels this mode *(AI) MPC v2 (QP + Kalman, experimental)*.
 
-MPC v2 is an experimental predictive controller. It estimates the room's state with a Kalman observer and computes the valve opening by solving a small optimisation problem (a quadratic program) over a receding horizon. With the Direct Valve Based calibration type that opening is written to the TRV as it stands (see [Direct valve control](#direct-valve-control)). With any other calibration type, MPC v2 turns the opening into a target temperature between the TRV's current reading and its maximum: the wider the opening, the higher the setpoint.
+MPC v2 is an experimental predictive controller. It estimates the room's state with a Kalman observer and computes the valve opening by solving a small optimisation problem (a quadratic program) over a receding horizon. With the Direct Valve Based calibration type that opening is written to the TRV as it stands (see [Direct valve control](#direct-valve-control)). With any other calibration type, MPC v2 turns the opening into a setpoint between the TRV's current reading and its maximum: the wider the opening, the higher the setpoint. Target Temperature Based sends that setpoint to the TRV as its target temperature; Offset Based leaves the target temperature as it is and writes the difference as a calibration offset.
 
 The **MPC v2 room size** option sets the room model it starts from. *Auto* derives it from the heat-loss rate Better Thermostat has learned for the room; the small, medium and large room presets use a fixed model instead.
 
@@ -101,16 +101,16 @@ Pick it when your heating power varies, when outside influences keep moving the 
 
 Auto-tuning is on by default.
 
-**Timeline:**
+**How tuning proceeds:**
 
-- **Initial period (Days 1-3):** The controller starts with default values (Kp=60, Ki=0.01, Kd=2000) and begins learning your room's behavior. You may notice slight temperature oscillations as it adjusts.
+- **At the start:** The controller starts with default values (Kp=60, Ki=0.01, Kd=2000) and begins learning your room's behavior. You may notice slight temperature oscillations as it adjusts.
 
-- **Learning phase (Days 4-7):** The algorithm makes adjustments every 5 minutes (minimum) based on:
-  - **Overshoot detection:** If temperature overshoots target, it decreases Kp (makes it less aggressive), increases Kd (improves damping) and decreases Ki
-  - **Sluggish response:** If heating is too slow, it increases Ki (improves steady-state accuracy) and Kp
-  - **Steady-state drift:** If temperature drifts near target, it decreases Ki (prevents accumulation)
+- **While tuning:** The algorithm adjusts the gains at most every 5 minutes, and only when one of these conditions holds (the "target band" is 0.1 °C either side of the target):
+  - **Overshoot:** The room was outside the target band at the previous calculation and is inside it now, coming from either side. It decreases Kp (less aggressive), increases Kd (more damping) and decreases Ki. A room that heats up into the target band from below counts as well
+  - **Sluggish response:** The room is more than 0.1 °C below the target, its temperature changes by less than 0.005 °C per minute (0.3 °C per hour) and the valve output is below 95 %. It increases Ki and Kp
+  - **Steady state:** The room is inside the target band and the valve output is below 20 %. It decreases Ki
 
-- **Settled phase (Week 2+):** After about 1-2 weeks, the parameters should stabilize and provide smooth temperature control with minimal overshooting.
+- **Settled:** Each time the room comes back into the target band, Kp falls and Kd rises a little, within the limits below. While the room holds the target with a small valve output, Ki keeps shrinking every 5 minutes until it reaches its lower limit of 0.001. How many heating cycles that takes depends on the room; the code sets no fixed period.
 
 **What to expect:**
 
