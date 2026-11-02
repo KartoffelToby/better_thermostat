@@ -20,6 +20,7 @@ from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
 from custom_components.better_thermostat.core.watchdog import WATCHDOG_MAX_AGE_S
+from custom_components.better_thermostat.model_fixes.types import ValveReading
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationOutput,
@@ -822,6 +823,158 @@ class TestValveWriteBudget:
         bt.clock.advance(30.0)
         _, set_valve = await self._run(bt, percent=60)
         set_valve.assert_called_once()
+
+
+class TestValveReadback:
+    """A held valve position is judged by what the device's entities report.
+
+    A control cycle skips a valve write only when the entities it set still
+    report the position, or report nothing to check it against. The
+    reconcile tick queues a cycle only for an entity that reports a
+    different position.
+    """
+
+    VALVE = "number.valve"
+    OPENING = "number.valve_opening_degree"
+    CLOSING = "number.valve_closing_degree"
+
+    def _bt(self, states, *, method="adapter", readings=None, last_percent=50):
+        """A TRV that last wrote ``last_percent`` through ``method``, with these states."""
+        bt = _control_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.valve_position_entity = self.VALVE
+        trv.valve_position_writable = True
+        trv.last_valve_percent = last_percent
+        trv.last_valve_method = method
+        trv.model_quirks.valve_readings = Mock(
+            return_value=[] if readings is None else readings
+        )
+        trv_state = bt.hass.states.get.return_value
+        bt.hass.states.get.side_effect = lambda entity_id: states.get(
+            entity_id, trv_state
+        )
+        return bt
+
+    @staticmethod
+    def _number(entity_id, value, *, assumed=False):
+        attributes = {"assumed_state": True} if assumed else {}
+        return State(entity_id, value, attributes)
+
+    async def _cycle_writes(self, bt, percent=50):
+        """Run a cycle that wants ``percent`` and answer whether it wrote."""
+        with (
+            patch(f"{_CTRL}.convert_outbound_states") as conv,
+            patch(
+                f"{_CTRL}._get_valve_control",
+                return_value=({"valve_percent": percent}, "test"),
+            ),
+            patch(f"{_CTRL}.set_valve", autospec=True, return_value=True) as set_valve,
+            patch(f"{_CTRL}.set_hvac_mode", autospec=True),
+            patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            conv.return_value = {"system_mode": HVACMode.HEAT}
+            await control_trv(bt, "climate.trv")
+        return set_valve.called
+
+    async def _tick_queues(self, bt):
+        """Run a reconcile tick and answer whether it queued a cycle."""
+        bt.control_queue_task.put_nowait.reset_mock()
+        await reconcile_tick(bt)
+        return bt.control_queue_task.put_nowait.called
+
+    @pytest.mark.asyncio
+    async def test_a_held_position_is_not_written_again(self):
+        """An entity reporting the written position skips the write."""
+        bt = self._bt({self.VALVE: self._number(self.VALVE, "50")})
+        assert await self._cycle_writes(bt) is False
+        assert await self._tick_queues(bt) is False
+
+    @pytest.mark.asyncio
+    async def test_a_lost_position_is_written_again(self):
+        """An entity reporting another position takes the write again."""
+        bt = self._bt({self.VALVE: self._number(self.VALVE, "10")})
+        assert await self._cycle_writes(bt) is True
+        assert await self._tick_queues(bt) is True
+
+    @pytest.mark.asyncio
+    async def test_an_assumed_position_is_written_on_every_cycle(self):
+        """An assumed state repeats the command, so it confirms nothing."""
+        bt = self._bt({self.VALVE: self._number(self.VALVE, "50", assumed=True)})
+        assert await self._cycle_writes(bt) is True
+
+    @pytest.mark.asyncio
+    async def test_an_assumed_closed_valve_is_rewritten_within_the_budget(self):
+        """Repeating an assumed 0 % gains no safety, so it waits for its slot.
+
+        Closing bypasses the valve budget, but a closed valve that only an
+        assumed state reports would otherwise go out on every cycle.
+        """
+        bt = self._bt(
+            {self.VALVE: self._number(self.VALVE, "0", assumed=True)}, last_percent=0
+        )
+        writes = [await self._cycle_writes(bt, percent=0) for _ in range(3)]
+        assert writes == [True, False, False]
+
+    @pytest.mark.asyncio
+    async def test_a_closed_valve_that_opened_is_closed_again_at_once(self):
+        """A reported opening where 0 % was written still bypasses the budget."""
+        bt = self._bt({self.VALVE: self._number(self.VALVE, "40")}, last_percent=0)
+        writes = [await self._cycle_writes(bt, percent=0) for _ in range(3)]
+        assert writes == [True, True, True]
+
+    @pytest.mark.asyncio
+    async def test_an_assumed_position_alone_queues_no_cycle(self):
+        """A matching assumed state is no lost write, or every tick would queue one."""
+        bt = self._bt({self.VALVE: self._number(self.VALVE, "50", assumed=True)})
+        assert await self._tick_queues(bt) is False
+
+    @pytest.mark.asyncio
+    async def test_an_assumed_position_someone_else_sent_reconciles(self):
+        """A different assumed value is a later command that replaced this one."""
+        bt = self._bt({self.VALVE: self._number(self.VALVE, "10", assumed=True)})
+        assert await self._tick_queues(bt) is True
+
+    @pytest.mark.asyncio
+    async def test_a_quirk_write_is_read_back_through_every_number_it_set(self):
+        """A lost closing degree is a lost position, whatever the opening says."""
+        readings = [
+            ValveReading(self._number(self.OPENING, "50"), 50.0),
+            ValveReading(self._number(self.CLOSING, "100"), 50.0),
+        ]
+        bt = self._bt(
+            {self.VALVE: self._number(self.VALVE, "50")},
+            method="override",
+            readings=readings,
+        )
+        assert await self._cycle_writes(bt) is True
+        assert await self._tick_queues(bt) is True
+
+    @pytest.mark.asyncio
+    async def test_a_quirk_with_nothing_to_read_leaves_the_adopted_entity_alone(self):
+        """A quirk naming no number keeps the write; the adopted entity is not asked.
+
+        A TRVZB holds the bump opening on purpose while the write that
+        follows it is due, and its opening degree is the adopted valve
+        entity, so reading that entity here would cancel the bump.
+        """
+        bt = self._bt(
+            {self.VALVE: self._number(self.VALVE, "60")}, method="override", readings=[]
+        )
+        assert await self._cycle_writes(bt) is False
+        assert await self._tick_queues(bt) is False
+
+    @pytest.mark.asyncio
+    async def test_a_quirk_without_readings_is_read_through_the_adopted_entity(self):
+        """A valve quirk that names no numbers is checked as an adapter write."""
+        bt = self._bt({self.VALVE: self._number(self.VALVE, "10")}, method="override")
+        trv = bt.real_trvs["climate.trv"]
+        trv.model_quirks = Mock(
+            spec=["override_set_valve", "override_set_temperature"],
+            override_set_valve=AsyncMock(return_value=True),
+            override_set_temperature=AsyncMock(return_value=False),
+        )
+        assert await self._tick_queues(bt) is True
 
 
 class TestAClosedValveReportedOpen:

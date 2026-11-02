@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+from collections.abc import Sequence
 import functools
 import importlib
 import inspect
@@ -62,6 +63,7 @@ OPTIONAL = (
     "trv_state_unknown_as_available",
     "local_calibration_shifts_setpoint",
     "local_calibration_inverted",
+    "valve_readings",
 )
 SURFACE = REQUIRED + OPTIONAL
 
@@ -78,6 +80,7 @@ CALL_CONTRACT = {
     "trv_state_unknown_as_available": ((), bool),
     "local_calibration_shifts_setpoint": ((), bool),
     "local_calibration_inverted": ((), bool),
+    "valve_readings": ((50,), Sequence),
 }
 
 

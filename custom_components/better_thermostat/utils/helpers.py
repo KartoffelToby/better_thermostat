@@ -25,6 +25,7 @@ from homeassistant.components.climate.const import (
     HVACMode,
 )
 from homeassistant.const import (
+    ATTR_ASSUMED_STATE,
     ATTR_UNIT_OF_MEASUREMENT,
     CONF_NAME,
     STATE_ON,
@@ -2302,6 +2303,26 @@ def state_is_live(state: State | None) -> TypeGuard[State]:
     return state is not None and state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
 
 
+def state_is_assumed(state: State | None) -> bool:
+    """Answer whether a state shows the last command rather than the device.
+
+    An entity that cannot read its device back, such as an optimistic MQTT
+    entity, flags its state with ``assumed_state``. Such a state repeats
+    whatever was last sent to it, so it confirms nothing about the device.
+
+    Parameters
+    ----------
+    state : State | None
+            the entity state to inspect
+
+    Returns
+    -------
+    bool
+            True when the state is present and flagged ``assumed_state``
+    """
+    return state is not None and state.attributes.get(ATTR_ASSUMED_STATE) is True
+
+
 def resolve_state_change_event(
     self: BetterThermostat,
     event: Event[EventStateChangedData],
@@ -3158,16 +3179,53 @@ _CALIBRATION_ENTITY_DOMAINS: set[str] = {"number", "select"}
 # Unique id of a number Z-Wave JS creates for a configuration parameter:
 # ``<home id>.<node id>-112-<endpoint>-<parameter>``, where 112 is the
 # Configuration command class. Such a number publishes the parameter's raw
-# value in whatever unit the parameter defines (the Eurotronic Spirit's
-# temperature offset counts tenths of a degree and reserves -128 for
-# "external sensor"), so it is never read or written as an offset in Kelvin.
+# value in whatever unit the parameter defines: the Eurotronic Spirit's
+# temperature offset counts tenths of a degree Celsius and reserves -128 for
+# "external sensor".
 _ZWAVE_CONFIGURATION_PARAMETER: Final = re.compile(r"^\d+\.\d+-112-\d+-")
 
+# A unit counting degrees Celsius or a decimal fraction of one: "°C",
+# "0.1 °C", "0.01°C".
+_CELSIUS_UNIT: Final = re.compile(r"^(?:(?P<fraction>0\.0?1)\s*)?°\s*C$")
 
-def _is_zwave_configuration_parameter(entry: er.RegistryEntry) -> bool:
-    """Whether ``entry`` is a Z-Wave JS configuration parameter number."""
-    return entry.platform == "zwave_js" and bool(
-        _ZWAVE_CONFIGURATION_PARAMETER.match(entry.unique_id)
+
+def celsius_unit_divisor(unit: object) -> int | None:
+    """Return how many counts of ``unit`` make one degree Celsius.
+
+    Parameters
+    ----------
+    unit : object
+        Unit of measurement an entity publishes, as Home Assistant stores
+        it in the state attributes or the entity registry.
+
+    Returns
+    -------
+    int or None
+        1 for ``°C``, 10 for ``0.1 °C``, 100 for ``0.01 °C``, and None for
+        any other unit or none at all.
+    """
+    if not isinstance(unit, str):
+        return None
+    match = _CELSIUS_UNIT.match(unit.strip())
+    if match is None:
+        return None
+    fraction = match.group("fraction")
+    if fraction is None:
+        return 1
+    return 10 if fraction == "0.1" else 100
+
+
+def _is_unusable_zwave_configuration_parameter(entry: er.RegistryEntry) -> bool:
+    """Whether ``entry`` is a Z-Wave JS configuration parameter of no known unit.
+
+    A configuration parameter counted in degrees Celsius or a decimal
+    fraction of one is read and written through that unit; any other
+    parameter carries a unit an offset cannot be converted from.
+    """
+    return (
+        entry.platform == "zwave_js"
+        and bool(_ZWAVE_CONFIGURATION_PARAMETER.match(entry.unique_id))
+        and celsius_unit_divisor(entry.unit_of_measurement) is None
     )
 
 
@@ -3180,8 +3238,9 @@ async def find_local_calibration_entity(
     for a stable, language-independent lookup.  Falls back to the legacy
     unique_id / entity_id string matching for older integrations.
     Only writable candidates (``number`` or ``select`` entities) are
-    considered, and a Z-Wave JS configuration parameter is none, because
-    its raw value carries the parameter's own unit.
+    considered, and a Z-Wave JS configuration parameter only when its unit
+    counts degrees Celsius, because its raw value carries the parameter's
+    own unit.
 
     Parameters
     ----------
@@ -3215,7 +3274,7 @@ async def find_local_calibration_entity(
         for entity in entity_entries
         if _shares_device(entity, reg_entity.device_id)
         and entity.domain in _CALIBRATION_ENTITY_DOMAINS
-        and not _is_zwave_configuration_parameter(entity)
+        and not _is_unusable_zwave_configuration_parameter(entity)
     ]
     # First pass: match by translation_key (preferred, stable approach)
     for entity in candidates:
