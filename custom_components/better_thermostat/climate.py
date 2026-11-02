@@ -83,7 +83,7 @@ from .adapters.delegate import (
 from .core.clock import Clock
 from .core.containers import BtConfig, BtRuntime
 from .core.decide import KernelState
-from .core.desired import HeatingBlock
+from .core.desired import DesiredState, HeatingBlock
 from .core.fsm.control_mode import LADDER_TICK_S, ControlMode, start_on_rung
 from .core.fsm.lifecycle import (
     startup_finished as lifecycle_startup_finished,
@@ -103,6 +103,7 @@ from .core.fsm.mode import (
 )
 from .core.fsm.window import WindowPhase, WindowState
 from .core.recorder import FlightRecorder
+from .core.snapshot import WorldSnapshot
 from .core.watchdog import CONTROL_TICK_S
 from .device_binding import async_bind_trv_device, async_unbind_trv_device
 from .entity import (
@@ -1429,6 +1430,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # Monotonic time the control cycle now running began, for the control
         # watchdog; None between cycles and once an overrun has been reported.
         self.control_cycle_started_monotonic: float | None = None
+        # The control cycle whose decision the TRVs are being driven by; a
+        # group controller steps once per cycle and hands every TRV of the
+        # group the command of that step.
+        self.dispatched_control_cycle: tuple[WorldSnapshot, DesiredState] | None = None
         self.bt_update_lock = False
         if enabled_presets is not None:
             self.preset_mgr = PresetManager(enabled_presets=enabled_presets)

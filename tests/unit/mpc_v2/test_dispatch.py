@@ -7,6 +7,7 @@ that the controller-level tests can't exercise — the dispatcher reads
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, Literal
 from unittest.mock import MagicMock
@@ -123,6 +124,7 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         state_mgr=_FakeStateManager(),
         clock=FakeClock(monotonic_value=1_000_000.0),
         schedule_save_state=MagicMock(),
+        dispatched_control_cycle=None,
     )
 
 
@@ -166,10 +168,9 @@ def test_multi_trv_gives_every_trv_the_group_valve() -> None:
     }
     bt = _make_bt(real_trvs=real_trvs)
 
-    # Dispatch each TRV. The group MPC controller is stateful and advances one
-    # step per dispatch, so the two calls observe slightly different group
-    # commands; each TRV's share is therefore compared with the group command
-    # of its own dispatch.
+    # Dispatch each TRV. Outside a control cycle each dispatch is a step of
+    # the group controller of its own, so each TRV's share is compared with
+    # the group command of its own dispatch.
     out_cold, _ = _compute_mpc_v2_balance(bt, "climate.living_cold")
     out_warm, _ = _compute_mpc_v2_balance(bt, "climate.living_warm")
 
@@ -247,6 +248,92 @@ def test_one_trvs_cap_does_not_hold_back_the_others() -> None:
     assert out_cold is not None and out_warm is not None
     assert out_cold.valve_percent > 40
     assert out_warm.valve_percent == 40
+
+
+def test_group_controller_steps_once_per_control_cycle(monkeypatch) -> None:
+    """Every TRV of a group takes the command of the cycle's one step.
+
+    The second TRV is dispatched past the controller's next re-plan and after
+    the room cooled, so a step of its own would plan a different command.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+        compute as compute_module,
+    )
+
+    clock = [1_700_000_000.0]
+    monkeypatch.setattr(compute_module, "time", lambda: clock[0])
+    seen = _capture_controller_input(monkeypatch)
+    real_trvs = {
+        "climate.living_a": _make_trv(
+            "climate.living_a", current_temperature=19.0, supports_valve=True
+        ),
+        "climate.living_b": _make_trv(
+            "climate.living_b", current_temperature=19.0, supports_valve=True
+        ),
+    }
+    bt = _make_bt(real_trvs=real_trvs)
+    bt.dispatched_control_cycle = object()
+
+    out_a, _ = _compute_mpc_v2_balance(bt, "climate.living_a")
+    clock[0] += 400.0
+    bt.room_temperature = 17.0
+    out_b, _ = _compute_mpc_v2_balance(bt, "climate.living_b")
+
+    assert out_a is not None and out_b is not None
+    assert len(seen) == 1
+    assert out_b.valve_percent == out_a.valve_percent
+
+    bt.dispatched_control_cycle = object()
+    out_next, _ = _compute_mpc_v2_balance(bt, "climate.living_a")
+
+    assert out_next is not None
+    assert len(seen) == 2
+    assert out_next.valve_percent != out_a.valve_percent
+
+
+def test_a_cycles_group_command_is_held_to_each_trvs_own_cap(monkeypatch) -> None:
+    """The cycle's one command reaches each TRV held to that TRV's own cap.
+
+    The controller is held to a 90 % command. The first TRV dispatched is the
+    one capped low, so a cycle that kept its capped command would hold the
+    second TRV to that cap as well.
+    """
+    from custom_components.better_thermostat import calibration
+
+    real_compute = calibration.compute_mpc_v2
+    steps: list[Any] = []
+
+    def _fixed_command(inp, params, state=None, **kwargs):
+        steps.append(inp)
+        output, new_state = real_compute(inp, params, state=state, **kwargs)
+        assert output is not None
+        return replace(output, valve_percent=90), new_state
+
+    monkeypatch.setattr(calibration, "compute_mpc_v2", _fixed_command)
+    real_trvs = {
+        "climate.living_a": _make_trv(
+            "climate.living_a",
+            current_temperature=15.0,
+            supports_valve=True,
+            valve_max_opening=40.0,
+        ),
+        "climate.living_b": _make_trv(
+            "climate.living_b",
+            current_temperature=15.0,
+            supports_valve=True,
+            valve_max_opening=80.0,
+        ),
+    }
+    bt = _make_bt(real_trvs=real_trvs)
+    bt.dispatched_control_cycle = object()
+
+    out_a, _ = _compute_mpc_v2_balance(bt, "climate.living_a")
+    out_b, _ = _compute_mpc_v2_balance(bt, "climate.living_b")
+
+    assert out_a is not None and out_b is not None
+    assert len(steps) == 1
+    assert out_a.valve_percent == 40
+    assert out_b.valve_percent == 80
 
 
 def test_single_trv_passes_the_group_valve_through() -> None:
