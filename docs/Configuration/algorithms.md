@@ -207,7 +207,7 @@ The **Calibration Mode** (algorithm) works together with the **Calibration Type*
 
 - **Offset Based:** The algorithm calculates what temperature offset to send to the TRV. For example, if the TRV's internal sensor reads 21°C but your external sensor reads 20°C, it sends an offset of -1°C.
 
-- **Direct Valve Based:** The algorithm's valve opening is written to the TRV's valve position entity. Modes that produce no valve opening send a target temperature instead, as with Target Temperature Based.
+- **Direct Valve Based:** The algorithm's valve opening is written to the TRV's valve position entity, or through a valve control built into Better Thermostat for that model. Modes that produce no valve opening send a target temperature instead, as with Target Temperature Based.
 
 Not all TRVs support offset-based calibration or direct valve control. Better Thermostat detects your TRV's capabilities and only offers the calibration types it supports.
 
@@ -226,11 +226,12 @@ With direct valve control, Better Thermostat can:
 
 ### Devices that support it
 
-Direct valve control is available for TRVs that expose valve position as a controllable entity, including:
+Direct valve control is available for TRVs that expose their valve position as a writable entity, and for the models marked *built-in* below, whose valve control is part of Better Thermostat:
 
-- **Sonoff TRVZB** (via Zigbee2MQTT or ZHA)
+- **Sonoff TRVZB** (via Zigbee2MQTT or ZHA), *built-in*: Better Thermostat writes the opening and closing degree the TRV exposes
 - **TRVs exposed via MQTT** with valve position entities
-- **Z-Wave JS TRVs** that expose a valve position entity, and the Eurotronic Spirit Z / Aeotec ZWA021
+- **Z-Wave JS TRVs** that expose a valve position entity
+- **Eurotronic Spirit Z / Aeotec ZWA021** (Z-Wave JS), *built-in*: Better Thermostat drives the valve through the Multilevel Switch command class
 - **Other Zigbee TRVs** that expose valve control through their integration
 
 Better Thermostat detects whether your TRV supports direct valve control and then offers the **Direct Valve Based** calibration type. It only writes the valve when you select that type.
