@@ -73,7 +73,8 @@ group:
 How should Better Thermostat control your radiator?
 
 - **Target Temperature Based**: The safest choice. It tricks your radiator into heating more or less by changing its target temperature. Works with almost all devices.
-- **Offset Based**: Uses your device's built-in calibration feature, if it has one.
+- **Offset Based**: Uses your device's built-in calibration feature, if it has one. Preselected when your device supports it.
+- **Direct Valve Based**: Sets the valve opening directly. Only offered when Better Thermostat can write your device's valve, through a writable valve position entity or a valve control built in for that model, and only AI Time Based, MPC Predictive, MPC v2, TPI Controller and PID Controller use it; the other modes fall back to a target temperature.
 
 Some devices expose offset as a `number`, others as a `select`. Better Thermostat supports both.
 
@@ -81,12 +82,14 @@ Some devices expose offset as a `number`, others as a `select`. Better Thermosta
 
 This is the "brain" of Better Thermostat. How should it calculate the heating?
 
-- **Normal**: Basic mode. It just syncs the temperature from your room sensor to the radiator.
+- **External Sensor Offset Only**: Basic mode. It just syncs the temperature from your room sensor to the radiator.
 - **Aggressive**: Heats up faster by temporarily setting the radiator much higher, but might overshoot your target temperature.
 - **AI Time Based**: **Recommended for most users.** A smart algorithm that learns and adjusts to keep the temperature stable.
 - **MPC Predictive**: Advanced smart control that predicts how your room heats up to prevent overshooting and save energy.
 - **PID Controller**: A mathematical approach that constantly adjusts the valve. Best for advanced users.
 - **TPI Controller**: Turns the heater on and off in calculated intervals to maintain a steady temperature.
+- **(AI) MPC v2 (QP + Kalman, experimental)**: An experimental predictive controller. It sets the valve directly with Direct Valve Based and otherwise steers through the target temperature or the offset.
+- **No Calibration**: Passes your target temperature to the radiator unchanged.
 
 Use [Algorithm selection](/optimal-settings/algorithm-selection/) for decision help.
 
