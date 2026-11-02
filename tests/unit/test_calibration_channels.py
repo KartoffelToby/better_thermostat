@@ -277,7 +277,7 @@ def test_the_setpoint_channel_closes_a_valve_the_command_rounds_to_zero():
 
 
 def test_the_setpoint_channel_keeps_its_lead_while_idle():
-    """Rounding onto whole degrees never takes the lead off an open valve."""
+    """An open valve keeps its full lead above the TRV on a whole-degree grid."""
     bt = _make_bt(
         CalibrationMode.TPI_CALIBRATION,
         room_temperature=19.0,
