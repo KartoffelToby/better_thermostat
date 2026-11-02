@@ -38,7 +38,7 @@ class SmithPredictor:
         self,
         x_now: FloatArray,
         u_recent_history: list[float],
-        T_outdoor_C: float,
+        T_outdoor: float,
         dead_time_s: float,
     ) -> FloatArray:
         """Propagate ``x_now`` through the recent commands spanning the dead time.
@@ -54,5 +54,5 @@ class SmithPredictor:
         n_steps = max(1, math.ceil(dead_time_s / self.plant.dt_s))
         x = x_now.copy()
         for u in u_recent_history[-n_steps:]:
-            x = self.plant.discrete_step(x, u, T_outdoor_C)
+            x = self.plant.discrete_step(x, u, T_outdoor)
         return x

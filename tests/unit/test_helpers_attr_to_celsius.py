@@ -16,16 +16,17 @@ from custom_components.better_thermostat.utils.helpers import (
     attr_to_celsius,
     state_temperature_unit,
 )
+from tests.factories import ThermostatStandIn
 
 
 def _bt(system_unit):
     """Minimal stand-in exposing the ``hass`` and ``device_name`` attr_to_celsius reads."""
-    return SimpleNamespace(
-        device_name="Test BT",
-        hass=SimpleNamespace(
-            config=SimpleNamespace(units=SimpleNamespace(temperature_unit=system_unit))
-        ),
+    bt = ThermostatStandIn()
+    bt.device_name = "Test BT"
+    bt.hass = SimpleNamespace(
+        config=SimpleNamespace(units=SimpleNamespace(temperature_unit=system_unit))
     )
+    return bt
 
 
 def _state(attributes):

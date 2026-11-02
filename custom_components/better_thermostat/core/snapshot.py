@@ -1,0 +1,120 @@
+"""Immutable snapshot of the world as the control path sees it.
+
+A :class:`WorldSnapshot` is the raw observation handed to the decision
+kernel: target and measured temperatures, mode flags, environment, and
+the reported state of every TRV. It is built once per control cycle by
+the shell (``utils/snapshot.py``) and never mutated.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import StrEnum
+
+
+class HvacMode(StrEnum):
+    """HVAC mode vocabulary of the core.
+
+    Values match Home Assistant's ``HVACMode`` strings so that members
+    compare equal to the shell's enum without importing it.
+    """
+
+    OFF = "off"
+    HEAT = "heat"
+    COOL = "cool"
+    HEAT_COOL = "heat_cool"
+    AUTO = "auto"
+
+
+def parse_hvac_mode(value: str | None) -> HvacMode | None:
+    """Map a raw mode string (or HA's string enum) onto the core vocabulary.
+
+    Returns ``None`` for unknown or missing values.
+    """
+    if value is None:
+        return None
+    try:
+        return HvacMode(value)
+    except ValueError:
+        return None
+
+
+class Preset(StrEnum):
+    """Preset vocabulary of the core.
+
+    Values match Home Assistant's ``PRESET_*`` strings so that members
+    compare equal to the shell's preset names without importing them.
+    """
+
+    NONE = "none"
+    ECO = "eco"
+    AWAY = "away"
+    BOOST = "boost"
+    COMFORT = "comfort"
+    HOME = "home"
+    SLEEP = "sleep"
+    ACTIVITY = "activity"
+
+
+def parse_preset(value: str | None) -> Preset | None:
+    """Map a raw preset name onto the core vocabulary.
+
+    Returns ``None`` for unknown or missing values.
+    """
+    if value is None:
+        return None
+    try:
+        return Preset(value)
+    except ValueError:
+        return None
+
+
+@dataclass(frozen=True)
+class TrvReported:
+    """Reported state of a single TRV at snapshot time."""
+
+    entity_id: str
+    available: bool = True
+    # The user has released this TRV on its own: it is not commanded until
+    # it is taken back, whether it is reachable or not.
+    released: bool = False
+    hvac_mode: HvacMode | None = None
+    current_temperature: float | None = None
+    setpoint: float | None = None
+    min_temp: float | None = None
+    max_temp: float | None = None
+    valve_max_opening: float | None = None
+    min_local_calibration: float | None = None
+    max_local_calibration: float | None = None
+
+
+@dataclass(frozen=True)
+class WorldSnapshot:
+    """Complete, immutable observation of one control cycle."""
+
+    now: datetime
+    now_monotonic: float
+    heat_target_temperature: float
+    cool_target_temperature: float | None = None
+    hvac_mode: HvacMode | None = None
+    room_temperature: float | None = None
+    room_temperature_filtered: float | None = None
+    temperature_slope: float | None = None
+    call_for_heat: bool = True
+    # Raw window-sensor reading at snapshot time (None: no sensor
+    # configured). Pure observation for the flight recorder — the
+    # debounced window region in the kernel state rules the control law.
+    window_open: bool | None = None
+    preset_mode: Preset | None = None
+    # The user has handed the room's devices over: no device is commanded
+    # until they are taken back.
+    devices_released: bool = False
+    tolerance: float = 0.0
+    outdoor_temperature: float | None = None
+    is_day: bool = True
+    solar_intensity: float = 0.0
+    min_temp: float | None = None
+    max_temp: float | None = None
+    trvs: Mapping[str, TrvReported] = field(default_factory=dict)

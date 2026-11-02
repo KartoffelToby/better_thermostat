@@ -9,8 +9,11 @@ binary sensor:
 
 - `on`, `true` or `open` — door is open, heating pauses
 - `off`, `false` or `closed` — door is closed, heating resumes
-- `unknown` or `unavailable` — Better Thermostat assumes the door is
-  open as a precaution
+- `unknown` or `unavailable` — counts as **closed** so heating continues:
+  doors are usually closed and a lost sensor (e.g. a dead battery) must
+  not stop heating. The unavailability is still reported. A sensor
+  removed from Home Assistant (disabled, deleted or renamed in the entity
+  registry) counts as closed in the same way.
 
 If the sensor reports anything else, Better Thermostat raises an
 **invalid door sensor state** repair issue and ignores the state change.
@@ -53,3 +56,7 @@ passages do not interrupt heating.
 Both contacts suppress heating on the same terms, and they combine: heating
 resumes only once *every* configured contact reports closed. See
 [Window sensor states](/faq/window-sensor) for the window side.
+
+The **Window Detection** switch covers doors as well: turned off, neither
+the window nor the door sensor affects the heating. See
+[Turning window detection off](/faq/window-sensor/#turning-window-detection-off).

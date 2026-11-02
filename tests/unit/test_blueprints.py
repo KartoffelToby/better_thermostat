@@ -19,16 +19,28 @@ instance.
 """
 
 from ast import literal_eval
-from datetime import datetime
+import asyncio
+from collections.abc import Mapping
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from homeassistant.components.automation import config as automation_config
 from homeassistant.components.blueprint.models import Blueprint, BlueprintInputs
 from homeassistant.components.blueprint.schemas import BLUEPRINT_SCHEMA
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+from homeassistant.core import ServiceCall
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 import homeassistant.helpers.config_validation as cv
+from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 from homeassistant.util.yaml import loader as yaml_loader
 import jinja2
 import pytest
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+    async_mock_service,
+)
 import voluptuous as vol
 import yaml
 
@@ -55,14 +67,18 @@ _BlueprintLoader.add_constructor(
 )
 
 
-def _load(path: Path) -> dict:
+def _load(path: Path) -> dict[str, object]:
     """Parse a blueprint YAML file, keeping ``!input`` tags as ``_Input``."""
-    return yaml.load(path.read_text(encoding="utf-8"), Loader=_BlueprintLoader)
+    document = yaml.load(path.read_text(encoding="utf-8"), Loader=_BlueprintLoader)
+    assert isinstance(document, dict)
+    return document
 
 
 def _placeholder_for(spec) -> object:
     """Return a valid stand-in value for a required input (one without a default)."""
-    selector = (spec.get("selector") or {}) if isinstance(spec, dict) else {}
+    selector: Mapping[str, object] = (
+        (spec.get("selector") or {}) if isinstance(spec, dict) else {}
+    )
     if "target" in selector:
         return {"entity_id": "climate.bt_test"}
     if "device" in selector:
@@ -78,10 +94,14 @@ def _placeholder_for(spec) -> object:
     return "bt_test"
 
 
-def _resolve_inputs(blueprint: dict) -> dict:
+def _resolve_inputs(blueprint: Mapping[str, object]) -> dict[str, object]:
     """Map every input to its declared default (or a placeholder if required)."""
-    resolved = {}
-    for name, spec in blueprint["blueprint"]["input"].items():
+    metadata = blueprint["blueprint"]
+    assert isinstance(metadata, dict)
+    declared = metadata["input"]
+    assert isinstance(declared, dict)
+    resolved: dict[str, object] = {}
+    for name, spec in declared.items():
         if isinstance(spec, dict) and "default" in spec:
             resolved[name] = spec["default"]
         else:
@@ -89,7 +109,7 @@ def _resolve_inputs(blueprint: dict) -> dict:
     return resolved
 
 
-def _substitute(value, inputs):
+def _substitute(value: object, inputs: Mapping[str, object]) -> object:
     """Recursively replace every ``_Input`` with its resolved value."""
     if isinstance(value, _Input):
         return inputs[value.name]
@@ -135,17 +155,17 @@ def _collect_problems(config) -> list[str]:
 
     def walk(node, path):
         if isinstance(node, dict):
-            for key, val in node.items():
+            for key, value in node.items():
                 here = f"{path}.{key}"
-                if key in ("service", "action") and isinstance(val, str):
-                    reason = _service_problem(val)
+                if key in ("service", "action") and isinstance(value, str):
+                    reason = _service_problem(value)
                     if reason:
                         problems.append(f"{here}: {reason}")
                 if key == "entity_id":
-                    reason = _entity_problem(val)
+                    reason = _entity_problem(value)
                     if reason:
                         problems.append(f"{here}: {reason}")
-                walk(val, here)
+                walk(value, here)
         elif isinstance(node, list):
             for i, item in enumerate(node):
                 walk(item, f"{path}[{i}]")
@@ -277,7 +297,9 @@ async def test_weekly_schedule_rejects_an_empty_string_input(hass):
 # ── Runtime behaviour of the presence / pause variables ──────────────────────
 
 
-def _render(template_text: str, context: dict, states: dict):
+def _render(
+    template_text: str, context: Mapping[str, object], states: Mapping[str, str]
+) -> object:
     """Render a blueprint variable the way Home Assistant would.
 
     Home Assistant strips a rendered `variables:` entry and then runs
@@ -287,10 +309,14 @@ def _render(template_text: str, context: dict, states: dict):
     which is truthy -- so the value a template produces has to be a Python
     literal, not just look like one.
     """
-    env = jinja2.Environment()
-    env.globals["states"] = lambda entity: states.get(entity, "unknown")
-    env.globals["is_state"] = lambda entity, value: states.get(entity) == value
-    rendered = env.from_string(template_text).render(**context).strip()
+    template = jinja2.Environment().from_string(
+        template_text,
+        globals={
+            "states": lambda entity: states.get(entity, "unknown"),
+            "is_state": lambda entity, value: states.get(entity) == value,
+        },
+    )
+    rendered = template.render(**context).strip()
     try:
         return literal_eval(rendered)
     except ValueError, TypeError, SyntaxError, MemoryError:
@@ -532,11 +558,12 @@ def test_pause_off_does_not_resume_while_another_switch_holds_the_pause(
 # saves at all.
 
 
-def _bt_device_triggers(blueprint: dict) -> list[dict]:
+def _bt_device_triggers(blueprint: Mapping[str, object]) -> list[dict[str, object]]:
     """Return the Better Thermostat device triggers a blueprint declares."""
-    triggers = blueprint.get("trigger") or blueprint.get("triggers") or []
+    triggers: object = blueprint.get("trigger") or blueprint.get("triggers") or []
     if isinstance(triggers, dict):
         triggers = [triggers]
+    assert isinstance(triggers, list)
     return [
         trigger
         for trigger in triggers
@@ -570,6 +597,7 @@ def test_bundled_device_triggers_pass_the_trigger_schema(path):
 
     for trigger in _bt_device_triggers(blueprint):
         resolved = _substitute(trigger, inputs)
+        assert isinstance(resolved, dict)
         try:
             TRIGGER_SCHEMA(resolved)
         except vol.Invalid as err:
@@ -577,3 +605,584 @@ def test_bundled_device_triggers_pass_the_trigger_schema(path):
                 f"{path.name}: trigger {resolved.get('type')} is rejected "
                 f"by the platform schema: {err}"
             ) from err
+
+
+# ── Blueprints running as automations ────────────────────────────────────────
+#
+# The checks above read the YAML. The ones below substitute the inputs the way
+# Home Assistant does, set the result up as a real automation and drive it with
+# state changes and a moving clock, so the script engine decides which service
+# calls happen.
+
+PRESENCE_AWAY = BLUEPRINTS_DIR / "presence_away_preset.yaml"
+BATTERY_LOW = BLUEPRINTS_DIR / "battery_low_notify.yaml"
+_AUTOMATION_ID = "automation.bt_blueprint_under_test"
+
+
+async def _set_up_blueprint(hass, path, inputs, *, triggers=None):
+    """Substitute *inputs* into the blueprint at *path* and start it.
+
+    *triggers* replaces the blueprint's triggers, for blueprints whose trigger
+    needs a Better Thermostat device that the test does not create.
+    """
+    data = await hass.async_add_executor_job(yaml_loader.load_yaml, str(path))
+    blueprint = Blueprint(
+        data, path=path.name, expected_domain="automation", schema=BLUEPRINT_SCHEMA
+    )
+    blueprint_inputs = BlueprintInputs(
+        blueprint, {"use_blueprint": {"path": path.name, "input": inputs}}
+    )
+    blueprint_inputs.validate()
+    config = dict(blueprint_inputs.async_substitute())
+    config["id"] = "bt_blueprint_under_test"
+    config["alias"] = "BT blueprint under test"
+    if triggers is not None:
+        config.pop("trigger", None)
+        config["triggers"] = triggers
+    assert await async_setup_component(hass, "automation", {"automation": [config]})
+    await hass.async_block_till_done()
+    assert hass.states.get(_AUTOMATION_ID) is not None
+
+
+async def _settle(hass):
+    """Let a triggered run proceed as far as it can without the clock moving.
+
+    `async_block_till_done` would wait for a run parked in a `delay` step
+    forever, so the loop is only cycled until the pending callbacks are done.
+    """
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+
+async def _advance(hass, freezer, delta):
+    """Move the clock forward and let the timers that fall due run."""
+    freezer.tick(delta)
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await _settle(hass)
+
+
+def _presets(calls) -> list[str]:
+    """Return the preset modes the mocked climate service was called with."""
+    return [call.data["preset_mode"] for call in calls]
+
+
+@pytest.fixture(name="preset_calls")
+async def preset_calls_fixture(hass):
+    """Capture every `climate.set_preset_mode` call."""
+    return async_mock_service(hass, "climate", "set_preset_mode")
+
+
+async def _set_up_presence_away(hass, away_delay=10):
+    hass.states.async_set("person.a", "home")
+    await _set_up_blueprint(
+        hass,
+        PRESENCE_AWAY,
+        {
+            "thermostat_target": {"entity_id": "climate.bt_test"},
+            "presence_entities": ["person.a"],
+            "away_delay": away_delay,
+        },
+    )
+
+
+async def test_presence_away_applies_away_after_the_delay(hass, freezer, preset_calls):
+    """Nobody returns: Away is applied once the delay has passed, not before."""
+    await _set_up_presence_away(hass)
+
+    hass.states.async_set("person.a", "not_home")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=9))
+    assert _presets(preset_calls) == []
+
+    await _advance(hass, freezer, timedelta(minutes=2))
+    assert _presets(preset_calls) == ["away"]
+
+
+async def test_presence_away_without_delay_applies_away_at_once(hass, preset_calls):
+    """A zero delay skips the wait but still applies Away."""
+    await _set_up_presence_away(hass, away_delay=0)
+
+    hass.states.async_set("person.a", "not_home")
+    await _settle(hass)
+
+    assert _presets(preset_calls) == ["away"]
+
+
+async def test_presence_away_is_not_applied_when_someone_returns_during_the_delay(
+    hass, freezer, preset_calls
+):
+    """A return inside the delay cancels the pending Away.
+
+    The arrival has to be handled while the Away run is still waiting, and
+    once the delay expires no Away may follow: the house is occupied.
+    """
+    await _set_up_presence_away(hass)
+
+    hass.states.async_set("person.a", "not_home")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=5))
+
+    hass.states.async_set("person.a", "home")
+    await _settle(hass)
+    assert _presets(preset_calls) == ["none"]
+
+    await _advance(hass, freezer, timedelta(minutes=10))
+    assert _presets(preset_calls) == ["none"]
+
+
+async def test_presence_away_delay_is_not_restarted_by_attribute_updates(
+    hass, freezer, preset_calls
+):
+    """A location update without a state change does not postpone Away."""
+    await _set_up_presence_away(hass)
+
+    hass.states.async_set("person.a", "not_home", {"latitude": 1.0})
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=5))
+    hass.states.async_set("person.a", "not_home", {"latitude": 2.0})
+    await _settle(hass)
+
+    await _advance(hass, freezer, timedelta(minutes=6))
+    assert _presets(preset_calls) == ["away"]
+
+
+def _last_triggered(hass):
+    return hass.states.get(_AUTOMATION_ID).attributes["last_triggered"]
+
+
+async def test_battery_low_notification_is_throttled_to_once_a_day(hass, freezer):
+    """A second low-battery report within 24 hours does not run the actions.
+
+    The throttle is the condition block, so whether a report got through is
+    read from `last_triggered`, which Home Assistant only moves once the
+    conditions have passed.
+    """
+    async_mock_service(hass, "notify", "notify")
+    await _set_up_blueprint(
+        hass,
+        BATTERY_LOW,
+        {"thermostat_device": "bt_test_device_id"},
+        triggers=[{"platform": "event", "event_type": "bt_test_battery_low"}],
+    )
+
+    hass.bus.async_fire("bt_test_battery_low")
+    await hass.async_block_till_done()
+    first_run = _last_triggered(hass)
+    assert first_run is not None
+
+    await _advance(hass, freezer, timedelta(hours=23))
+    hass.bus.async_fire("bt_test_battery_low")
+    await hass.async_block_till_done()
+    assert _last_triggered(hass) == first_run
+
+    await _advance(hass, freezer, timedelta(hours=2))
+    hass.bus.async_fire("bt_test_battery_low")
+    await hass.async_block_till_done()
+    assert _last_triggered(hass) > first_run
+
+
+def _sequence_calling_preset(node, preset):
+    """Find the step list that calls `climate.set_preset_mode` with *preset*."""
+    if isinstance(node, list):
+        for step in node:
+            if (
+                isinstance(step, dict)
+                and step.get("service", step.get("action")) == "climate.set_preset_mode"
+                and (step.get("data") or {}).get("preset_mode") == preset
+            ):
+                return node
+        for step in node:
+            if (found := _sequence_calling_preset(step, preset)) is not None:
+                return found
+    elif isinstance(node, dict):
+        for value in node.values():
+            if (found := _sequence_calling_preset(value, preset)) is not None:
+                return found
+    return None
+
+
+def test_presence_away_recheck_guards_the_away_call():
+    """The post-delay re-check has to stop the Away call itself.
+
+    A condition only ends the step list it sits in. Inside the `then` of the
+    delay's `if`, a failing re-check ends that nested list and the Away call
+    after the `if` still runs. The runtime tests cannot show this on their
+    own: `mode: restart` already cancels the run on an arrival, so this pins
+    the second line of defence.
+    """
+    sequence = _sequence_calling_preset(_load(PRESENCE_AWAY)["action"], "away")
+    assert sequence is not None, "no step list applies the away preset"
+
+    away_call = next(
+        i
+        for i, step in enumerate(sequence)
+        if isinstance(step, dict)
+        and (step.get("data") or {}).get("preset_mode") == "away"
+    )
+    rechecks = [
+        i
+        for i, step in enumerate(sequence[:away_call])
+        if isinstance(step, dict)
+        and step.get("condition") == "template"
+        and "not anyone_home_recheck" in str(step.get("value_template"))
+    ]
+    assert rechecks, "the away call is not guarded by the re-check in its own list"
+
+
+# ── Pause Learning blueprints ────────────────────────────────────────────────
+
+HEAT_SOURCE = BLUEPRINTS_DIR / "pause_learning_heat_source.yaml"
+FIREPLACE = BLUEPRINTS_DIR / "pause_learning_fireplace.yaml"
+_PAUSE_SWITCHES = ["switch.living_room_pause_learning", "switch.bedroom_pause_learning"]
+
+
+@pytest.fixture(name="switch_calls")
+async def switch_calls_fixture(hass):
+    """Capture every `switch.turn_on` and `switch.turn_off` call, in order."""
+    calls: list[tuple[str, list[str]]] = []
+
+    async def record(call: ServiceCall) -> None:
+        calls.append((call.service, list(call.data["entity_id"])))
+
+    for service in ("turn_on", "turn_off"):
+        hass.services.async_register("switch", service, record)
+    return calls
+
+
+async def _set_up_heat_source(hass, initial_state="on", **inputs):
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", initial_state)
+    await _set_up_blueprint(
+        hass,
+        HEAT_SOURCE,
+        {
+            "heat_source_entity": "binary_sensor.boiler_heats_radiators",
+            "pause_learning_switches": _PAUSE_SWITCHES,
+            **inputs,
+        },
+    )
+
+
+async def test_heat_source_pauses_learning_while_no_heat_flows(hass, switch_calls):
+    """Learning stops when the heat goes away and resumes when it is back."""
+    await _set_up_heat_source(hass)
+
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "off")
+    await hass.async_block_till_done()
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES)]
+
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "on")
+    await hass.async_block_till_done()
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES), ("turn_off", _PAUSE_SWITCHES)]
+
+
+async def test_heat_source_entity_reporting_the_outage_pauses_on_on(hass, switch_calls):
+    """A hot water indicator is on while the radiators get nothing."""
+    await _set_up_heat_source(hass, pause_state="on")
+
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "off")
+    await hass.async_block_till_done()
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "on")
+    await hass.async_block_till_done()
+
+    assert switch_calls == [("turn_off", _PAUSE_SWITCHES), ("turn_on", _PAUSE_SWITCHES)]
+
+
+async def test_heat_source_going_unavailable_leaves_the_switches_alone(
+    hass, switch_calls
+):
+    """A sensor that drops out says nothing about the heat source."""
+    await _set_up_heat_source(hass)
+
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "unavailable")
+    await hass.async_block_till_done()
+    hass.states.async_set("binary_sensor.boiler_heats_radiators", "unknown")
+    await hass.async_block_till_done()
+
+    assert switch_calls == []
+
+
+@pytest.mark.parametrize("event", [EVENT_HOMEASSISTANT_STARTED, "automation_reloaded"])
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        ("off", [("turn_on", _PAUSE_SWITCHES)]),
+        ("on", [("turn_off", _PAUSE_SWITCHES)]),
+        ("unavailable", []),
+        ("unknown", []),
+    ],
+)
+async def test_heat_source_state_is_applied_on_start_and_reload(
+    hass, switch_calls, event, state, expected
+):
+    """A heat source that is already off pauses learning without changing."""
+    await _set_up_heat_source(hass, initial_state=state)
+
+    hass.bus.async_fire(event)
+    await hass.async_block_till_done()
+
+    assert switch_calls == expected
+
+
+async def _set_up_fireplace(hass, unit=None, temperature="20", **inputs):
+    attributes: dict[str, str] = {} if unit is None else {"unit_of_measurement": unit}
+    hass.states.async_set("sensor.fireplace_temperature", temperature, attributes)
+    await _set_up_blueprint(
+        hass,
+        FIREPLACE,
+        {
+            "fireplace_sensor": "sensor.fireplace_temperature",
+            "pause_learning_switches": _PAUSE_SWITCHES,
+            **inputs,
+        },
+    )
+
+
+async def test_fireplace_pauses_learning_until_it_has_cooled_down(
+    hass, freezer, switch_calls, preset_calls
+):
+    """Learning resumes only after the cool-down, and no preset is touched."""
+    await _set_up_fireplace(hass)
+
+    hass.states.async_set("sensor.fireplace_temperature", "120")
+    await _settle(hass)
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES)]
+
+    hass.states.async_set("sensor.fireplace_temperature", "30")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=29))
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES)]
+
+    await _advance(hass, freezer, timedelta(minutes=2))
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES), ("turn_off", _PAUSE_SWITCHES)]
+    assert _presets(preset_calls) == []
+
+
+async def test_fireplace_flaring_up_during_the_cool_down_keeps_the_pause(
+    hass, freezer, switch_calls
+):
+    """Wood added before the cool-down ends restarts it."""
+    await _set_up_fireplace(hass)
+
+    hass.states.async_set("sensor.fireplace_temperature", "120")
+    await _settle(hass)
+    hass.states.async_set("sensor.fireplace_temperature", "30")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=20))
+    hass.states.async_set("sensor.fireplace_temperature", "38")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=20))
+
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES)]
+
+
+async def test_fireplace_sets_the_chosen_preset_and_none_afterwards(
+    hass, freezer, switch_calls, preset_calls
+):
+    """The preset follows the fire, and the pause comes with it."""
+    await _set_up_fireplace(
+        hass,
+        fire_preset="eco",
+        thermostat_target={"entity_id": "climate.living_room"},
+        cool_down_minutes=0,
+    )
+
+    hass.states.async_set("sensor.fireplace_temperature", "120")
+    await _settle(hass)
+    assert _presets(preset_calls) == ["eco"]
+    assert preset_calls[0].data["entity_id"] == ["climate.living_room"]
+
+    hass.states.async_set("sensor.fireplace_temperature", "30")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(seconds=1))
+
+    assert _presets(preset_calls) == ["eco", "none"]
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES), ("turn_off", _PAUSE_SWITCHES)]
+
+
+@pytest.mark.parametrize(
+    ("unit", "room", "burning", "cooling"),
+    [("°F", "70", "150", "90"), ("K", "294", "340", "305")],
+)
+async def test_fireplace_thresholds_are_in_celsius_for_any_sensor_unit(
+    hass, freezer, switch_calls, unit, room, burning, cooling
+):
+    """Room temperature is not a fire, and a cooling stove counts as out."""
+    await _set_up_fireplace(hass, unit=unit)
+    attributes = {"unit_of_measurement": unit}
+
+    hass.states.async_set("sensor.fireplace_temperature", room, attributes)
+    await _settle(hass)
+    assert switch_calls == []
+
+    hass.states.async_set("sensor.fireplace_temperature", burning, attributes)
+    await _settle(hass)
+    hass.states.async_set("sensor.fireplace_temperature", cooling, attributes)
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=31))
+
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES), ("turn_off", _PAUSE_SWITCHES)]
+
+
+async def test_fireplace_sensor_dropping_out_keeps_the_pause(
+    hass, freezer, switch_calls
+):
+    """An unavailable sensor says nothing about the fire."""
+    await _set_up_fireplace(hass, unit="°F")
+
+    hass.states.async_set(
+        "sensor.fireplace_temperature", "150", {"unit_of_measurement": "°F"}
+    )
+    await _settle(hass)
+    hass.states.async_set("sensor.fireplace_temperature", "unavailable")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=31))
+
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES)]
+
+
+async def test_fireplace_preset_without_thermostats_goes_to_the_paused_devices(
+    hass, freezer, switch_calls, preset_calls
+):
+    """Left empty, the preset target is the devices of the Pause Learning switches."""
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    device_ids = []
+    for switch in _PAUSE_SWITCHES:
+        object_id = switch.split(".")[1]
+        device = dr.async_get(hass).async_get_or_create(
+            config_entry_id=entry.entry_id, identifiers={(DOMAIN, object_id)}
+        )
+        er.async_get(hass).async_get_or_create(
+            "switch",
+            DOMAIN,
+            object_id,
+            suggested_object_id=object_id,
+            config_entry=entry,
+            device_id=device.id,
+        )
+        device_ids.append(device.id)
+    await _set_up_fireplace(hass, fire_preset="eco", cool_down_minutes=0)
+
+    hass.states.async_set("sensor.fireplace_temperature", "120")
+    await _settle(hass)
+    hass.states.async_set("sensor.fireplace_temperature", "30")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(seconds=1))
+
+    assert _presets(preset_calls) == ["eco", "none"]
+    assert [call.data["device_id"] for call in preset_calls] == [device_ids] * 2
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES), ("turn_off", _PAUSE_SWITCHES)]
+
+
+def _set_pause_switches(hass, state):
+    for switch in _PAUSE_SWITCHES:
+        hass.states.async_set(switch, state)
+
+
+@pytest.mark.parametrize("event", [EVENT_HOMEASSISTANT_STARTED, "automation_reloaded"])
+@pytest.mark.parametrize(
+    ("temperature", "switch_state", "expected"),
+    [
+        ("120", "off", [("turn_on", _PAUSE_SWITCHES)]),
+        ("120", "on", [("turn_on", _PAUSE_SWITCHES)]),
+        ("30", "on", [("turn_off", _PAUSE_SWITCHES)]),
+        ("30", "off", []),
+        ("37", "on", []),
+        ("unavailable", "on", []),
+        ("unknown", "off", []),
+    ],
+)
+async def test_fireplace_reconciles_on_start_and_reload(
+    hass, freezer, switch_calls, event, temperature, switch_state, expected
+):
+    """A burning fire pauses at once; a pause left from a cold one ends."""
+    _set_pause_switches(hass, switch_state)
+    await _set_up_fireplace(hass, temperature=temperature)
+
+    hass.bus.async_fire(event)
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=31))
+
+    assert switch_calls == expected
+
+
+@pytest.mark.parametrize("switch_state", ["off", "on"])
+async def test_fireplace_burning_at_start_sets_the_preset_whatever_the_switches(
+    hass, switch_calls, preset_calls, switch_state
+):
+    """A pause already on at start still gets the fire's preset."""
+    _set_pause_switches(hass, switch_state)
+    await _set_up_fireplace(
+        hass,
+        temperature="120",
+        fire_preset="eco",
+        thermostat_target={"entity_id": "climate.living_room"},
+    )
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await _settle(hass)
+
+    assert switch_calls == [("turn_on", _PAUSE_SWITCHES)]
+    assert _presets(preset_calls) == ["eco"]
+
+
+async def test_fireplace_pause_left_at_start_waits_for_the_cool_down(
+    hass, freezer, switch_calls, preset_calls
+):
+    """The cool-down runs in full from the start before the pause ends."""
+    _set_pause_switches(hass, "on")
+    await _set_up_fireplace(
+        hass,
+        temperature="30",
+        fire_preset="eco",
+        thermostat_target={"entity_id": "climate.living_room"},
+    )
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=29))
+    assert switch_calls == []
+
+    await _advance(hass, freezer, timedelta(minutes=2))
+    assert switch_calls == [("turn_off", _PAUSE_SWITCHES)]
+    assert _presets(preset_calls) == ["none"]
+
+
+async def test_fireplace_warming_up_during_the_start_cool_down_keeps_the_pause(
+    hass, freezer, switch_calls
+):
+    """Wood added after a restart restarts the cool-down."""
+    _set_pause_switches(hass, "on")
+    await _set_up_fireplace(hass, temperature="30")
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=20))
+    hass.states.async_set("sensor.fireplace_temperature", "38")
+    await _settle(hass)
+    hass.states.async_set("sensor.fireplace_temperature", "30")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=20))
+    assert switch_calls == []
+
+    await _advance(hass, freezer, timedelta(minutes=11))
+    assert switch_calls == [("turn_off", _PAUSE_SWITCHES)]
+
+
+async def test_fireplace_cooling_through_the_band_at_start_gets_the_full_cool_down(
+    hass, freezer, switch_calls
+):
+    """A fire between the thresholds at start ends through its own cool-down."""
+    _set_pause_switches(hass, "on")
+    await _set_up_fireplace(hass, temperature="37")
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=5))
+    hass.states.async_set("sensor.fireplace_temperature", "30")
+    await _settle(hass)
+    await _advance(hass, freezer, timedelta(minutes=26))
+    assert switch_calls == []
+
+    await _advance(hass, freezer, timedelta(minutes=5))
+    assert switch_calls == [("turn_off", _PAUSE_SWITCHES)]

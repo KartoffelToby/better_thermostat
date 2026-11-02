@@ -333,3 +333,100 @@ def solar_trapezoid(
         return peak * (t_fall_end - t) / (t_fall_end - t_fall_start)
 
     return _f
+
+
+def heating_curve(
+    outdoor: Callable[[float], float],
+    slope: float,
+    room_temperature: float = 21.0,
+    minimum: float = 25.0,
+    maximum: float = 55.0,
+) -> Callable[[float], float]:
+    """Build a weather-compensated flow temperature schedule.
+
+    The flow temperature rises by ``slope`` kelvin for every kelvin the
+    outdoor temperature falls below ``room_temperature``, the linear heating
+    curve a heat pump or condensing boiler runs on, and stays within
+    ``[minimum, maximum]``.
+
+    Parameters
+    ----------
+    outdoor : Callable[[float], float]
+        Outdoor temperature schedule the curve follows, in °C.
+    slope : float
+        Kelvin of flow temperature per kelvin below ``room_temperature``.
+    room_temperature : float
+        Outdoor temperature at which the curve meets it, in °C.
+    minimum : float
+        Lowest flow temperature, in °C.
+    maximum : float
+        Highest flow temperature, in °C.
+
+    Returns
+    -------
+    Callable[[float], float]
+        Schedule function returning the flow temperature in °C.
+
+    Raises
+    ------
+    ValueError
+        If ``slope`` is negative or ``minimum`` exceeds ``maximum``.
+    """
+    if slope < 0.0:
+        raise ValueError(f"heating_curve slope must be >= 0, got {slope}")
+    if minimum > maximum:
+        raise ValueError(
+            f"heating_curve minimum {minimum} must not exceed maximum {maximum}"
+        )
+
+    def schedule(t: float) -> float:
+        curve = room_temperature + slope * (room_temperature - outdoor(t))
+        return max(minimum, min(maximum, curve))
+
+    return schedule
+
+
+def daily_interruptions(
+    start_hours: tuple[float, ...], duration_min: float
+) -> Callable[[float], bool]:
+    """Build a schedule that is ``False`` for ``duration_min`` from each start hour.
+
+    Repeats every day, as a heat pump heats hot water at fixed times and
+    sends no heat to the radiators meanwhile. An interruption may run past
+    midnight.
+
+    Parameters
+    ----------
+    start_hours : tuple[float, ...]
+        Hours of the day, in ``[0, 24)``, at which an interruption starts.
+    duration_min : float
+        Length of each interruption in minutes.
+
+    Returns
+    -------
+    Callable[[float], bool]
+        Schedule function returning ``False`` during an interruption.
+
+    Raises
+    ------
+    ValueError
+        If a start hour lies outside ``[0, 24)`` or ``duration_min`` is not
+        within ``(0, 1440)``.
+    """
+    if any(not 0.0 <= hour < 24.0 for hour in start_hours):
+        raise ValueError(
+            f"daily_interruptions start_hours must lie in [0, 24), got {start_hours}"
+        )
+    if not 0.0 < duration_min < 24 * 60.0:
+        raise ValueError(
+            f"daily_interruptions duration_min must lie in (0, 1440), got {duration_min}"
+        )
+    day_s = 24 * 3600.0
+    starts_s = [hour * 3600.0 for hour in start_hours]
+    duration_s = duration_min * 60.0
+
+    def schedule(t: float) -> bool:
+        time_of_day = t % day_s
+        return not any((time_of_day - start) % day_s < duration_s for start in starts_s)
+
+    return schedule

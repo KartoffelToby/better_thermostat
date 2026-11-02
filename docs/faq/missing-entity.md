@@ -5,23 +5,46 @@ slug: faq/missing-entity
 ---
 
 Better Thermostat raises a **missing entity** repair issue when one of
-the entities it was configured with — a TRV, the room temperature
-sensor, a window sensor, or another configured device — is not available
-in Home Assistant.
+the TRVs it was configured with is not available in Home Assistant.
+Unavailable sensors, such as the room temperature sensor or a window
+sensor, raise a [degraded mode](/faq/degraded-mode) issue instead.
 
 ## Common causes
 
 - The device's battery is empty or the device lost its radio connection.
 - The integration providing the entity is not loaded or failed to start.
-- The entity was renamed or removed, so the entity id Better Thermostat
-  was configured with no longer exists.
+- The entity was removed, so the entity id Better Thermostat was
+  configured with no longer exists. A renamed entity does not cause this:
+  Better Thermostat follows a new entity id on its own.
+
+- The device lost power on purpose, for example a wall thermostat that is
+  powered by the heat pump or the boiler and goes dark when it is switched
+  off. See [Thermostats without power](#thermostats-without-power).
 
 ## How to fix it
 
 1. Open **Settings → Devices & services** and find the entity named in
    the issue. Check the device's battery and reconnect it if necessary.
-2. If the entity id changed, either rename it back or update the Better
-   Thermostat configuration to the new entity id (open the Better
-   Thermostat entry and reconfigure it).
-3. Once the entity is back, confirm the repair issue — it also clears on
-   its own when the entity becomes available again.
+2. If the device was replaced by one with a different entity id, open the
+   Better Thermostat under
+   **Settings → Devices & services → Better Thermostat → Configure** and
+   select the new entity in place of the old one.
+3. If the TRV is gone for good, remove it from the Better Thermostat
+   configuration.
+
+The issue clears on its own when the entity is available again, or when it
+is removed from the Better Thermostat configuration. When Home Assistant
+starts or the Better Thermostat entry reloads, for example after its
+settings were saved, a TRV gets a few minutes to come up before the issue is
+raised again.
+
+## Thermostats without power
+
+If your thermostats are switched off together with the heating system, set
+the **Availability guard** in the Better Thermostat configuration to an
+entity that is on while they have power: the heat pump's power switch, or a
+binary sensor that follows it. While the guard is off, an unavailable
+thermostat raises no issue, and an issue raised before the guard turned off
+is withdrawn. Once the guard turns on, the thermostats get the **Grace period
+after the availability guard turns on** (10 minutes by default) to come back
+before a thermostat that is still missing is reported.

@@ -7,15 +7,15 @@ Use this profile as your starting point for each room.
 
 ## Baseline profile
 
-- **Calibration type**: Target temperature based (or offset based if your TRV supports it reliably)
+- **Calibration type**: Target temperature based (or offset based if your TRV supports it reliably; direct valve based if your TRV supports it and you use a mode that writes the valve)
 - **Calibration mode**: AI Time Based
 - **Tolerance**: 0.3°C
-- **Window delay**: 2-5 minutes
-- **Overheating protection**: Off by default; enable only if needed
+- **Delay before turning off when the window is opened**: 2-5 minutes
+- **Overheating protection**: On (the default); it only acts in AI Time Based and Aggressive
 
 ## When to change it
 
-Switch to Aggressive if the room heats very slowly, to MPC Predictive if it overshoots the target regularly, and to PID if it faces strong disturbances such as sun, draughts or an often-opened door.
+Switch to Aggressive if the room heats very slowly, to TPI Controller if it overshoots the target regularly, and to PID if it faces strong disturbances such as sun, draughts or an often-opened door.
 
 ## Sensor placement
 

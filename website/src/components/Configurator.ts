@@ -44,8 +44,8 @@ const questions = [
     id: 'windowSensor',
     title: 'Do you have window/door sensors?',
     options: [
-      { value: 'yes', label: 'Yes', desc: 'Immediate reaction to open windows', icon: '🪟' },
-      { value: 'no', label: 'No', desc: 'Relying on temperature drop detection', icon: '❌' }
+      { value: 'yes', label: 'Yes', desc: 'Heating pauses while a window is open', icon: '🪟' },
+      { value: 'no', label: 'No', desc: 'No window or door sensor in this room', icon: '❌' }
     ]
   }
 ];
@@ -550,33 +550,33 @@ export class BtConfigurator extends LitElement {
   }
 
   private renderResults() {
-    let algo = 'AI Time Based (Heating Power Calibration)';
+    let algo = '(AI) Time Based (Default)';
     let algoDesc = 'Best first choice for most homes. Learns how your room heats up.';
     let tolerance = '0.3°C';
     let windowDelay = '2-5 minutes';
     let notes = [];
 
     if (this.answers.heatingType === 'underfloor') {
-      algo = 'AI Time Based';
+      algo = '(AI) Time Based (Default)';
       algoDesc = 'Learns the thermal mass of underfloor heating; expects slow response and avoids aggressive changes.';
       tolerance = '0.5°C';
     } else if (this.answers.roomType === 'bathroom' || this.answers.insulation === 'poor' || this.answers.roomSize === 'large') {
-      algo = 'Aggressive (Aggressive Target Temperature Calibration)';
+      algo = 'Aggressive';
       algoDesc = 'Faster warm-up, ideal for rooms that heat slowly or need quick heat bursts.';
     } else if (this.answers.roomType === 'kitchen' || this.answers.roomType === 'hallway') {
-      algo = 'AI Time Based';
-      algoDesc = 'Advanced control with auto-tuning, great for handling strong disturbances like drafts or ovens.';
-    } else if (this.answers.insulation === 'good' || this.answers.roomSize === 'small') {
       algo = 'PID Controller';
-      algoDesc = 'Prevents overshoots in well-insulated or small rooms that heat up too quickly.';
+      algoDesc = 'Responsive control with auto-tuning, suited to strong disturbances like drafts or ovens.';
+    } else if (this.answers.insulation === 'good' || this.answers.roomSize === 'small') {
+      algo = 'TPI Controller';
+      algoDesc = 'Opens the valve in proportion to the remaining temperature gap, with little overshoot and little valve wear, which suits well-insulated or small rooms that heat up quickly.';
     }
 
     if (this.answers.roomType === 'living' && this.answers.heatingType !== 'underfloor') {
       tolerance = '0.1°C - 0.2°C';
     }
 
-    if (this.answers.windowSensor === 'yes') {
-      windowDelay = '0 minutes (Immediate)';
+    if (this.answers.windowSensor === 'no') {
+      windowDelay = 'Not needed without a window sensor';
     }
 
     if (this.answers.heatingType === 'underfloor') {
@@ -604,7 +604,7 @@ export class BtConfigurator extends LitElement {
             <span class="setting-value">${tolerance}</span>
           </div>
           <div class="setting-item">
-            <span class="setting-label">Window Delay</span>
+            <span class="setting-label">Delay before turning off when the window is opened</span>
             <span class="setting-value">${windowDelay}</span>
           </div>
         </div>
