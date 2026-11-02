@@ -90,7 +90,7 @@ This is the "brain" of Better Thermostat. How should it calculate the heating?
 - **(AI) Time Based (Default)**: **Recommended for most users.** A smart algorithm that learns and adjusts to keep the temperature stable.
 - **External Sensor Offset Only**: Basic mode. It just syncs the temperature from your room sensor to the radiator.
 - **MPC Predictive (Beta)**: Predicts how your room heats up and sets its correction ahead of time. Still in testing.
-- **(AI) MPC v2 (QP + Kalman, experimental)**: An experimental predictive controller for devices with direct valve control.
+- **(AI) MPC v2 (QP + Kalman, experimental)**: An experimental predictive controller. It sets the valve directly with Direct Valve Based and otherwise steers through the target temperature.
 - **Aggressive**: Heats up faster by pushing the radiator harder while heating, but might overshoot your target temperature.
 - **TPI Controller**: Turns the temperature error into a duty cycle and holds the valve open by that share.
 - **PID Controller**: A mathematical approach that constantly adjusts the valve. Best for advanced users.

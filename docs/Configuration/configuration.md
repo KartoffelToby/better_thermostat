@@ -127,7 +127,7 @@ Better Thermostat offers several algorithms to control your heating:
 - ***(AI) Time Based (Default)***: **[Recommended]** Learns your room's heating patterns and adapts automatically
 - ***External Sensor Offset Only***: Simple and reliable - uses your external sensor to correct the TRV's internal sensor
 - ***MPC Predictive (Beta)***: Predicts how the room temperature will change and sets its correction ahead of time. Still in testing
-- ***(AI) MPC v2 (QP + Kalman, experimental)***: Experimental predictive controller written for TRVs with direct valve control
+- ***(AI) MPC v2 (QP + Kalman, experimental)***: Experimental predictive controller; writes the valve directly with Direct Valve Based, otherwise works through the target temperature
 - ***Aggressive***: Pushes the TRV harder for faster heating (good for slow-heating rooms)
 - ***TPI Controller***: Simple duty-cycle based control for consistent heating
 - ***PID Controller***: Classic control method that responds well to varying heating conditions
