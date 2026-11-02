@@ -11,7 +11,7 @@ import random
 from typing import ParamSpec, TypeVar
 
 from homeassistant.exceptions import ServiceNotFound, ServiceValidationError
-import voluptuous as vol
+import probatio as vol
 
 _LOGGER = logging.getLogger(__name__)
 
