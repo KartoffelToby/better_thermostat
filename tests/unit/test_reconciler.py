@@ -26,6 +26,8 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    ValveReadback,
+    _valve_readback,
     control_trv,
     reconcile_tick,
 )
@@ -975,6 +977,79 @@ class TestValveReadback:
             override_set_temperature=AsyncMock(return_value=False),
         )
         assert await self._tick_queues(bt) is True
+
+
+class TestValveReadbackInEntityUnits:
+    """A valve entity is read back on the grid the write scaled onto.
+
+    Each case writes ``percent`` to an entity publishing ``grid`` (min, max,
+    step). The held value is what the entity reports once it took the
+    write, the lost value one a device that dropped it could report.
+    """
+
+    VALVE = "number.valve"
+
+    def _readback(self, grid, percent, reported):
+        minimum, maximum, step = grid
+        bt = _control_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.valve_position_entity = self.VALVE
+        trv.valve_position_writable = True
+        trv.last_valve_percent = percent
+        trv.last_valve_method = "adapter"
+        valve = State(
+            self.VALVE, reported, {"min": minimum, "max": maximum, "step": step}
+        )
+        trv_state = bt.hass.states.get.return_value
+        bt.hass.states.get.side_effect = lambda entity_id: (
+            valve if entity_id == self.VALVE else trv_state
+        )
+        return _valve_readback(bt, trv, percent)
+
+    @pytest.mark.parametrize(
+        ("grid", "percent", "held", "lost"),
+        [
+            pytest.param((0, 255, 1), 50, "128", "30", id="0-255"),
+            pytest.param((0, 100, 20), 30, "40", "80", id="step-20"),
+            pytest.param((10, 100, 1), 0, "10", "40", id="minimum-above-zero"),
+            pytest.param((0, 100, 10), 30, "20", "70", id="truncated-one-step"),
+            pytest.param((0, 99, 1), 100, "99", "50", id="0-99"),
+            pytest.param((0, 100, 1), 50, "54", "56", id="0-100-unchanged"),
+            pytest.param((0, 255, 1), 50, "138", "142", id="0-255-five-percent"),
+            pytest.param((0, 100, 20), 40, "20", "60", id="step-20-one-step-up"),
+        ],
+    )
+    def test_a_held_value_holds_and_a_lost_one_diverges(
+        self, grid, percent, held, lost
+    ):
+        """The grid decides what counts as held, not the raw percentage."""
+        assert self._readback(grid, percent, held) is ValveReadback.HOLDS
+        assert self._readback(grid, percent, lost) is ValveReadback.DIVERGED
+
+    @pytest.mark.parametrize(
+        "grid",
+        [
+            pytest.param((50, 50, 1), id="empty-range"),
+            pytest.param((100, 0, 1), id="inverted-range"),
+            pytest.param(("low", 100, 1), id="non-numeric"),
+            pytest.param((0, float("inf"), 1), id="infinite"),
+        ],
+    )
+    def test_an_entity_without_a_usable_range_is_not_read(self, grid):
+        """No range to scale onto gives no value to compare against."""
+        assert self._readback(grid, 50, "0") is ValveReadback.UNREADABLE
+
+    def test_a_quirk_number_without_a_usable_range_is_not_read(self):
+        """A number the quirk names but that publishes no range is skipped."""
+        bt = _control_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.last_valve_percent = 50
+        trv.last_valve_method = "override"
+        number = State(self.VALVE, "0", {"min": 50, "max": 50})
+        trv.model_quirks.valve_readings = Mock(
+            return_value=[ValveReading(number, 50.0)]
+        )
+        assert _valve_readback(bt, trv, 50) is ValveReadback.UNREADABLE
 
 
 class TestReconcileOnADualRoleEntity:
