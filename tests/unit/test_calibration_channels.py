@@ -184,3 +184,60 @@ def test_the_setpoint_channel_reads_an_unusable_mode_as_the_default_mode(stored)
 
     assert results[DEFAULT_CALIBRATION_MODE] != results[CalibrationMode.DEFAULT]
     assert results[stored] == results[DEFAULT_CALIBRATION_MODE]
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        CalibrationMode.MPC_CALIBRATION,
+        CalibrationMode.MPC_V2_CALIBRATION,
+        CalibrationMode.TPI_CALIBRATION,
+        CalibrationMode.PID_CALIBRATION,
+    ],
+)
+def test_the_setpoint_channel_keeps_an_open_valve_above_a_warm_trv_reading(mode):
+    """An open valve stays open on a TRV that reads warmer than the target.
+
+    The TRV regulates on its own reading as well. Next to the radiator that
+    reading often lies above the room's target, and a setpoint at the target
+    would let the TRV close the valve the controller just opened.
+    """
+    bt = _make_bt(
+        mode, room_temperature=19.0, heat_target_temperature=21.0, trv_temperature=23.0
+    )
+
+    with _controller_reports(40.0, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint == pytest.approx(24.0)
+
+
+def test_the_setpoint_channel_holds_an_open_valve_at_the_target_below_it():
+    """A TRV reading well below the target already calls for heat at the target."""
+    bt = _make_bt(
+        CalibrationMode.TPI_CALIBRATION,
+        room_temperature=19.0,
+        heat_target_temperature=21.0,
+        trv_temperature=18.0,
+    )
+
+    with _controller_reports(40.0, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint == pytest.approx(21.0)
+
+
+def test_the_setpoint_channel_leads_an_open_valve_by_at_least_one_trv_step():
+    """A TRV on whole degrees gets its setpoint one full step above its reading."""
+    bt = _make_bt(
+        CalibrationMode.TPI_CALIBRATION,
+        room_temperature=19.0,
+        heat_target_temperature=21.0,
+        trv_temperature=22.0,
+    )
+    bt.real_trvs[ENTITY_ID].target_temp_step = 2.0
+
+    with _controller_reports(40.0, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint == pytest.approx(24.0)

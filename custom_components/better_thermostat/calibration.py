@@ -121,6 +121,13 @@ _MPC_V2_REID_MIN_SAMPLES = 240
 _IDLE_OR_COOLING = (HVACAction.IDLE, HVACAction.COOLING)
 
 
+# How far above its own reading a TRV's setpoint stays while BT commands its
+# valve open, so the TRV's own regulation keeps calling for heat. A setpoint
+# that follows the reading, rather than the TRV's maximum, leaves a TRV that
+# stops hearing from BT only slightly above where it last stood.
+_OPEN_VALVE_SETPOINT_LEAD_K: Final = 1.0
+
+
 def _compute_zero_open_offset(
     self: BetterThermostat,
     entity_id: str,
@@ -1598,8 +1605,15 @@ def calculate_calibration_setpoint(
                 )
                 _calibrated_setpoint = _cur_trv_temperature - _setpoint_drop
             else:
-                # Valve open: keep target so TRV internal logic doesn't restrict us.
-                _calibrated_setpoint = _cur_target_temperature
+                # Valve open: the TRV still regulates on its own reading, which
+                # near the radiator often runs above the room. A setpoint at
+                # the target would let it close the valve BT just opened, so the
+                # setpoint stays a lead above that reading.
+                _calibrated_setpoint = max(
+                    _cur_target_temperature,
+                    _cur_trv_temperature
+                    + max(_OPEN_VALVE_SETPOINT_LEAD_K, _trv_temperature_step),
+                )
         elif not _use_valve and _percent is not None:
             _max_temp = round_by_step(self.real_trvs[entity_id].max_temp, 0.01)
             _valve_fraction = max(0.0, min(1.0, float(_percent) / 100.0))
