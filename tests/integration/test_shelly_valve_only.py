@@ -4,7 +4,7 @@ from dataclasses import replace
 import logging
 from unittest.mock import patch
 
-from homeassistant.components.climate import HVACMode
+from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.core import Context
 from homeassistant.data_entry_flow import FlowResultType
 import pytest
@@ -178,6 +178,9 @@ async def test_device_settings_do_not_replace_room_settings(hass, fake_trv):
             target_temperature=19.0,
             current_temperature=22.0,
             hvac_modes=(HVACMode.OFF, HVACMode.HEAT),
+            supported_features=SHELLY_BLU_VALVE_TRV.supported_features
+            | ClimateEntityFeature.TURN_OFF,
+            rejects_hvac_mode_writes=False,
             offset_channel=OffsetChannel.NUMBER_ENTITY,
         )
         for output in (
