@@ -343,19 +343,23 @@ def find_device_entity(
     domains: Iterable[str],
     keywords: Iterable[str],
     excluded: Iterable[str] = (),
+    owner: er.RegistryEntry | None = None,
 ) -> str | None:
     """Return the entity_id of the first matching entity on a device.
 
     A match is any enabled entity belonging to ``device_id`` whose domain is
     in ``domains`` and whose name, unique_id or object-id contains any of
-    ``keywords`` and none of ``excluded`` (case-insensitive). Returns
-    ``None`` if nothing matches.
+    ``keywords`` and none of ``excluded`` (case-insensitive). With an
+    ``owner``, an entity on another Matter endpoint than the owner's is no
+    match. Returns ``None`` if nothing matches.
     """
     domains = tuple(domains)
     keywords = tuple(k.lower() for k in keywords)
     excluded = tuple(k.lower() for k in excluded)
     for ent in entity_registry.entities.values():
         if not is_sibling_entry(ent, device_id) or ent.domain not in domains:
+            continue
+        if on_other_matter_endpoint(owner, ent):
             continue
         name = (ent.original_name or "").lower()
         uid = (ent.unique_id or "").lower()
@@ -3304,6 +3308,7 @@ async def find_local_calibration_entity(
         entity
         for entity in entity_entries
         if _shares_device(entity, reg_entity.device_id)
+        and not on_other_matter_endpoint(reg_entity, entity)
         and entity.domain in _CALIBRATION_ENTITY_DOMAINS
         and not _is_unusable_zwave_configuration_parameter(entity)
     ]

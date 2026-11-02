@@ -303,21 +303,30 @@ def test_each_thermostat_of_one_matter_device_reads_its_own_endpoint(world):
     assert regulates_on_bound_sensor(hass, TRV_ID) is False
 
 
-@pytest.mark.parametrize(
-    ("number_endpoint", "written"), [("1", True), ("2", False)], ids=["own", "other"]
-)
-@pytest.mark.asyncio
-async def test_the_initial_reset_leaves_another_endpoints_offset(
-    number_endpoint, written
-):
-    """A thermostat zeroes the offset of its own endpoint, not its neighbour's."""
-    host = _offset_host(STATE_OFF, "-1.5")
-    number = "number.eve_thermo_local_temperature_calibration"
-    registry = make_entity_registry(
+def _calibration_number(entity_id: str, endpoint: str) -> er.RegistryEntry:
+    """The calibration number Matter registers for one thermostat endpoint."""
+    return make_registry_entry(
+        entity_id,
+        platform="matter",
+        device_id=TRV_DEVICE,
+        config_entry_id="matter_entry",
+        translation_key="local_temperature_calibration",
+        unique_id=f"{_NODE}-{endpoint}-LocalTemperatureCalibration-513-16",
+    )
+
+
+OWN_NUMBER = "number.eve_thermo_local_temperature_calibration"
+OTHER_NUMBER = "number.eve_thermo_2_local_temperature_calibration"
+
+
+def _two_endpoint_registry(*numbers: er.RegistryEntry) -> MagicMock:
+    """A Matter device whose TRV sits on endpoint 1, with the given numbers."""
+    return make_entity_registry(
         make_registry_entry(
             TRV_ID,
             platform="matter",
             device_id=TRV_DEVICE,
+            config_entry_id="matter_entry",
             unique_id=f"{_NODE}-1-MatterThermostat-513-0",
         ),
         make_registry_entry(
@@ -327,12 +336,25 @@ async def test_the_initial_reset_leaves_another_endpoints_offset(
             translation_key=REMOTE_SENSING_LOCAL_TEMPERATURE_KEY,
             unique_id=f"{_NODE}-1-ThermostatRemoteSensing_LocalTemperature-513-26",
         ),
-        make_registry_entry(
-            number,
-            platform="matter",
-            device_id=TRV_DEVICE,
-            unique_id=f"{_NODE}-{number_endpoint}-LocalTemperatureCalibration-513-16",
-        ),
+        *numbers,
+    )
+
+
+@pytest.mark.parametrize(
+    ("numbers", "written"),
+    [
+        pytest.param([("own", "1")], [OWN_NUMBER], id="own"),
+        pytest.param([("other", "2")], [], id="other"),
+        pytest.param([("other", "2"), ("own", "1")], [OWN_NUMBER], id="both"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_the_initial_reset_zeroes_only_the_own_endpoints_offset(numbers, written):
+    """A thermostat zeroes the offset of its own endpoint, not its neighbour's."""
+    host = _offset_host(STATE_OFF, "-1.5")
+    ids = {"own": OWN_NUMBER, "other": OTHER_NUMBER}
+    registry = _two_endpoint_registry(
+        *(_calibration_number(ids[which], endpoint) for which, endpoint in numbers)
     )
 
     with (
@@ -341,4 +363,16 @@ async def test_the_initial_reset_leaves_another_endpoints_offset(
     ):
         await default_quirk.initial_tweak(host, TRV_ID)
 
-    assert (number in _written(host)) is written
+    assert [eid for eid in _written(host) if eid in ids.values()] == written
+
+
+@pytest.mark.asyncio
+async def test_the_calibration_number_is_found_on_the_trvs_own_endpoint():
+    """The offset channel adopts the number of the TRV's endpoint only."""
+    host = _offset_host(STATE_OFF, "-1.5")
+    registry = _two_endpoint_registry(
+        _calibration_number(OTHER_NUMBER, "2"), _calibration_number(OWN_NUMBER, "1")
+    )
+
+    with patch.object(helpers.er, "async_get", return_value=registry):
+        assert await helpers.find_local_calibration_entity(host, TRV_ID) == OWN_NUMBER
