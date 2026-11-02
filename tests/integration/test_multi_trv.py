@@ -1527,7 +1527,7 @@ async def test_a_head_that_arrives_during_valve_maintenance_waits_for_its_end(
         bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
         bt = await wait_for_startup(hass, entry)
     with patch(WRITE_BUDGET, 0.0):
-        assert await room_target_reaches(hass, present, 22.0)
+        assert await room_target_reaches(hass, present, 23.0)
     await hass.async_block_till_done()
 
     exercising = asyncio.Event()
