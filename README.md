@@ -44,7 +44,7 @@ Better Thermostat now supports multiple advanced control strategies to optimize 
 
 - **MPC (Model Predictive Control)**: Uses a physical model of your room and radiator to predict future temperature changes and optimize valve opening.
 - **PID Controller**: A classic Proportional-Integral-Derivative controller that learns your room's characteristics to maintain a stable temperature. It features auto-tuning (currently in beta) to automatically find the best parameters (Kp, Ki, Kd) for your room.
-- **TPI (Time Proportional Integral)**: A control method that cycles the valve on and off (or modulates it) to maintain a stable temperature, reducing overshoot.
+- **TPI (Time Proportional Integral)**: Turns the distance from the target into a duty cycle and holds the valve at that opening, which keeps the temperature stable and reduces overshoot.
 - **AI Time Based**: Uses a custom algorithm based on simple measurements and calculations (not actual AI) to calculate the required heating power and adjusts the TRV calibration to achieve it. This improves upon the standard TRV internal algorithm. It is the default.
 - **MPC v2** (experimental): A predictive controller with a Kalman observer and a quadratic-program optimiser, written for TRVs with direct valve control.
 - **Aggressive**: Pushes the TRV harder while heating for a faster warm-up, at the price of more overshoot.
