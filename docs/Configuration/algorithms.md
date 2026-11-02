@@ -70,7 +70,7 @@ From that prediction it picks the correction that reaches your target smoothly i
 
 It aims at arriving at the target rather than at arriving quickly. It is the most complex of the modes and it reacts deliberately rather than fast, which can read as sluggish at first. Give it several heating cycles before judging it.
 
-MPC is still in testing. In the project's benchmark it does not overshoot less than the other controller modes, it moves the valve more often than PID or TPI, and with several radiators in one room it can over-react. For a room that overshoots, start with TPI instead.
+MPC is still in testing. In the project's benchmark it does not overshoot less than the other controller modes, it works the valve harder than PID or TPI, and with several radiators in one room it can over-react. For a room that overshoots, start with TPI instead.
 
 Its learned model shows up in the *Virtual Temperature*, *MPC Gain*, *MPC Loss* and *MPC Insulation (Ka)* sensors. They start disabled on new installations; see [Entities](/setup/entities/#mpc-predictive).
 
