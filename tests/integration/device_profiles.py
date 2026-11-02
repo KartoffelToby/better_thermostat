@@ -32,6 +32,11 @@ _SETPOINT_FEATURES = (
     | ClimateEntityFeature.TURN_ON
 )
 
+# A Shelly BLU TRV offers no mode but heat and implements no mode write.
+_BLU_TRV_FEATURES = (
+    ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.TURN_ON
+)
+
 _RANGE_FEATURES = (
     ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
     | ClimateEntityFeature.TURN_OFF
@@ -128,6 +133,10 @@ class DeviceProfile:
     ``setpoint_ceiling`` is the highest setpoint the device holds, below the
     ``max_temp`` it publishes: a write above it lands on the ceiling. ``None``
     holds every setpoint up to ``max_temp``.
+
+    ``rejects_hvac_mode_writes`` makes every mode write raise
+    ``NotImplementedError``, as Home Assistant's climate entity does for a
+    device that implements none: a Shelly BLU TRV.
     """
 
     name: str
@@ -167,6 +176,7 @@ class DeviceProfile:
     setpoint_ceiling: float | None = None
     valve_unique_id: str | None = None
     blu_trv_external_temperature: bool = False
+    rejects_hvac_mode_writes: bool = False
 
 
 def published_unit(profile: DeviceProfile) -> UnitOfTemperature:
@@ -497,6 +507,8 @@ SHELLY_BLU_VALVE_TRV = DeviceProfile(
     has_device_registry_entry=True,
     model="Shelly BLU TRV",
     hvac_modes=(HVACMode.HEAT,),
+    supported_features=_BLU_TRV_FEATURES,
+    rejects_hvac_mode_writes=True,
     target_temperature=None,
     valve_channel=ValveChannel.NUMBER_ENTITY,
     valve_unique_id="aabbccddeeff-blutrv:200-valve_position",
@@ -511,6 +523,8 @@ SHELLY_BLU_THERMOSTAT_TRV = DeviceProfile(
     has_device_registry_entry=True,
     model="Shelly BLU TRV",
     hvac_modes=(HVACMode.HEAT,),
+    supported_features=_BLU_TRV_FEATURES,
+    rejects_hvac_mode_writes=True,
     min_temp=4.0,
     max_temp=30.0,
     target_temperature_step=0.1,

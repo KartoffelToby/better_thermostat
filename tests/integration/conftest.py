@@ -297,6 +297,8 @@ class SimulatedClimate(ClimateEntity):
         it with every mode it is told.
         """
         self.set_hvac_mode_calls.append(str(hvac_mode))
+        if self.profile.rejects_hvac_mode_writes:
+            raise NotImplementedError
         self._attr_hvac_mode = hvac_mode
         if self.profile.mode_write_setpoint is not None:
             self._attr_target_temperature = self.profile.mode_write_setpoint
