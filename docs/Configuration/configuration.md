@@ -82,11 +82,11 @@ group:
 
 **Target temperature step** How much the target changes with one press of the plus or minus button.
 
-**Split the valve opening by each TRV's own temperature** Off by default. Only matters for a room with two or more TRVs on the calibration mode *MPC Predictive* or *MPC v2*. Both run one controller for the whole room, on the room temperature sensor, and by default every TRV gets the valve opening that controller computes, each held to its own **Valve Max Opening**. With this option on, a TRV whose own temperature reads colder than the warmest TRV of the room gets more: 8 % per °C (4.4 % per °F) of difference. The warmest TRV gets the room's opening unchanged, and no TRV gets less than it. A closed valve stays closed for every TRV.
+**Split the valve opening by each TRV's own temperature** Off by default. Only matters for a room with two or more TRVs on the calibration mode *MPC Predictive* or *MPC v2*. Both run one controller for the whole room, on the room temperature sensor, and by default every TRV gets the valve opening that controller computes, each held to its own **Valve Max Opening**. With this option on, a TRV whose own temperature reads colder than the warmest TRV of the room gets more: 8 % per °C (4.4 % per °F) of difference. The warmest TRV gets the room's opening unchanged, and no TRV gets less than it; each TRV's **Valve Max Opening** still caps the result afterwards. A closed valve stays closed for every TRV.
 
 The option compares what each TRV measures at its radiator, so it only helps when those readings differ for a reason, such as a radiator in a cold corner of a large room. A TRV that reads warmer because its valve is further open, or colder because it sits by a window, shifts the split as well. Which TRVs take part:
 
-- A Sonoff TRVZB or TRV-ZBT regulating on the external temperature reports the room temperature Better Thermostat writes to it, so all of them read the same and the split stays even. To compare their own readings, select the TRV's own sensor on the device and turn on **Keep the TRV's sensor selection** for it (second step).
+- A Sonoff TRVZB or TRV-ZBT regulating on the external temperature reports the room temperature Better Thermostat writes to it, so all of them read the same and get the room's opening, each held to its own **Valve Max Opening**. To compare their own readings, select the TRV's own sensor on the device and turn on **Keep the TRV's sensor selection** for it (second step).
 - A TRV calibrated with *Offset Based* takes no part and gets the room's opening: the offset Better Thermostat writes shifts its reading along with the valve command.
 - A TRV that is unavailable or [released](/setup/releasing-devices/) takes no part either.
 
