@@ -41,10 +41,6 @@ During regulation, the valve percentage is the only actuator: Better Thermostat 
 
 This policy is specific to an adopted BLU TRV valve. The Shelly TRV Gen1 also exposes a valve number, but its thermostat keeps running; that number does not enable this direct-control path. Ordinary target-temperature and offset control retain their existing behaviour.
 
-### Shelly BLU TRV (own thermostat)
-
-To keep the BLU TRV's own automatic temperature control, set the **Calibration type** to **Target Temperature Based** and the **Calibration mode** to **No Calibration**. Better Thermostat then passes its target to the TRV unchanged and writes the room temperature to the TRV's **External temperature** `number`, so the TRV regulates on the room sensor; see [Room temperature written to the TRV](#room-temperature-written-to-the-trv). If that number is missing or disabled in Home Assistant, Better Thermostat logs a warning once and the TRV regulates without a room temperature (the gateway reports `ext_temp_missing`).
-
 #### Switching back to Shelly's temperature control
 
 First set Better Thermostat to OFF and wait until the valve reports 0%. Stop any other automation that writes the valve. Re-enable automatic temperature control in Shelly, wait for Home Assistant to update the device's entities, then set the **Calibration type** in Better Thermostat to **Target Temperature Based** (or stop using Better Thermostat for that device). For direct control again, disable Shelly's automatic control, wait for the writable number, and set the calibration type to Direct Valve Based with a supported calibration mode. Do not switch Shelly modes while Better Thermostat is actively controlling the valve.
@@ -54,6 +50,10 @@ First set Better Thermostat to OFF and wait until the valve reports 0%. Stop any
 An unavailable valve number does not cause Better Thermostat to fall back to setpoint or HVAC commands. The normal write budget and retry handling apply; there is no extra sleep inside the control lock for BLU TRVs. Restore the gateway connection or reload the Shelly integration after a firmware update if its entities do not recover. If an entity was disabled, re-enable it; if the device's mode changed, restore the intended mode and reconfigure BT.
 
 Direct control depends on Home Assistant, the gateway and the Bluetooth link. If these stop working, Better Thermostat cannot send commands and the last valve position may remain in effect. If neither the room sensor nor any TRV temperature is usable and BT enters HOLD, it requests a fixed emergency opening of 25% for a valve-only device because its thermostat cannot take over. This preserves limited heating without retaining a potentially fully open valve, and Boost does not override it. Normal regulation resumes after the sensor-recovery stability period. The command uses the normal write and retry path and requires a reachable device. OFF, open windows or doors, and an invalid stored calibration mode still request closure; the invalid configuration also raises a repair issue. A fixed opening cannot guarantee frost protection or provide a local automatic shutoff or boiler timeout. Any zone-relay timeout or independent temperature limit belongs outside Better Thermostat.
+
+### Shelly BLU TRV (own thermostat)
+
+To keep the BLU TRV's own automatic temperature control, set the **Calibration type** to **Target Temperature Based** and the **Calibration mode** to **No Calibration**. Better Thermostat then passes its target to the TRV unchanged and writes the room temperature to the TRV's **External temperature** `number`, so the TRV regulates on the room sensor; see [Room temperature written to the TRV](#room-temperature-written-to-the-trv). If that number is missing or disabled in Home Assistant, Better Thermostat logs a warning once and the TRV regulates without a room temperature (the gateway reports `ext_temp_missing`).
 
 ## Room temperature written to the TRV
 
