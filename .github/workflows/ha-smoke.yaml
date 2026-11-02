@@ -21,7 +21,9 @@ jobs:
   smoke:
     name: ${{ matrix.line }} on Home Assistant ${{ matrix.tag }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Room for a run plus one docker call that hangs until its limit: the
+    # script then fails on its own and the issue step still runs.
+    timeout-minutes: 30
     permissions:
       contents: read
       issues: write
@@ -54,6 +56,8 @@ jobs:
           python-version: "3.14"
 
       - name: Boot Home Assistant twice
+        # bash sets pipefail, so a failed boot is not hidden behind tee.
+        shell: bash
         run: >-
           uv run --no-project python scripts/ha_smoke.py
           --tag "$TAG"

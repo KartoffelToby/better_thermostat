@@ -51,6 +51,10 @@ TARGET_SET_ON_FIRST_BOOT = 23.5
 START_TIMEOUT_SECONDS = 300
 RUN_SECONDS = {1: 90, 2: 45}
 STOP_TIMEOUT_SECONDS = 120
+# How long one docker call may take. A call that hangs ends the run as a
+# failure, so the job reports it instead of running into its own timeout.
+DOCKER_TIMEOUT_SECONDS = 60
+PULL_TIMEOUT_SECONDS = 300
 
 STARTED_LINE = "Home Assistant initialized"
 
@@ -189,11 +193,24 @@ def _write_configuration(config_dir: Path, boot: int, integration: Path) -> None
         )
 
 
-def _docker(*args: str) -> subprocess.CompletedProcess[str]:
-    """Run ``docker`` with ``args`` and return what it printed."""
-    return subprocess.run(
-        ["docker", *args], capture_output=True, text=True, check=False
-    )
+def _docker(
+    *args: str, timeout: float = DOCKER_TIMEOUT_SECONDS
+) -> subprocess.CompletedProcess[str]:
+    """Run ``docker`` with ``args`` and return what it printed.
+
+    A call that takes longer than ``timeout`` seconds ends the run as a
+    failed smoke test.
+    """
+    try:
+        return subprocess.run(
+            ["docker", *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        sys.exit(f"docker {args[0]} did not return within {timeout:g} s")
 
 
 def _wait_for_start(container: str) -> bool:
@@ -232,7 +249,13 @@ def _run_boot(image: str, config_dir: Path, boot: int) -> tuple[Boot, bool]:
     started = _wait_for_start(CONTAINER)
     if started:
         time.sleep(RUN_SECONDS[boot])
-    _docker("stop", "-t", str(STOP_TIMEOUT_SECONDS), CONTAINER)
+    _docker(
+        "stop",
+        "-t",
+        str(STOP_TIMEOUT_SECONDS),
+        CONTAINER,
+        timeout=STOP_TIMEOUT_SECONDS + DOCKER_TIMEOUT_SECONDS,
+    )
     logs = _docker("logs", CONTAINER)
     _docker("rm", "-f", CONTAINER)
     return Boot(boot, started_at, logs.stdout + logs.stderr), started
@@ -312,7 +335,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     image = f"{IMAGE}:{args.tag}"
-    pull = _docker("pull", "-q", image)
+    pull = _docker("pull", "-q", image, timeout=PULL_TIMEOUT_SECONDS)
     if pull.returncode != 0:
         sys.exit(f"docker pull {image} failed: {pull.stderr.strip()}")
     version = _docker(
