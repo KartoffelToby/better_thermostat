@@ -110,7 +110,7 @@ Auto-tuning is on by default.
   - **Sluggish response:** The room is more than 0.1 °C below the target, its temperature changes by less than 0.005 °C per minute (0.3 °C per hour) and the valve output is below 95 %. It increases Ki and Kp
   - **Steady state:** The room is inside the target band and the valve output is below 20 %. It decreases Ki
 
-- **Settled:** Each time the room comes back into the target band, Kp falls and Kd rises a little, within the limits below. While the room holds the target with a small valve output, Ki keeps shrinking every 5 minutes until it reaches its lower limit of 0.001. How many heating cycles that takes depends on the room; the code sets no fixed period.
+- **Settled:** Each time the room comes back into the target band, Kp falls by 10 % (to no less than 10) and Kd rises by 10 % (to no more than 10,000); auto-tuning never lowers Kd. While the room holds the target with a small valve output, Ki keeps shrinking every 5 minutes until it reaches its lower limit of 0.001. How many heating cycles that takes depends on the room; the code sets no fixed period.
 
 **What to expect:**
 
@@ -118,7 +118,7 @@ Auto-tuning is on by default.
 - Parameters are constrained to safe ranges:
   - Kp: 10-500
   - Ki: 0.001-2.0
-  - Kd: 100-10,000
+  - Kd: up to 10,000 (auto-tuning only raises it)
 - Auto-tuning is conservative - it makes small changes and learns gradually
 
 **Manual tuning:**
