@@ -21,8 +21,8 @@ from unittest.mock import AsyncMock, patch
 
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
+import probatio as vol
 import pytest
-import voluptuous as vol
 import yaml
 
 from custom_components.better_thermostat import __file__ as _component_file

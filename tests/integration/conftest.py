@@ -15,9 +15,10 @@ flattened by accident.
 import asyncio
 import contextlib
 from dataclasses import dataclass
-from typing import override
+from typing import TypedDict, override
 from unittest.mock import PropertyMock, patch
 
+import probatio as vol
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -27,7 +28,6 @@ from pytest_homeassistant_custom_component.common import (
     mock_platform,
     setup_test_component_platform,
 )
-import voluptuous as vol
 
 # Pin the repository's custom_components namespace package before the
 # hass fixture mounts the plugin's testing config dir: that dir carries
@@ -52,10 +52,11 @@ from homeassistant.components.number import (
 )
 from homeassistant.components.select import DOMAIN as SELECT_DOMAIN, SelectEntity
 from homeassistant.config_entries import ConfigFlow
-from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
+from homeassistant.const import ATTR_TEMPERATURE, EVENT_CALL_SERVICE, UnitOfTemperature
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.setup import async_setup_component
+from homeassistant.util.event_type import EventType
 from homeassistant.util.unit_conversion import TemperatureConverter
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
@@ -89,6 +90,19 @@ SENSOR_ID = "sensor.room_temperature"
 OUTDOOR_ID = "sensor.outdoor_temperature"
 WINDOW_ID = "binary_sensor.window"
 HUMIDITY_ID = "sensor.room_humidity"
+
+
+class ServiceCallData(TypedDict):
+    """The payload Home Assistant fires on the bus for every service call."""
+
+    domain: str
+    service: str
+    service_data: dict[str, object]
+
+
+# ``EVENT_CALL_SERVICE`` typed with its payload, so captured calls carry it.
+CALL_SERVICE: EventType[ServiceCallData] = EventType(EVENT_CALL_SERVICE)
+
 
 # The entity every test drives, derived from the default entry title.
 BT_ENTITY = "climate.bt_test"

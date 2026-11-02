@@ -22,7 +22,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import condition, config_validation as cv, entity_registry
 from homeassistant.helpers.config_validation import DEVICE_CONDITION_BASE_SCHEMA
 from homeassistant.helpers.typing import ConfigType
-import voluptuous as vol
+import probatio as vol
 
 from . import DOMAIN
 from .utils.helpers import is_bt_climate_entity
