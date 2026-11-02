@@ -301,3 +301,44 @@ def test_each_thermostat_of_one_matter_device_reads_its_own_endpoint(world):
     assert remote_sensing_entity(hass, TRV_ID) == REMOTE_SENSING_ID
     assert remote_sensing_entity(hass, other_trv) == other_sensor
     assert regulates_on_bound_sensor(hass, TRV_ID) is False
+
+
+@pytest.mark.parametrize(
+    ("number_endpoint", "written"), [("1", True), ("2", False)], ids=["own", "other"]
+)
+@pytest.mark.asyncio
+async def test_the_initial_reset_leaves_another_endpoints_offset(
+    number_endpoint, written
+):
+    """A thermostat zeroes the offset of its own endpoint, not its neighbour's."""
+    host = _offset_host(STATE_OFF, "-1.5")
+    number = "number.eve_thermo_local_temperature_calibration"
+    registry = make_entity_registry(
+        make_registry_entry(
+            TRV_ID,
+            platform="matter",
+            device_id=TRV_DEVICE,
+            unique_id=f"{_NODE}-1-MatterThermostat-513-0",
+        ),
+        make_registry_entry(
+            REMOTE_SENSING_ID,
+            platform="matter",
+            device_id=TRV_DEVICE,
+            translation_key=REMOTE_SENSING_LOCAL_TEMPERATURE_KEY,
+            unique_id=f"{_NODE}-1-ThermostatRemoteSensing_LocalTemperature-513-26",
+        ),
+        make_registry_entry(
+            number,
+            platform="matter",
+            device_id=TRV_DEVICE,
+            unique_id=f"{_NODE}-{number_endpoint}-LocalTemperatureCalibration-513-16",
+        ),
+    )
+
+    with (
+        patch.object(helpers.er, "async_get", return_value=registry),
+        patch.object(default_quirk.er, "async_get", return_value=registry),
+    ):
+        await default_quirk.initial_tweak(host, TRV_ID)
+
+    assert (number in _written(host)) is written

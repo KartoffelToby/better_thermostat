@@ -29,6 +29,7 @@ from ..utils.helpers import (
     device_released,
     find_child_lock_entity,
     find_device_entity,
+    on_other_matter_endpoint,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -106,7 +107,19 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
             ["number"],
             ["local_temperature_calibration", "local_calibration", "calibration"],
         )
-        if cal_entity and defers_to_bound_sensor(self.hass, entity_id):
+        if cal_entity and on_other_matter_endpoint(
+            reg_entity, entity_registry.async_get(cal_entity)
+        ):
+            # The number belongs to another thermostat of the same Matter
+            # device, whose offset is not this TRV's to reset.
+            _LOGGER.debug(
+                "better_thermostat %s: %s belongs to another endpoint than %s, "
+                "its calibration offset is left as set",
+                self.device_name,
+                cal_entity,
+                entity_id,
+            )
+        elif cal_entity and defers_to_bound_sensor(self.hass, entity_id):
             _LOGGER.info(
                 "better_thermostat %s: %s regulates on a remote sensor, its "
                 "calibration offset %s is left as set",

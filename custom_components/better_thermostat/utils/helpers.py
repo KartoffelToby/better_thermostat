@@ -456,6 +456,21 @@ def _matter_endpoint(unique_id: str | None) -> str | None:
     return parts[3] if len(parts) >= 7 else None
 
 
+def on_other_matter_endpoint(
+    entry: er.RegistryEntry | None, other: er.RegistryEntry | None
+) -> bool:
+    """Whether two Matter entities name different endpoints of their device.
+
+    False whenever either entity is missing or its unique id names no
+    endpoint, so only entities that are known to belong apart are told apart.
+    """
+    if entry is None or other is None:
+        return False
+    endpoint = _matter_endpoint(entry.unique_id)
+    other_endpoint = _matter_endpoint(other.unique_id)
+    return bool(endpoint and other_endpoint and endpoint != other_endpoint)
+
+
 def remote_sensing_entity(hass: HomeAssistant, trv_entity_id: str) -> str | None:
     """Return the remote-sensing binary sensor of a TRV's device, if it has one.
 
@@ -481,16 +496,13 @@ def remote_sensing_entity(hass: HomeAssistant, trv_entity_id: str) -> str | None
     climate_entry = registry.async_get(trv_entity_id)
     if climate_entry is None or climate_entry.device_id is None:
         return None
-    endpoint = _matter_endpoint(climate_entry.unique_id)
     for sibling in er.async_entries_for_device(registry, climate_entry.device_id):
         if (
             sibling.domain == Platform.BINARY_SENSOR
             and sibling.platform == "matter"
             and sibling.translation_key == REMOTE_SENSING_LOCAL_TEMPERATURE_KEY
+            and not on_other_matter_endpoint(climate_entry, sibling)
         ):
-            sibling_endpoint = _matter_endpoint(sibling.unique_id)
-            if endpoint and sibling_endpoint and sibling_endpoint != endpoint:
-                continue
             return sibling.entity_id
     return None
 
