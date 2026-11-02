@@ -14,8 +14,8 @@ and again every 30 minutes. A write is due when nothing was written yet,
 when the temperature moved by 0.1 °C, when the number no longer holds the
 value written last, or when 5 minutes have passed since the last write. The
 TRV does not publish after how long it gives up on a value it was given, so
-every 30-minute offer is written, and the gap between two writes stays
-under 35 minutes.
+a 30-minute offer is written unless a write went out less than 5 minutes
+before it, and the gap between two writes stays under 35 minutes.
 
 The TRV corrects its own regulation with that value, so it is written only
 to a TRV Better Thermostat passes the target to unchanged, which is the
@@ -95,7 +95,7 @@ _INPUT_MAX_CELSIUS: Final = 50.0
 _SIGNIFICANT_CHANGE_KELVIN: Final = 0.1
 
 # Seconds after which an unchanged temperature is written again. Shorter than
-# the 30-minute offer, so every offer that reaches the TRV is written.
+# the 30-minute offer, so an offer is skipped only right after another write.
 _REFRESH_SECONDS: Final = 5 * 60
 
 # How far the value the number holds may sit from the one written, in degrees

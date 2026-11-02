@@ -408,9 +408,11 @@ class SimulatedBluTrvExternalTemperature(_SimulatedNumber):
     _attr_native_step = 0.1
 
     def __init__(self, profile: DeviceProfile):
-        """Register the number under the unique id the Shelly integration uses."""
+        """Register the number under a unique id shaped like the Shelly one."""
         super().__init__(profile, "external_temperature")
-        self._attr_unique_id = "aabbccddeeff-blutrv:200-external_temperature"
+        self._attr_unique_id = (
+            f"{_object_id(profile.entity_id)}-blutrv:200-external_temperature"
+        )
         self._attr_native_value = None
 
 
