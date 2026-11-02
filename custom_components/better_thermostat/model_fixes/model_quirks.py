@@ -6,6 +6,7 @@ small shim functions that delegate into the model-specific implementations.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 import logging
 import re
 
@@ -25,6 +26,8 @@ from custom_components.better_thermostat.model_fixes.types import (
     SetpointOffsetQuirk,
     UnknownStateQuirk,
     ValveQuirk,
+    ValveReading,
+    ValveReadingsQuirk,
 )
 from custom_components.better_thermostat.utils.retry import device_call_deadline
 
@@ -173,6 +176,33 @@ def quirk_writes_valve(model_quirks: object) -> bool:
         True when the module carries ``override_set_valve``.
     """
     return isinstance(model_quirks, ValveQuirk)
+
+
+def valve_readings(
+    self: ModelFixHost, entity_id: str, percent: int
+) -> Sequence[ValveReading] | None:
+    """Ask a TRV's valve quirk which entities a write of ``percent`` set.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity id of the TRV whose valve was written
+    percent : int
+        The valve opening that was written, in percent
+
+    Returns
+    -------
+    Sequence[ValveReading] | None
+        The entities the quirk wrote, each with the value it holds once the
+        device took the write; None when the TRV's quirk names none
+    """
+    trv = self.real_trvs.get(entity_id)
+    quirks: object = trv.model_quirks if trv is not None else None
+    if not isinstance(quirks, ValveReadingsQuirk):
+        return None
+    return quirks.valve_readings(self, entity_id, percent)
 
 
 def local_calibration_shifts_setpoint(self: ModelFixHost, entity_id: str) -> bool:

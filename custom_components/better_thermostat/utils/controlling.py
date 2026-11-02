@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
+from enum import Enum
 import logging
 import math
 from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple
@@ -65,7 +66,9 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_temperature,
     trv_report_is_unreadable,
     trv_state_unknown_as_available,
+    valve_readings,
 )
+from custom_components.better_thermostat.model_fixes.types import ValveReading
 from custom_components.better_thermostat.trv import BudgetRetry, WithdrawnHvacMode
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
@@ -108,6 +111,7 @@ from custom_components.better_thermostat.utils.helpers import (
     read_setpoint_celsius,
     setpoint_echo_window,
     settle_cooler_reading,
+    state_is_assumed,
     state_is_live,
     state_temperature_unit,
     supports_single_target_temperature,
@@ -698,54 +702,112 @@ def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
     )
 
 
-def _valve_diverges(self: BetterThermostat, trv: Trv) -> bool:
-    """Whether the valve-position entity left the commanded percentage.
+class ValveReadback(Enum):
+    """What the device's entities say about the valve opening last written."""
 
-    Only the adapter-written number entity is verifiable; quirk-driven
-    valve writes have no readable target.
+    HOLDS = "holds"
+    """Every entity the write set reports the written value."""
+    DIVERGED = "diverged"
+    """An entity reports a value other than the one written."""
+    UNCONFIRMED = "unconfirmed"
+    """An entity shows only what was sent to it, not what the device holds."""
+    UNREADABLE = "unreadable"
+    """No entity reports a value the write could be checked against."""
+
+
+def _valve_readings(
+    self: BetterThermostat, trv: Trv, percent: int
+) -> Sequence[ValveReading]:
+    """Collect the entities the last valve write set, with what each holds.
+
+    A write through a model quirk is read back through the entities that
+    quirk names. Any other write is read back through the adopted valve
+    entity, provided that entity takes writes: a read-only one reports the
+    device's own position, not what was written.
+    """
+    if trv.last_valve_method == "override":
+        readings = valve_readings(self, trv.entity_id, percent)
+        if readings is not None:
+            return readings
+    if not (trv.valve_position_entity and trv.valve_position_writable is True):
+        return ()
+    return (
+        ValveReading(self.hass.states.get(trv.valve_position_entity), float(percent)),
+    )
+
+
+def _valve_readback(self: BetterThermostat, trv: Trv, percent: int) -> ValveReadback:
+    """Compare the valve entities with a written opening.
+
+    A value further than ``RECONCILE_VALVE_TOLERANCE_PCT`` from what the
+    write put there is a divergence. That holds for an assumed state too: it
+    repeats the last command, so a different value means a later command
+    replaced this one. An assumed state that matches only repeats the write
+    and confirms nothing.
     """
     if not trv.capabilities().supports_valve_write:
-        return False
-    if not (trv.valve_position_entity and trv.valve_position_writable is True):
-        # Quirk-driven valve writes have no readable target to verify.
-        return False
+        return ValveReadback.UNREADABLE
+    verdict = ValveReadback.UNREADABLE
+    for reading in _valve_readings(self, trv, percent):
+        state = reading.state
+        if not state_is_live(state):
+            continue
+        reported = convert_to_float(state.state, self.device_name, "reconcile()")
+        if reported is None:
+            continue
+        if abs(reading.expected_percent - reported) > RECONCILE_VALVE_TOLERANCE_PCT:
+            return ValveReadback.DIVERGED
+        if state_is_assumed(state):
+            verdict = ValveReadback.UNCONFIRMED
+        elif verdict is ValveReadback.UNREADABLE:
+            verdict = ValveReadback.HOLDS
+    return verdict
+
+
+def _valve_diverges(self: BetterThermostat, trv: Trv) -> bool:
+    """Whether a valve entity left the commanded percentage.
+
+    Only a divergence counts. An assumed state that matches the command
+    stays matched after every rewrite, so treating it as one would queue a
+    cycle on every reconcile tick.
+    """
     if trv.last_valve_percent is None:
         return False
-    state = self.hass.states.get(trv.valve_position_entity)
-    if not state_is_live(state):
-        return False
-    reported = convert_to_float(state.state, self.device_name, "reconcile()")
-    if reported is None:
-        return False
-    return abs(float(trv.last_valve_percent) - reported) > RECONCILE_VALVE_TOLERANCE_PCT
+    return (
+        _valve_readback(self, trv, round(trv.last_valve_percent))
+        is ValveReadback.DIVERGED
+    )
 
 
-def _valve_at_target(
+def _valve_repeat_readback(
     self: BetterThermostat, entity_id: str, target_percent: float
-) -> bool:
-    """Whether the valve channel already matches the intent.
+) -> ValveReadback | None:
+    """Read back a valve write that would repeat the last one.
 
-    True when the last commanded percentage equals the (int-rounded)
-    target and the readable position entity, if any, has not diverged
-    from it — no difference, no network write. A closed valve the device
-    reports open again is not at target either: the reported position is
-    a fraction or a percentage depending on the device, and any value
-    above zero is open on either scale. One close answers one report; the
-    cached position stays open until the device reports again.
+    None when there is nothing to repeat: no write went out yet, or the
+    (int-rounded) target differs from the last commanded percentage.
+    Otherwise the verdict on the last write: HOLDS and UNREADABLE need no
+    write, a diverged entity and one whose state is only assumed take it
+    again. A closed valve the device reports open again has diverged too:
+    the reported position is a fraction or a percentage depending on the
+    device, and any value above zero is open on either scale. One close
+    answers one report; the cached position stays open until the device
+    reports again.
     """
     trv = self.real_trvs[entity_id]
     if trv.last_valve_percent is None:
-        return False
-    if round(float(trv.last_valve_percent)) != round(float(target_percent)):
-        return False
+        return None
+    last_percent = round(trv.last_valve_percent)
+    if last_percent != round(target_percent):
+        return None
     if (
-        round(float(target_percent)) == 0
+        last_percent == 0
         and trv.valve_position is not None
         and trv.valve_position > 0
         and not trv.valve_report_answered
     ):
-        return False
-    return not _valve_diverges(self, trv)
+        return ValveReadback.DIVERGED
+    return _valve_readback(self, trv, last_percent)
 
 
 def desired_diverges(
@@ -2592,8 +2654,11 @@ async def control_trv(
                     )
                     # Closing the valve (0 %) is the overheat-safe direction
                     # and bypasses the write budget; everything else waits
-                    # for the next slot and converges via the next cycle.
-                    if _valve_at_target(self, entity_id, target_percent):
+                    # for the next slot and converges via the next cycle. A
+                    # repeat that only an assumed state leaves unconfirmed
+                    # gains no safety from going out early, so it waits too.
+                    _repeat = _valve_repeat_readback(self, entity_id, target_percent)
+                    if _repeat in (ValveReadback.HOLDS, ValveReadback.UNREADABLE):
                         _LOGGER.debug(
                             "better_thermostat %s: valve of %s already at %s%%, "
                             "skipping write",
@@ -2602,7 +2667,11 @@ async def control_trv(
                             target_percent,
                         )
                     elif _consume_budget(
-                        self, entity_id, "valve", bypass=target_percent == 0
+                        self,
+                        entity_id,
+                        "valve",
+                        bypass=target_percent == 0
+                        and _repeat is not ValveReadback.UNCONFIRMED,
                     ):
                         _LOGGER.debug(
                             "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
