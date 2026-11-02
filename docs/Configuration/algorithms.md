@@ -103,14 +103,14 @@ Auto-tuning is on by default.
 
 **How tuning proceeds:**
 
-- **At the start:** The controller starts from the gains it keeps for the TRV: values you set on the PID numbers, or values it tuned earlier. A TRV with neither starts from the defaults (Kp=60, Ki=0.01, Kd=2000). You may notice slight temperature oscillations as it adjusts.
+- **At the start:** The controller keeps its gains per TRV and per target temperature, rounded to 0.5 °C. It starts from the gains kept for the current target: values you set on the PID numbers, or values it tuned earlier at that target. A target with neither starts from the defaults (Kp=60, Ki=0.01, Kd=2000), so tuning starts over at a target it has not seen. You may notice slight temperature oscillations as it adjusts.
 
 - **While tuning:** The algorithm adjusts the gains at most every 5 minutes, and only when one of these conditions holds (the "target band" is 0.1 °C either side of the target):
   - **Overshoot:** The room was outside the target band at the previous calculation and is inside it now, coming from either side. It decreases Kp (less aggressive), increases Kd (more damping) and decreases Ki. A room that heats up into the target band from below counts as well
   - **Sluggish response:** The room is more than 0.1 °C below the target, its temperature changes by less than 0.005 °C per minute (0.3 °C per hour) and the valve output is below 95 %. It increases Ki and Kp
   - **Steady state:** The room is inside the target band and the valve output is below 20 %. It decreases Ki
 
-- **Settled:** Each time the room comes back into the target band, Kp falls by 10 % (to no less than 10) and Kd rises by 10 % (to no more than 10,000); auto-tuning never lowers Kd, and a Kd of 0 stays 0, so a PI controller stays one. While the room holds the target with a small valve output, Ki keeps shrinking every 5 minutes until it reaches its lower limit of 0.001. How many heating cycles that takes depends on the room; the code sets no fixed period.
+- **Settled:** Each time the room comes back into the target band, Kp falls by 10 % (to no less than 10, so a Kp set below 10 is raised to 10) and Kd rises by 10 % (to no more than 10,000); auto-tuning never lowers Kd, and a Kd of 0 stays 0, so a PI controller stays one. While the room holds the target with a small valve output, Ki keeps shrinking every 5 minutes until it reaches its lower limit of 0.001. How many heating cycles that takes depends on the room; the code sets no fixed period.
 
 **What to expect:**
 
@@ -250,6 +250,8 @@ With the Direct Valve Based calibration type:
 - **AI Time Based**: Derives a valve opening from the heating power it has learned.
 
 - **External Sensor Offset Only, Aggressive, No Calibration**: These produce no valve opening. Better Thermostat sends them to the TRV as a target temperature instead.
+
+- **Boost preset**: While Boost is heating, Better Thermostat opens the valve to the TRV's *Valve Max Opening* under every calibration mode. When the TRV is switched off during Boost (Better Thermostat off, a window open, no heat called for), it closes the valve to 0 %, as it does under the modes that write the valve.
 
 ### Without direct valve control
 
