@@ -951,6 +951,19 @@ class TestTheUserKeepsTheSensorSelection:
 
         assert _payloads(mock_self) == expected
 
+    @pytest.mark.parametrize("keep", [True, False], ids=["kept", "not_kept"])
+    async def test_a_kept_selection_starts_no_check(self, monkeypatch, keep):
+        """A selection the user keeps takes no lock and no task on each change."""
+        mock_self = _make_self(monkeypatch, selected="external")
+        _keep_selection(mock_self, keep)
+        start_keeping = MagicMock()
+        monkeypatch.setattr(quirk, "_start_keeping", start_keeping)
+        quirk._watch_selector(mock_self, TRV)
+
+        await _change(mock_self, _selector("internal"))
+
+        assert start_keeping.called is not keep
+
     @pytest.mark.parametrize(
         ("keep", "expected"),
         [(True, []), (False, [_to_internal()])],

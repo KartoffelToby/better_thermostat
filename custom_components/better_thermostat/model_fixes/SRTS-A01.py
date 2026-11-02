@@ -520,6 +520,9 @@ def _watch_selector(self: ModelFixHost, entity_id: str) -> None:
         if self.is_removed:
             _stop_watching(self, entity_id)
             return
+        if keeps_sensor_selection(self, entity_id):
+            # The user keeps the selection; a check would write nothing.
+            return
         selected = self.hass.states.get(selector)
         if (
             selected is not None
