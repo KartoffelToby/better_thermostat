@@ -639,14 +639,25 @@ and line numbers. Two diffs that differ in anything else get different patch
 ids, so `git cherry` finds no equivalent patch and reports such a pair as
 missing, the same as a gap.
 
-`scripts/forward_port_gaps.py` compares the text instead. For every commit on
-`1.9` that `develop` does not contain it takes up to twelve distinctive added
+`scripts/forward_port_gaps.py` compares the text instead. For every commit
+`1.9` wrote since it branched off it takes up to twelve distinctive added
 lines and looks each one up in `develop`'s *tree*. Reading the tree rather than
 the history is what finds a pair: a line that arrived under any commit is in
 the tree. The lines come from production files only, since each line writes
 its own tests, and only from lines `1.9` still holds, since a state a later
 `1.9` commit replaced is judged by that commit. A name `develop` renamed onto
 `glossary.toml` is looked up under its new spelling too.
+
+Which commits count as written on `1.9` is read from the history, not from what
+`develop` contains. The range starts at the fork point the script records and
+leaves out `develop`'s own first-parent history. A merge of `1.9` into
+`develop`, even one made with `-s ours` that carries no line across, therefore
+leaves every `1.9` commit in the range, and the tree still decides whether its
+content arrived. The other direction does not work: `develop` merges pull
+requests with merge commits, so its first-parent history holds hardly any of
+its own commits. Never merge `develop`, or a `master` that contains it, into
+`1.9`, and that includes GitHub's *Update branch* on a pull request from
+`1.9`. The gate would read `develop`'s work as `1.9`'s and fail on it.
 
 ```bash
 git fetch origin develop:refs/remotes/origin/develop 1.9:refs/remotes/origin/1.9

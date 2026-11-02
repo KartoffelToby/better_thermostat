@@ -83,11 +83,12 @@ def lines(tmp_path, monkeypatch):
     line.git("config", "user.email", "test@example.invalid")
     line.git("config", "user.name", "Test")
     line.write("module.py", "shared = 1\n")
-    line.commit("initial")
+    fork_point = line.commit("initial")
     line.git("branch", "maintenance")
 
     script = forward_port_gaps
     monkeypatch.setattr(script, "REPO_ROOT", root)
+    monkeypatch.setattr(script, "FORK_POINT", fork_point)
     monkeypatch.setattr(script, "ACKNOWLEDGED_FILE", tmp_path / "gaps.json")
     return script, line
 
@@ -418,6 +419,164 @@ def test_a_merge_carries_no_content_of_its_own(lines):
     measured = {commit.sha for commit in script.measure("maintenance", "develop")}
 
     assert measured == {maintenance_commit}
+
+
+def _absorb_the_maintenance_line(line) -> None:
+    """Merge the maintenance line into develop without taking a line of it.
+
+    ``--no-ff`` keeps the merge a merge: where develop is an ancestor of the
+    maintenance line, git would otherwise fast-forward develop onto it, and
+    develop would hold every line the maintenance line wrote.
+    """
+    line.git("checkout", "-q", "develop")
+    line.git(
+        "merge",
+        "-q",
+        "--no-ff",
+        "-s",
+        "ours",
+        "-m",
+        "Merge branch 'maintenance'",
+        "maintenance",
+    )
+
+
+def test_a_gap_stays_a_gap_after_develop_absorbs_the_maintenance_line(lines, capsys):
+    """A merge with ``-s ours`` makes the commit an ancestor, not its content present."""
+    script, line = lines
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{_body(5)}")
+    gap = line.commit("Fix support for a device")
+    _absorb_the_maintenance_line(line)
+
+    commit = _measure(script, line, gap)
+
+    assert commit.markers == 5
+    assert commit.hits == 0
+    assert script.check("maintenance", "develop") == 1
+    assert gap[:8] in capsys.readouterr().out
+
+
+def test_an_absorbed_commit_carried_forward_is_still_measured(lines):
+    """The absorbing merge changes no score, the carried commit stays carried."""
+    script, line = lines
+    carried = _partly_present(line, markers=4, found=4)
+    line.write("other.py", _body(5, start=50))
+    gap = line.commit("Fix support for another device")
+    _absorb_the_maintenance_line(line)
+
+    measured = {c.sha: c for c in script.measure("maintenance", "develop")}
+
+    assert set(measured) == {carried, gap}
+    assert measured[carried].carried_forward
+    assert not measured[gap].carried_forward
+
+
+def test_develop_first_parent_work_merged_into_maintenance_stays_out(lines):
+    """Merges in both directions leave the range to what the maintenance line wrote."""
+    script, line = lines
+    line.git("checkout", "-q", "develop")
+    line.write("other.py", _body(3, start=100))
+    line.commit("fix: the development half")
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{_body(5)}")
+    gap = line.commit("Fix support for a device")
+    line.git("merge", "-q", "--no-ff", "-m", "Merge branch 'develop'", "develop")
+    _absorb_the_maintenance_line(line)
+
+    measured = {commit.sha for commit in script.measure("maintenance", "develop")}
+
+    assert measured == {gap}
+
+
+def test_develop_feature_work_merged_into_maintenance_is_measured(lines, capsys):
+    """A feature commit is not on develop's first-parent line, so it enters.
+
+    The gate then fails on work the maintenance line never wrote. That is the
+    loud side of a merge the two lines never make, and it is pinned so that
+    nobody mistakes it for a silent one.
+    """
+    script, line = lines
+    line.git("checkout", "-q", "-b", "feature", "develop")
+    line.write("feature.py", _body(5, start=50))
+    feature_commit = line.commit("feat: merged by pull request")
+    line.git("checkout", "-q", "develop")
+    line.git("merge", "-q", "--no-ff", "-m", "Merge pull request #1", "feature")
+    line.write("feature.py", _body(5, start=70))
+    line.commit("refactor: rewrite the feature")
+    line.git("checkout", "-q", "maintenance")
+    line.git("merge", "-q", "--no-ff", "-m", "Merge pull request #1", "feature")
+
+    measured = {c.sha for c in script.measure("maintenance", "develop")}
+
+    assert feature_commit in measured
+    assert script.check("maintenance", "develop") == 1
+    assert feature_commit[:8] in capsys.readouterr().out
+
+
+def test_a_gap_survives_the_absorption_as_a_pull_request(lines, capsys):
+    """The absorption as it is made: master takes the maintenance line, develop
+    takes master with ``-s ours`` on a branch, and a pull request merges it."""
+    script, line = lines
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{_body(5)}")
+    gap = line.commit("Fix support for a device")
+    line.git("checkout", "-q", "-b", "master", "develop")
+    line.git(
+        "merge", "-q", "--no-ff", "-m", "Merge branch 'maintenance'", "maintenance"
+    )
+    line.git("checkout", "-q", "-b", "absorb", "develop")
+    line.git(
+        "merge", "-q", "--no-ff", "-s", "ours", "-m", "Merge branch 'master'", "master"
+    )
+    line.git("checkout", "-q", "develop")
+    line.git("merge", "-q", "--no-ff", "-m", "Merge pull request #2", "absorb")
+
+    assert line.git("merge-base", "--is-ancestor", gap, "develop") == ""
+    assert {c.sha for c in script.measure("maintenance", "develop")} == {gap}
+    assert script.check("maintenance", "develop") == 1
+    assert gap[:8] in capsys.readouterr().out
+
+
+def test_work_before_the_fork_point_is_not_measured(lines):
+    """History both lines share is not the maintenance line's own.
+
+    A feature branch merged into develop before the fork reaches develop
+    through the second parent of its merge, so develop's first-parent history
+    does not take it out; the fork point has to.
+    """
+    script, line = lines
+    line.git("checkout", "-q", "-b", "feature", "develop")
+    line.write("feature.py", _body(5, start=50))
+    line.commit("feat: merged before the fork")
+    line.git("checkout", "-q", "develop")
+    line.git("merge", "-q", "--no-ff", "-m", "Merge branch 'feature'", "feature")
+    fork_point = line.git("rev-parse", "HEAD").strip()
+    line.git("branch", "-f", "maintenance", fork_point)
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{_body(5)}")
+    gap = line.commit("Fix support for a device")
+
+    measured = {c.sha for c in script.measure("maintenance", "develop", fork_point)}
+
+    assert measured == {gap}
+
+
+@pytest.mark.parametrize(
+    ("only_on", "missing_from"),
+    [("develop", "maintenance"), ("maintenance", "develop")],
+)
+def test_a_fork_point_outside_a_line_stops_the_gate(lines, only_on, missing_from):
+    """A fork point both lines do not share would measure the wrong history."""
+    script, line = lines
+    line.git("checkout", "-q", only_on)
+    line.write("other.py", _body(3, start=100))
+    elsewhere = line.commit(f"fix: only on {only_on}")
+
+    with pytest.raises(SystemExit) as failure:
+        script.measure("maintenance", "develop", elsewhere)
+
+    assert f"is not in the history of {missing_from}" in str(failure.value)
 
 
 @pytest.mark.parametrize(
@@ -1106,6 +1265,25 @@ def test_main_runs_the_mode_it_is_given(lines, monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["forward_port_gaps.py", "check", *arguments])
     assert script.main() == 1
     assert "not carried forward" in capsys.readouterr().out
+
+
+def test_main_measures_from_the_fork_point_it_is_given(lines, monkeypatch):
+    """``--fork-point`` replaces the recorded one, and it is checked like it."""
+    script, line = lines
+    line.git("checkout", "-q", "develop")
+    line.write("other.py", _body(3, start=100))
+    elsewhere = line.commit("fix: only on develop")
+    arguments = ["--maintenance", "maintenance", "--development", "develop"]
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["forward_port_gaps.py", "check", *arguments, "--fork-point", elsewhere],
+    )
+
+    with pytest.raises(SystemExit) as failure:
+        script.main()
+
+    assert "is not in the history of maintenance" in str(failure.value)
 
 
 def test_an_unfetched_ref_says_how_to_fetch_it(lines):
