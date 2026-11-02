@@ -35,7 +35,7 @@ This integration brings some smartness to your connected radiator thermostats se
 - Group multiple TRVs to one (e.g. for a room with multiple radiators)
 - Enhance the default TRV Algorithm with some smartness to reduce energy consumption
 - Dynamic preset temperature learning & persistence (baseline/"no preset" remembers the last temperature you set and survives restarts)
-- **Advanced Control Algorithms**: Choose between MPC, PID, TPI, AI Time Based or simple target temperature matching for precise control.
+- **Advanced Control Algorithms**: Choose between AI Time Based, MPC, MPC v2, PID, TPI, Aggressive, External Sensor Offset Only or No Calibration.
 - **Selectable Presets**: Configure which preset modes are available for your thermostat during setup.
 
 ### Advanced Control Algorithms
@@ -45,7 +45,11 @@ Better Thermostat now supports multiple advanced control strategies to optimize 
 - **MPC (Model Predictive Control)**: Uses a physical model of your room and radiator to predict future temperature changes and optimize valve opening.
 - **PID Controller**: A classic Proportional-Integral-Derivative controller that learns your room's characteristics to maintain a stable temperature. It features auto-tuning (currently in beta) to automatically find the best parameters (Kp, Ki, Kd) for your room.
 - **TPI (Time Proportional Integral)**: Turns the distance from the target into a duty cycle and holds the valve at that opening, which keeps the temperature stable and reduces overshoot.
-- **AI Time Based**: Uses a custom algorithm based on simple measurements and calculations (not actual AI) to calculate the required heating power and adjusts the TRV calibration to achieve it. This improves upon the standard TRV internal algorithm.
+- **AI Time Based**: Uses a custom algorithm based on simple measurements and calculations (not actual AI) to calculate the required heating power and adjusts the TRV calibration to achieve it. This improves upon the standard TRV internal algorithm. It is the default.
+- **MPC v2** (experimental): A predictive controller with a Kalman observer and a quadratic-program optimiser, written for TRVs with direct valve control.
+- **Aggressive**: Pushes the TRV harder while heating for a faster warm-up, at the price of more overshoot.
+- **External Sensor Offset Only**: Corrects the TRV's internal sensor with your room sensor and nothing more.
+- **No Calibration**: Passes your target temperature to the TRV unchanged.
 
 **Not sure which to pick? A quick guide:**
 
@@ -53,10 +57,10 @@ Better Thermostat now supports multiple advanced control strategies to optimize 
 |-----------|----------|-----------|
 | **TPI** | A robust default — steady across room types, gentle on valve & battery, good with multiple radiators | Slightly looser setpoint tracking than PID/MPC |
 | **PID** | Tight setpoint tracking in a stable, well-characterised room | More valve activity; varies more by room; autotune is still in beta |
-| **MPC** | Anticipating solar / known disturbances when the room is modelled well | Most valve activity; can over-react with several radiators; needs tuning |
+| **MPC** | Anticipating solar / known disturbances when the room is modelled well | Most valve activity; can over-react with several radiators; still in beta |
 | **AI Time Based** | Quick setup, no tuning | Looser comfort, weaker in complex rooms |
 
-Start with **TPI** or **AI Time Based**. Try **PID** for tighter tracking in a stable room, or **MPC** for disturbance anticipation if you're willing to tune.
+Start with **AI Time Based** (the default) or **TPI**. Try **PID** for tighter tracking in a stable room, or **MPC** for disturbance anticipation. The [algorithm documentation](https://better-thermostat.org/calibration_algorithms/) describes every mode.
 
 These modes can be selected in the advanced configuration of the device.
 
