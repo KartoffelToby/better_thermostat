@@ -25,7 +25,8 @@
           "target_temp_min": "Target minimum temperature",
           "target_temp_max": "Target maximum temperature",
           "target_temp_step": "Target temperature step",
-          "presets": "Enabled Presets"
+          "presets": "Enabled Presets",
+          "distribute_valve_by_trv_temperature": "Split the valve opening by each TRV's own temperature"
         },
         "data_description": {
           "name": "The name of this thermostat and its device in Home Assistant.",
@@ -48,7 +49,8 @@
           "target_temp_min": "The lowest target you can set. Auto takes the range your devices report.",
           "target_temp_max": "The highest target you can set. Auto takes the range your devices report.",
           "target_temp_step": "How far the target moves per step. Auto takes the coarsest step your thermostats report.",
-          "presets": "Select the presets you want to be available for this thermostat."
+          "presets": "Select the presets you want to be available for this thermostat.",
+          "distribute_valve_by_trv_temperature": "Only for two or more TRVs on the MPC or MPC v2 calibration mode. Off: every TRV gets the same valve opening. On: a TRV that reads colder than the warmest TRV of the room opens further, by 8 % per °C (4.4 % per °F) of difference. The TRVs' own readings are compared, so a Sonoff TRVZB or TRV-ZBT needs its own sensor selected and 'Keep the TRV's sensor selection' on. A TRV calibrated through its offset gets the room's valve opening."
         }
       },
       "advanced": {
@@ -62,7 +64,8 @@
           "calibration": "Calibration type",
           "calibration_mode": "Calibration mode",
           "no_off_system_mode": "Use the minimum temperature instead of 'off'",
-          "mpc_v2_plant_preset": "MPC v2 room size"
+          "mpc_v2_plant_preset": "MPC v2 room size",
+          "keep_sensor_selection": "Keep the TRV's sensor selection"
         },
         "data_description": {
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
@@ -73,7 +76,8 @@
           "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset. Only offered when the TRV has a writable temperature offset.\n***Direct Valve Based***: Set the valve opening directly. Only offered when the TRV has a writable valve position. Calibration modes that produce no valve opening send a target temperature instead.",
           "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
           "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV turned to its minimum temperature counts as switched off: once every TRV of the room is off, the room switches off, and turning a knob up switches it back on. A turn while a window or door is open counts too; the heating then waits until every window and door is closed. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
-          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
+          "keep_sensor_selection": "For TRVs that can regulate on an external temperature (Sonoff TRVZB and TRV-ZBT, Aqara SRTS-A01). Off: Better Thermostat switches the TRV to the external temperature it writes, also after a reset or re-pairing. On: the sensor you selected on the TRV stays selected, and the room temperature is still written to the external input. A TRV that falls back to its own sensor is then not switched back."
         }
       },
       "confirm": {
@@ -127,7 +131,8 @@
           "target_temp_max": "Target maximum temperature",
           "target_temp_step": "Target temperature step",
           "presets": "Enabled Presets",
-          "cooler": "The cooling device (optional)"
+          "cooler": "The cooling device (optional)",
+          "distribute_valve_by_trv_temperature": "Split the valve opening by each TRV's own temperature"
         },
         "data_description": {
           "name": "The name of this thermostat and its device in Home Assistant.",
@@ -150,7 +155,8 @@
           "target_temp_max": "The highest target you can set. Auto takes the range your devices report.",
           "target_temp_step": "How far the target moves per step. Auto takes the coarsest step your thermostats report.",
           "presets": "Select the presets you want to be available for this thermostat.",
-          "cooler": "Optional. An air conditioner or another climate entity that cools this room alongside the thermostats."
+          "cooler": "Optional. An air conditioner or another climate entity that cools this room alongside the thermostats.",
+          "distribute_valve_by_trv_temperature": "Only for two or more TRVs on the MPC or MPC v2 calibration mode. Off: every TRV gets the same valve opening. On: a TRV that reads colder than the warmest TRV of the room opens further, by 8 % per °C (4.4 % per °F) of difference. The TRVs' own readings are compared, so a Sonoff TRVZB or TRV-ZBT needs its own sensor selected and 'Keep the TRV's sensor selection' on. A TRV calibrated through its offset gets the room's valve opening."
         }
       },
       "advanced": {
@@ -164,7 +170,8 @@
           "calibration": "Calibration type",
           "calibration_mode": "Calibration mode",
           "no_off_system_mode": "Use the minimum temperature instead of 'off'",
-          "mpc_v2_plant_preset": "MPC v2 room size"
+          "mpc_v2_plant_preset": "MPC v2 room size",
+          "keep_sensor_selection": "Keep the TRV's sensor selection"
         },
         "data_description": {
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
@@ -175,7 +182,8 @@
           "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset. Only offered when the TRV has a writable temperature offset.\n***Direct Valve Based***: Set the valve opening directly. Only offered when the TRV has a writable valve position. Calibration modes that produce no valve opening send a target temperature instead.",
           "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
           "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV turned to its minimum temperature counts as switched off: once every TRV of the room is off, the room switches off, and turning a knob up switches it back on. A turn while a window or door is open counts too; the heating then waits until every window and door is closed. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
-          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
+          "keep_sensor_selection": "For TRVs that can regulate on an external temperature (Sonoff TRVZB and TRV-ZBT, Aqara SRTS-A01). Off: Better Thermostat switches the TRV to the external temperature it writes, also after a reset or re-pairing. On: the sensor you selected on the TRV stays selected, and the room temperature is still written to the external input. A TRV that falls back to its own sensor is then not switched back."
         }
       }
     },

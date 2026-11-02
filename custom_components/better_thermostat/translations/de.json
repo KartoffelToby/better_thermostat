@@ -25,7 +25,8 @@
           "target_temp_min": "Sollminimumtemperatur",
           "target_temp_max": "Sollmaximumtemperatur",
           "target_temp_step": "Solltemperatur-Schritt",
-          "presets": "Aktivierte Presets"
+          "presets": "Aktivierte Presets",
+          "distribute_valve_by_trv_temperature": "Ventilöffnung nach der eigenen Temperatur jedes TRV aufteilen"
         },
         "data_description": {
           "name": "Der Name dieses Thermostats und seines Geräts in Home Assistant.",
@@ -48,7 +49,8 @@
           "target_temp_min": "Das niedrigste Ziel, das du einstellen kannst. Auto übernimmt den Bereich, den deine Geräte melden.",
           "target_temp_max": "Das höchste Ziel, das du einstellen kannst. Auto übernimmt den Bereich, den deine Geräte melden.",
           "target_temp_step": "Um wie viel sich das Ziel pro Schritt ändert. Auto übernimmt den gröbsten Schritt, den deine Thermostate melden.",
-          "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen."
+          "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen.",
+          "distribute_valve_by_trv_temperature": "Nur für zwei oder mehr TRVs im Kalibriermodus MPC oder MPC v2. Aus: Jeder TRV erhält dieselbe Ventilöffnung. Ein: Ein TRV, der kälter misst als der wärmste TRV des Raums, öffnet weiter, um 8 % je °C (4,4 % je °F) Unterschied. Verglichen werden die eigenen Messwerte der TRVs, daher braucht ein Sonoff TRVZB oder TRV-ZBT seinen eigenen Sensor als Auswahl und die Option „Sensorauswahl des TRV beibehalten“. Ein über den Offset kalibrierter TRV erhält die Ventilöffnung des Raums."
         }
       },
       "advanced": {
@@ -62,7 +64,8 @@
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
           "no_off_system_mode": "Mindesttemperatur statt „Aus“ verwenden",
-          "mpc_v2_plant_preset": "MPC v2 Raumgröße"
+          "mpc_v2_plant_preset": "MPC v2 Raumgröße",
+          "keep_sensor_selection": "Sensorauswahl des TRV beibehalten"
         },
         "data_description": {
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso, falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
@@ -73,7 +76,8 @@
           "calibration": "Wie die Kalibrierung auf das TRV angewendet wird\n***Zieltemperaturbasiert***: Wendet die Kalibrierung auf die Zieltemperatur an.\n***Versatzbasiert***: Wendet die Kalibrierung auf den Temperaturversatz (Offset) des TRV an. Nur verfügbar, wenn das TRV einen beschreibbaren Temperaturversatz hat.\n***Direkte Ventilsteuerung***: Setzt die Ventilöffnung direkt. Nur verfügbar, wenn das TRV eine beschreibbare Ventilposition hat. Kalibrierungsmodi, die keine Ventilöffnung liefern, senden stattdessen eine Zieltemperatur.",
           "calibration_mode": "Wie die Kalibrierung berechnet wird\n***KI zeitbasiert (Standard)***: Lernt mit der Zeit die Heizleistung des Raums und leitet daraus die Kalibrierung ab.\n***Nur externer Sensorversatz***: Gleicht den internen Sensor des TRV mit dem externen Temperatursensor ab. Darüber läuft kein Regler.\n***MPC prädiktiv (Beta)***: Sagt die Raumtemperatur voraus und berechnet daraus eine Ventilöffnung. Lernt das thermische Verhalten des Raums.\n***(KI) MPC v2 (QP + Kalman, experimentell)***: Schätzt den Zustand des Raums mit einem Kalman-Filter und berechnet die Ventilöffnung mit einem modellprädiktiven Regler. Die Einstellung „MPC v2 Raumgröße“ wählt das Raummodell: aus dem Raum gelernt (Automatisch) oder fest für eine Raumgröße (klein, mittel, groß).\n***Aggressiv***: Erhöht die Kalibrierung, solange der Raum heizt, und überspringt die Toleranzverzögerung, damit das TRV früher zu heizen beginnt. Hilfreich, wenn der Raum langsam warm wird.\n***TPI-Regler***: Berechnet die Einschaltdauer der Heizzyklen aus der Temperaturdifferenz.\n***PID-Regler***: Berechnet eine Ventilöffnung aus der Temperaturabweichung mit einem Proportional-, Integral- und Differenzialanteil.\n***Keine Kalibrierung***: Sendet die Zieltemperatur unverändert an das TRV und korrigiert nichts.",
           "no_off_system_mode": "Mit dieser Option sendet Better Thermostat dem TRV seine Mindesttemperatur statt „Aus“. Ein TRV, das seine Mindesttemperatur meldet, gilt als ausgeschaltet: Sind alle TRVs des Raums aus, schaltet sich der Raum aus; wird ein Drehknopf hochgedreht, schaltet er sich wieder ein. Das gilt auch für eine Drehung bei offenem Fenster oder offener Tür; die Heizung wartet dann, bis alle Fenster und Türen geschlossen sind. Ein TRV ohne „Aus“-Modus bekommt seine Mindesttemperatur auch ohne diese Option. Aktiviere sie für ein TRV, dessen „Aus“-Modus nicht funktioniert, oder für ein TRV ohne „Aus“-Modus, dessen Drehknopf Better Thermostat ein- und ausschalten soll.",
-          "mpc_v2_plant_preset": "Wird nur vom Kalibrierungsmodus MPC v2 verwendet.\n***Automatisch***: Leitet das Raummodell aus dem ab, was Better Thermostat über den Raum gelernt hat, etwa seine Wärmeverlustrate.\n***Kleiner, mittlerer oder großer Raum***: Startet mit einem festen Raummodell für diese Raumgröße."
+          "mpc_v2_plant_preset": "Wird nur vom Kalibrierungsmodus MPC v2 verwendet.\n***Automatisch***: Leitet das Raummodell aus dem ab, was Better Thermostat über den Raum gelernt hat, etwa seine Wärmeverlustrate.\n***Kleiner, mittlerer oder großer Raum***: Startet mit einem festen Raummodell für diese Raumgröße.",
+          "keep_sensor_selection": "Für TRVs, die auf eine externe Temperatur regeln können (Sonoff TRVZB und TRV-ZBT, Aqara SRTS-A01). Aus: Better Thermostat stellt den TRV auf die externe Temperatur um, die es schreibt, auch nach einem Zurücksetzen oder neuen Anlernen. Ein: Der am TRV gewählte Sensor bleibt ausgewählt, und die Raumtemperatur wird weiter in den externen Eingang geschrieben. Ein TRV, der auf seinen eigenen Sensor zurückfällt, wird dann nicht zurückgestellt."
         }
       },
       "confirm": {
@@ -126,7 +130,8 @@
           "target_temp_max": "Sollmaximumtemperatur",
           "target_temp_step": "Solltemperatur-Schritt",
           "presets": "Aktivierte Presets",
-          "cooler": "Klimagerät AC (optional)"
+          "cooler": "Klimagerät AC (optional)",
+          "distribute_valve_by_trv_temperature": "Ventilöffnung nach der eigenen Temperatur jedes TRV aufteilen"
         },
         "data_description": {
           "name": "Der Name dieses Thermostats und seines Geräts in Home Assistant.",
@@ -149,7 +154,8 @@
           "target_temp_max": "Das höchste Ziel, das du einstellen kannst. Auto übernimmt den Bereich, den deine Geräte melden.",
           "target_temp_step": "Um wie viel sich das Ziel pro Schritt ändert. Auto übernimmt den gröbsten Schritt, den deine Thermostate melden.",
           "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen.",
-          "cooler": "Optional. Eine Klimaanlage oder eine andere Klima-Entität, die diesen Raum zusätzlich zu den Thermostaten kühlt."
+          "cooler": "Optional. Eine Klimaanlage oder eine andere Klima-Entität, die diesen Raum zusätzlich zu den Thermostaten kühlt.",
+          "distribute_valve_by_trv_temperature": "Nur für zwei oder mehr TRVs im Kalibriermodus MPC oder MPC v2. Aus: Jeder TRV erhält dieselbe Ventilöffnung. Ein: Ein TRV, der kälter misst als der wärmste TRV des Raums, öffnet weiter, um 8 % je °C (4,4 % je °F) Unterschied. Verglichen werden die eigenen Messwerte der TRVs, daher braucht ein Sonoff TRVZB oder TRV-ZBT seinen eigenen Sensor als Auswahl und die Option „Sensorauswahl des TRV beibehalten“. Ein über den Offset kalibrierter TRV erhält die Ventilöffnung des Raums."
         }
       },
       "advanced": {
@@ -163,7 +169,8 @@
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
           "no_off_system_mode": "Mindesttemperatur statt „Aus“ verwenden",
-          "mpc_v2_plant_preset": "MPC v2 Raumgröße"
+          "mpc_v2_plant_preset": "MPC v2 Raumgröße",
+          "keep_sensor_selection": "Sensorauswahl des TRV beibehalten"
         },
         "data_description": {
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
@@ -174,7 +181,8 @@
           "calibration": "Wie die Kalibrierung auf das TRV angewendet wird\n***Zieltemperaturbasiert***: Wendet die Kalibrierung auf die Zieltemperatur an.\n***Versatzbasiert***: Wendet die Kalibrierung auf den Temperaturversatz (Offset) des TRV an. Nur verfügbar, wenn das TRV einen beschreibbaren Temperaturversatz hat.\n***Direkte Ventilsteuerung***: Setzt die Ventilöffnung direkt. Nur verfügbar, wenn das TRV eine beschreibbare Ventilposition hat. Kalibrierungsmodi, die keine Ventilöffnung liefern, senden stattdessen eine Zieltemperatur.",
           "calibration_mode": "Wie die Kalibrierung berechnet wird\n***KI zeitbasiert (Standard)***: Lernt mit der Zeit die Heizleistung des Raums und leitet daraus die Kalibrierung ab.\n***Nur externer Sensorversatz***: Gleicht den internen Sensor des TRV mit dem externen Temperatursensor ab. Darüber läuft kein Regler.\n***MPC prädiktiv (Beta)***: Sagt die Raumtemperatur voraus und berechnet daraus eine Ventilöffnung. Lernt das thermische Verhalten des Raums.\n***(KI) MPC v2 (QP + Kalman, experimentell)***: Schätzt den Zustand des Raums mit einem Kalman-Filter und berechnet die Ventilöffnung mit einem modellprädiktiven Regler. Die Einstellung „MPC v2 Raumgröße“ wählt das Raummodell: aus dem Raum gelernt (Automatisch) oder fest für eine Raumgröße (klein, mittel, groß).\n***Aggressiv***: Erhöht die Kalibrierung, solange der Raum heizt, und überspringt die Toleranzverzögerung, damit das TRV früher zu heizen beginnt. Hilfreich, wenn der Raum langsam warm wird.\n***TPI-Regler***: Berechnet die Einschaltdauer der Heizzyklen aus der Temperaturdifferenz.\n***PID-Regler***: Berechnet eine Ventilöffnung aus der Temperaturabweichung mit einem Proportional-, Integral- und Differenzialanteil.\n***Keine Kalibrierung***: Sendet die Zieltemperatur unverändert an das TRV und korrigiert nichts.",
           "no_off_system_mode": "Mit dieser Option sendet Better Thermostat dem TRV seine Mindesttemperatur statt „Aus“. Ein TRV, das seine Mindesttemperatur meldet, gilt als ausgeschaltet: Sind alle TRVs des Raums aus, schaltet sich der Raum aus; wird ein Drehknopf hochgedreht, schaltet er sich wieder ein. Das gilt auch für eine Drehung bei offenem Fenster oder offener Tür; die Heizung wartet dann, bis alle Fenster und Türen geschlossen sind. Ein TRV ohne „Aus“-Modus bekommt seine Mindesttemperatur auch ohne diese Option. Aktiviere sie für ein TRV, dessen „Aus“-Modus nicht funktioniert, oder für ein TRV ohne „Aus“-Modus, dessen Drehknopf Better Thermostat ein- und ausschalten soll.",
-          "mpc_v2_plant_preset": "Wird nur vom Kalibrierungsmodus MPC v2 verwendet.\n***Automatisch***: Leitet das Raummodell aus dem ab, was Better Thermostat über den Raum gelernt hat, etwa seine Wärmeverlustrate.\n***Kleiner, mittlerer oder großer Raum***: Startet mit einem festen Raummodell für diese Raumgröße."
+          "mpc_v2_plant_preset": "Wird nur vom Kalibrierungsmodus MPC v2 verwendet.\n***Automatisch***: Leitet das Raummodell aus dem ab, was Better Thermostat über den Raum gelernt hat, etwa seine Wärmeverlustrate.\n***Kleiner, mittlerer oder großer Raum***: Startet mit einem festen Raummodell für diese Raumgröße.",
+          "keep_sensor_selection": "Für TRVs, die auf eine externe Temperatur regeln können (Sonoff TRVZB und TRV-ZBT, Aqara SRTS-A01). Aus: Better Thermostat stellt den TRV auf die externe Temperatur um, die es schreibt, auch nach einem Zurücksetzen oder neuen Anlernen. Ein: Der am TRV gewählte Sensor bleibt ausgewählt, und die Raumtemperatur wird weiter in den externen Eingang geschrieben. Ein TRV, der auf seinen eigenen Sensor zurückfällt, wird dann nicht zurückgestellt."
         }
       }
     },

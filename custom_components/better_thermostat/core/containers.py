@@ -47,6 +47,7 @@ class BtConfig:
     tolerance: float = 0.0
     availability_guard_entity_id: str | None = None
     availability_guard_grace_seconds: float = 0.0
+    distribute_valve_by_trv_temperature: bool = False
 
 
 @dataclass

@@ -20,6 +20,7 @@ from tests.factories import (
     make_entity_registry,
     make_registry_entry,
     make_state,
+    make_trv,
 )
 
 quirk = importlib.import_module(
@@ -64,6 +65,7 @@ def _make_self(
     mock_self.is_removed = False
     mock_self.devices_released = False
     mock_self.released_trvs = set()
+    mock_self.real_trvs = {TRV: make_trv(TRV)}
     mock_self.entity_id = BT
     mock_self.room_temperature = room
     mock_self.kernel_state = make_state(control_mode=ControlModeState(mode=mode))
@@ -901,3 +903,67 @@ class TestEdges:
 
         assert quirk._SELECTOR_WATCHES[TRV][0] is owner
         assert owner.unsubscribed == []
+
+
+def _keep_selection(mock_self, keep):
+    """Set the TRV's ``keep_sensor_selection`` option to ``keep``."""
+    trv = mock_self.real_trvs[TRV]
+    trv.advanced = {**trv.advanced, "keep_sensor_selection": keep}
+
+
+class TestTheUserKeepsTheSensorSelection:
+    """With ``keep_sensor_selection`` on, the option set on the device stays.
+
+    The room temperature still goes into the input, so a device switched to
+    it later starts from a current value.
+    """
+
+    @pytest.mark.parametrize(
+        ("keep", "expected"),
+        [(True, [_write(21.4)]), (False, [_to_external(), _write(21.4)])],
+        ids=["kept", "not_kept"],
+    )
+    async def test_a_write_leaves_a_kept_internal_option_alone(
+        self, monkeypatch, keep, expected
+    ):
+        """On the room sensor the device would be switched to the input."""
+        mock_self = _make_self(monkeypatch, selected="internal")
+        _keep_selection(mock_self, keep)
+
+        assert await quirk.maybe_set_external_temperature(mock_self, TRV, 21.42)
+
+        assert _payloads(mock_self) == expected
+
+    @pytest.mark.parametrize(
+        ("keep", "expected"),
+        [(True, []), (False, [_to_external(), _write(21.0)])],
+        ids=["kept", "not_kept"],
+    )
+    async def test_an_option_changed_by_hand_is_not_put_back(
+        self, monkeypatch, keep, expected
+    ):
+        """The watch answers the change, and leaves a kept selection as it is."""
+        mock_self = _make_self(monkeypatch, selected="external")
+        _keep_selection(mock_self, keep)
+        quirk._watch_selector(mock_self, TRV)
+
+        await _change(mock_self, _selector("internal"))
+
+        assert _payloads(mock_self) == expected
+
+    @pytest.mark.parametrize(
+        ("keep", "expected"),
+        [(True, []), (False, [_to_internal()])],
+        ids=["kept", "not_kept"],
+    )
+    async def test_leaving_optimal_leaves_a_kept_external_option_alone(
+        self, monkeypatch, keep, expected
+    ):
+        """The fallback switch to the own sensor is a selector write as well."""
+        mock_self = _make_self(monkeypatch, selected="external")
+        _keep_selection(mock_self, keep)
+        quirk._watch_selector(mock_self, TRV)
+
+        await _step(mock_self, ControlMode.SENSOR_FALLBACK)
+
+        assert _payloads(mock_self) == expected

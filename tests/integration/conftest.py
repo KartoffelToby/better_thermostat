@@ -672,6 +672,8 @@ def make_entry(
     off_temperature: int = 5,
     availability_guard_entity_id: str | None = None,
     availability_guard_grace_seconds: int = DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
+    distribute_valve_by_trv_temperature: bool = False,
+    keep_sensor_selection: bool = False,
 ) -> MockConfigEntry:
     """Build a config entry for ``devices``, matching the current entry schema.
 
@@ -689,6 +691,10 @@ def make_entry(
     ``availability_guard_entity_id`` is the entity that says whether the TRVs
     have power, and ``availability_guard_grace_seconds`` how long they get to
     come back once it turns on.
+
+    ``distribute_valve_by_trv_temperature`` is the group's split of its valve
+    command by the heads' readings, and ``keep_sensor_selection`` is set on
+    every head.
     """
     if isinstance(devices, GroupScenario):
         profiles, cooler = list(devices.profiles), None
@@ -722,6 +728,7 @@ def make_entry(
                     "valve_maintenance": profile.valve_maintenance,
                     "child_lock": False,
                     "homematicip": False,
+                    "keep_sensor_selection": keep_sensor_selection,
                 },
             }
             for profile in profiles
@@ -733,6 +740,7 @@ def make_entry(
         "off_temperature": off_temperature,
         "availability_guard": availability_guard_entity_id,
         "availability_guard_grace_seconds": availability_guard_grace_seconds,
+        "distribute_valve_by_trv_temperature": distribute_valve_by_trv_temperature,
     }
     if with_outdoor_sensor:
         data["outdoor_sensor"] = OUTDOOR_ID

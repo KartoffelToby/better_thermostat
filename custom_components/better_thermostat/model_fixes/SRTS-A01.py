@@ -25,7 +25,9 @@ the thermostat entity changes state, which it does when the ladder commits
 a new rung, and whenever the selector itself changes, so an option set by
 hand or by another automation is put back. A selector already in line is
 left alone. When the selector goes back to ``external`` outside a write, the
-room temperature is written into the input with it.
+room temperature is written into the input with it. A TRV whose
+``keep_sensor_selection`` option is on keeps the option the user picked; its
+input is written all the same.
 
 Everything else stays as the default quirks have it.
 """
@@ -58,6 +60,7 @@ from custom_components.better_thermostat.utils.helpers import (
     device_released,
     external_temperature_input_value,
     find_keyed_device_entity,
+    keeps_sensor_selection,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -280,6 +283,10 @@ async def _keep_selector_now(self: ModelFixHost, entity_id: str) -> str | None:
     if device_released(self, entity_id):
         # The device is the user's: an option set by hand stays, and nothing
         # is written to it.
+        return None
+    if keeps_sensor_selection(self, entity_id):
+        # The user keeps the selection: the option set by hand stays, while
+        # the input is still written.
         return None
     selector = _sensor_selector(self, entity_id)
     if selector is None:

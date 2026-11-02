@@ -640,6 +640,52 @@ async def test_every_head_of_a_valve_group_gets_the_rooms_opening(hass, trv_grou
     assert cold_valve_percent == warm_valve_percent
 
 
+@pytest.mark.parametrize("trv_group", [VALVE_GROUP], indirect=True, ids=profile_id)
+async def test_a_group_split_by_trv_temperature_opens_the_colder_head_further(
+    hass, trv_group
+):
+    """With the split by TRV temperature on, the colder head gets more.
+
+    The warmest head gets the room's opening unchanged, and a head that reads
+    colder gets 8 percent more per kelvin of difference, so the head three
+    kelvin colder opens 24 percent further.
+    """
+    warm_head, cold_head = trv_group.entities
+    difference_kelvin = (
+        warm_head.profile.current_temperature - cold_head.profile.current_temperature
+    )
+    set_room_sensor(hass, 19.5)
+    entry = make_entry(trv_group.scenario, distribute_valve_by_trv_temperature=True)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    assert bt.distribute_valve_by_trv_temperature is True
+    warm_valve, cold_valve = warm_head.valve_number, cold_head.valve_number
+
+    with patch(WRITE_BUDGET, 0.0):
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            "set_temperature",
+            {"entity_id": BT_ENTITY, "temperature": 20.0},
+            blocking=True,
+        )
+        assert await wait_for(
+            hass,
+            lambda: (
+                any(v > 0 for v in warm_valve.set_value_calls)
+                and any(v > 0 for v in cold_valve.set_value_calls)
+            ),
+        ), (warm_valve.set_value_calls, cold_valve.set_value_calls)
+
+    warm_valve_percent = bt.real_trvs[warm_head.entity_id].last_valve_percent
+    cold_valve_percent = bt.real_trvs[cold_head.entity_id].last_valve_percent
+    assert warm_valve_percent is not None
+    assert cold_valve_percent is not None
+    assert 0.0 < warm_valve_percent < 100.0 - 8.0 * difference_kelvin
+    assert cold_valve_percent == pytest.approx(
+        warm_valve_percent + 8.0 * difference_kelvin, abs=1.0
+    )
+
+
 DOOR_ID = "binary_sensor.door"
 OUTDOOR_ID = "sensor.outdoor_temperature"
 WEATHER_ID = "weather.home"

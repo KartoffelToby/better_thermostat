@@ -50,6 +50,7 @@ from .const import (
     CONF_CALIBRATION_MODE,
     CONF_CHILD_LOCK,
     CONF_COOLER,
+    CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE,
     CONF_DOOR_OFF_DELAY,
     CONF_DOOR_OFF_DELAY_AFTER,
     CONF_DOOR_SENSORS,
@@ -57,6 +58,7 @@ from .const import (
     CONF_HOMEMATICIP,
     CONF_HUMIDITY_SENSOR,
     CONF_INTEGRATION,
+    CONF_KEEP_SENSOR_SELECTION,
     CONF_MODEL,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_NO_OFF_SYSTEM_MODE,
@@ -102,6 +104,7 @@ TrvAdvanced = TypedDict(  # noqa: UP013
         "valve_maintenance": bool,
         "child_lock": bool,
         "homematicip": bool,
+        "keep_sensor_selection": bool,
         "balance_mode": StoredChoice,
     },
     total=False,
@@ -149,6 +152,7 @@ BtSettings = TypedDict(  # noqa: UP013
         "target_temp_max": NotRequired[str | float | None],
         "target_temp_step": NotRequired[str | float | None],
         "presets": NotRequired[list[str] | None],
+        "distribute_valve_by_trv_temperature": NotRequired[bool],
     },
 )
 
@@ -184,6 +188,7 @@ type _FlagKey = Literal[
     "valve_maintenance",
     "child_lock",
     "homematicip",
+    "keep_sensor_selection",
 ]
 
 _TEXT_KEYS: Final[tuple[_TextKey, ...]] = (
@@ -221,6 +226,7 @@ _FLAG_KEYS: Final[tuple[_FlagKey, ...]] = (
     CONF_VALVE_MAINTENANCE,
     CONF_CHILD_LOCK,
     CONF_HOMEMATICIP,
+    CONF_KEEP_SENSOR_SELECTION,
 )
 
 
@@ -389,6 +395,9 @@ def parse_settings(raw: Mapping[str, object]) -> BtSettings:
             )
     if CONF_PRESETS in raw:
         settings["presets"] = _parse_presets(raw[CONF_PRESETS])
+    distribute = raw.get(CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE)
+    if distribute is not None:
+        settings["distribute_valve_by_trv_temperature"] = as_bool(distribute)
     return settings
 
 

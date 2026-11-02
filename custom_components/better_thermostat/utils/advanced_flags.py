@@ -1,8 +1,8 @@
 """Read the per-TRV boolean options the way the options flow saves them.
 
 The options flow stores ``protect_overheating``, ``no_off_system_mode``,
-``heat_auto_swapped``, ``valve_maintenance``, ``child_lock`` and
-``homematicip`` as booleans, but an entry written by an older version can
+``heat_auto_swapped``, ``valve_maintenance``, ``child_lock``,
+``homematicip`` and ``keep_sensor_selection`` as booleans, but an entry written by an older version can
 still hold them as strings such as ``"false"`` or as the integers ``0`` and
 ``1``. Every reader goes through :func:`advanced_flag`, so a stored value
 means the same thing to the running thermostat as it does to the options
