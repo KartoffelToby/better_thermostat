@@ -255,3 +255,49 @@ async def test_the_initial_reset_reaches_only_a_trv_known_to_regulate_on_its_own
     assert (
         "number.eve_thermo_local_temperature_calibration" in _written(host)
     ) is written
+
+
+_NODE = "0123456789ABCDEF-0000000000000042-MatterNodeDevice"
+
+
+def test_each_thermostat_of_one_matter_device_reads_its_own_endpoint(world):
+    """Two thermostats on one device each regulate on their own endpoint's sensor."""
+    hass, entries, states = world
+    other_trv = "climate.eve_thermo_2"
+    other_sensor = "binary_sensor.eve_thermo_2_remote_sensing"
+    entries.extend(
+        [
+            make_registry_entry(
+                TRV_ID,
+                platform="matter",
+                device_id=TRV_DEVICE,
+                unique_id=f"{_NODE}-1-MatterThermostat-513-0",
+            ),
+            make_registry_entry(
+                other_trv,
+                platform="matter",
+                device_id=TRV_DEVICE,
+                unique_id=f"{_NODE}-2-MatterThermostat-513-0",
+            ),
+            make_registry_entry(
+                other_sensor,
+                platform="matter",
+                device_id=TRV_DEVICE,
+                translation_key=REMOTE_SENSING_LOCAL_TEMPERATURE_KEY,
+                unique_id=f"{_NODE}-2-ThermostatRemoteSensing_LocalTemperature-513-26",
+            ),
+            make_registry_entry(
+                REMOTE_SENSING_ID,
+                platform="matter",
+                device_id=TRV_DEVICE,
+                translation_key=REMOTE_SENSING_LOCAL_TEMPERATURE_KEY,
+                unique_id=f"{_NODE}-1-ThermostatRemoteSensing_LocalTemperature-513-26",
+            ),
+        ]
+    )
+    states[REMOTE_SENSING_ID] = State(REMOTE_SENSING_ID, STATE_OFF)
+    states[other_sensor] = State(other_sensor, STATE_ON)
+
+    assert remote_sensing_entity(hass, TRV_ID) == REMOTE_SENSING_ID
+    assert remote_sensing_entity(hass, other_trv) == other_sensor
+    assert regulates_on_bound_sensor(hass, TRV_ID) is False
