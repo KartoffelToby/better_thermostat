@@ -29,7 +29,7 @@ from homeassistant.helpers import (
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util.unit_conversion import TemperatureConverter
-import voluptuous as vol
+import probatio as vol
 
 from . import (
     DOMAIN,

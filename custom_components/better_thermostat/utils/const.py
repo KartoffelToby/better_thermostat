@@ -12,7 +12,7 @@ from homeassistant.components.climate.const import ClimateEntityFeature
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.config_validation import make_entity_service_schema
 from homeassistant.util.signal_type import SignalTypeFormat
-import voluptuous as vol
+import probatio as vol
 
 # The preset enum lives with the calibration code, which imports nothing from
 # Home Assistant, and is re-exported here next to the configuration key that

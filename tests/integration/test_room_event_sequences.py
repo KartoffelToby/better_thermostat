@@ -58,7 +58,7 @@ from datetime import timedelta
 import json
 import os
 import random
-from typing import ClassVar, override
+from typing import Any, ClassVar, override
 from unittest.mock import patch
 
 from homeassistant.components.climate.const import (
@@ -261,7 +261,7 @@ class Room:
     window_open: bool = False
     available: set[int] = field(default_factory=set)
     events: list[RoomEvent] = field(default_factory=list)
-    service_calls: list[Event] = field(default_factory=list)
+    service_calls: list[Event[dict[str, Any]]] = field(default_factory=list)
     reconciles: int = 0
     checked: str = "at startup"
     clock: HeadClock = field(default_factory=HeadClock)

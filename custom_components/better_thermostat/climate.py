@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -3153,7 +3153,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 trv.local_calibration_step = 0.5
 
             _s = self.hass.states.get(entity_id)
-            _attrs = _s.attributes if _s else {}
+            _attrs: Mapping[str, object] = _s.attributes if _s else {}
             _LOGGER.debug(
                 "better_thermostat %s: reading TRV %s attributes...",
                 self.device_name,
@@ -3199,7 +3199,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 trv.target_temp_step = self.bt_target_temperature_step
             else:
                 trv.target_temp_step = 0.5
-            trv.hvac_modes = _attrs.get("hvac_modes", None)
+            reported_modes = _attrs.get("hvac_modes")
+            trv.hvac_modes = (
+                reported_modes if isinstance(reported_modes, list) else None
+            )
             # A device that is heating already publishes the range it heats in;
             # its mode is decoded against the modes it offers, as at runtime.
             if (

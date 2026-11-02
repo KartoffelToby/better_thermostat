@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import override
 from unittest.mock import PropertyMock, patch
 
+import probatio as vol
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -27,7 +28,6 @@ from pytest_homeassistant_custom_component.common import (
     mock_platform,
     setup_test_component_platform,
 )
-import voluptuous as vol
 
 # Pin the repository's custom_components namespace package before the
 # hass fixture mounts the plugin's testing config dir: that dir carries
