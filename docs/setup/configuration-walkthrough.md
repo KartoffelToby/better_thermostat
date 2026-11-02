@@ -79,7 +79,7 @@ How should Better Thermostat control your radiator?
 
 - **Target Temperature Based**: The safest choice. It tricks your radiator into heating more or less by changing its target temperature. Works with almost all devices.
 - **Offset Based**: Uses your device's built-in calibration feature, if it has one. Preselected when your device supports it.
-- **Direct Valve Based**: Sets the valve opening directly. Only offered when your device exposes a writable valve position, and only AI Time Based, MPC Predictive, MPC v2, TPI Controller and PID Controller use it; the other modes fall back to a target temperature.
+- **Direct Valve Based**: Sets the valve opening directly. Only offered when Better Thermostat can write your device's valve, through a writable valve position entity or a valve control built in for that model, and only AI Time Based, MPC Predictive, MPC v2, TPI Controller and PID Controller use it; the other modes fall back to a target temperature.
 
 Some devices expose offset as a `number`, others as a `select`. Better Thermostat supports both.
 
@@ -90,7 +90,7 @@ This is the "brain" of Better Thermostat. How should it calculate the heating?
 - **(AI) Time Based (Default)**: **Recommended for most users.** A smart algorithm that learns and adjusts to keep the temperature stable.
 - **External Sensor Offset Only**: Basic mode. It just syncs the temperature from your room sensor to the radiator.
 - **MPC Predictive (Beta)**: Predicts how your room heats up and sets its correction ahead of time. Still in testing.
-- **(AI) MPC v2 (QP + Kalman, experimental)**: An experimental predictive controller. It sets the valve directly with Direct Valve Based and otherwise steers through the target temperature.
+- **(AI) MPC v2 (QP + Kalman, experimental)**: An experimental predictive controller. It sets the valve directly with Direct Valve Based and otherwise steers through the target temperature or the offset.
 - **Aggressive**: Heats up faster by pushing the radiator harder while heating, but might overshoot your target temperature.
 - **TPI Controller**: Turns the temperature error into a duty cycle and holds the valve open by that share.
 - **PID Controller**: A mathematical approach that constantly adjusts the valve. Best for advanced users.

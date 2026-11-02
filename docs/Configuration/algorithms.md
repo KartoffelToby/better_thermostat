@@ -80,7 +80,7 @@ Its learned model shows up in the *Virtual Temperature*, *MPC Gain*, *MPC Loss* 
 
 The setup form labels this mode *(AI) MPC v2 (QP + Kalman, experimental)*.
 
-MPC v2 is an experimental predictive controller. It estimates the room's state with a Kalman observer and computes the valve opening by solving a small optimisation problem (a quadratic program) over a receding horizon. With the Direct Valve Based calibration type that opening is written to the TRV as it stands (see [Direct valve control](#direct-valve-control)). With any other calibration type, MPC v2 turns the opening into a target temperature between the TRV's current reading and its maximum: the wider the opening, the higher the setpoint.
+MPC v2 is an experimental predictive controller. It estimates the room's state with a Kalman observer and computes the valve opening by solving a small optimisation problem (a quadratic program) over a receding horizon. With the Direct Valve Based calibration type that opening is written to the TRV as it stands (see [Direct valve control](#direct-valve-control)). With any other calibration type, MPC v2 turns the opening into a setpoint between the TRV's current reading and its maximum: the wider the opening, the higher the setpoint. Target Temperature Based sends that setpoint to the TRV as its target temperature; Offset Based leaves the target temperature as it is and writes the difference as a calibration offset.
 
 The **MPC v2 room size** option sets the room model it starts from. *Auto* derives it from the heat-loss rate Better Thermostat has learned for the room; the small, medium and large room presets use a fixed model instead.
 
