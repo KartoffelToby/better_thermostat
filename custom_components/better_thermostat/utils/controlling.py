@@ -136,6 +136,7 @@ from custom_components.better_thermostat.utils.retry import (
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
+from custom_components.better_thermostat.utils.stored_values import finite_or_none
 from custom_components.better_thermostat.utils.watcher import (
     UNAVAILABLE_OR_UNKNOWN_STATES,
     clear_unapplied_setpoint,
@@ -773,13 +774,18 @@ def _valve_band(state: State) -> tuple[float, float] | None:
     at least one step of its grid below: ZHA truncates a number onto its
     grid, so a write can land one step below the value sent. A write is
     always a point of the grid or its clamped maximum, so no device rounds
-    it upwards. None when the entity publishes no usable range.
+    it upwards. A step that spans the whole range gets no such allowance:
+    one step below would take in every position the entity has. None when
+    the entity publishes no usable range.
     """
     valve_range = _usable_valve_range(state)
     if valve_range is None:
         return None
     minimum, maximum, step = valve_range
-    above = (maximum - minimum) * RECONCILE_VALVE_TOLERANCE_PCT / 100.0
+    span = maximum - minimum
+    above = span * RECONCILE_VALVE_TOLERANCE_PCT / 100.0
+    if step >= span:
+        return above, above
     return max(step, above), above
 
 
@@ -799,7 +805,7 @@ def _valve_readback(self: BetterThermostat, trv: Trv, percent: int) -> ValveRead
         state = reading.state
         if not state_is_live(state):
             continue
-        reported = convert_to_float(state.state, self.device_name, "reconcile()")
+        reported = finite_or_none(state.state)
         band = _valve_band(state)
         if reported is None or band is None:
             continue

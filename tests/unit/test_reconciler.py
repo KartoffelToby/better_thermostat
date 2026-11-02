@@ -1017,6 +1017,10 @@ class TestValveReadbackInEntityUnits:
             pytest.param((0, 100, 1), 50, "54", "56", id="0-100-unchanged"),
             pytest.param((0, 255, 1), 50, "138", "142", id="0-255-five-percent"),
             pytest.param((0, 100, 20), 40, "20", "60", id="step-20-one-step-up"),
+            pytest.param((0, 100, 100), 100, "100", "0", id="step-spans-the-range"),
+            pytest.param(
+                (0.005, 0.015, 0.001), 0, "0.005", "0.012", id="hundredths-grid"
+            ),
         ],
     )
     def test_a_held_value_holds_and_a_lost_one_diverges(
