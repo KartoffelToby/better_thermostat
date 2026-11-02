@@ -25,7 +25,8 @@
           "target_temp_min": "Minimum hedef sıcaklık",
           "target_temp_max": "Maksimum hedef sıcaklık",
           "target_temp_step": "Hedef sıcaklık adımı",
-          "presets": "Etkin ön ayarlar"
+          "presets": "Etkin ön ayarlar",
+          "distribute_valve_by_trv_temperature": "Vana açıklığını her TRV'nin kendi sıcaklığına göre dağıt"
         },
         "data_description": {
           "name": "Bu termostatın ve cihazının Home Assistant'taki adı.",
@@ -48,7 +49,8 @@
           "target_temp_min": "Ayarlayabileceğiniz en düşük hedef. Auto, cihazlarınızın bildirdiği aralığı kullanır.",
           "target_temp_max": "Ayarlayabileceğiniz en yüksek hedef. Auto, cihazlarınızın bildirdiği aralığı kullanır.",
           "target_temp_step": "Hedefin her adımda ne kadar değiştiği. Auto, termostatlarınızın bildirdiği en kaba adımı kullanır.",
-          "presets": "Bu termostat için kullanılabilir olmasını istediğiniz ön ayarları seçin."
+          "presets": "Bu termostat için kullanılabilir olmasını istediğiniz ön ayarları seçin.",
+          "distribute_valve_by_trv_temperature": "Yalnızca MPC veya MPC v2 kalibrasyon modundaki iki veya daha fazla TRV için. Kapalı: her TRV aynı vana açıklığını alır. Açık: odadaki en sıcak TRV'den daha soğuk ölçen bir TRV, farkın her °C'si için %8 (her °F için %4,4) daha fazla açılır. TRV'lerin kendi ölçümleri karşılaştırılır; bu yüzden bir Sonoff TRVZB veya TRV-ZBT'de kendi sensörü seçili ve \"TRV'nin sensör seçimini koru\" seçeneği açık olmalıdır. Ofset üzerinden kalibre edilen bir TRV odanın vana açıklığını alır."
         }
       },
       "advanced": {
@@ -62,7 +64,8 @@
           "calibration": "Kalibrasyon Türü",
           "calibration_mode": "Kalibrasyon modu",
           "no_off_system_mode": "'Kapalı' yerine minimum sıcaklığı kullan",
-          "mpc_v2_plant_preset": "MPC v2 oda boyutu"
+          "mpc_v2_plant_preset": "MPC v2 oda boyutu",
+          "keep_sensor_selection": "TRV'nin sensör seçimini koru"
         },
         "data_description": {
           "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
@@ -73,7 +76,8 @@
           "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı\n***Hedef sıcaklığa dayalı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofsete dayalı***: Kalibrasyonu sıcaklık ofsetine uygula. Yalnızca TRV'nin yazılabilir bir sıcaklık ofseti varsa sunulur.\n***Doğrudan vana kontrolü***: Vana açıklığını doğrudan ayarla. Yalnızca TRV'nin yazılabilir bir vana konumu varsa sunulur. Vana açıklığı hesaplamayan kalibrasyon modları bunun yerine bir hedef sıcaklık gönderir.",
           "calibration_mode": "Kalibrasyonun nasıl hesaplanacağı\n***Zamana dayalı yapay zekâ (varsayılan)***: Odanızın ısıtma gücünü zamanla öğrenir ve kalibrasyonu buradan türetir.\n***Yalnızca harici sensör ofseti***: TRV'nin dahili sensörünü harici sıcaklık sensörünüzle düzeltir. Üzerinde ek bir denetleyici çalışmaz.\n***MPC öngörülü (beta)***: Oda sıcaklığını tahmin eder ve buradan bir vana açıklığı hesaplar. Odanızın ısıl davranışını öğrenir.\n***(Yapay zekâ) MPC v2 (QP + Kalman, deneysel)***: Odanın durumunu bir Kalman filtresiyle tahmin eder ve model öngörülü bir denetleyiciyle vana açıklığını hesaplar. MPC v2 oda boyutu ayarı oda modelini seçer: odadan öğrenilen (Otomatik) veya bir oda boyutu için sabit (küçük, orta, büyük).\n***Agresif***: Oda ısınırken kalibrasyona bir artış ekler ve tolerans gecikmesini atlar, böylece TRV ısıtmaya daha erken başlar. Odanız yavaş ısınıyorsa kullanışlıdır.\n***TPI denetleyici***: Isıtma döngülerinin açık kalma süresini sıcaklık farkından hesaplar.\n***PID denetleyici***: Oransal, integral ve türev terimleriyle sıcaklık hatasından bir vana açıklığı hesaplar.\n***Kalibrasyon yok***: Hedef sıcaklığı TRV'ye değiştirmeden gönderir ve düzeltme uygulamaz.",
           "no_off_system_mode": "Bu seçenekle Better Thermostat, TRV'ye 'kapalı' yerine minimum sıcaklığını gönderir. Minimum sıcaklığını bildiren bir TRV kapalı sayılır: odadaki tüm TRV'ler kapalıysa oda kapanır, bir düğme yukarı çevrildiğinde yeniden açılır. Bir pencere veya kapı açıkken yapılan çevirme de sayılır; ısıtma bu durumda tüm pencereler ve kapılar kapanana kadar bekler. Kapalı modu olmayan bir TRV, bu seçenek olmadan da minimum sıcaklığını alır. Kapalı modu çalışmayan bir TRV için ya da düğmesi Better Thermostat'ı açıp kapatması gereken, kapalı modu olmayan bir TRV için etkinleştirin.",
-          "mpc_v2_plant_preset": "Yalnızca MPC v2 kalibrasyon modu tarafından kullanılır.\n***Otomatik***: Oda modelini Better Thermostat'ın oda hakkında öğrendiklerinden, örneğin ısı kaybı oranından türetir.\n***Küçük, orta veya büyük oda***: O oda boyutu için sabit bir oda modelinden başlar."
+          "mpc_v2_plant_preset": "Yalnızca MPC v2 kalibrasyon modu tarafından kullanılır.\n***Otomatik***: Oda modelini Better Thermostat'ın oda hakkında öğrendiklerinden, örneğin ısı kaybı oranından türetir.\n***Küçük, orta veya büyük oda***: O oda boyutu için sabit bir oda modelinden başlar.",
+          "keep_sensor_selection": "Harici bir sıcaklığa göre düzenleme yapabilen TRV'ler için (Sonoff TRVZB ve TRV-ZBT, Aqara SRTS-A01). Kapalı: Better Thermostat, TRV'yi yazdığı harici sıcaklığa geçirir; sıfırlama veya yeniden eşleştirmeden sonra da. Açık: TRV'de seçtiğiniz sensör seçili kalır ve oda sıcaklığı harici girişe yazılmaya devam eder. Kendi sensörüne geri dönen bir TRV bu durumda geri değiştirilmez."
         }
       },
       "confirm": {
@@ -126,7 +130,8 @@
           "target_temp_max": "Maksimum hedef sıcaklık",
           "target_temp_step": "Hedef sıcaklık adımı",
           "presets": "Etkin ön ayarlar",
-          "cooler": "Soğutma cihazı (isteğe bağlı)"
+          "cooler": "Soğutma cihazı (isteğe bağlı)",
+          "distribute_valve_by_trv_temperature": "Vana açıklığını her TRV'nin kendi sıcaklığına göre dağıt"
         },
         "data_description": {
           "name": "Bu termostatın ve cihazının Home Assistant'taki adı.",
@@ -149,7 +154,8 @@
           "target_temp_max": "Ayarlayabileceğiniz en yüksek hedef. Auto, cihazlarınızın bildirdiği aralığı kullanır.",
           "target_temp_step": "Hedefin her adımda ne kadar değiştiği. Auto, termostatlarınızın bildirdiği en kaba adımı kullanır.",
           "presets": "Bu termostat için kullanılabilir olmasını istediğiniz ön ayarları seçin.",
-          "cooler": "İsteğe bağlı. Termostatlarla birlikte bu odayı soğutan bir klima veya başka bir iklim varlığı."
+          "cooler": "İsteğe bağlı. Termostatlarla birlikte bu odayı soğutan bir klima veya başka bir iklim varlığı.",
+          "distribute_valve_by_trv_temperature": "Yalnızca MPC veya MPC v2 kalibrasyon modundaki iki veya daha fazla TRV için. Kapalı: her TRV aynı vana açıklığını alır. Açık: odadaki en sıcak TRV'den daha soğuk ölçen bir TRV, farkın her °C'si için %8 (her °F için %4,4) daha fazla açılır. TRV'lerin kendi ölçümleri karşılaştırılır; bu yüzden bir Sonoff TRVZB veya TRV-ZBT'de kendi sensörü seçili ve \"TRV'nin sensör seçimini koru\" seçeneği açık olmalıdır. Ofset üzerinden kalibre edilen bir TRV odanın vana açıklığını alır."
         }
       },
       "advanced": {
@@ -163,7 +169,8 @@
           "calibration": "Kullanmak istediğiniz kalibrasyon türü",
           "calibration_mode": "Kalibrasyon modu",
           "no_off_system_mode": "'Kapalı' yerine minimum sıcaklığı kullan",
-          "mpc_v2_plant_preset": "MPC v2 oda boyutu"
+          "mpc_v2_plant_preset": "MPC v2 oda boyutu",
+          "keep_sensor_selection": "TRV'nin sensör seçimini koru"
         },
         "data_description": {
           "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
@@ -174,7 +181,8 @@
           "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı\n***Hedef sıcaklığa dayalı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofsete dayalı***: Kalibrasyonu sıcaklık ofsetine uygula. Yalnızca TRV'nin yazılabilir bir sıcaklık ofseti varsa sunulur.\n***Doğrudan vana kontrolü***: Vana açıklığını doğrudan ayarla. Yalnızca TRV'nin yazılabilir bir vana konumu varsa sunulur. Vana açıklığı hesaplamayan kalibrasyon modları bunun yerine bir hedef sıcaklık gönderir.",
           "calibration_mode": "Kalibrasyonun nasıl hesaplanacağı\n***Zamana dayalı yapay zekâ (varsayılan)***: Odanızın ısıtma gücünü zamanla öğrenir ve kalibrasyonu buradan türetir.\n***Yalnızca harici sensör ofseti***: TRV'nin dahili sensörünü harici sıcaklık sensörünüzle düzeltir. Üzerinde ek bir denetleyici çalışmaz.\n***MPC öngörülü (beta)***: Oda sıcaklığını tahmin eder ve buradan bir vana açıklığı hesaplar. Odanızın ısıl davranışını öğrenir.\n***(Yapay zekâ) MPC v2 (QP + Kalman, deneysel)***: Odanın durumunu bir Kalman filtresiyle tahmin eder ve model öngörülü bir denetleyiciyle vana açıklığını hesaplar. MPC v2 oda boyutu ayarı oda modelini seçer: odadan öğrenilen (Otomatik) veya bir oda boyutu için sabit (küçük, orta, büyük).\n***Agresif***: Oda ısınırken kalibrasyona bir artış ekler ve tolerans gecikmesini atlar, böylece TRV ısıtmaya daha erken başlar. Odanız yavaş ısınıyorsa kullanışlıdır.\n***TPI denetleyici***: Isıtma döngülerinin açık kalma süresini sıcaklık farkından hesaplar.\n***PID denetleyici***: Oransal, integral ve türev terimleriyle sıcaklık hatasından bir vana açıklığı hesaplar.\n***Kalibrasyon yok***: Hedef sıcaklığı TRV'ye değiştirmeden gönderir ve düzeltme uygulamaz.",
           "no_off_system_mode": "Bu seçenekle Better Thermostat, TRV'ye 'kapalı' yerine minimum sıcaklığını gönderir. Minimum sıcaklığını bildiren bir TRV kapalı sayılır: odadaki tüm TRV'ler kapalıysa oda kapanır, bir düğme yukarı çevrildiğinde yeniden açılır. Bir pencere veya kapı açıkken yapılan çevirme de sayılır; ısıtma bu durumda tüm pencereler ve kapılar kapanana kadar bekler. Kapalı modu olmayan bir TRV, bu seçenek olmadan da minimum sıcaklığını alır. Kapalı modu çalışmayan bir TRV için ya da düğmesi Better Thermostat'ı açıp kapatması gereken, kapalı modu olmayan bir TRV için etkinleştirin.",
-          "mpc_v2_plant_preset": "Yalnızca MPC v2 kalibrasyon modu tarafından kullanılır.\n***Otomatik***: Oda modelini Better Thermostat'ın oda hakkında öğrendiklerinden, örneğin ısı kaybı oranından türetir.\n***Küçük, orta veya büyük oda***: O oda boyutu için sabit bir oda modelinden başlar."
+          "mpc_v2_plant_preset": "Yalnızca MPC v2 kalibrasyon modu tarafından kullanılır.\n***Otomatik***: Oda modelini Better Thermostat'ın oda hakkında öğrendiklerinden, örneğin ısı kaybı oranından türetir.\n***Küçük, orta veya büyük oda***: O oda boyutu için sabit bir oda modelinden başlar.",
+          "keep_sensor_selection": "Harici bir sıcaklığa göre düzenleme yapabilen TRV'ler için (Sonoff TRVZB ve TRV-ZBT, Aqara SRTS-A01). Kapalı: Better Thermostat, TRV'yi yazdığı harici sıcaklığa geçirir; sıfırlama veya yeniden eşleştirmeden sonra da. Açık: TRV'de seçtiğiniz sensör seçili kalır ve oda sıcaklığı harici girişe yazılmaya devam eder. Kendi sensörüne geri dönen bir TRV bu durumda geri değiştirilmez."
         }
       }
     },

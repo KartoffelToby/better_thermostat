@@ -1565,3 +1565,113 @@ class TestATrvzbPairedThroughZha:
         )
 
         assert len(_service_calls(mock_self)) == int(switched)
+
+
+def _keeping(record: Trv, keep: bool) -> Trv:
+    """Return ``record`` with its ``keep_sensor_selection`` option set to ``keep``."""
+    record.advanced = {**record.advanced, "keep_sensor_selection": keep}
+    return record
+
+
+class TestTheUserKeepsTheSensorSelection:
+    """With ``keep_sensor_selection`` on, the sensor choice stays the user's.
+
+    A user who regulates each TRV on its own sensor, so the TRVs' readings
+    differ, picks the internal option on purpose. The room temperature still
+    goes into the input, so a device switched to it later starts from a
+    current value, but the selector or the switch is not touched.
+    """
+
+    @staticmethod
+    def _z2m_device_on_its_local_sensor(monkeypatch, keep):
+        trv = _registry_entry("climate.trv1")
+        number = _registry_entry(
+            "number.trv1_external_temperature_input",
+            translation_key="external_temperature_input",
+        )
+        selector = _registry_entry(
+            "select.trv1_temperature_sensor_select",
+            translation_key="temperature_sensor_select",
+        )
+        mock_self = _make_selector_self(
+            "local_temperature", Z2M_2_14_2_OPTIONS, entries=[trv, number, selector]
+        )
+        mock_self.devices_released = False
+        mock_self.released_trvs = set()
+        mock_self.real_trvs = {
+            "climate.trv1": _keeping(
+                trv_record(entity_id="climate.trv1", model="TRVZB"), keep
+            )
+        }
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+        return mock_self
+
+    @pytest.mark.parametrize(
+        ("keep", "selected"), [(True, []), (False, ["remote_temperature"])]
+    )
+    @pytest.mark.asyncio
+    async def test_a_local_selection_stays_while_the_input_is_written(
+        self, monkeypatch, keep, selected
+    ):
+        """The input is written either way; only without the option is it selected."""
+        mock_self = self._z2m_device_on_its_local_sensor(monkeypatch, keep)
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.42
+        )
+
+        assert _number_writes(mock_self) == [
+            {"entity_id": "number.trv1_external_temperature_input", "value": 21.4}
+        ]
+        assert [call["option"] for call in _selector_calls(mock_self)] == selected
+
+    @pytest.mark.parametrize(
+        ("keep", "switched"), [(True, []), (False, [("switch", "turn_on")])]
+    )
+    @pytest.mark.asyncio
+    async def test_a_zha_switch_left_off_stays_off(self, monkeypatch, keep, switched):
+        """ZHA's sensor switch is the selector there, and it is kept the same way."""
+        mock_self = _make_zha_self(monkeypatch, STATE_OFF)
+        mock_self.devices_released = False
+        mock_self.released_trvs = set()
+        _keeping(mock_self.real_trvs["climate.trv1"], keep)
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.42
+        )
+
+        calls = _service_calls(mock_self)
+        assert calls[0] == (
+            "number",
+            "set_value",
+            {"entity_id": ZHA_INPUT, "value": 21.4},
+        )
+        assert [call[:2] for call in calls[1:]] == switched
+
+    @pytest.mark.parametrize(
+        ("keep", "selected"), [(True, []), (False, ["local_temperature"])]
+    )
+    @pytest.mark.asyncio
+    async def test_a_room_sensor_on_the_trv_leaves_a_kept_selection_alone(
+        self, monkeypatch, keep, selected
+    ):
+        """No value goes out, and a kept remote selection is not moved back."""
+        mock_self = (
+            TestExternalTemperatureIsNotMirroredIntoItsOwnSource._trv_with_room_sensor(
+                monkeypatch,
+                _registry_entry("sensor.trv1_temperature"),
+                "remote_temperature",
+                Z2M_2_14_2_OPTIONS,
+            )
+        )
+        _keeping(mock_self.real_trvs["climate.trv1"], keep)
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.4)
+            is False
+        )
+
+        assert _number_writes(mock_self) == []
+        assert [call["option"] for call in _selector_calls(mock_self)] == selected

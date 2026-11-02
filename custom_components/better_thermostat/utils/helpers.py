@@ -49,6 +49,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
     CONF_HEAT_AUTO_SWAPPED,
+    CONF_KEEP_SENSOR_SELECTION,
     CONF_NO_OFF_SYSTEM_MODE,
     CONF_THERMOSTAT,
     DEFAULT_CALIBRATION_MODE,
@@ -156,6 +157,18 @@ def every_trv_released(host: ReleaseHost, trv_ids: Iterable[str]) -> bool:
     return bool(trv_ids) and all(
         entity_id in host.released_trvs for entity_id in trv_ids
     )
+
+
+def keeps_sensor_selection(host: _CalibrationModeHost, entity_id: str) -> bool:
+    """Return whether the user keeps the sensor selector of ``entity_id``.
+
+    A TRV that regulates either on its own sensor or on an external input
+    has a selector for that choice. Better Thermostat moves it to the input
+    it writes unless the TRV's ``keep_sensor_selection`` option is on; then
+    the option the user picked stays, whichever it is.
+    """
+    trv = host.real_trvs.get(entity_id)
+    return trv is not None and advanced_flag(trv.advanced, CONF_KEEP_SENSOR_SELECTION)
 
 
 def entry_settings(entry: BetterThermostatConfigEntry) -> dict[str, object]:

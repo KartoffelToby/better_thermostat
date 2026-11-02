@@ -25,7 +25,8 @@
           "target_temp_min": "Minimalna temperatura docelowa",
           "target_temp_max": "Maksymalna temperatura docelowa",
           "target_temp_step": "Krok temperatury docelowej",
-          "presets": "Włączone ustawienia predefiniowane"
+          "presets": "Włączone ustawienia predefiniowane",
+          "distribute_valve_by_trv_temperature": "Rozdzielaj otwarcie zaworu według własnej temperatury każdego TRV"
         },
         "data_description": {
           "name": "Nazwa tego termostatu i jego urządzenia w Home Assistant.",
@@ -48,7 +49,8 @@
           "target_temp_min": "Najniższy cel, jaki można ustawić. Auto przyjmuje zakres zgłaszany przez urządzenia.",
           "target_temp_max": "Najwyższy cel, jaki można ustawić. Auto przyjmuje zakres zgłaszany przez urządzenia.",
           "target_temp_step": "O ile zmienia się cel na krok. Auto przyjmuje najgrubszy krok zgłaszany przez termostaty.",
-          "presets": "Wybierz ustawienia predefiniowane, które mają być dostępne dla tego termostatu."
+          "presets": "Wybierz ustawienia predefiniowane, które mają być dostępne dla tego termostatu.",
+          "distribute_valve_by_trv_temperature": "Tylko dla dwóch lub więcej TRV w trybie kalibracji MPC lub MPC v2. Wyłączone: każdy TRV otrzymuje to samo otwarcie zaworu. Włączone: TRV, który mierzy niższą temperaturę niż najcieplejszy TRV w pomieszczeniu, otwiera się bardziej, o 8 % na każdy °C (4,4 % na °F) różnicy. Porównywane są własne odczyty TRV, dlatego Sonoff TRVZB lub TRV-ZBT musi mieć wybrany własny czujnik i włączoną opcję „Zachowaj wybór czujnika TRV”. TRV kalibrowany przez offset otrzymuje otwarcie zaworu pomieszczenia."
         }
       },
       "advanced": {
@@ -62,7 +64,8 @@
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Użyj temperatury minimalnej zamiast 'wyłączony'",
-          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia"
+          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia",
+          "keep_sensor_selection": "Zachowaj wybór czujnika TRV"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
@@ -73,7 +76,8 @@
           "calibration": "Jak kalibracja jest stosowana w TRV\n***Na podstawie temperatury docelowej***: Zastosuj kalibrację do temperatury docelowej.\n***Na podstawie przesunięcia***: Zastosuj kalibrację do przesunięcia temperatury. Dostępne tylko, gdy TRV ma zapisywalne przesunięcie temperatury.\n***Bezpośrednie sterowanie zaworem***: Ustaw otwarcie zaworu bezpośrednio. Dostępne tylko, gdy TRV ma zapisywalną pozycję zaworu. Tryby kalibracji, które nie wyznaczają otwarcia zaworu, wysyłają zamiast tego temperaturę docelową.",
           "calibration_mode": "Jak obliczana jest kalibracja\n***AI na podstawie czasu (domyślne)***: Z czasem uczy się mocy grzewczej pomieszczenia i wyznacza z niej kalibrację.\n***Tylko przesunięcie czujnika zewnętrznego***: Koryguje wewnętrzny czujnik TRV za pomocą zewnętrznego czujnika temperatury. Żaden regulator nie działa dodatkowo.\n***Predykcyjne MPC (beta)***: Przewiduje temperaturę pomieszczenia i oblicza z niej otwarcie zaworu. Uczy się zachowania cieplnego pomieszczenia.\n***(AI) MPC v2 (QP + Kalman, eksperymentalne)***: Szacuje stan pomieszczenia filtrem Kalmana i oblicza otwarcie zaworu regulatorem predykcyjnym z modelem. Ustawienie MPC v2 wielkość pomieszczenia wybiera model pomieszczenia: wyuczony w pomieszczeniu (Automatycznie) lub stały dla danej wielkości (małe, średnie, duże).\n***Agresywne***: Podbija kalibrację, gdy pomieszczenie się nagrzewa, i pomija opóźnienie tolerancji, aby TRV zaczął grzać wcześniej. Przydatne, gdy pomieszczenie nagrzewa się powoli.\n***Regulator TPI***: Oblicza czas załączenia cykli grzewczych na podstawie różnicy temperatur.\n***Regulator PID***: Oblicza otwarcie zaworu z uchybu temperatury za pomocą członu proporcjonalnego, całkującego i różniczkującego.\n***Bez kalibracji***: Wysyła temperaturę docelową do TRV bez zmian i nie stosuje żadnej korekty.",
           "no_off_system_mode": "Przy tej opcji Better Thermostat wysyła do TRV jego temperaturę minimalną zamiast 'wyłączony'. TRV, który zgłasza swoją temperaturę minimalną, uznaje się za wyłączony: gdy wszystkie TRV w pomieszczeniu są wyłączone, pomieszczenie się wyłącza, a podkręcenie pokrętła włącza je ponownie. Liczy się też obrót przy otwartym oknie lub drzwiach; ogrzewanie czeka wtedy, aż wszystkie okna i drzwi zostaną zamknięte. TRV bez trybu wyłączenia otrzymuje swoją temperaturę minimalną także bez tej opcji. Włącz ją dla TRV, którego tryb wyłączenia nie działa, albo dla TRV bez trybu wyłączenia, którego pokrętło ma włączać i wyłączać Better Thermostat.",
-          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia."
+          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia.",
+          "keep_sensor_selection": "Dla TRV, które mogą regulować według temperatury zewnętrznej (Sonoff TRVZB i TRV-ZBT, Aqara SRTS-A01). Wyłączone: Better Thermostat przełącza TRV na zapisywaną przez siebie temperaturę zewnętrzną, także po resecie lub ponownym parowaniu. Włączone: czujnik wybrany na TRV pozostaje wybrany, a temperatura pomieszczenia nadal jest zapisywana do wejścia zewnętrznego. TRV, który wróci do własnego czujnika, nie zostanie wtedy przełączony z powrotem."
         }
       },
       "confirm": {
@@ -126,7 +130,8 @@
           "target_temp_max": "Maksymalna temperatura docelowa",
           "target_temp_step": "Krok temperatury docelowej",
           "presets": "Włączone ustawienia predefiniowane",
-          "cooler": "Urządzenie chłodzące (opcjonalnie)"
+          "cooler": "Urządzenie chłodzące (opcjonalnie)",
+          "distribute_valve_by_trv_temperature": "Rozdzielaj otwarcie zaworu według własnej temperatury każdego TRV"
         },
         "data_description": {
           "name": "Nazwa tego termostatu i jego urządzenia w Home Assistant.",
@@ -149,7 +154,8 @@
           "target_temp_max": "Najwyższy cel, jaki można ustawić. Auto przyjmuje zakres zgłaszany przez urządzenia.",
           "target_temp_step": "O ile zmienia się cel na krok. Auto przyjmuje najgrubszy krok zgłaszany przez termostaty.",
           "presets": "Wybierz ustawienia predefiniowane, które mają być dostępne dla tego termostatu.",
-          "cooler": "Opcjonalne. Klimatyzator lub inna encja klimatu, która chłodzi to pomieszczenie razem z termostatami."
+          "cooler": "Opcjonalne. Klimatyzator lub inna encja klimatu, która chłodzi to pomieszczenie razem z termostatami.",
+          "distribute_valve_by_trv_temperature": "Tylko dla dwóch lub więcej TRV w trybie kalibracji MPC lub MPC v2. Wyłączone: każdy TRV otrzymuje to samo otwarcie zaworu. Włączone: TRV, który mierzy niższą temperaturę niż najcieplejszy TRV w pomieszczeniu, otwiera się bardziej, o 8 % na każdy °C (4,4 % na °F) różnicy. Porównywane są własne odczyty TRV, dlatego Sonoff TRVZB lub TRV-ZBT musi mieć wybrany własny czujnik i włączoną opcję „Zachowaj wybór czujnika TRV”. TRV kalibrowany przez offset otrzymuje otwarcie zaworu pomieszczenia."
         }
       },
       "advanced": {
@@ -163,7 +169,8 @@
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Użyj temperatury minimalnej zamiast 'wyłączony'",
-          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia"
+          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia",
+          "keep_sensor_selection": "Zachowaj wybór czujnika TRV"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
@@ -174,7 +181,8 @@
           "calibration": "Jak kalibracja jest stosowana w TRV\n***Na podstawie temperatury docelowej***: Zastosuj kalibrację do temperatury docelowej.\n***Na podstawie przesunięcia***: Zastosuj kalibrację do przesunięcia temperatury. Dostępne tylko, gdy TRV ma zapisywalne przesunięcie temperatury.\n***Bezpośrednie sterowanie zaworem***: Ustaw otwarcie zaworu bezpośrednio. Dostępne tylko, gdy TRV ma zapisywalną pozycję zaworu. Tryby kalibracji, które nie wyznaczają otwarcia zaworu, wysyłają zamiast tego temperaturę docelową.",
           "calibration_mode": "Jak obliczana jest kalibracja\n***AI na podstawie czasu (domyślne)***: Z czasem uczy się mocy grzewczej pomieszczenia i wyznacza z niej kalibrację.\n***Tylko przesunięcie czujnika zewnętrznego***: Koryguje wewnętrzny czujnik TRV za pomocą zewnętrznego czujnika temperatury. Żaden regulator nie działa dodatkowo.\n***Predykcyjne MPC (beta)***: Przewiduje temperaturę pomieszczenia i oblicza z niej otwarcie zaworu. Uczy się zachowania cieplnego pomieszczenia.\n***(AI) MPC v2 (QP + Kalman, eksperymentalne)***: Szacuje stan pomieszczenia filtrem Kalmana i oblicza otwarcie zaworu regulatorem predykcyjnym z modelem. Ustawienie MPC v2 wielkość pomieszczenia wybiera model pomieszczenia: wyuczony w pomieszczeniu (Automatycznie) lub stały dla danej wielkości (małe, średnie, duże).\n***Agresywne***: Podbija kalibrację, gdy pomieszczenie się nagrzewa, i pomija opóźnienie tolerancji, aby TRV zaczął grzać wcześniej. Przydatne, gdy pomieszczenie nagrzewa się powoli.\n***Regulator TPI***: Oblicza czas załączenia cykli grzewczych na podstawie różnicy temperatur.\n***Regulator PID***: Oblicza otwarcie zaworu z uchybu temperatury za pomocą członu proporcjonalnego, całkującego i różniczkującego.\n***Bez kalibracji***: Wysyła temperaturę docelową do TRV bez zmian i nie stosuje żadnej korekty.",
           "no_off_system_mode": "Przy tej opcji Better Thermostat wysyła do TRV jego temperaturę minimalną zamiast 'wyłączony'. TRV, który zgłasza swoją temperaturę minimalną, uznaje się za wyłączony: gdy wszystkie TRV w pomieszczeniu są wyłączone, pomieszczenie się wyłącza, a podkręcenie pokrętła włącza je ponownie. Liczy się też obrót przy otwartym oknie lub drzwiach; ogrzewanie czeka wtedy, aż wszystkie okna i drzwi zostaną zamknięte. TRV bez trybu wyłączenia otrzymuje swoją temperaturę minimalną także bez tej opcji. Włącz ją dla TRV, którego tryb wyłączenia nie działa, albo dla TRV bez trybu wyłączenia, którego pokrętło ma włączać i wyłączać Better Thermostat.",
-          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia."
+          "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia.",
+          "keep_sensor_selection": "Dla TRV, które mogą regulować według temperatury zewnętrznej (Sonoff TRVZB i TRV-ZBT, Aqara SRTS-A01). Wyłączone: Better Thermostat przełącza TRV na zapisywaną przez siebie temperaturę zewnętrzną, także po resecie lub ponownym parowaniu. Włączone: czujnik wybrany na TRV pozostaje wybrany, a temperatura pomieszczenia nadal jest zapisywana do wejścia zewnętrznego. TRV, który wróci do własnego czujnika, nie zostanie wtedy przełączony z powrotem."
         }
       }
     },

@@ -49,12 +49,14 @@ from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_CHILD_LOCK,
     CONF_COOLER,
+    CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE,
     CONF_DOOR_OFF_DELAY,
     CONF_DOOR_OFF_DELAY_AFTER,
     CONF_DOOR_SENSORS,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HOMEMATICIP,
     CONF_HUMIDITY_SENSOR,
+    CONF_KEEP_SENSOR_SELECTION,
     CONF_MODEL,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_NO_OFF_SYSTEM_MODE,
@@ -287,6 +289,7 @@ _UserDraft = TypedDict(  # noqa: UP013
         "target_temp_min": str,
         "target_temp_max": str,
         "target_temp_step": str,
+        "distribute_valve_by_trv_temperature": bool,
     },
 )
 
@@ -306,6 +309,7 @@ _AdvancedDraft = TypedDict(  # noqa: UP013
         "valve_maintenance": bool,
         "child_lock": bool,
         "homematicip": bool,
+        "keep_sensor_selection": bool,
     },
 )
 
@@ -439,6 +443,9 @@ def _merged_settings(
     merged[CONF_TARGET_TEMP_MIN] = draft[CONF_TARGET_TEMP_MIN]
     merged[CONF_TARGET_TEMP_MAX] = draft[CONF_TARGET_TEMP_MAX]
     merged[CONF_TARGET_TEMP_STEP] = draft[CONF_TARGET_TEMP_STEP]
+    merged[CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE] = draft[
+        CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE
+    ]
     return merged
 
 
@@ -456,6 +463,7 @@ def _stored_advanced(draft: _AdvancedDraft) -> TrvAdvanced:
     stored[CONF_VALVE_MAINTENANCE] = draft[CONF_VALVE_MAINTENANCE]
     stored[CONF_CHILD_LOCK] = draft[CONF_CHILD_LOCK]
     stored[CONF_HOMEMATICIP] = draft[CONF_HOMEMATICIP]
+    stored[CONF_KEEP_SENSOR_SELECTION] = draft[CONF_KEEP_SENSOR_SELECTION]
     return stored
 
 
@@ -692,6 +700,12 @@ def _build_advanced_fields(
     ordered[
         vol.Optional(CONF_HOMEMATICIP, default=get_bool(CONF_HOMEMATICIP, homematic))
     ] = bool
+    ordered[
+        vol.Optional(
+            CONF_KEEP_SENSOR_SELECTION,
+            default=get_bool(CONF_KEEP_SENSOR_SELECTION, False),
+        )
+    ] = bool
 
     return ordered
 
@@ -717,6 +731,9 @@ def _normalize_advanced_submission(
         CONF_VALVE_MAINTENANCE: _as_bool(data.get(CONF_VALVE_MAINTENANCE), False),
         CONF_CHILD_LOCK: _as_bool(data.get(CONF_CHILD_LOCK), False),
         CONF_HOMEMATICIP: _as_bool(data.get(CONF_HOMEMATICIP), homematic),
+        CONF_KEEP_SENSOR_SELECTION: _as_bool(
+            data.get(CONF_KEEP_SENSOR_SELECTION), False
+        ),
     }
     if CONF_MPC_V2_PLANT_PRESET in data:
         normalized[CONF_MPC_V2_PLANT_PRESET] = _submitted_choice(
@@ -962,6 +979,12 @@ def _build_user_fields(
         )
     add_field(CONF_TARGET_TEMP_STEP, TEMP_STEP_SELECTOR, default=target_step_default)
 
+    add_field(
+        CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE,
+        bool,
+        default=_as_bool(resolve(CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE), False),
+    )
+
     return fields
 
 
@@ -1070,6 +1093,9 @@ def _normalize_user_submission(
             ),
             _TARGET_TEMP_STEP_SELECTOR_TO_VALUE,
             _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP],
+        ),
+        CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE: _as_bool(
+            submitted(CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE, False), False
         ),
     }
 
