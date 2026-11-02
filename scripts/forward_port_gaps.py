@@ -9,10 +9,10 @@ which ignores only whitespace and line numbers, so two diffs that differ in
 anything else count as unrelated. What they share is the text, so the
 comparison is textual.
 
-Every commit on the maintenance line that the development line does not
-contain is reduced to a set of *markers*, and each marker is looked up in the
-development line's **tree**. Comparing against the tree instead of the history
-is what finds the pair: a line that reached `develop` under any
+Every commit the maintenance line made since it forked is reduced to a set
+of *markers*, and each marker is looked up in the development line's
+**tree**. Comparing against the tree instead of the history is what finds the
+pair: a line that reached `develop` under any
 commit is in the tree. The share of a commit's markers found there is its hit
 rate.
 
@@ -62,6 +62,26 @@ is not.
 ``HIT_RATE_THRESHOLD`` is 0.5, and the measured distribution has nothing near
 it: over ``develop..origin/1.9``, commits carried forward score 75% and up,
 commits not carried forward 33% and down.
+
+Which commits are measured is decided by history, not by the development
+line's ancestry. The range starts at ``FORK_POINT``, where the maintenance
+line branched off, and ends at the maintenance line's head. The development
+line's first-parent history is taken out. A maintenance-line commit the
+development line reaches through the second parent of a merge stays in: a
+merge of the maintenance line with ``-s ours`` makes every commit on it an
+ancestor of the development line without carrying a single line across, and
+the tree is what says whether the content arrived. Measured as
+``development..maintenance``, such a merge would empty the range and pass the
+gate on nothing.
+
+The price is the other direction. The development line merges every pull
+request with a merge commit, so its first-parent history holds the merges
+and hardly any of the commits they bring. A merge of the development line,
+or of a `master` that contains it, into the maintenance line puts those
+commits into the range, and the gate fails on development-line work it reads
+as the maintenance line's own. That failure is loud, and the merge it
+reports is one the two lines never make: a change wanted on both is written
+twice.
 
 Known misreadings, both directions:
 
@@ -115,6 +135,10 @@ ACKNOWLEDGED_FILE = REPO_ROOT / ".forward-port-gaps.json"
 
 DEFAULT_MAINTENANCE = "origin/1.9"
 DEFAULT_DEVELOPMENT = "origin/develop"
+# The last commit the two lines share before `1.9` branched off: the parent of
+# the 1.9.2 release merge, and the merge base of both lines until the
+# maintenance line is merged into the development line.
+FORK_POINT = "d930db0c754734539bbd1278eafdc6b79c3bda3c"
 
 # Each line writes its own tests, so no marker is taken from under here.
 TEST_ROOT = "tests/"
@@ -677,20 +701,62 @@ def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
     return spellings
 
 
-def measure(maintenance: str, development: str) -> list[Commit]:
-    """Return every maintenance-line commit scored against the development tree."""
-    tree = _tree_lines(development)
-    present = _tree_lines(maintenance)
-    renames = _renames(development)
+def _require_ancestor(fork_point: str, ref: str) -> None:
+    """Exit unless the fork point lies in the ref's history."""
+    finished = subprocess.run(
+        ("git", "-C", str(REPO_ROOT), "merge-base", "--is-ancestor", fork_point, ref),
+        capture_output=True,
+        check=False,
+    )
+    if finished.returncode != 0:
+        sys.exit(f"fork point {fork_point[:8]} is not in the history of {ref}")
+
+
+def _maintenance_log(maintenance: str, development: str, fork_point: str) -> list[str]:
+    """Return the log entries of the commits the maintenance line wrote itself.
+
+    The fork point bounds the range from below with its whole ancestry. The
+    development line's first-parent history is what it wrote itself, and
+    only that is taken out: a commit a merge brought in from the maintenance
+    line hangs off a second parent and stays. The set is subtracted here
+    rather than through ``--exclude-first-parent-only``, whose answer depends
+    on commit dates: where a development merge names a maintenance-line head
+    as its second parent and both carry the same timestamp, it drops that
+    head too.
+    """
+    _require_ancestor(fork_point, maintenance)
+    _require_ancestor(fork_point, development)
+    written_on_development = set(
+        _git("rev-list", "--first-parent", development).split()
+    )
     log = _git(
         "log",
         "--no-merges",
         "--reverse",
         "--format=%H%x1f%an%x1f%s",
-        f"{development}..{maintenance}",
+        f"{fork_point}..{maintenance}",
     )
+    return [
+        entry
+        for entry in log.splitlines()
+        if entry.split("\x1f", 1)[0] not in written_on_development
+    ]
+
+
+def measure(
+    maintenance: str, development: str, fork_point: str | None = None
+) -> list[Commit]:
+    """Return every maintenance-line commit scored against the development tree.
+
+    ``fork_point`` is ``FORK_POINT`` when left open, read on each call.
+    """
+    if fork_point is None:
+        fork_point = FORK_POINT
+    tree = _tree_lines(development)
+    present = _tree_lines(maintenance)
+    renames = _renames(development)
     commits: list[Commit] = []
-    for entry in log.splitlines():
+    for entry in _maintenance_log(maintenance, development, fork_point):
         sha, author, subject = entry.split("\x1f", 2)
         markers = markers_of(sha, present=present)
         commits.append(
@@ -733,11 +799,11 @@ def _headline(maintenance: str, development: str) -> str:
     )
 
 
-def show(maintenance: str, development: str) -> int:
+def show(maintenance: str, development: str, fork_point: str | None = None) -> int:
     """Print every commit with its hit rate. Return an exit code."""
-    commits = measure(maintenance, development)
+    commits = measure(maintenance, development, fork_point)
     print(_headline(maintenance, development))
-    print(f"{len(commits)} commits the development line does not contain\n")
+    print(f"{len(commits)} commits the maintenance line wrote since it forked\n")
 
     behind = [c for c in commits if not c.carried_forward]
     carried = [c for c in commits if c.markers and c.carried_forward]
@@ -779,9 +845,9 @@ def show(maintenance: str, development: str) -> int:
     return 0
 
 
-def check(maintenance: str, development: str) -> int:
+def check(maintenance: str, development: str, fork_point: str | None = None) -> int:
     """Report unrecorded gaps. Return an exit code."""
-    commits = measure(maintenance, development)
+    commits = measure(maintenance, development, fork_point)
     acknowledged = _load_acknowledged()
     behind = {c.sha: c for c in commits if not c.carried_forward}
 
@@ -828,12 +894,18 @@ def main() -> int:
         default=DEFAULT_DEVELOPMENT,
         help=f"the line whose tree is searched (default: {DEFAULT_DEVELOPMENT})",
     )
+    parser.add_argument(
+        "--fork-point",
+        default=FORK_POINT,
+        help=f"where the maintenance line branched off (default: {FORK_POINT[:8]})",
+    )
     args = parser.parse_args()
     _resolve(args.maintenance)
     _resolve(args.development)
+    fork_point = _resolve(args.fork_point)
     if args.mode == "check":
-        return check(args.maintenance, args.development)
-    return show(args.maintenance, args.development)
+        return check(args.maintenance, args.development, fork_point)
+    return show(args.maintenance, args.development, fork_point)
 
 
 if __name__ == "__main__":
