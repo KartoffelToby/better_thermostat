@@ -258,3 +258,53 @@ def test_the_setpoint_channel_leads_an_open_valve_by_at_least_one_trv_step():
         setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
 
     assert setpoint == pytest.approx(24.0)
+
+
+def test_the_setpoint_channel_closes_a_valve_the_command_rounds_to_zero():
+    """An intent below half a percent is written as 0 %, so the TRV closes too."""
+    bt = _make_bt(
+        CalibrationMode.TPI_CALIBRATION,
+        room_temperature=19.0,
+        heat_target_temperature=21.0,
+        trv_temperature=23.0,
+    )
+
+    with _controller_reports(0.4, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint is not None
+    assert setpoint < 23.0
+
+
+def test_the_setpoint_channel_keeps_its_lead_while_idle():
+    """Rounding onto whole degrees never takes the lead off an open valve."""
+    bt = _make_bt(
+        CalibrationMode.TPI_CALIBRATION,
+        room_temperature=19.0,
+        heat_target_temperature=21.0,
+        trv_temperature=23.9,
+    )
+    bt.hvac_action = HVACAction.IDLE
+    bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
+
+    with _controller_reports(40.0, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint == pytest.approx(25.0)
+
+
+def test_the_setpoint_channel_keeps_the_radiator_closed_while_cooling():
+    """A running cooler gets no setpoint above the TRV's reading to heat against."""
+    bt = _make_bt(
+        CalibrationMode.TPI_CALIBRATION,
+        room_temperature=21.2,
+        heat_target_temperature=21.0,
+        trv_temperature=23.0,
+    )
+    bt.hvac_action = HVACAction.COOLING
+
+    with _controller_reports(4.0, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint is not None
+    assert setpoint < 23.0

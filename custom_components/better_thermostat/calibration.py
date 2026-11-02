@@ -1590,14 +1590,17 @@ def calculate_calibration_setpoint(
         _cur_target_temperature - _cur_external_temperature
     ) + _cur_trv_temperature
 
+    _holds_open_valve = False
     if traits.balance is not None:
         if _use_valve and _percent is not None:
-            # The TRV's max opening caps the command after the controller, so
-            # a cap of 0 % closes a valve the controller wants open.
-            _effective_percent = max(
-                0.0, min(float(_percent), _get_trv_max_opening(self, entity_id))
+            # The setpoint follows the command the valve is written: whole
+            # percent, capped by the TRV's max opening, so a cap of 0 % or an
+            # intent below half a percent closes a valve the controller wants
+            # open. A running cooler keeps the radiator closed as well.
+            _effective_percent = round(
+                max(0.0, min(float(_percent), _get_trv_max_opening(self, entity_id)))
             )
-            if _effective_percent == 0.0:
+            if _effective_percent == 0 or self.hvac_action == HVACAction.COOLING:
                 # Valve closed: push setpoint below TRV's own temperature so it doesn't
                 # heat by itself even though direct valve control already sent 0%.
                 _setpoint_drop = _compute_zero_open_offset(
@@ -1619,6 +1622,7 @@ def calculate_calibration_setpoint(
                     _cur_trv_temperature
                     + max(_OPEN_VALVE_SETPOINT_LEAD_K, _trv_temperature_step),
                 )
+                _holds_open_valve = True
         elif not _use_valve and _percent is not None:
             _max_temp = round_by_step(self.real_trvs[entity_id].max_temp, 0.01)
             _valve_fraction = max(0.0, min(1.0, float(_percent) / 100.0))
@@ -1710,7 +1714,11 @@ def calculate_calibration_setpoint(
     # When HEATING, round UP so the TRV keeps the valve open.
     # This prevents integer-step TRVs (step=1.0) from rounding a value like
     # 19.7 up to 20.0 which would keep the valve open at the current temperature.
-    if self.hvac_action in _IDLE_OR_COOLING:
+    # A setpoint that holds a commanded valve open rounds UP in any state,
+    # so the rounding never eats into its lead above the TRV's reading.
+    if _holds_open_valve:
+        _step_rounding = Rounding.up
+    elif self.hvac_action in _IDLE_OR_COOLING:
         _step_rounding = Rounding.down
     elif self.hvac_action == HVACAction.HEATING:
         _step_rounding = Rounding.up
