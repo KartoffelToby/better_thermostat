@@ -424,20 +424,21 @@ class TestAnUnknownStateFromADrivenSpirit:
         )
 
 
-class TestConfigurationParametersAreNoCalibrationEntity:
-    """A configuration parameter carries its own unit and is never an offset.
+class TestConfigurationParametersInCelsiusAreCalibrationEntities:
+    """A configuration parameter is an offset when its unit counts degrees Celsius.
 
     Z-Wave JS exposes the Eurotronic Spirit's temperature offset as
     parameter 8 of the Configuration command class: a number counting tenths
     of a degree, from -128 to 50, with -128 reserved for "external sensor".
-    Taken as an offset in Kelvin, a correction of 2 K reaches the device as
-    0.2 K.
+    Its unit says how many counts make a Kelvin, so the offset is read and
+    written through it. A parameter in any other unit carries no offset that
+    can be converted and is left out.
     """
 
     TRV = "climate.spirit_thermostat"
     PARAMETER = "number.spirit_temperature_offset"
 
-    def _registry(self, parameter_unique_id, disabled_by=None):
+    def _registry(self, parameter_unique_id, unit="0.1 °C", disabled_by=None):
         return make_entity_registry(
             make_registry_entry(
                 self.TRV, unique_id="3967.5-64-0-mode", platform="zwave_js"
@@ -448,6 +449,7 @@ class TestConfigurationParametersAreNoCalibrationEntity:
                 platform="zwave_js",
                 original_name="Temperature Offset",
                 disabled_by=disabled_by,
+                unit_of_measurement=unit,
             ),
         )
 
@@ -456,12 +458,31 @@ class TestConfigurationParametersAreNoCalibrationEntity:
         host.real_trvs = {self.TRV: trv_record(entity_id=self.TRV, advanced={})}
         return host
 
+    @pytest.mark.parametrize("unit", ["0.1 °C", "0.01 °C", "0.1°C", "°C"])
     @pytest.mark.asyncio
-    async def test_the_spirit_offset_parameter_is_not_adopted(self):
+    async def test_a_parameter_counting_degrees_celsius_is_adopted(self, unit):
+        """The TRV is reported with an offset channel."""
+        host = self._host()
+        with patch.object(
+            helpers.er,
+            "async_get",
+            return_value=self._registry("3967.5-112-0-8", unit=unit),
+        ):
+            found = await helpers.find_local_calibration_entity(host, self.TRV)
+            info = await adapter.get_info(host, self.TRV)
+
+        assert found == self.PARAMETER
+        assert info.offset_write is True
+
+    @pytest.mark.parametrize("unit", [None, "%", "°F", "0.5 °C", "K"])
+    @pytest.mark.asyncio
+    async def test_a_parameter_in_another_unit_is_not_adopted(self, unit):
         """The TRV is reported without an offset channel."""
         host = self._host()
         with patch.object(
-            helpers.er, "async_get", return_value=self._registry("3967.5-112-0-8")
+            helpers.er,
+            "async_get",
+            return_value=self._registry("3967.5-112-0-8", unit=unit),
         ):
             found = await helpers.find_local_calibration_entity(host, self.TRV)
             info = await adapter.get_info(host, self.TRV)
@@ -470,11 +491,29 @@ class TestConfigurationParametersAreNoCalibrationEntity:
         assert info.offset_write is False
 
     @pytest.mark.asyncio
-    async def test_a_disabled_parameter_is_not_suggested_for_enabling(self, caplog):
-        """Nobody is told to enable an entity that would not be used."""
+    async def test_a_disabled_parameter_in_celsius_is_suggested_for_enabling(
+        self, caplog
+    ):
+        """Home Assistant registers the parameter disabled; the user is told."""
         host = self._host()
         registry = self._registry(
             "3967.5-112-0-8", disabled_by=er.RegistryEntryDisabler.INTEGRATION
+        )
+        with patch.object(helpers.er, "async_get", return_value=registry):
+            found = await helpers.find_local_calibration_entity(
+                host, self.TRV, trv=host.real_trvs[self.TRV]
+            )
+
+        assert found is None
+        assert self.PARAMETER in caplog.text
+        assert "is disabled" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_disabled_parameter_in_another_unit_is_not_suggested(self, caplog):
+        """Nobody is told to enable an entity that would not be used."""
+        host = self._host()
+        registry = self._registry(
+            "3967.5-112-0-8", unit="%", disabled_by=er.RegistryEntryDisabler.INTEGRATION
         )
         with patch.object(helpers.er, "async_get", return_value=registry):
             found = await helpers.find_local_calibration_entity(
@@ -486,10 +525,12 @@ class TestConfigurationParametersAreNoCalibrationEntity:
 
     @pytest.mark.asyncio
     async def test_an_offset_outside_the_configuration_class_is_adopted(self):
-        """Only the Configuration command class (112) is set aside."""
+        """The unit is asked of the Configuration command class (112) only."""
         host = self._host()
         with patch.object(
-            helpers.er, "async_get", return_value=self._registry("3967.5-49-0-offset")
+            helpers.er,
+            "async_get",
+            return_value=self._registry("3967.5-49-0-offset", unit=None),
         ):
             found = await helpers.find_local_calibration_entity(host, self.TRV)
 

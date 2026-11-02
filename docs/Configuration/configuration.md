@@ -102,7 +102,7 @@ The benchmark Better Thermostat is tested with models the room as a single tempe
 
 - ***Offset Based***: Apply the calibration to the offset. This will not be an option if your TRV doesn't support offset mode.
 
-- ***Direct Valve Based***: Set the valve opening directly. This is only offered when your TRV exposes a writable valve position. The valve opening comes from the calibration mode: AI Time Based, MPC Predictive, MPC v2, TPI Controller and PID Controller produce one, and close the valve to 0 % while the TRV is off because Better Thermostat is off, a window is open or no heat is called for. The other modes send a target temperature, as with Target Temperature Based.
+- ***Direct Valve Based***: Set the valve opening directly. This is only offered when Better Thermostat can write your TRV's valve, through a writable valve position entity or a valve control built into Better Thermostat for that model. The valve opening comes from the calibration mode: AI Time Based, MPC Predictive, MPC v2, TPI Controller and PID Controller produce one, and close the valve to 0 % while the TRV is off because Better Thermostat is off, a window is open or no heat is called for. The other modes send a target temperature, as with Target Temperature Based.
 
 The preselected type is Offset Based if your TRV supports it, otherwise Direct Valve Based if it supports valve control, otherwise Target Temperature Based.
 
@@ -137,7 +137,7 @@ Better Thermostat offers several algorithms to control your heating:
 - ***(AI) Time Based (Default)***: **[Recommended]** Learns your room's heating patterns and adapts automatically
 - ***External Sensor Offset Only***: Simple and reliable - uses your external sensor to correct the TRV's internal sensor
 - ***MPC Predictive (Beta)***: Predicts how the room temperature will change and sets its correction ahead of time. Still in testing
-- ***(AI) MPC v2 (QP + Kalman, experimental)***: Experimental predictive controller written for TRVs with direct valve control
+- ***(AI) MPC v2 (QP + Kalman, experimental)***: Experimental predictive controller; writes the valve directly with Direct Valve Based, otherwise works through the target temperature or the offset, depending on the calibration type
 - ***Aggressive***: Pushes the TRV harder for faster heating (good for slow-heating rooms)
 - ***TPI Controller***: Simple duty-cycle based control for consistent heating
 - ***PID Controller***: Classic control method that responds well to varying heating conditions

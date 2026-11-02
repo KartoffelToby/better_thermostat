@@ -33,10 +33,7 @@ from homeassistant.core import (
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util.unit_conversion import TemperatureConverter
 
-from custom_components.better_thermostat.adapters.base import (
-    offset_scale,
-    published_to_offset,
-)
+from custom_components.better_thermostat.adapters.base import published_reading
 from custom_components.better_thermostat.adapters.delegate import (
     calibration_entity_disabled,
     get_calibration_offset,
@@ -46,6 +43,11 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_valve,
     setpoint_on_device_grid,
     valve_channel_available,
+)
+from custom_components.better_thermostat.adapters.valve_entity import (
+    ValveEntityRange,
+    valve_entity_range,
+    valve_entity_value,
 )
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
@@ -131,6 +133,7 @@ from custom_components.better_thermostat.utils.retry import (
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
+from custom_components.better_thermostat.utils.stored_values import finite_or_none
 from custom_components.better_thermostat.utils.watcher import (
     UNAVAILABLE_OR_UNKNOWN_STATES,
     clear_unapplied_setpoint,
@@ -214,7 +217,8 @@ COOLER_FAILURE_BACKOFF_MAX_RUN = 1 + math.ceil(
 )
 # What the send cache answers for a channel that has sent nothing yet.
 _NOTHING_SENT: Final = SentCommand(None, None)
-# Valve deviations below this are the device's own business.
+# Valve deviations below this share of an entity's range, in percent, are
+# the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
 # Pause before re-queueing a cycle in which a TRV reported failure, so a
 # persistently failing device cannot spin the control queue. Each further
@@ -692,11 +696,13 @@ def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
     state = self.hass.states.get(trv.local_temperature_calibration_entity)
     if not state_is_live(state):
         return False
-    reported = convert_to_float(state.state, self.device_name, "reconcile()")
-    if reported is None:
+    if convert_to_float(state.state, self.device_name, "reconcile()") is None:
         return False
+    # A reserved value is no offset; the write path reads it as 0 and so
+    # does the comparison here.
+    reading = published_reading(state)
     reported = offset_from_device(
-        self, trv.entity_id, published_to_offset(offset_scale(state), reported)
+        self, trv.entity_id, 0.0 if reading is None else reading
     )
     return abs(trv.last_calibration - reported) > _calibration_match_tolerance(
         self, trv.entity_id
@@ -732,19 +738,64 @@ def _valve_readings(
             return readings
     if not (trv.valve_position_entity and trv.valve_position_writable is True):
         return ()
-    return (
-        ValveReading(self.hass.states.get(trv.valve_position_entity), float(percent)),
-    )
+    state = self.hass.states.get(trv.valve_position_entity)
+    if not state_is_live(state):
+        return ()
+    valve_range = _usable_valve_range(state)
+    if valve_range is None:
+        return ()
+    return (ValveReading(state, valve_entity_value(valve_range, percent)),)
+
+
+def _usable_valve_range(state: State) -> ValveEntityRange | None:
+    """Return the grid a valve entity publishes, or None when it is unusable.
+
+    An entity that publishes no bounds or step has the 0-100 grid with step
+    1 the write assumes for it. The range is unusable when a bound or the
+    step is not a finite number, or the maximum does not lie above the
+    minimum.
+    """
+    try:
+        valve_range = valve_entity_range(state)
+    except ValueError:
+        return None
+    if not all(math.isfinite(value) for value in valve_range):
+        return None
+    if valve_range.maximum <= valve_range.minimum:
+        return None
+    return valve_range
+
+
+def _valve_band(state: State) -> tuple[float, float] | None:
+    """How far below and above the value written a valve entity may report.
+
+    ``RECONCILE_VALVE_TOLERANCE_PCT`` of the entity's range either way, and
+    at least one step of its grid below: ZHA truncates a number onto its
+    grid, so a write can land one step below the value sent. A write is
+    always a point of the grid or its clamped maximum, so no device rounds
+    it upwards. A step that spans the whole range gets no such allowance:
+    one step below would take in every position the entity has. None when
+    the entity publishes no usable range.
+    """
+    valve_range = _usable_valve_range(state)
+    if valve_range is None:
+        return None
+    minimum, maximum, step = valve_range
+    span = maximum - minimum
+    above = span * RECONCILE_VALVE_TOLERANCE_PCT / 100.0
+    if step >= span:
+        return above, above
+    return max(step, above), above
 
 
 def _valve_readback(self: BetterThermostat, trv: Trv, percent: int) -> ValveReadback:
     """Compare the valve entities with a written opening.
 
-    A value further than ``RECONCILE_VALVE_TOLERANCE_PCT`` from what the
-    write put there is a divergence. That holds for an assumed state too: it
-    repeats the last command, so a different value means a later command
-    replaced this one. An assumed state that matches only repeats the write
-    and confirms nothing.
+    A value outside the entity's band around what the write put there is a
+    divergence. That holds for an assumed state too: it repeats the last
+    command, so a different value means a later command replaced this one.
+    An assumed state that matches only repeats the write and confirms
+    nothing. An entity without a usable range is not read.
     """
     if not trv.capabilities().supports_valve_write:
         return ValveReadback.UNREADABLE
@@ -753,10 +804,12 @@ def _valve_readback(self: BetterThermostat, trv: Trv, percent: int) -> ValveRead
         state = reading.state
         if not state_is_live(state):
             continue
-        reported = convert_to_float(state.state, self.device_name, "reconcile()")
-        if reported is None:
+        reported = finite_or_none(state.state)
+        band = _valve_band(state)
+        if reported is None or band is None:
             continue
-        if abs(reading.expected_percent - reported) > RECONCILE_VALVE_TOLERANCE_PCT:
+        below, above = band
+        if not -below <= reported - reading.expected_value <= above:
             return ValveReadback.DIVERGED
         if state_is_assumed(state):
             verdict = ValveReadback.UNCONFIRMED

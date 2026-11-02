@@ -20,7 +20,7 @@ Start here if you are unsure:
 | Temperature often overshoots | TPI Controller |
 | You want fine control and know PID tuning | PID Controller |
 | You want something simple | External Sensor Offset Only or TPI Controller |
-| Your TRV supports direct valve control and you want to try an experimental controller | MPC v2 |
+| You want to try an experimental predictive controller | MPC v2 |
 | You want the TRV to regulate on its own | No Calibration |
 
 ## The algorithms
@@ -70,7 +70,7 @@ From that prediction it picks the correction that reaches your target smoothly i
 
 It aims at arriving at the target rather than at arriving quickly. It is the most complex of the modes and it reacts deliberately rather than fast, which can read as sluggish at first. Give it several heating cycles before judging it.
 
-MPC is still in testing. In the project's benchmark it does not overshoot less than the other controller modes, it moves the valve more often than PID or TPI, and with several radiators in one room it can over-react. For a room that overshoots, start with TPI instead.
+MPC is still in testing. In the project's benchmark it does not overshoot less than the other controller modes, it works the valve harder than PID or TPI, and with several radiators in one room it can over-react. For a room that overshoots, start with TPI instead.
 
 Its learned model shows up in the *Virtual Temperature*, *MPC Gain*, *MPC Loss* and *MPC Insulation (Ka)* sensors. They start disabled on new installations; see [Entities](/setup/entities/#mpc-predictive).
 
@@ -80,7 +80,7 @@ Its learned model shows up in the *Virtual Temperature*, *MPC Gain*, *MPC Loss* 
 
 The setup form labels this mode *(AI) MPC v2 (QP + Kalman, experimental)*.
 
-MPC v2 is an experimental predictive controller. It estimates the room's state with a Kalman observer and computes the valve opening by solving a small optimisation problem (a quadratic program) over a receding horizon. It is written for TRVs with direct valve control; see [Direct valve control](#direct-valve-control).
+MPC v2 is an experimental predictive controller. It estimates the room's state with a Kalman observer and computes the valve opening by solving a small optimisation problem (a quadratic program) over a receding horizon. With the Direct Valve Based calibration type that opening is written to the TRV as it stands (see [Direct valve control](#direct-valve-control)). With any other calibration type, MPC v2 turns the opening into a setpoint between the TRV's current reading and its maximum: the wider the opening, the higher the setpoint. Target Temperature Based sends that setpoint to the TRV as its target temperature; Offset Based leaves the target temperature as it is and moves the calibration offset by the difference instead, rounded to the TRV's offset step and limited to its offset range.
 
 The **MPC v2 room size** option sets the room model it starts from. *Auto* derives it from the heat-loss rate Better Thermostat has learned for the room; the small, medium and large room presets use a fixed model instead.
 
@@ -127,7 +127,7 @@ Auto-tuning is on by default.
 
 **How tuning proceeds:**
 
-- **At the start:** The controller starts with default values (Kp=60, Ki=0.01, Kd=2000) and begins learning your room's behavior. You may notice slight temperature oscillations as it adjusts.
+- **At the start:** The controller keeps its gains per TRV and per target temperature, rounded to 0.5 °C. It starts from the gains kept for the current target: values you set on the PID numbers, or values it tuned earlier at that target. A target with neither starts from the defaults (Kp=60, Ki=0.01, Kd=2000), so tuning starts over at a target it has not seen. You may notice slight temperature oscillations as it adjusts.
 
 - **While tuning:** The algorithm adjusts the gains at most every 5 minutes, and only when one of these conditions holds (the "target band" is 0.1 °C either side of the target):
   - **Overshoot:** The room was more than 0.2 °C on one side of the target and is now more than 0.2 °C on the other side, for example it heated from below to 0.3 °C above the target. It decreases Kp (less aggressive), increases Kd (more damping) and decreases Ki. A room that comes up to the target and stays below it, or ends up less than 0.2 °C above it, is not an overshoot. Changing the target starts the comparison over, so the room being on the other side of the new target does not count
@@ -279,6 +279,8 @@ With the Direct Valve Based calibration type:
 - **AI Time Based**: Derives a valve opening from the heating power it has learned.
 
 - **External Sensor Offset Only, Aggressive, No Calibration**: These produce no valve opening. Better Thermostat sends them to the TRV as a target temperature instead.
+
+- **Boost preset**: While Boost is heating, Better Thermostat opens the valve to the TRV's *Valve Max Opening* under every calibration mode. When the TRV is switched off during Boost (Better Thermostat off, a window open, no heat called for), it closes the valve to 0 %, as it does under the modes that write the valve.
 
 The valve opening is sized from your room sensor, not from the TRV's own temperature. A TRV that stops reporting its own temperature still has its valve opened and closed; only the target temperature that accompanies the valve command is held back until the TRV reports a temperature again.
 

@@ -174,11 +174,13 @@ lower the threshold.
   now read and written as the offset it is, and the Sonoff TRVZB's external
   temperature input gets the room temperature in the unit it shows. 1.9.3
   converted neither.
-- **Z-Wave JS configuration parameters** are no longer used as a calibration
-  entity. The Eurotronic Spirit's temperature offset, parameter 8, counts
-  tenths of a degree, so 1.9.3 applied a tenth of every offset it wrote. A
-  Spirit set to Offset Based calibration gets no offset now; choose Target
-  Temperature Based or Direct Valve Based for it.
+- **Z-Wave JS configuration parameters** that count tenths or hundredths of
+  a degree Celsius are read and written in that unit. The temperature offset
+  of the Eurotronic Spirit and the Aeotec ZWA021, parameter 8, counts tenths
+  of a degree, so 1.9.3 applied a tenth of every offset it wrote. Its
+  reserved value -128 (external sensor) is read as no offset and never
+  written. Home Assistant creates the parameter disabled; enable it and
+  reload Better Thermostat to use Offset Based calibration on the Spirit.
 - **`min_temp` and `max_temp`** on the climate entity now cover the heating
   and the cooling range together.
 
