@@ -103,7 +103,7 @@ Auto-tuning is on by default.
 
 **How tuning proceeds:**
 
-- **At the start:** The controller starts with default values (Kp=60, Ki=0.01, Kd=2000) and begins learning your room's behavior. You may notice slight temperature oscillations as it adjusts.
+- **At the start:** The controller starts from the gains it keeps for the TRV: values you set on the PID numbers, or values it tuned earlier. A TRV with neither starts from the defaults (Kp=60, Ki=0.01, Kd=2000). You may notice slight temperature oscillations as it adjusts.
 
 - **While tuning:** The algorithm adjusts the gains at most every 5 minutes, and only when one of these conditions holds (the "target band" is 0.1 °C either side of the target):
   - **Overshoot:** The room was outside the target band at the previous calculation and is inside it now, coming from either side. It decreases Kp (less aggressive), increases Kd (more damping) and decreases Ki. A room that heats up into the target band from below counts as well
