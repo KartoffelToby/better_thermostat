@@ -731,7 +731,8 @@ def _valve_at_target(
     from it — no difference, no network write. A closed valve the device
     reports open again is not at target either: the reported position is
     a fraction or a percentage depending on the device, and any value
-    above zero is open on either scale.
+    above zero is open on either scale. One close answers one report; the
+    cached position stays open until the device reports again.
     """
     trv = self.real_trvs[entity_id]
     if trv.last_valve_percent is None:
@@ -742,6 +743,7 @@ def _valve_at_target(
         round(float(target_percent)) == 0
         and trv.valve_position is not None
         and trv.valve_position > 0
+        and not trv.valve_report_answered
     ):
         return False
     return not _valve_diverges(self, trv)

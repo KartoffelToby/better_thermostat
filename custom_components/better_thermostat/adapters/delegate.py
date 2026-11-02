@@ -802,5 +802,6 @@ async def set_valve(self: BetterThermostat, entity_id: str, valve: float) -> boo
         trv = self.real_trvs[entity_id]
         trv.last_valve_percent = target_percent
         trv.last_valve_method = channel.method
+        trv.valve_report_answered = True
         return True
     return False

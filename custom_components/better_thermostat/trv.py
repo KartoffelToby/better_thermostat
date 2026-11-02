@@ -284,6 +284,10 @@ class Trv:
     calibration_write_generation: int = 0
     last_valve_percent: float | None = None
     last_valve_method: ValveMethod | None = None
+    # Whether a close was written since the device last reported its valve
+    # position. A report of an open valve is answered with one close; the
+    # next close waits for the next report.
+    valve_report_answered: bool = False
     # Monotonic time of the last write per write-budget channel, so one
     # channel's write cannot starve another channel's slot. A channel never
     # written to has no entry.

@@ -696,6 +696,7 @@ async def trigger_trv_change(
         trv.valve_position = convert_to_float(
             str(val_pos), self.device_name, "trv_event"
         )
+        trv.valve_report_answered = False
 
     if device_released(self, entity_id):
         # The user drives the device. Its mode is cached as it reports it, so

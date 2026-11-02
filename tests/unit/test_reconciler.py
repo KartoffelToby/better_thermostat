@@ -827,11 +827,12 @@ class TestValveWriteBudget:
 class TestAClosedValveReportedOpen:
     """A closed valve is not written again unless the device reports it open."""
 
-    async def _close(self, valve_position, percent=0):
+    async def _close(self, valve_position, percent=0, answered=False):
         bt = _control_bt()
         trv = bt.real_trvs["climate.trv"]
         trv.last_valve_percent = percent
         trv.valve_position = valve_position
+        trv.valve_report_answered = answered
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
             patch(
@@ -858,6 +859,11 @@ class TestAClosedValveReportedOpen:
     async def test_a_valve_reported_closed_is_not_written_again(self, valve_position):
         """The device agrees or reports nothing: no write."""
         assert await self._close(valve_position) == []
+
+    @pytest.mark.asyncio
+    async def test_a_report_already_answered_is_not_closed_again(self):
+        """The cached position stays open until the device reports again."""
+        assert await self._close(60.0, answered=True) == []
 
     @pytest.mark.asyncio
     async def test_an_open_valve_at_its_target_is_not_written_again(self):
