@@ -163,6 +163,12 @@ class Trv:
     # that publishes none.
     max_temp: float = 30.0
     min_temp: float | None = None
+    # The bounds the device last published while it heated, in °C and as
+    # published, before any model quirk raises the minimum. The room's heating
+    # range reads them for a device that is off or in another mode, where an
+    # integration may publish a range the device does not heat in. ``None``
+    # until the device has reported heating.
+    heating_range: tuple[float | None, float | None] | None = None
     target_temp_step: float | None = None
     current_temperature: float | None = None
     hvac_modes: list[str] | None = None
@@ -278,6 +284,10 @@ class Trv:
     calibration_write_generation: int = 0
     last_valve_percent: float | None = None
     last_valve_method: ValveMethod | None = None
+    # Whether a close was written since the device last reported its valve
+    # position. A report of an open valve is answered with one close; the
+    # next close waits for the next report.
+    valve_report_answered: bool = False
     # Monotonic time of the last write per write-budget channel, so one
     # channel's write cannot starve another channel's slot. A channel never
     # written to has no entry.

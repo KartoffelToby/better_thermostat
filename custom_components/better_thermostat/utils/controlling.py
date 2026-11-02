@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
+from enum import Enum
 import logging
 import math
 from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple
@@ -32,10 +33,7 @@ from homeassistant.core import (
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util.unit_conversion import TemperatureConverter
 
-from custom_components.better_thermostat.adapters.base import (
-    offset_scale,
-    published_to_offset,
-)
+from custom_components.better_thermostat.adapters.base import published_reading
 from custom_components.better_thermostat.adapters.delegate import (
     calibration_entity_disabled,
     get_calibration_offset,
@@ -45,6 +43,11 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_valve,
     setpoint_on_device_grid,
     valve_channel_available,
+)
+from custom_components.better_thermostat.adapters.valve_entity import (
+    ValveEntityRange,
+    valve_entity_range,
+    valve_entity_value,
 )
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
@@ -68,7 +71,9 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_temperature,
     trv_report_is_unreadable,
     trv_state_unknown_as_available,
+    valve_readings,
 )
+from custom_components.better_thermostat.model_fixes.types import ValveReading
 from custom_components.better_thermostat.trv import BudgetRetry, WithdrawnHvacMode
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
@@ -111,6 +116,7 @@ from custom_components.better_thermostat.utils.helpers import (
     read_setpoint_celsius,
     setpoint_echo_window,
     settle_cooler_reading,
+    state_is_assumed,
     state_is_live,
     state_temperature_unit,
     supports_single_target_temperature,
@@ -127,6 +133,7 @@ from custom_components.better_thermostat.utils.retry import (
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
+from custom_components.better_thermostat.utils.stored_values import finite_or_none
 from custom_components.better_thermostat.utils.watcher import (
     UNAVAILABLE_OR_UNKNOWN_STATES,
     clear_unapplied_setpoint,
@@ -210,7 +217,8 @@ COOLER_FAILURE_BACKOFF_MAX_RUN = 1 + math.ceil(
 )
 # What the send cache answers for a channel that has sent nothing yet.
 _NOTHING_SENT: Final = SentCommand(None, None)
-# Valve deviations below this are the device's own business.
+# Valve deviations below this share of an entity's range, in percent, are
+# the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
 # Pause before re-queueing a cycle in which a TRV reported failure, so a
 # persistently failing device cannot spin the control queue. Each further
@@ -688,54 +696,172 @@ def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
     state = self.hass.states.get(trv.local_temperature_calibration_entity)
     if not state_is_live(state):
         return False
-    reported = convert_to_float(state.state, self.device_name, "reconcile()")
-    if reported is None:
+    if convert_to_float(state.state, self.device_name, "reconcile()") is None:
         return False
+    # A reserved value is no offset; the write path reads it as 0 and so
+    # does the comparison here.
+    reading = published_reading(state)
     reported = offset_from_device(
-        self, trv.entity_id, published_to_offset(offset_scale(state), reported)
+        self, trv.entity_id, 0.0 if reading is None else reading
     )
     return abs(trv.last_calibration - reported) > _calibration_match_tolerance(
         self, trv.entity_id
     )
 
 
-def _valve_diverges(self: BetterThermostat, trv: Trv) -> bool:
-    """Whether the valve-position entity left the commanded percentage.
+class ValveReadback(Enum):
+    """What the device's entities say about the valve opening last written."""
 
-    Only the adapter-written number entity is verifiable; quirk-driven
-    valve writes have no readable target.
+    HOLDS = "holds"
+    """Every entity the write set reports the written value."""
+    DIVERGED = "diverged"
+    """An entity reports a value other than the one written."""
+    UNCONFIRMED = "unconfirmed"
+    """An entity shows only what was sent to it, not what the device holds."""
+    UNREADABLE = "unreadable"
+    """No entity reports a value the write could be checked against."""
+
+
+def _valve_readings(
+    self: BetterThermostat, trv: Trv, percent: int
+) -> Sequence[ValveReading]:
+    """Collect the entities the last valve write set, with what each holds.
+
+    A write through a model quirk is read back through the entities that
+    quirk names. Any other write is read back through the adopted valve
+    entity, provided that entity takes writes: a read-only one reports the
+    device's own position, not what was written.
     """
-    if not trv.capabilities().supports_valve_write:
-        return False
+    if trv.last_valve_method == "override":
+        readings = valve_readings(self, trv.entity_id, percent)
+        if readings is not None:
+            return readings
     if not (trv.valve_position_entity and trv.valve_position_writable is True):
-        # Quirk-driven valve writes have no readable target to verify.
-        return False
-    if trv.last_valve_percent is None:
-        return False
+        return ()
     state = self.hass.states.get(trv.valve_position_entity)
     if not state_is_live(state):
-        return False
-    reported = convert_to_float(state.state, self.device_name, "reconcile()")
-    if reported is None:
-        return False
-    return abs(float(trv.last_valve_percent) - reported) > RECONCILE_VALVE_TOLERANCE_PCT
+        return ()
+    valve_range = _usable_valve_range(state)
+    if valve_range is None:
+        return ()
+    return (ValveReading(state, valve_entity_value(valve_range, percent)),)
 
 
-def _valve_at_target(
+def _usable_valve_range(state: State) -> ValveEntityRange | None:
+    """Return the grid a valve entity publishes, or None when it is unusable.
+
+    An entity that publishes no bounds or step has the 0-100 grid with step
+    1 the write assumes for it. The range is unusable when a bound or the
+    step is not a finite number, or the maximum does not lie above the
+    minimum.
+    """
+    try:
+        valve_range = valve_entity_range(state)
+    except ValueError:
+        return None
+    if not all(math.isfinite(value) for value in valve_range):
+        return None
+    if valve_range.maximum <= valve_range.minimum:
+        return None
+    return valve_range
+
+
+def _valve_band(state: State) -> tuple[float, float] | None:
+    """How far below and above the value written a valve entity may report.
+
+    ``RECONCILE_VALVE_TOLERANCE_PCT`` of the entity's range either way, and
+    at least one step of its grid below: ZHA truncates a number onto its
+    grid, so a write can land one step below the value sent. A write is
+    always a point of the grid or its clamped maximum, so no device rounds
+    it upwards. A step that spans the whole range gets no such allowance:
+    one step below would take in every position the entity has. None when
+    the entity publishes no usable range.
+    """
+    valve_range = _usable_valve_range(state)
+    if valve_range is None:
+        return None
+    minimum, maximum, step = valve_range
+    span = maximum - minimum
+    above = span * RECONCILE_VALVE_TOLERANCE_PCT / 100.0
+    if step >= span:
+        return above, above
+    return max(step, above), above
+
+
+def _valve_readback(self: BetterThermostat, trv: Trv, percent: int) -> ValveReadback:
+    """Compare the valve entities with a written opening.
+
+    A value outside the entity's band around what the write put there is a
+    divergence. That holds for an assumed state too: it repeats the last
+    command, so a different value means a later command replaced this one.
+    An assumed state that matches only repeats the write and confirms
+    nothing. An entity without a usable range is not read.
+    """
+    if not trv.capabilities().supports_valve_write:
+        return ValveReadback.UNREADABLE
+    verdict = ValveReadback.UNREADABLE
+    for reading in _valve_readings(self, trv, percent):
+        state = reading.state
+        if not state_is_live(state):
+            continue
+        reported = finite_or_none(state.state)
+        band = _valve_band(state)
+        if reported is None or band is None:
+            continue
+        below, above = band
+        if not -below <= reported - reading.expected_value <= above:
+            return ValveReadback.DIVERGED
+        if state_is_assumed(state):
+            verdict = ValveReadback.UNCONFIRMED
+        elif verdict is ValveReadback.UNREADABLE:
+            verdict = ValveReadback.HOLDS
+    return verdict
+
+
+def _valve_diverges(self: BetterThermostat, trv: Trv) -> bool:
+    """Whether a valve entity left the commanded percentage.
+
+    Only a divergence counts. An assumed state that matches the command
+    stays matched after every rewrite, so treating it as one would queue a
+    cycle on every reconcile tick.
+    """
+    if trv.last_valve_percent is None:
+        return False
+    return (
+        _valve_readback(self, trv, round(trv.last_valve_percent))
+        is ValveReadback.DIVERGED
+    )
+
+
+def _valve_repeat_readback(
     self: BetterThermostat, entity_id: str, target_percent: float
-) -> bool:
-    """Whether the valve channel already matches the intent.
+) -> ValveReadback | None:
+    """Read back a valve write that would repeat the last one.
 
-    True when the last commanded percentage equals the (int-rounded)
-    target and the readable position entity, if any, has not diverged
-    from it — no difference, no network write.
+    None when there is nothing to repeat: no write went out yet, or the
+    (int-rounded) target differs from the last commanded percentage.
+    Otherwise the verdict on the last write: HOLDS and UNREADABLE need no
+    write, a diverged entity and one whose state is only assumed take it
+    again. A closed valve the device reports open again has diverged too:
+    the reported position is a fraction or a percentage depending on the
+    device, and any value above zero is open on either scale. One close
+    answers one report; the cached position stays open until the device
+    reports again.
     """
     trv = self.real_trvs[entity_id]
     if trv.last_valve_percent is None:
-        return False
-    if round(float(trv.last_valve_percent)) != round(float(target_percent)):
-        return False
-    return not _valve_diverges(self, trv)
+        return None
+    last_percent = round(trv.last_valve_percent)
+    if last_percent != round(target_percent):
+        return None
+    if (
+        last_percent == 0
+        and trv.valve_position is not None
+        and trv.valve_position > 0
+        and not trv.valve_report_answered
+    ):
+        return ValveReadback.DIVERGED
+    return _valve_readback(self, trv, last_percent)
 
 
 def desired_diverges(
@@ -2469,6 +2595,7 @@ async def control_trv(
             # standalone invocation is its own cycle.
             if cycle is None:
                 cycle = compute_control_cycle(self)
+            self.dispatched_control_cycle = cycle
             snapshot, desired = cycle
             if desired.devices_released or _released_during_cycle(self, entity_id):
                 # The device is the user's: not commanded, and not missing.
@@ -2581,8 +2708,11 @@ async def control_trv(
                     )
                     # Closing the valve (0 %) is the overheat-safe direction
                     # and bypasses the write budget; everything else waits
-                    # for the next slot and converges via the next cycle.
-                    if _valve_at_target(self, entity_id, target_percent):
+                    # for the next slot and converges via the next cycle. A
+                    # repeat that only an assumed state leaves unconfirmed
+                    # gains no safety from going out early, so it waits too.
+                    _repeat = _valve_repeat_readback(self, entity_id, target_percent)
+                    if _repeat in (ValveReadback.HOLDS, ValveReadback.UNREADABLE):
                         _LOGGER.debug(
                             "better_thermostat %s: valve of %s already at %s%%, "
                             "skipping write",
@@ -2591,7 +2721,11 @@ async def control_trv(
                             target_percent,
                         )
                     elif _consume_budget(
-                        self, entity_id, "valve", bypass=target_percent == 0
+                        self,
+                        entity_id,
+                        "valve",
+                        bypass=target_percent == 0
+                        and _repeat is not ValveReadback.UNCONFIRMED,
                     ):
                         _LOGGER.debug(
                             "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",

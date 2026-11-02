@@ -58,6 +58,7 @@ from custom_components.better_thermostat.utils.controlling import (
     _setpoint_turned_during_cycle,
     check_calibration,
     check_target_temperature,
+    compute_control_cycle,
     control_trv,
 )
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
@@ -613,6 +614,40 @@ class TestControlTrvAvailablePath:
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is True
+
+    @pytest.mark.asyncio
+    async def test_calibration_reads_the_cycle_the_trv_is_driven_by(self):
+        """The calibration runs while the thermostat names the cycle it drives.
+
+        A group controller steps once per cycle it is named, so each TRV of
+        a cycle must see that cycle and not the one before.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
+        )
+        cycle = compute_control_cycle(mock_self)
+        seen = []
+
+        def _convert(bt, entity_id, hvac_mode):
+            seen.append(bt.dispatched_control_cycle)
+            return {"temperature": 21.0, "system_mode": HVACMode.HEAT}
+
+        with (
+            patch(_PATCHES["convert_outbound_states"], side_effect=_convert),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            await control_trv(mock_self, "climate.trv1", cycle=cycle)
+
+        assert len(seen) == 1
+        assert seen[0] is cycle
 
     @pytest.mark.asyncio
     async def test_unsupported_heat_mode_writes_only_the_setpoint(self):

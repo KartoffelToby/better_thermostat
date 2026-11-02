@@ -44,6 +44,14 @@ Display open-window status, Summer Mode, ambient humidity, and heating/cooling s
 ---
 
 ## Control Algorithms (`Calibration mode`)
+- **MPC (Model Predictive Control)**: Uses a physical model of your room and radiator to predict future temperature changes and optimize valve opening.
+- **PID Controller**: A classic Proportional-Integral-Derivative controller that learns your room's characteristics to maintain a stable temperature. It features auto-tuning (currently in beta) to automatically find the best parameters (Kp, Ki, Kd) for your room.
+- **TPI (Time Proportional Integral)**: Turns the distance from the target into a duty cycle and holds the valve at that opening, which keeps the temperature stable and reduces overshoot.
+- **AI Time Based**: Uses a custom algorithm based on simple measurements and calculations (not actual AI) to calculate the required heating power and adjusts the TRV calibration to achieve it. This improves upon the standard TRV internal algorithm. It is the default.
+- **MPC v2** (experimental): A predictive controller with a Kalman observer and a quadratic-program optimiser. It writes the valve directly with Direct Valve Based and otherwise works through the target temperature or the offset.
+- **Aggressive**: Pushes the TRV harder while heating for a faster warm-up, at the price of more overshoot.
+- **External Sensor Offset Only**: Corrects the TRV's internal sensor with your room sensor and nothing more.
+- **No Calibration**: Passes your target temperature to the TRV unchanged.
 
 Better Thermostat offers **8 control algorithms**—see [Calibration types & algorithms](https://better-thermostat.org/calibration_algorithms/) for concrete numerical examples:
 

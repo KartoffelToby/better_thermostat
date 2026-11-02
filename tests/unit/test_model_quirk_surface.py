@@ -1,6 +1,6 @@
 """What a quirk module may define, and what it must.
 
-Fifteen modules extend Better Thermostat for one device family each, and
+Sixteen modules extend Better Thermostat for one device family each, and
 the shell reaches them through a duck-typed dispatch: an attribute lookup
 on whichever module ``load_model_quirks`` imported. Nothing checks the
 result. A module that spells a name wrong either crashes the calibration
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+from collections.abc import Sequence
 import functools
 import importlib
 import inspect
@@ -62,6 +63,7 @@ OPTIONAL = (
     "trv_state_unknown_as_available",
     "local_calibration_shifts_setpoint",
     "local_calibration_inverted",
+    "valve_readings",
 )
 SURFACE = REQUIRED + OPTIONAL
 
@@ -78,6 +80,7 @@ CALL_CONTRACT = {
     "trv_state_unknown_as_available": ((), bool),
     "local_calibration_shifts_setpoint": ((), bool),
     "local_calibration_inverted": ((), bool),
+    "valve_readings": ((50,), Sequence),
 }
 
 
@@ -586,7 +589,7 @@ class TestAQuirkOnlyReadsWhatTheHostPromises:
 
 
 class TestEveryImplementationSurvivesBeingCalled:
-    """Six of the fifteen modules have no test of their own."""
+    """Six of the sixteen modules have no test of their own."""
 
     @pytest.mark.parametrize(("model", "name"), CALLABLE_PAIRS, ids=CALLABLE_IDS)
     def test_it_returns_what_its_contract_declares(self, model, name):

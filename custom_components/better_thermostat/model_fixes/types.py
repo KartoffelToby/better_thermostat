@@ -21,11 +21,21 @@ provide is an error rather than a promise nobody checks.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine, Mapping, Set
-from typing import TYPE_CHECKING, Any, Final, Protocol, TypedDict, runtime_checkable
+from collections.abc import Coroutine, Mapping, Sequence, Set
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Final,
+    NamedTuple,
+    Protocol,
+    TypedDict,
+    runtime_checkable,
+)
 
 if TYPE_CHECKING:
-    from homeassistant.core import Context, HomeAssistant
+    from homeassistant.core import Context, HomeAssistant, State
+
+    from custom_components.better_thermostat.core.decide import KernelState
 
 
 class QuirkScratchpad(TypedDict, total=False):
@@ -42,6 +52,13 @@ class QuirkScratchpad(TypedDict, total=False):
 
     _zwa021_valve_mode_engaged: bool
     """Whether the ZWA021 manufacturer-specific valve mode went through."""
+
+    _danfoss_external_sensor_celsius: float
+    """Room temperature the Danfoss Ally external room sensor input was last
+    written, in degrees Celsius, as the input holds it."""
+
+    _danfoss_external_sensor_written_at: float
+    """Monotonic clock reading, in seconds, of that write."""
 
 
 class ModelFixTrv(Protocol):
@@ -136,6 +153,21 @@ class ModelFixHost(Protocol):
     @property
     def hass(self) -> HomeAssistant:
         """Home Assistant core the BetterThermostat instance is attached to."""
+        ...
+
+    @property
+    def entity_id(self) -> str:
+        """Entity id of the Better Thermostat climate entity itself."""
+        ...
+
+    @property
+    def kernel_state(self) -> KernelState:
+        """Controller-side state of the thermostat.
+
+        Its control mode names the temperature the room is controlled on:
+        the room sensor's while it stands on ``OPTIMAL``, the TRVs' own on
+        the rungs below.
+        """
         ...
 
     @property
@@ -299,6 +331,36 @@ class ValveChannelQuirk(Protocol):
         ...
 
 
+class ValveReading(NamedTuple):
+    """One device entity that reports what a valve write put there.
+
+    Attributes
+    ----------
+    state : State | None
+        The entity's current state, None when it has none
+    expected_value : float
+        The value the entity holds once the device took the commanded
+        opening, in the entity's own units: the value the write sent it
+    """
+
+    state: State | None
+    expected_value: float
+
+
+@runtime_checkable
+class ValveReadingsQuirk(Protocol):
+    """A valve quirk that can name the entities its valve write sets."""
+
+    def valve_readings(
+        self, host: ModelFixHost, entity_id: str, percent: int, /
+    ) -> Sequence[ValveReading]:
+        """Return the entities a write of ``percent`` set, with what each holds.
+
+        An empty answer means nothing can be read back at the moment.
+        """
+        ...
+
+
 @runtime_checkable
 class ExternalTemperatureQuirk(Protocol):
     """A quirk that mirrors the room temperature into its device."""
@@ -339,4 +401,6 @@ __all__ = [
     "UnknownStateQuirk",
     "ValveChannelQuirk",
     "ValveQuirk",
+    "ValveReading",
+    "ValveReadingsQuirk",
 ]

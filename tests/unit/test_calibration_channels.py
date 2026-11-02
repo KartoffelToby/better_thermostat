@@ -184,3 +184,127 @@ def test_the_setpoint_channel_reads_an_unusable_mode_as_the_default_mode(stored)
 
     assert results[DEFAULT_CALIBRATION_MODE] != results[CalibrationMode.DEFAULT]
     assert results[stored] == results[DEFAULT_CALIBRATION_MODE]
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        CalibrationMode.MPC_CALIBRATION,
+        CalibrationMode.MPC_V2_CALIBRATION,
+        CalibrationMode.TPI_CALIBRATION,
+        CalibrationMode.PID_CALIBRATION,
+    ],
+)
+def test_the_setpoint_channel_keeps_an_open_valve_above_a_warm_trv_reading(mode):
+    """An open valve stays open on a TRV that reads warmer than the target.
+
+    The TRV regulates on its own reading as well. Next to the radiator that
+    reading often lies above the room's target, and a setpoint at the target
+    would let the TRV close the valve the controller just opened.
+    """
+    bt = _make_bt(
+        mode, room_temperature=19.0, heat_target_temperature=21.0, trv_temperature=23.0
+    )
+
+    with _controller_reports(40.0, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint == pytest.approx(24.0)
+
+
+def test_the_setpoint_channel_holds_an_open_valve_at_the_target_below_it():
+    """A TRV reading well below the target already calls for heat at the target."""
+    bt = _make_bt(
+        CalibrationMode.TPI_CALIBRATION,
+        room_temperature=19.0,
+        heat_target_temperature=21.0,
+        trv_temperature=18.0,
+    )
+
+    with _controller_reports(40.0, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint == pytest.approx(21.0)
+
+
+def test_the_setpoint_channel_closes_a_valve_its_max_opening_shuts():
+    """A max opening of 0 % keeps the TRV from heating on its own reading too."""
+    bt = _make_bt(
+        CalibrationMode.TPI_CALIBRATION,
+        room_temperature=19.0,
+        heat_target_temperature=21.0,
+        trv_temperature=23.0,
+    )
+    bt.real_trvs[ENTITY_ID].valve_max_opening = 0.0
+
+    with _controller_reports(40.0, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint is not None
+    assert setpoint < 23.0
+
+
+def test_the_setpoint_channel_leads_an_open_valve_by_at_least_one_trv_step():
+    """A TRV on whole degrees gets its setpoint one full step above its reading."""
+    bt = _make_bt(
+        CalibrationMode.TPI_CALIBRATION,
+        room_temperature=19.0,
+        heat_target_temperature=21.0,
+        trv_temperature=22.0,
+    )
+    bt.real_trvs[ENTITY_ID].target_temp_step = 2.0
+
+    with _controller_reports(40.0, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint == pytest.approx(24.0)
+
+
+def test_the_setpoint_channel_closes_a_valve_the_command_rounds_to_zero():
+    """An intent below half a percent is written as 0 %, so the TRV closes too."""
+    bt = _make_bt(
+        CalibrationMode.TPI_CALIBRATION,
+        room_temperature=19.0,
+        heat_target_temperature=21.0,
+        trv_temperature=23.0,
+    )
+
+    with _controller_reports(0.4, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint is not None
+    assert setpoint < 23.0
+
+
+def test_the_setpoint_channel_keeps_its_lead_while_idle():
+    """An open valve keeps its full lead above the TRV on a whole-degree grid."""
+    bt = _make_bt(
+        CalibrationMode.TPI_CALIBRATION,
+        room_temperature=19.0,
+        heat_target_temperature=21.0,
+        trv_temperature=23.9,
+    )
+    bt.hvac_action = HVACAction.IDLE
+    bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
+
+    with _controller_reports(40.0, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint == pytest.approx(25.0)
+
+
+def test_the_setpoint_channel_keeps_the_radiator_closed_while_cooling():
+    """A running cooler gets no setpoint above the TRV's reading to heat against."""
+    bt = _make_bt(
+        CalibrationMode.TPI_CALIBRATION,
+        room_temperature=21.2,
+        heat_target_temperature=21.0,
+        trv_temperature=23.0,
+    )
+    bt.hvac_action = HVACAction.COOLING
+
+    with _controller_reports(4.0, drives_the_valve=True):
+        setpoint = calculate_calibration_setpoint(bt, ENTITY_ID)
+
+    assert setpoint is not None
+    assert setpoint < 23.0

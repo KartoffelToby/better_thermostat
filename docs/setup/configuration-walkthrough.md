@@ -77,3 +77,55 @@ If you selected multiple TRVs on Screen 1, Screen 2 repeats once **for each TRV*
    - **`If your thermostat has no own maintenance mode, you can use this one`** — Periodically exercises the valve pin so lime scale doesn't seize it over the summer.
    - **`Ignore all inputs on the TRV like a child lock`** — Reverts manual knob turns on the radiator (can also be toggled anytime via the `Child Lock` switch entity on the device).
    - **`If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle`** — Automatically pre-checked for Homematic integrations; spaces background radio writes to 10 minutes so your 868 MHz CCU/Access Point never hits its 1 % airtime limit.
+
+## Screen 2: Calibration and behavior
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; align-items: start;">
+
+<div>
+
+![Configuration step 2](../assets/setup_3.png)
+
+</div>
+
+<div>
+
+### Calibration type
+
+How should Better Thermostat control your radiator?
+
+- **Target Temperature Based**: The safest choice. It tricks your radiator into heating more or less by changing its target temperature. Works with almost all devices.
+- **Offset Based**: Uses your device's built-in calibration feature, if it has one. Preselected when your device supports it.
+- **Direct Valve Based**: Sets the valve opening directly. Only offered when Better Thermostat can write your device's valve, through a writable valve position entity or a valve control built in for that model, and only AI Time Based, MPC Predictive, MPC v2, TPI Controller and PID Controller use it; the other modes fall back to a target temperature.
+
+Some devices expose offset as a `number`, others as a `select`. Better Thermostat supports both.
+
+### Calibration mode
+
+This is the "brain" of Better Thermostat. How should it calculate the heating?
+
+- **(AI) Time Based (Default)**: **Recommended for most users.** A smart algorithm that learns and adjusts to keep the temperature stable.
+- **External Sensor Offset Only**: Basic mode. It just syncs the temperature from your room sensor to the radiator.
+- **MPC Predictive (Beta)**: Predicts how your room heats up and sets its correction ahead of time. Still in testing.
+- **(AI) MPC v2 (QP + Kalman, experimental)**: An experimental predictive controller. It sets the valve directly with Direct Valve Based and otherwise steers through the target temperature or the offset.
+- **Aggressive**: Heats up faster by pushing the radiator harder while heating, but might overshoot your target temperature.
+- **TPI Controller**: Turns the temperature error into a duty cycle and holds the valve open by that share.
+- **PID Controller**: A mathematical approach that constantly adjusts the valve. Best for advanced users.
+- **No Calibration**: Passes your target temperature to the radiator unchanged.
+
+**MPC v2 room size**: Only used by MPC v2. Leave it on *Auto* unless you want it to start from a fixed small, medium or large room model.
+
+Use [Algorithm selection](/optimal-settings/algorithm-selection/) for decision help.
+
+### Other important toggles
+
+- **Overheating protection?**: On by default. Helps if your room keeps getting too hot even after reaching the target temperature (often happens if radiators stay hot for a long time). It only acts in the AI Time Based and Aggressive modes.
+- **Use the minimum temperature instead of 'off'**: Sends the TRV its lowest supported target temperature instead of switching it off, and treats a TRV turned to that temperature as off; the room switches off once every TRV in it is off. The minimum BT sends on its own, for example in warm weather or with a window open, does not count, nor does a turn at a TRV with the child lock; BT turns such a TRV back. A turn while a window or door is open does count: BT keeps it as the room's setting, turns the TRV back to its minimum, and heats to the new target once every window and door is closed. A TRV that lists no "Off" mode gets the minimum temperature automatically, but counts as off at that temperature only with this option; enable the option when the "Off" mode your TRV lists does not work, or when turning the knob of a TRV without one should switch BT on and off.
+- **If 'auto' means 'heat' for your TRV and you want to swap it**: Fixes a quirk with some specific thermostat brands where the modes are mixed up in Home Assistant.
+- **If your thermostat has no own maintenance mode, you can use this one**: Adds a maintenance mode (like opening the valve fully to prevent it from getting stuck in summer) if your device lacks one.
+- **Ignore all inputs on the TRV like a child lock**: Acts like a child lock. Changes made directly on the physical radiator valve will be ignored.
+- **If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle**: Turn this on if you use HomeMatic devices to prevent them from being overwhelmed with too many commands (duty cycle limit). It is already on when the device's integration is a HomeMatic one.
+
+</div>
+
+</div>

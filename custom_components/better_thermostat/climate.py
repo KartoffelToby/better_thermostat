@@ -83,7 +83,7 @@ from .adapters.delegate import (
 from .core.clock import Clock
 from .core.containers import BtConfig, BtRuntime
 from .core.decide import KernelState
-from .core.desired import HeatingBlock
+from .core.desired import DesiredState, HeatingBlock
 from .core.fsm.control_mode import LADDER_TICK_S, ControlMode, start_on_rung
 from .core.fsm.lifecycle import (
     startup_finished as lifecycle_startup_finished,
@@ -103,6 +103,7 @@ from .core.fsm.mode import (
 )
 from .core.fsm.window import WindowPhase, WindowState
 from .core.recorder import FlightRecorder
+from .core.snapshot import WorldSnapshot
 from .core.watchdog import CONTROL_TICK_S
 from .device_binding import async_bind_trv_device, async_unbind_trv_device
 from .entity import (
@@ -228,6 +229,7 @@ from .utils.helpers import (
     get_hvac_bt_mode,
     is_reasonable_temperature,
     member_counts_as_off,
+    mode_remap,
     normalize_hvac_mode,
     normalize_step,
     read_bound_celsius,
@@ -236,7 +238,6 @@ from .utils.helpers import (
     room_mode_intent,
     round_by_step,
     state_is_live,
-    state_temperature_unit,
 )
 from .utils.hvac_action import (
     HvacActionResult,
@@ -866,6 +867,71 @@ def unsupported_hvac_mode_error(
     )
 
 
+def _heating_bounds(
+    self: BetterThermostat, states: list[State]
+) -> tuple[list[float], list[float]]:
+    """Return the lower and upper heating bounds of the heaters among ``states``.
+
+    Every state but the cooler's is a heater's, and a device that is both
+    counts as one. A TRV gives the heating range kept for it once it has
+    published one while it heated: an integration may publish a range for
+    off that the device does not heat in, and a heating report may leave out
+    a bound the kept range still holds. Before that, and for any other
+    heater, the state's bounds are read.
+    """
+    minimums: list[float] = []
+    maxes: list[float] = []
+    for s in states:
+        if s.entity_id == self.cooler_entity_id and s.entity_id not in self.real_trvs:
+            continue
+        _low = read_bound_celsius(
+            self, s, ATTR_MIN_TEMP, lower=True, context="_heating_bounds(min)"
+        )
+        _high = read_bound_celsius(
+            self, s, ATTR_MAX_TEMP, lower=False, context="_heating_bounds(max)"
+        )
+        trv = self.real_trvs.get(s.entity_id)
+        if trv is not None and trv.heating_range is not None:
+            _low, _high = trv.heating_range
+        if _low is not None:
+            minimums.append(_low)
+        if _high is not None:
+            maxes.append(_high)
+    return minimums, maxes
+
+
+def _warn_if_inverted(
+    self: BetterThermostat, channel: str, lower: float | None, upper: float | None
+) -> None:
+    """Warn when a channel's range is inverted."""
+    if lower is not None and upper is not None and lower > upper:
+        _LOGGER.warning(
+            "better_thermostat %s: %s min temp (%.1f°) > max temp "
+            "(%.1f°). This indicates non-overlapping temperature "
+            "ranges between the devices of that channel, or a "
+            "configured bound outside them. Please check your "
+            "configuration.",
+            self.device_name,
+            channel,
+            lower,
+            upper,
+        )
+
+
+def _bound_heating_channel(
+    self: BetterThermostat, minimums: list[float], maxes: list[float]
+) -> None:
+    """Set the heating range from the given bounds or the configured ones."""
+    if self.configured_min_temperature is None:
+        self.bt_min_temp = max(minimums) if minimums else None
+    else:
+        self.bt_min_temp = self.configured_min_temperature
+    if self.configured_max_temperature is None:
+        self.bt_max_temp = min(maxes) if maxes else None
+    else:
+        self.bt_max_temp = self.configured_max_temperature
+
+
 class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     """Representation of a Better Thermostat device."""
 
@@ -1363,6 +1429,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # Monotonic time the control cycle now running began, for the control
         # watchdog; None between cycles and once an overrun has been reported.
         self.control_cycle_started_monotonic: float | None = None
+        # The control cycle whose decision the TRVs are being driven by; a
+        # group controller steps once per cycle and hands every TRV of the
+        # group the command of that step.
+        self.dispatched_control_cycle: tuple[WorldSnapshot, DesiredState] | None = None
         self.bt_update_lock = False
         if enabled_presets is not None:
             self.preset_mgr = PresetManager(enabled_presets=enabled_presets)
@@ -2383,54 +2453,40 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """
         # Convert each child's min/max to Celsius before reducing, because
         # children may report in Fahrenheit while BT works internally in °C.
-        heat_minimums: list[float] = []
-        heat_maxes: list[float] = []
         cool_minimums: list[float] = []
         cool_maxes: list[float] = []
         steps: list[float] = []
         for s in states:
             # A device that carries both roles bounds both channels.
             is_cooler = s.entity_id == self.cooler_entity_id
-            is_heater = not is_cooler or s.entity_id in self.real_trvs
-            _c = read_bound_celsius(
-                self,
-                s,
-                ATTR_MIN_TEMP,
-                lower=True,
-                context="_resolve_temperature_range(min)",
-            )
-            if _c is not None:
-                if is_heater:
-                    heat_minimums.append(_c)
-                if is_cooler:
+            if is_cooler:
+                _c = read_bound_celsius(
+                    self,
+                    s,
+                    ATTR_MIN_TEMP,
+                    lower=True,
+                    context="_resolve_temperature_range(min)",
+                )
+                if _c is not None:
                     cool_minimums.append(_c)
-            _c = read_bound_celsius(
-                self,
-                s,
-                ATTR_MAX_TEMP,
-                lower=False,
-                context="_resolve_temperature_range(max)",
-            )
-            if _c is not None:
-                if is_heater:
-                    heat_maxes.append(_c)
-                if is_cooler:
+                _c = read_bound_celsius(
+                    self,
+                    s,
+                    ATTR_MAX_TEMP,
+                    lower=False,
+                    context="_resolve_temperature_range(max)",
+                )
+                if _c is not None:
                     cool_maxes.append(_c)
             _sf = _target_temperature_step_celsius(
                 s, self.device_name, self.hass.config.units.temperature_unit
             )
             if _sf is not None:
                 steps.append(_sf)
+        heat_minimums, heat_maxes = _heating_bounds(self, states)
         if not heat_minimums and not heat_maxes:
             heat_minimums, heat_maxes = cool_minimums, cool_maxes
-        if self.configured_min_temperature is None:
-            self.bt_min_temp = max(heat_minimums) if heat_minimums else None
-        else:
-            self.bt_min_temp = self.configured_min_temperature
-        if self.configured_max_temperature is None:
-            self.bt_max_temp = min(heat_maxes) if heat_maxes else None
-        else:
-            self.bt_max_temp = self.configured_max_temperature
+        _bound_heating_channel(self, heat_minimums, heat_maxes)
         if self.cooler_entity_id is None:
             self.cool_min_temperature = None
             self.cool_max_temperature = None
@@ -2446,25 +2502,49 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 else (min(cool_maxes) if cool_maxes else None)
             )
 
-        for channel, lower, upper in (
-            ("heating", self.bt_min_temp, self.bt_max_temp),
-            ("cooling", self.cool_min_temperature, self.cool_max_temperature),
-        ):
-            if lower is not None and upper is not None and lower > upper:
-                _LOGGER.warning(
-                    "better_thermostat %s: %s min temp (%.1f°) > max temp "
-                    "(%.1f°). This indicates non-overlapping temperature "
-                    "ranges between the devices of that channel, or a "
-                    "configured bound outside them. Please check your "
-                    "configuration.",
-                    self.device_name,
-                    channel,
-                    lower,
-                    upper,
-                )
+        _warn_if_inverted(self, "heating", self.bt_min_temp, self.bt_max_temp)
+        _warn_if_inverted(
+            self, "cooling", self.cool_min_temperature, self.cool_max_temperature
+        )
 
         if self.bt_target_temperature_step is None:
             self.bt_target_temperature_step = max(steps) if steps else None
+
+    def _refresh_heating_range(self) -> None:
+        """Bound the room's heating range by its TRVs' ranges, and its target by that.
+
+        A TRV whose heating range changed narrows or widens the room's. A TRV
+        that has no state for the moment still bounds the room by the heating
+        range kept for it, since it is driven again once its state is back.
+        The cooling channel keeps the range it has: the cooler's bounds are
+        read where the full range is resolved. A room whose TRVs publish no
+        range keeps its heating range as well.
+        """
+        states = self._collect_trv_states()
+        minimums, maxes = _heating_bounds(self, states)
+        _read = {state.entity_id for state in states}
+        for entity_id, trv in self.real_trvs.items():
+            if (
+                entity_id in _read
+                or trv.heating_range is None
+                or trv.awaiting_initialization
+                or not _read_at_startup(self, entity_id)
+            ):
+                continue
+            _low, _high = trv.heating_range
+            if _low is not None:
+                minimums.append(_low)
+            if _high is not None:
+                maxes.append(_high)
+        if not minimums and not maxes:
+            return
+        _bound_heating_channel(self, minimums, maxes)
+        _warn_if_inverted(self, "heating", self.bt_min_temp, self.bt_max_temp)
+        self.heat_target_temperature = self._bound_target_to_range(
+            self.heat_target_temperature
+        )
+        if self.cool_target_temperature is not None:
+            self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
 
     def _initialize_sensors(self, sensor_state: State | None) -> None:
         """Set up room temperature, humidity, window and door sensors."""
@@ -3120,6 +3200,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             else:
                 trv.target_temp_step = 0.5
             trv.hvac_modes = _attrs.get("hvac_modes", None)
+            # A device that is heating already publishes the range it heats in;
+            # its mode is decoded against the modes it offers, as at runtime.
+            if (
+                _s is not None
+                and mode_remap(self, entity_id, _s.state, True) == HVACMode.HEAT
+            ):
+                trv.heating_range = (_min_temp, _max_temp)
             trv.hvac_mode = _s.state if _s else None
             trv.last_hvac_mode = _s.state if _s else None
             _reported_setpoint = attr_to_celsius(
@@ -3130,18 +3217,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # No reading is no reading: a fabricated value would feed
             # SENSOR_FALLBACK as if it were live and keep the ladder's
             # HOLD rung unreachable.
-            _raw_current_temperature = _attrs.get("current_temperature")
-            _trv_current_temperature = (
-                convert_to_float_celsius(
-                    str(_raw_current_temperature),
-                    self.device_name,
-                    "startup()",
-                    unit_of_measurement=state_temperature_unit(
-                        _attrs, self.hass.config.units.temperature_unit
-                    ),
-                )
-                if _raw_current_temperature is not None
-                else None
+            _trv_current_temperature = attr_to_celsius(
+                self, _s, "current_temperature", None, "startup()"
             )
             # Marker / garbage readings (for example AVM's 126.5 / 127 °C)
             # must not seed the cache and feed the first control cycle.

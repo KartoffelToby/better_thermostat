@@ -18,7 +18,27 @@ flowchart LR
     T --> V3["Target Temperature Based: Raises TRV setpoint to e.g. 25.0 °C"]
 ```
 
-Understanding this split clears up almost every mystery about what you see on your radiator's display.
+Start here if you are unsure:
+
+| Your situation | Algorithm |
+| --- | --- |
+| Setting up for the first time | AI Time Based (default) |
+| Room heats too slowly | Aggressive |
+| Temperature often overshoots | TPI Controller |
+| You want fine control and know PID tuning | PID Controller |
+| You want something simple | External Sensor Offset Only or TPI Controller |
+| You want to try an experimental predictive controller | MPC v2 |
+| You want the TRV to regulate on its own | No Calibration |
+
+## The algorithms
+
+### External Sensor Offset Only
+
+This mode uses your external temperature sensor to correct the TRV's internal one. Better Thermostat compares the two readings and sends the TRV an offset, or a setpoint that already carries the difference; the TRV keeps running on its own sensor and never sees yours.
+
+It is simple, reliable, works with most TRVs and costs almost nothing to run. In exchange it does not optimise for efficiency and does not adapt to the room.
+
+Use it as a starting point when you want reliable control and no complexity.
 
 ---
 
@@ -60,6 +80,7 @@ Many TRVs clamp their local offset in firmware (for example `±2.5 °C` on Saswe
 - **What it sends:** Leaves the TRV's internal offset untouched and instead shifts the **target temperature** sent to the TRV—for example, sending **`25.0 °C`** (or higher depending on the algorithm's demand) so the TRV opens its valve despite reading `23.0 °C` at the pipe. As the room approaches `21.0 °C`, Better Thermostat lowers the TRV setpoint smoothly until the valve closes right on target.
 - **What it brings:** Works reliably with Home Assistant `climate` entities that expose either a single target temperature or a target temperature range (including ZHA, tado°, HomematicIP without offset entities, and radiators hidden behind curtains or furniture because it is not restricted by narrow `±2.5–5 °C` offset caps).
 - **What you'll notice on the TRV screen:** Seeing **`26 °C` or `30 °C`** on the radiator's physical display while heating is **completely normal and expected**. Better Thermostat is temporarily pulling the valve open and will throttle it back down before your room exceeds `21.0 °C`.
+MPC is still in testing. In the project's benchmark it does not overshoot less than the other controller modes, it works the valve harder than PID or TPI, and with several radiators in one room it can over-react. For a room that overshoots, start with TPI instead.
 
 :::tip[How 0–100 % algorithms work on Offset Based and Target Temperature Based TRVs]
 Even without `Direct Valve Based`, algorithms like `(AI) Time Based`, `TPI`, and `PID` still compute a `0–100 %` valve demand. Better Thermostat translates `0 %` into a setpoint/offset at the TRV's current temperature (closing the valve) and `100 %` toward the TRV's maximum setpoint (opening the valve), giving you smooth proportional modulation on ordinary TRVs ([Virtual hydraulic balancing](/deep-explanations/hydraulic-balance/)).
@@ -81,6 +102,7 @@ Qualitative ratings below reflect the single-TRV `balanced` profile of Better Th
 | **`External Sensor Offset Only`** | No | TRV's own loop | TRV's own loop | Very low | No (falls back) | No | Smart TRVs (e.g. tado°) whose internal controller you like—just fixes sensor bias |
 | **`MPC Predictive (Beta)`** | Yes (continuous) | Medium | Fast | **High** | Yes | No | Earlier 30-min predictive beta; prefer **TPI** or **MPC v2** for most rooms |
 | **`No Calibration`** | No | TRV's own loop | TRV's own loop | Lowest | No (falls back) | No | Using BT only for window/door pause, Summer Mode, presets, or grouping |
+MPC v2 is an experimental predictive controller. It estimates the room's state with a Kalman observer and computes the valve opening by solving a small optimisation problem (a quadratic program) over a receding horizon. With the Direct Valve Based calibration type that opening is written to the TRV as it stands (see [Direct valve control](#direct-valve-control)). With any other calibration type, MPC v2 turns the opening into a setpoint between the TRV's current reading and its maximum: the wider the opening, the higher the setpoint. Target Temperature Based sends that setpoint to the TRV as its target temperature; Offset Based leaves the target temperature as it is and moves the calibration offset by the difference instead, rounded to the TRV's offset step and limited to its offset range.
 
 ### Which algorithm should I choose in 15 seconds?
 
@@ -94,6 +116,81 @@ Still unsure? Run the **[Interactive Configurator](/setup/configurator/)** for a
 ---
 
 ## Part 3: What every algorithm does, brings, and causes
+### PID Controller
+
+⚠️ **Beta Status:** The PID Controller is currently in beta and may require further fine-tuning in the algorithm. While it's functional and includes auto-tuning capabilities, you may experience some edge cases that need optimization. Feedback and real-world testing are appreciated.
+
+PID (Proportional-Integral-Derivative) is the classic industrial control method. It sets the valve position from three terms:
+
+- P (Proportional): how far you are from the target temperature
+- I (Integral): how long you have been away from it
+- D (Derivative): how fast the temperature is moving, read from the room temperature smoothed over time, so two control cycles a few seconds apart do not jolt the valve
+
+It tunes those three itself over time.
+
+PID reacts fast and handles disturbances well, which is what makes it a good fit for a room with sun through the windows, draughts or a heat source whose output varies. Early on it can be aggressive and oscillate a little while it tunes, and getting the most out of it means understanding roughly what the three parameters do.
+
+Pick it when your heating power varies, when outside influences keep moving the room temperature, and when you want a responsive controller and are comfortable with the parameters.
+
+#### Auto-tuning and manual tuning
+
+Auto-tuning is on by default.
+
+**How tuning proceeds:**
+
+- **At the start:** The controller keeps its gains per TRV and per target temperature, rounded to 0.5 °C. It starts from the gains kept for the current target: values you set on the PID numbers, or values it tuned earlier at that target. A target with neither starts from the defaults (Kp=60, Ki=0.01, Kd=2000), so tuning starts over at a target it has not seen. You may notice slight temperature oscillations as it adjusts.
+
+- **While tuning:** The algorithm adjusts the gains at most every 5 minutes, and only when one of these conditions holds (the "target band" is 0.1 °C either side of the target):
+  - **Overshoot:** The room was more than 0.2 °C on one side of the target and is now more than 0.2 °C on the other side, for example it heated from below to 0.3 °C above the target. It decreases Kp (less aggressive), increases Kd (more damping) and decreases Ki. A room that comes up to the target and stays below it, or ends up less than 0.2 °C above it, is not an overshoot. Changing the target starts the comparison over, so the room being on the other side of the new target does not count
+  - **Sluggish response:** The room is more than 0.1 °C below the target, its temperature changes by less than 0.005 °C per minute (0.3 °C per hour) and the valve output is below 95 %. It increases Ki and Kp
+  - **Steady state:** The room is inside the target band and the valve output is below 20 %. It decreases Ki
+  - **Holding the target:** The room is inside the target band and Kd is above its default of 2000. Kd falls by 1 % toward 2000, and no further. Damping added by overshoots therefore wears off again while the room holds the target
+
+- **Settled:** Kp stops changing once the room no longer overshoots and no longer heats up too slowly, and Kd returns to 2000 while the room holds the target. While the room holds the target with a small valve output, Ki keeps shrinking every 5 minutes until it reaches its lower limit of 0.001. How many heating cycles that takes depends on the room; the code sets no fixed period.
+
+**What to expect:**
+
+- Adjustments happen at least 5 minutes apart (300 seconds) to avoid over-tuning
+- Parameters are constrained to safe ranges:
+  - Kp: 10-500
+  - Ki: 0.001-2.0
+  - Kd: 100-10,000
+- Auto-tuning is conservative - it makes small changes and learns gradually
+- Gains are learned separately for each target temperature, in steps of 0.5 °C. A target the controller has not run at yet starts from the defaults, or from the values you set by hand
+- The integral term belongs to the TRV, not to a target, so changing the target does not restart it: a higher target opens the valve further at once, a lower one closes it further
+
+**Manual tuning:**
+
+Each TRV's *PID Kp (Proportional)*, *PID Ki (Integral)* and *PID Kd (Derivative)* numbers accept Kp from 0 to 1000, Ki from 0 to 100 and Kd from 0 to 10,000, and Better Thermostat keeps a value set there, including 0 (Kd 0 makes a PI controller). With auto-tuning on, a value you set is the starting point it adjusts from. Auto-tuning keeps to the ranges listed above, so it can move a value set outside them into the range in a single step: Ki 0 becomes 0.001 at its first adjustment, and Kp 800 becomes 500 the first time the room heats up too slowly. Kd 0 stays 0, and a Kd above 2000 falls back toward 2000 while the room holds the target. Turn off the *PID Auto Tune* switch to keep fixed values.
+
+The *PID Auto Tune* switch and the values you set apply to the TRV at every target temperature. Turning auto-tuning off keeps the gains the numbers show at that moment, which are the ones in use at the current target, and the controller then uses them at every target; a value you set afterwards replaces them at every target too. With auto-tuning on, a target that has learned its own value uses it, and a target not tuned yet starts from the value you set, or from the values kept when auto-tuning was last turned off.
+
+If you want to tune PID parameters manually or understand what the auto-tuning is doing:
+
+1. **Kp (Proportional gain):** Controls immediate response to temperature error
+   - Too high: Oscillations and overshoot
+   - Too low: Slow response, takes long to reach target
+   - Default: 60
+
+2. **Ki (Integral gain):** Eliminates steady-state error over time
+   - Too high: Oscillations, instability
+   - Too low: Never quite reaches target (offset)
+   - Default: 0.01
+
+3. **Kd (Derivative gain):** Predicts future error based on rate of change
+   - Too high: Sensitive to noise, erratic behavior
+   - Too low: Overshoot, slow damping
+   - Default: 2000
+
+**Monitoring the learned values:**
+
+You can monitor the learned PID values in Home Assistant:
+
+1. Go to Developer Tools → States
+2. Find your Better Thermostat entity
+3. Look for attributes containing PID debug info showing current Kp, Ki, Kd values
+
+The device also has *PID Kp (Proportional)*, *PID Ki (Integral)* and *PID Kd (Derivative)* number entities that show the current values and let you set them.
 
 ### 1. `(AI) Time Based (Default)`
 
@@ -152,6 +249,98 @@ Still unsure? Run the **[Interactive Configurator](/setup/configurator/)** for a
 - **Best for:** Rooms with **`Direct Valve Based`** TRVs (Sonoff TRVZB, Shelly BLU TRV, Eurotronic Spirit) where you want tight comfort with minimal overshoot. *(On `Offset Based` or `Target Temperature Based` TRVs, its fine 1–2 % valve adjustments get rounded by the TRV's `0.5 °C` setpoint grid—use `TPI Controller` or `(AI) Time Based` there instead.)*
 
 #### Why MPC v2 does not use the flow temperature
+**Notes:**
+
+- "Writes the valve directly" applies with the *Direct Valve Based* calibration type (see [Direct valve control](#direct-valve-control) below)
+- **MPC v2** (experimental) and **No Calibration** are left out of the table; see their sections above
+- **PID Controller** is in beta and may require further algorithm fine-tuning
+
+## How algorithms and calibration types combine
+
+The **Calibration Mode** (algorithm) works together with the **Calibration Type**:
+
+- **Target Temperature Based:** The algorithm calculates what target temperature to send to the TRV. For example, if you want 20°C but the room is cold, it might send 22°C to the TRV to make it heat more.
+
+- **Offset Based:** The algorithm calculates what temperature offset to send to the TRV. For example, if the TRV's internal sensor reads 21°C but your external sensor reads 20°C, it sends an offset of -1°C.
+
+- **Direct Valve Based:** The algorithm's valve opening is written to the TRV's valve position entity. Modes that produce no valve opening send a target temperature instead, as with Target Temperature Based.
+
+Not all TRVs support offset-based calibration or direct valve control. Better Thermostat detects your TRV's capabilities and only offers the calibration types it supports.
+
+## Direct valve control
+
+Some TRV devices support **direct valve control**, where Better Thermostat can directly set the valve opening percentage (0-100%) instead of only adjusting target temperatures or offsets. That sends the selected algorithm's valve decision straight to the TRV, instead of letting the TRV's own controller decide what to do with a setpoint.
+
+### What direct valve control is
+
+With direct valve control, Better Thermostat can:
+
+- Set the exact valve opening (e.g., "open valve to 45%")
+- Bypass the TRV's internal temperature control logic
+- Achieve more precise and responsive heating control
+- Better implement advanced algorithms like MPC and PID
+
+### Devices that support it
+
+Direct valve control is available for TRVs that expose valve position as a controllable entity, including:
+
+- **Sonoff TRVZB** (via Zigbee2MQTT or ZHA)
+- **TRVs exposed via MQTT** with valve position entities
+- **ZHA TRVs** whose quirk exposes the valve position as a number entity. A valve position that ZHA only shows as a sensor, such as the PI heating demand of the Bosch Radiator Thermostat II, reports the opening but cannot set it
+- **Z-Wave JS TRVs** that expose a valve position entity, and the Eurotronic Spirit Z / Aeotec ZWA021
+- **Shelly BLU TRV**, once its built-in thermostat is switched off on the Shelly side and Home Assistant shows its valve position entity. Reload Better Thermostat after switching, so it finds the entity
+- **Other Zigbee TRVs** that expose valve control through their integration
+
+Better Thermostat detects whether your TRV supports direct valve control and then offers the **Direct Valve Based** calibration type. It only writes the valve when you select that type.
+
+The valve entity has to accept writes. Where the device exposes both a writable valve number and a valve sensor that only reports the opening, Better Thermostat writes the number. A valve closing degree, such as the one on the Sonoff TRVZB, is never taken as the valve entity, because it holds the opposite of the opening. If the TRVZB's valve opening degree entity is disabled, the TRV has no direct valve control and Better Thermostat logs a warning naming that entity; enable it and reload Better Thermostat.
+
+### How the algorithms use it
+
+With the Direct Valve Based calibration type:
+
+- **MPC Predictive**: Calculates a valve opening from its prediction of where the room is heading, and that opening is written as it stands.
+
+- **PID Controller**: Directly outputs valve position based on temperature error and trends.
+
+- **TPI Controller**: Sets valve opening based on heating duty cycle calculations.
+
+- **MPC v2**: Computes the valve opening from its optimisation.
+
+- **AI Time Based**: Derives a valve opening from the heating power it has learned.
+
+- **External Sensor Offset Only, Aggressive, No Calibration**: These produce no valve opening. Better Thermostat sends them to the TRV as a target temperature instead.
+
+- **Boost preset**: While Boost is heating, Better Thermostat opens the valve to the TRV's *Valve Max Opening* under every calibration mode. When the TRV is switched off during Boost (Better Thermostat off, a window open, no heat called for), it closes the valve to 0 %, as it does under the modes that write the valve.
+
+The valve opening is sized from your room sensor, not from the TRV's own temperature. A TRV that stops reporting its own temperature still has its valve opened and closed; only the target temperature that accompanies the valve command is held back until the TRV reports a temperature again.
+
+### Without direct valve control
+
+If your TRV doesn't support direct valve control, or you pick another calibration type, Better Thermostat uses **setpoint manipulation**:
+
+- Adjusts the target temperature sent to the TRV
+- Or adjusts the temperature offset (if supported)
+- The TRV's internal controller then adjusts the valve based on its own logic
+
+This still works well but gives the TRV's internal algorithm more influence over the final valve position.
+
+### Checking whether you have it
+
+1. Open the Better Thermostat entry in **Settings → Devices & services** and choose **Configure**
+2. Open the **Calibration type** dropdown in the advanced step
+3. If it offers **Direct Valve Based**, your TRV supports direct valve control
+
+For MQTT/Zigbee2MQTT users, you can also check if your TRV exposes entities like:
+
+- `number.your_trv_valve_position`
+- `number.your_trv_valve_opening_degree`
+
+### What it buys you
+
+The algorithm sets the valve opening itself rather than asking the TRV's own logic for it, so the response arrives without a detour and the room's reaction is a cleaner signal to learn from. Valve position is not heat output — flow temperature and the valve's own authority still sit in between — but it is the most direct handle Better Thermostat can get on the device. Every mode runs without it.
+
+### If you are buying new TRVs
 
 Users with heat pumps or weather-compensated boilers often ask why MPC v2 has no setting or sensor input for radiator flow (supply) temperature.
 

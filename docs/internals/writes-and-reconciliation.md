@@ -121,6 +121,16 @@ device rejected after the budget was spent schedules the same catch-up
 cycle. The follow-up is needed because the reconciler compares against
 the last value actually written, which the device still matches.
 
+The valve write decision skips a write only when the last value sent
+equals the target and the entities that write set still report it, or
+report nothing it could be checked against. A valve entity whose state is
+`assumed_state` only repeats what was sent, so every cycle asks for the
+write again, and it goes out whenever the valve channel's budget allows. That holds for a close as
+well: a repeated close that only an assumed state reports waits for its
+slot instead of bypassing the budget. A closed valve the device reports
+open again is closed again at once, once per report; the next close waits
+for the device's next position report.
+
 The setpoint write decision compares the intent with the setpoint the
 device **reports**, not with the last value sent, so a setpoint the device
 did not take is written again by the next cycle. A device that keeps
@@ -152,8 +162,20 @@ intent against what the devices report:
 - **offset** — the commanded calibration against the calibration
   entity, once the device confirmed the last write (in-flight writes
   remain the write path's business),
-- **valve** — the commanded percentage against the adapter-written
-  number entity, with a 5-point tolerance for device-side modulation,
+- **valve** — what the last valve write sent against every entity it
+  set, in that entity's own units. An adapter write is read back from
+  the valve number entity, against the commanded percentage scaled onto
+  the `min`, `max` and `step` that entity publishes, exactly as the
+  write scaled it; a quirk write from the numbers the quirk names, such
+  as both the opening and the closing degree of a Sonoff TRVZB, against
+  the values the quirk sent. The tolerance is 5 % of the entity's range
+  either way, and at least one step below: ZHA truncates a number onto
+  its grid, so a write can land one step below the value sent, while no
+  device rounds a value already on the grid upwards. An
+  entity that publishes no usable range is not read. An entity whose state is
+  `assumed_state` repeats the last command sent to it, so a matching one
+  confirms nothing and is no divergence either; a different one means a
+  later command replaced BT's,
 - **cooler mode** — the mode a cooler of its own reports against the
   COOL or OFF the cooling channel last decided. A cooler that also
   carries the heating role is compared as a TRV instead.

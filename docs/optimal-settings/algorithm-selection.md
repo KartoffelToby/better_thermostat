@@ -6,6 +6,14 @@ description: Fast cheat sheet to pick the right Calibration type and Calibration
 Not sure which options to pick on **Screen 2** of Better Thermostat's setup? Use the two quick tables below, try the **[Interactive Configurator](/setup/configurator/)**, or read the full numerical breakdown in **[Calibration types & algorithms](/calibration_algorithms/)**.
 
 ## Step 1: Pick the right `Calibration type` (hardware channel)
+- AI Time Based: the first choice for most homes.
+- External Sensor Offset Only: stable and simple fallback.
+- Aggressive: faster warm-up, at the price of more overshoot.
+- MPC Predictive (Beta): predictive control, still in testing; moves the valve more than the other modes.
+- MPC v2: experimental predictive controller; writes the valve directly where the TRV allows it.
+- PID Controller: responsive control with auto-tuning.
+- TPI Controller: simple proportional-time behaviour, little overshoot and little valve movement.
+- No Calibration: the TRV regulates on its own sensor.
 
 | What your TRV & room look like | Pick this `Calibration type` | Why |
 |---|---|---|

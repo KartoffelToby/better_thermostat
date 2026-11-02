@@ -27,7 +27,6 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     build_mpc_group_key,
     build_mpc_key,
     compute_mpc,
-    distribute_valve_percent,
     sanitize_mpc_state,
 )
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
@@ -120,6 +119,13 @@ _MPC_V2_REID_MIN_SAMPLES = 240
 # heat take the same arm while the cooler runs: a TRV valve that opens works
 # against the cooler, so cooling is the strongest form of not calling for heat.
 _IDLE_OR_COOLING = (HVACAction.IDLE, HVACAction.COOLING)
+
+
+# How far above its own reading a TRV's setpoint stays while BT commands its
+# valve open, so the TRV's own regulation keeps calling for heat. A setpoint
+# that follows the reading, rather than the TRV's maximum, leaves a TRV that
+# stops hearing from BT only slightly above where it last stood.
+_OPEN_VALVE_SETPOINT_LEAD_K: Final = 1.0
 
 
 def _compute_zero_open_offset(
@@ -350,28 +356,13 @@ def _heating_power_adjustment(
     return legacy_fallback(_valve_position), False
 
 
-def _collect_trv_temps_and_warmest(
-    real_trvs: Mapping[str, Trv], fallback_id: str
-) -> tuple[dict[str, float | None], str]:
-    """Return per-TRV temperatures and the id of the warmest TRV.
+def _group_max_opening(self: BetterThermostat) -> float:
+    """Return the largest max opening percent among the group's TRVs.
 
-    TRVs whose reading is missing or non-numeric map to ``None``; when no
-    TRV has a usable reading the warmest id falls back to ``fallback_id``.
+    Every TRV of a group gets the group command clamped to its own max
+    opening, so the command itself is held only to the widest of them.
     """
-    trv_temps: dict[str, float | None] = {}
-    warmest_trv_id = fallback_id
-    warmest_temperature: float | None = None
-    for eid, tdata in real_trvs.items():
-        _t = tdata.current_temperature
-        if _t is None:
-            trv_temps[eid] = None
-            continue
-        temperature_value = float(_t)
-        trv_temps[eid] = temperature_value
-        if warmest_temperature is None or temperature_value > warmest_temperature:
-            warmest_temperature = temperature_value
-            warmest_trv_id = eid
-    return trv_temps, warmest_trv_id
+    return max(_get_trv_max_opening(self, eid) for eid in self.real_trvs)
 
 
 def _compute_mpc_balance(
@@ -380,13 +371,10 @@ def _compute_mpc_balance(
     """Run the MPC balance algorithm for calibration purposes.
 
     When the BT instance controls **multiple TRVs**, a single shared MPC model
-    is evaluated once (using the room-level external sensor) and the resulting
-    valve command is distributed across TRVs proportional to their internal
-    temperature deficit.  A cold TRV (low ``current_temperature``) receives
-    *more* valve opening; a warm one receives *less*.
+    is evaluated (using the room-level external sensor) and every TRV
+    receives its valve command, each held to its own maximum opening.
 
-    With a **single TRV** there is no distribution step: the model is keyed
-    per entity and its valve command is applied as computed.
+    With a **single TRV** the model is keyed per entity.
     """
 
     trv_state = self.real_trvs[entity_id]
@@ -400,15 +388,10 @@ def _compute_mpc_balance(
 
     is_multi_trv = len(self.real_trvs) > 1
 
-    trv_temps: dict[str, float | None] | None = None
-    warmest_trv_id = entity_id
-    if is_multi_trv:
-        trv_temps, warmest_trv_id = _collect_trv_temps_and_warmest(
-            self.real_trvs, entity_id
-        )
-
-    max_opening_percent = _get_trv_max_opening(
-        self, warmest_trv_id if is_multi_trv else entity_id
+    max_opening_percent = (
+        _group_max_opening(self)
+        if is_multi_trv
+        else _get_trv_max_opening(self, entity_id)
     )
 
     params = MpcParams()
@@ -480,31 +463,9 @@ def _compute_mpc_balance(
 
     group_valve_percent = float(mpc_output.valve_percent)
 
-    # --- Multi-TRV distribution ---
-    if is_multi_trv:
-        trv_temps = trv_temps or {}
-        distributed = distribute_valve_percent(
-            u_total_percent=group_valve_percent, trv_temps=trv_temps
-        )
-        this_trv_percent = distributed.get(entity_id, group_valve_percent)
-
-        _LOGGER.debug(
-            "better_thermostat %s: MPC grouped distribution for %s: "
-            "group_pct=%.1f%% → this_trv_pct=%.1f%% | trv_temps=%s → distributed=%s",
-            self.device_name,
-            entity_id,
-            group_valve_percent,
-            this_trv_percent,
-            {k: round(v, 1) if v is not None else None for k, v in trv_temps.items()},
-            {k: round(v, 1) for k, v in distributed.items()},
-        )
-    else:
-        this_trv_percent = group_valve_percent
-
-    # The controller only sees the group-level cap (warmest TRV); the
-    # distribution can boost a colder TRV above its own configured limit,
-    # so each per-TRV command is clamped to that TRV's max opening here.
-    this_trv_percent = min(this_trv_percent, _get_trv_max_opening(self, entity_id))
+    # The controller of a group is held to the widest cap of its TRVs, so
+    # each per-TRV command is clamped to that TRV's own max opening here.
+    this_trv_percent = min(group_valve_percent, _get_trv_max_opening(self, entity_id))
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state.calibration_balance = MpcBalance(
@@ -816,9 +777,9 @@ def _compute_mpc_v2_balance(
     """Run the MPC v2 (QP + Kalman) balance algorithm.
 
     Routes through ``compute_mpc_v2`` so the receding-horizon QP controller
-    produces the valve recommendation. Multi-TRV setups use the shared
-    :func:`distribute_valve_percent` helper — the controller only ever sees
-    the group-level signal.
+    produces the valve recommendation. Multi-TRV setups share one controller
+    that steps once per control cycle, and every TRV receives the command of
+    that step, each held to its own maximum opening.
     """
     trv_state = self.real_trvs[entity_id]
 
@@ -831,15 +792,10 @@ def _compute_mpc_v2_balance(
     state_mgr = self.state_mgr
 
     is_multi_trv = len(self.real_trvs) > 1
-    trv_temps: dict[str, float | None] | None = None
-    warmest_trv_id = entity_id
-    if is_multi_trv:
-        trv_temps, warmest_trv_id = _collect_trv_temps_and_warmest(
-            self.real_trvs, entity_id
-        )
-
-    max_opening_percent = _get_trv_max_opening(
-        self, warmest_trv_id if is_multi_trv else entity_id
+    max_opening_percent = (
+        _group_max_opening(self)
+        if is_multi_trv
+        else _get_trv_max_opening(self, entity_id)
     )
 
     if is_multi_trv:
@@ -884,9 +840,10 @@ def _compute_mpc_v2_balance(
 
     outdoor_temperature = _get_current_outdoor_temperature(self)
     # The single-TRV path has one physical input.  A group controller's
-    # distributed outputs are intentionally not collapsed into a fictional
-    # single valve fraction; it keeps its optimistic command until group
-    # actuator aggregation has an explicit plant contract.
+    # per-TRV outputs, each held to its own TRV's cap, are intentionally not
+    # collapsed into a fictional single valve fraction; it keeps its
+    # optimistic command until group actuator aggregation has an explicit
+    # plant contract.
     confirmed_valve_percent = (
         None if is_multi_trv else _confirmed_valve_percent(trv_state)
     )
@@ -903,29 +860,39 @@ def _compute_mpc_v2_balance(
         else None
     )
 
+    # A group's controller steps once per control cycle, so every TRV of the
+    # group takes the command of that one step. Outside a control cycle each
+    # call is a step of its own.
+    cycle = self.dispatched_control_cycle if is_multi_trv else None
     try:
         mpc_v2_state = state_mgr.get_mpc_v2_live(mpc_key, v2_params)
-        mpc_output, mpc_v2_state = compute_mpc_v2(
-            MpcV2Input(
-                key=mpc_key,
-                target_temperature=self.heat_target_temperature,
-                room_temperature=mpc_room_temperature,
-                trv_temperature=trv_state.current_temperature,
-                window_open=self.contact_open,
-                heating_allowed=True,
-                bt_name=self.device_name,
-                entity_id=entity_id,
-                outdoor_temperature=outdoor_temperature,
-                max_opening_percent=max_opening_percent,
-                applied_valve_percent=controller_applied_percent,
-                learning_paused=self.learning_held,
-                room_temperature_from_trvs=(
-                    self.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+        if cycle is not None and mpc_v2_state.stepped_cycle is cycle:
+            mpc_output = mpc_v2_state.cycle_output
+        else:
+            mpc_output, mpc_v2_state = compute_mpc_v2(
+                MpcV2Input(
+                    key=mpc_key,
+                    target_temperature=self.heat_target_temperature,
+                    room_temperature=mpc_room_temperature,
+                    trv_temperature=trv_state.current_temperature,
+                    window_open=self.contact_open,
+                    heating_allowed=True,
+                    bt_name=self.device_name,
+                    entity_id=entity_id,
+                    outdoor_temperature=outdoor_temperature,
+                    max_opening_percent=max_opening_percent,
+                    applied_valve_percent=controller_applied_percent,
+                    learning_paused=self.learning_held,
+                    room_temperature_from_trvs=(
+                        self.kernel_state.control_mode.mode
+                        == ControlMode.SENSOR_FALLBACK
+                    ),
                 ),
-            ),
-            v2_params,
-            state=mpc_v2_state,
-        )
+                v2_params,
+                state=mpc_v2_state,
+            )
+            mpc_v2_state.stepped_cycle = cycle
+            mpc_v2_state.cycle_output = mpc_output
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: MPC v2 compute failed for %s: %s",
@@ -954,19 +921,9 @@ def _compute_mpc_v2_balance(
 
     group_valve_percent = float(mpc_output.valve_percent)
 
-    if is_multi_trv:
-        trv_temps = trv_temps or {}
-        distributed = distribute_valve_percent(
-            u_total_percent=group_valve_percent, trv_temps=trv_temps
-        )
-        this_trv_percent = distributed.get(entity_id, group_valve_percent)
-    else:
-        this_trv_percent = group_valve_percent
-
-    # The controller only sees the group-level cap (warmest TRV); the
-    # distribution can boost a colder TRV above its own configured limit,
-    # so each per-TRV command is clamped to that TRV's max opening here.
-    this_trv_percent = min(this_trv_percent, _get_trv_max_opening(self, entity_id))
+    # The controller of a group is held to the widest cap of its TRVs, so
+    # each per-TRV command is clamped to that TRV's own max opening here.
+    this_trv_percent = min(group_valve_percent, _get_trv_max_opening(self, entity_id))
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
     diagnostics = mpc_output.diagnostics
@@ -1481,10 +1438,23 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
         if _overheating_protection:
             if self.hvac_action == HVACAction.IDLE:
                 if _cur_external_temperature > _cur_target_temperature + self.tolerance:
-                    _new_trv_calibration += (
+                    _overheating_term = (
                         _cur_external_temperature
                         - (_cur_target_temperature + self.tolerance)
                     ) * 8.0
+                    _new_trv_calibration += _overheating_term
+                    _LOGGER.debug(
+                        "better_thermostat %s: %s - overheating protection adds "
+                        "%s to the local calibration: %s | external_temp: %s, "
+                        "target_temp: %s, tolerance: %s",
+                        self.device_name,
+                        entity_id,
+                        round(_overheating_term, 2),
+                        round(_new_trv_calibration, 2),
+                        round(_cur_external_temperature, 2),
+                        round(_cur_target_temperature, 2),
+                        self.tolerance,
+                    )
 
     # Direction-aware rounding for local calibration offset.
     # Calibration offset works inversely to setpoint: a positive offset makes
@@ -1620,9 +1590,17 @@ def calculate_calibration_setpoint(
         _cur_target_temperature - _cur_external_temperature
     ) + _cur_trv_temperature
 
+    _holds_open_valve = False
     if traits.balance is not None:
         if _use_valve and _percent is not None:
-            if float(_percent) == 0.0:
+            # The setpoint follows the command the valve is written: whole
+            # percent, capped by the TRV's max opening, so a cap of 0 % or an
+            # intent below half a percent closes a valve the controller wants
+            # open. A running cooler keeps the radiator closed as well.
+            _effective_percent = round(
+                max(0.0, min(float(_percent), _get_trv_max_opening(self, entity_id)))
+            )
+            if _effective_percent == 0 or self.hvac_action == HVACAction.COOLING:
                 # Valve closed: push setpoint below TRV's own temperature so it doesn't
                 # heat by itself even though direct valve control already sent 0%.
                 _setpoint_drop = _compute_zero_open_offset(
@@ -1635,8 +1613,16 @@ def calculate_calibration_setpoint(
                 )
                 _calibrated_setpoint = _cur_trv_temperature - _setpoint_drop
             else:
-                # Valve open: keep target so TRV internal logic doesn't restrict us.
-                _calibrated_setpoint = _cur_target_temperature
+                # Valve open: the TRV still regulates on its own reading, which
+                # near the radiator often runs above the room. A setpoint at
+                # the target would let it close the valve BT just opened, so the
+                # setpoint stays a lead above that reading.
+                _calibrated_setpoint = max(
+                    _cur_target_temperature,
+                    _cur_trv_temperature
+                    + max(_OPEN_VALVE_SETPOINT_LEAD_K, _trv_temperature_step),
+                )
+                _holds_open_valve = True
         elif not _use_valve and _percent is not None:
             _max_temp = round_by_step(self.real_trvs[entity_id].max_temp, 0.01)
             _valve_fraction = max(0.0, min(1.0, float(_percent) / 100.0))
@@ -1705,17 +1691,34 @@ def calculate_calibration_setpoint(
         if _overheating_protection:
             if self.hvac_action == HVACAction.IDLE:
                 if _cur_external_temperature > _cur_target_temperature + self.tolerance:
-                    _calibrated_setpoint -= (
+                    _overheating_term = (
                         _cur_external_temperature
                         - (_cur_target_temperature + self.tolerance)
                     ) * 8.0
+                    _calibrated_setpoint -= _overheating_term
+                    _LOGGER.debug(
+                        "better_thermostat %s: %s - overheating protection takes "
+                        "%s off the setpoint: %s | external_temp: %s, "
+                        "target_temp: %s, tolerance: %s",
+                        self.device_name,
+                        entity_id,
+                        round(_overheating_term, 2),
+                        round(_calibrated_setpoint, 2),
+                        round(_cur_external_temperature, 2),
+                        round(_cur_target_temperature, 2),
+                        self.tolerance,
+                    )
 
     # Direction-aware rounding: idle and cooling round the setpoint DOWN so the
     # TRV sees a target below its current temperature and closes the valve.
     # When HEATING, round UP so the TRV keeps the valve open.
     # This prevents integer-step TRVs (step=1.0) from rounding a value like
     # 19.7 up to 20.0 which would keep the valve open at the current temperature.
-    if self.hvac_action in _IDLE_OR_COOLING:
+    # A setpoint that holds a commanded valve open rounds UP in any state,
+    # so the rounding never eats into its lead above the TRV's reading.
+    if _holds_open_valve:
+        _step_rounding = Rounding.up
+    elif self.hvac_action in _IDLE_OR_COOLING:
         _step_rounding = Rounding.down
     elif self.hvac_action == HVACAction.HEATING:
         _step_rounding = Rounding.up

@@ -166,3 +166,40 @@ def test_protection_does_not_open_the_valve_further(
     else:
         assert protected_setpoint <= plain_setpoint
         assert protected_offset >= plain_offset
+
+
+def test_idle_above_the_target_logs_the_term_added_to_the_local_offset(caplog):
+    """Room and TRV at 20 °C, 0.7 K over target + tolerance: the log names +5.6.
+
+    Without this line a debug log shows the offset before the term and the
+    clamped result after it, and nothing in between explains the jump.
+    """
+    with caplog.at_level("DEBUG", logger="custom_components.better_thermostat"):
+        calculate_calibration_local(
+            build_bt(room_temperature=20.0, trv_temperature=20.0), ENTITY_ID
+        )
+
+    assert "overheating protection adds 5.6 to the local calibration" in caplog.text
+
+
+def test_idle_above_the_target_logs_the_term_taken_off_the_setpoint(caplog):
+    """Room and TRV at 20 °C, 0.7 K over target + tolerance: the log names -5.6."""
+    with caplog.at_level("DEBUG", logger="custom_components.better_thermostat"):
+        calculate_calibration_setpoint(
+            build_bt(room_temperature=20.0, trv_temperature=20.0), ENTITY_ID
+        )
+
+    assert "overheating protection takes 5.6 off the setpoint" in caplog.text
+
+
+def test_idle_at_the_target_logs_no_overheating_term(caplog):
+    """Room at the 19 °C target sits below the line, so neither path logs a term."""
+    with caplog.at_level("DEBUG", logger="custom_components.better_thermostat"):
+        calculate_calibration_local(
+            build_bt(room_temperature=19.0, trv_temperature=19.0), ENTITY_ID
+        )
+        calculate_calibration_setpoint(
+            build_bt(room_temperature=19.0, trv_temperature=19.0), ENTITY_ID
+        )
+
+    assert "overheating protection" not in caplog.text

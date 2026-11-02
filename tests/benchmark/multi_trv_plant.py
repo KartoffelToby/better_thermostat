@@ -1,8 +1,7 @@
 """Multi-TRV plant model.
 
 N parallel radiators feed one room. Each radiator has its own valve
-position, gain, room-coupling and optional sensor offset (so that BT's
-``distribute_valve_percent`` heuristic can pick up asymmetry).
+position, gain and room-coupling.
 
 The room equation is identical to :class:`TwoStatePlant` — heat in from
 all radiators, heat out to outdoor, plus an optional disturbance term.
@@ -23,10 +22,6 @@ class MultiTrvPlantParams:
     gain_heaters: list[float] = field(default_factory=lambda: [2.0, 2.0, 2.0])
     coupling_rad_room: list[float] = field(default_factory=lambda: [1.0, 1.0, 1.0])
     T_water: float = 65.0
-    # Position-induced offsets applied to the *reported* TRV-internal
-    # temperatures. Lets BT's distribute_valve_percent see asymmetry even
-    # when the radiator-state values are otherwise close.
-    trv_sensor_offsets_K: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
     # Per-TRV deadband: commands strictly below this percent are zeroed
     # for that TRV. Empty list = no deadband. Models heterogeneous
     # hardware sharing one room (e.g. one Sonoff TRVZB pre-FW 1.3 with a
@@ -82,8 +77,6 @@ class MultiTrvPlant:
             raise ValueError("gain_heaters length must equal n_trvs")
         if len(params.coupling_rad_room) != params.n_trvs:
             raise ValueError("coupling_rad_room length must equal n_trvs")
-        if len(params.trv_sensor_offsets_K) != params.n_trvs:
-            raise ValueError("trv_sensor_offsets_K length must equal n_trvs")
         if params.deadband_pcts_per_trv and (
             len(params.deadband_pcts_per_trv) != params.n_trvs
         ):
@@ -156,13 +149,6 @@ class MultiTrvPlant:
         s.T_room += (dT_room + Q_K_per_min) * dt_min
         return s
 
-    def reported_trv_temps(self) -> list[float]:
-        """Return the per-TRV temperatures as the controller's distribute logic sees them."""
-        return [
-            self.state.T_rads[i] + self.params.trv_sensor_offsets_K[i]
-            for i in range(self.params.n_trvs)
-        ]
-
 
 # --- Pre-tuned multi-TRV profiles ---
 
@@ -174,7 +160,6 @@ PROFILE_MULTI_SYMMETRIC = MultiTrvPlantParams(
     gain_heaters=[2.0, 2.0, 2.0],
     coupling_rad_room=[1.0, 1.0, 1.0],
     T_water=65.0,
-    trv_sensor_offsets_K=[0.0, 0.0, 0.0],
 )
 
 PROFILE_MULTI_ASYMMETRIC = MultiTrvPlantParams(
@@ -186,8 +171,6 @@ PROFILE_MULTI_ASYMMETRIC = MultiTrvPlantParams(
     gain_heaters=[1.5, 2.0, 2.5],
     coupling_rad_room=[0.8, 1.0, 1.2],
     T_water=65.0,
-    # Cold corner reads -1.5 K below room, near-window reads +0.5 K.
-    trv_sensor_offsets_K=[-1.5, 0.0, 0.5],
 )
 
 
@@ -201,6 +184,5 @@ PROFILE_MULTI_HETEROGENEOUS = MultiTrvPlantParams(
     gain_heaters=[2.0, 2.0, 2.0],
     coupling_rad_room=[1.0, 1.0, 1.0],
     T_water=65.0,
-    trv_sensor_offsets_K=[0.0, 0.0, 0.0],
     deadband_pcts_per_trv=[2.0, 22.0, 2.0],
 )
