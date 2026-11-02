@@ -94,6 +94,7 @@ from .utils.helpers import (
     get_device_model,
     get_trv_intigration,
     is_bt_climate_entity,
+    regulates_on_bound_sensor,
     supports_single_target_temperature,
     supports_temperature_range,
 )
@@ -356,6 +357,24 @@ class _AdvancedContext:
     homematic: bool
     has_auto: bool
     valve_only: bool = False
+    bound_sensor: bool = False
+
+
+def _bound_sensor_errors(
+    context: _AdvancedContext, advanced: _AdvancedDraft
+) -> dict[str, str]:
+    """Reject a calibration for a TRV that regulates on a bound sensor.
+
+    Such a TRV controls the room on the sensor bound to it. A calibration
+    mode would compute a second control loop on top of it, so only no
+    calibration is accepted.
+    """
+    if (
+        context.bound_sensor
+        and configured_calibration_mode(advanced) is not CalibrationMode.NO_CALIBRATION
+    ):
+        return {CONF_CALIBRATION_MODE: "bound_sensor_calibration_mode"}
+    return {}
 
 
 def _valve_only_errors(
@@ -605,6 +624,7 @@ def _build_advanced_fields(
     has_auto: bool,
     channels: DeviceChannels | None = None,
     system_unit: str,
+    bound_sensor: bool = False,
 ) -> OrderedDict[vol.Marker, object]:
     views = [_without_balance_mode(source) for source in sources if source is not None]
 
@@ -652,16 +672,17 @@ def _build_advanced_fields(
 
     # 1) Calibration + protection flags
     ordered[vol.Required(CONF_CALIBRATION, default=calib_default)] = calib_selector
-    ordered[
-        vol.Required(
-            CONF_CALIBRATION_MODE,
-            default=get_choice(
-                CONF_CALIBRATION_MODE,
-                _CALIBRATION_MODE_CHOICES,
-                DEFAULT_CALIBRATION_MODE,
-            ),
+    # A TRV that regulates on a bound sensor accepts no calibration only.
+    calibration_mode_default = (
+        CalibrationMode.NO_CALIBRATION.value
+        if bound_sensor
+        else get_choice(
+            CONF_CALIBRATION_MODE, _CALIBRATION_MODE_CHOICES, DEFAULT_CALIBRATION_MODE
         )
-    ] = CALIBRATION_MODE_SELECTOR
+    )
+    ordered[vol.Required(CONF_CALIBRATION_MODE, default=calibration_mode_default)] = (
+        CALIBRATION_MODE_SELECTOR
+    )
 
     ordered[
         vol.Optional(
@@ -1164,10 +1185,17 @@ async def _prepare_advanced_context(
     _adapter, channels = await _load_adapter_info(
         flow, trv.integration, trv.entity_id, existing_adapter=trv.adapter
     )
+    bound_sensor = regulates_on_bound_sensor(flow.hass, trv.entity_id) is True
     return _AdvancedContext(
         entity_id=trv.entity_id,
         channels=channels,
-        default_calibration=_default_calibration_for(channels),
+        # A TRV that regulates on a bound sensor gets the target temperature
+        # and keeps its offset, which the setpoint output says best.
+        default_calibration=(
+            CalibrationOutput.TARGET_TEMP_BASED
+            if bound_sensor
+            else _default_calibration_for(channels)
+        ),
         homematic=bool(trv.integration and "homematic" in trv.integration.lower()),
         has_auto=_trv_supports_auto(flow, trv.entity_id),
         valve_only=(
@@ -1175,6 +1203,7 @@ async def _prepare_advanced_context(
             and _adapter.CAPABILITIES.valve_only
             and channels.valve_write
         ),
+        bound_sensor=bound_sensor,
     )
 
 
@@ -1449,7 +1478,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
-            errors = _valve_only_errors(ctx, advanced_data)
+            errors = _bound_sensor_errors(ctx, advanced_data) | _valve_only_errors(
+                ctx, advanced_data
+            )
             if not errors:
                 _LOGGER.debug(
                     "ConfigFlow advanced step storing data for %s (index %s): %s",
@@ -1488,6 +1519,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             has_auto=ctx.has_auto,
             channels=ctx.channels,
             system_unit=self.hass.config.units.temperature_unit,
+            bound_sensor=ctx.bound_sensor,
         )
         _LOGGER.debug(
             "ConfigFlow advanced step showing form for trv=%s with defaults=%s",
@@ -1637,7 +1669,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
-            errors = _valve_only_errors(ctx, advanced_data)
+            errors = _bound_sensor_errors(ctx, advanced_data) | _valve_only_errors(
+                ctx, advanced_data
+            )
             if not errors:
                 _LOGGER.debug(
                     "OptionsFlow advanced step storing data for %s (index %s): %s",
@@ -1717,6 +1751,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             has_auto=ctx.has_auto,
             channels=ctx.channels,
             system_unit=self.hass.config.units.temperature_unit,
+            bound_sensor=ctx.bound_sensor,
         )
         _LOGGER.debug(
             "OptionsFlow advanced step showing form for trv=%s with defaults=%s",

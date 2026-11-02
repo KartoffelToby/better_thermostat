@@ -113,7 +113,7 @@ def _discovering(**found):
         ``window``, ``away``); a lookup left out finds nothing.
     """
 
-    def _find(_registry, _device_id, _domains, keywords):
+    def _find(_registry, _device_id, _domains, keywords, owner=None):
         for keyword in keywords:
             lookup = _LOOKUP_BY_KEYWORD.get(keyword)
             if lookup is not None:

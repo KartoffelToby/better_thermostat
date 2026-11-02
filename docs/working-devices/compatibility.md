@@ -66,6 +66,20 @@ Some TRVs can regulate on a room temperature sent to them instead of their own s
 
 No value is written while the room sensor gives no reading, or when the room sensor belongs to the TRV itself.
 
+## TRVs bound to a room sensor over Matter
+
+Some Matter thermostats, such as the Eve Thermo, can be bound to a room temperature sensor (Matter Binding). They then take their measured temperature from that sensor and control the room on it themselves. Home Assistant's Matter integration shows this with the diagnostic binary sensor **Local temperature remote sensing** on the thermostat's device. While it is on, Better Thermostat leaves the control to the thermostat:
+
+- In setup and options, the thermostat accepts only the calibration mode **No Calibration**, and it is preselected. Any other mode would put a second control loop on top of the thermostat's own and is refused. A new thermostat starts on the calibration type **Target Temperature Based**.
+- Better Thermostat sends the target temperature unchanged, also for an entry configured before the binding.
+- Better Thermostat never writes or resets the thermostat's temperature offset. The offset shifts the bound sensor's reading on the device, so keep it at the value you set.
+
+While that binary sensor is unavailable, Better Thermostat still sends the target unchanged and leaves the offset alone; setup and options only insist on No Calibration while it is on. Window and door detection, grouping, presets and the rest of Better Thermostat keep working.
+
+The room temperature sensor is still required in setup. Select the sensor the thermostat is bound to; Better Thermostat then shows the same room temperature the thermostat regulates on.
+
+These thermostats offer no valve control over Matter, so the **Direct Valve Based** calibration type is not available for them.
+
 ## Devices that are known to work
 
 Better Thermostat includes specific fixes and optimizations for the following devices to ensure they work correctly:

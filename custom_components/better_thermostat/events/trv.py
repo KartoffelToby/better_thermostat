@@ -49,6 +49,7 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
     cooler_send_cache,
     cooling_owns_dual_role_report,
+    defers_to_bound_sensor,
     device_offers_mode,
     device_released,
     dual_role_entity_id,
@@ -1078,7 +1079,12 @@ def convert_outbound_states(
         _calibration_output = configured_calibration_output(advanced)
         _calibration_mode = configured_calibration_mode(advanced)
 
-        if _calibration_output == CalibrationOutput.LOCAL_BASED:
+        if defers_to_bound_sensor(self.hass, entity_id):
+            # The TRV controls the room on the sensor bound to it, so any
+            # calibration would work against its own control.
+            _new_heating_setpoint = self.heat_target_temperature
+
+        elif _calibration_output == CalibrationOutput.LOCAL_BASED:
             _new_local_calibration = calculate_calibration_local(self, entity_id)
             _new_heating_setpoint = self.heat_target_temperature
 

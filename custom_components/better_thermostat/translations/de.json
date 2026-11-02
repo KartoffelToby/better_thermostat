@@ -96,7 +96,8 @@
       "trv_is_better_thermostat": "{trv} ist ein Better Thermostat. Bitte wähle stattdessen ein reales Thermostat.",
       "trv_no_target_temperature": "{trv} nimmt keine Zieltemperatur an. Bitte wähle ein Thermostat, das eine annimmt.",
       "cooler_is_better_thermostat": "{cooler} ist ein Better Thermostat. Bitte wähle stattdessen ein reales Kühlgerät.",
-      "cooler_no_target_temperature": "{cooler} nimmt keine Zieltemperatur an. Bitte wähle ein Kühlgerät, das eine annimmt."
+      "cooler_no_target_temperature": "{cooler} nimmt keine Zieltemperatur an. Bitte wähle ein Kühlgerät, das eine annimmt.",
+      "bound_sensor_calibration_mode": "Dieses Thermostat regelt den Raum selbst, nach einem an es gebundenen Temperatursensor (Matter Binding). Wähle Keine Kalibrierung: Jeder andere Modus legt einen zweiten Regelkreis über den des Thermostats."
     },
     "abort": {
       "single_instance_allowed": "Es ist nur ein einzelnes BT je realem Thermostat erlaubt.",
@@ -195,7 +196,8 @@
       "trv_is_better_thermostat": "{trv} ist ein Better Thermostat. Bitte wähle stattdessen ein reales Thermostat.",
       "trv_no_target_temperature": "{trv} nimmt keine Zieltemperatur an. Bitte wähle ein Thermostat, das eine annimmt.",
       "cooler_is_better_thermostat": "{cooler} ist ein Better Thermostat. Bitte wähle stattdessen ein reales Kühlgerät.",
-      "cooler_no_target_temperature": "{cooler} nimmt keine Zieltemperatur an. Bitte wähle ein Kühlgerät, das eine annimmt."
+      "cooler_no_target_temperature": "{cooler} nimmt keine Zieltemperatur an. Bitte wähle ein Kühlgerät, das eine annimmt.",
+      "bound_sensor_calibration_mode": "Dieses Thermostat regelt den Raum selbst, nach einem an es gebundenen Temperatursensor (Matter Binding). Wähle Keine Kalibrierung: Jeder andere Modus legt einen zweiten Regelkreis über den des Thermostats."
     }
   },
   "issues": {
