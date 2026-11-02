@@ -127,7 +127,7 @@ Auto-tuning is on by default.
 
 **How tuning proceeds:**
 
-- **At the start:** The controller starts from the gains it keeps for the TRV: values you set on the PID numbers, or values it tuned earlier. A TRV with neither starts from the defaults (Kp=60, Ki=0.01, Kd=2000). You may notice slight temperature oscillations as it adjusts.
+- **At the start:** The controller keeps its gains per TRV and per target temperature, rounded to 0.5 °C. It starts from the gains kept for the current target: values you set on the PID numbers, or values it tuned earlier at that target. A target with neither starts from the defaults (Kp=60, Ki=0.01, Kd=2000), so tuning starts over at a target it has not seen. You may notice slight temperature oscillations as it adjusts.
 
 - **While tuning:** The algorithm adjusts the gains at most every 5 minutes, and only when one of these conditions holds (the "target band" is 0.1 °C either side of the target):
   - **Overshoot:** The room was more than 0.2 °C on one side of the target and is now more than 0.2 °C on the other side, for example it heated from below to 0.3 °C above the target. It decreases Kp (less aggressive), increases Kd (more damping) and decreases Ki. A room that comes up to the target and stays below it, or ends up less than 0.2 °C above it, is not an overshoot. Changing the target starts the comparison over, so the room being on the other side of the new target does not count
@@ -279,6 +279,8 @@ With the Direct Valve Based calibration type:
 - **AI Time Based**: Derives a valve opening from the heating power it has learned.
 
 - **External Sensor Offset Only, Aggressive, No Calibration**: These produce no valve opening. Better Thermostat sends them to the TRV as a target temperature instead.
+
+- **Boost preset**: While Boost is heating, Better Thermostat opens the valve to the TRV's *Valve Max Opening* under every calibration mode. When the TRV is switched off during Boost (Better Thermostat off, a window open, no heat called for), it closes the valve to 0 %, as it does under the modes that write the valve.
 
 The valve opening is sized from your room sensor, not from the TRV's own temperature. A TRV that stops reporting its own temperature still has its valve opened and closed; only the target temperature that accompanies the valve command is held back until the TRV reports a temperature again.
 
