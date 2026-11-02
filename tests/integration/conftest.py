@@ -357,6 +357,16 @@ class SimulatedOffsetNumber(_SimulatedNumber):
             self._attr_device_class = profile.offset_device_class
         if profile.offset_unit is not None:
             self._attr_native_unit_of_measurement = profile.offset_unit
+        if profile.offset_range is not None:
+            (
+                self._attr_native_min_value,
+                self._attr_native_max_value,
+                self._attr_native_step,
+            ) = profile.offset_range
+        if profile.offset_reserved_values:
+            self._attr_extra_state_attributes = {
+                "reserved_values": dict(profile.offset_reserved_values)
+            }
 
 
 class SimulatedExternalTemperatureInput(_SimulatedNumber):

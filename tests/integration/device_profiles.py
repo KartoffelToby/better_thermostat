@@ -93,7 +93,14 @@ class DeviceProfile:
     that declares neither, which Home Assistant publishes as it is. A number of
     device class ``temperature`` in Celsius or Fahrenheit is converted into
     the system unit as an absolute temperature, the way the eQ-3 Bluetooth and
-    Plugwise offsets are.
+    Plugwise offsets are. A unit no converter knows, such as the ``0.1 °C``
+    of a Z-Wave configuration parameter, is published as it is.
+
+    ``offset_range`` is the ``(min, max, step)`` of the calibration number in
+    its own unit, ``None`` for -12 to 12 in steps of 0.5.
+    ``offset_reserved_values`` are the values it lists under
+    ``reserved_values`` as standing for something other than an offset, the
+    way a Z-Wave configuration parameter does.
 
     ``external_temperature_input`` puts the number a Sonoff TRVZB regulates on
     when told to use an external sensor onto the device: a ``temperature``
@@ -149,7 +156,9 @@ class DeviceProfile:
     system_unit: UnitOfTemperature | None = None
     valve_maintenance: bool = False
     offset_device_class: NumberDeviceClass | None = None
-    offset_unit: UnitOfTemperature | None = None
+    offset_unit: str | None = None
+    offset_range: tuple[float, float, float] | None = None
+    offset_reserved_values: tuple[tuple[int, str], ...] = ()
     external_temperature_input: bool = False
     external_sensor_selection: str = "external"
     off_target_temperature: float | None = None
@@ -433,6 +442,25 @@ ZWAVE_CAPPED_TRV = DeviceProfile(
 A Danfoss LC-13 reaches Home Assistant with the range of the command class
 rather than its own, so a calibrated setpoint between the two is written and
 comes back as 28 °C.
+"""
+
+ZWAVE_SPIRIT_OFFSET_TRV = DeviceProfile(
+    name="zwave_spirit_offset_trv",
+    integration="zwave_js",
+    calibration="local_calibration_based",
+    has_device_registry_entry=True,
+    model="Spirit",
+    current_temperature=19.0,
+    offset_channel=OffsetChannel.NUMBER_ENTITY,
+    offset_translation_key="temperature_offset",
+    offset_unit="0.1 °C",
+    offset_range=(-128.0, 50.0, 1.0),
+    offset_reserved_values=((-128, "Ext temp sensor be used for regul"),),
+)
+"""A Eurotronic Spirit whose offset is its Z-Wave configuration parameter 8.
+
+The parameter counts tenths of a degree Celsius from -128 to 50 in whole
+steps, and -128 stands for "use the external sensor" rather than an offset.
 """
 
 TADO_OFFSET_TRV = DeviceProfile(
@@ -741,6 +769,7 @@ SINGLE_ROLE_PROFILES = (
     MQTT_OFFSET_TRV,
     TUYA_OFFSET_TRV,
     ZWAVE_CAPPED_TRV,
+    ZWAVE_SPIRIT_OFFSET_TRV,
     TADO_OFFSET_TRV,
     VALVE_TRV,
     SHELLY_BLU_VALVE_TRV,
@@ -768,6 +797,9 @@ SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario | GroupScenario] = {
     "a head that resets its setpoint whenever it is told a mode": TUYA_OFFSET_TRV,
     "a head that holds no setpoint as high as the maximum it publishes": (
         ZWAVE_CAPPED_TRV
+    ),
+    "a head whose offset counts tenths of a degree and reserves a value": (
+        ZWAVE_SPIRIT_OFFSET_TRV
     ),
 }
 """The device shapes users have reported a bug against, by what they are.

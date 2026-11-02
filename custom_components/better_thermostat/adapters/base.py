@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 import logging
+import math
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE, NumberDeviceClass
 from homeassistant.const import (
@@ -15,7 +17,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import State
 
-from ..utils.helpers import device_released, state_is_live
+from ..utils.helpers import celsius_unit_divisor, device_released, state_is_live
 from .types import AdapterHost
 
 _LOGGER = logging.getLogger(__name__)
@@ -86,14 +88,31 @@ class OffsetScale(StrEnum):
     offset of 0 K the device holds in Celsius is published as 32 °F, and a
     value written is converted back the same way. A number of any other
     device class is published in its native unit; when that unit is
-    Fahrenheit the value is a difference, and one Kelvin is 1.8 of it.
-    Everything else is taken to be in Kelvin, which is what a degree
-    Celsius of difference is.
+    Fahrenheit the value is a difference, and one Kelvin is 1.8 of it. A
+    unit counting tenths or hundredths of a degree Celsius, which a Z-Wave
+    configuration parameter publishes as its raw value, is not converted
+    either: one Kelvin is 10 or 100 of it. Everything else is taken to be in
+    Kelvin, which is what a degree Celsius of difference is.
     """
 
     KELVIN = "kelvin"
     FAHRENHEIT_TEMPERATURE = "fahrenheit_temperature"
     FAHRENHEIT_DIFFERENCE = "fahrenheit_difference"
+    CELSIUS_TENTHS = "celsius_tenths"
+    CELSIUS_HUNDREDTHS = "celsius_hundredths"
+
+
+# Counts of the published unit that make one Kelvin, for the scales whose
+# published value is a whole number of fractions of a degree Celsius.
+_COUNTS_PER_KELVIN: dict[OffsetScale, int] = {
+    OffsetScale.CELSIUS_TENTHS: 10,
+    OffsetScale.CELSIUS_HUNDREDTHS: 100,
+}
+
+# Attribute in which a Z-Wave JS configuration parameter lists the values
+# that carry a meaning of their own instead of a number, such as the
+# Eurotronic Spirit's -128 for "external sensor".
+ATTR_RESERVED_VALUES = "reserved_values"
 
 
 def offset_scale(state: State | None) -> OffsetScale:
@@ -113,7 +132,13 @@ def offset_scale(state: State | None) -> OffsetScale:
     """
     if state is None or state.domain != "number":
         return OffsetScale.KELVIN
-    if state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) != UnitOfTemperature.FAHRENHEIT:
+    unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+    divisor = celsius_unit_divisor(unit)
+    if divisor == 10:
+        return OffsetScale.CELSIUS_TENTHS
+    if divisor == 100:
+        return OffsetScale.CELSIUS_HUNDREDTHS
+    if unit != UnitOfTemperature.FAHRENHEIT:
         return OffsetScale.KELVIN
     if state.attributes.get(ATTR_DEVICE_CLASS) == NumberDeviceClass.TEMPERATURE:
         return OffsetScale.FAHRENHEIT_TEMPERATURE
@@ -139,6 +164,8 @@ def published_to_offset(scale: OffsetScale, value: float) -> float:
         return (value - 32.0) * 5.0 / 9.0
     if scale is OffsetScale.FAHRENHEIT_DIFFERENCE:
         return value * 5.0 / 9.0
+    if scale in _COUNTS_PER_KELVIN:
+        return value / _COUNTS_PER_KELVIN[scale]
     return value
 
 
@@ -161,6 +188,8 @@ def offset_to_published(scale: OffsetScale, calibration_offset: float) -> float:
         return calibration_offset * 9.0 / 5.0 + 32.0
     if scale is OffsetScale.FAHRENHEIT_DIFFERENCE:
         return calibration_offset * 9.0 / 5.0
+    if scale in _COUNTS_PER_KELVIN:
+        return calibration_offset * _COUNTS_PER_KELVIN[scale]
     return calibration_offset
 
 
@@ -168,8 +197,9 @@ def published_step_to_offset(scale: OffsetScale, step: float) -> float:
     """Return the offset step in Kelvin a published ``step`` stands for.
 
     Home Assistant publishes the native step of a ``temperature`` number
-    without converting it, so that step is already the device's own; only a
-    difference published in Fahrenheit is rescaled.
+    without converting it, so that step is already the device's own; a
+    difference published in Fahrenheit or in fractions of a degree Celsius
+    is rescaled.
 
     Parameters
     ----------
@@ -185,7 +215,141 @@ def published_step_to_offset(scale: OffsetScale, step: float) -> float:
     """
     if scale is OffsetScale.FAHRENHEIT_DIFFERENCE:
         return step * 5.0 / 9.0
+    if scale in _COUNTS_PER_KELVIN:
+        return step / _COUNTS_PER_KELVIN[scale]
     return step
+
+
+def counts_whole_fractions(scale: OffsetScale) -> bool:
+    """Whether a calibration entity of ``scale`` takes whole counts of its unit.
+
+    Parameters
+    ----------
+    scale : OffsetScale
+        How the calibration entity publishes its offset.
+
+    Returns
+    -------
+    bool
+        True for a unit of tenths or hundredths of a degree Celsius, whose
+        values are a parameter's raw integers.
+    """
+    return scale in _COUNTS_PER_KELVIN
+
+
+def reserved_published_values(state: State) -> frozenset[float]:
+    """Read the values a calibration entity reserves for a meaning of its own.
+
+    Home Assistant publishes the keys of ``reserved_values`` as integers;
+    a state that went through JSON, as the frontend and a restored state
+    see it, carries them as text. Both read the same.
+
+    Parameters
+    ----------
+    state : State
+        State of the calibration entity.
+
+    Returns
+    -------
+    frozenset of float
+        The reserved values as published, empty when the entity lists none.
+    """
+    reserved = state.attributes.get(ATTR_RESERVED_VALUES)
+    if not isinstance(reserved, Mapping):
+        return frozenset()
+    values: set[float] = set()
+    for key in reserved:
+        try:
+            values.add(float(str(key)))
+        except ValueError:
+            continue
+    return frozenset(values)
+
+
+def published_reading(state: State) -> float | None:
+    """Return the offset in Kelvin a calibration entity reports, if it reports one.
+
+    Parameters
+    ----------
+    state : State
+        Live state of the calibration entity.
+
+    Returns
+    -------
+    float or None
+        The offset in Kelvin, or None when the state carries a value the
+        entity reserves for a meaning of its own, which is no offset.
+
+    Raises
+    ------
+    ValueError
+        When the state carries no number.
+    """
+    # A select publishes its options with a "k" suffix ("1.5k").
+    value = float(state.state.replace("k", ""))
+    if value in reserved_published_values(state):
+        return None
+    return published_to_offset(offset_scale(state), value)
+
+
+def published_step(state: State) -> float:
+    """Return the step a calibration number publishes, in its own unit.
+
+    Parameters
+    ----------
+    state : State
+        State of the calibration number.
+
+    Returns
+    -------
+    float
+        The positive step the entity publishes, or 1.0 when it publishes
+        none that is a usable step, which is the step Home Assistant gives a
+        number over a range wider than one.
+    """
+    try:
+        step = abs(float(str(state.attributes.get("step", 1.0))))
+    except ValueError:
+        return 1.0
+    if step == 0.0 or not math.isfinite(step):
+        return 1.0
+    return step
+
+
+def published_bound(state: State, bound: str) -> float | None:
+    """Return the ``min`` or ``max`` a calibration number takes a write at.
+
+    A bound the entity reserves for a meaning of its own is no offset, so
+    the bound moves inward by the entity's step until it reaches a value
+    that is one.
+
+    Parameters
+    ----------
+    state : State
+        State of the calibration number.
+    bound : str
+        ``"min"`` or ``"max"``.
+
+    Returns
+    -------
+    float or None
+        The bound in the entity's published unit, or None when it publishes
+        none that can be read.
+    """
+    try:
+        value = float(str(state.attributes[bound]))
+    except KeyError, TypeError, ValueError:
+        return None
+    reserved = reserved_published_values(state)
+    if not reserved:
+        return value
+    step = published_step(state)
+    inward = step if bound == "min" else -step
+    for _ in range(len(reserved)):
+        if value not in reserved:
+            break
+        value += inward
+    return value
 
 
 def _zero_offset_option(state: State | None) -> str:
