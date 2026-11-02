@@ -490,6 +490,7 @@ def make_registry_entry(
     original_name: str | None = None,
     original_device_class: str | None = None,
     device_class: str | None = None,
+    unit_of_measurement: str | None = None,
 ) -> er.RegistryEntry:
     """Return a real entity registry entry; overridable per test.
 
@@ -520,6 +521,8 @@ def make_registry_entry(
         The device class the integration gave the entity.
     device_class : str | None
         The device class the user set.
+    unit_of_measurement : str | None
+        The unit the entity publishes its value in.
 
     Returns
     -------
@@ -549,7 +552,7 @@ def make_registry_entry(
         suggested_object_id=None,
         supported_features=0,
         translation_key=translation_key,
-        unit_of_measurement=None,
+        unit_of_measurement=unit_of_measurement,
     )
 
 
