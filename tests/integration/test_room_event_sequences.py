@@ -68,7 +68,7 @@ from homeassistant.components.climate.const import (
     HVACAction,
     HVACMode,
 )
-from homeassistant.const import EVENT_CALL_SERVICE, UnitOfTemperature
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import Context, CoreState, Event, HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
@@ -85,10 +85,12 @@ from custom_components.better_thermostat.climate import BetterThermostat
 from .boot_sequence import finish_boot, set_up_during_boot
 from .conftest import (
     BT_ENTITY,
+    CALL_SERVICE,
     CRITICAL_GRACE,
     DEGRADED_GRACE,
     WINDOW_ID,
     WRITE_BUDGET,
+    ServiceCallData,
     SimulatedClimate,
     build_devices,
     make_entry,
@@ -261,7 +263,7 @@ class Room:
     window_open: bool = False
     available: set[int] = field(default_factory=set)
     events: list[RoomEvent] = field(default_factory=list)
-    service_calls: list[Event] = field(default_factory=list)
+    service_calls: list[Event[ServiceCallData]] = field(default_factory=list)
     reconciles: int = 0
     checked: str = "at startup"
     clock: HeadClock = field(default_factory=HeadClock)
@@ -878,7 +880,7 @@ async def running_room(
             intent=None,
             room_temperature=scale.room_temperature,
             available=set(range(len(heads))),
-            service_calls=async_capture_events(hass, EVENT_CALL_SERVICE),
+            service_calls=async_capture_events(hass, CALL_SERVICE),
             clock=clock,
         )
         await assert_surfaces(room)

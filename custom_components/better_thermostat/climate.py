@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -158,6 +158,7 @@ from .utils.const import (
     CONF_AVAILABILITY_GUARD_GRACE_SECONDS,
     CONF_CHILD_LOCK,
     CONF_COOLER,
+    CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE,
     CONF_DOOR_OFF_DELAY,
     CONF_DOOR_OFF_DELAY_AFTER,
     CONF_DOOR_SENSORS,
@@ -803,6 +804,9 @@ def _configured_bt_config(settings: BtSettings, unit: UnitOfTemperature) -> BtCo
         availability_guard_grace_seconds=_configured_availability_guard_grace(
             settings.get(CONF_AVAILABILITY_GUARD_GRACE_SECONDS), name
         ),
+        distribute_valve_by_trv_temperature=settings.get(
+            CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE, False
+        ),
     )
 
 
@@ -1096,6 +1100,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     def availability_guard_grace_seconds(self) -> float:
         """Return how long a TRV may stay away after the guard turns on."""
         return self.config.availability_guard_grace_seconds
+
+    @property
+    def distribute_valve_by_trv_temperature(self) -> bool:
+        """Return whether a group's valve command is split by the TRVs' readings."""
+        return self.config.distribute_valve_by_trv_temperature
 
     @property
     def room_temperature(self) -> float:
@@ -3153,7 +3162,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 trv.local_calibration_step = 0.5
 
             _s = self.hass.states.get(entity_id)
-            _attrs = _s.attributes if _s else {}
+            _attrs: Mapping[str, object] = _s.attributes if _s else {}
             _LOGGER.debug(
                 "better_thermostat %s: reading TRV %s attributes...",
                 self.device_name,
@@ -3199,7 +3208,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 trv.target_temp_step = self.bt_target_temperature_step
             else:
                 trv.target_temp_step = 0.5
-            trv.hvac_modes = _attrs.get("hvac_modes", None)
+            reported_modes = _attrs.get("hvac_modes")
+            trv.hvac_modes = (
+                reported_modes if isinstance(reported_modes, list) else None
+            )
             # A device that is heating already publishes the range it heats in;
             # its mode is decoded against the modes it offers, as at runtime.
             if (

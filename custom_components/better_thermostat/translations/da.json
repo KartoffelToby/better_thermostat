@@ -25,7 +25,8 @@
           "target_temp_min": "Mål minimum temperatur",
           "target_temp_max": "Mål maksimum temperatur",
           "target_temp_step": "Trin for måltemperatur",
-          "presets": "Aktiverede forudindstillinger"
+          "presets": "Aktiverede forudindstillinger",
+          "distribute_valve_by_trv_temperature": "Fordel ventilåbningen efter hver TRV's egen temperatur"
         },
         "data_description": {
           "name": "Navnet på denne termostat og dens enhed i Home Assistant.",
@@ -48,7 +49,8 @@
           "target_temp_min": "Det laveste mål, du kan indstille. Auto bruger det område, dine enheder melder.",
           "target_temp_max": "Det højeste mål, du kan indstille. Auto bruger det område, dine enheder melder.",
           "target_temp_step": "Hvor meget målet ændres pr. trin. Auto bruger det groveste trin, dine termostater melder.",
-          "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat."
+          "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat.",
+          "distribute_valve_by_trv_temperature": "Kun for to eller flere TRV'er med kalibreringstilstanden MPC eller MPC v2. Fra: alle TRV'er får samme ventilåbning. Til: en TRV, der måler koldere end den varmeste TRV i rummet, åbner mere, med 8 % pr. °C (4,4 % pr. °F) forskel. TRV'ernes egne målinger sammenlignes, så en Sonoff TRVZB eller TRV-ZBT skal have sin egen sensor valgt og »Behold TRV'ens sensorvalg« slået til. En TRV, der kalibreres via sin offset, får rummets ventilåbning."
         }
       },
       "advanced": {
@@ -62,7 +64,8 @@
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
           "no_off_system_mode": "Brug minimumstemperaturen i stedet for 'slukket'",
-          "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
+          "mpc_v2_plant_preset": "MPC v2 rumstørrelse",
+          "keep_sensor_selection": "Behold TRV'ens sensorvalg"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
@@ -73,7 +76,8 @@
           "calibration": "Hvordan kalibreringen anvendes på TRV'en\n***Baseret på måltemperatur***: Anvend kalibreringen på måltemperaturen.\n***Baseret på forskydning***: Anvend kalibreringen på temperaturforskydningen. Tilbydes kun, når TRV'en har en skrivbar temperaturforskydning.\n***Direkte ventilstyring***: Indstil ventilåbningen direkte. Tilbydes kun, når TRV'en har en skrivbar ventilposition. Kalibreringstilstande, der ikke giver en ventilåbning, sender i stedet en måltemperatur.",
           "calibration_mode": "Hvordan kalibreringen beregnes\n***AI tidsbaseret (standard)***: Lærer rummets varmeeffekt over tid og udleder kalibreringen af den.\n***Kun ekstern sensorforskydning***: Korrigerer TRV'ens interne sensor med din eksterne temperatursensor. Der kører ingen regulator ovenpå.\n***MPC forudsigende (beta)***: Forudsiger rumtemperaturen og beregner en ventilåbning ud fra den. Lærer rummets termiske adfærd.\n***(AI) MPC v2 (QP + Kalman, eksperimentel)***: Estimerer rummets tilstand med et Kalman-filter og beregner en ventilåbning med en modelprædiktiv regulator. Indstillingen MPC v2 rumstørrelse vælger rummodellen: lært fra rummet (automatisk) eller fast for en rumstørrelse (lille, mellemstort, stort).\n***Aggressiv***: Hæver kalibreringen, mens rummet opvarmes, og springer toleranceforsinkelsen over, så TRV'en begynder at varme tidligere. Nyttigt, hvis dit rum varmes langsomt op.\n***TPI-regulator***: Beregner varmecyklussernes driftstid ud fra temperaturforskellen.\n***PID-regulator***: Beregner en ventilåbning ud fra temperaturafvigelsen med et proportional-, integral- og differentialled.\n***Ingen kalibrering***: Sender måltemperaturen uændret til TRV'en og foretager ingen korrektion.",
           "no_off_system_mode": "Med denne indstilling sender Better Thermostat TRV'en dens minimumstemperatur i stedet for 'slukket'. En TRV, der rapporterer sin minimumstemperatur, regnes som slukket: når alle rummets TRV'er er slukket, slukker rummet, og når en drejeknap skrues op, tænder det igen. Et drej, mens et vindue eller en dør er åben, tæller også; opvarmningen venter så, til alle vinduer og døre er lukket. En TRV uden 'slukket'-tilstand får sin minimumstemperatur også uden denne indstilling. Slå den til for en TRV, hvis 'slukket'-tilstand ikke virker, eller for en TRV uden 'slukket'-tilstand, hvis drejeknap skal tænde og slukke Better Thermostat.",
-          "mpc_v2_plant_preset": "Bruges kun af kalibreringstilstanden MPC v2.\n***Automatisk***: Udleder rummodellen af det, Better Thermostat har lært om rummet, f.eks. dets varmetabsrate.\n***Lille, mellemstort eller stort rum***: Starter fra en fast rummodel for den rumstørrelse."
+          "mpc_v2_plant_preset": "Bruges kun af kalibreringstilstanden MPC v2.\n***Automatisk***: Udleder rummodellen af det, Better Thermostat har lært om rummet, f.eks. dets varmetabsrate.\n***Lille, mellemstort eller stort rum***: Starter fra en fast rummodel for den rumstørrelse.",
+          "keep_sensor_selection": "For TRV'er, der kan regulere efter en ekstern temperatur (Sonoff TRVZB og TRV-ZBT, Aqara SRTS-A01). Fra: Better Thermostat skifter TRV'en til den eksterne temperatur, den skriver, også efter en nulstilling eller ny parring. Til: den sensor, du har valgt på TRV'en, forbliver valgt, og rumtemperaturen skrives stadig til den eksterne indgang. En TRV, der falder tilbage til sin egen sensor, skiftes så ikke tilbage."
         }
       },
       "confirm": {
@@ -92,7 +96,8 @@
       "trv_is_better_thermostat": "{trv} er en Better Thermostat. Vælg en rigtig termostat i stedet.",
       "trv_no_target_temperature": "{trv} accepterer ingen måltemperatur. Vælg en termostat, der gør.",
       "cooler_is_better_thermostat": "{cooler} er en Better Thermostat. Vælg en rigtig køleenhed i stedet.",
-      "cooler_no_target_temperature": "{cooler} accepterer ingen måltemperatur. Vælg en køleenhed, der gør."
+      "cooler_no_target_temperature": "{cooler} accepterer ingen måltemperatur. Vælg en køleenhed, der gør.",
+      "bound_sensor_calibration_mode": "Denne termostat regulerer efter en temperatursensor, der er bundet til den (Matter Binding), og styrer selv rummet. Vælg Ingen kalibrering: enhver anden tilstand lægger en ekstra reguleringssløjfe oven på termostatens egen."
     },
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
@@ -126,7 +131,8 @@
           "target_temp_max": "Mål maksimum temperatur",
           "target_temp_step": "Trin for måltemperatur",
           "presets": "Aktiverede forudindstillinger",
-          "cooler": "Køleenhed (valgfri)"
+          "cooler": "Køleenhed (valgfri)",
+          "distribute_valve_by_trv_temperature": "Fordel ventilåbningen efter hver TRV's egen temperatur"
         },
         "data_description": {
           "name": "Navnet på denne termostat og dens enhed i Home Assistant.",
@@ -149,7 +155,8 @@
           "target_temp_max": "Det højeste mål, du kan indstille. Auto bruger det område, dine enheder melder.",
           "target_temp_step": "Hvor meget målet ændres pr. trin. Auto bruger det groveste trin, dine termostater melder.",
           "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat.",
-          "cooler": "Valgfri. Et klimaanlæg eller en anden klimaenhed, der køler rummet sammen med termostaterne."
+          "cooler": "Valgfri. Et klimaanlæg eller en anden klimaenhed, der køler rummet sammen med termostaterne.",
+          "distribute_valve_by_trv_temperature": "Kun for to eller flere TRV'er med kalibreringstilstanden MPC eller MPC v2. Fra: alle TRV'er får samme ventilåbning. Til: en TRV, der måler koldere end den varmeste TRV i rummet, åbner mere, med 8 % pr. °C (4,4 % pr. °F) forskel. TRV'ernes egne målinger sammenlignes, så en Sonoff TRVZB eller TRV-ZBT skal have sin egen sensor valgt og »Behold TRV'ens sensorvalg« slået til. En TRV, der kalibreres via sin offset, får rummets ventilåbning."
         }
       },
       "advanced": {
@@ -163,7 +170,8 @@
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
           "no_off_system_mode": "Brug minimumstemperaturen i stedet for 'slukket'",
-          "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
+          "mpc_v2_plant_preset": "MPC v2 rumstørrelse",
+          "keep_sensor_selection": "Behold TRV'ens sensorvalg"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
@@ -174,7 +182,8 @@
           "calibration": "Hvordan kalibreringen anvendes på TRV'en\n***Baseret på måltemperatur***: Anvend kalibreringen på måltemperaturen.\n***Baseret på forskydning***: Anvend kalibreringen på temperaturforskydningen. Tilbydes kun, når TRV'en har en skrivbar temperaturforskydning.\n***Direkte ventilstyring***: Indstil ventilåbningen direkte. Tilbydes kun, når TRV'en har en skrivbar ventilposition. Kalibreringstilstande, der ikke giver en ventilåbning, sender i stedet en måltemperatur.",
           "calibration_mode": "Hvordan kalibreringen beregnes\n***AI tidsbaseret (standard)***: Lærer rummets varmeeffekt over tid og udleder kalibreringen af den.\n***Kun ekstern sensorforskydning***: Korrigerer TRV'ens interne sensor med din eksterne temperatursensor. Der kører ingen regulator ovenpå.\n***MPC forudsigende (beta)***: Forudsiger rumtemperaturen og beregner en ventilåbning ud fra den. Lærer rummets termiske adfærd.\n***(AI) MPC v2 (QP + Kalman, eksperimentel)***: Estimerer rummets tilstand med et Kalman-filter og beregner en ventilåbning med en modelprædiktiv regulator. Indstillingen MPC v2 rumstørrelse vælger rummodellen: lært fra rummet (automatisk) eller fast for en rumstørrelse (lille, mellemstort, stort).\n***Aggressiv***: Hæver kalibreringen, mens rummet opvarmes, og springer toleranceforsinkelsen over, så TRV'en begynder at varme tidligere. Nyttigt, hvis dit rum varmes langsomt op.\n***TPI-regulator***: Beregner varmecyklussernes driftstid ud fra temperaturforskellen.\n***PID-regulator***: Beregner en ventilåbning ud fra temperaturafvigelsen med et proportional-, integral- og differentialled.\n***Ingen kalibrering***: Sender måltemperaturen uændret til TRV'en og foretager ingen korrektion.",
           "no_off_system_mode": "Med denne indstilling sender Better Thermostat TRV'en dens minimumstemperatur i stedet for 'slukket'. En TRV, der rapporterer sin minimumstemperatur, regnes som slukket: når alle rummets TRV'er er slukket, slukker rummet, og når en drejeknap skrues op, tænder det igen. Et drej, mens et vindue eller en dør er åben, tæller også; opvarmningen venter så, til alle vinduer og døre er lukket. En TRV uden 'slukket'-tilstand får sin minimumstemperatur også uden denne indstilling. Slå den til for en TRV, hvis 'slukket'-tilstand ikke virker, eller for en TRV uden 'slukket'-tilstand, hvis drejeknap skal tænde og slukke Better Thermostat.",
-          "mpc_v2_plant_preset": "Bruges kun af kalibreringstilstanden MPC v2.\n***Automatisk***: Udleder rummodellen af det, Better Thermostat har lært om rummet, f.eks. dets varmetabsrate.\n***Lille, mellemstort eller stort rum***: Starter fra en fast rummodel for den rumstørrelse."
+          "mpc_v2_plant_preset": "Bruges kun af kalibreringstilstanden MPC v2.\n***Automatisk***: Udleder rummodellen af det, Better Thermostat har lært om rummet, f.eks. dets varmetabsrate.\n***Lille, mellemstort eller stort rum***: Starter fra en fast rummodel for den rumstørrelse.",
+          "keep_sensor_selection": "For TRV'er, der kan regulere efter en ekstern temperatur (Sonoff TRVZB og TRV-ZBT, Aqara SRTS-A01). Fra: Better Thermostat skifter TRV'en til den eksterne temperatur, den skriver, også efter en nulstilling eller ny parring. Til: den sensor, du har valgt på TRV'en, forbliver valgt, og rumtemperaturen skrives stadig til den eksterne indgang. En TRV, der falder tilbage til sin egen sensor, skiftes så ikke tilbage."
         }
       }
     },
@@ -187,7 +196,8 @@
       "trv_is_better_thermostat": "{trv} er en Better Thermostat. Vælg en rigtig termostat i stedet.",
       "trv_no_target_temperature": "{trv} accepterer ingen måltemperatur. Vælg en termostat, der gør.",
       "cooler_is_better_thermostat": "{cooler} er en Better Thermostat. Vælg en rigtig køleenhed i stedet.",
-      "cooler_no_target_temperature": "{cooler} accepterer ingen måltemperatur. Vælg en køleenhed, der gør."
+      "cooler_no_target_temperature": "{cooler} accepterer ingen måltemperatur. Vælg en køleenhed, der gør.",
+      "bound_sensor_calibration_mode": "Denne termostat regulerer efter en temperatursensor, der er bundet til den (Matter Binding), og styrer selv rummet. Vælg Ingen kalibrering: enhver anden tilstand lægger en ekstra reguleringssløjfe oven på termostatens egen."
     }
   },
   "issues": {

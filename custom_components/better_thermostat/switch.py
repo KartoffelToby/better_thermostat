@@ -14,7 +14,7 @@ from homeassistant.helpers import entity_registry as er, restore_state
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
-import voluptuous as vol
+import probatio as vol
 
 from . import BetterThermostatConfigEntry
 from .entity import (

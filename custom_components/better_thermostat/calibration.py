@@ -27,6 +27,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     build_mpc_group_key,
     build_mpc_key,
     compute_mpc,
+    distribute_valve_percent,
     sanitize_mpc_state,
 )
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
@@ -88,6 +89,7 @@ from custom_components.better_thermostat.utils.helpers import (
     configured_calibration_output,
     convert_to_float,
     convert_to_float_celsius,
+    device_released,
     heating_power_valve_position,
     normalize_step,
     published_setpoint_grid,
@@ -365,6 +367,60 @@ def _group_max_opening(self: BetterThermostat) -> float:
     return max(_get_trv_max_opening(self, eid) for eid in self.real_trvs)
 
 
+def _distribution_temperatures(self: BetterThermostat) -> dict[str, float | None]:
+    """Return the reading each controlled TRV of the group is compared by.
+
+    A released TRV is not controlled and takes no part. A TRV that is not
+    reporting has no reading. Neither has a TRV calibrated through its
+    offset: its reading carries the offset Better Thermostat moves with the
+    valve command, so the further it is opened, the colder it reads, and
+    comparing by that reading would open it further still.
+    """
+    temperatures: dict[str, float | None] = {}
+    for eid, trv in self.real_trvs.items():
+        if device_released(self, eid):
+            continue
+        temperatures[eid] = (
+            None
+            if trv.calibration is CalibrationOutput.LOCAL_BASED
+            else reachable_trv_temperature(self, eid)
+        )
+    return temperatures
+
+
+def _trv_share_percent(
+    self: BetterThermostat, entity_id: str, group_valve_percent: float
+) -> float:
+    """Return the TRV's share of the group's valve command, in percent.
+
+    Every TRV of a group gets the group command. With
+    ``distribute_valve_by_trv_temperature`` on, a TRV that reads colder than
+    the warmest TRV of the group gets more (see
+    :func:`distribute_valve_percent`). Either way the share is held to the
+    TRV's own maximum opening; the controller of a group is held only to the
+    widest of them.
+    """
+    share = group_valve_percent
+    if len(self.real_trvs) > 1 and self.distribute_valve_by_trv_temperature:
+        temperatures = _distribution_temperatures(self)
+        share = distribute_valve_percent(group_valve_percent, temperatures).get(
+            entity_id, group_valve_percent
+        )
+        _LOGGER.debug(
+            "better_thermostat %s: valve split by TRV temperature for %s: "
+            "group %.1f%% -> %.1f%% | readings %s",
+            self.device_name,
+            entity_id,
+            group_valve_percent,
+            share,
+            {
+                eid: round(value, 1) if value is not None else None
+                for eid, value in temperatures.items()
+            },
+        )
+    return min(share, _get_trv_max_opening(self, entity_id))
+
+
 def _compute_mpc_balance(
     self: BetterThermostat, entity_id: str
 ) -> tuple[MpcOutput | None, bool]:
@@ -372,7 +428,8 @@ def _compute_mpc_balance(
 
     When the BT instance controls **multiple TRVs**, a single shared MPC model
     is evaluated (using the room-level external sensor) and every TRV
-    receives its valve command, each held to its own maximum opening.
+    receives its valve command, split by the TRVs' own readings when the
+    group asks for it, each held to its own maximum opening.
 
     With a **single TRV** the model is keyed per entity.
     """
@@ -463,9 +520,7 @@ def _compute_mpc_balance(
 
     group_valve_percent = float(mpc_output.valve_percent)
 
-    # The controller of a group is held to the widest cap of its TRVs, so
-    # each per-TRV command is clamped to that TRV's own max opening here.
-    this_trv_percent = min(group_valve_percent, _get_trv_max_opening(self, entity_id))
+    this_trv_percent = _trv_share_percent(self, entity_id, group_valve_percent)
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state.calibration_balance = MpcBalance(
@@ -779,7 +834,8 @@ def _compute_mpc_v2_balance(
     Routes through ``compute_mpc_v2`` so the receding-horizon QP controller
     produces the valve recommendation. Multi-TRV setups share one controller
     that steps once per control cycle, and every TRV receives the command of
-    that step, each held to its own maximum opening.
+    that step, split by the TRVs' own readings when the group asks for it,
+    each held to its own maximum opening.
     """
     trv_state = self.real_trvs[entity_id]
 
@@ -921,9 +977,7 @@ def _compute_mpc_v2_balance(
 
     group_valve_percent = float(mpc_output.valve_percent)
 
-    # The controller of a group is held to the widest cap of its TRVs, so
-    # each per-TRV command is clamped to that TRV's own max opening here.
-    this_trv_percent = min(group_valve_percent, _get_trv_max_opening(self, entity_id))
+    this_trv_percent = _trv_share_percent(self, entity_id, group_valve_percent)
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
     diagnostics = mpc_output.diagnostics

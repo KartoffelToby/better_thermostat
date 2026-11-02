@@ -15,9 +15,10 @@ flattened by accident.
 import asyncio
 import contextlib
 from dataclasses import dataclass
-from typing import override
+from typing import TypedDict, override
 from unittest.mock import PropertyMock, patch
 
+import probatio as vol
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -27,7 +28,6 @@ from pytest_homeassistant_custom_component.common import (
     mock_platform,
     setup_test_component_platform,
 )
-import voluptuous as vol
 
 # Pin the repository's custom_components namespace package before the
 # hass fixture mounts the plugin's testing config dir: that dir carries
@@ -52,10 +52,11 @@ from homeassistant.components.number import (
 )
 from homeassistant.components.select import DOMAIN as SELECT_DOMAIN, SelectEntity
 from homeassistant.config_entries import ConfigFlow
-from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
+from homeassistant.const import ATTR_TEMPERATURE, EVENT_CALL_SERVICE, UnitOfTemperature
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.setup import async_setup_component
+from homeassistant.util.event_type import EventType
 from homeassistant.util.unit_conversion import TemperatureConverter
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
@@ -74,6 +75,7 @@ from .device_profiles import (
     OffsetChannel,
     RoleScenario,
     ValveChannel,
+    blu_trv_external_temperature_id,
     external_temperature_input_id,
     offset_number_id,
     published_precision,
@@ -88,6 +90,19 @@ SENSOR_ID = "sensor.room_temperature"
 OUTDOOR_ID = "sensor.outdoor_temperature"
 WINDOW_ID = "binary_sensor.window"
 HUMIDITY_ID = "sensor.room_humidity"
+
+
+class ServiceCallData(TypedDict):
+    """The payload Home Assistant fires on the bus for every service call."""
+
+    domain: str
+    service: str
+    service_data: dict[str, object]
+
+
+# ``EVENT_CALL_SERVICE`` typed with its payload, so captured calls carry it.
+CALL_SERVICE: EventType[ServiceCallData] = EventType(EVENT_CALL_SERVICE)
+
 
 # The entity every test drives, derived from the default entry title.
 BT_ENTITY = "climate.bt_test"
@@ -181,7 +196,8 @@ class SimulatedClimate(ClimateEntity):
 
     ``offset_number`` and ``valve_number`` are the calibration and valve
     entities of a device that exposes those channels, and ``None`` for a
-    device that does not; ``external_temperature_input`` likewise.
+    device that does not; ``external_temperature_input`` and
+    ``blu_trv_external_temperature`` likewise.
     """
 
     _attr_should_poll = False
@@ -191,6 +207,9 @@ class SimulatedClimate(ClimateEntity):
         self.profile = profile
         self.offset_number: SimulatedOffsetNumber | None = None
         self.external_temperature_input: SimulatedExternalTemperatureInput | None = None
+        self.blu_trv_external_temperature: SimulatedBluTrvExternalTemperature | None = (
+            None
+        )
         self.valve_number: SimulatedValveNumber | None = None
         self.sensor_selector: SimulatedSensorSelector | None = None
         self._attr_name = profile.entity_name
@@ -292,6 +311,8 @@ class SimulatedClimate(ClimateEntity):
         it with every mode it is told.
         """
         self.set_hvac_mode_calls.append(str(hvac_mode))
+        if self.profile.rejects_hvac_mode_writes:
+            raise NotImplementedError
         self._attr_hvac_mode = hvac_mode
         if self.profile.mode_write_setpoint is not None:
             self._attr_target_temperature = self.profile.mode_write_setpoint
@@ -383,6 +404,32 @@ class SimulatedExternalTemperatureInput(_SimulatedNumber):
         """Start the input out at the device's own reading."""
         super().__init__(profile, "external_temperature_input")
         self._attr_native_value = profile.current_temperature
+
+
+class SimulatedBluTrvExternalTemperature(_SimulatedNumber):
+    """The external temperature of a Shelly BLU TRV, as the Shelly integration has it.
+
+    Its native unit is Celsius and its device class ``temperature``, so Home
+    Assistant publishes it, and checks a written value, in the system unit.
+    The integration shows the value written last and nothing before the
+    first write.
+    """
+
+    _attr_name = "external temperature"
+    _attr_translation_key = "external_temperature"
+    _attr_device_class = NumberDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_native_min_value = -50.0
+    _attr_native_max_value = 50.0
+    _attr_native_step = 0.1
+
+    def __init__(self, profile: DeviceProfile):
+        """Register the number under a unique id shaped like the Shelly one."""
+        super().__init__(profile, "external_temperature")
+        self._attr_unique_id = (
+            f"{_object_id(profile.entity_id)}-blutrv:200-external_temperature"
+        )
+        self._attr_native_value = None
 
 
 class SimulatedValveNumber(_SimulatedNumber):
@@ -506,6 +553,7 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
         p.offset_channel is OffsetChannel.NUMBER_ENTITY
         or p.valve_channel is ValveChannel.NUMBER_ENTITY
         or p.external_temperature_input
+        or p.blu_trv_external_temperature
         for p in profiles
     ):
         raise ValueError("a number channel needs has_device_registry_entry=True")
@@ -541,6 +589,11 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
             external_input.entity_id = external_temperature_input_id(profile)
             entity.external_temperature_input = external_input
             numbers.append(external_input)
+        if profile.blu_trv_external_temperature:
+            blu_trv_input = SimulatedBluTrvExternalTemperature(profile)
+            blu_trv_input.entity_id = blu_trv_external_temperature_id(profile)
+            entity.blu_trv_external_temperature = blu_trv_input
+            numbers.append(blu_trv_input)
         if profile.valve_channel is ValveChannel.NUMBER_ENTITY:
             valve = SimulatedValveNumber(profile)
             valve.entity_id = valve_number_id(profile)
@@ -682,6 +735,8 @@ def make_entry(
     off_temperature: int = 5,
     availability_guard_entity_id: str | None = None,
     availability_guard_grace_seconds: int = DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
+    distribute_valve_by_trv_temperature: bool = False,
+    keep_sensor_selection: bool = False,
 ) -> MockConfigEntry:
     """Build a config entry for ``devices``, matching the current entry schema.
 
@@ -699,6 +754,10 @@ def make_entry(
     ``availability_guard_entity_id`` is the entity that says whether the TRVs
     have power, and ``availability_guard_grace_seconds`` how long they get to
     come back once it turns on.
+
+    ``distribute_valve_by_trv_temperature`` is the group's split of its valve
+    command by the heads' readings, and ``keep_sensor_selection`` is set on
+    every head.
     """
     if isinstance(devices, GroupScenario):
         profiles, cooler = list(devices.profiles), None
@@ -732,6 +791,7 @@ def make_entry(
                     "valve_maintenance": profile.valve_maintenance,
                     "child_lock": False,
                     "homematicip": False,
+                    "keep_sensor_selection": keep_sensor_selection,
                 },
             }
             for profile in profiles
@@ -743,6 +803,7 @@ def make_entry(
         "off_temperature": off_temperature,
         "availability_guard": availability_guard_entity_id,
         "availability_guard_grace_seconds": availability_guard_grace_seconds,
+        "distribute_valve_by_trv_temperature": distribute_valve_by_trv_temperature,
     }
     if with_outdoor_sensor:
         data["outdoor_sensor"] = OUTDOOR_ID
