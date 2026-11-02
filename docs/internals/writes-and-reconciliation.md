@@ -125,7 +125,11 @@ The valve write decision skips a write only when the last value sent
 equals the target and the entities that write set still report it, or
 report nothing it could be checked against. A valve entity whose state is
 `assumed_state` only repeats what was sent, so the valve is written again
-on every cycle, at the valve channel's budget.
+on every cycle, at the valve channel's budget. That holds for a close as
+well: a repeated close that only an assumed state reports waits for its
+slot instead of bypassing the budget. A closed valve the device reports
+open again is closed again at once, once per report; the next close waits
+for the device's next position report.
 
 The setpoint write decision compares the intent with the setpoint the
 device **reports**, not with the last value sent, so a setpoint the device
