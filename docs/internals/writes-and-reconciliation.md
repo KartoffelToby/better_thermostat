@@ -121,6 +121,12 @@ device rejected after the budget was spent schedules the same catch-up
 cycle. The follow-up is needed because the reconciler compares against
 the last value actually written, which the device still matches.
 
+The valve write decision skips a write only when the last value sent
+equals the target and the entities that write set still report it, or
+report nothing it could be checked against. A valve entity whose state is
+`assumed_state` only repeats what was sent, so the valve is written again
+on every cycle, at the valve channel's budget.
+
 The setpoint write decision compares the intent with the setpoint the
 device **reports**, not with the last value sent, so a setpoint the device
 did not take is written again by the next cycle. A device that keeps
@@ -152,8 +158,14 @@ intent against what the devices report:
 - **offset** — the commanded calibration against the calibration
   entity, once the device confirmed the last write (in-flight writes
   remain the write path's business),
-- **valve** — the commanded percentage against the adapter-written
-  number entity, with a 5-point tolerance for device-side modulation,
+- **valve** — the commanded percentage against every entity the last
+  valve write set, with a 5-point tolerance for device-side modulation.
+  An adapter write is read back from the valve number entity; a quirk
+  write from the numbers the quirk names, such as both the opening and
+  the closing degree of a Sonoff TRVZB. An entity whose state is
+  `assumed_state` repeats the last command sent to it, so a matching one
+  confirms nothing and is no divergence either; a different one means a
+  later command replaced BT's,
 - **cooler mode** — the mode a cooler of its own reports against the
   COOL or OFF the cooling channel last decided. A cooler that also
   carries the heating role is compared as a TRV instead.

@@ -22,12 +22,15 @@ from custom_components.better_thermostat.model_fixes.types import (
     ModelQuirks,
     ValveChannelQuirk,
     ValveQuirk,
+    ValveReading,
+    ValveReadingsQuirk,
 )
 from custom_components.better_thermostat.utils.helpers import (
     device_released,
     external_temperature_input_value,
     find_keyed_device_entity,
     is_sibling_entry,
+    state_is_assumed,
     state_is_live,
 )
 
@@ -258,6 +261,43 @@ def _valve_number_candidates(
     )
 
 
+class _ValveWrite(NamedTuple):
+    """One number a TRVZB valve position is written to."""
+
+    entity_id: str
+    """The number entity."""
+    value: int
+    """The value that number takes for the position."""
+    label: str
+    """What the number is, for log lines."""
+
+
+def _valve_writes(
+    candidates: _ValveNumberCandidates, percent: int
+) -> list[_ValveWrite]:
+    """Return the numbers a valve position goes to, with the value of each.
+
+    The opening degree takes the position and the closing degree its
+    complement; a device with neither takes the position on the generic
+    number that names a valve or a position most plainly.
+    """
+    writes: list[_ValveWrite] = []
+    if candidates.opening:
+        writes.append(
+            _ValveWrite(candidates.opening[0], percent, "valve_opening_degree")
+        )
+    if candidates.closing:
+        writes.append(
+            _ValveWrite(candidates.closing[0], 100 - percent, "valve_closing_degree")
+        )
+    if not writes and candidates.generic:
+        generic = sorted(
+            candidates.generic, key=lambda x: ("valve" not in x, "position" not in x)
+        )
+        writes.append(_ValveWrite(generic[0], percent, "generic valve percent"))
+    return writes
+
+
 def has_valve_channel(self: ModelFixHost, entity_id: str) -> bool:
     """Whether the TRV's device carries an enabled number to write the valve to.
 
@@ -305,81 +345,34 @@ async def maybe_set_sonoff_valve_percent(
         candidates = _valve_number_candidates(self, entity_id)
         if candidates is None:
             return False
-        opening_candidates, closing_candidates, generic_candidates = candidates
-
         clamped_percent = max(0, min(100, percent))
         _LOGGER.debug(
             "better_thermostat %s: TRVZB valve write candidates (open=%s, close=%s, generic=%s) target=%s%% for %s",
             self.device_name,
-            opening_candidates,
-            closing_candidates,
-            generic_candidates,
+            candidates.opening,
+            candidates.closing,
+            candidates.generic,
             clamped_percent,
             entity_id,
         )
-        wrote = False
-
-        # If we have explicit opening, set it
-        if opening_candidates:
-            target_open = opening_candidates[0]
+        writes = _valve_writes(candidates, clamped_percent)
+        for write in writes:
             await self.hass.services.async_call(
                 "number",
                 "set_value",
-                {"entity_id": target_open, "value": clamped_percent},
+                {"entity_id": write.entity_id, "value": write.value},
                 blocking=True,
                 context=self.context,
             )
             _LOGGER.debug(
-                "better_thermostat %s: set TRVZB valve_opening_degree=%s on %s (for %s)",
+                "better_thermostat %s: set TRVZB %s=%s on %s (for %s)",
                 self.device_name,
-                clamped_percent,
-                target_open,
+                write.label,
+                write.value,
+                write.entity_id,
                 entity_id,
             )
-            wrote = True
-
-        # If we have explicit closing, set complement 100 - clamped_percent
-        if closing_candidates:
-            target_close = closing_candidates[0]
-            comp = 100 - clamped_percent
-            await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": target_close, "value": comp},
-                blocking=True,
-                context=self.context,
-            )
-            _LOGGER.debug(
-                "better_thermostat %s: set TRVZB valve_closing_degree=%s on %s (for %s)",
-                self.device_name,
-                comp,
-                target_close,
-                entity_id,
-            )
-            wrote = True
-
-        # Fallback: if neither explicit entity exists, try a generic candidate
-        if not wrote and generic_candidates:
-            # Prefer entities with 'valve' then 'position'
-            generic_candidates.sort(
-                key=lambda x: ("valve" not in x, "position" not in x)
-            )
-            target = generic_candidates[0]
-            await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": target, "value": clamped_percent},
-                blocking=True,
-                context=self.context,
-            )
-            _LOGGER.debug(
-                "better_thermostat %s: set TRVZB generic valve percent %s%% on %s (for %s)",
-                self.device_name,
-                clamped_percent,
-                target,
-                entity_id,
-            )
-            wrote = True
+        wrote = bool(writes)
 
         if not wrote:
             _LOGGER.debug(
@@ -512,6 +505,46 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
         return False
 
 
+def valve_readings(
+    self: ModelFixHost, entity_id: str, percent: int
+) -> list[ValveReading]:
+    """Name the numbers a write of ``percent`` set, with the value of each.
+
+    While the write that follows a close bump is still due, the device
+    holds the bump's opening on purpose, so nothing is offered to compare
+    against until that write has gone out.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access
+    entity_id : str
+        entity_id of the TRV
+    percent : int
+        the valve position that was written, in percent
+
+    Returns
+    -------
+    list[ValveReading]
+        Each number the write went to, with its current state and the value
+        it holds once the device took the position; empty when no number
+        matched or a bump is under way
+    """
+    trv_state = self.real_trvs.get(entity_id)
+    if trv_state is None:
+        return []
+    bump_task = trv_state.extra.get("_trvzb_valve_bump_task")
+    if bump_task is not None and not bump_task.done():
+        return []
+    candidates = _valve_number_candidates(self, entity_id)
+    if candidates is None:
+        return []
+    return [
+        ValveReading(self.hass.states.get(write.entity_id), float(write.value))
+        for write in _valve_writes(candidates, max(0, min(100, percent)))
+    ]
+
+
 # Translation keys Zigbee2MQTT uses for the input the room temperature is
 # mirrored into.
 _TK_EXTERNAL_TEMP = frozenset({"external_temperature_input", "external_temperature"})
@@ -535,6 +568,9 @@ _INTERNAL_SENSOR_OPTIONS = ("internal", "local_temperature")
 # fell back to its own sensor while the remote one is gone; it switches back
 # by itself once the remote value returns.
 _ON_A_REMOTE_SENSOR = ("external", "remote_")
+
+# The device's report that it fell back to its own sensor.
+_REMOTE_SOURCE_OFFLINE = "remote_source_offline"
 
 
 def _sensor_selector(self: ModelFixHost, entity_id: str) -> tuple[str, State] | None:
@@ -588,7 +624,11 @@ async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bo
     alongside every write of the input it belongs to.
 
     A device already on an option naming an external sensor is left alone,
-    whichever of them it is: the choice between them is its owner's.
+    whichever of them it is: the choice between them is its owner's. A
+    selector whose state is assumed shows the option last sent to it, not
+    the device's, so that option is sent again; an assumed
+    ``remote_source_offline`` is no option anyone chose and is replaced by
+    the external option.
 
     Parameters
     ----------
@@ -608,17 +648,21 @@ async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bo
     if selector is None:
         return False
     target, state = selector
-    if state.state.startswith(_ON_A_REMOTE_SENSOR):
+    on_a_remote_sensor = state.state.startswith(_ON_A_REMOTE_SENSOR)
+    if on_a_remote_sensor and not state_is_assumed(state):
         return True
     options = state.attributes.get("options")
-    option = next(
-        (
-            name
-            for name in _EXTERNAL_SENSOR_OPTIONS
-            if isinstance(options, (list, tuple)) and name in options
-        ),
-        None,
-    )
+    offered = options if isinstance(options, (list, tuple)) else ()
+    if (
+        on_a_remote_sensor
+        and state.state != _REMOTE_SOURCE_OFFLINE
+        and state.state in offered
+    ):
+        option: str | None = state.state
+    else:
+        option = next(
+            (name for name in _EXTERNAL_SENSOR_OPTIONS if name in offered), None
+        )
     if option is None:
         _LOGGER.debug(
             "better_thermostat %s: TRVZB selector %s offers none of %s (%s)",
@@ -869,6 +913,7 @@ class _Surface:
     maybe_set_external_temperature = staticmethod(maybe_set_external_temperature)
     override_set_valve = staticmethod(override_set_valve)
     has_valve_channel = staticmethod(has_valve_channel)
+    valve_readings = staticmethod(valve_readings)
 
 
 _MODEL_QUIRKS: ModelQuirks = _Surface()
@@ -876,3 +921,4 @@ _EXTERNAL_TEMPERATURE_QUIRK: ExternalTemperatureQuirk = _Surface()
 _MAINTENANCE_INTERVAL_QUIRK: MaintenanceIntervalQuirk = _Surface()
 _VALVE_QUIRK: ValveQuirk = _Surface()
 _VALVE_CHANNEL_QUIRK: ValveChannelQuirk = _Surface()
+_VALVE_READINGS_QUIRK: ValveReadingsQuirk = _Surface()

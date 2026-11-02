@@ -25,6 +25,7 @@ from homeassistant.components.climate.const import (
     HVACMode,
 )
 from homeassistant.const import (
+    ATTR_ASSUMED_STATE,
     ATTR_UNIT_OF_MEASUREMENT,
     CONF_NAME,
     STATE_UNAVAILABLE,
@@ -2204,6 +2205,26 @@ def state_is_live(state: State | None) -> TypeGuard[State]:
             ``unknown``
     """
     return state is not None and state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+
+
+def state_is_assumed(state: State | None) -> bool:
+    """Answer whether a state shows the last command rather than the device.
+
+    An entity that cannot read its device back, such as an optimistic MQTT
+    entity, flags its state with ``assumed_state``. Such a state repeats
+    whatever was last sent to it, so it confirms nothing about the device.
+
+    Parameters
+    ----------
+    state : State | None
+            the entity state to inspect
+
+    Returns
+    -------
+    bool
+            True when the state is present and flagged ``assumed_state``
+    """
+    return state is not None and state.attributes.get(ATTR_ASSUMED_STATE) is True
 
 
 def resolve_state_change_event(

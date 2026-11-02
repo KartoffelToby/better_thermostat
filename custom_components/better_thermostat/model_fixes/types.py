@@ -21,11 +21,19 @@ provide is an error rather than a promise nobody checks.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine, Mapping, Set
-from typing import TYPE_CHECKING, Any, Final, Protocol, TypedDict, runtime_checkable
+from collections.abc import Coroutine, Mapping, Sequence, Set
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Final,
+    NamedTuple,
+    Protocol,
+    TypedDict,
+    runtime_checkable,
+)
 
 if TYPE_CHECKING:
-    from homeassistant.core import Context, HomeAssistant
+    from homeassistant.core import Context, HomeAssistant, State
 
     from custom_components.better_thermostat.core.decide import KernelState
 
@@ -323,6 +331,36 @@ class ValveChannelQuirk(Protocol):
         ...
 
 
+class ValveReading(NamedTuple):
+    """One device entity that reports what a valve write put there.
+
+    Attributes
+    ----------
+    state : State | None
+        The entity's current state, None when it has none
+    expected_percent : float
+        The value the entity holds once the device took the commanded
+        opening, in percent of its range
+    """
+
+    state: State | None
+    expected_percent: float
+
+
+@runtime_checkable
+class ValveReadingsQuirk(Protocol):
+    """A valve quirk that can name the entities its valve write sets."""
+
+    def valve_readings(
+        self, host: ModelFixHost, entity_id: str, percent: int, /
+    ) -> Sequence[ValveReading]:
+        """Return the entities a write of ``percent`` set, with what each holds.
+
+        An empty answer means nothing can be read back at the moment.
+        """
+        ...
+
+
 @runtime_checkable
 class ExternalTemperatureQuirk(Protocol):
     """A quirk that mirrors the room temperature into its device."""
@@ -363,4 +401,6 @@ __all__ = [
     "UnknownStateQuirk",
     "ValveChannelQuirk",
     "ValveQuirk",
+    "ValveReading",
+    "ValveReadingsQuirk",
 ]
