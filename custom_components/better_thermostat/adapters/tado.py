@@ -37,11 +37,13 @@ CAPABILITIES = AdapterCapabilities(
     offset_write=True, offset_needs_entity=False, valve_write=False
 )
 
-# The offset range and granularity Tado's own service accepts. They belong
-# to the ecosystem rather than to a discovered entity, so every Tado TRV
-# reports the same three numbers and the write clamps to them.
-OFFSET_MIN: Final = -10.0
-OFFSET_MAX: Final = 10.0
+# The offset range and granularity Tado accepts. They belong to the
+# ecosystem rather than to a discovered entity, so every Tado TRV reports the
+# same three numbers and the write clamps to them. The range is the one
+# Tado's API enforces: it rejects ±10 with HTTP 422, although the service's
+# selector in Home Assistant offers it.
+OFFSET_MIN: Final = -9.99
+OFFSET_MAX: Final = 9.99
 OFFSET_STEP: Final = 0.01
 
 
