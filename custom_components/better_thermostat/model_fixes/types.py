@@ -52,6 +52,17 @@ class QuirkScratchpad(TypedDict, total=False):
     _danfoss_external_sensor_written_at: float
     """Monotonic clock reading, in seconds, of that write."""
 
+    _shelly_blu_external_temperature_celsius: float
+    """Room temperature the Shelly BLU TRV external temperature number was
+    last written, in degrees Celsius, as the number holds it."""
+
+    _shelly_blu_external_temperature_written_at: float
+    """Monotonic clock reading, in seconds, of that write."""
+
+    _shelly_blu_external_temperature_missing_logged: bool
+    """Whether the missing Shelly BLU TRV external temperature number has
+    been reported in the log."""
+
 
 class ModelFixTrv(Protocol):
     """Minimal per-TRV record the model fixes read."""

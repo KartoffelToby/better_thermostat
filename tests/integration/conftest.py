@@ -74,6 +74,7 @@ from .device_profiles import (
     OffsetChannel,
     RoleScenario,
     ValveChannel,
+    blu_trv_external_temperature_id,
     external_temperature_input_id,
     offset_number_id,
     published_precision,
@@ -181,7 +182,8 @@ class SimulatedClimate(ClimateEntity):
 
     ``offset_number`` and ``valve_number`` are the calibration and valve
     entities of a device that exposes those channels, and ``None`` for a
-    device that does not; ``external_temperature_input`` likewise.
+    device that does not; ``external_temperature_input`` and
+    ``blu_trv_external_temperature`` likewise.
     """
 
     _attr_should_poll = False
@@ -191,6 +193,9 @@ class SimulatedClimate(ClimateEntity):
         self.profile = profile
         self.offset_number: SimulatedOffsetNumber | None = None
         self.external_temperature_input: SimulatedExternalTemperatureInput | None = None
+        self.blu_trv_external_temperature: SimulatedBluTrvExternalTemperature | None = (
+            None
+        )
         self.valve_number: SimulatedValveNumber | None = None
         self.sensor_selector: SimulatedSensorSelector | None = None
         self._attr_name = profile.entity_name
@@ -375,6 +380,30 @@ class SimulatedExternalTemperatureInput(_SimulatedNumber):
         self._attr_native_value = profile.current_temperature
 
 
+class SimulatedBluTrvExternalTemperature(_SimulatedNumber):
+    """The external temperature of a Shelly BLU TRV, as the Shelly integration has it.
+
+    Its native unit is Celsius and its device class ``temperature``, so Home
+    Assistant publishes it, and checks a written value, in the system unit.
+    The integration shows the value written last and nothing before the
+    first write.
+    """
+
+    _attr_name = "external temperature"
+    _attr_translation_key = "external_temperature"
+    _attr_device_class = NumberDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_native_min_value = -50.0
+    _attr_native_max_value = 50.0
+    _attr_native_step = 0.1
+
+    def __init__(self, profile: DeviceProfile):
+        """Register the number under the unique id the Shelly integration uses."""
+        super().__init__(profile, "external_temperature")
+        self._attr_unique_id = "aabbccddeeff-blutrv:200-external_temperature"
+        self._attr_native_value = None
+
+
 class SimulatedValveNumber(_SimulatedNumber):
     """The valve position a device exposes next to its climate entity."""
 
@@ -496,6 +525,7 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
         p.offset_channel is OffsetChannel.NUMBER_ENTITY
         or p.valve_channel is ValveChannel.NUMBER_ENTITY
         or p.external_temperature_input
+        or p.blu_trv_external_temperature
         for p in profiles
     ):
         raise ValueError("a number channel needs has_device_registry_entry=True")
@@ -531,6 +561,11 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
             external_input.entity_id = external_temperature_input_id(profile)
             entity.external_temperature_input = external_input
             numbers.append(external_input)
+        if profile.blu_trv_external_temperature:
+            blu_trv_input = SimulatedBluTrvExternalTemperature(profile)
+            blu_trv_input.entity_id = blu_trv_external_temperature_id(profile)
+            entity.blu_trv_external_temperature = blu_trv_input
+            numbers.append(blu_trv_input)
         if profile.valve_channel is ValveChannel.NUMBER_ENTITY:
             valve = SimulatedValveNumber(profile)
             valve.entity_id = valve_number_id(profile)
