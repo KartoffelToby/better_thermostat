@@ -465,10 +465,16 @@ def on_other_matter_endpoint(
 ) -> bool:
     """Whether two Matter entities name different endpoints of their device.
 
-    False whenever either entity is missing or its unique id names no
-    endpoint, so only entities that are known to belong apart are told apart.
+    False whenever either entity is missing, is no Matter entity, or its
+    unique id names no endpoint, so only entities that are known to belong
+    apart are told apart.
     """
-    if entry is None or other is None:
+    if (
+        entry is None
+        or other is None
+        or entry.platform != "matter"
+        or other.platform != "matter"
+    ):
         return False
     endpoint = _matter_endpoint(entry.unique_id)
     other_endpoint = _matter_endpoint(other.unique_id)

@@ -376,3 +376,14 @@ async def test_the_calibration_number_is_found_on_the_trvs_own_endpoint():
 
     with patch.object(helpers.er, "async_get", return_value=registry):
         assert await helpers.find_local_calibration_entity(host, TRV_ID) == OWN_NUMBER
+
+
+def test_unique_ids_outside_matter_are_not_read_for_an_endpoint():
+    """Another integration's ID of the same shape says nothing about endpoints."""
+    shaped = "a-b-c-{}-calibration-x-y"
+    climate = make_registry_entry(TRV_ID, platform="mqtt", unique_id=shaped.format(1))
+    number = make_registry_entry(
+        "number.trv_calibration", platform="mqtt", unique_id=shaped.format(2)
+    )
+
+    assert helpers.on_other_matter_endpoint(climate, number) is False
