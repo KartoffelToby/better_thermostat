@@ -294,7 +294,8 @@ def _adopt_reported_range(
     in the modes it has no range of its own for. A range read in any of those
     would let setpoints through that the device refuses once it heats, so
     only a report whose mode decodes to heat replaces it. A bound the report
-    does not publish keeps its value.
+    does not publish keeps its value. The bounds are also kept as published,
+    as the TRV's heating range the room's own range is derived from.
 
     Returns
     -------
@@ -308,6 +309,11 @@ def _adopt_reported_range(
     )
     _min_temp = read_bound_celsius(
         self, state, "min_temp", lower=True, context="trigger_trv_change()"
+    )
+    _last_low, _last_high = trv.heating_range or (None, None)
+    trv.heating_range = (
+        _last_low if _min_temp is None else _min_temp,
+        _last_high if _max_temp is None else _max_temp,
     )
     _ceiling = trv.max_temp if _max_temp is None else _max_temp
     _floor = (
@@ -484,12 +490,34 @@ async def trigger_trv_change(
     # one that carries the range it heats in. It is read from the event's own
     # report and decoded against that report's modes, because the registry
     # may already hold a later report in a mode whose range does not count.
-    # A changed range asks for a cycle of its own, which rewrites a setpoint
-    # the old range let through. Everything after it reads the registry, so
-    # the cache then takes the registry's list.
+    # A changed range bounds the room's heating range anew and asks for a
+    # cycle of its own, which rewrites a setpoint the old range let through.
+    # Everything after it reads the registry, so the cache then takes the
+    # registry's list.
+    # A released device is the user's, so its reports leave the room's
+    # settings alone; its range is read once it is taken back.
     adopt_reported_hvac_modes(trv, new_state.attributes.get("hvac_modes"))
-    _range_changed = _adopt_reported_range(self, entity_id, trv, new_state)
+    _heating_range_before = trv.heating_range
+    _range_changed = not device_released(self, entity_id) and _adopt_reported_range(
+        self, entity_id, trv, new_state
+    )
     adopt_reported_hvac_modes(trv, _org_trv_state.attributes.get("hvac_modes"))
+    # The room is bounded by the heating range kept for the TRV, which a
+    # quirk's higher floor can move while the TRV's own range stays, so a
+    # moved or first heating range bounds the room anew. A room whose bounds
+    # or target move with it asks for a cycle as a moved TRV range does.
+    if _range_changed or trv.heating_range != _heating_range_before:
+        _room_before = (
+            self.bt_min_temp,
+            self.bt_max_temp,
+            self.heat_target_temperature,
+        )
+        self._refresh_heating_range()
+        _range_changed = _range_changed or _room_before != (
+            self.bt_min_temp,
+            self.bt_max_temp,
+            self.heat_target_temperature,
+        )
     if event.context == self.context and _reports_only_own_writes(
         self, trv, entity_id, old_state, new_state
     ):
@@ -682,7 +710,7 @@ async def trigger_trv_change(
         # Keep device telemetry, but its thermostat is not the room's input.
         trv.hvac_mode = _org_trv_state.state
         self.async_write_ha_state()
-        if request_cycle and _main_change:
+        if request_cycle and (_main_change or _range_changed):
             request_control_cycle(self)
         return
 
