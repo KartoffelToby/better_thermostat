@@ -41,7 +41,7 @@ def build_bt(
     bt.bt_target_cooltemp = cool_target
     bt.cur_temp = cur_temp
     bt.hvac_mode = HVACMode.HEAT_COOL
-    bt.bt_hvac_mode = HVACMode.HEAT_COOL
+    bt.bt_hvac_mode = HVACMode.HEAT
     bt.contact_open = False
     bt.ignore_states = False
     bt.real_trvs = {}
@@ -164,7 +164,7 @@ def test_report_agrees_with_the_command(
         target_temp=target_temp,
         cool_target=cool_target,
         hvac_mode=HVACMode.HEAT_COOL,
-        bt_hvac_mode=HVACMode.HEAT_COOL,
+        bt_hvac_mode=HVACMode.HEAT,
         window_open=False,
         tolerance=tolerance,
         ignore_states=False,

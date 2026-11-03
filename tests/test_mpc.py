@@ -4,10 +4,15 @@ State is threaded explicitly through a test-local state dict, mirroring how
 the StateManager owns controller state in production.
 """
 
+import pytest
+
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
     MpcState,
+    _forget_stamps_ahead_of_the_clock,
+    _post_process_percent,
+    _update_perf_curve,
     compute_mpc as _compute_mpc,
 )
 
@@ -360,39 +365,206 @@ class TestMPCController:
         assert res is not None
         assert float(st.loss_est) >= loss_before
 
-    def test_dead_zone_detection(self):
-        """Test dead-zone detection and raising minimum effective percent."""
+    @staticmethod
+    def _dead_zone_run(hits_required, cycles):
+        """Hold a 20 % command against a TRV that barely warms, return the state.
+
+        The command is small, the room is 2 K below target and the TRV
+        warms by 1 mK per 120 s evaluation: every evaluation is a weak
+        response to a small command.
+        """
         params = MpcParams(
+            enable_min_effective_percent=True,
             deadzone_threshold_pct=50.0,
             deadzone_temp_delta_K=0.05,
-            deadzone_time_s=0.1,  # Short for test
-            deadzone_hits_required=2,
+            deadzone_time_s=60.0,
+            deadzone_hits_required=hits_required,
             deadzone_raise_pct=5.0,
+            percent_hysteresis_pts=0.0,
+            min_update_interval_s=0.0,
         )
-        key = "test_deadzone"
+        state = MpcState()
+        for cycle in range(cycles):
+            inp = MpcInput(
+                key="deadzone",
+                target_temp_C=22.0,
+                current_temp_C=20.0,
+                trv_temp_C=21.0 + 0.001 * cycle,
+                tolerance_K=0.0,
+            )
+            _post_process_percent(
+                inp, params, state, 1000.0 + 120.0 * cycle, 20.0, None
+            )
+        return state
 
-        # First call: set up TRV temp
-        inp1 = MpcInput(
-            key=key,
-            target_temp_C=22.0,
-            current_temp_C=20.0,
-            trv_temp_C=21.0,
-            tolerance_K=0.0,
+    def test_dead_zone_detection(self):
+        """A weak response to a small command raises the minimum opening.
+
+        With one hit required, the first evaluation that sees the TRV not
+        warming lifts the minimum effective opening to the command plus the
+        configured raise.
+        """
+        state = self._dead_zone_run(hits_required=1, cycles=2)
+
+        assert state.min_effective_percent == 25.0
+
+    def test_repeated_dead_zone_hits_raise_the_minimum_opening(self):
+        """Weak responses keep counting until the required number of hits.
+
+        A threshold-like TRV is the case dead-zone learning exists for, so
+        classifying the TRV as one does not stop the hits from counting.
+        """
+        state = self._dead_zone_run(hits_required=2, cycles=3)
+
+        assert state.min_effective_percent == 25.0
+
+    def test_a_small_command_the_room_answers_is_not_a_dead_zone_hit(self):
+        """A small command that warms the TRV and the room raises no minimum.
+
+        The room reading the controller keeps from its last cycle is the
+        measured response: a room that warms well beyond what the command
+        was expected to give shows the valve is past its dead zone.
+        """
+        params = MpcParams(
+            enable_min_effective_percent=True,
+            deadzone_threshold_pct=50.0,
+            deadzone_temp_delta_K=0.05,
+            deadzone_time_s=60.0,
+            deadzone_hits_required=1,
+            deadzone_raise_pct=5.0,
+            percent_hysteresis_pts=0.0,
+            min_update_interval_s=0.0,
         )
-        _ = compute_mpc(inp1, params)
+        state = MpcState()
+        for cycle in range(4):
+            now = 1000.0 + 300.0 * cycle
+            room = 19.0 + 0.2 * cycle
+            inp = MpcInput(
+                key="deadzone",
+                target_temp_C=22.0,
+                current_temp_C=room,
+                trv_temp_C=21.0 + 0.5 * cycle,
+                tolerance_K=0.0,
+            )
+            _post_process_percent(inp, params, state, now, 20.0, None)
+            # The controller records the room after post-processing, as
+            # the performance curve does once per window.
+            state.last_room_temp_C = room
+            state.last_room_temp_ts = now
 
-        # Second call: small command, needs heat, weak response
-        inp2 = MpcInput(
-            key=key,
-            target_temp_C=22.0,
-            current_temp_C=20.0,
-            trv_temp_C=21.01,  # Small change
-            tolerance_K=0.0,
+        assert state.dead_zone_hits == 0
+        assert state.min_effective_percent is None
+
+    def test_a_wall_clock_step_back_costs_at_most_one_evaluation(self):
+        """A room record stamped ahead of the clock is taken as no record.
+
+        After the wall clock steps back, the stored room stamp lies in the
+        future. The record is refreshed on that cycle, so a TRV and a room
+        that keep answering the command raise no minimum opening. The
+        cycle runs its steps in the order the controller does.
+        """
+        params = MpcParams(
+            enable_min_effective_percent=True,
+            percent_hysteresis_pts=0.0,
+            min_update_interval_s=0.0,
         )
-        _ = compute_mpc(inp2, params)
+        state = MpcState()
+        now = 1_700_000_000.0
+        for cycle in range(200):
+            if cycle == 100:
+                now -= 3600.0
+            inp = MpcInput(
+                key="deadzone",
+                target_temp_C=40.0,
+                current_temp_C=18.0 + 0.1 * cycle,
+                trv_temp_C=20.0 + 0.2 * (cycle % 50),
+                tolerance_K=0.0,
+            )
+            _forget_stamps_ahead_of_the_clock(state, now)
+            _post_process_percent(inp, params, state, now, 10.0, 0.5)
+            _update_perf_curve(state, inp, params, now, {})
+            assert state.min_effective_percent is None, cycle
+            now += 300.0
 
-        # Should detect dead zone and raise min_effective_percent
-        # But may need multiple calls
+    def test_a_learned_minimum_decays_after_the_trv_reads_as_linear(self):
+        """A minimum opening learned on a dead zone decays once the TRV responds.
+
+        The TRV profile can move from threshold to linear once the raised
+        minimum makes the TRV respond. Dead-zone hits no longer count then,
+        but the minimum is not frozen: each evaluation that sees the TRV
+        warm lowers it by one decay step.
+        """
+        params = MpcParams(
+            enable_min_effective_percent=True,
+            deadzone_temp_delta_K=0.05,
+            deadzone_time_s=60.0,
+            deadzone_decay_pct=1.0,
+            percent_hysteresis_pts=0.0,
+            min_update_interval_s=0.0,
+        )
+        state = MpcState(trv_profile="linear", min_effective_percent=16.0)
+        for cycle in range(3):
+            inp = MpcInput(
+                key="deadzone",
+                target_temp_C=22.0,
+                current_temp_C=20.0,
+                trv_temp_C=21.0 + 0.5 * cycle,
+                tolerance_K=0.0,
+            )
+            _post_process_percent(
+                inp, params, state, 1000.0 + 120.0 * cycle, 20.0, None
+            )
+
+        assert state.trv_profile == "linear"
+        assert state.min_effective_percent == 14.0
+
+    @pytest.mark.parametrize("profile", ["linear", "threshold"])
+    def test_a_closed_valve_does_not_lower_the_learned_minimum(self, profile):
+        """A TRV that warms behind a closed valve keeps the learned minimum.
+
+        After the valve closes, the radiator's stored heat still warms the
+        TRV for a while. That warming answers no opening, so it says
+        nothing about whether a small opening is past the dead zone.
+        """
+        params = MpcParams(
+            enable_min_effective_percent=True,
+            deadzone_temp_delta_K=0.05,
+            deadzone_time_s=60.0,
+            deadzone_decay_pct=1.0,
+            percent_hysteresis_pts=0.0,
+            min_update_interval_s=0.0,
+        )
+        state = MpcState(trv_profile=profile, min_effective_percent=16.0)
+        for cycle in range(3):
+            inp = MpcInput(
+                key="deadzone",
+                target_temp_C=22.0,
+                current_temp_C=22.5,
+                trv_temp_C=24.0 + 0.5 * cycle,
+                tolerance_K=0.0,
+            )
+            percent, _, _ = _post_process_percent(
+                inp, params, state, 1000.0 + 120.0 * cycle, 0.0, None
+            )
+            assert percent == 0
+
+        assert state.min_effective_percent == 16.0
+
+    def test_a_wall_clock_step_back_restarts_the_valve_average(self):
+        """The valve totals start over with an integration stamp ahead of the clock.
+
+        The totals are the valve use accumulated since that stamp. Once the
+        stamp is taken as absent, totals from before the clock step would
+        otherwise be averaged into the next learning interval.
+        """
+        state = MpcState(
+            u_integral=100.0 * 3600.0, time_integral=3600.0, last_integration_ts=5000.0
+        )
+
+        _forget_stamps_ahead_of_the_clock(state, 1000.0)
+
+        assert state.last_integration_ts == 0.0
+        assert (state.u_integral, state.time_integral) == (0.0, 0.0)
 
     def test_hysteresis(self):
         """Test hysteresis and minimum update interval."""

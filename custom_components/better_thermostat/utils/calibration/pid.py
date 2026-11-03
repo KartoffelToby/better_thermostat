@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import logging
 import math
 from time import monotonic
-from typing import Protocol, TypedDict
+from typing import Literal, Protocol, TypedDict
 
 from .types import CalibrationHost
 
@@ -96,6 +96,16 @@ DEFAULT_PID_KI = 0.01
 DEFAULT_PID_KD = 2000.0
 DEFAULT_PID_AUTO_TUNE = True
 
+type PidGain = Literal["kp", "ki", "kd"]
+# The range a gain may hold, set by hand through its number or loaded from the
+# store. A gain outside it is a poisoned state and goes back to its default.
+# Auto-tuning keeps to the narrower ranges in ``PIDParams``.
+PID_GAIN_LIMITS: dict[PidGain, tuple[float, float]] = {
+    "kp": (0.0, 1000.0),
+    "ki": (0.0, 100.0),
+    "kd": (0.0, 10000.0),
+}
+
 
 @dataclass
 class PIDParams:
@@ -145,6 +155,33 @@ def _r(val: float | None, decimals: int = 2) -> float | None:
 
 
 # --- PID Computation -----------------------------------------------
+
+
+def _forget_stamps_from_a_previous_uptime(state: PIDState, now: float) -> None:
+    """Drop the stored stamps when they lie ahead of this cycle's clock.
+
+    The stamps are read from the monotonic clock, which counts from the
+    host's boot and survives a restart of Home Assistant alone. After a
+    host reboot the stored stamps lie ahead of it, and every interval
+    measured against them comes out negative: the hold time and the tuning
+    interval would not elapse until the new uptime passes the old one.
+    How long the host was down is unknown, so the stamps and the
+    measurements they belong to restart as on a first cycle, the error and
+    its sign that auto-tune and the integrator relief compare between
+    consecutive cycles among them. The integral and the learned gains are
+    kept.
+    """
+    latest = max(state.pid_last_time, state.last_output_change_ts, state.last_tune_ts)
+    if latest <= now:
+        return
+    state.pid_last_time = 0.0
+    state.last_output_change_ts = 0.0
+    state.last_tune_ts = 0.0
+    state.pid_last_meas = None
+    state.pid_last_error = None
+    state.last_abs_error = None
+    state.previous_abs_error = None
+    state.last_error_sign = None
 
 
 def compute_pid(
@@ -198,6 +235,7 @@ def compute_pid(
         _LOGGER.warning(
             "better_thermostat: healed poisoned PID state for %s (%s)", key, pathology
         )
+    _forget_stamps_from_a_previous_uptime(st, now)
 
     max_opening = 100.0
     if isinstance(max_opening_pct, (int, float)):
@@ -511,9 +549,9 @@ def _auto_tune_pid(
         st.last_delta_sign = sign if sign != 0 else st.last_delta_sign
 
         tuned = False
-        kp = float(st.pid_kp or params.kp)
-        ki = float(st.pid_ki or params.ki)
-        kd = float(st.pid_kd or params.kd)
+        kp = params.kp if st.pid_kp is None else float(st.pid_kp)
+        ki = params.ki if st.pid_ki is None else float(st.pid_ki)
+        kd = params.kd if st.pid_kd is None else float(st.pid_kd)
 
         # 1) Overshoot: kp slightly down, kd slightly up, ki slightly down
         if overshoot:
@@ -578,19 +616,9 @@ def sanitize_pid_state(
             setattr(state, gain_attr, None)
             pathology = "non-finite state"
 
-    runaway = (
-        (
-            state.pid_kp is not None
-            and not params.kp_min <= state.pid_kp <= params.kp_max
-        )
-        or (
-            state.pid_ki is not None
-            and not params.ki_min <= state.pid_ki <= params.ki_max
-        )
-        or (
-            state.pid_kd is not None
-            and not params.kd_min <= state.pid_kd <= params.kd_max
-        )
+    runaway = any(
+        (gain := getattr(state, f"pid_{name}")) is not None and not low <= gain <= high
+        for name, (low, high) in PID_GAIN_LIMITS.items()
     )
     if runaway:
         state.pid_kp = None

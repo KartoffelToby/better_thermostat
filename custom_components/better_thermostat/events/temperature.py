@@ -8,19 +8,30 @@ propagated to the target devices.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 import logging
 import math
 from time import monotonic
+from typing import Any
 
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import callback
+from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import Event, EventStateChangedData, State, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
+from custom_components.better_thermostat.model_fixes.model_quirks import (
+    trv_state_unknown_as_available,
+)
+from custom_components.better_thermostat.utils.const import (
+    CONF_HOMEMATICIP,
+    DOMAIN,
+    ROOM_SENSOR_FALLBACK_DELAY_S,
+)
 from custom_components.better_thermostat.utils.helpers import (
+    attr_to_celsius,
     convert_to_float_celsius,
     is_reasonable_temperature,
 )
@@ -74,10 +85,374 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
     return float(ema)
 
 
-async def _apply_temperature_update(self, new_temp):
-    """Apply the new external temperature and trigger updates."""
+# Every external-temperature write happens under the filter lock, so one
+# device that never answers would otherwise hold back every later reading and
+# keepalive tick. A write that outlasts this bound counts as refused; the
+# ``TimeoutError`` it raises is an ``OSError`` and meets the same handlers.
+EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S = 30.0
+
+
+def temperature_filter_lock(self) -> asyncio.Lock:
+    """Return the lock that serialises this entity's temperature filter.
+
+    The filter carries state from one reading to the next: the accumulated
+    delta, the pending plateau value and its timer. Home Assistant handles
+    every sensor update in its own task, and applying a reading suspends
+    while the value is written to the TRVs. Without the lock a reading that
+    arrives during such a write is decided against, and committed on top of,
+    a half-applied predecessor. The lock is created on first use and lives
+    on the entity, so each Better Thermostat only queues behind itself.
+
+    Everything that writes the room temperature to the TRVs takes this
+    lock: the sensor readings, the plateau timer and the keepalive tick.
+    """
+    lock = getattr(self, "_temperature_filter_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        self._temperature_filter_lock = lock
+    return lock
+
+
+def room_sensor_reading(device_name: str, sensor_state: State | None) -> float | None:
+    """Return the room sensor's reading in Celsius if it is usable.
+
+    Parameters
+    ----------
+    device_name : str
+            Name of the better_thermostat device, for logging.
+    sensor_state : State | None
+            The room sensor's state.
+
+    Returns
+    -------
+    float | None
+            The reading, or None when the sensor is missing or reports a
+            value that is not a number or not a plausible temperature.
+    """
+    if sensor_state is None or sensor_state.state in (
+        STATE_UNAVAILABLE,
+        STATE_UNKNOWN,
+        None,
+    ):
+        return None
+    reading = convert_to_float_celsius(
+        str(sensor_state.state),
+        device_name,
+        "room sensor reading",
+        unit_of_measurement=sensor_state.attributes.get("unit_of_measurement"),
+    )
+    if reading is None or not is_reasonable_temperature(reading):
+        return None
+    return reading
+
+
+def trv_ready(self, trv_id: str) -> bool:
+    """Return whether a TRV is in a state it can be driven in.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    trv_id : str
+            Entity id of the TRV.
+
+    Returns
+    -------
+    bool
+            False when the TRV is missing or unavailable, or unknown on a
+            model that does not operate in that state.
+    """
+    trv_state = self.hass.states.get(trv_id)
+    if trv_state is None or trv_state.state in (STATE_UNAVAILABLE, None):
+        return False
+    return trv_state.state != STATE_UNKNOWN or trv_state_unknown_as_available(
+        self, trv_id
+    )
+
+
+def trv_reported_temperature(self, trv_id: str) -> float | None:
+    """Return the internal temperature a ready TRV reports right now.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    trv_id : str
+            Entity id of the TRV.
+
+    Returns
+    -------
+    float | None
+            The reported temperature in °C, or None when the TRV is not
+            ready or reports no convertible, plausible temperature.
+    """
+    if not trv_ready(self, trv_id):
+        return None
+    trv_state = self.hass.states.get(trv_id)
+    if trv_state is None or trv_state.attributes.get("current_temperature") is None:
+        return None
+    value = attr_to_celsius(
+        self, trv_state, "current_temperature", None, "TRV room temperature"
+    )
+    if value is None or not is_reasonable_temperature(value):
+        return None
+    return value
+
+
+def trv_room_temperature(self) -> float | None:
+    """Return the TRV-internal temperature that stands in for the room.
+
+    The first available TRV with a plausible internal temperature speaks for
+    the room, the same choice the startup fallback makes. The value is read
+    from the TRV's live state rather than from the value stored for it: the
+    stored one lags behind while the TRV handler debounces reports, and it
+    outlives an outage whose state change arrived while the handler was not
+    listening, a report the handler could not convert, and the placeholder
+    startup stores for a TRV that reports none.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    float | None
+            The TRV temperature in °C, or None when no TRV reports one.
+    """
+    for trv_id in self.real_trvs:
+        value = trv_reported_temperature(self, trv_id)
+        if value is not None:
+            return round(value, 2)
+    return None
+
+
+def _hand_room_to_trvs(self) -> bool:
+    """Switch the room onto the TRV temperature if a TRV reports one.
+
+    Returns
+    -------
+    bool
+            True if a TRV temperature now stands in for the room sensor.
+    """
+    temperature = trv_room_temperature(self)
+    if temperature is None:
+        return False
+    self.room_sensor_fallback = True
+    self.room_sensor_fallback_due = False
+    self.cur_temp = temperature
+    return True
+
+
+def refresh_room_temperature_from_trvs(self) -> bool:
+    """Take the room temperature from the TRVs while the room sensor is lost.
+
+    Outside the fallback, or when no TRV reports a temperature, the room
+    temperature stays as it is. A fallback that came due while no TRV had
+    a usable temperature starts with the first TRV that reports one.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    bool
+            True if the room temperature, or the source it is taken from,
+            changed.
+    """
+    if self.room_sensor_fallback_due:
+        if not _hand_room_to_trvs(self):
+            return False
+        _LOGGER.warning(
+            "better_thermostat %s: a TRV reports a temperature again; "
+            "controlling on the TRV internal temperature",
+            self.device_name,
+        )
+        return True
+    if not self.room_sensor_fallback:
+        return False
+    temperature = trv_room_temperature(self)
+    if temperature is None or temperature == self.cur_temp:
+        return False
     _LOGGER.debug(
-        "better_thermostat %s: _apply_temperature_update called with %.2f",
+        "better_thermostat %s: room temperature from TRV fallback %s -> %.2f",
+        self.device_name,
+        self.cur_temp,
+        temperature,
+    )
+    self.cur_temp = temperature
+    return True
+
+
+def queue_control_cycle(self) -> None:
+    """Ask the control worker for a cycle without waiting on the queue.
+
+    A full queue already holds a pending cycle, which reads the room state
+    when it runs. During valve maintenance the request is kept for the end
+    of the maintenance run.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    """
+    if self.control_queue_task is None:
+        return
+    if getattr(self, "in_maintenance", False):
+        self._control_needed_after_maintenance = True
+        return
+    try:
+        self.control_queue_task.put_nowait(self)
+    except asyncio.QueueFull:
+        pass
+
+
+def _cancel_room_sensor_fallback_timer(self) -> None:
+    """Cancel a pending switch to the TRV fallback."""
+    self.room_sensor_fallback_due = False
+    if self.room_sensor_fallback_cancel is not None:
+        self.room_sensor_fallback_cancel()
+        self.room_sensor_fallback_cancel = None
+
+
+def _schedule_room_sensor_fallback(self) -> None:
+    """Switch to the TRV temperature once the room sensor stays lost.
+
+    The first state without a usable reading (unavailable, unknown, not a
+    number or not a plausible temperature), or the removal of the sensor
+    entity, starts the delay; later ones while it runs, or while the
+    fallback is active or due, change nothing.
+
+    A fallback that comes due while no TRV reports a usable temperature
+    does not start: controlling on the TRV side would still control on the
+    sensor's last reading. The room keeps that reading, and the sensor
+    stays reported as degraded or as giving an invalid reading, until a
+    TRV reports.
+    """
+    if (
+        self.room_sensor_fallback
+        or self.room_sensor_fallback_due
+        or self.room_sensor_fallback_cancel is not None
+    ):
+        return
+
+    async def _enter_fallback(_now):
+        # The room temperature changes source in the same turn the sensor
+        # readings take, so a reading that is being applied finishes first.
+        async with temperature_filter_lock(self):
+            # The handle stays set while the callback waits for the lock. A
+            # reading that ended the outage in the meantime cleared it, and an
+            # outage that started after that waits a delay of its own.
+            if self.room_sensor_fallback_cancel is not timer:
+                return
+            self.room_sensor_fallback_cancel = None
+            if self.is_removed:
+                return
+            sensor_state = self.hass.states.get(self.sensor_entity_id)
+            if room_sensor_reading(self.device_name, sensor_state) is not None:
+                return
+            if not _hand_room_to_trvs(self):
+                self.room_sensor_fallback_due = True
+                _LOGGER.warning(
+                    "better_thermostat %s: room temperature sensor %s has given no "
+                    "usable reading for %ss and no TRV reports a temperature; "
+                    "keeping the last reading until one does",
+                    self.device_name,
+                    self.sensor_entity_id,
+                    ROOM_SENSOR_FALLBACK_DELAY_S,
+                )
+                return
+            _LOGGER.warning(
+                "better_thermostat %s: room temperature sensor %s has given no "
+                "usable reading for %ss; controlling on the TRV internal temperature",
+                self.device_name,
+                self.sensor_entity_id,
+                ROOM_SENSOR_FALLBACK_DELAY_S,
+            )
+            self.async_write_ha_state()
+            # The controllers stop reading the room sensor's filtered value, so
+            # the room is controlled anew even when the TRV reports the
+            # temperature the sensor last sent.
+            queue_control_cycle(self)
+
+    timer = async_call_later(self.hass, ROOM_SENSOR_FALLBACK_DELAY_S, _enter_fallback)
+    self.room_sensor_fallback_cancel = timer
+
+
+async def _resume_room_sensor(self, temperature: float) -> None:
+    """Hand the room back to its sensor, which reports a usable reading again.
+
+    The TRV value only stood in for the sensor, so the reading takes over
+    without waiting for the debounce the sensor's readings otherwise go
+    through.
+
+    During the outage the minute tick kept feeding the filter the last
+    reading from before it, which says nothing about the room since. The
+    filter therefore starts over from the returning reading, and the slope
+    the tick derives from the filter starts from it as well.
+    """
+    _cancel_room_sensor_fallback_timer(self)
+    self.room_sensor_fallback = False
+    _LOGGER.info(
+        "better_thermostat %s: room temperature sensor %s is back; "
+        "controlling on it again",
+        self.device_name,
+        self.sensor_entity_id,
+    )
+    self.external_temp_ema = None
+    self._external_temp_ema_ts = None
+    await _commit_temperature_update(self, round(temperature, 2))
+
+
+async def reconcile_room_sensor(self) -> None:
+    """Bring the room in line with the room sensor's current state.
+
+    The sensor's state changes are only handled once startup has finished,
+    so a sensor that changed while startup was still running is caught up
+    on here. A usable reading the room is not on yet goes through the same
+    path a live reading takes; a state without one starts the delayed
+    fallback.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    """
+    async with temperature_filter_lock(self):
+        sensor_state = self.hass.states.get(self.sensor_entity_id)
+        reading = room_sensor_reading(self.device_name, sensor_state)
+        if sensor_state is None or reading is None:
+            _schedule_room_sensor_fallback(self)
+            return
+        if (
+            not self.room_sensor_fallback
+            and self.cur_temp is not None
+            and round(reading, 2) == round(self.cur_temp, 2)
+        ):
+            _cancel_room_sensor_fallback_timer(self)
+            return
+        await trigger_temperature_change(
+            self,
+            Event(
+                EVENT_STATE_CHANGED,
+                EventStateChangedData(
+                    entity_id=self.sensor_entity_id,
+                    old_state=None,
+                    new_state=sensor_state,
+                ),
+            ),
+        )
+
+
+async def _commit_temperature_update(self, new_temp):
+    """Apply the new external temperature and trigger updates.
+
+    Callers hold the filter lock.
+    """
+    _LOGGER.debug(
+        "better_thermostat %s: _commit_temperature_update called with %.2f",
         self.device_name,
         new_temp,
     )
@@ -124,43 +499,145 @@ async def _apply_temperature_update(self, new_temp):
             float(new_temp_q),
             float(_ema),
         )
-    # Write the value used by BT (self.cur_temp) to the TRV
+    # Write the value used by BT (self.cur_temp) to the TRV. The heads are
+    # read from `real_trvs`, which is what carries the quirks the write goes
+    # through: an id from anywhere else resolves to no TRV and no write.
+    trv_ids: list[str] = []
     try:
         trv_ids = list(self.real_trvs.keys())
-        if not trv_ids and hasattr(self, "entity_ids"):
-            trv_ids = list(self.entity_ids or [])
-        for trv_id in trv_ids:
-            _trv = self.real_trvs.get(trv_id) if hasattr(self, "real_trvs") else None
+    except (AttributeError, TypeError) as exc:
+        _LOGGER.warning(
+            "better_thermostat %s: no TRV list to write external_temperature to: %s",
+            self.device_name,
+            exc,
+        )
+    for trv_id in trv_ids:
+        try:
+            _trv = self.real_trvs.get(trv_id)
             quirks = _trv.model_quirks if _trv is not None else None
             if quirks and hasattr(quirks, "maybe_set_external_temperature"):
-                await quirks.maybe_set_external_temperature(self, trv_id, self.cur_temp)
+                async with asyncio.timeout(EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S):
+                    await quirks.maybe_set_external_temperature(
+                        self, trv_id, self.cur_temp
+                    )
             else:
                 _LOGGER.debug(
                     "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
                     self.device_name,
                     trv_id,
                 )
-    except AttributeError, KeyError, TypeError, ValueError, RuntimeError:
-        _LOGGER.debug(
-            "better_thermostat %s: external_temperature write to TRV failed (non critical)",
-            self.device_name,
-        )
-    # Enqueue control action (skip during valve maintenance to avoid overwriting exercise).
-    # Still mark that a control cycle is needed after maintenance so we immediately
-    # resume with the latest temperature.
-    if self.control_queue_task is not None:
-        if getattr(self, "in_maintenance", False):
-            self._control_needed_after_maintenance = True
-        else:
-            await self.control_queue_task.put(self)
+        except (
+            HomeAssistantError,
+            OSError,
+            AttributeError,
+            KeyError,
+            TypeError,
+            ValueError,
+            RuntimeError,
+        ) as exc:
+            # A device that refuses the value keeps its old one; the other TRVs
+            # still get the reading, and the control cycle below runs on it.
+            _LOGGER.warning(
+                "better_thermostat %s: external_temperature write to %s failed: %s",
+                self.device_name,
+                trv_id,
+                exc,
+            )
+    # Request a control cycle; during valve maintenance it is kept for the
+    # end of the run. Waiting for room in the queue would hold the filter lock, and with it
+    # every later reading and the keepalive tick, until the control loop
+    # takes the next request. A request already queued runs on the
+    # temperature just applied, so it covers this one.
+    queue_control_cycle(self)
     _LOGGER.debug(
-        "better_thermostat %s: _apply_temperature_update finished", self.device_name
+        "better_thermostat %s: _commit_temperature_update finished", self.device_name
     )
+
+
+def _sensor_still_reads(self, value: float) -> bool:
+    """Tell whether the room sensor still reports a pending reading.
+
+    A timer that commits a pending reading queues on the filter lock with
+    the sensor's next state change. A sensor that has moved on carries a
+    newer reading, whose own event is still waiting for the lock and is
+    judged there, and a sensor that gives no usable reading any more has
+    withdrawn the pending one. During the room sensor fallback the room is
+    the TRVs'. The reading is compared at the precision readings are kept.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    value : float
+            The pending reading, rounded to two decimals
+
+    Returns
+    -------
+    bool
+            True if the sensor still reads ``value`` and the room is on it.
+    """
+    if self.room_sensor_fallback:
+        return False
+    reading = room_sensor_reading(
+        self.device_name, self.hass.states.get(self.sensor_entity_id)
+    )
+    return reading is not None and round(reading, 2) == value
+
+
+def _commit_pending_after(self, delay_s: float) -> None:
+    """Apply the pending reading once the debounce interval has run out.
+
+    A reading turned away only because it came too soon after the last one
+    is the room's temperature as soon as the interval is over: a sensor that
+    reports on change says nothing more until the room moves again. The
+    timer shares the plateau timer's handle, so a newer reading, a commit or
+    the entity's removal cancels it the same way. Its firing runs as work the
+    entity owns, so a removal also stops a commit already writing to the TRVs.
+    A sensor that has since stopped giving a usable reading, or that now
+    reads a different value, has withdrawn the pending one, and during the
+    room sensor fallback the room is the TRVs'.
+    """
+    if self.plateau_timer_cancel is not None:
+        self.plateau_timer_cancel()
+    _value = self.pending_temp
+    _since = self.pending_since
+
+    async def _interval_cb() -> None:
+        async with temperature_filter_lock(self):
+            if self.is_removed:
+                return
+            if self.pending_temp != _value or self.pending_since != _since:
+                return
+            if not _sensor_still_reads(self, _value):
+                return
+            _LOGGER.debug(
+                "better_thermostat %s: external_temperature accepted after the "
+                "debounce interval (value=%.2f)",
+                self.device_name,
+                _value,
+            )
+            await _commit_temperature_update(self, _value)
+
+    @callback
+    def _interval_due(_now: Any) -> None:
+        self.plateau_timer_cancel = None
+        self._spawn_owned(_interval_cb(), name=f"bt_debounce_commit_{self.device_name}")
+
+    self.plateau_timer_cancel = async_call_later(self.hass, delay_s, _interval_due)
 
 
 @callback
 async def trigger_temperature_change(self, event):
     """Handle temperature changes.
+
+    Decides whether one external temperature reading is applied. Readings
+    are handled one at a time, so a reading that arrives while an earlier
+    one is still being applied waits its turn instead of being dropped and
+    is then judged against the state the earlier one left behind.
+
+    Callers hold the filter lock (see :func:`temperature_filter_lock`);
+    the decision reads and rewrites filter state that must not be shared
+    with a second reading.
 
     Parameters
     ----------
@@ -177,7 +654,9 @@ async def trigger_temperature_change(self, event):
         return
 
     new_state = event.data.get("new_state")
+    # A removed sensor entity reports no new state at all.
     if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+        _schedule_room_sensor_fallback(self)
         return
 
     _incoming_temperature = convert_to_float_celsius(
@@ -236,7 +715,21 @@ async def trigger_temperature_change(self, event):
                 "value": str(new_state.state),
             },
         )
+        # A sensor that keeps sending unusable values is as lost as an
+        # unavailable one.
+        _schedule_room_sensor_fallback(self)
         return
+
+    _cancel_room_sensor_fallback_timer(self)
+    if self.room_sensor_fallback and _incoming_temperature_q is not None:
+        await _resume_room_sensor(self, _incoming_temperature_q)
+        return
+
+    # A plausible reading clears the repair issue an implausible one raised,
+    # so a sensor that recovers does not leave the warning standing.
+    ir.async_delete_issue(
+        self.hass, DOMAIN, f"invalid_external_temperature_{self.device_name}"
+    )
 
     _now = dt_util.now()
     try:
@@ -305,31 +798,67 @@ async def trigger_temperature_change(self, event):
         # Schedule timer if not already scheduled
         if not _plateau_ok and getattr(self, "plateau_timer_cancel", None) is None:
             remaining = max(0.1, PLATEAU_ACCEPT_WINDOW - _plateau_age)
+            _plateau_value = self.pending_temp
+            # A value that left and came back starts a new plateau with a
+            # timer of its own; this one only applies the episode it was
+            # started for.
+            _plateau_since = self.pending_since
 
             async def _plateau_cb(_now):
                 self.plateau_timer_cancel = None
-                # Re-check debounce interval so HomematicIP 600s is respected
-                _cb_age = (
-                    (dt_util.now() - self.last_external_sensor_change).total_seconds()
-                    if self.last_external_sensor_change is not None
-                    else 999999
-                )
-                _cb_interval_ok = _cb_age > _time_diff
-                if self.pending_temp is not None and _cb_interval_ok:
+                # The pending value and the debounce are read once the turn
+                # is this timer's: a reading applied while it waited has
+                # replaced the value the timer was started for.
+                async with temperature_filter_lock(self):
+                    # The entity does not own this task, so its removal cannot
+                    # cancel it; a timer that got the turn only after the
+                    # entity was removed writes nothing.
+                    if self.is_removed:
+                        return
+                    if (
+                        self.pending_temp is None
+                        or self.pending_temp != _plateau_value
+                        or self.pending_since != _plateau_since
+                    ):
+                        return
+                    if not _sensor_still_reads(self, _plateau_value):
+                        return
+                    # Re-check debounce interval so HomematicIP 600s is respected
+                    _cb_age = (
+                        (
+                            dt_util.now() - self.last_external_sensor_change
+                        ).total_seconds()
+                        if self.last_external_sensor_change is not None
+                        else 999999
+                    )
+                    if _cb_age <= _time_diff:
+                        return
                     _LOGGER.debug(
                         "better_thermostat %s: external_temperature plateau auto-accepted (value=%.2f)",
                         self.device_name,
                         self.pending_temp,
                     )
-                    await _apply_temperature_update(self, self.pending_temp)
+                    await _commit_temperature_update(self, self.pending_temp)
 
             self.plateau_timer_cancel = async_call_later(
                 self.hass, remaining, _plateau_cb
             )
 
+    # A reading after a state that carried none is the room's temperature
+    # again, however close it lies to the last one before: the keepalive
+    # sent the TRVs no external temperature meanwhile, and they may have
+    # fallen back to their own sensors. That holds for a gap too short for
+    # the room to be handed to the TRVs as well.
+    _old_state = event.data.get("old_state")
+    _reading_returns = (
+        _old_state is not None
+        and room_sensor_reading(self.device_name, _old_state) is None
+    )
     if _cur_q is None:
         # First reading ever — always accept regardless of interval
         _accept_reason = "first_reading"
+    elif _reading_returns:
+        _accept_reason = "sensor_returned"
     elif _is_significant and _interval_ok:
         _accept_reason = "significant"
     elif _accum_ok:
@@ -338,9 +867,10 @@ async def trigger_temperature_change(self, event):
         _accept_reason = "plateau"
 
     if _accept_reason is not None:
-        # One of the accept paths above matched (first reading, or a
-        # significant / accumulated / plateau change once the debounce
-        # interval elapsed); log the decision and apply the update.
+        # One of the accept paths above matched (first reading, a reading
+        # that ends a sensor outage, or a significant / accumulated /
+        # plateau change once the debounce interval elapsed); log the
+        # decision and apply the update.
         _LOGGER.debug(
             "better_thermostat %s: external_temperature update accepted (old=%.2f new=%.2f diff=%.2f "
             "age=%.1fs threshold=%.2f interval=%ss reason=%s accum=%.2f dir=%s)",
@@ -355,8 +885,14 @@ async def trigger_temperature_change(self, event):
             (self.accum_delta if _cur_q is not None else 0.0),
             ("+" if self.accum_dir > 0 else ("-" if self.accum_dir < 0 else "0")),
         )
-        await _apply_temperature_update(self, _incoming_temperature_q)
+        await _commit_temperature_update(self, _incoming_temperature_q)
     else:
+        if (
+            not _interval_ok
+            and self.pending_temp is not None
+            and (_is_significant or abs(self.accum_delta) >= _sig_threshold_q)
+        ):
+            _commit_pending_after(self, max(0.1, _time_diff - _age))
         _LOGGER.debug(
             "better_thermostat %s: external_temperature ignored (old=%.2f new=%.2f diff=%s "
             "age=%.1fs sig=%s interval_ok=%s threshold=%.2f accum=%.2f dir=%s pending=%s pending_age=%ss)",

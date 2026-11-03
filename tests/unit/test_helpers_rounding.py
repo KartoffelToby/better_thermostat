@@ -126,6 +126,22 @@ class TestRoundByStep:
         result = round_by_step(10.09, 0.1, rounding.down)
         assert result == 10.0
 
+    @pytest.mark.parametrize("f_rounding", [rounding.up, rounding.down])
+    def test_a_whole_degree_fahrenheit_stays_on_the_fahrenheit_grid(self, f_rounding):
+        """A value read on the 0.01 grid is not pushed off the grid point it sits on.
+
+        63 °F is 17.2222 °C, read as 17.22; on a 1 °F grid held as 0.5556 K
+        that lies just below the 31st step. Rounding it down or up has to
+        keep the 63 °F it stands for, not move it a whole degree.
+        """
+        result = round_by_step(17.22, 0.5556, f_rounding)
+        assert result == pytest.approx(31 * 0.5556)
+
+    def test_a_value_a_reading_step_off_the_grid_keeps_its_direction(self):
+        """A value a full 0.01 reading step off a grid point is not snapped."""
+        assert round_by_step(20.01, 0.1, rounding.up) == pytest.approx(20.1)
+        assert round_by_step(19.99, 0.1, rounding.down) == pytest.approx(19.9)
+
     def test_very_small_values_rounded_to_zero(self):
         """Test that very small values < step/2 are rounded to 0."""
         result = round_by_step(0.0001, 0.01)

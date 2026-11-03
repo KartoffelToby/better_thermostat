@@ -14,6 +14,7 @@ import logging
 from random import randint
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
@@ -192,20 +193,50 @@ def build_trv_snapshots(
     trv_ids: list[str],
     get_state: Callable[[str], State | None],
     device_name: str,
+    *,
+    read_setpoint: Callable[[State], float | None],
 ) -> list[MaintenanceTrvInfo]:
     """Build per-TRV snapshots needed for the maintenance cycle.
 
-    *get_state* should be ``hass.states.get``.  TRVs whose HA state is
-    ``None`` are silently skipped (logged at debug level).
+    A TRV without a readable state is left out of the run entirely: it
+    publishes no state at all, or the one it publishes is ``unavailable``
+    or ``unknown`` and therefore names no mode and no setpoint to put back
+    afterwards. Only a TRV with a snapshot is driven, so the one skipped
+    here is never left standing in one of the cycle's temperature
+    extremes. A TRV still awaiting its setup is left out as well: its
+    range, calibration and valve channel are what the setup reads, and the
+    first run after it is exercises it. Every skip is logged at debug level.
+
+    Parameters
+    ----------
+    real_trvs : TrvMap
+            the cached TRV records, keyed by entity id
+    trv_ids : list[str]
+            entity ids to consider for this run
+    get_state : Callable[[str], State | None]
+            reads a TRV's reported state; ``hass.states.get``
+    device_name : str
+            thermostat instance name, for logging
+    read_setpoint : Callable[[State], float | None]
+            reads the setpoint a TRV's state publishes, in Celsius; the
+            state carries it in the system unit, and the restore writes the
+            snapshot back as Celsius
+
+    Returns
+    -------
+    list[MaintenanceTrvInfo]
+            one snapshot per TRV the cycle may drive, in the order given
     """
     infos: list[MaintenanceTrvInfo] = []
     for trv_id in trv_ids:
         trv_state = get_state(trv_id)
-        if trv_state is None:
+        if trv_state is None or trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             _LOGGER.debug(
-                "better_thermostat %s: maintenance skip %s (state None)",
+                "better_thermostat %s: maintenance skip %s (reports %s, so it names "
+                "no state to restore afterwards)",
                 device_name,
                 trv_id,
+                trv_state.state if trv_state is not None else None,
             )
             continue
 
@@ -217,11 +248,19 @@ def build_trv_snapshots(
                 trv_id,
             )
             continue
+        if trv_data.awaiting_initialization:
+            _LOGGER.debug(
+                "better_thermostat %s: maintenance skip %s (not set up yet; its "
+                "setup brings it in, and the next run exercises it)",
+                device_name,
+                trv_id,
+            )
+            continue
         valve_entity = trv_data.valve_position_entity
         quirks = trv_data.model_quirks
-        support_valve = bool(valve_entity) or bool(
-            getattr(quirks, "override_set_valve", None)
-        )
+        support_valve = bool(
+            valve_entity and trv_data.valve_position_writable is True
+        ) or bool(getattr(quirks, "override_set_valve", None))
         adv = _get_advanced(trv_data)
         cal_type = adv.get("calibration")
         use_direct = bool(
@@ -234,7 +273,7 @@ def build_trv_snapshots(
             MaintenanceTrvInfo(
                 entity_id=trv_id,
                 cur_mode=trv_state.state,
-                cur_temp=trv_state.attributes.get("temperature"),
+                cur_temp=read_setpoint(trv_state),
                 use_direct_valve=use_direct,
                 max_temp=float(raw_max) if isinstance(raw_max, (int, float)) else 30.0,
                 min_temp=float(raw_min) if isinstance(raw_min, (int, float)) else 5.0,

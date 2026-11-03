@@ -18,12 +18,6 @@ def _close_coro(coro, *args, **kwargs):
 
 
 @pytest.fixture
-def anyio_backend():
-    """Configure anyio to use asyncio backend for async tests."""
-    return "asyncio"
-
-
-@pytest.fixture
 def mock_hass():
     """Create a mock Home Assistant instance."""
     hass = MagicMock()
@@ -51,6 +45,9 @@ def mock_bt_instance(mock_hass):
     bt.weather_entity = "weather.home"
     bt.real_trvs = {"climate.trv_1": {}, "climate.trv_2": {}}
     bt.devices_errors = []
+    # A MagicMock would answer .get() with another MagicMock, which the
+    # battery retry pause compares against a timestamp.
+    bt._next_battery_read = {}
     bt.degraded_mode = False
     bt.unavailable_sensors = []
     bt._degraded_grace_until = None
@@ -339,7 +336,6 @@ class TestGetCriticalEntities:
 class TestCheckCriticalEntities:
     """Tests for check_critical_entities function."""
 
-    @pytest.mark.anyio
     async def test_returns_true_when_all_trvs_available(self, mock_bt_instance):
         """Test that True is returned when all TRVs are available."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -355,7 +351,6 @@ class TestCheckCriticalEntities:
 
         assert result is True
 
-    @pytest.mark.anyio
     async def test_returns_false_when_trv_unavailable(self, mock_bt_instance):
         """Test that False is returned when a TRV is unavailable."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -372,7 +367,6 @@ class TestCheckCriticalEntities:
         assert result is False
         assert len(mock_bt_instance.devices_errors) > 0
 
-    @pytest.mark.anyio
     async def test_no_issue_during_grace_period(self, mock_bt_instance):
         """Unavailable TRV during startup grace does not raise a repair issue."""
         from datetime import timedelta
@@ -395,7 +389,6 @@ class TestCheckCriticalEntities:
         assert len(mock_bt_instance.devices_errors) == 0
         assert not mock_ir.async_create_issue.called
 
-    @pytest.mark.anyio
     async def test_issue_after_grace_expires(self, mock_bt_instance):
         """Unavailable TRV after grace expiry raises a repair issue."""
         from datetime import timedelta
@@ -419,7 +412,6 @@ class TestCheckCriticalEntities:
         assert len(mock_bt_instance.devices_errors) > 0
         assert mock_ir.async_create_issue.called
 
-    @pytest.mark.anyio
     async def test_warns_once_while_a_trv_stays_unavailable(
         self, mock_bt_instance, caplog
     ):
@@ -458,7 +450,6 @@ class TestCheckCriticalEntities:
         assert len(announced) == len(set(announced)) == trv_count
         assert mock_ir.async_create_issue.call_count == trv_count
 
-    @pytest.mark.anyio
     async def test_auto_clear_issue_on_recovery(self, mock_bt_instance):
         """Issue is cleared when a previously-unavailable TRV becomes available."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -479,7 +470,6 @@ class TestCheckCriticalEntities:
         # Issue must be deleted for each recovered TRV
         assert mock_ir.async_delete_issue.call_count == 2
 
-    @pytest.mark.anyio
     async def test_clears_stale_issue_even_without_devices_errors(
         self, mock_bt_instance
     ):
@@ -500,7 +490,6 @@ class TestCheckCriticalEntities:
         # delete is called idempotently for every available entity
         assert mock_ir.async_delete_issue.call_count == 2
 
-    @pytest.mark.anyio
     async def test_partial_unavailability_clears_available(self, mock_bt_instance):
         """Available TRVs are processed even when another TRV is unavailable."""
         from datetime import timedelta
@@ -537,25 +526,33 @@ class TestCheckCriticalEntitiesBattery:
 
     check_critical_entities runs on nearly every event, so it must not queue a
     get_battery_status background task on every call. A refresh is spawned only
-    on the first pass (battery still unpopulated) or when a TRV recovers.
+    on the first pass (battery still unpopulated), when a TRV recovers, or
+    when the battery entity reports a level other than the stored one.
     """
 
     @staticmethod
-    def _make_available(mock_bt_instance):
-        state = MagicMock()
-        state.state = "heat"
-        mock_bt_instance.hass.states.get.return_value = state
+    def _make_available(mock_bt_instance, batteries=None):
+        """Make every TRV available and each battery entity report its level.
+
+        ``batteries`` maps battery entity ids to the level they report; every
+        other lookup answers with ``heat``.
+        """
+        levels = batteries or {}
+        mock_bt_instance.hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, levels.get(entity_id, "heat")
+        )
         mock_bt_instance.devices_errors = []
         return mock_bt_instance
 
-    @pytest.mark.anyio
     async def test_no_task_when_battery_already_populated(self, mock_bt_instance):
         """Steady state: populated battery values spawn no background task."""
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
-        bt = self._make_available(mock_bt_instance)
+        bt = self._make_available(
+            mock_bt_instance, {"sensor.b1": "80", "sensor.b2": "90"}
+        )
         bt.devices_states = {
             "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"},
             "climate.trv_2": {"battery_id": "sensor.b2", "battery": "90"},
@@ -565,7 +562,24 @@ class TestCheckCriticalEntitiesBattery:
 
         assert bt.hass.async_create_background_task.call_count == 0
 
-    @pytest.mark.anyio
+    async def test_task_when_a_battery_reports_a_new_level(self, mock_bt_instance):
+        """A battery whose entity moved on is read while its TRV stays up."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        bt = self._make_available(
+            mock_bt_instance, {"sensor.b1": "79", "sensor.b2": "90"}
+        )
+        bt.devices_states = {
+            "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"},
+            "climate.trv_2": {"battery_id": "sensor.b2", "battery": "90"},
+        }
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_critical_entities(bt)
+
+        assert bt.hass.async_create_background_task.call_count == 1
+
     async def test_task_on_initial_unpopulated_battery(self, mock_bt_instance):
         """First pass: an unpopulated battery spawns one task per TRV."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -582,7 +596,6 @@ class TestCheckCriticalEntitiesBattery:
 
         assert bt.hass.async_create_background_task.call_count == 2
 
-    @pytest.mark.anyio
     async def test_task_on_recovery_even_if_populated(self, mock_bt_instance):
         """A recovering TRV refreshes battery even if a value already exists."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -600,7 +613,6 @@ class TestCheckCriticalEntitiesBattery:
 
         assert bt.hass.async_create_background_task.call_count == 2
 
-    @pytest.mark.anyio
     async def test_no_task_when_entity_has_no_battery(self, mock_bt_instance):
         """Entities without a battery id never spawn a refresh in steady state."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -618,10 +630,252 @@ class TestCheckCriticalEntitiesBattery:
         assert bt.hass.async_create_background_task.call_count == 0
 
 
+class _MonotonicClock:
+    """A monotonic clock the test moves by hand."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        """Move the clock forward by ``seconds``."""
+        self.now += seconds
+
+
+class TestGetBatteryStatus:
+    """Reading a battery entity that has nothing to report.
+
+    A battery entity is offline exactly when its device is, which is also
+    when the read is triggered, so "no level yet" is the normal case rather
+    than the exception.
+    """
+
+    TRV = "climate.trv_1"
+
+    @pytest.fixture(autouse=True)
+    def clock(self):
+        """Replace the watcher's monotonic clock with one the test moves."""
+        clock = _MonotonicClock()
+        with patch(
+            "custom_components.better_thermostat.utils.watcher.monotonic", clock
+        ):
+            yield clock
+
+    @staticmethod
+    def _reporting(mock_bt_instance, level):
+        """Make the mapped battery entity report ``level`` (None: no state)."""
+        mock_bt_instance.hass.states.get.side_effect = lambda entity_id: (
+            None if level is None else State(entity_id, level)
+        )
+
+    def _bt(self, mock_bt_instance, level):
+        """Give the TRV a mapped battery entity reporting ``level``."""
+        mock_bt_instance.devices_states = {
+            self.TRV: {"battery_id": "sensor.trv_1_battery", "battery": None}
+        }
+        self._reporting(mock_bt_instance, level)
+        return mock_bt_instance
+
+    @pytest.mark.asyncio
+    async def test_an_unavailable_battery_entity_leaves_the_reading_unset(
+        self, mock_bt_instance
+    ):
+        """An "unavailable" battery entity has no reading to store."""
+        from custom_components.better_thermostat.utils.watcher import get_battery_status
+
+        bt = self._bt(mock_bt_instance, "unavailable")
+
+        await get_battery_status(bt, self.TRV)
+
+        assert bt.devices_states[self.TRV]["battery"] is None
+
+    @pytest.mark.asyncio
+    async def test_a_battery_entity_without_a_level_yet_leaves_the_reading_unset(
+        self, mock_bt_instance
+    ):
+        """A battery entity that has not published yet reports "unknown"."""
+        from custom_components.better_thermostat.utils.watcher import get_battery_status
+
+        bt = self._bt(mock_bt_instance, "unknown")
+
+        await get_battery_status(bt, self.TRV)
+
+        assert bt.devices_states[self.TRV]["battery"] is None
+
+    @pytest.mark.asyncio
+    async def test_the_battery_is_read_again_once_the_device_is_back(
+        self, mock_bt_instance, clock
+    ):
+        """A device offline at startup still gets a battery level afterwards.
+
+        Nothing watches the battery entity itself, so only a later pass can
+        ask again. A device that was away when it was first asked has to stay
+        askable.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            BATTERY_REREAD_DELAY_SECONDS,
+            get_battery_status,
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "unavailable")
+        await get_battery_status(bt, self.TRV)
+
+        clock.advance(BATTERY_REREAD_DELAY_SECONDS)
+        schedule_battery_refresh(bt, self.TRV, recovered=False)
+        assert bt.hass.async_create_background_task.call_count == 1
+
+        self._reporting(bt, "87")
+        await get_battery_status(bt, self.TRV)
+        assert bt.devices_states[self.TRV]["battery"] == "87"
+
+    @pytest.mark.asyncio
+    async def test_a_pending_retry_outranks_the_level_it_was_scheduled_over(
+        self, mock_bt_instance, clock
+    ):
+        """A stored level is the one from before the entity went quiet.
+
+        The device came back and was asked; its battery entity had nothing
+        to say, so the older reading is still standing. Treating that
+        reading as an answer would retire the retry it was scheduled over,
+        and the level would stay at the pre-outage value until the next
+        outage happened to schedule another one.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            BATTERY_REREAD_DELAY_SECONDS,
+            get_battery_status,
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "87")
+        await get_battery_status(bt, self.TRV)
+        assert bt.devices_states[self.TRV]["battery"] == "87"
+
+        self._reporting(bt, "unavailable")
+        schedule_battery_refresh(bt, self.TRV, recovered=True)
+        await get_battery_status(bt, self.TRV)
+        assert bt.devices_states[self.TRV]["battery"] == "87"
+        bt.hass.async_create_background_task.reset_mock()
+
+        clock.advance(BATTERY_REREAD_DELAY_SECONDS)
+        schedule_battery_refresh(bt, self.TRV, recovered=False)
+
+        assert bt.hass.async_create_background_task.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_battery_without_a_level_is_not_read_on_every_pass(
+        self, mock_bt_instance, clock
+    ):
+        """The retries wait, because the checks around them do not.
+
+        Both availability checks run on nearly every event, so an entity
+        that is away for an evening would otherwise cost a read on each of
+        them.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            get_battery_status,
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "unavailable")
+        await get_battery_status(bt, self.TRV)
+
+        clock.advance(1.0)
+        schedule_battery_refresh(bt, self.TRV, recovered=False)
+
+        assert bt.hass.async_create_background_task.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_a_recovering_device_is_asked_without_waiting_out_the_pause(
+        self, mock_bt_instance
+    ):
+        """Recovery is worth a read whatever the last one found."""
+        from custom_components.better_thermostat.utils.watcher import (
+            get_battery_status,
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "unavailable")
+        await get_battery_status(bt, self.TRV)
+
+        schedule_battery_refresh(bt, self.TRV, recovered=True)
+
+        assert bt.hass.async_create_background_task.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_new_level_from_the_battery_entity_replaces_the_stored_one(
+        self, mock_bt_instance
+    ):
+        """A battery ages while its device stays available the whole time.
+
+        The level has to follow the battery entity on an ordinary pass, or
+        it stays at whatever the first read found until the next outage.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            get_battery_status,
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "87")
+        await get_battery_status(bt, self.TRV)
+
+        self._reporting(bt, "82")
+        schedule_battery_refresh(bt, self.TRV, recovered=False)
+        assert bt.hass.async_create_background_task.call_count == 1
+
+        await get_battery_status(bt, self.TRV)
+        assert bt.devices_states[self.TRV]["battery"] == "82"
+
+    @pytest.mark.asyncio
+    async def test_an_unchanged_level_is_not_read_again(self, mock_bt_instance):
+        """A level already on record costs no task and no state write."""
+        from custom_components.better_thermostat.utils.watcher import (
+            get_battery_status,
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "87")
+        await get_battery_status(bt, self.TRV)
+
+        schedule_battery_refresh(bt, self.TRV, recovered=False)
+
+        assert bt.hass.async_create_background_task.call_count == 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("live", ["unavailable", "unknown", None])
+    async def test_a_battery_entity_without_a_level_keeps_the_stored_one(
+        self, mock_bt_instance, clock, live
+    ):
+        """A battery entity with nothing to say does not replace the last level.
+
+        Nor does it hold up the next one: the level it reports once it is back
+        is read on the pass that sees it.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            get_battery_status,
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "87")
+        await get_battery_status(bt, self.TRV)
+
+        self._reporting(bt, live)
+        schedule_battery_refresh(bt, self.TRV, recovered=False)
+        assert bt.hass.async_create_background_task.call_count == 0
+        assert bt.devices_states[self.TRV]["battery"] == "87"
+
+        self._reporting(bt, "80")
+        clock.advance(1.0)
+        schedule_battery_refresh(bt, self.TRV, recovered=False)
+
+        assert bt.hass.async_create_background_task.call_count == 1
+
+
 class TestCheckAndUpdateDegradedMode:
     """Tests for check_and_update_degraded_mode function."""
 
-    @pytest.mark.anyio
     async def test_sets_degraded_mode_when_optional_sensor_unavailable(
         self, mock_bt_instance
     ):
@@ -647,7 +901,6 @@ class TestCheckAndUpdateDegradedMode:
         assert mock_bt_instance.degraded_mode is True
         assert "binary_sensor.window" in mock_bt_instance.unavailable_sensors
 
-    @pytest.mark.anyio
     async def test_sets_degraded_mode_when_door_sensor_unavailable(
         self, mock_bt_instance
     ):
@@ -673,7 +926,6 @@ class TestCheckAndUpdateDegradedMode:
         assert "binary_sensor.door" in mock_bt_instance.unavailable_sensors
         assert mock_ir.async_create_issue.called
 
-    @pytest.mark.anyio
     async def test_no_degraded_mode_when_door_sensor_not_configured(
         self, mock_bt_instance
     ):
@@ -693,7 +945,6 @@ class TestCheckAndUpdateDegradedMode:
         assert result is False
         assert mock_bt_instance.unavailable_sensors == []
 
-    @pytest.mark.anyio
     async def test_no_degraded_mode_when_all_sensors_available(self, mock_bt_instance):
         """Test that degraded_mode is False when all sensors are available."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -711,7 +962,6 @@ class TestCheckAndUpdateDegradedMode:
         assert mock_bt_instance.degraded_mode is False
         assert mock_bt_instance.unavailable_sensors == []
 
-    @pytest.mark.anyio
     async def test_includes_room_sensor_in_unavailable_list(self, mock_bt_instance):
         """Test that room temperature sensor is added to unavailable list when unavailable."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -751,13 +1001,24 @@ class TestCheckAndUpdateDegradedMode:
         )
 
     @staticmethod
-    def _with_batteries(mock_bt_instance, *, battery):
-        """Give every watched sensor a battery entity in the given read state."""
+    def _with_batteries(mock_bt_instance, *, battery, live=None):
+        """Give every watched sensor a battery entity in the given read state.
+
+        ``battery`` is the stored level and ``live`` the one the battery
+        entity reports, the stored one unless given. Every other lookup
+        answers with a temperature.
+        """
         mock_bt_instance.devices_states = {
             entity: {"battery_id": f"{entity}_battery", "battery": battery}
             for entity in TestCheckAndUpdateDegradedMode.WATCHED_SENSORS
         }
-        TestCheckAndUpdateDegradedMode._all_sensors_reporting(mock_bt_instance)
+        reported = {
+            f"{entity}_battery": battery if live is None else live
+            for entity in TestCheckAndUpdateDegradedMode.WATCHED_SENSORS
+        }
+        mock_bt_instance.hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, reported.get(entity_id, "20.0")
+        )
 
     @staticmethod
     async def _run(mock_bt_instance):
@@ -780,7 +1041,7 @@ class TestCheckAndUpdateDegradedMode:
         self, mock_bt_instance
     ):
         """First pass after startup: every available sensor gets one read."""
-        self._with_batteries(mock_bt_instance, battery=None)
+        self._with_batteries(mock_bt_instance, battery=None, live="87")
 
         assert await self._run(mock_bt_instance) == len(self.WATCHED_SENSORS)
 
@@ -796,6 +1057,13 @@ class TestCheckAndUpdateDegradedMode:
         self._with_batteries(mock_bt_instance, battery="87")
 
         assert await self._run(mock_bt_instance) == 0
+
+    @pytest.mark.asyncio
+    async def test_rereads_batteries_that_report_a_new_level(self, mock_bt_instance):
+        """A battery ages while its sensor stays available."""
+        self._with_batteries(mock_bt_instance, battery="87", live="82")
+
+        assert await self._run(mock_bt_instance) == len(self.WATCHED_SENSORS)
 
     @pytest.mark.asyncio
     async def test_rereads_the_battery_of_a_sensor_that_just_recovered(
@@ -836,7 +1104,6 @@ class TestDegradedModeGracePeriod:
 
         return mock_get
 
-    @pytest.mark.anyio
     async def test_warning_and_issue_when_grace_inactive(
         self, mock_bt_instance, caplog
     ):
@@ -858,7 +1125,6 @@ class TestDegradedModeGracePeriod:
         assert mock_ir.async_create_issue.called
         assert mock_bt_instance._degraded_warning_emitted is True
 
-    @pytest.mark.anyio
     async def test_silent_during_grace_period(self, mock_bt_instance, caplog):
         """Grace active → degraded transition logs DEBUG, no issue, no WARNING."""
         from datetime import timedelta
@@ -883,7 +1149,6 @@ class TestDegradedModeGracePeriod:
         assert not mock_ir.async_create_issue.called
         assert mock_bt_instance._degraded_warning_emitted is False
 
-    @pytest.mark.anyio
     async def test_warns_after_grace_expires(self, mock_bt_instance, caplog):
         """Grace passed → still-degraded re-check logs WARNING and raises issue."""
         from datetime import timedelta
@@ -910,7 +1175,6 @@ class TestDegradedModeGracePeriod:
         assert mock_ir.async_create_issue.called
         assert mock_bt_instance._degraded_warning_emitted is True
 
-    @pytest.mark.anyio
     async def test_silent_recovery_during_grace(self, mock_bt_instance, caplog):
         """Recover during grace → no INFO log, no issue deleted (none was created)."""
         from datetime import timedelta
@@ -938,7 +1202,6 @@ class TestDegradedModeGracePeriod:
         assert not any("Exiting degraded mode" in r.message for r in caplog.records)
         assert not mock_ir.async_delete_issue.called
 
-    @pytest.mark.anyio
     async def test_info_on_recovery_after_warned(self, mock_bt_instance, caplog):
         """Recover after we'd warned → INFO log + issue deleted."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -960,7 +1223,6 @@ class TestDegradedModeGracePeriod:
         assert mock_ir.async_delete_issue.called
         assert mock_bt_instance._degraded_warning_emitted is False
 
-    @pytest.mark.anyio
     async def test_no_double_warning(self, mock_bt_instance, caplog):
         """Subsequent check while already-warned → no second WARNING."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -1110,15 +1372,11 @@ class TestCoolerDegradedMode:
 
 
 class TestAwaitOptionalSensors:
-    """Tests for await_optional_sensors retry logic.
-
-    Uses asyncio.run() to avoid the HA event-loop-policy issue that
-    affects @pytest.mark.anyio tests in this project.
-    """
+    """Tests for await_optional_sensors retry logic."""
 
     @staticmethod
     def _run(coro):
-        """Run a coroutine in a fresh event loop (avoids HA plugin issues)."""
+        """Run a coroutine to completion on a fresh event loop."""
         import asyncio
 
         loop = asyncio.new_event_loop()
@@ -1417,6 +1675,61 @@ class TestAwaitOptionalSensors:
         )
         assert sleep_calls == [2, 4]
 
+    def test_returns_immediately_when_already_removed(self, mock_bt_instance):
+        """An entity torn down before the wait starts never checks a sensor."""
+        from custom_components.better_thermostat.utils.watcher import (
+            await_optional_sensors,
+        )
+
+        mock_bt_instance.is_removed = True
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+
+        result = self._run(
+            await_optional_sensors(
+                mock_bt_instance, delays=(3, 5, 10), _sleep=fake_sleep
+            )
+        )
+
+        assert result == []
+        assert sleep_calls == []
+        mock_bt_instance.hass.states.get.assert_not_called()
+
+    def test_stops_early_when_removed_mid_wait(self, mock_bt_instance):
+        """A teardown during the wait aborts the retry schedule immediately."""
+        from custom_components.better_thermostat.utils.watcher import (
+            await_optional_sensors,
+        )
+
+        mock_bt_instance.window_id = None
+        mock_bt_instance.humidity_sensor_entity_id = None
+        mock_bt_instance.weather_entity = None
+
+        mock_state = MagicMock()
+        mock_state.state = "unavailable"  # never comes online
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+            # Instance torn down while we were waiting.
+            mock_bt_instance.is_removed = True
+
+        result = self._run(
+            await_optional_sensors(
+                mock_bt_instance, delays=(3, 5, 10, 15), _sleep=fake_sleep
+            )
+        )
+
+        # Only the first delay elapses; the post-sleep is_removed check returns
+        # instead of running the remaining schedule.
+        assert sleep_calls == [3]
+        assert result == ["sensor.outdoor_temp"]
+
 
 class TestAwaitCriticalEntities:
     """Tests for await_critical_entities retry logic.
@@ -1428,7 +1741,7 @@ class TestAwaitCriticalEntities:
 
     @staticmethod
     def _run(coro):
-        """Run a coroutine in a fresh event loop (avoids HA plugin issues)."""
+        """Run a coroutine to completion on a fresh event loop."""
         import asyncio
 
         loop = asyncio.new_event_loop()
@@ -1670,7 +1983,6 @@ class TestAwaitCriticalEntities:
 class TestBatteryStatusCalls:
     """Tests for battery status updates in entity checks."""
 
-    @pytest.mark.anyio
     async def test_check_critical_entities_calls_battery_status(self, mock_bt_instance):
         """check_critical_entities fetches battery for available TRVs on first pass."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -1698,7 +2010,6 @@ class TestBatteryStatusCalls:
                     mock_bt_instance.hass.async_create_background_task.call_count == 2
                 )
 
-    @pytest.mark.anyio
     async def test_check_critical_entities_no_battery_call_when_unavailable(
         self, mock_bt_instance
     ):

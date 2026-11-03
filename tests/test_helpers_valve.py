@@ -1,17 +1,9 @@
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from custom_components.better_thermostat.utils.helpers import (
     find_local_calibration_entity,
     find_valve_entity,
 )
-
-
-@pytest.fixture
-def anyio_backend():
-    """Return the async backend to use for tests."""
-    return "asyncio"
 
 
 def _make_entity(eid, uid, device_id, translation_key=None, original_name=None):
@@ -22,6 +14,7 @@ def _make_entity(eid, uid, device_id, translation_key=None, original_name=None):
     e.device_id = device_id
     e.translation_key = translation_key
     e.original_name = original_name
+    e.disabled_by = None
     # RegistryEntry.domain is derived from the entity_id
     e.domain = eid.split(".", 1)[0]
     return e
@@ -35,7 +28,6 @@ def _make_bt_instance():
     return bt
 
 
-@pytest.mark.anyio
 async def test_find_valve_entity_ignores_sensor_pi_heating_demand():
     """Test that find_valve_entity ignores sensor.pi_heating_demand but accepts number.pi_heating_demand."""
 
@@ -59,6 +51,7 @@ async def test_find_valve_entity_ignores_sensor_pi_heating_demand():
         e.entity_id = eid
         e.unique_id = uid
         e.device_id = trv_device_id
+        e.disabled_by = None
         return e
 
     entity_sensor = make_entity("sensor.pi_heating_demand", "unique_sensor")
@@ -125,7 +118,6 @@ async def test_find_valve_entity_ignores_sensor_pi_heating_demand():
         assert result["writable"] is True
 
 
-@pytest.mark.anyio
 async def test_find_valve_entity_trvzb_valve_opening_degree_device_mismatch():
     """TRVZB-style valve entities may be registered under a different device_id.
 
@@ -151,6 +143,7 @@ async def test_find_valve_entity_trvzb_valve_opening_degree_device_mismatch():
     ent.unique_id = "0x00124b0000abcd_valve_opening_degree"
     ent.original_name = "Valve Opening Degree"
     ent.device_id = valve_device_id
+    ent.disabled_by = None
 
     with (
         patch(
@@ -190,7 +183,6 @@ async def test_find_valve_entity_trvzb_valve_opening_degree_device_mismatch():
         assert result["reason"] == "valve_opening_degree"
 
 
-@pytest.mark.anyio
 async def test_find_valve_entity_by_translation_key():
     """Test that find_valve_entity detects entities by translation_key without relying on string matching."""
 
@@ -240,7 +232,6 @@ async def test_find_valve_entity_by_translation_key():
         assert result["reason"] == "valve_position"
 
 
-@pytest.mark.anyio
 async def test_find_valve_entity_translation_key_preferred_over_string_match():
     """Test that translation_key match is preferred when both would match different entities."""
 
@@ -296,7 +287,6 @@ async def test_find_valve_entity_translation_key_preferred_over_string_match():
         assert result["reason"] == "valve_position"
 
 
-@pytest.mark.anyio
 async def test_find_valve_entity_by_translation_key_pi_heating_demand():
     """Test that translation_key='pi_heating_demand' is detected."""
 
@@ -342,7 +332,6 @@ async def test_find_valve_entity_by_translation_key_pi_heating_demand():
         assert result["reason"] == "pi_heating_demand"
 
 
-@pytest.mark.anyio
 async def test_find_local_calibration_entity_by_translation_key():
     """Test that find_local_calibration_entity detects entities by translation_key."""
 
@@ -379,7 +368,6 @@ async def test_find_local_calibration_entity_by_translation_key():
         assert result == "number.trv_opaque_calibration"
 
 
-@pytest.mark.anyio
 async def test_find_local_calibration_entity_by_translation_key_temperature_offset():
     """Test that translation_key='temperature_offset' is detected for calibration."""
 
@@ -415,7 +403,82 @@ async def test_find_local_calibration_entity_by_translation_key_temperature_offs
         assert result == "number.trv_generic_entity"
 
 
-@pytest.mark.anyio
+async def test_find_local_calibration_entity_finds_the_tuya_temperature_correction():
+    """The temperature correction Home Assistant's tuya integration exposes is the offset.
+
+    The tuya integration registers a TRV's offset number under the
+    translation key ``temp_correction``, with a unique id that ends in that
+    key. The key identifies it whatever the user renamed the entity to.
+    """
+
+    bt_instance = _make_bt_instance()
+    device_id = "device_123"
+
+    reg_entity_trv = MagicMock()
+    reg_entity_trv.config_entry_id = "config_123"
+    reg_entity_trv.device_id = device_id
+
+    ent_correction = _make_entity(
+        eid="number.guest_room_trv_knob_correction",
+        uid="tuya.bf0123456789abcdeftemp_correction",
+        device_id=device_id,
+        translation_key="temp_correction",
+        original_name="Temperature correction",
+    )
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get"
+        ) as mock_er_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.async_entries_for_config_entry"
+        ) as mock_entries,
+    ):
+        mock_registry = MagicMock()
+        mock_er_get.return_value = mock_registry
+        mock_registry.async_get.return_value = reg_entity_trv
+
+        mock_entries.return_value = [ent_correction]
+        result = await find_local_calibration_entity(bt_instance, "climate.my_trv")
+
+        assert result == "number.guest_room_trv_knob_correction"
+
+
+async def test_find_local_calibration_entity_matches_temperature_correction_by_name():
+    """A number named temperature correction is the offset without a known key."""
+
+    bt_instance = _make_bt_instance()
+    device_id = "device_123"
+
+    reg_entity_trv = MagicMock()
+    reg_entity_trv.config_entry_id = "config_123"
+    reg_entity_trv.device_id = device_id
+
+    ent_correction = _make_entity(
+        eid="number.trv_temperature_correction",
+        uid="opaque_uid",
+        device_id=device_id,
+        translation_key=None,
+    )
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get"
+        ) as mock_er_get,
+        patch(
+            "custom_components.better_thermostat.utils.helpers.async_entries_for_config_entry"
+        ) as mock_entries,
+    ):
+        mock_registry = MagicMock()
+        mock_er_get.return_value = mock_registry
+        mock_registry.async_get.return_value = reg_entity_trv
+
+        mock_entries.return_value = [ent_correction]
+        result = await find_local_calibration_entity(bt_instance, "climate.my_trv")
+
+        assert result == "number.trv_temperature_correction"
+
+
 async def test_find_local_calibration_entity_fallback_string_match():
     """Test that find_local_calibration_entity falls back to string matching when no translation_key."""
 
@@ -452,7 +515,6 @@ async def test_find_local_calibration_entity_fallback_string_match():
         assert result == "number.trv_temperature_calibration"
 
 
-@pytest.mark.anyio
 async def test_find_local_calibration_translation_key_preferred_over_string():
     """Test that translation_key match is found first, even with a string-matchable entity."""
 
@@ -497,7 +559,6 @@ async def test_find_local_calibration_translation_key_preferred_over_string():
         assert result == "number.trv_tk_entity"
 
 
-@pytest.mark.anyio
 async def test_find_local_calibration_entity_prefers_number_over_sensor():
     """Test that the number calibration entity wins over a read-only sensor.
 
@@ -544,7 +605,6 @@ async def test_find_local_calibration_entity_prefers_number_over_sensor():
         assert result == "number.trv_local_temperature_calibration"
 
 
-@pytest.mark.anyio
 async def test_find_local_calibration_entity_first_writable_match_wins():
     """Test that the fallback pass stops at the first writable match.
 
@@ -590,7 +650,6 @@ async def test_find_local_calibration_entity_first_writable_match_wins():
         assert result == "number.trv_local_temperature_calibration"
 
 
-@pytest.mark.anyio
 async def test_find_local_calibration_translation_key_ignores_sensor_domain():
     """Test that the translation_key pass skips non-writable domains.
 
@@ -636,7 +695,6 @@ async def test_find_local_calibration_translation_key_ignores_sensor_domain():
         assert result == "number.trv_calibration"
 
 
-@pytest.mark.anyio
 async def test_find_local_calibration_entity_sensor_only_returns_none():
     """Test that a device exposing only the read-only sensor yields no match."""
 
@@ -672,7 +730,6 @@ async def test_find_local_calibration_entity_sensor_only_returns_none():
         assert result is None
 
 
-@pytest.mark.anyio
 async def test_find_local_calibration_entity_accepts_select_domain():
     """Test that a select calibration entity is accepted as writable target."""
 

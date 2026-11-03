@@ -122,20 +122,28 @@ class FakeTrvEntity(ClimateEntity):
         # Radio loss simulation: the next setpoint write is recorded but
         # neither applied nor confirmed.
         self.drop_next_setpoint_write = False
+        # The highest setpoint the device holds, below the maximum it
+        # publishes: a write above it lands on the ceiling. ``None`` holds
+        # every setpoint up to the maximum.
+        self.setpoint_ceiling: float | None = None
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Apply and confirm a setpoint write.
 
         The write is always recorded; with ``drop_next_setpoint_write``
         set it is then swallowed instead of applied, simulating a device
-        that lost the command over the radio.
+        that lost the command over the radio. With ``setpoint_ceiling`` set
+        a setpoint above it is held as the ceiling.
         """
         temperature = kwargs[ATTR_TEMPERATURE]
         self.set_temperature_calls.append(temperature)
         if self.drop_next_setpoint_write:
             self.drop_next_setpoint_write = False
             return
-        self._attr_target_temperature = temperature
+        ceiling = self.setpoint_ceiling
+        self._attr_target_temperature = (
+            temperature if ceiling is None else min(temperature, ceiling)
+        )
         self.async_write_ha_state()
 
     async def async_set_hvac_mode(self, hvac_mode) -> None:

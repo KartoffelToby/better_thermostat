@@ -19,14 +19,20 @@ from homeassistant.components.climate.const import (
     PRESET_SLEEP,
     HVACMode,
 )
-from homeassistant.const import CONF_NAME
-from homeassistant.core import callback
+from homeassistant.const import CONF_NAME, UnitOfTemperature
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.helpers.dispatcher import dispatcher_send
+from homeassistant.util.unit_conversion import TemperatureConverter
 import voluptuous as vol
 
-from . import DOMAIN  # pylint: disable=unused-import
+from . import (  # pylint: disable=unused-import
+    DOMAIN,
+    other_entries_controlling,
+    trv_entity_ids,
+)
 from .adapters.delegate import load_adapter
+from .model_fixes.model_quirks import load_model_quirks, quirk_writes_valve
 from .utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
@@ -62,7 +68,12 @@ from .utils.const import (
     CalibrationType,
     MpcV2PlantPreset,
 )
-from .utils.helpers import device_offers_mode, get_device_model, get_trv_intigration
+from .utils.helpers import (
+    device_offers_mode,
+    entry_settings,
+    get_device_model,
+    get_trv_intigration,
+)
 from .utils.preset_manager import DEFAULT_ENABLED_PRESETS
 
 _LOGGER = logging.getLogger(__name__)
@@ -232,14 +243,30 @@ PRESET_SELECTOR = selector.SelectSelector(
 )
 
 
+# The outdoor threshold is entered and stored in the system unit, so the
+# suggestion is this temperature expressed in that unit.
+_OFF_TEMPERATURE_DEFAULT_CELSIUS = 20
+
 _USER_FIELD_DEFAULTS: dict[str, Any] = {
-    CONF_OFF_TEMPERATURE: 20,
     CONF_TOLERANCE: 0.0,
     CONF_TARGET_TEMP_MIN: "-1.0",
     CONF_TARGET_TEMP_MAX: "-1.0",
     CONF_TARGET_TEMP_STEP: "0.0",
     CONF_MIN_COOLER_RESEND_INTERVAL: 0,
 }
+
+
+def _off_temperature_default(system_unit: str | None) -> int:
+    """Return the suggested outdoor threshold in the system unit, in whole degrees."""
+    if system_unit == UnitOfTemperature.FAHRENHEIT:
+        return round(
+            TemperatureConverter.convert(
+                _OFF_TEMPERATURE_DEFAULT_CELSIUS,
+                UnitOfTemperature.CELSIUS,
+                UnitOfTemperature.FAHRENHEIT,
+            )
+        )
+    return _OFF_TEMPERATURE_DEFAULT_CELSIUS
 
 
 def _as_bool(value: bool | str | int | None, default: bool = False) -> bool:
@@ -256,29 +283,70 @@ def _as_bool(value: bool | str | int | None, default: bool = False) -> bool:
     return bool(value)
 
 
+async def _quirk_valve_support(
+    flow: config_entries.ConfigFlow | config_entries.OptionsFlow, entity_id: str
+) -> bool:
+    """Answer whether this TRV's model quirk drives its valve.
+
+    The model comes from the device registry and its quirk is loaded the way
+    the running thermostat loads it, so the calibration strategies the flow
+    offers are the ones the write path can carry out.
+
+    Parameters
+    ----------
+    flow : config_entries.ConfigFlow | config_entries.OptionsFlow
+        The flow the probe runs in, supplying Home Assistant access.
+    entity_id : str
+        Entity ID of the TRV to probe.
+
+    Returns
+    -------
+    bool
+        True when the TRV's model has a quirk of its own that writes the
+        valve, False when it has none and when the model cannot be read.
+    """
+    try:
+        model = await get_device_model(flow, entity_id)
+        quirks = await load_model_quirks(flow, model, entity_id)
+    except RuntimeError, ValueError, TypeError, AttributeError, ImportError:
+        _LOGGER.debug("model quirk probe failed", exc_info=True)
+        return False
+    return quirk_writes_valve(quirks)
+
+
 async def _load_adapter_info(
     flow: config_entries.ConfigFlow | config_entries.OptionsFlow,
     integration: str | None,
-    trv_id: str | None,
+    entity_id: str | None,
     *,
     existing_adapter: Any | None = None,
 ) -> tuple[Any | None, dict[str, Any]]:
     adapter = existing_adapter
     info: dict[str, Any] = {}
 
-    if integration and trv_id:
+    if integration and entity_id:
         if adapter is None:
             try:
-                adapter = await load_adapter(flow, integration, trv_id)
+                adapter = await load_adapter(flow, integration, entity_id)
             except RuntimeError, ValueError, TypeError:  # pragma: no cover - defensive
                 _LOGGER.debug("load_adapter failed", exc_info=True)
 
         if adapter is not None and hasattr(adapter, "get_info"):
             try:
                 # type: ignore[attr-defined]
-                info = await adapter.get_info(flow, trv_id)
+                info = await adapter.get_info(flow, entity_id)
             except RuntimeError, ValueError, TypeError, AttributeError:
                 _LOGGER.debug("adapter get_info failed", exc_info=True)
+
+    # A model quirk owns the valve of the devices it covers, whichever adapter
+    # serves the ecosystem they are paired through, so the adapter's answer is
+    # not the whole of the valve surface.
+    if (
+        entity_id
+        and not info.get("support_valve", False)
+        and await _quirk_valve_support(flow, entity_id)
+    ):
+        info = info | {"support_valve": True}
 
     return adapter, info
 
@@ -466,7 +534,11 @@ def _seconds_to_duration_dict(value: int | float | str | None) -> dict[str, int]
 
 
 def _build_user_fields(
-    *, mode: str, current: Mapping[str, Any], user_input: dict[str, Any] | None = None
+    *,
+    mode: str,
+    current: Mapping[str, Any],
+    user_input: dict[str, Any] | None = None,
+    system_unit: str | None = None,
 ) -> OrderedDict:
     user_input = user_input or {}
     is_create = mode == "create"
@@ -615,13 +687,12 @@ def _build_user_fields(
                 duration_default = None
         add_field(key, selector.DurationSelector(), default=duration_default)
 
-    off_temp_default = resolve(
-        CONF_OFF_TEMPERATURE, _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
-    )
+    suggested_off_temp = _off_temperature_default(system_unit)
+    off_temp_default = resolve(CONF_OFF_TEMPERATURE, suggested_off_temp)
     try:
         off_temp_default = int(off_temp_default)
     except TypeError, ValueError:
-        off_temp_default = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
+        off_temp_default = suggested_off_temp
     add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
 
     # An entry that carries no preset list runs on the PresetManager default
@@ -683,6 +754,7 @@ def _normalize_user_submission(
     mode: str,
     base: Mapping[str, Any] | None = None,
     errors: dict[str, str] | None = None,
+    system_unit: str | None = None,
 ) -> dict[str, Any]:
     if base:
         if not isinstance(base, dict):
@@ -741,21 +813,17 @@ def _normalize_user_submission(
         elif mode == "create" and key not in normalized:
             normalized[key] = 0
 
+    suggested_off_temp = _off_temperature_default(system_unit)
     off_temp = user_input.get(
-        CONF_OFF_TEMPERATURE,
-        normalized.get(
-            CONF_OFF_TEMPERATURE, _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
-        ),
+        CONF_OFF_TEMPERATURE, normalized.get(CONF_OFF_TEMPERATURE, suggested_off_temp)
     )
     if off_temp is None:
-        normalized[CONF_OFF_TEMPERATURE] = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
+        normalized[CONF_OFF_TEMPERATURE] = suggested_off_temp
     else:
         try:
             normalized[CONF_OFF_TEMPERATURE] = int(off_temp)
         except TypeError, ValueError:
-            normalized[CONF_OFF_TEMPERATURE] = _USER_FIELD_DEFAULTS[
-                CONF_OFF_TEMPERATURE
-            ]
+            normalized[CONF_OFF_TEMPERATURE] = suggested_off_temp
 
     if CONF_PRESETS in user_input:
         normalized[CONF_PRESETS] = user_input[CONF_PRESETS]
@@ -878,6 +946,30 @@ async def _prepare_advanced_context(
     }
 
 
+def _in_use_placeholders(
+    hass: HomeAssistant,
+    trv_entity_ids_to_check: Iterable[str],
+    entry_id: str | None,
+    kept: Iterable[str] = (),
+) -> dict[str, str] | None:
+    """Name the first thermostat another entry controls, and that entry.
+
+    Thermostats in ``kept`` are skipped. ``None`` means every thermostat is
+    free for the entry ``entry_id`` (``None`` for an entry not yet created).
+    """
+    kept_ids = set(kept)
+    for trv_entity_id in trv_entity_ids_to_check:
+        if trv_entity_id in kept_ids:
+            continue
+        owners = other_entries_controlling(hass, trv_entity_id, entry_id)
+        if owners:
+            return {
+                "trv": trv_entity_id,
+                "entry": owners[0].data.get(CONF_NAME, owners[0].title),
+            }
+    return None
+
+
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for Better Thermostat."""
 
@@ -934,6 +1026,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "Creating entry with heater bundle: %s", self.data.get(CONF_HEATER)
                 )
                 self._abort_if_unique_id_configured()
+                # Another flow can have created an entry for one of these
+                # thermostats while this one waited on its forms, so the
+                # check runs again with nothing awaited before the entry.
+                in_use = _in_use_placeholders(
+                    self.hass, [x["trv"] for x in self.data[CONF_HEATER]], None
+                )
+                if in_use:
+                    return self.async_abort(
+                        reason="trv_in_use", description_placeholders=in_use
+                    )
                 return self.async_create_entry(title=self.data["name"], data=self.data)
         if confirm_type is not None:
             errors["base"] = confirm_type
@@ -1040,7 +1142,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.debug("ConfigFlow user step received input: %s", user_input)
             try:
                 normalized = _normalize_user_submission(
-                    user_input, mode="create", base=current, errors=errors
+                    user_input,
+                    mode="create",
+                    base=current,
+                    errors=errors,
+                    system_unit=self.hass.config.units.temperature_unit,
                 )
             except Exception as err:
                 _LOGGER.exception("ConfigFlow user step normalization failed: %s", err)
@@ -1056,6 +1162,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[CONF_HEATER] = "no_heater"
 
             if not errors:
+                in_use = _in_use_placeholders(self.hass, heaters, None)
+                if in_use:
+                    return self.async_abort(
+                        reason="trv_in_use", description_placeholders=in_use
+                    )
                 self.heater_entity_id = list(heaters)
                 self.trv_bundle = []
                 for trv in self.heater_entity_id:
@@ -1075,7 +1186,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_advanced(None, self.trv_bundle[0])
 
         fields = _build_user_fields(
-            mode="create", current=self.data or {}, user_input=user_input
+            mode="create",
+            current=self.data or {},
+            user_input=user_input,
+            system_unit=self.hass.config.units.temperature_unit,
         )
 
         return self.async_show_form(
@@ -1150,8 +1264,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.trv_bundle[self.i]["adapter"] = None
 
             self.i += 1
-            if len(self.trv_bundle) - 1 >= self.i:
-                self._last_step = True
 
             if len(self.trv_bundle) > self.i:
                 self._active_trv_config = None
@@ -1166,17 +1278,37 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 self.updated_config.get(CONF_HEATER),
             )
 
-            # Check for calibration mode changes to trigger entity cleanup
-            await self._check_calibration_changes()
+            # Another entry can have taken a thermostat this one gains while
+            # the forms were open, so the check runs again with nothing
+            # awaited before the write.
+            in_use = self._in_use_placeholders([trv["trv"] for trv in self.trv_bundle])
+            if in_use:
+                self.i = 0
+                self.trv_bundle = []
+                self._active_trv_config = None
+                return self._show_user_form(
+                    self.updated_config, {CONF_HEATER: "trv_in_use"}, in_use
+                )
 
-            # The whole configuration lives in the entry's data. Options are
-            # emptied in the same update, so an entry that still carries them
-            # is written — and so reloaded — once rather than twice.
+            # The comparison reads the entry as stored, so it runs before the
+            # write; the signal goes out only once the write has happened.
+            algorithms_changed = self._calibration_algorithms_changed()
+
+            # The whole configuration is written to the entry's data and the
+            # options are emptied in the same update, so an entry 2.0 saved,
+            # whose settings are in its options, is written once and read
+            # from its data from then on.
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=self.updated_config, options={}
             )
+            if algorithms_changed:
+                # Dynamic entity management adds and removes algorithm sensors.
+                signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
+                dispatcher_send(
+                    self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
+                )
             self._active_trv_config = None
-            # The entry is written above and nothing reads its options.
+            # The entry is written above; its options stay empty.
             return self.async_create_entry(title=self.updated_config["name"], data={})
 
         user_input = user_input or {}
@@ -1195,6 +1327,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             existing_adv,
         )
         self.device_name = user_input.get(CONF_NAME, "-")
+        self._last_step = self.i == len(self.trv_bundle) - 1
 
         return self.async_show_form(
             step_id="advanced",
@@ -1209,20 +1342,31 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_user(self, user_input=None):
         """Handle the user step."""
         errors: dict[str, str] = {}
+        in_use_placeholders: dict[str, str] = {}
         if user_input is not None:
             _LOGGER.debug("OptionsFlow user step received input: %s", user_input)
             try:
                 normalized = _normalize_user_submission(
                     user_input,
                     mode="update",
-                    base=self._config_entry.data,
+                    base=entry_settings(self._config_entry),
                     errors=errors,
+                    system_unit=self.hass.config.units.temperature_unit,
                 )
             except Exception as err:
                 _LOGGER.exception("OptionsFlow user step normalization failed: %s", err)
                 raise
             _LOGGER.debug("OptionsFlow user step normalized data: %s", normalized)
             self.updated_config = normalized
+            # The room sensor is required, but in this form it is optional so
+            # the stored one can be pre-filled; an emptied selector arrives as
+            # a missing key.
+            if not normalized.get(CONF_SENSOR):
+                errors[CONF_SENSOR] = "no_sensor"
+            in_use = self._in_use_placeholders(normalized.get(CONF_HEATER) or [])
+            if in_use:
+                errors[CONF_HEATER] = "trv_in_use"
+                in_use_placeholders = in_use
 
             if not errors:
                 self.trv_bundle = []
@@ -1231,7 +1375,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 # Create a map of existing TRV configs by TRV ID
                 existing_trvs = {
                     trv.get("trv"): trv
-                    for trv in self._config_entry.data.get(CONF_HEATER, [])
+                    for trv in entry_settings(self._config_entry).get(CONF_HEATER, [])
                     if isinstance(trv, dict) and trv.get("trv")
                 }
 
@@ -1274,8 +1418,38 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 errors[CONF_HEATER] = "no_heater"
 
+        return self._show_user_form(
+            entry_settings(self._config_entry), errors, in_use_placeholders, user_input
+        )
+
+    def _in_use_placeholders(
+        self, trv_entity_ids_to_check: Iterable[str]
+    ) -> dict[str, str] | None:
+        """Name a thermostat this entry gains that another entry controls.
+
+        A thermostat belongs to one entry. An overlap the entry already has is
+        left alone; only a thermostat it gains is checked.
+        """
+        return _in_use_placeholders(
+            self.hass,
+            trv_entity_ids_to_check,
+            self._config_entry.entry_id,
+            kept=trv_entity_ids(self._config_entry),
+        )
+
+    def _show_user_form(
+        self,
+        current: Mapping[str, Any],
+        errors: dict[str, str],
+        placeholders: Mapping[str, str],
+        user_input: dict[str, Any] | None = None,
+    ):
+        """Show the user step prefilled from ``current`` and ``user_input``."""
         fields = _build_user_fields(
-            mode="update", current=self._config_entry.data, user_input=user_input
+            mode="update",
+            current=current,
+            user_input=user_input,
+            system_unit=self.hass.config.units.temperature_unit,
         )
 
         return self.async_show_form(
@@ -1283,12 +1457,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=vol.Schema(fields),
             errors=errors,
             last_step=False,
-            description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
+            description_placeholders={
+                "docs_url": CONFIG_WALKTHROUGH_URL,
+                **placeholders,
+            },
         )
 
-    async def _check_calibration_changes(self) -> None:
-        """Check for calibration mode changes and signal for entity cleanup."""
-        old_config = self._config_entry.data
+    def _calibration_algorithms_changed(self) -> bool:
+        """Return whether the update changes the set of calibration algorithms."""
+        old_config = entry_settings(self._config_entry)
         new_config = self.updated_config
 
         # Get active calibration algorithms from both configs
@@ -1311,12 +1488,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     for alg in algorithms_removed
                 ],
             )
-
-            # Signal configuration change for dynamic entity management
-            signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
-            dispatcher_send(
-                self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
-            )
+            return True
+        return False
 
     def _get_active_algorithms(self, config: Mapping[str, Any]) -> set:
         """Get set of calibration algorithms currently in use by any TRV."""

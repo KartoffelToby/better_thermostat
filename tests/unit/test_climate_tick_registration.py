@@ -54,6 +54,7 @@ async def _run_finalize_startup(bt):
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
         patch(f"{_CLIMATE}.await_optional_sensors", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(f"{_CLIMATE}.reconcile_room_sensor", AsyncMock()),
         patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
         patch(f"{_CLIMATE}.async_track_time_interval") as track_interval,
         patch(f"{_CLIMATE}.async_track_state_change_event"),
@@ -63,9 +64,19 @@ async def _run_finalize_startup(bt):
     return track_interval
 
 
+def _timer_target(registered):
+    """The coroutine function a registered timer callback runs.
+
+    Each tick reaches the tracker through a dispatcher that spawns the firing
+    as work the entity owns, bound with ``partial``, so the callable handed to
+    the tracker is that dispatcher rather than the tick itself.
+    """
+    return registered.args[0]
+
+
 def _registered_callbacks(track_interval, bt):
     """Extract the callbacks registered via async_track_time_interval."""
-    return [call.args[1] for call in track_interval.call_args_list]
+    return [_timer_target(call.args[1]) for call in track_interval.call_args_list]
 
 
 @pytest.mark.asyncio

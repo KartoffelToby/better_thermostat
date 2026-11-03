@@ -3,16 +3,62 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Generator
+from contextlib import contextmanager
 import functools
 import logging
 import random
 from typing import ParamSpec, TypeVar
 
+from homeassistant.exceptions import ServiceNotFound, ServiceValidationError
+
 _LOGGER = logging.getLogger(__name__)
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+# Failures that repeating the call cannot fix. ``ServiceValidationError`` is
+# Home Assistant refusing the payload itself (a setpoint outside the entity's
+# range, a mode it does not offer), which the same payload meets again on
+# every attempt. They surface on the first attempt instead of being hidden
+# behind the full backoff budget.
+UNRECOVERABLE_EXCEPTIONS: tuple[type[Exception], ...] = (ServiceValidationError,)
+
+# Unrecoverable by type, yet momentary: Home Assistant raises
+# ``ServiceNotFound`` for a service whose integration is still loading or
+# reloading, and the service is back a few seconds later.
+RETRYABLE_DESPITE_TYPE: tuple[type[Exception], ...] = (ServiceNotFound,)
+
+
+class CommandCancelledError(ConnectionError):
+    """A device command its client library cancelled while it was in flight."""
+
+
+@contextmanager
+def command_cancellation_as_disconnect() -> Generator[None]:
+    """Turn a device command its library cancelled into a lost connection.
+
+    The Z-Wave JS and Matter clients cancel the future of every command still
+    in flight when their connection drops, so the service call waiting on it
+    raises ``asyncio.CancelledError`` in a task nobody cancelled. Left as it
+    is, that cancellation ends whatever task made the write, the control loop
+    included, and slips past every handler that catches device failures. A
+    cancellation of the current task itself is passed on unchanged.
+
+    Raises
+    ------
+    CommandCancelledError
+        When the command was cancelled while the current task was not
+    """
+    try:
+        yield
+    except asyncio.CancelledError as err:
+        task = asyncio.current_task()
+        if task is None or task.cancelling():
+            raise
+        raise CommandCancelledError(
+            "the device's client library cancelled the command"
+        ) from err
 
 
 def async_retry(
@@ -22,10 +68,14 @@ def async_retry(
     backoff_factor: float = 2.0,
     max_delay: float = 60.0,
     exceptions: tuple[type[Exception], ...] = (Exception,),
-    log_level: int = logging.ERROR,
+    log_level: int = logging.DEBUG,
     identifier: str = "",
 ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """Retry async functions when exceptions occur.
+
+    Exceptions in :data:`UNRECOVERABLE_EXCEPTIONS`, other than those in
+    :data:`RETRYABLE_DESPITE_TYPE`, are re-raised on the first attempt even
+    when ``exceptions`` covers them.
 
     Args:
         retries: Number of retries before giving up
@@ -56,12 +106,24 @@ def async_retry(
                 try:
                     return await func(*args, **kwargs)
                 except exceptions as e:
+                    if isinstance(e, UNRECOVERABLE_EXCEPTIONS) and not isinstance(
+                        e, RETRYABLE_DESPITE_TYPE
+                    ):
+                        log_message = (
+                            f"{log_prefix}{func.__name__} hit an error that "
+                            f"retrying cannot fix: {e}{entity_suffix}"
+                        )
+                        _LOGGER.exception(log_message)
+                        raise
+
                     if attempt >= retries:
                         log_message = (
                             f"{log_prefix}{func.__name__} failed after "
                             f"{retries + 1} attempts: {e}{entity_suffix}"
                         )
-                        _LOGGER.exception(log_message)
+                        _LOGGER.warning(
+                            log_message, exc_info=_LOGGER.isEnabledFor(logging.DEBUG)
+                        )
                         raise
 
                     # Calculate exponential backoff
@@ -78,7 +140,11 @@ def async_retry(
                         f"failed: {e}{entity_suffix}, retrying in {actual_delay:.2f}s"
                     )
 
-                    _LOGGER.log(log_level, log_message, exc_info=True)
+                    _LOGGER.log(
+                        log_level,
+                        log_message,
+                        exc_info=_LOGGER.isEnabledFor(logging.DEBUG),
+                    )
 
                     await asyncio.sleep(actual_delay)
                     attempt += 1

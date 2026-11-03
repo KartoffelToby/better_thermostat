@@ -15,6 +15,7 @@ from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
     device_setpoint_step,
     dual_role_entity_id,
+    on_cooler_grid,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
@@ -23,6 +24,37 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def cooling_writes_as_held(self, state) -> tuple[float | None, float | None]:
+    """Return the cooling channel's writes as the device holds them, in °C.
+
+    The cooling channel sends the cool target rounded onto the cooler's own
+    grid, which on a Fahrenheit system is whole degrees Fahrenheit unless the
+    cooler publishes a step of its own. A report is compared with those grid
+    points: rounded onto any other grid, a write of 75 °F lands half a
+    Fahrenheit degree off the value sent, and a press to 76 °F reads as that
+    write coming back. The cool target stands for a write whose service call
+    has not returned yet, which the send cache records only afterwards.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    state : State
+        the cooler's reported state, which carries its step
+
+    Returns
+    -------
+    tuple[float | None, float | None]
+        the cool target and the last sent cooling setpoint on the cooler's
+        grid, each None while unknown
+    """
+
+    def on_grid(value: float | None) -> float | None:
+        return None if value is None else on_cooler_grid(self, state, float(value))
+
+    return on_grid(self.bt_target_cooltemp), on_grid(self.last_sent_cooler_temp)
 
 
 @callback
@@ -68,7 +100,7 @@ async def trigger_cooler_change(self, event):
         self,
         new_state,
         keys=COOLER_SETPOINT_KEYS,
-        known_values=(self.bt_target_cooltemp, self.last_sent_cooler_temp),
+        known_values=cooling_writes_as_held(self, new_state),
         step=_step,
         log_source="trigger_cooler_change()",
     )

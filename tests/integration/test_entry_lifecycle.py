@@ -6,11 +6,24 @@ real entry is set up against a simulated TRV and the assertions are the
 service calls that arrive at the device.
 """
 
+import asyncio
+from datetime import timedelta
+from unittest.mock import patch
+
 from homeassistant.components.climate.const import ATTR_HVAC_ACTION
+from homeassistant.components.weather import (
+    DOMAIN as WEATHER_DOMAIN,
+    WeatherEntityFeature,
+)
 from homeassistant.const import ATTR_TEMPERATURE
-from homeassistant.core import State
+from homeassistant.core import State, SupportsResponse
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import mock_restore_cache
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    mock_restore_cache,
+)
+
+from custom_components.better_thermostat.utils.state_manager import StateManager
 
 from .conftest import (
     DOMAIN,
@@ -23,6 +36,9 @@ from .conftest import (
 )
 
 BT_ENTITY = "climate.bt_test"
+FORECAST_CALL_TIMEOUT = (
+    "custom_components.better_thermostat.utils.weather.FORECAST_CALL_TIMEOUT"
+)
 
 
 def _room_sensor(hass, value="18.0"):
@@ -45,6 +61,52 @@ async def test_setup_creates_the_entity_and_syncs_the_trv(hass, fake_trv):
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
     written = fake_trv.set_temperature_calls[-1]
     assert 5.0 <= written <= 30.0
+
+
+async def test_a_weather_service_that_never_answers_does_not_hold_up_startup(
+    hass, fake_trv
+):
+    """A stalled forecast call costs startup a bounded wait, not the entity.
+
+    Startup asks the weather entity for its forecast before it reports the
+    thermostat available. A cloud weather integration whose request hangs
+    while the internet is down would otherwise keep the thermostat
+    unavailable for as long as the request hangs.
+    """
+    _room_sensor(hass)
+    weather_id = "weather.home"
+    hass.states.async_set(
+        weather_id,
+        "sunny",
+        {"temperature": 4.0, "supported_features": WeatherEntityFeature.FORECAST_DAILY},
+    )
+
+    asked = asyncio.Event()
+
+    async def get_forecasts_that_hang(call):
+        asked.set()
+        await asyncio.Event().wait()
+
+    hass.services.async_register(
+        WEATHER_DOMAIN,
+        "get_forecasts",
+        get_forecasts_that_hang,
+        supports_response=SupportsResponse.ONLY,
+    )
+    base = make_entry()
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=base.version,
+        data={**base.data, "weather": weather_id},
+        title=base.title,
+    )
+
+    with patch(FORECAST_CALL_TIMEOUT, timedelta(seconds=0.01)):
+        await setup_entry(hass, entry)
+        await wait_for_startup(hass, entry)
+
+    assert asked.is_set()
+    assert hass.states.get(BT_ENTITY).state == "heat"
 
 
 async def test_window_open_turns_the_trv_off(hass, fake_trv):
@@ -114,6 +176,47 @@ async def test_unload_and_reload_the_entry(hass, fake_trv):
         blocking=True,
     )
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+
+
+async def test_the_last_state_save_survives_the_unload(hass, fake_trv):
+    """The save the entity dispatches while unloading has to reach the store.
+
+    It is dispatched from an on-remove callback, which Home Assistant runs
+    before ``async_will_remove_from_hass``, so it is already in flight while
+    the entity ends its background work. Losing it discards the thermal
+    model and the preset temperatures the user last had. The unload ends
+    only after it, so a removal deleting the stores next cannot race it.
+    """
+    _room_sensor(hass)
+    entry = make_entry()
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    started = asyncio.Event()
+    saved = asyncio.Event()
+    let_the_write_land = asyncio.Event()
+    write_the_store = StateManager.flush
+
+    async def report_the_save(self):
+        # A real save hands the loop back for the executor round trip, so it
+        # is still pending while the entity finishes letting go.
+        started.set()
+        await let_the_write_land.wait()
+        await write_the_store(self)
+        saved.set()
+
+    with patch.object(StateManager, "flush", report_the_save):
+        unload = hass.async_create_task(
+            hass.config_entries.async_unload(entry.entry_id)
+        )
+        await asyncio.wait_for(started.wait(), timeout=5)
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert not unload.done()
+        let_the_write_land.set()
+        assert await unload
+        await hass.async_block_till_done()
+        assert saved.is_set()
 
 
 async def test_climate_entity_id_follows_device_name_after_rename(hass, fake_trv):

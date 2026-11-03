@@ -107,3 +107,40 @@ class TestTaskManager:
         # Task should be removed
         await asyncio.sleep(0.01)
         assert len(manager.tasks) == 0
+
+
+class TestTaskManagerShutdown:
+    """The manager's tasks end with the entity that started them."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_all_cancels_every_pending_task(self):
+        """Every task still running is cancelled and handed back to await."""
+        manager = TaskManager()
+        blocker = asyncio.Event()
+        tasks = [manager.create_task(blocker.wait()) for _ in range(3)]
+
+        cancelled = manager.cancel_all()
+        await asyncio.gather(*cancelled, return_exceptions=True)
+
+        assert set(cancelled) == set(tasks)
+        assert all(task.cancelled() for task in tasks)
+        assert not manager.tasks
+
+    @pytest.mark.asyncio
+    async def test_a_task_asked_for_after_cancel_all_never_runs(self):
+        """Work requested after the shutdown is dropped, not started."""
+        manager = TaskManager()
+        manager.cancel_all()
+        ran = False
+
+        async def work():
+            nonlocal ran
+            ran = True
+
+        coro = work()
+        assert manager.create_task(coro) is None
+        await asyncio.sleep(0)
+
+        assert ran is False
+        assert coro.cr_frame is None
+        assert not manager.tasks

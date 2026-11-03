@@ -64,12 +64,12 @@ async def get_offset_step(self, entity_id):
 
 async def get_min_offset(self, entity_id):
     """Get min offset."""
-    return -10
+    return -9.99
 
 
 async def get_max_offset(self, entity_id):
     """Get max offset."""
-    return 10
+    return 9.99
 
 
 async def set_offset(self, entity_id, offset) -> bool:
@@ -90,8 +90,8 @@ async def set_offset(self, entity_id, offset) -> bool:
         True once the write went out. The offset rides on the TRV's own
         service call, so every Tado TRV has the channel.
     """
-    offset = min(10, offset)
-    offset = max(-10, offset)
+    offset = min(9.99, offset)
+    offset = max(-9.99, offset)
     await self.hass.services.async_call(
         "tado",
         "set_climate_temperature_offset",

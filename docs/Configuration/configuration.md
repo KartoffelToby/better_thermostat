@@ -26,7 +26,7 @@ or click on the button below:
 
 **Humidity sensor** This is an optional field. For now, the humidity is only used to display it in the UI. In the future, it will be used to make a better calculation of the temperature or set it up to a *feels-like* temperature.
 
-**If you have an outdoor sensor...** This field is optional. If you have an outdoor sensor you can use it to get the outdoor temperatures, this is used to set the thermostat on or off if the threshold (the last option in this screen) is reached. It uses a mean of the last 3 days and checks it every morning at 5:00 AM.
+**If you have an outdoor sensor...** This field is optional. If you have an outdoor sensor you can use it to get the outdoor temperatures, this is used to set the thermostat on or off if the threshold (the last option in this screen) is reached. It compares the sensor's mean over the last two days, read from the recorder, with the threshold, and checks again whenever the sensor reports, every hour and at 5:00 AM.
 
 **Window Sensor** This is an optional field. If you have a window sensor you can use it to turn off the thermostat if the window is open and turn it on again when the window is closed. If you have more than one window in a room, you can also select window groups (see the GitHub page for more info).
 
@@ -44,7 +44,7 @@ group:
       - binary_sensor.openclose_3
 ```
 
-**Your weather entity for outdoor temperature** This is an optional field. It should be empty if you have an outdoor sensor. This is the weather entity you want to use to get the outdoor temperature. It uses the mean of the last 3 days and checks it every morning at 5:00 AM.
+**Your weather entity for outdoor temperature** This is an optional field. It should be empty if you have an outdoor sensor. This is the weather entity you want to use to get the outdoor temperature. It uses the forecast for roughly the next two days and checks it every hour.
 
 **Window delay** This is an optional field. If you don't want to turn off the thermostat instantly when the window is open, you can set a delay. This goes in both directions, so if you want to turn it on again after the window is closed, you can set a delay here too.
 
@@ -61,6 +61,10 @@ group:
 - ***Target Temperature Based***: Apply the calibration to the target temperature.
 
 - ***Offset Based***: Apply the calibration to the offset. This will not be an option if your TRV doesn't support offset mode.
+
+- ***Direct Valve Based***: Set the valve opening directly. This is only offered when Better Thermostat can write your TRV's valve, through a writable valve position entity or a valve control built into Better Thermostat for that model. The valve opening comes from the calibration mode: AI Time Based, MPC Predictive, MPC v2, TPI Controller and PID Controller produce one; the other modes send a target temperature, as with Target Temperature Based.
+
+The preselected type is Offset Based if your TRV supports it, otherwise Direct Valve Based if it supports valve control, otherwise Target Temperature Based.
 
 **Enhanced Compatibility:**
 
@@ -90,12 +94,14 @@ Only after this activation, the `select.{room}_temperature_offset` entity become
 
 Better Thermostat offers several algorithms to control your heating:
 
-- ***Normal***: Simple and reliable - uses your external sensor to correct the TRV's internal sensor
+- ***External Sensor Offset Only***: Simple and reliable - uses your external sensor to correct the TRV's internal sensor
 - ***Aggressive***: Pushes the TRV harder for faster heating (good for slow-heating rooms)
 - ***AI Time Based***: **[Recommended]** Learns your room's heating patterns and adapts automatically
 - ***MPC Predictive***: Advanced algorithm that predicts temperature changes for optimal efficiency
 - ***PID Controller***: Classic control method that responds well to varying heating conditions
 - ***TPI Controller***: Simple duty-cycle based control for consistent heating
+- ***(AI) MPC v2 (QP + Kalman, experimental)***: Experimental predictive controller; writes the valve directly with Direct Valve Based, otherwise works through the target temperature or the offset, depending on the calibration type
+- ***No Calibration***: BT passes your target temperature to the TRV unchanged and writes no offset
 
 **→ [Learn more about each algorithm and which one to choose](algorithms)**
 

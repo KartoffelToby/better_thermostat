@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+from types import ModuleType
 
 from homeassistant.helpers.importlib import async_import_module
 
@@ -113,6 +114,28 @@ async def load_model_quirks(self, model, entity_id):
             raise
 
     return self.model_quirks
+
+
+def quirk_writes_valve(model_quirks: ModuleType | None) -> bool:
+    """Answer whether a model's own quirk drives that model's valve.
+
+    A quirk module carrying ``override_set_valve`` reaches the valve through
+    the entities its device family exposes, which is a channel of the model
+    and not of the ecosystem the device happens to be paired through. So the
+    answer holds for every adapter, including the generic one a device
+    without an adapter of its own falls back to.
+
+    Parameters
+    ----------
+    model_quirks : ModuleType | None
+        Quirk module loaded for a TRV, or None where none is loaded.
+
+    Returns
+    -------
+    bool
+        True when the module carries a callable ``override_set_valve``.
+    """
+    return callable(getattr(model_quirks, "override_set_valve", None))
 
 
 def trv_state_unknown_as_available(self, entity_id):
@@ -243,3 +266,38 @@ async def initial_tweak(self, entity_id):
     quirks = self.real_trvs[entity_id].model_quirks
     if hasattr(quirks, "initial_tweak"):
         await quirks.initial_tweak(self, entity_id)
+
+
+def lowest_setpoint(self, entity_id, min_temp):
+    """Return the lowest setpoint Better Thermostat writes to a TRV.
+
+    That is the minimum the TRV publishes, unless the model's quirk module
+    knows a setpoint there means something else to the device.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity id of the TRV
+    min_temp : float
+        Minimum setpoint the TRV publishes, in Celsius
+
+    Returns
+    -------
+    float
+        The lowest setpoint to write, in Celsius
+    """
+    quirks = self.real_trvs[entity_id].model_quirks
+    if not hasattr(quirks, "lowest_setpoint"):
+        return min_temp
+    lowest = quirks.lowest_setpoint(self, entity_id, min_temp)
+    if lowest != min_temp:
+        _LOGGER.debug(
+            "better_thermostat %s: %s - lowest setpoint model fix: %s to %s",
+            self.device_name,
+            entity_id,
+            min_temp,
+            lowest,
+        )
+    return lowest

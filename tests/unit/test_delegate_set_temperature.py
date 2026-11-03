@@ -53,3 +53,19 @@ async def test_per_trv_step_rounds_the_setpoint(bt):
     bt.real_trvs[ENTITY_ID].adapter.set_temperature.assert_awaited_once_with(
         bt, ENTITY_ID, pytest.approx(21.3)
     )
+
+
+@pytest.mark.asyncio
+async def test_a_delegate_write_leaves_the_echo_list_alone(bt):
+    """The delegate records what it sent; which writes may echo is the loop's call.
+
+    Valve maintenance drives the setpoint through the delegate outside the
+    control loop and nothing confirms those writes, so a list fed here would
+    read a later knob turn to the same value as an echo.
+    """
+    bt.real_trvs[ENTITY_ID].remember_setpoint_written(21.0)
+
+    await set_temperature(bt, ENTITY_ID, 30.0)
+
+    assert bt.real_trvs[ENTITY_ID].last_temperature == 30.0
+    assert bt.real_trvs[ENTITY_ID].echo_setpoint_values() == [21.0]

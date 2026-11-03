@@ -12,8 +12,10 @@ the change it claims to watch.
 """
 
 import json
+import logging
 
 from homeassistant.components import automation
+from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, HVACMode
 from homeassistant.components.climate.const import ATTR_HVAC_ACTION, ATTR_HVAC_MODE
 from homeassistant.components.device_automation import DeviceAutomationType
 from homeassistant.const import (
@@ -23,6 +25,7 @@ from homeassistant.const import (
     CONF_DOMAIN,
     CONF_ENTITY_ID,
     CONF_TYPE,
+    STATE_UNAVAILABLE,
 )
 from homeassistant.core import State
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -32,6 +35,7 @@ from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_get_device_automations,
     async_mock_service,
+    setup_test_component_platform,
 )
 
 from custom_components.better_thermostat.device_action import ACTION_TYPES
@@ -42,6 +46,7 @@ from .conftest import (
     DOMAIN,
     SENSOR_ID,
     TRV_ID,
+    FakeTrvEntity,
     make_entry,
     setup_entry,
     wait_for,
@@ -72,6 +77,7 @@ TRIGGER_CASES = {
 # A threshold trigger fires on the crossing, not on the value, so the ones
 # whose quantity already sits on the far side have to be moved back first.
 TRIGGER_PRECONDITIONS = {
+    "heating_active": {ATTR_HVAC_ACTION: "idle"},
     "heating_stopped": {ATTR_HVAC_ACTION: "heating"},
     "window_closed": {"window_open": True},
     "target_temp_reached": {"current_temperature": 18.0, ATTR_TEMPERATURE: 22.0},
@@ -79,18 +85,30 @@ TRIGGER_PRECONDITIONS = {
     "current_humidity_changed": {"current_humidity": 50.0},
 }
 
-# Extra fields a trigger requires beyond the entry the device offers. The two
-# classic value triggers carry no threshold of their own — the automation
-# editor asks the user for one, and without it there is nothing to cross.
+# Extra fields a trigger is given beyond the entry the device offers. The two
+# classic value triggers are armed with a threshold here, so they fire on the
+# crossing; without one they fire on any change, which has a test of its own.
 TRIGGER_EXTRA_FIELDS = {
     "hvac_mode_changed": {"to": "off"},
     "current_temperature_changed": {"above": 25.0},
     "current_humidity_changed": {"above": 65.0},
 }
 
+# Each case names the condition type, the fields the condition carries, the
+# state the thermostat has to be in, and the room temperature that drives it
+# there. The hvac action is driven through the room sensor rather than
+# republished: the thermostat publishes its own action on every state write,
+# and a write landing between a republished action and the check would put
+# the real one back.
 CONDITION_CASES = {
-    "is_hvac_mode": ({ATTR_HVAC_MODE: "heat"}, "heat", {}),
-    "is_hvac_action": ({ATTR_HVAC_ACTION: "idle"}, None, {ATTR_HVAC_ACTION: "idle"}),
+    "is_hvac_mode": ("is_hvac_mode", {ATTR_HVAC_MODE: "heat"}, "heat", None),
+    "is_hvac_action_idle": ("is_hvac_action", {ATTR_HVAC_ACTION: "idle"}, None, 22.0),
+    "is_hvac_action_heating": (
+        "is_hvac_action",
+        {ATTR_HVAC_ACTION: "heating"},
+        None,
+        17.0,
+    ),
 }
 
 
@@ -234,6 +252,8 @@ async def test_a_trigger_that_names_only_a_device_finds_the_entity(hass, fake_tr
         },
     )
 
+    _republish(hass, **TRIGGER_PRECONDITIONS["heating_active"])
+    await hass.async_block_till_done()
     _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
 
     assert await wait_for(hass, lambda: calls)
@@ -251,17 +271,15 @@ async def test_the_device_offers_every_declared_condition(hass, fake_trv):
     assert ours == CONDITION_TYPES
 
 
-@pytest.mark.parametrize("condition_type", sorted(CONDITION_CASES), ids=str)
-async def test_each_condition_passes_on_the_state_it_names(
-    hass, fake_trv, condition_type
-):
+@pytest.mark.parametrize("case", sorted(CONDITION_CASES), ids=str)
+async def test_each_condition_passes_on_the_state_it_names(hass, fake_trv, case):
     """A condition built on each offered entry passes for the state it names.
 
     A condition that can never be true is worse than a missing one: the
     automation runs, the condition blocks it, and nothing anywhere says why.
     """
     _entry, device_id = await _entry_with_device(hass)
-    extra_fields, expected_state, attributes = CONDITION_CASES[condition_type]
+    condition_type, extra_fields, expected_state, room = CONDITION_CASES[case]
     condition = _offered(
         await async_get_device_automations(
             hass, DeviceAutomationType.CONDITION, device_id
@@ -281,7 +299,16 @@ async def test_each_condition_passes_on_the_state_it_names(
         },
     )
 
-    state = _republish(hass, **attributes) if attributes else hass.states.get(BT_ENTITY)
+    if room is not None:
+        _room_sensor(hass, str(room))
+        action = extra_fields[ATTR_HVAC_ACTION]
+        assert await wait_for(
+            hass,
+            lambda: (
+                hass.states.get(BT_ENTITY).attributes.get(ATTR_HVAC_ACTION) == action
+            ),
+        ), f"the thermostat never reported {action} at {room} °C"
+    state = hass.states.get(BT_ENTITY)
     if expected_state is not None:
         assert state.state == expected_state, (
             f"the thermostat is not in {expected_state}, so this proves nothing"
@@ -441,7 +468,388 @@ async def test_a_trigger_on_a_device_without_a_thermostat_is_refused(
     ), "the refusal did not name the device"
 
     # The thermostat that does exist changes; nothing is watching for it.
+    _republish(hass, **TRIGGER_PRECONDITIONS["heating_active"])
+    await hass.async_block_till_done()
     _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
     await hass.async_block_till_done()
 
     assert not calls
+
+
+async def _automation_on(hass, device_id, trigger_type, **extra):
+    """Arm an automation on the offered ``trigger_type`` and return its calls.
+
+    Each call carries the states the trigger fired between, so a test can
+    tell its own change from a state the thermostat wrote on its own.
+    """
+    trigger = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.TRIGGER, device_id
+        ),
+        trigger_type,
+    )
+    trigger.update(extra)
+    calls = async_mock_service(hass, "test", "automation")
+    assert await async_setup_component(
+        hass,
+        automation.DOMAIN,
+        {
+            automation.DOMAIN: [
+                {
+                    "alias": trigger_type,
+                    "trigger": trigger,
+                    "action": {
+                        "service": "test.automation",
+                        "data": {
+                            "from_state": "{{ trigger.from_state.state }}",
+                            "to_state": "{{ trigger.to_state.state }}",
+                            "current": (
+                                "{{ trigger.to_state.attributes.current_temperature }}"
+                            ),
+                            "target": "{{ trigger.to_state.attributes.temperature }}",
+                        },
+                    },
+                }
+            ]
+        },
+    )
+    await hass.async_block_till_done()
+    return calls
+
+
+@pytest.mark.parametrize(
+    ("current", "target", "fires"),
+    [(21.9, 22.0, False), (22.0, 22.0, True), (22.5, 22.0, True)],
+    ids=["below", "equal", "above"],
+)
+async def test_target_reached_fires_once_the_room_is_at_the_target(
+    hass, fake_trv, current, target, fires
+):
+    """``target_temp_reached`` fires when the room temperature is at or above target."""
+    _entry, device_id = await _entry_with_device(hass)
+    calls = await _automation_on(hass, device_id, "target_temp_reached")
+    _republish(hass, current_temperature=18.0, **{ATTR_TEMPERATURE: target})
+    await hass.async_block_till_done()
+
+    _republish(hass, current_temperature=current, **{ATTR_TEMPERATURE: target})
+    await hass.async_block_till_done()
+
+    fired = [
+        call
+        for call in calls
+        if call.data["current"] == current and call.data["target"] == target
+    ]
+    assert bool(fired) is fires
+
+
+@pytest.mark.parametrize(
+    ("trigger_type", "before"),
+    [
+        ("window_closed", {"window_open": True}),
+        ("heating_stopped", {ATTR_HVAC_ACTION: "heating"}),
+        ("target_temp_reached", {"current_temperature": 18.0, ATTR_TEMPERATURE: 22.0}),
+    ],
+)
+async def test_a_thermostat_going_unavailable_fires_no_trigger(
+    hass, fake_trv, trigger_type, before
+):
+    """A thermostat that drops out has not closed a window or stopped heating."""
+    _entry, device_id = await _entry_with_device(hass)
+    calls = await _automation_on(hass, device_id, trigger_type)
+    _republish(hass, **before)
+    await hass.async_block_till_done()
+
+    hass.states.async_set(BT_ENTITY, STATE_UNAVAILABLE, {})
+    await hass.async_block_till_done()
+
+    assert not [c for c in calls if c.data["to_state"] == STATE_UNAVAILABLE]
+
+
+async def test_a_mode_trigger_without_a_mode_is_refused_by_name(hass, fake_trv, caplog):
+    """``hvac_mode_changed`` without ``to`` logs what is missing and watches nothing.
+
+    The automation's other triggers keep working.
+    """
+    _entry, device_id = await _entry_with_device(hass)
+    trigger = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.TRIGGER, device_id
+        ),
+        "hvac_mode_changed",
+    )
+    calls = async_mock_service(hass, "test", "automation")
+    hass.states.async_set("input_boolean.other", "off")
+    assert await async_setup_component(
+        hass,
+        automation.DOMAIN,
+        {
+            automation.DOMAIN: [
+                {
+                    "alias": "mixed",
+                    "trigger": [
+                        trigger,
+                        {
+                            "platform": "state",
+                            "entity_id": "input_boolean.other",
+                            "to": "on",
+                        },
+                    ],
+                    "action": {"service": "test.automation"},
+                }
+            ]
+        },
+    )
+    await hass.async_block_till_done()
+
+    assert "KeyError" not in caplog.text
+    assert any(
+        record.levelname == "ERROR"
+        and "hvac_mode_changed" in record.getMessage()
+        and "'to'" in record.getMessage()
+        and record.exc_info is None
+        for record in caplog.records
+    ), caplog.text
+
+    await hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {ATTR_ENTITY_ID: BT_ENTITY, ATTR_HVAC_MODE: "off"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert not calls
+
+    hass.states.async_set("input_boolean.other", "on")
+    await hass.async_block_till_done()
+    assert calls
+
+
+@pytest.mark.parametrize(
+    ("trigger_type", "before"),
+    [
+        ("window_opened", {"window_open": True}),
+        ("window_closed", {"window_open": False}),
+        ("heating_active", {ATTR_HVAC_ACTION: "heating"}),
+        ("heating_stopped", {ATTR_HVAC_ACTION: "idle"}),
+    ],
+)
+async def test_a_thermostat_coming_back_unchanged_fires_no_trigger(
+    hass, fake_trv, trigger_type, before
+):
+    """A thermostat that drops out and returns as it was has changed nothing."""
+    _entry, device_id = await _entry_with_device(hass)
+    state = _republish(hass, **before)
+    await hass.async_block_till_done()
+    calls = await _automation_on(hass, device_id, trigger_type)
+    attributes = {**state.attributes, **before}
+
+    hass.states.async_set(BT_ENTITY, STATE_UNAVAILABLE, {})
+    await hass.async_block_till_done()
+    hass.states.async_set(BT_ENTITY, state.state, attributes)
+    await hass.async_block_till_done()
+
+    assert not [c for c in calls if c.data["from_state"] == STATE_UNAVAILABLE]
+
+
+@pytest.mark.parametrize(
+    ("trigger_type", "attribute"),
+    [
+        ("current_temperature_changed", "current_temperature"),
+        ("current_humidity_changed", "current_humidity"),
+    ],
+)
+@pytest.mark.parametrize("missing", ["absent", "none"])
+@pytest.mark.parametrize("threshold", [True, False], ids=["threshold", "any_change"])
+async def test_a_value_trigger_on_a_missing_value_stays_quiet(
+    hass, fake_trv, caplog, trigger_type, attribute, missing, threshold
+):
+    """A value trigger whose value is missing neither fires nor logs a warning."""
+    _entry, device_id = await _entry_with_device(hass)
+    extra = TRIGGER_EXTRA_FIELDS[trigger_type] if threshold else {}
+    calls = await _automation_on(hass, device_id, trigger_type, **extra)
+    state = hass.states.get(BT_ENTITY)
+    attributes = {k: v for k, v in state.attributes.items() if k != attribute}
+    if missing == "none":
+        attributes[attribute] = None
+    caplog.clear()
+
+    for step in range(3):
+        hass.states.async_set(BT_ENTITY, state.state, {**attributes, "step": step})
+        await hass.async_block_till_done()
+
+    noise = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert noise == []
+    assert not calls
+
+
+COOLER_ID = "climate.fake_cooler"
+
+
+class FakeCoolerEntity(FakeTrvEntity):
+    """A simulated air conditioner that applies every write."""
+
+    _attr_name = "fake cooler"
+    _attr_hvac_modes = [HVACMode.COOL, HVACMode.OFF]
+
+    def __init__(self):
+        """Start switched off with a cooling setpoint."""
+        super().__init__()
+        self._attr_hvac_mode = HVACMode.OFF
+        self._attr_target_temperature = 25.0
+
+
+async def _cooler_room(hass) -> str:
+    """Set a thermostat with a TRV and a separate cooler up and return its device id."""
+    setup_test_component_platform(
+        hass, CLIMATE_DOMAIN, [FakeTrvEntity(), FakeCoolerEntity()]
+    )
+    assert await async_setup_component(
+        hass, CLIMATE_DOMAIN, {CLIMATE_DOMAIN: {"platform": "test"}}
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(COOLER_ID) is not None
+    _room_sensor(hass, "21.0")
+    entry = make_entry()
+    entry = MockConfigEntry(
+        domain=entry.domain,
+        version=entry.version,
+        data={**entry.data, "cooler": COOLER_ID},
+        title=entry.title,
+    )
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    registry_entry = er.async_get(hass).async_get(BT_ENTITY)
+    assert registry_entry is not None
+    assert registry_entry.device_id is not None
+    return registry_entry.device_id
+
+
+async def test_battery_low_reads_the_levels_as_numbers(hass, fake_trv):
+    """The lowest battery is the lowest number, not the first string in order.
+
+    Each level is the state of a battery entity, which is a string. Compared
+    as strings, "100" sorts before "15", and a trigger looking at "100" never
+    sees the battery that is running out.
+    """
+    _entry, device_id = await _entry_with_device(hass)
+    calls = await _automation_on(hass, device_id, "battery_low")
+
+    def batteries(*levels: str) -> str:
+        return json.dumps(
+            {
+                f"climate.trv_{index}": {
+                    "battery": level,
+                    "battery_id": f"sensor.trv_{index}_battery",
+                }
+                for index, level in enumerate(levels)
+            }
+        )
+
+    _republish(hass, batteries=batteries("100", "50"))
+    await hass.async_block_till_done()
+    assert not calls
+
+    _republish(hass, batteries=batteries("nan", "50"))
+    await hass.async_block_till_done()
+    assert not calls
+
+    _republish(hass, batteries=batteries("100", "15", "unavailable"))
+    await hass.async_block_till_done()
+
+    assert len(calls) == 1
+
+
+async def test_target_reached_fires_on_the_heating_end_of_a_range(hass):
+    """With a cooler the thermostat has a range, and the trigger still fires.
+
+    Such a thermostat publishes ``target_temp_low`` and ``target_temp_high``
+    and no single ``temperature``; the heating target is the lower end.
+    """
+    device_id = await _cooler_room(hass)
+    state = hass.states.get(BT_ENTITY)
+    assert state.attributes.get(ATTR_TEMPERATURE) is None, (
+        "the thermostat publishes a single target, so this proves nothing"
+    )
+    low = state.attributes["target_temp_low"]
+    calls = await _automation_on(hass, device_id, "target_temp_reached")
+    _republish(hass, current_temperature=low - 2.0)
+    await hass.async_block_till_done()
+    assert not calls
+
+    _republish(hass, current_temperature=low)
+    await hass.async_block_till_done()
+
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("trigger_type", "attribute", "values"),
+    [
+        ("current_temperature_changed", "current_temperature", (20.0, 20.5, 19.5)),
+        ("current_humidity_changed", "current_humidity", (50.0, 51.0, 48.0)),
+    ],
+)
+async def test_a_value_trigger_without_a_threshold_fires_on_every_change(
+    hass, fake_trv, trigger_type, attribute, values
+):
+    """Without ``above`` or ``below`` the value trigger fires whenever the value moves."""
+    _entry, device_id = await _entry_with_device(hass)
+    first, *changes = values
+    _republish(hass, **{attribute: first})
+    await hass.async_block_till_done()
+    calls = await _automation_on(hass, device_id, trigger_type)
+
+    for value in changes:
+        _republish(hass, **{attribute: value})
+        await hass.async_block_till_done()
+    _republish(hass, **{attribute: changes[-1]}, window_open=True)
+    await hass.async_block_till_done()
+
+    assert len(calls) == len(changes)
+
+
+async def test_the_action_condition_passes_while_the_cooler_runs(hass):
+    """A thermostat with a cooler reports ``cooling``, and the condition can ask for it."""
+    device_id = await _cooler_room(hass)
+    condition = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.CONDITION, device_id
+        ),
+        "is_hvac_action",
+    )
+    condition.update({ATTR_HVAC_ACTION: "cooling"})
+    calls = async_mock_service(hass, "test", "automation")
+    await _run_automation(
+        hass,
+        {
+            "alias": "cooling",
+            "trigger": {"platform": "event", "event_type": "run_condition"},
+            "condition": [condition],
+            "action": {"service": "test.automation"},
+        },
+    )
+
+    await hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {ATTR_ENTITY_ID: BT_ENTITY, ATTR_HVAC_MODE: "heat_cool"},
+        blocking=True,
+    )
+    await hass.services.async_call(
+        "climate",
+        "set_temperature",
+        {ATTR_ENTITY_ID: BT_ENTITY, "target_temp_low": 19.0, "target_temp_high": 23.0},
+        blocking=True,
+    )
+    _room_sensor(hass, "27.0")
+    assert await wait_for(
+        hass,
+        lambda: (
+            hass.states.get(BT_ENTITY).attributes.get(ATTR_HVAC_ACTION) == "cooling"
+        ),
+    ), "the thermostat never reported cooling at 27 °C"
+
+    hass.bus.async_fire("run_condition")
+    await hass.async_block_till_done()
+
+    assert len(calls) == 1

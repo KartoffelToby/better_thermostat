@@ -1,5 +1,6 @@
 """Tests for control_cooler function in utils/controlling.py."""
 
+import asyncio
 from time import monotonic
 from unittest.mock import AsyncMock, Mock
 
@@ -153,7 +154,7 @@ class TestControlCooler:
             bt_target_cooltemp=None,
             cur_temp=26.0,
             bt_target_temp=20.0,
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
         )
 
         await control_cooler(mock_self)
@@ -1033,6 +1034,101 @@ class TestControlCoolerSendCache:
         assert mock_self.last_sent_cooler_temp_ts is None
         assert mock_self.last_sent_cooler_hvac_mode_ts is None
 
+    @pytest.mark.asyncio
+    async def test_a_command_the_library_cancelled_counts_as_a_failure(self):
+        """A cancelled set_temperature is not cached; the mode still goes.
+
+        The Z-Wave JS and Matter clients cancel every command in flight when
+        their connection drops. The cancellation reaches this task, which
+        nobody cancelled, and has to stay inside the cooler pass: let through,
+        it ends the pass before the mode command and the control loop logs it
+        as an error.
+        """
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+
+        async def _cancel_set_temperature(domain, service, *args, **kwargs):
+            if service == "set_temperature":
+                future = asyncio.get_running_loop().create_future()
+                future.cancel()
+                await future
+
+        mock_hass.services.async_call = AsyncMock(side_effect=_cancel_set_temperature)
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.OFF, temperature=20.0
+        )
+        mock_self = _make_mock_self(
+            mock_hass, bt_hvac_mode=HVACMode.COOL, cur_temp=25.0
+        )
+
+        await control_cooler(mock_self)
+
+        assert mock_self.last_sent_cooler_temp is None
+        assert mock_self.last_sent_cooler_temp_ts is None
+        mode_calls = [
+            c
+            for c in mock_hass.services.async_call.call_args_list
+            if c.args[1] == "set_hvac_mode"
+        ]
+        assert len(mode_calls) == 1
+        assert mode_calls[0].args[2]["hvac_mode"] == HVACMode.COOL
+        assert mock_self.last_sent_cooler_hvac_mode == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_a_mode_command_the_library_cancelled_counts_as_a_failure(self):
+        """A cancelled set_hvac_mode is not cached and does not end the pass.
+
+        The setpoint went out, so it is recorded; the mode the library
+        cancelled is left unrecorded, so the next cycle sends it again.
+        """
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+
+        async def _cancel_set_hvac_mode(domain, service, *args, **kwargs):
+            if service == "set_hvac_mode":
+                future = asyncio.get_running_loop().create_future()
+                future.cancel()
+                await future
+
+        mock_hass.services.async_call = AsyncMock(side_effect=_cancel_set_hvac_mode)
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.OFF, temperature=20.0
+        )
+        mock_self = _make_mock_self(
+            mock_hass, bt_hvac_mode=HVACMode.COOL, cur_temp=25.0
+        )
+
+        await asyncio.wait_for(control_cooler(mock_self), timeout=1)
+
+        assert mock_self.last_sent_cooler_temp is not None
+        assert mock_self.last_sent_cooler_hvac_mode is None
+        assert mock_self.last_sent_cooler_hvac_mode_ts is None
+
+    @pytest.mark.asyncio
+    async def test_cancelling_the_cooler_pass_still_ends_it(self):
+        """A cancellation of the pass itself propagates out of the service call."""
+        mock_hass = Mock()
+        mock_hass.services = Mock()
+        started = asyncio.Event()
+
+        async def _hang(*_args, **_kwargs):
+            started.set()
+            await asyncio.Event().wait()
+
+        mock_hass.services.async_call = AsyncMock(side_effect=_hang)
+        mock_hass.states.get.return_value = _make_cooler_state(
+            state=HVACMode.OFF, temperature=20.0
+        )
+        mock_self = _make_mock_self(
+            mock_hass, bt_hvac_mode=HVACMode.COOL, cur_temp=25.0
+        )
+
+        task = asyncio.create_task(control_cooler(mock_self))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=1)
+
 
 class TestControlCoolerFahrenheit:
     """Unit handling in the redundant-send dedup on Fahrenheit systems."""
@@ -1049,9 +1145,10 @@ class TestControlCoolerFahrenheit:
         mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
-        # 75.2 °F == 24.0 °C, the desired cooling setpoint.
+        # 24.0 °C is 75.2 °F; a °F cooler that publishes no step holds whole
+        # degrees, so 75 °F is the target as it holds it.
         mock_hass.states.get.return_value = _make_cooler_state(
-            state=HVACMode.COOL, temperature=75.2
+            state=HVACMode.COOL, temperature=75.0
         )
 
         mock_self = _make_mock_self(
@@ -1127,7 +1224,8 @@ class TestControlCoolerFahrenheit:
             for c in mock_hass.services.async_call.call_args_list
             if c.args[1] == "set_temperature"
         )
-        assert payload == {"entity_id": "climate.cooler", "temperature": 71.6}
+        # 22.0 °C is 71.6 °F; the device holds the nearest point of its grid.
+        assert payload == {"entity_id": "climate.cooler", "temperature": 72.0}
 
 
 _ATTRIBUTE_ABSENT = object()
@@ -1296,7 +1394,8 @@ class TestControlCoolerTargetRange:
         await control_cooler(mock_self)
 
         payload = self._set_temperature_payload(mock_hass)
-        assert payload["target_temp_high"] == 75.2  # 24.0 °C
+        # Without a published step the cooler holds whole degrees Fahrenheit.
+        assert payload["target_temp_high"] == 75.0  # 24.0 °C is 75.2 °F
         assert payload["target_temp_low"] == 68.0  # 20.0 °C
 
     @pytest.mark.asyncio
@@ -1510,7 +1609,7 @@ class TestControlCoolerOnADualRoleEntity:
 
         mock_self = self._make_shared_self(
             mock_hass,
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cur_temp=18.0,
             bt_target_temp=30.0,
             bt_target_cooltemp=24.0,
@@ -1532,7 +1631,7 @@ class TestControlCoolerOnADualRoleEntity:
 
         mock_self = self._make_shared_self(
             mock_hass,
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cur_temp=18.0,
             bt_target_temp=30.0,
             bt_target_cooltemp=24.0,
@@ -1556,7 +1655,7 @@ class TestControlCoolerOnADualRoleEntity:
 
         mock_self = self._make_shared_self(
             mock_hass,
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cur_temp=18.0,
             bt_target_temp=30.0,
             bt_target_cooltemp=24.0,
@@ -1579,7 +1678,7 @@ class TestControlCoolerOnADualRoleEntity:
 
         mock_self = self._make_shared_self(
             mock_hass,
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cur_temp=26.0,
             bt_target_temp=20.0,
             bt_target_cooltemp=24.0,
@@ -1608,7 +1707,7 @@ class TestControlCoolerOnADualRoleEntity:
 
         mock_self = self._make_shared_self(
             mock_hass,
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cur_temp=26.0,
             bt_target_temp=20.0,
             bt_target_cooltemp=24.0,
@@ -1632,7 +1731,7 @@ class TestControlCoolerOnADualRoleEntity:
 
         mock_self = _make_mock_self(
             mock_hass,
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cur_temp=18.0,
             bt_target_temp=30.0,
             bt_target_cooltemp=24.0,
@@ -1662,7 +1761,7 @@ class TestControlCoolerOpenContact:
 
         mock_self = _make_mock_self(
             mock_hass,
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cur_temp=26.0,
             bt_target_temp=20.0,
             bt_target_cooltemp=24.0,
@@ -1693,7 +1792,7 @@ class TestControlCoolerOpenContact:
         # setpoint that reached the unit and the moment it did.
         mock_self = _make_mock_self(
             mock_hass,
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cur_temp=26.0,
             bt_target_temp=20.0,
             bt_target_cooltemp=24.0,
@@ -1725,7 +1824,7 @@ class TestControlCoolerOpenContact:
 
         mock_self = _make_mock_self(
             mock_hass,
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cur_temp=26.0,
             bt_target_temp=20.0,
             bt_target_cooltemp=24.0,
@@ -1758,7 +1857,7 @@ class TestControlCoolerOpenContact:
 
         mock_self = TestControlCoolerOnADualRoleEntity._make_shared_self(
             mock_hass,
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cur_temp=26.0,
             bt_target_temp=20.0,
             bt_target_cooltemp=24.0,

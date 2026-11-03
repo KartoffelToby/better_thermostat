@@ -23,15 +23,24 @@ from homeassistant.const import (
     Platform,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.core import (
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+    callback,
+)
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util, slugify
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.utils.const import (
     CONF_HEAT_AUTO_SWAPPED,
     DOMAIN,
+    GENERIC_MODEL,
     MAX_HEATING_POWER,
     MAX_REASONABLE_TEMPERATURE,
     MIN_HEATING_POWER,
@@ -51,6 +60,95 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def entry_settings(entry: ConfigEntry) -> dict[str, Any]:
+    """Return the configuration of ``entry``, wherever it is stored.
+
+    Better Thermostat 2.0 keeps the settings in the entry's options and leaves
+    its data empty; 1.9 keeps them in the data. Reading both, the options over
+    the data, lets an entry last saved by either version run here.
+    """
+    return {**entry.data, **entry.options}
+
+
+def _shares_device(entry: er.RegistryEntry, device_id: str | None) -> bool:
+    """Whether ``entry`` belongs to the device ``device_id``.
+
+    ``None`` is no device: an entity that belongs to none shares a device
+    with nothing, although every other device-less entry carries the same
+    ``None``.
+    """
+    return device_id is not None and entry.device_id == device_id
+
+
+def is_sibling_entry(entry: er.RegistryEntry, device_id: str | None) -> bool:
+    """Whether ``entry`` is an entity Home Assistant runs on ``device_id``.
+
+    A disabled entry is not loaded: it has no state, and a service call
+    aimed at it is dropped, so it is no usable sibling.
+    """
+    return _shares_device(entry, device_id) and entry.disabled_by is None
+
+
+# Discovery runs when a Better Thermostat entry is set up, so an entity
+# enabled later is only picked up by the next setup.
+_ENABLE_AND_RELOAD: Final = (
+    "Better Thermostat picks it up once it is enabled and this Better "
+    "Thermostat entry is reloaded"
+)
+
+
+def _report_disabled_sibling(
+    self: Any, trv_entity_id: str, sibling_entity_id: str, role: str, outcome: str
+) -> None:
+    """Warn that the ``role`` entity of a TRV is disabled in Home Assistant.
+
+    The TRV record remembers the warning, so it is logged once per entity
+    while the entity stays disabled. A host without TRV records, such as
+    the config flow, warns on every call.
+    """
+    trvs = getattr(self, "real_trvs", None)
+    trv = trvs.get(trv_entity_id) if isinstance(trvs, dict) else None
+    if trv is not None:
+        if sibling_entity_id in trv.disabled_siblings_logged:
+            return
+        trv.disabled_siblings_logged.add(sibling_entity_id)
+    _LOGGER.warning(
+        "better_thermostat %s: %s, the %s entity of %s, is disabled in Home "
+        "Assistant; %s",
+        getattr(self, "device_name", "unknown"),
+        sibling_entity_id,
+        role,
+        trv_entity_id,
+        outcome,
+    )
+
+
+def sibling_disabled_at_write(
+    self: Any, trv_entity_id: str, sibling_entity_id: str, role: str
+) -> bool:
+    """Whether a helper entity adopted for a TRV is disabled right now.
+
+    An entity disabled after discovery is still the TRV's adopted helper,
+    but Home Assistant drops a service call aimed at it. The caller does
+    not write, and the first such skip is logged as a warning. Once the
+    entity is enabled again its warning is re-armed.
+    """
+    entry = er.async_get(self.hass).async_get(sibling_entity_id)
+    if entry is None or entry.disabled_by is None:
+        trv = self.real_trvs.get(trv_entity_id)
+        if trv is not None:
+            trv.disabled_siblings_logged.discard(sibling_entity_id)
+        return False
+    _report_disabled_sibling(
+        self,
+        trv_entity_id,
+        sibling_entity_id,
+        role,
+        "nothing is written to it until it is enabled again",
+    )
+    return True
+
+
 def find_device_entity(
     entity_registry: er.EntityRegistry,
     device_id: str,
@@ -59,14 +157,14 @@ def find_device_entity(
 ) -> str | None:
     """Return the entity_id of the first matching entity on a device.
 
-    A match is any entity belonging to ``device_id`` whose domain is in
-    ``domains`` and whose name, unique_id or object-id contains any of
+    A match is any enabled entity belonging to ``device_id`` whose domain is
+    in ``domains`` and whose name, unique_id or object-id contains any of
     ``keywords`` (case-insensitive). Returns ``None`` if nothing matches.
     """
     domains = tuple(domains)
     keywords = tuple(k.lower() for k in keywords)
     for ent in entity_registry.entities.values():
-        if ent.device_id != device_id or ent.domain not in domains:
+        if not is_sibling_entry(ent, device_id) or ent.domain not in domains:
             continue
         name = (getattr(ent, "original_name", "") or "").lower()
         uid = (ent.unique_id or "").lower()
@@ -126,7 +224,7 @@ def async_normalize_bt_entity_ids(
         The entity platform being set up; only its registry entries are
         considered, and each platform carries its own recorded name.
     """
-    name = entry.data.get(CONF_NAME)
+    name = entry_settings(entry).get(CONF_NAME)
     normalized = hass.data.setdefault(NORMALIZED_ID_NAMES, {}).setdefault(
         entry.entry_id, {}
     )
@@ -148,7 +246,7 @@ def async_normalize_bt_entity_ids(
         if reg_entry.platform != DOMAIN or reg_entry.domain != domain:
             continue
         if domain == Platform.CLIMATE:
-            object_id = slugify(entry.data.get(CONF_NAME) or "better_thermostat")
+            object_id = slugify(name or "better_thermostat")
             desired = registry.async_get_available_entity_id(
                 domain, object_id, current_entity_id=reg_entry.entity_id
             )
@@ -226,15 +324,36 @@ def entity_uses_mpc_calibration(bt, entity_id: str) -> bool:
 
 
 def get_hvac_bt_mode(self, mode: str) -> str:
-    """Return the main HVAC mode mapping for the Better Thermostat.
+    """Return the mode Better Thermostat publishes for a room mode.
 
-    The function handles simple mapping from HVACMode.HEAT to configured
-    internal modes used by the integration.
+    Either spelling of "on" is published in the spelling the instance's own
+    mode list carries, HEAT_COOL for a room with a cooler and HEAT otherwise.
     """
-    if mode == HVACMode.HEAT:
-        mode = self.map_on_hvac_mode
-    elif mode == HVACMode.HEAT_COOL:
-        mode = HVACMode.HEAT
+    if mode in (HVACMode.HEAT, HVACMode.HEAT_COOL):
+        return self.map_on_hvac_mode
+    return mode
+
+
+def room_mode_intent(mode: HVACMode) -> HVACMode:
+    """Return the mode a room holds for a mode it is switched into.
+
+    A room with a cooler publishes "on" as HEAT_COOL and a room without one
+    as HEAT, and a device may call its heating mode either. The room itself
+    holds one intent for both, HEAT; the published state and each device's
+    command are derived from it at their own edge.
+
+    Parameters
+    ----------
+    mode : HVACMode
+        the mode the room is switched into, in any of its spellings
+
+    Returns
+    -------
+    HVACMode
+        HEAT for either spelling of "on", the mode unchanged otherwise
+    """
+    if mode == HVACMode.HEAT_COOL:
+        return HVACMode.HEAT
     return mode
 
 
@@ -478,7 +597,9 @@ def mode_remap(
     str | None
             remapped mode according to device's quirks, or None for an
             outbound mode the device does not offer, meaning the device's
-            mode is left untouched
+            mode is left untouched, and for a reported AUTO on a device
+            without the heat auto swapped option, meaning the report is
+            ignored
     """
     trv = self.real_trvs.get(entity_id)
     if trv is None:
@@ -511,8 +632,23 @@ def mode_remap(
         # and as HEAT everywhere else.
         if hvac_mode == HVACMode.AUTO and inbound:
             return HVACMode.HEAT
+        # A device without AUTO receives HEAT or HEAT_COOL as its heating
+        # mode, so a reported HEAT_COOL is it heating, as on an unswapped
+        # device. Where AUTO is offered, AUTO is the heating mode and a
+        # reported HEAT_COOL is some other mode of the device.
+        if (
+            inbound
+            and hvac_mode == HVACMode.HEAT_COOL
+            and not device_offers_mode(trv.hvac_modes or (), HVACMode.AUTO)
+        ):
+            return HVACMode.HEAT
         return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
 
+    # A reported HEAT_COOL is the device heating, whichever other modes it
+    # offers: HEAT is the instance-level spelling of that demand, and a device
+    # offering both spellings may still report the wider one.
+    if inbound and hvac_mode == HVACMode.HEAT_COOL:
+        return HVACMode.HEAT
     trv_modes = trv.hvac_modes
     if not trv_modes:
         return hvac_mode
@@ -524,14 +660,14 @@ def mode_remap(
         # entity only supports HEAT_COOL, but not HEAT - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT:
             return HVACMode.HEAT_COOL
-        if inbound and hvac_mode == HVACMode.HEAT_COOL:
-            return HVACMode.HEAT
     if not _offers_heat_cool and _offers_heat:
-        # entity only supports HEAT, but not HEAT_COOL - need to translate
+        # entity only supports HEAT, but not HEAT_COOL - need to translate.
+        # Only the outbound direction needs it: HEAT is already the
+        # instance-level spelling of the heating demand, which is what
+        # get_hvac_bt_mode() re-expresses as HEAT_COOL for a room with a
+        # cooler.
         if not inbound and hvac_mode == HVACMode.HEAT_COOL:
             return HVACMode.HEAT
-        if inbound and hvac_mode == HVACMode.HEAT:
-            return HVACMode.HEAT_COOL
 
     if hvac_mode == HVACMode.AUTO:
         # The mode is annunciated once per offered set, like the clamp does it,
@@ -547,9 +683,82 @@ def mode_remap(
                 entity_id,
                 hvac_mode,
             )
+        # A reported AUTO is ambiguous without the swap option, so it is not
+        # decoded at all: the instance keeps its mode and the next control
+        # cycle writes that mode back to the device.
+        if inbound:
+            return None
         return HVACMode.OFF
 
     return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
+
+
+def member_counts_as_off(self, entity_id: str, state: State) -> bool:
+    """Whether one group member is effectively off.
+
+    This is the single reading of "off" behind the room-level rule that both
+    the startup path and the runtime event path apply: a room is off only when
+    every one of its heads is off, and it heats as soon as one head heats.
+
+    A member counts as off when its reported HVAC state is ``off`` or, for a
+    ``no_off_system_mode`` device (which never reports ``off``), when its
+    current setpoint has dropped to that device's minimum temperature. The
+    setpoint is read via :func:`attr_to_celsius` so it is compared in Celsius,
+    like ``min_temp``. ``target_temp_low`` carries the setpoint whenever
+    ``temperature`` yields nothing: a device that supports both a single target
+    and a target range publishes ``temperature`` as ``None`` while it runs on
+    the range.
+
+    ``min_temp`` comes from the cached :class:`Trv` and falls back to the
+    reported state, because ``Trv.min_temp`` is filled by ``_initialize_trvs``
+    — which runs after the startup mode is decided, so a caller in the startup
+    path finds the cache still empty.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``real_trvs``
+    entity_id : str
+            entity id of the group member to judge
+    state : State
+            the member's reported state
+
+    Returns
+    -------
+    bool
+            True when the member is off, False when it heats
+
+    See Also
+    --------
+    group_all_members_off : applies this reading to the whole room
+    """
+    if state.state == HVACMode.OFF:
+        return True
+
+    member = self.real_trvs.get(entity_id)
+    if member is None or not (member.advanced or {}).get("no_off_system_mode", False):
+        return False
+
+    setpoint = attr_to_celsius(
+        self, state, "temperature", None, "member_counts_as_off()"
+    )
+    if setpoint is None:
+        setpoint = attr_to_celsius(
+            self, state, "target_temp_low", None, "member_counts_as_off()"
+        )
+    min_temp = member.min_temp
+    if min_temp is None:
+        min_temp = attr_to_celsius(
+            self, state, "min_temp", None, "member_counts_as_off()"
+        )
+    return setpoint_at_minimum(
+        setpoint,
+        min_temp,
+        step=member.target_temp_step,
+        whole_degrees=published_in_whole_fahrenheit(
+            state, self.hass.config.units.temperature_unit
+        ),
+    )
 
 
 def group_all_members_off(self) -> bool:
@@ -560,11 +769,8 @@ def group_all_members_off(self) -> bool:
     valve dropping to its minimum temperature cannot turn the whole room off.
     Single-TRV instances always agree, preserving historical behavior.
 
-    A member counts as off when its reported HVAC state is ``off`` or, for a
-    ``no_off_system_mode`` device (which never reports ``off``), when its
-    current setpoint has dropped to that device's minimum temperature. The
-    setpoint is read via :func:`attr_to_celsius` (with ``target_temp_low`` as
-    fallback attribute) so it is compared in Celsius, like ``min_temp``.
+    What makes one member count as off is :func:`member_counts_as_off`, which
+    the startup path reads too so the two cannot drift apart.
     """
     trv_ids = list(self.real_trvs.keys())
     if len(trv_ids) <= 1:
@@ -576,27 +782,8 @@ def group_all_members_off(self) -> bool:
         if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
             continue
         saw_member = True
-        if state.state == HVACMode.OFF:
-            continue
-        member = self.real_trvs.get(entity_id)
-        if member is not None and (member.advanced or {}).get(
-            "no_off_system_mode", False
-        ):
-            setpoint_key = (
-                "temperature"
-                if "temperature" in state.attributes
-                else "target_temp_low"
-            )
-            setpoint = attr_to_celsius(
-                self, state, setpoint_key, None, "group_all_members_off()"
-            )
-            if (
-                setpoint is not None
-                and member.min_temp is not None
-                and setpoint <= member.min_temp
-            ):
-                continue
-        return False
+        if not member_counts_as_off(self, entity_id, state):
+            return False
     return saw_member
 
 
@@ -799,6 +986,11 @@ def celsius_to_system_temperature(hass: HomeAssistant, temperature: float) -> fl
     works in Celsius internally, while ``climate`` service payloads must
     carry the system unit. On Fahrenheit installs the value is converted
     and rounded to one decimal; otherwise it is returned unchanged.
+
+    Temperatures are held at full precision inside and rounded once, at the
+    edge, onto the grid of whoever receives them: here the tenth of a degree
+    Fahrenheit a setpoint is written in, as the entity publishes its own
+    temperatures in tenths too.
 
     Parameters
     ----------
@@ -1034,6 +1226,54 @@ def device_setpoint_step(self, state: State, log_source: str) -> float:
     if step is None or step <= 0:
         return normalize_step(self.bt_target_temp_step)
     return step
+
+
+def on_cooler_grid(self, cooler_state, value):
+    """Return a cooler setpoint in °C as it lies on the cooler's own grid.
+
+    The cooler publishes its step in the system unit, so a Fahrenheit value is
+    rounded in Fahrenheit and brought back; the payload's conversion then
+    lands on that grid point again. A cooler that publishes no usable step
+    holds whole degrees on a Fahrenheit system, Home Assistant's precision
+    for that unit, and on a Celsius system is rounded onto the step its
+    reports are compared with.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    cooler_state : State
+            the cooler's state carrying the reported ``target_temp_step``
+    value : float
+            the setpoint in °C
+
+    Returns
+    -------
+    float
+            the setpoint in °C on the cooler's grid
+    """
+    step = convert_to_float(
+        str(cooler_state.attributes.get("target_temp_step")),
+        self.device_name,
+        "control_cooler()",
+    )
+    fahrenheit = self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT
+    if step is None or step <= 0:
+        if fahrenheit:
+            step = 1.0
+        else:
+            step = device_setpoint_step(self, cooler_state, "control_cooler()")
+    if fahrenheit:
+        value = TemperatureConverter.convert(
+            value, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+        )
+    rounded = round_by_step(value, step)
+    on_grid = value if rounded is None else rounded
+    if fahrenheit:
+        return TemperatureConverter.convert(
+            on_grid, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+        )
+    return on_grid
 
 
 def setpoint_echo_window(step: float) -> float:
@@ -1368,6 +1608,94 @@ def attr_to_celsius(
     )
 
 
+# The grids Home Assistant publishes a climate entity's temperatures on,
+# coarsest first: whole degrees, halves and tenths.
+_PUBLISHED_GRIDS = (1.0, 0.5, 0.1)
+
+# A published value this close to a point of a grid is on it: it only carries
+# the float noise of convert_to_float's 0.01 grid.
+_ON_GRID_TOLERANCE = 1e-6
+
+
+def _published_grid(value: float) -> float | None:
+    """Return the coarsest published grid ``value`` lies on, or None."""
+    for grid in _PUBLISHED_GRIDS:
+        if abs(value / grid - round(value / grid)) < _ON_GRID_TOLERANCE:
+            return grid
+    return None
+
+
+def read_bound_celsius(
+    self, state: State | None, key: str, *, lower: bool, context: str = ""
+) -> float | None:
+    """Read a setpoint bound from a foreign state and return it in °C.
+
+    The bound becomes the limit every setpoint is clamped to, and Home
+    Assistant checks a setpoint against the device's own, unrounded bound, so
+    a bound read outward of it lets a refused setpoint through.
+
+    A bound in Celsius is read as published. On a Fahrenheit system Home
+    Assistant converts a device's bound and rounds it to the entity's
+    precision (whole degrees unless the integration states halves or tenths),
+    so the published value may lie up to half a published step outside the
+    device's bound. The bound is read half of the coarsest step its value
+    fits inward, which puts it inside the device's range whatever precision
+    the integration stated, and then inward onto the tenth of a degree the
+    thermostat publishes its own range in and writes setpoints in: a bound
+    between two tenths would be rounded outward again at that edge.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    state : State | None
+            the source state to read from, or None when it is unavailable
+    key : str
+            the attribute holding the bound (``"min_temp"`` or ``"max_temp"``)
+    lower : bool
+            True for a lower bound, which moves up; False for an upper one
+    context : str
+            calling context, forwarded for logging
+
+    Returns
+    -------
+    float | None
+            the bound in Celsius, or None when the state publishes none
+    """
+    attributes = state.attributes if state is not None else {}
+    unit = state_temperature_unit(attributes, self.hass.config.units.temperature_unit)
+    return bound_to_celsius(
+        str(attributes.get(key)),
+        unit,
+        lower=lower,
+        instance_name=self.device_name,
+        context=context,
+    )
+
+
+def bound_to_celsius(
+    value: str | int | float | None,
+    unit: str | None,
+    *,
+    lower: bool,
+    instance_name: str,
+    context: str = "",
+) -> float | None:
+    """Convert a published setpoint bound to Celsius; see :func:`read_bound_celsius`."""
+    bound = convert_to_float(value, instance_name, context)
+    if bound is None or unit != UnitOfTemperature.FAHRENHEIT:
+        return bound
+    grid = _published_grid(bound)
+    if grid is not None:
+        bound += grid / 2 if lower else -grid / 2
+    # Rounded first, so float noise cannot tip a tenth over the edge.
+    tenths = round(bound * 10, 6)
+    bound = (math.ceil(tenths) if lower else math.floor(tenths)) / 10
+    return TemperatureConverter.convert(
+        bound, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+    )
+
+
 def get_current_set_temperatures(
     self, state: State | None, log_source: str
 ) -> set[float]:
@@ -1453,6 +1781,62 @@ def matches_any_setpoint(
     return any(abs(value - setpoint) <= tolerance for setpoint in setpoints)
 
 
+# Half a whole degree Fahrenheit, in Kelvin: how far a setpoint Home
+# Assistant published in whole degrees may lie above the one the device holds.
+_HALF_FAHRENHEIT_DEGREE = 5.0 / 18.0
+
+# The temperatures a climate state publishes at the precision of its entity.
+_PRECISION_ATTRIBUTES = ("min_temp", "max_temp", "current_temperature")
+
+
+def published_in_whole_fahrenheit(state: State | None, system_unit: str | None) -> bool:
+    """Whether Home Assistant publishes this climate state in whole degrees Fahrenheit.
+
+    The state does not name the precision it was rounded to, so it is read
+    off the temperatures published with it: every one of them a whole
+    degree. An entity that states halves or tenths shows a finer value in
+    at least one of them nearly always.
+    """
+    if system_unit != UnitOfTemperature.FAHRENHEIT or state is None:
+        return False
+    values = [
+        convert_to_float(str(state.attributes.get(key)), "", "published precision")
+        for key in _PRECISION_ATTRIBUTES
+    ]
+    present = [value for value in values if value is not None]
+    return bool(present) and all(_published_grid(value) == 1.0 for value in present)
+
+
+def setpoint_at_minimum(
+    setpoint: float | None,
+    min_temp: float | None,
+    *,
+    step: float | None,
+    whole_degrees: bool,
+) -> bool:
+    """Whether a setpoint a device reports sits at the thermostat's minimum.
+
+    ``min_temp`` is the lowest setpoint Better Thermostat writes to the
+    device, and the device holds the first point of its ``step`` grid at or
+    above it: that is where it is parked. It reports that back on the 0.01
+    grid of a reading. On a Fahrenheit system the minimum lies inward of the
+    device's own, so a device turned down to its end stop reports less than
+    it. And a device Home Assistant publishes in whole degrees Fahrenheit
+    (``whole_degrees``) may report a parked setpoint up to half a degree
+    above the one it holds. All of these are the device at its minimum; a
+    setpoint any higher is one the user chose.
+    """
+    if setpoint is None or min_temp is None:
+        return False
+    parked = min_temp
+    if step:
+        parked = max(min_temp, round_by_step(min_temp, step, rounding.up) or min_temp)
+    slack = SETPOINT_MATCH_TOLERANCE
+    if whole_degrees:
+        slack += _HALF_FAHRENHEIT_DEGREE
+    return setpoint <= parked + slack
+
+
 class rounding:
     """Rounding helpers for stable step-based rounding.
 
@@ -1476,12 +1860,25 @@ class rounding:
         return round(x - 0.0001)
 
 
+# A value closer than this to a point of the step grid is on it.
+# Temperatures are read on a 0.01 grid and a Fahrenheit step is held to four
+# decimals, so a value meant to sit on the grid misses it by up to half a
+# reading step, and rounding it up or down would move it a whole step. A
+# value a full reading step away is a different reading and keeps its
+# direction.
+_STEP_GRID_SNAP = 0.005
+
+
 def round_by_step(
     value: float | None,
     step: float | None,
     f_rounding: Callable[[float], float] = rounding.nearest,
 ) -> float | None:
     """Round the value based on the allowed decimal 'step' size.
+
+    A value closer than ``_STEP_GRID_SNAP`` to a grid point is taken as that
+    point whatever the rounding direction; on a step too fine for that, a
+    quarter of the step stands in for it.
 
     Parameters
     ----------
@@ -1504,7 +1901,11 @@ def round_by_step(
     if f_rounding is None:
         f_rounding = rounding.nearest
     # convert to integer number of steps for rounding, then convert back to decimal
-    return f_rounding(value / step) * step
+    steps = value / step
+    nearest = round(steps)
+    if abs(steps - nearest) * step < min(_STEP_GRID_SNAP, step / 4):
+        return nearest * step
+    return f_rounding(steps) * step
 
 
 def check_float(potential_float):
@@ -1590,9 +1991,7 @@ async def find_valve_entity(self, entity_id):
 
     def _device_matches(candidate) -> bool:
         # Strong match: same device
-        if getattr(candidate, "device_id", None) == getattr(
-            reg_entity, "device_id", None
-        ):
+        if _shares_device(candidate, reg_entity.device_id):
             return True
         # Fallback: match by shared identifiers if device registry is available
         if dev_reg is None or not base_identifiers:
@@ -1669,6 +2068,7 @@ async def find_valve_entity(self, entity_id):
 
     best: dict[str, Any] | None = None
     best_score: tuple[int, int, int] = (-1, -1, -1)
+    disabled_match: str | None = None
 
     for entity in entity_entries:
         uid = entity.unique_id or ""
@@ -1684,6 +2084,9 @@ async def find_valve_entity(self, entity_id):
                 getattr(entity, "original_name", None) or "",
             )
         if reason is None:
+            continue
+        if entity.disabled_by is not None:
+            disabled_match = disabled_match or entity.entity_id
             continue
         domain = (entity.entity_id or "").split(".", 1)[0]
         writable = domain in preferred_domains
@@ -1719,6 +2122,10 @@ async def find_valve_entity(self, entity_id):
         )
         return readonly_candidate
 
+    if disabled_match is not None:
+        _report_disabled_sibling(
+            self, entity_id, disabled_match, "valve position", _ENABLE_AND_RELOAD
+        )
     _LOGGER.debug(
         "better thermostat: Could not find valve position entity for %s", entity_id
     )
@@ -1755,7 +2162,7 @@ async def find_battery_entity(self, entity_id, _visited=None):
         return None
 
     for entity in entity_registry.entities.values():
-        if entity.device_id == device_id and (
+        if is_sibling_entry(entity, device_id) and (
             entity.device_class == "battery"
             or entity.original_device_class == "battery"
         ):
@@ -1827,6 +2234,8 @@ _CALIBRATION_TRANSLATION_KEYS: set[str] = {
     "local_temperature_offset",
     # eq3btsmart uses "offset" as translation_key for its temperature offset
     "offset",
+    # Home Assistant's tuya integration names the offset of a TRV this way
+    "temp_correction",
 }
 
 # Domains the calibration write path can address (number.set_value or
@@ -1867,14 +2276,18 @@ async def find_local_calibration_entity(self, entity_id):
         return None
     entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
     calibration_entity = None
+    disabled_match: str | None = None
     # First pass: match by translation_key (preferred, stable approach)
     for entity in entity_entries:
-        if entity.device_id != reg_entity.device_id:
+        if not _shares_device(entity, reg_entity.device_id):
             continue
         if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
             continue
         tk = getattr(entity, "translation_key", None)
         if tk and tk in _CALIBRATION_TRANSLATION_KEYS:
+            if entity.disabled_by is not None:
+                disabled_match = disabled_match or entity.entity_id
+                continue
             _LOGGER.debug(
                 "better thermostat: Found local calibration entity %s for %s (translation_key=%s)",
                 entity.entity_id,
@@ -1891,7 +2304,7 @@ async def find_local_calibration_entity(self, entity_id):
     # iteration order, which is not guaranteed.
     if calibration_entity is None:
         for entity in entity_entries:
-            if entity.device_id != reg_entity.device_id:
+            if not _shares_device(entity, reg_entity.device_id):
                 continue
             if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
                 continue
@@ -1900,8 +2313,12 @@ async def find_local_calibration_entity(self, entity_id):
                 "temperature_calibration" in descriptor
                 or "temperature_offset" in descriptor
                 or "temperatur_offset" in descriptor
+                or "temperature_correction" in descriptor
                 or "local_temperature" in descriptor
             ):
+                if entity.disabled_by is not None:
+                    disabled_match = disabled_match or entity.entity_id
+                    continue
                 _LOGGER.debug(
                     "better thermostat: Found local calibration entity %s for %s (string match)",
                     entity.entity_id,
@@ -1911,6 +2328,10 @@ async def find_local_calibration_entity(self, entity_id):
                 break
 
     if calibration_entity is None:
+        if disabled_match is not None:
+            _report_disabled_sibling(
+                self, entity_id, disabled_match, "local calibration", _ENABLE_AND_RELOAD
+            )
         _LOGGER.debug(
             "better thermostat: Could not find local calibration entity for %s",
             entity_id,
@@ -2051,7 +2472,7 @@ async def get_device_model(self, entity_id: str) -> str:
         selected = configured_model.strip()
         source = "config.model"
     if not selected:
-        selected = "generic"
+        selected = GENERIC_MODEL
         source = "default"
 
     _LOGGER.debug(
@@ -2109,3 +2530,65 @@ def is_bt_climate_entity(entry: er.RegistryEntry) -> bool:
     this integration (platform) and be a climate entity (domain).
     """
     return entry.platform == DOMAIN and entry.domain == CLIMATE_DOMAIN
+
+
+def current_trv_name(hass: HomeAssistant, trv_entity_id: str) -> str:
+    """Return the name of a TRV as far as it is known now.
+
+    The reported state carries the name the user sees. Before the TRV's own
+    integration reports, its registry entry and device, loaded before any
+    integration is set up, give the same name; a TRV without a registry
+    entry is known by its entity id only. A new entity's entity_id is derived
+    from its name when it is first registered, so the name matters then.
+    """
+    trv_state = hass.states.get(trv_entity_id)
+    if trv_state is not None and trv_state.name:
+        return trv_state.name
+    reg_entry = er.async_get(hass).async_get(trv_entity_id)
+    if reg_entry is not None:
+        return er.async_get_full_entity_name(hass, reg_entry) or trv_entity_id
+    return trv_entity_id
+
+
+class TrvNamedEntity(Entity):
+    """Entity of one TRV, named after it through the ``trv_name`` placeholder.
+
+    The TRV's reported name is known once its own integration reports a
+    state, which on a boot can come after this entity is built; until then
+    the placeholder holds the name ``current_trv_name`` finds. The name
+    follows the TRV's state from then on.
+    """
+
+    _trv_entity_id: str
+
+    def _follow_trv_name(self) -> None:
+        """Name the entity after the TRV now and whenever the TRV reports."""
+        placeholders = getattr(self, "_attr_translation_placeholders", None)
+        if not placeholders or "trv_name" not in placeholders:
+            return
+        self._adopt_trv_name(self.hass.states.get(self._trv_entity_id))
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._trv_entity_id], self._on_trv_state
+            )
+        )
+
+    @callback
+    def _on_trv_state(self, event: Event[EventStateChangedData]) -> None:
+        """Rename the entity when the TRV reports a different name."""
+        if self._adopt_trv_name(event.data["new_state"]):
+            self.async_write_ha_state()
+
+    def _adopt_trv_name(self, trv_state: State | None) -> bool:
+        """Put the TRV's reported name into the placeholder.
+
+        Returns whether the name changed. ``name`` is cached on the entity and
+        not invalidated by a new placeholder, so the cache is dropped here.
+        """
+        if trv_state is None or not trv_state.name:
+            return False
+        if self._attr_translation_placeholders.get("trv_name") == trv_state.name:
+            return False
+        self._attr_translation_placeholders = {"trv_name": trv_state.name}
+        self.__dict__.pop("name", None)
+        return True

@@ -7,6 +7,7 @@ used by Better Thermostat when a device-specific adapter does not exist.
 from __future__ import annotations
 
 import asyncio
+from itertools import pairwise
 import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
@@ -16,8 +17,11 @@ from ..utils.helpers import (
     celsius_to_system_temperature,
     find_local_calibration_entity,
     normalize_hvac_mode,
+    supports_single_target_temperature,
+    supports_temperature_range,
 )
 from .base import wait_for_calibration_entity_or_timeout
+from .delegate import set_hvac_mode as delegate_set_hvac_mode
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -117,6 +121,15 @@ async def get_offset_step(self, entity_id):
         )
         if state is None:
             return None
+        # A select publishes no step; its grid is the spacing of its options.
+        if state.domain == "select":
+            parsed = (
+                _option_to_offset(option)
+                for option in state.attributes.get("options") or []
+            )
+            offered = sorted({value for value in parsed if value is not None})
+            spacings = [high - low for low, high in pairwise(offered)]
+            return min(spacings, default=1.0)
         return float(str(state.attributes.get("step", 1)))
     else:
         return None
@@ -176,20 +189,64 @@ async def get_max_offset(self, entity_id):
         return 6
 
 
+def _setpoint_payload(state, entity_id, temperature) -> dict:
+    """Build the set_temperature payload the head accepts.
+
+    A head that advertises only TARGET_TEMPERATURE_RANGE rejects a
+    ``temperature`` write and publishes its heating setpoint as
+    ``target_temp_low``, so the setpoint goes out as the lower bound. The upper
+    bound the head holds travels along unchanged, raised to the lower bound
+    when it sits below it, because Home Assistant refuses a lower bound above
+    the upper one. Every other head gets the single-setpoint payload.
+
+    Parameters
+    ----------
+    state : State | None
+            the head's current state, whose attributes are in the system unit
+    entity_id : str
+            entity_id of the head
+    temperature : float
+            the setpoint in the system unit
+
+    Returns
+    -------
+    dict
+            the service data for ``climate.set_temperature``
+    """
+    if not supports_temperature_range(state) or supports_single_target_temperature(
+        state
+    ):
+        return {"entity_id": entity_id, "temperature": temperature}
+    high = state.attributes.get("target_temp_high")
+    try:
+        high = max(float(high), temperature)
+    except TypeError, ValueError:
+        high = temperature
+    return {
+        "entity_id": entity_id,
+        "target_temp_low": temperature,
+        "target_temp_high": high,
+    }
+
+
 async def set_temperature(self, entity_id, temperature):
     """Set new target temperature."""
     temperature = celsius_to_system_temperature(self.hass, temperature)
     await self.hass.services.async_call(
         "climate",
         "set_temperature",
-        {"entity_id": entity_id, "temperature": temperature},
+        _setpoint_payload(self.hass.states.get(entity_id), entity_id, temperature),
         blocking=True,
         context=self.context,
     )
 
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
-    """Set new target hvac mode."""
+    """Set new target hvac mode.
+
+    A write the device or Home Assistant refuses raises, so the caller can
+    retry it and tell a refused mode from one that went out.
+    """
 
     hvac_mode_norm = normalize_hvac_mode(hvac_mode)
     _LOGGER.debug(
@@ -211,14 +268,6 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
             "TypeError in set_hvac_mode (entity=%s, hvac_mode=%s)",
             entity_id,
             hvac_mode_norm,
-        )
-    except Exception as exc:
-        _LOGGER.exception(
-            "better_thermostat %s: Exception in set_hvac_mode for %s with %s: %s",
-            self.device_name,
-            entity_id,
-            hvac_mode_norm,
-            exc,
         )
 
 
@@ -311,14 +360,20 @@ async def set_offset(self, entity_id, offset) -> bool:
             )
 
         self.real_trvs[entity_id].last_calibration = offset
-        if (
-            self.real_trvs[entity_id].last_hvac_mode is not None
-            and self.real_trvs[entity_id].last_hvac_mode != "off"
-        ):
+        last_hvac_mode = self.real_trvs[entity_id].last_hvac_mode
+        if last_hvac_mode is not None and last_hvac_mode != "off":
+            # Some heads drop out of their mode when their offset is written,
+            # so the mode is sent again once the head had time to report.
+            # A head still in the mode is not told it again: a mode write
+            # makes some heads fall back to a setpoint of their own.
             await asyncio.sleep(3)
-            await set_hvac_mode(
-                self, entity_id, self.real_trvs[entity_id].last_hvac_mode
-            )
+            reported = self.hass.states.get(entity_id)
+            if reported is None or reported.state != last_hvac_mode:
+                # The offset is on the wire whatever happens to the mode
+                # after it. The mode goes out through the mode channel,
+                # which retries, reports and paces a refusal like any other
+                # mode write.
+                await delegate_set_hvac_mode(self, entity_id, last_hvac_mode)
 
         return True
     else:

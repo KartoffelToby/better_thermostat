@@ -10,8 +10,30 @@ instances of this class, accessed via typed attributes.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from types import ModuleType
 from typing import Any
+
+from homeassistant.core import State
+
+# How many unconfirmed writes a device is remembered to possibly echo. Writes
+# since the last confirmation are few; the bound only guards against a device
+# that never confirms while the control loop keeps writing. The confirmed
+# setpoint is held separately and is not counted against this bound.
+ECHO_SETPOINTS_LIMIT = 8
+
+
+@dataclass
+class PendingSetpoint:
+    """A setpoint on the wire that the device has not confirmed yet.
+
+    The id says when the command went out. Two writes can carry the same
+    value, so the value alone cannot tell a re-sent command from the one a
+    watchdog is waiting for.
+    """
+
+    value: float
+    write_id: int
 
 
 @dataclass
@@ -36,7 +58,6 @@ class Trv:
     max_temp: float | None = None
     min_temp: float | None = None
     target_temp_step: float | None = None
-    temperature: float | None = None
     current_temperature: float | None = None
     hvac_modes: list[str] | None = None
     hvac_mode: str | None = None
@@ -46,6 +67,13 @@ class Trv:
     local_calibration_max: float = 7
     local_calibration_step: float = 0.5
 
+    # -- Lifecycle ---------------------------------------------------------
+    # Set for a TRV the thermostat started without because it was unavailable
+    # once the startup grace window had closed. Such a TRV has not been read
+    # or set up by startup, so it stays out of every control cycle until it
+    # reports again and its initialisation has completed.
+    awaiting_initialization: bool = False
+
     # -- Write tracking ----------------------------------------------------
     ignore_trv_states: bool = False
     calibration_received: bool = True
@@ -54,9 +82,66 @@ class Trv:
     # One-shot flag: the next live internal reading after an outage must
     # bypass the debounce so it is not dropped as a stale duplicate.
     accept_next_internal_temp: bool = False
+    # When this device's internal temperature was last accepted. The debounce
+    # that guards it is a property of the device that reported it, so the
+    # stamp belongs to that device: a reading taken from one valve says
+    # nothing about how fresh another valve's reading is. ``None`` means no
+    # reading has been accepted yet and the next one passes.
+    last_internal_sensor_change: datetime | None = None
+    # Whether a reading turned away by that debounce is due to be read again
+    # once the interval is over.
+    internal_reread_pending: bool = False
+    # The setpoint BT last sent; the device's own at startup.
     last_temperature: float | None = None
+    # The setpoint in °C the device last confirmed, the device's own at
+    # startup. A device may report it again at any time, so it stays a value
+    # BT itself wrote even once later writes are in flight.
+    confirmed_setpoint: float | None = None
+    # The setpoints written since that confirmation, oldest write first. A
+    # device that did not take the latest write still reports an earlier one,
+    # so every one of them remains a value BT itself wrote.
+    # ``trigger_trv_change`` reads a report within the echo window of
+    # ``confirmed_setpoint`` or any of these as BT's write coming back rather
+    # than as a user press.
+    pending_setpoints: list[PendingSetpoint] = field(default_factory=list)
+    # The id the last setpoint write went out under. Each write's watchdog
+    # holds the id of its own write, so the confirmation retires that command
+    # and the ones before it, never a write made while the wait ran, and a
+    # watchdog whose id is no longer the last one has been superseded.
+    last_setpoint_write_id: int = 0
+    # The highest write id a confirmation has already covered. Handing a
+    # shared device over releases the heating channel's pending confirmation
+    # without stopping its watchdog, so two can run at once and answer out of
+    # order; the later command wins whichever answers last.
+    confirmed_write_id: int = 0
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
+    # A mode command still on the wire that the room took back before the
+    # device confirmed it. The device already held the mode the room wanted
+    # again, so no newer command went out to replace it, and a slow device
+    # may still apply it. Its report is Better Thermostat's own command
+    # landing late, not a press at the device, until the monotonic deadline
+    # beside it: a device gets as long to apply it as the mode watchdog gives
+    # any command, and a report after that is the user's again.
+    withdrawn_hvac_mode: str | None = None
+    withdrawn_hvac_mode_until: float | None = None
+    # Whether the device reported something while a control cycle held the
+    # inbound handler off. The end of the cycle reads the device's state then,
+    # before a later cycle can write over a press nobody has read.
+    report_unread: bool = False
+    # The state the first of those held reports replaced. The end of the cycle
+    # judges the device's state against it, so a device that came back from
+    # ``unavailable`` inside the cycle is read as a return, not as a press.
+    state_before_held_report: State | None = None
+    # The mode cached for the device when that state was replaced. The end of
+    # the cycle settles the cache before it reads the held report, so the
+    # report is judged against this mode, as the handler judges it against the
+    # cache outside a cycle.
+    hvac_mode_before_held_report: str | None = None
+    # A held report whose internal temperature was taken while the cycle ran.
+    # The value is applied as it arrives, so reading the report again at the
+    # end of the cycle finds nothing new; this is what still asks for a cycle.
+    temperature_moved_while_held: bool = False
     last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually wrote after its
     # own clamp to the declared offset range; ``last_calibration_requested`` is
@@ -73,6 +158,15 @@ class Trv:
     # reports each one once instead of on every cycle. Cleared whenever the
     # device reports a different mode list.
     unsupported_modes_logged: set[str] = field(default_factory=set)
+    # Helper entities (calibration, valve) already annunciated as disabled
+    # in Home Assistant, so the warning is logged once per entity while it
+    # stays disabled instead of per lookup or write.
+    disabled_siblings_logged: set[str] = field(default_factory=set)
+    # Write channels whose last write spent every attempt and still raised,
+    # keyed by channel, each with the delegate's record of the outage. The
+    # next write on such a channel gets one attempt instead of the retry
+    # chain, which runs under the room's control lock, until the outage ends.
+    unreachable_write_channels: dict[str, Any] = field(default_factory=dict)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
@@ -95,6 +189,107 @@ class Trv:
         accepted = self.accept_next_internal_temp
         self.accept_next_internal_temp = False
         return accepted
+
+    def echo_setpoint_values(self) -> list[float]:
+        """List the setpoints still on the wire, oldest write first.
+
+        Returns
+        -------
+        list[float]
+            The values in °C, without the ids they were written under.
+        """
+        return [pending.value for pending in self.pending_setpoints]
+
+    def remember_setpoint_written(self, value: float) -> int:
+        """Add a setpoint BT put on the wire to the values a report may echo.
+
+        A value written again takes a new id and moves to the end, so the
+        command most recently on the wire is the last one a full list gives
+        up. The confirmed setpoint is held outside this list and is never
+        evicted.
+
+        Parameters
+        ----------
+        value : float
+            The setpoint in °C as it was sent.
+
+        Returns
+        -------
+        int
+            The id this write went out under.
+        """
+        self.last_setpoint_write_id += 1
+        self.pending_setpoints = [
+            pending for pending in self.pending_setpoints if pending.value != value
+        ]
+        self.pending_setpoints.append(
+            PendingSetpoint(value, self.last_setpoint_write_id)
+        )
+        if len(self.pending_setpoints) > ECHO_SETPOINTS_LIMIT:
+            del self.pending_setpoints[0]
+        return self.last_setpoint_write_id
+
+    def remember_setpoint_confirmed(
+        self, value: float | None, through_write_id: int = 0
+    ) -> None:
+        """Record the setpoint the device confirmed and retire the writes it covers.
+
+        The caller passes the command it waited on rather than the current
+        ``last_temperature``, which another task may have moved on to. A
+        write made while the wait ran carries a higher id and is still on the
+        wire; it stays. Matching on the id rather than the value keeps a
+        command that was sent again after the awaited one from retiring the
+        writes between them.
+
+        Parameters
+        ----------
+        value : float | None
+            The confirmed setpoint in °C, or ``None`` when the device
+            reported none.
+        through_write_id : int
+            Retire the writes up to and including this id. The default
+            retires nothing, for callers that confirm without having waited.
+            A confirmation older than one already recorded is dropped.
+        """
+        if through_write_id < self.confirmed_write_id:
+            return
+        self.confirmed_write_id = through_write_id
+        self.confirmed_setpoint = value
+        self.pending_setpoints = [
+            pending
+            for pending in self.pending_setpoints
+            if pending.write_id > through_write_id
+        ]
+
+    def remember_setpoint_adopted(self, value: float) -> None:
+        """Record a setpoint turned at the device as the one it holds.
+
+        The turn takes the place of the command BT last saw confirmed, so a
+        later turn back to that command reads as the user's again instead of
+        as BT's write coming back. The writes still on the wire are not
+        retired: the device has not answered them, and one may still land.
+
+        Parameters
+        ----------
+        value : float
+            The setpoint in °C as the device reported it.
+        """
+        self.remember_setpoint_held(value)
+
+    def remember_setpoint_held(self, value: float) -> None:
+        """Record a setpoint the device holds as the one BT wants it to hold.
+
+        However the value got onto the device, once BT would write it there
+        itself it is BT's own: the device reporting it again is no press.
+        The writes still on the wire are not retired.
+
+        Parameters
+        ----------
+        value : float
+            The setpoint in °C the device holds.
+        """
+        self.last_temperature = value
+        self.remember_setpoint_confirmed(value, self.confirmed_write_id)
 
     @classmethod
     def from_legacy_dict(cls, entity_id: str, data: dict[str, Any]) -> Trv:

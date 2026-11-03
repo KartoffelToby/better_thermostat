@@ -1,14 +1,12 @@
 """Degraded-mode annunciation in the recurring trigger handlers.
 
 Every handler updates the degraded-mode annunciation via
-check_and_update_degraded_mode before the critical-entity check may abort it.
-The combined failure case is what makes the order matter: a room sensor lost
-while a TRV is offline is exactly when the user needs to be told, and it is
-the one case where the critical-entity check reports failure.
+check_and_update_degraded_mode, and an unavailable TRV does not end the
+handler. The combined failure case is what this pins: a room sensor lost
+while a TRV is offline is exactly when the user needs to be told.
 
-The same order governs the way back. A degraded thermostat whose sensors all
-return still has to clear its repair issue, and it cannot do that from behind
-an early return either.
+The same holds for the way back. A degraded thermostat whose sensors all
+return still has to clear its repair issue while a TRV is offline.
 """
 
 import contextlib
@@ -25,14 +23,16 @@ _HELPERS = "custom_components.better_thermostat.utils.helpers"
 SENSOR_ID = "sensor.room_temp"
 TRV_ID = "climate.test_trv"
 
-# Every handler that guards on the critical entities, with the arguments it
-# takes beyond the entity itself. ``_trigger_window_change`` and
-# ``_trigger_door_change`` delegate to ``_trigger_contact_change``, which is
-# where the guard sits and which therefore stands in for both.
+# Every handler that runs the critical-entity check, with the arguments it
+# takes beyond the entity itself; an unavailable TRV no longer stops any of
+# them. ``_trigger_window_change`` and ``_trigger_door_change`` delegate to
+# ``_trigger_contact_change``, which runs the check and therefore stands in
+# for both. The room-sensor listener hands each reading to
+# ``_handle_temperature_reading``, which runs the check for it.
 HANDLERS = [
     ("_trigger_time", (None,)),
     ("_trigger_check_weather", (None,)),
-    ("_trigger_temperature_change", (MagicMock(),)),
+    ("_handle_temperature_reading", (MagicMock(),)),
     ("_trigger_humidity_change", (MagicMock(),)),
     ("_trigger_trv_change", (MagicMock(),)),
     ("_trigger_cooler_change", (MagicMock(),)),
@@ -48,6 +48,12 @@ def bt():
     mock = MagicMock()
     mock.device_name = "Test BT"
     mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID)}
+    # The TRV listener looks for TRVs startup went ahead without before it
+    # reads the report; the head here was set up by startup.
+    mock._trvs_initializing = set()
+    mock._initialize_arrived_trvs = lambda: BetterThermostat._initialize_arrived_trvs(
+        mock
+    )
     mock.sensor_entity_id = SENSOR_ID
     mock.humidity_sensor_entity_id = None
     mock.window_id = None
@@ -60,6 +66,13 @@ def bt():
     mock._degraded_warning_emitted = False
     mock._degraded_grace_until = None
     mock.in_maintenance = False
+    mock.call_for_heat = True
+    mock._last_call_for_heat = True
+    mock.async_update_ha_state = AsyncMock()
+    mock.control_queue_task = MagicMock(put=AsyncMock())
+    # The handlers hand their work on; this module checks only the annunciation.
+    mock._spawn_owned = lambda coro, name=None: coro.close()
+    mock._temperature_filter_lock = None
     mock.hass = MagicMock()
     mock.hass.states.get.return_value = None
     return mock
@@ -82,7 +95,7 @@ def _guards(*, trv_reachable):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("handler", "args"), HANDLERS, ids=[h for h, _ in HANDLERS])
 async def test_a_lost_room_sensor_is_reported_while_a_trv_is_offline(bt, handler, args):
-    """The annunciation runs even though the critical check aborts the handler.
+    """The annunciation runs while the critical check finds a TRV offline.
 
     An unreachable valve is not a reason to stop telling the user that the
     room sensor is gone; it is the case where both have failed at once.
@@ -97,11 +110,11 @@ async def test_a_lost_room_sensor_is_reported_while_a_trv_is_offline(bt, handler
 
 
 @pytest.mark.asyncio
-async def test_the_critical_check_still_stops_the_rest_of_the_handler(bt):
-    """The annunciation running first does not remove the early return.
+async def test_an_offline_trv_does_not_stop_the_rest_of_the_handler(bt):
+    """The tick runs on while a TRV is offline.
 
-    The handler's own work stays behind the critical-entity check: there is
-    nothing to compute against a valve that cannot be reached.
+    The control cycle leaves the unreachable valve out and drives the rest of
+    the room, so the outdoor refresh and the cycle request still happen.
     """
     ambient = AsyncMock()
     with (
@@ -110,9 +123,10 @@ async def test_the_critical_check_still_stops_the_rest_of_the_handler(bt):
         patch(f"{_WATCHER}.ir.async_create_issue"),
         patch(f"{_HELPERS}.async_fire_logbook_entry", AsyncMock()),
     ):
-        await BetterThermostat._trigger_time(bt, None)
+        await BetterThermostat._trigger_time(bt, MagicMock())
 
-    ambient.assert_not_awaited()
+    ambient.assert_awaited_once_with(bt)
+    bt.control_queue_task.put.assert_awaited_once_with(bt)
 
 
 @pytest.mark.asyncio

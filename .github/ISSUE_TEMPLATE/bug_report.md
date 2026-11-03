@@ -33,6 +33,11 @@ The more information you provide, the higher the chances are that we can reporod
 <!-- Provide both, HA (Home Assistant) and BT (Better Thermostat) version -->
 Home Assistant: 
 Better Thermostat: 
+<!--
+Python version, from Settings > System > Repairs > (three dots) System information.
+Better Thermostat requires Python 3.14.2 or newer, which Home Assistant brings with it.
+-->
+Python: 
 <!-- Thermostat valve model(s) -->
 TRV(s):
 

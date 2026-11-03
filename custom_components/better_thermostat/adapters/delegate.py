@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import datetime
 import logging
+import time
+from typing import Any, Final
 
 from homeassistant.helpers.importlib import async_import_module
+from homeassistant.util import dt as dt_util
 
-from custom_components.better_thermostat.utils.helpers import round_by_step
+from custom_components.better_thermostat.utils.helpers import (
+    round_by_step,
+    sibling_disabled_at_write,
+)
 
-from ..utils.retry import async_retry
+from ..utils.retry import async_retry, command_cancellation_as_disconnect
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,7 +96,6 @@ async def get_max_offset(self, entity_id):
     return await self.real_trvs[entity_id].adapter.get_max_offset(self, entity_id)
 
 
-@async_retry(retries=5)
 async def set_temperature(self, entity_id, temperature):
     """Set new target temperature.
 
@@ -161,17 +169,173 @@ async def set_temperature(self, entity_id, temperature):
             e,
         )
 
-    return await self.real_trvs[entity_id].adapter.set_temperature(
-        self, entity_id, rounded
+    return await _write_on_channel(
+        self,
+        entity_id,
+        "temperature",
+        f"setpoint {rounded}",
+        self.real_trvs[entity_id].adapter.set_temperature,
+        rounded,
     )
 
 
-@async_retry(retries=5)
-async def set_hvac_mode(self, entity_id, hvac_mode):
-    """Set new target hvac mode."""
-    return await self.real_trvs[entity_id].adapter.set_hvac_mode(
-        self, entity_id, hvac_mode
+async def set_hvac_mode(self, entity_id, hvac_mode) -> bool:
+    """Set a new hvac mode on the TRV.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV to write to
+    hvac_mode : str
+        The mode to switch the TRV to
+
+    Returns
+    -------
+    bool
+        True when the mode went out, False when every attempt raised
+    """
+    try:
+        await _write_on_channel(
+            self,
+            entity_id,
+            "hvac_mode",
+            f"hvac mode {hvac_mode}",
+            self.real_trvs[entity_id].adapter.set_hvac_mode,
+            hvac_mode,
+        )
+    except Exception:
+        return False
+    return True
+
+
+# How often an outage that goes on is named again in the log.
+OUTAGE_REPORT_INTERVAL_S: Final = 3600.0
+
+
+@dataclass
+class WriteOutage:
+    """A write channel of one TRV whose last write spent every attempt.
+
+    Attributes
+    ----------
+    since : datetime
+        When the attempts were spent.
+    reported_at : float
+        Monotonic time the outage was last named at WARNING.
+    """
+
+    since: datetime
+    reported_at: float
+
+
+async def _write_on_channel(
+    self,
+    entity_id: str,
+    channel: str,
+    what: str,
+    write: Callable[..., Awaitable[Any]],
+    value: Any,
+) -> Any:
+    """Put one value on one write channel of the TRV and answer the write's answer.
+
+    The write runs under the room's control lock, so every attempt it
+    makes is time the other TRVs of the room wait. A channel whose writes
+    have been going through gets the retry chain, which covers a dropped
+    message within the cycle. A channel whose last write spent that chain
+    and still raised gets one attempt: the device is out of reach, the next
+    cycle asks again anyway, and the chain would cost the room its backoff
+    on every cycle. Only a write that goes through ends the outage. A TRV
+    that keeps dropping out and coming back, or that takes a write while
+    raising, keeps costing one attempt per write rather than a chain per
+    return. The outage is named at WARNING when it begins, once an hour
+    while it lasts, and at INFO when it ends.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV to write to
+    channel : str
+        Name of the write channel, the key its reachability is kept under
+    what : str
+        The command as the log names it
+    write : Callable
+        The adapter or quirk write, called as ``write(self, entity_id, value)``
+    value : Any
+        The value to write
+
+    Returns
+    -------
+    Any
+        What the write answered
+
+    Raises
+    ------
+    Exception
+        The write's own exception, once the attempts it gets are spent
+    """
+    trv = self.real_trvs.get(entity_id)
+    found = getattr(trv, "unreachable_write_channels", None)
+    outages: dict[str, WriteOutage] = found if isinstance(found, dict) else {}
+    device_name = getattr(self, "device_name", "unknown")
+    outage = outages.get(channel)
+
+    async def write_to_device(host, target, payload):
+        with command_cancellation_as_disconnect():
+            return await write(host, target, payload)
+
+    attempt = (
+        write_to_device
+        if outage is not None
+        else async_retry(retries=5, identifier=f"{device_name} {channel}")(
+            write_to_device
+        )
     )
+    try:
+        answer = await attempt(self, entity_id, value)
+    except Exception:
+        now = time.monotonic()
+        if outage is None:
+            outages[channel] = WriteOutage(since=dt_util.utcnow(), reported_at=now)
+            _LOGGER.warning(
+                "better_thermostat %s: %s for %s could not be written; each "
+                "following cycle tries it once until a write goes through",
+                device_name,
+                what,
+                entity_id,
+            )
+        elif now - outage.reported_at >= OUTAGE_REPORT_INTERVAL_S:
+            outage.reported_at = now
+            _LOGGER.warning(
+                "better_thermostat %s: %s for %s is still out of reach, as it "
+                "has been since %s",
+                device_name,
+                what,
+                entity_id,
+                outage.since.isoformat(timespec="seconds"),
+            )
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: %s for %s is still out of reach",
+                device_name,
+                what,
+                entity_id,
+                exc_info=True,
+            )
+        raise
+    if outage is not None:
+        del outages[channel]
+        _LOGGER.info(
+            "better_thermostat %s: %s for %s went through, the channel is back "
+            "in reach",
+            device_name,
+            what,
+            entity_id,
+        )
+    return answer
 
 
 async def set_offset(self, entity_id, offset) -> bool:
@@ -188,6 +352,10 @@ async def set_offset(self, entity_id, offset) -> bool:
     left the house neither counts as issued nor suppresses the retry on the
     next control cycle.
 
+    A calibration entity disabled in Home Assistant since it was adopted
+    is not written to: the call would be dropped, and answering ``True``
+    would leave the caller waiting on an offset that never arrives.
+
     Parameters
     ----------
     self : BetterThermostat
@@ -202,24 +370,25 @@ async def set_offset(self, entity_id, offset) -> bool:
     -------
     bool
         True when the adapter put the offset on the wire, False when the
-        device has no offset channel or every retry raised.
+        device has no offset channel, its calibration entity is disabled,
+        or every attempt raised.
     """
-
-    @async_retry(retries=5)
-    async def inner():
-        return await self.real_trvs[entity_id].adapter.set_offset(
-            self, entity_id, offset
-        )
+    calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
+    if calibration_entity is not None and sibling_disabled_at_write(
+        self, entity_id, calibration_entity, "local calibration"
+    ):
+        return False
 
     try:
-        wrote = await inner()
-    except Exception:
-        _LOGGER.warning(
-            "better_thermostat %s: set_local_temperature_calibration for %s failed; "
-            "will retry on the next cycle",
-            getattr(self, "device_name", "unknown"),
+        wrote = await _write_on_channel(
+            self,
             entity_id,
+            "offset",
+            "calibration offset",
+            self.real_trvs[entity_id].adapter.set_offset,
+            offset,
         )
+    except Exception:
         return False
     if wrote is not True:
         _LOGGER.debug(
@@ -233,69 +402,98 @@ async def set_offset(self, entity_id, offset) -> bool:
     return True
 
 
-@async_retry(retries=5)
-async def set_valve(self, entity_id, valve):
-    """Set new target valve.
+async def set_valve(self, entity_id, valve) -> bool | None:
+    """Set a new valve position and record the value that went out.
 
-    Prefers adapter/number entity if available; otherwise, falls back to model quirks
-    override_set_valve. Records last_valve_percent and last_valve_method accordingly.
-    Returns True on handled write, False otherwise.
+    A model quirk's ``override_set_valve`` owns the valve channel where
+    one exists and is asked first; a quirk that answers it did not take
+    the position falls through to the adapter's helper entity, which is
+    written only when it is known to be writable and is still enabled in
+    Home Assistant. Whichever wrote records ``last_valve_percent`` and
+    ``last_valve_method``.
+
+    A device with no valve channel, or whose channels all decline the
+    position, is not a failure and is answered ``None``. A write that raises
+    is an infrastructure failure and is retried as :func:`_write_on_channel`
+    describes; a channel whose attempts are spent leaves the position to the
+    next channel. Only once no channel took it and one of them raised is it
+    answered ``False``, which tells the caller to try the cycle again.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance.
+    entity_id : str
+        Entity id of the TRV to write the valve position to.
+    valve : int
+        Requested valve position in percent.
+
+    Returns
+    -------
+    bool | None
+        True when a position was put on the wire, False when a write was
+        attempted and failed after its retries, and None when no channel took
+        the position.
     """
     try:
         target_pct = int(valve)
     except Exception:
         target_pct = valve
-    try:
-        trv_state = self.real_trvs.get(entity_id)
+    trv_state = self.real_trvs.get(entity_id)
 
-        # Check if the override_set_valve method is implemented in the model quirks of the trv
-        # This takes precedence over the standard adapter set_valve
-        _override_set_valve = getattr(
-            trv_state.model_quirks if trv_state is not None else None,
-            "override_set_valve",
-            None,
+    # Each channel carries whether its own answer decides the outcome: a quirk
+    # reports whether it took the position, while an adapter call that returns
+    # is the write.
+    channels = []
+    _override_set_valve = getattr(
+        trv_state.model_quirks if trv_state is not None else None,
+        "override_set_valve",
+        None,
+    )
+    if _override_set_valve is not None:
+        channels.append(("override", _override_set_valve, True))
+    valve_entity = trv_state.valve_position_entity if trv_state is not None else None
+    valve_writable = (
+        trv_state.valve_position_writable if trv_state is not None else None
+    )
+    # Only write to a helper entity when we know it's writable and it is
+    # still enabled.
+    if (
+        valve_entity
+        and valve_writable is True
+        and not sibling_disabled_at_write(
+            self, entity_id, valve_entity, "valve position"
         )
-        if _override_set_valve is not None:
-            ok = await _override_set_valve(self, entity_id, target_pct)
-            if ok:
-                try:
-                    self.real_trvs[entity_id].last_valve_percent = int(target_pct)
-                    self.real_trvs[entity_id].last_valve_method = "override"
-                except Exception:
-                    _LOGGER.exception(
-                        "better_thermostat %s: Failed to set last_valve_percent or last_valve_method for %s in override",
-                        getattr(self, "device_name", "unknown"),
-                        entity_id,
-                    )
-                return True
+    ):
+        channels.append(("adapter", trv_state.adapter.set_valve, False))
 
-        valve_entity = (
-            trv_state.valve_position_entity if trv_state is not None else None
-        )
-        valve_writable = (
-            trv_state.valve_position_writable if trv_state is not None else None
-        )
-
-        # Only write to a helper entity when we know it's writable.
-        if valve_entity and valve_writable is True:
-            await self.real_trvs[entity_id].adapter.set_valve(
-                self, entity_id, target_pct
+    # A channel that raised leaves the position to the next channel, as one
+    # that declined it does.
+    write_failed = False
+    for method, write, answer_decides in channels:
+        try:
+            answer = await _write_on_channel(
+                self,
+                entity_id,
+                f"valve {method}",
+                f"valve position {target_pct}% through the {method} channel",
+                write,
+                target_pct,
             )
-            try:
-                self.real_trvs[entity_id].last_valve_percent = int(target_pct)
-                self.real_trvs[entity_id].last_valve_method = "adapter"
-            except Exception as exc:
-                _LOGGER.debug(
-                    "better_thermostat %s: Failed to record last_valve_percent/method for %s: %s",
-                    getattr(self, "device_name", "unknown"),
-                    entity_id,
-                    exc,
-                )
-            return True
-    except Exception:
-        _LOGGER.debug(
-            "better_thermostat %s: delegate.set_valve failed for %s",
-            getattr(self, "device_name", "unknown"),
-            entity_id,
-        )
-    return False
+        except Exception:
+            write_failed = True
+            continue
+        if answer_decides and not answer:
+            continue
+        try:
+            trv_state.last_valve_percent = int(target_pct)
+            trv_state.last_valve_method = method
+        except Exception as exc:
+            _LOGGER.debug(
+                "better_thermostat %s: Failed to record last_valve_percent/method for %s: %s",
+                getattr(self, "device_name", "unknown"),
+                entity_id,
+                exc,
+            )
+        return True
+    return False if write_failed else None

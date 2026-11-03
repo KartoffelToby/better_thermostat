@@ -248,7 +248,7 @@ class TestComputeHvacAction:
         r = compute_hvac_action(
             **_default_kwargs(
                 hvac_mode=HVACMode.HEAT_COOL,
-                bt_hvac_mode=HVACMode.HEAT_COOL,
+                bt_hvac_mode=HVACMode.HEAT,
                 cur_temp=27.0,
                 cool_target=25.0,
                 tolerance=0.5,
@@ -261,7 +261,7 @@ class TestComputeHvacAction:
         r = compute_hvac_action(
             **_default_kwargs(
                 hvac_mode=HVACMode.HEAT_COOL,
-                bt_hvac_mode=HVACMode.HEAT_COOL,
+                bt_hvac_mode=HVACMode.HEAT,
                 cur_temp=25.3,
                 cool_target=25.0,
                 tolerance=0.5,
@@ -406,7 +406,7 @@ class TestHysteresisTransitions:
         r = compute_hvac_action(
             **_default_kwargs(
                 hvac_mode=HVACMode.HEAT_COOL,
-                bt_hvac_mode=HVACMode.HEAT_COOL,
+                bt_hvac_mode=HVACMode.HEAT,
                 cur_temp=27.0,
                 cool_target=25.0,
             )

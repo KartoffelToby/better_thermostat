@@ -11,6 +11,8 @@ mode the module is inert and the device is driven through the standard
 import logging
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNKNOWN
+from homeassistant.exceptions import HomeAssistantError
 
 from ..utils.const import CalibrationType
 
@@ -36,6 +38,10 @@ _MANUFACTURER_SPECIFIC_MODE = "31"
 # device exposes no writable valve *number* helper.
 _MULTILEVEL_SWITCH_COMMAND_CLASS = 38
 _VALVE_MAX = 99
+
+# Key in the TRV record's ``extra`` mapping: set once the valve mode was
+# written and went through.
+_VALVE_MODE_ENGAGED = "_zwa021_valve_mode_engaged"
 
 
 def _is_direct_valve(self, entity_id):
@@ -87,9 +93,10 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
     """Engage the manufacturer-specific mode for direct valve control.
 
     Only active when the TRV is configured for direct valve control and the
-    requested mode is not OFF. In all other cases this returns ``False`` so the
-    caller falls back to the standard ``climate.set_hvac_mode`` service, leaving
-    behaviour identical to a device without this quirk.
+    requested mode is not OFF. In all other cases, and when the device refuses
+    the mode write, this returns ``False`` so the caller falls back to the
+    standard ``climate.set_hvac_mode`` service, leaving behaviour identical to
+    a device without this quirk.
     """
     if not _is_direct_valve(self, entity_id):
         return False
@@ -97,23 +104,52 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
         # Let the standard off path close the device / drive the valve to 0.
         return False
 
+    # The climate entity reads ``unknown`` for as long as the device stays in
+    # the manufacturer-specific mode. Once this quirk engaged the mode, that
+    # reading says it still holds, and writing it again would only cost the
+    # battery device a radio message per control cycle. A device that left
+    # the mode reports a standard one and is written again.
+    extra = self.real_trvs[entity_id].extra
+    state = self.hass.states.get(entity_id)
+    if (
+        extra.get(_VALVE_MODE_ENGAGED)
+        and state is not None
+        and state.state == STATE_UNKNOWN
+    ):
+        return True
+    extra.pop(_VALVE_MODE_ENGAGED, None)
+
     _LOGGER.debug(
         "better_thermostat %s: TRV %s Spirit/ZWA021 manufacturer-specific valve mode",
         self.device_name,
         entity_id,
     )
-    await self.hass.services.async_call(
-        _ZWAVE_JS_DOMAIN,
-        _ZWAVE_JS_SET_VALUE,
-        {
-            "entity_id": entity_id,
-            "command_class": _THERMOSTAT_MODE_COMMAND_CLASS,
-            "property": "mode",
-            "value": _MANUFACTURER_SPECIFIC_MODE,
-        },
-        blocking=True,
-        context=self.context,
-    )
+    try:
+        await self.hass.services.async_call(
+            _ZWAVE_JS_DOMAIN,
+            _ZWAVE_JS_SET_VALUE,
+            {
+                "entity_id": entity_id,
+                "command_class": _THERMOSTAT_MODE_COMMAND_CLASS,
+                "property": "mode",
+                "value": _MANUFACTURER_SPECIFIC_MODE,
+            },
+            blocking=True,
+            context=self.context,
+        )
+    except (HomeAssistantError, OSError) as ex:
+        # No Z-Wave JS to reach, a node that is asleep or out of range, or a
+        # firmware that rejects the undocumented mode: the device is not in
+        # valve mode, so the standard climate service is the one that can
+        # still make it heat.
+        _LOGGER.warning(
+            "better_thermostat %s: Spirit/ZWA021 valve mode write for %s failed: %s",
+            self.device_name,
+            entity_id,
+            ex,
+        )
+        return False
+    extra[_VALVE_MODE_ENGAGED] = True
     return True
 
 
@@ -125,10 +161,11 @@ async def override_set_temperature(self, entity_id, temperature):
 async def override_set_valve(self, entity_id, percent):
     """Drive the valve directly via the Multilevel Switch command class.
 
-    Active only in direct valve control; otherwise returns ``False`` so the
-    generic valve handling applies. The device is expected to already be in
-    manufacturer-specific mode (see :func:`override_set_hvac_mode`). The
-    requested 0-100 % opening is mapped onto the device's 0-99 range.
+    Active only in direct valve control; otherwise, and when the device
+    refuses the write, returns ``False`` so the generic valve handling
+    applies. The device is expected to already be in manufacturer-specific
+    mode (see :func:`override_set_hvac_mode`). The requested 0-100 % opening
+    is mapped onto the device's 0-99 range.
     """
     if not _is_direct_valve(self, entity_id):
         return False
@@ -145,16 +182,28 @@ async def override_set_valve(self, entity_id, percent):
         value,
         _VALVE_MAX,
     )
-    await self.hass.services.async_call(
-        _ZWAVE_JS_DOMAIN,
-        _ZWAVE_JS_SET_VALUE,
-        {
-            "entity_id": entity_id,
-            "command_class": _MULTILEVEL_SWITCH_COMMAND_CLASS,
-            "property": "targetValue",
-            "value": value,
-        },
-        blocking=True,
-        context=self.context,
-    )
+    try:
+        await self.hass.services.async_call(
+            _ZWAVE_JS_DOMAIN,
+            _ZWAVE_JS_SET_VALUE,
+            {
+                "entity_id": entity_id,
+                "command_class": _MULTILEVEL_SWITCH_COMMAND_CLASS,
+                "property": "targetValue",
+                "value": value,
+            },
+            blocking=True,
+            context=self.context,
+        )
+    except (HomeAssistantError, OSError) as ex:
+        # Reporting the refused write as a declined one keeps the caller from
+        # recording a position the valve never reached, and leaves it free to
+        # try the generic valve channel.
+        _LOGGER.warning(
+            "better_thermostat %s: Spirit/ZWA021 valve write for %s failed: %s",
+            self.device_name,
+            entity_id,
+            ex,
+        )
+        return False
     return True

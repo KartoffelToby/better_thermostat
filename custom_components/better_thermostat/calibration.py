@@ -53,15 +53,12 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     heating_power_valve_position,
     normalize_calibration_mode,
+    normalize_step,
     round_by_step,
     rounding,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-# Thermostats that already logged the MPC-v2-unavailable warning; keeps the
-# per-cycle dispatch from repeating it when the daqp import keeps failing.
-_MPC_V2_IMPORT_WARNED: set[str] = set()
 
 # Post-adjustment gates that fire because Better Thermostat is not calling for
 # heat take the same arm while the cooler runs: a TRV valve that opens works
@@ -92,6 +89,29 @@ def _compute_zero_open_offset(
     _offset = _max_offset * (1.0 - math.exp(-0.5 * _overshoot))
     _offset = max(_trv_temp_step, _offset)
     return _offset
+
+
+def _filtered_room_temp(self) -> float | None:
+    """Return the filtered room temperature a controller may use.
+
+    The filter runs on the room sensor's readings, so while the TRV
+    temperature stands in for a lost sensor it still holds that sensor's
+    last value; the controllers then work on the unfiltered room
+    temperature.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    float | None
+            The filtered room temperature, or None during the TRV fallback.
+    """
+    if self.room_sensor_fallback:
+        return None
+    return self.cur_temp_filtered
 
 
 def _get_current_outdoor_temp(self) -> float | None:
@@ -285,9 +305,10 @@ def _compute_mpc_balance(self, entity_id: str):
     params = MpcParams()
 
     # Optional: use filtered external temperature for MPC cost evaluation to reduce jitter.
-    # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed separately.
+    # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed
+    # separately, except while the TRV temperature stands in for the room sensor.
     mpc_current_temp = self.cur_temp
-    mpc_filtered_temp = self.cur_temp_filtered
+    mpc_filtered_temp = _filtered_room_temp(self)
 
     _is_day = True
     if self.hass:
@@ -372,6 +393,13 @@ def _compute_mpc_balance(self, entity_id: str):
         )
     else:
         this_trv_pct = group_valve_pct
+
+    # The controller only sees the group-level cap (warmest TRV); the
+    # distribution can boost a colder TRV above its own configured limit,
+    # so each per-TRV command is clamped to that TRV's max opening here.
+    per_trv_max_opening = _get_trv_max_opening(self, entity_id)
+    if per_trv_max_opening is not None:
+        this_trv_pct = min(this_trv_pct, per_trv_max_opening)
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state.calibration_balance = {
@@ -473,18 +501,6 @@ def _compute_mpc_v2_balance(self, entity_id: str):
             v2_params,
             state=mpc_v2_state,
         )
-    except ImportError as err:
-        # Controller construction raises when the daqp wheel is missing.
-        # daqp is not a hard manifest requirement (it has no aarch64 wheel for
-        # the HA Python), so a user can select MPC v2 without it installed —
-        # warn once per thermostat instead of spamming every cycle.
-        if self.device_name not in _MPC_V2_IMPORT_WARNED:
-            _MPC_V2_IMPORT_WARNED.add(self.device_name)
-            _LOGGER.warning(
-                "better_thermostat %s: MPC v2 unavailable: %s", self.device_name, err
-            )
-        trv_state.calibration_balance = None
-        return None, False
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: MPC v2 compute failed for %s: %s",
@@ -680,7 +696,7 @@ def _compute_pid_balance(self, entity_id: str):
             trv_state.current_temperature,
             self.temp_slope,
             key,
-            inp_current_temp_ema_C=self.cur_temp_filtered,
+            inp_current_temp_ema_C=_filtered_room_temp(self),
             max_opening_pct=_get_trv_max_opening(self, entity_id),
             state=pid_state,
         )
@@ -1036,12 +1052,27 @@ def calculate_calibration_local(self, entity_id) -> float | None:
             CONF_PROTECT_OVERHEATING, False
         )
 
-        # Additional adjustment if overheating protection is enabled
+        # Overheating protection only ever closes the valve: the term counts
+        # from heating target + tolerance and is zero below that line.
         if _overheating_protection is True:
             if self.hvac_action == HVACAction.IDLE:
-                _new_trv_calibration += (
-                    _cur_external_temp - (_cur_target_temp + self.tolerance)
-                ) * 8.0  # Reduced from 10.0 since we already add 2.0
+                if _cur_external_temp > _cur_target_temp + self.tolerance:
+                    _overheating_term = (
+                        _cur_external_temp - (_cur_target_temp + self.tolerance)
+                    ) * 8.0
+                    _new_trv_calibration += _overheating_term
+                    _LOGGER.debug(
+                        "better_thermostat %s: %s - overheating protection adds "
+                        "%s to the local calibration: %s | external_temp: %s, "
+                        "target_temp: %s, tolerance: %s",
+                        self.device_name,
+                        entity_id,
+                        round(_overheating_term, 2),
+                        round(_new_trv_calibration, 2),
+                        round(_cur_external_temp, 2),
+                        round(_cur_target_temp, 2),
+                        self.tolerance,
+                    )
 
     # Direction-aware rounding for local calibration offset.
     # Calibration offset works inversely to setpoint: a positive offset makes
@@ -1143,10 +1174,10 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     _cur_trv_temp_s = self.real_trvs[entity_id].current_temperature
     _cur_trv_temp = _convert_to_float(_cur_trv_temp_s)
 
-    _trv_temp_step_raw = self.real_trvs[entity_id].target_temp_step
-    _trv_temp_step = _convert_to_float(_trv_temp_step_raw)
-    if _trv_temp_step is None or _trv_temp_step <= 0:
-        _trv_temp_step = 0.5
+    # The step is the grid the setpoint is rounded to, so it is kept as the
+    # device states it: a 1 °F step on the 0.01 grid of a reading, 0.56 K,
+    # drifts off whole degrees Fahrenheit within a few steps.
+    _trv_temp_step = normalize_step(self.real_trvs[entity_id].target_temp_step)
 
     if _cur_trv_temp is None:
         return None
@@ -1399,12 +1430,27 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
             CONF_PROTECT_OVERHEATING, False
         )
 
-        # Additional adjustment if overheating protection is enabled
+        # Overheating protection only ever closes the valve: the term counts
+        # from heating target + tolerance and is zero below that line.
         if _overheating_protection is True:
             if self.hvac_action == HVACAction.IDLE:
-                _calibrated_setpoint -= (
-                    _cur_external_temp - (_cur_target_temp + self.tolerance)
-                ) * 8.0  # Reduced from 10.0 since we already subtract 2.0
+                if _cur_external_temp > _cur_target_temp + self.tolerance:
+                    _overheating_term = (
+                        _cur_external_temp - (_cur_target_temp + self.tolerance)
+                    ) * 8.0
+                    _calibrated_setpoint -= _overheating_term
+                    _LOGGER.debug(
+                        "better_thermostat %s: %s - overheating protection takes "
+                        "%s off the setpoint: %s | external_temp: %s, "
+                        "target_temp: %s, tolerance: %s",
+                        self.device_name,
+                        entity_id,
+                        round(_overheating_term, 2),
+                        round(_calibrated_setpoint, 2),
+                        round(_cur_external_temp, 2),
+                        round(_cur_target_temp, 2),
+                        self.tolerance,
+                    )
 
     # Direction-aware rounding: idle and cooling round the setpoint DOWN so the
     # TRV sees a target below its current temperature and closes the valve.
