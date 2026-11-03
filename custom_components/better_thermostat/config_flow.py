@@ -29,7 +29,7 @@ from homeassistant.helpers import (
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util.unit_conversion import TemperatureConverter
-import voluptuous as vol
+import probatio as vol
 
 from . import (
     DOMAIN,
@@ -49,12 +49,14 @@ from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_CHILD_LOCK,
     CONF_COOLER,
+    CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE,
     CONF_DOOR_OFF_DELAY,
     CONF_DOOR_OFF_DELAY_AFTER,
     CONF_DOOR_SENSORS,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HOMEMATICIP,
     CONF_HUMIDITY_SENSOR,
+    CONF_KEEP_SENSOR_SELECTION,
     CONF_MODEL,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_NO_OFF_SYSTEM_MODE,
@@ -92,6 +94,7 @@ from .utils.helpers import (
     get_device_model,
     get_trv_intigration,
     is_bt_climate_entity,
+    regulates_on_bound_sensor,
     supports_single_target_temperature,
     supports_temperature_range,
 )
@@ -287,6 +290,7 @@ _UserDraft = TypedDict(  # noqa: UP013
         "target_temp_min": str,
         "target_temp_max": str,
         "target_temp_step": str,
+        "distribute_valve_by_trv_temperature": bool,
     },
 )
 
@@ -306,6 +310,7 @@ _AdvancedDraft = TypedDict(  # noqa: UP013
         "valve_maintenance": bool,
         "child_lock": bool,
         "homematicip": bool,
+        "keep_sensor_selection": bool,
     },
 )
 
@@ -352,6 +357,24 @@ class _AdvancedContext:
     homematic: bool
     has_auto: bool
     valve_only: bool = False
+    bound_sensor: bool = False
+
+
+def _bound_sensor_errors(
+    context: _AdvancedContext, advanced: _AdvancedDraft
+) -> dict[str, str]:
+    """Reject a calibration for a TRV that regulates on a bound sensor.
+
+    Such a TRV controls the room on the sensor bound to it. A calibration
+    mode would compute a second control loop on top of it, so only no
+    calibration is accepted.
+    """
+    if (
+        context.bound_sensor
+        and configured_calibration_mode(advanced) is not CalibrationMode.NO_CALIBRATION
+    ):
+        return {CONF_CALIBRATION_MODE: "bound_sensor_calibration_mode"}
+    return {}
 
 
 def _valve_only_errors(
@@ -439,6 +462,9 @@ def _merged_settings(
     merged[CONF_TARGET_TEMP_MIN] = draft[CONF_TARGET_TEMP_MIN]
     merged[CONF_TARGET_TEMP_MAX] = draft[CONF_TARGET_TEMP_MAX]
     merged[CONF_TARGET_TEMP_STEP] = draft[CONF_TARGET_TEMP_STEP]
+    merged[CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE] = draft[
+        CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE
+    ]
     return merged
 
 
@@ -456,6 +482,7 @@ def _stored_advanced(draft: _AdvancedDraft) -> TrvAdvanced:
     stored[CONF_VALVE_MAINTENANCE] = draft[CONF_VALVE_MAINTENANCE]
     stored[CONF_CHILD_LOCK] = draft[CONF_CHILD_LOCK]
     stored[CONF_HOMEMATICIP] = draft[CONF_HOMEMATICIP]
+    stored[CONF_KEEP_SENSOR_SELECTION] = draft[CONF_KEEP_SENSOR_SELECTION]
     return stored
 
 
@@ -597,6 +624,7 @@ def _build_advanced_fields(
     has_auto: bool,
     channels: DeviceChannels | None = None,
     system_unit: str,
+    bound_sensor: bool = False,
 ) -> OrderedDict[vol.Marker, object]:
     views = [_without_balance_mode(source) for source in sources if source is not None]
 
@@ -644,16 +672,17 @@ def _build_advanced_fields(
 
     # 1) Calibration + protection flags
     ordered[vol.Required(CONF_CALIBRATION, default=calib_default)] = calib_selector
-    ordered[
-        vol.Required(
-            CONF_CALIBRATION_MODE,
-            default=get_choice(
-                CONF_CALIBRATION_MODE,
-                _CALIBRATION_MODE_CHOICES,
-                DEFAULT_CALIBRATION_MODE,
-            ),
+    # A TRV that regulates on a bound sensor accepts no calibration only.
+    calibration_mode_default = (
+        CalibrationMode.NO_CALIBRATION.value
+        if bound_sensor
+        else get_choice(
+            CONF_CALIBRATION_MODE, _CALIBRATION_MODE_CHOICES, DEFAULT_CALIBRATION_MODE
         )
-    ] = CALIBRATION_MODE_SELECTOR
+    )
+    ordered[vol.Required(CONF_CALIBRATION_MODE, default=calibration_mode_default)] = (
+        CALIBRATION_MODE_SELECTOR
+    )
 
     ordered[
         vol.Optional(
@@ -692,6 +721,12 @@ def _build_advanced_fields(
     ordered[
         vol.Optional(CONF_HOMEMATICIP, default=get_bool(CONF_HOMEMATICIP, homematic))
     ] = bool
+    ordered[
+        vol.Optional(
+            CONF_KEEP_SENSOR_SELECTION,
+            default=get_bool(CONF_KEEP_SENSOR_SELECTION, False),
+        )
+    ] = bool
 
     return ordered
 
@@ -717,6 +752,9 @@ def _normalize_advanced_submission(
         CONF_VALVE_MAINTENANCE: _as_bool(data.get(CONF_VALVE_MAINTENANCE), False),
         CONF_CHILD_LOCK: _as_bool(data.get(CONF_CHILD_LOCK), False),
         CONF_HOMEMATICIP: _as_bool(data.get(CONF_HOMEMATICIP), homematic),
+        CONF_KEEP_SENSOR_SELECTION: _as_bool(
+            data.get(CONF_KEEP_SENSOR_SELECTION), False
+        ),
     }
     if CONF_MPC_V2_PLANT_PRESET in data:
         normalized[CONF_MPC_V2_PLANT_PRESET] = _submitted_choice(
@@ -962,6 +1000,12 @@ def _build_user_fields(
         )
     add_field(CONF_TARGET_TEMP_STEP, TEMP_STEP_SELECTOR, default=target_step_default)
 
+    add_field(
+        CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE,
+        bool,
+        default=_as_bool(resolve(CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE), False),
+    )
+
     return fields
 
 
@@ -1071,6 +1115,9 @@ def _normalize_user_submission(
             _TARGET_TEMP_STEP_SELECTOR_TO_VALUE,
             _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP],
         ),
+        CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE: _as_bool(
+            submitted(CONF_DISTRIBUTE_VALVE_BY_TRV_TEMPERATURE, False), False
+        ),
     }
 
     is_create = mode == "create"
@@ -1138,10 +1185,17 @@ async def _prepare_advanced_context(
     _adapter, channels = await _load_adapter_info(
         flow, trv.integration, trv.entity_id, existing_adapter=trv.adapter
     )
+    bound_sensor = regulates_on_bound_sensor(flow.hass, trv.entity_id) is True
     return _AdvancedContext(
         entity_id=trv.entity_id,
         channels=channels,
-        default_calibration=_default_calibration_for(channels),
+        # A TRV that regulates on a bound sensor gets the target temperature
+        # and keeps its offset, which the setpoint output says best.
+        default_calibration=(
+            CalibrationOutput.TARGET_TEMP_BASED
+            if bound_sensor
+            else _default_calibration_for(channels)
+        ),
         homematic=bool(trv.integration and "homematic" in trv.integration.lower()),
         has_auto=_trv_supports_auto(flow, trv.entity_id),
         valve_only=(
@@ -1149,6 +1203,7 @@ async def _prepare_advanced_context(
             and _adapter.CAPABILITIES.valve_only
             and channels.valve_write
         ),
+        bound_sensor=bound_sensor,
     )
 
 
@@ -1423,7 +1478,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
-            errors = _valve_only_errors(ctx, advanced_data)
+            errors = _bound_sensor_errors(ctx, advanced_data) | _valve_only_errors(
+                ctx, advanced_data
+            )
             if not errors:
                 _LOGGER.debug(
                     "ConfigFlow advanced step storing data for %s (index %s): %s",
@@ -1462,6 +1519,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             has_auto=ctx.has_auto,
             channels=ctx.channels,
             system_unit=self.hass.config.units.temperature_unit,
+            bound_sensor=ctx.bound_sensor,
         )
         _LOGGER.debug(
             "ConfigFlow advanced step showing form for trv=%s with defaults=%s",
@@ -1611,7 +1669,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
-            errors = _valve_only_errors(ctx, advanced_data)
+            errors = _bound_sensor_errors(ctx, advanced_data) | _valve_only_errors(
+                ctx, advanced_data
+            )
             if not errors:
                 _LOGGER.debug(
                     "OptionsFlow advanced step storing data for %s (index %s): %s",
@@ -1691,6 +1751,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             has_auto=ctx.has_auto,
             channels=ctx.channels,
             system_unit=self.hass.config.units.temperature_unit,
+            bound_sensor=ctx.bound_sensor,
         )
         _LOGGER.debug(
             "OptionsFlow advanced step showing form for trv=%s with defaults=%s",

@@ -13,6 +13,8 @@ from typing import Any, Literal
 from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, UnitOfTemperature
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
@@ -101,6 +103,9 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         learning_held=False,
         room_temperature_filtered=None,
         tolerance=0.0,
+        distribute_valve_by_trv_temperature=False,
+        devices_released=False,
+        released_trvs=set(),
         temperature_slope=None,
         window_open=False,
         door_open=False,
@@ -513,3 +518,122 @@ def test_the_controller_learns_whether_the_room_reading_is_the_trvs_substitute(
     assert len(seen) == 1
     assert seen[0].room_temperature_from_trvs is from_trvs
     assert seen[0].room_temperature == (19.0 if from_trvs else bt.room_temperature)
+
+
+def _reporting(bt: Any, *, unavailable: frozenset[str] = frozenset()) -> Any:
+    """Let every TRV of ``bt`` report its reading, except the ``unavailable`` ones."""
+    states = {
+        entity_id: State(
+            entity_id,
+            STATE_UNAVAILABLE if entity_id in unavailable else "heat",
+            {"current_temperature": trv.current_temperature},
+        )
+        for entity_id, trv in bt.real_trvs.items()
+    }
+    bt.hass = SimpleNamespace(
+        states=SimpleNamespace(get=states.get),
+        config=SimpleNamespace(
+            units=SimpleNamespace(temperature_unit=UnitOfTemperature.CELSIUS)
+        ),
+    )
+    return bt
+
+
+def _split_group(**overrides: Trv) -> Any:
+    """Return a group of a TRV at 19 °C and one at 21 °C with the split on.
+
+    The room is a kelvin below its target, so the group command lies well
+    inside the range and a boost of 16 percent for the colder TRV shows.
+    """
+    real_trvs = {
+        "climate.living_cold": _make_trv(
+            "climate.living_cold", current_temperature=19.0, supports_valve=True
+        ),
+        "climate.living_warm": _make_trv(
+            "climate.living_warm", current_temperature=21.0, supports_valve=True
+        ),
+    }
+    real_trvs.update(overrides)
+    bt = _reporting(_make_bt(real_trvs=real_trvs))
+    bt.distribute_valve_by_trv_temperature = True
+    bt.heat_target_temperature = 20.5
+    return bt
+
+
+def _shares(bt: Any) -> dict[str, tuple[float, float]]:
+    """Dispatch every TRV and return its (group command, share) pair."""
+    shares = {}
+    for entity_id, trv in bt.real_trvs.items():
+        _compute_mpc_v2_balance(bt, entity_id)
+        balance = _published_balance(trv)
+        shares[entity_id] = (
+            _debug_number(balance, "group_valve_pct"),
+            _debug_number(balance, "distributed_valve_pct"),
+        )
+    return shares
+
+
+def test_a_group_split_by_trv_temperature_opens_the_colder_trv_further() -> None:
+    """The warmest TRV gets the group command, a colder one 8 percent per kelvin more."""
+    shares = _shares(_split_group())
+
+    group_cold, share_cold = shares["climate.living_cold"]
+    group_warm, share_warm = shares["climate.living_warm"]
+    assert 0.0 < group_cold < 84.0
+    assert share_cold == pytest.approx(group_cold + 16.0)
+    assert share_warm == group_warm
+
+
+def test_a_colder_trv_is_still_held_to_its_own_cap() -> None:
+    """The boost does not lift a TRV past its maximum opening."""
+    capped = _make_trv(
+        "climate.living_cold",
+        current_temperature=19.0,
+        supports_valve=True,
+        valve_max_opening=10.0,
+    )
+
+    shares = _shares(_split_group(**{"climate.living_cold": capped}))
+
+    assert shares["climate.living_cold"][1] == 10.0
+
+
+def test_an_offset_calibrated_trv_takes_the_group_command() -> None:
+    """Its reading carries the offset BT writes, so it is not compared by."""
+    offset_calibrated = replace(
+        _make_trv(
+            "climate.living_cold", current_temperature=19.0, supports_valve=False
+        ),
+        calibration=CalibrationOutput.LOCAL_BASED,
+    )
+
+    shares = _shares(_split_group(**{"climate.living_cold": offset_calibrated}))
+
+    for group, share in shares.values():
+        assert share == group
+
+
+def test_a_released_trv_is_no_reference() -> None:
+    """A released warm TRV does not lift the colder controlled one."""
+    bt = _split_group()
+    bt.released_trvs = {"climate.living_warm"}
+
+    _compute_mpc_v2_balance(bt, "climate.living_cold")
+    balance = _published_balance(bt.real_trvs["climate.living_cold"])
+
+    assert _debug_number(balance, "distributed_valve_pct") == _debug_number(
+        balance, "group_valve_pct"
+    )
+
+
+def test_an_unavailable_trv_is_no_reference() -> None:
+    """The last reading of a TRV that is gone does not lift the others."""
+    bt = _split_group()
+    _reporting(bt, unavailable=frozenset({"climate.living_warm"}))
+
+    _compute_mpc_v2_balance(bt, "climate.living_cold")
+    balance = _published_balance(bt.real_trvs["climate.living_cold"])
+
+    assert _debug_number(balance, "distributed_valve_pct") == _debug_number(
+        balance, "group_valve_pct"
+    )

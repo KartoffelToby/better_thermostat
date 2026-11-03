@@ -25,7 +25,7 @@ from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers import entity_registry
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import ConfigType, TemplateVarsType
-import voluptuous as vol
+import probatio as vol
 
 from . import DOMAIN
 from .utils.helpers import is_bt_climate_entity

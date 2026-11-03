@@ -20,6 +20,8 @@ Better Thermostat adds a complementary **software-driven virtual balancing layer
 ## How `0–100 %` demand reaches your radiator
 
 Every control cycle, the active algorithm computes a desired valve opening between **`0 %` (closed)** and **`100 %` (full flow)** for each room based on how far the room is from target and how fast it warms or loses heat.
+- Direct valve percentage, with the Direct Valve Based calibration type (if the integration exposes a writable valve position, or Better Thermostat has a valve control for the model). On a Sonoff TRVZB, BT writes the valve opening degree and, where the device exposes it, sets the closing degree to 100 minus the opening.
+- A mapped setpoint or offset otherwise: BT places the setpoint the TRV sees between the TRV's current temperature (0 %) and its maximum temperature (100 %). Depending on the percentage, that setpoint can lie above or below your target.
 
 Better Thermostat then applies that percentage through your TRV's configured **[`Calibration type`](/calibration_algorithms/)**:
 

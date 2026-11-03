@@ -32,10 +32,10 @@ Currently, integrations with local calibration support include:
 
 ## Direct valve control (recommended for MPC/PID)
 
-Direct valve control requires both:
+Direct valve control requires one of:
 
-1. Adapter support in Better Thermostat
-2. A controllable valve position entity exposed by your TRV/integration
+1. Adapter support in Better Thermostat together with a controllable valve position entity exposed by your TRV/integration
+2. A valve control built into Better Thermostat for your model, as for the Sonoff TRVZB and the Eurotronic Spirit Z / Aeotec ZWA021 (see [Direct valve control](/calibration_algorithms/#devices-that-support-it))
 
 Devices that expose a controllable valve position work best with the advanced control modes (MPC/PID), because BT can set the valve opening directly. Select the **Direct Valve Based** calibration type to use it.
 
@@ -92,12 +92,26 @@ To keep the BLU TRV's own automatic temperature control, set the **Calibration t
 
 Some TRVs can regulate on a room temperature sent to them instead of their own sensor. For these models Better Thermostat writes its room temperature to the device:
 
-- **Sonoff TRVZB and TRV-ZBT** (Zigbee2MQTT): to `external_temperature_input`, and switches the device's temperature sensor selection to it. A TRVZB paired through ZHA gets it in `external_temperature_sensor_value`, and its `external_temperature_sensor` switch is turned on.
+- **Sonoff TRVZB and TRV-ZBT** (Zigbee2MQTT): to `external_temperature_input`, and switches the device's temperature sensor selection to it. A TRVZB paired through ZHA gets it in `external_temperature_sensor_value`, and its `external_temperature_sensor` switch is turned on. With the TRV's advanced option **Keep the TRV's sensor selection** on, the value is still written but the selection and the switch stay as you set them, for example on `local_temperature` so that each TRV regulates on its own sensor (see [Configuration](/configuration/#second-step)).
 - **Danfoss Ally, Popp 701721, Hive UK7004240** (Zigbee2MQTT): to `external_measured_room_sensor`, in hundredths of a degree Celsius as Zigbee2MQTT expects, but only with the calibration mode **No Calibration**. The device corrects for its own sensor itself once it has the room temperature, so any other calibration mode would correct the same bias a second time. A change of at least 0.1 °C is written at once. An unchanged value goes out again with Better Thermostat's 30-minute refresh, which stays within the time after which the device drops the value and returns to its own sensor: 3 hours, or 35 minutes with `radiator_covered` on. Better Thermostat does not change `radiator_covered`; set it to match how the radiator is mounted. Open windows are not reported through `window_open_external`, and `heat_available` is not used.
 
 - **Shelly BLU TRV** (SBTR-001AEU, Home Assistant's Shelly integration): to its **External temperature** number (`external_temperature`), but only with the calibration mode **No Calibration** and not under **Direct Valve Based** control, for the same reason as the Danfoss Ally: the TRV corrects for its own sensor once it has the room temperature, and under direct valve control its own thermostat is off. Only readings Better Thermostat accepts are written; its sensor filter can hold a small or flickering change back for a while. An accepted change of at least 0.1 °C is written at once. An unchanged value goes out again with the first accepted reading or 30-minute refresh that comes at least 5 minutes after the last write, so two writes stay less than 35 minutes apart. If the number is missing or disabled, a warning is logged once.
 
 No value is written while the room sensor gives no reading, or when the room sensor belongs to the TRV itself.
+
+## TRVs bound to a room sensor over Matter
+
+Some Matter thermostats, such as the Eve Thermo, can be bound to a room temperature sensor (Matter Binding). They then take their measured temperature from that sensor and control the room on it themselves. Home Assistant's Matter integration shows this with the diagnostic binary sensor **Local temperature remote sensing** on the thermostat's device. While it is on, Better Thermostat leaves the control to the thermostat:
+
+- In setup and options, the thermostat accepts only the calibration mode **No Calibration**, and it is preselected. Any other mode would put a second control loop on top of the thermostat's own and is refused. A new thermostat starts on the calibration type **Target Temperature Based**.
+- Better Thermostat sends the target temperature unchanged, also for an entry configured before the binding.
+- Better Thermostat never writes or resets the thermostat's temperature offset. The offset shifts the bound sensor's reading on the device, so keep it at the value you set.
+
+While that binary sensor is unavailable, Better Thermostat still sends the target unchanged and leaves the offset alone; setup and options only insist on No Calibration while it is on. Window and door detection, grouping, presets and the rest of Better Thermostat keep working.
+
+The room temperature sensor is still required in setup. Select the sensor the thermostat is bound to; Better Thermostat then shows the same room temperature the thermostat regulates on.
+
+These thermostats offer no valve control over Matter, so the **Direct Valve Based** calibration type is not available for them.
 
 ## Devices that are known to work
 

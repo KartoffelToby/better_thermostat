@@ -31,6 +31,7 @@ from custom_components.better_thermostat.utils.helpers import (
     external_temperature_input_value,
     find_keyed_device_entity,
     is_sibling_entry,
+    keeps_sensor_selection,
     state_is_assumed,
     state_is_live,
 )
@@ -845,7 +846,9 @@ async def maybe_set_external_temperature(
     Zigbee2MQTT's or ZHA's translation key, and writes the given temperature, rounded to a tenth of a degree Celsius and converted into
     the unit the input publishes, held inside the range it publishes. The sensor
     selector is pointed at that input alongside the write, because a device
-    regulating on its own sensor never reads it.
+    regulating on its own sensor never reads it. A TRV whose
+    ``keep_sensor_selection`` option is on keeps the option the user picked;
+    its input is written all the same.
 
     Parameters
     ----------
@@ -888,7 +891,8 @@ async def maybe_set_external_temperature(
             return False
         # A room sensor on the TRV's own device is the TRV's reading: mirroring
         # it back would freeze it at the value of the first write. A selector
-        # an earlier write left on the remote option is moved back.
+        # an earlier write left on the remote option is moved back, unless the
+        # user keeps the selection.
         room_sensor = entity_registry.async_get(self.sensor_entity_id)
         if (
             room_sensor is not None
@@ -901,7 +905,8 @@ async def maybe_set_external_temperature(
                 self.sensor_entity_id,
                 entity_id,
             )
-            await maybe_select_internal_sensor(self, entity_id)
+            if not keeps_sensor_selection(self, entity_id):
+                await maybe_select_internal_sensor(self, entity_id)
             return False
         target = find_keyed_device_entity(
             entity_registry,
@@ -950,8 +955,10 @@ async def maybe_set_external_temperature(
         )
         # The value just written only reaches the control loop of a device
         # that is regulating on it. The selector is a write of its own, and
-        # none goes out once the device is the user's.
-        if device_released(self, entity_id):
+        # none goes out once the device is the user's or the user keeps the
+        # selection. The input is written either way, so a device that is
+        # switched to it later starts from the current room temperature.
+        if device_released(self, entity_id) or keeps_sensor_selection(self, entity_id):
             return True
         await maybe_select_external_sensor(self, entity_id)
         return True
