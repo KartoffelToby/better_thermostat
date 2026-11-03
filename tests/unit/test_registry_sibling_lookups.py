@@ -13,17 +13,16 @@ from it. Two kinds of entry are no such sibling:
   siblings; ``None == None`` is no shared device, and the entry that wins is
   whatever else the same integration registered without a device.
 
-The entries are Home Assistant's own ``RegistryEntry`` type held in its own
-registry container, and Home Assistant's states hold a state for every
+The registry and its entries are the production types from
+``tests.factories``, and Home Assistant's states hold a state for every
 enabled entry and none for a disabled one, as a running instance does.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Generator
 import contextlib
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -35,6 +34,8 @@ from custom_components.better_thermostat.adapters import (
     delegate,
     generic,
     mqtt,
+    valve_entity,
+    zha,
     zwave_js,
 )
 from custom_components.better_thermostat.model_fixes import (
@@ -43,8 +44,13 @@ from custom_components.better_thermostat.model_fixes import (
     default as default_quirk,
 )
 from custom_components.better_thermostat.switch import BetterThermostatChildLockSwitch
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils import helpers
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 TRV_ID = "climate.trv"
 TRV_DEVICE = "device_trv"
@@ -59,7 +65,7 @@ REGISTRY_GETTERS = (
 )
 
 # The state an enabled entry reports, per domain.
-ENABLED_STATE = {
+ENABLED_STATE: dict[str, tuple[str, dict[str, object]]] = {
     "climate": ("heat", {}),
     "number": ("0", {}),
     "select": ("2", {"options": ["1", "2"]}),
@@ -68,66 +74,6 @@ ENABLED_STATE = {
 }
 
 DISABLED_BY = [er.RegistryEntryDisabler.USER, er.RegistryEntryDisabler.INTEGRATION]
-
-CONFIG_ENTRY_ID = "config_entry_1"
-
-
-def make_registry_entry(
-    entity_id: str,
-    *,
-    device_id: str | None,
-    disabled_by: er.RegistryEntryDisabler | None = None,
-    translation_key: str | None = None,
-    original_device_class: str | None = None,
-) -> er.RegistryEntry:
-    """Return a real entity registry entry of the shared config entry.
-
-    A ``MagicMock`` in its place answers every field it was not told about
-    with a truthy mock, so ``disabled_by`` would read as disabled and a
-    missing ``translation_key`` as a key that matches nothing. The real type
-    answers ``None`` for both, as Home Assistant does.
-    """
-    return er.RegistryEntry(
-        entity_id=entity_id,
-        unique_id=entity_id,
-        platform="mqtt",
-        capabilities=None,
-        config_entry_id=CONFIG_ENTRY_ID,
-        config_subentry_id=None,
-        created_at=datetime(2026, 1, 1, tzinfo=UTC),
-        device_class=None,
-        device_id=device_id,
-        disabled_by=disabled_by,
-        entity_category=None,
-        has_entity_name=False,
-        hidden_by=None,
-        id=None,
-        object_id_base=None,
-        options=None,
-        original_device_class=original_device_class,
-        original_icon=None,
-        original_name=None,
-        suggested_object_id=None,
-        supported_features=0,
-        translation_key=translation_key,
-        unit_of_measurement=None,
-    )
-
-
-def make_entity_registry(*entries: er.RegistryEntry) -> MagicMock:
-    """Return an entity registry holding ``entries``, disabled ones included.
-
-    Its ``entities`` is Home Assistant's own container, so
-    ``entities.values()``, ``entities.get()`` and
-    ``async_entries_for_config_entry`` answer as they do in Home Assistant.
-    """
-    items = er.EntityRegistryItems(MagicMock())
-    for entry in entries:
-        items[entry.entity_id] = entry
-    registry = MagicMock(spec=er.EntityRegistry)
-    registry.entities = items
-    registry.async_get.side_effect = items.get
-    return registry
 
 
 @dataclass(frozen=True)
@@ -156,32 +102,48 @@ def _written(host: Any) -> set[str]:
 
 
 async def _calibration_found(host, _registry, candidate):
-    return await helpers.find_local_calibration_entity(host, TRV_ID) == candidate
+    found = await helpers.find_local_calibration_entity(
+        host, TRV_ID, trv=host.real_trvs[TRV_ID]
+    )
+    return found == candidate
 
 
 async def _valve_found(host, _registry, candidate):
-    found = await helpers.find_valve_entity(host, TRV_ID)
+    found = await helpers.find_valve_entity(host, TRV_ID, trv=host.real_trvs[TRV_ID])
     return found is not None and found["entity_id"] == candidate
 
 
 async def _generic_offers_offset(host, _registry, _candidate):
-    return (await generic.get_info(host, TRV_ID))["support_offset"]
+    return (await generic.get_info(host, TRV_ID)).offset_write
 
 
 async def _mqtt_offers_offset(host, _registry, _candidate):
-    return (await mqtt.get_info(host, TRV_ID))["support_offset"]
+    return (await mqtt.get_info(host, TRV_ID)).offset_write
 
 
 async def _mqtt_offers_valve(host, _registry, _candidate):
-    return (await mqtt.get_info(host, TRV_ID))["support_valve"]
+    return (await mqtt.get_info(host, TRV_ID)).valve_write
+
+
+async def _zha_offers_offset(host, _registry, _candidate):
+    return (await zha.get_info(host, TRV_ID)).offset_write
+
+
+async def _zha_offers_valve(host, _registry, _candidate):
+    return (await zha.get_info(host, TRV_ID)).valve_write
 
 
 async def _zwave_offers_offset(host, _registry, _candidate):
-    return (await zwave_js.get_info(host, TRV_ID))["support_offset"]
+    return (await zwave_js.get_info(host, TRV_ID)).offset_write
 
 
 async def _zwave_offers_valve(host, _registry, _candidate):
-    return (await zwave_js.get_info(host, TRV_ID))["support_valve"]
+    return (await zwave_js.get_info(host, TRV_ID)).valve_write
+
+
+async def _valve_discovered(host, _registry, candidate):
+    await valve_entity.discover_valve_entity(host, TRV_ID)
+    return host.real_trvs[TRV_ID].valve_position_entity == candidate
 
 
 async def _device_entity_found(_host, registry, candidate):
@@ -207,9 +169,9 @@ async def _battery_found(host, _registry, candidate):
     return await helpers.find_battery_entity(host, TRV_ID) == candidate
 
 
-async def _trvzb_sibling_found(_host, registry, candidate):
+async def _keyed_sibling_found(_host, registry, candidate):
     device_id = registry.async_get(TRV_ID).device_id
-    found = TRVZB._find_device_entity(
+    found = helpers.find_keyed_device_entity(
         registry,
         device_id,
         "select",
@@ -278,6 +240,18 @@ LOOKUPS = {
             VALVE,
         ),
         Lookup(
+            "zha.get_info offset",
+            "number.trv_local_temperature_calibration",
+            _zha_offers_offset,
+            CALIBRATION,
+        ),
+        Lookup(
+            "zha.get_info valve",
+            "number.trv_valve_opening_degree",
+            _zha_offers_valve,
+            VALVE,
+        ),
+        Lookup(
             "zwave_js.get_info offset",
             "number.trv_local_temperature_calibration",
             _zwave_offers_offset,
@@ -287,6 +261,12 @@ LOOKUPS = {
             "zwave_js.get_info valve",
             "number.trv_valve_opening_degree",
             _zwave_offers_valve,
+            VALVE,
+        ),
+        Lookup(
+            "valve_entity.discover_valve_entity",
+            "number.trv_valve_opening_degree",
+            _valve_discovered,
             VALVE,
         ),
         Lookup("find_device_entity", "switch.trv_child_lock", _device_entity_found),
@@ -303,9 +283,9 @@ LOOKUPS = {
             {"original_device_class": "battery"},
         ),
         Lookup(
-            "TRVZB._find_device_entity",
+            "find_keyed_device_entity",
             "select.trv_temperature_sensor_select",
-            _trvzb_sibling_found,
+            _keyed_sibling_found,
             {"translation_key": "temperature_sensor_select"},
         ),
         Lookup(
@@ -357,7 +337,7 @@ def _host(registry: Any, lookup: Lookup, candidate: str) -> MagicMock:
             value, attributes = lookup.state
         return State(entity_id, value, attributes)
 
-    host = MagicMock()
+    host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.unique_id = "bt_test"
     host.model = None
@@ -365,12 +345,12 @@ def _host(registry: Any, lookup: Lookup, candidate: str) -> MagicMock:
     host.sensor_entity_id = "sensor.room_temperature"
     host.hass.states.get = _state
     host.hass.services.async_call = AsyncMock(return_value=None)
-    host.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, model="TRVZB", advanced={})}
+    host.real_trvs = {TRV_ID: trv_record(entity_id=TRV_ID, model="TRVZB", advanced={})}
     return host
 
 
 @contextlib.contextmanager
-def _registry_in_place(registry: Any) -> Iterator[None]:
+def _registry_in_place(registry: Any) -> Generator[None]:
     """Hand ``registry`` to every module under test; no device is registered."""
     device_registry = MagicMock(spec=dr.DeviceRegistry)
     device_registry.async_get.return_value = None
@@ -542,7 +522,7 @@ async def test_a_disabled_entry_beside_an_enabled_sibling_goes_unnamed(name, cap
 
 
 # These two are handed the TRV's device id rather than the TRV itself.
-TAKE_A_DEVICE_ID = TAKES_ITS_DEVICE_FROM_THE_CALLER | {"TRVZB._find_device_entity"}
+TAKE_A_DEVICE_ID = TAKES_ITS_DEVICE_FROM_THE_CALLER | {"find_keyed_device_entity"}
 
 
 @pytest.mark.parametrize(
@@ -574,14 +554,14 @@ def _written_to(host: Any, entity_id: str) -> bool:
 
 def _runtime_host(helper: Any) -> MagicMock:
     """A running thermostat that adopted ``helper`` while it was enabled."""
-    host = MagicMock()
+    host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
     host.hass.services.async_call = AsyncMock(return_value=None)
     host.hass.states.get = lambda entity_id: State(
         entity_id, "0", {"min": 0, "max": 100, "step": 1}
     )
-    record = Trv(entity_id=TRV_ID, model="generic", advanced={})
+    record = trv_record(entity_id=TRV_ID, model="generic", advanced={})
     record.model_quirks = MagicMock(spec=[])
     if helper.domain == "number" and "valve" in helper.entity_id:
         record.adapter = mqtt
@@ -594,11 +574,11 @@ def _runtime_host(helper: Any) -> MagicMock:
     return host
 
 
-async def _write(host: Any) -> bool | None:
+async def _write(host: Any) -> bool:
     record = host.real_trvs[TRV_ID]
     if record.valve_position_entity is not None:
         return await delegate.set_valve(host, TRV_ID, 40)
-    return await delegate.set_offset(host, TRV_ID, 1.5)
+    return await delegate.set_calibration_offset(host, TRV_ID, 1.5)
 
 
 RUNTIME_HELPERS = {
@@ -613,8 +593,8 @@ async def test_a_helper_disabled_at_runtime_is_not_written(helper_id, caplog):
     """A helper disabled after discovery receives no write, and says so once.
 
     Home Assistant drops a service call aimed at a disabled entity. The
-    write answers that nothing was written, so the caller does not wait on a
-    command that never reaches the device, and the skip is named once on WARNING while
+    write answers ``False``, so the caller does not wait on a command that
+    never reaches the device, and the skip is named once on WARNING while
     the entity stays disabled. Once it is enabled again, writes resume and
     a later disable is named again.
     """
@@ -623,9 +603,8 @@ async def test_a_helper_disabled_at_runtime_is_not_written(helper_id, caplog):
         helper_id, device_id=TRV_DEVICE, disabled_by=er.RegistryEntryDisabler.USER
     )
     host = _runtime_host(enabled)
-    refused = None if helper_id == RUNTIME_HELPERS["valve"] else False
 
-    async def write_with(entry: Any) -> bool | None:
+    async def write_with(entry: Any) -> bool:
         host.hass.services.async_call.reset_mock()
         registry = make_entity_registry(entry)
         with patch(f"{helpers.__name__}.er.async_get", return_value=registry):
@@ -634,14 +613,14 @@ async def test_a_helper_disabled_at_runtime_is_not_written(helper_id, caplog):
     assert await write_with(enabled) is True
     assert _written_to(host, helper_id)
 
-    assert await write_with(disabled) is refused
+    assert await write_with(disabled) is False
     assert not _written_to(host, helper_id)
-    assert await write_with(disabled) is refused
+    assert await write_with(disabled) is False
     assert len(_disabled_sibling_warnings(caplog)) == 1
 
     assert await write_with(enabled) is True
     assert _written_to(host, helper_id)
-    assert await write_with(disabled) is refused
+    assert await write_with(disabled) is False
     assert len(_disabled_sibling_warnings(caplog)) == 2
 
 

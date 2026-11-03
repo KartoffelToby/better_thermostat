@@ -35,7 +35,7 @@ CYCLE_S = 300.0
 ROOM_STEP_S = 30.0
 HOURS = 30.0
 SETTLED_FROM_H = 6.0
-SETPOINT_C = 21.0
+SETPOINT = 21.0
 # A valve move larger than this counts as a move; smaller ones are the
 # ordinary trim a noisy reading causes.
 MOVE_PCT = 5
@@ -51,9 +51,9 @@ class _Case:
     noise: float
     quantum: float
     max_moves: int
-    max_valve_span_pct: int
+    max_valve_span_percent: int
     max_mean_abs_error: float
-    setpoint: float = SETPOINT_C
+    setpoint: float = SETPOINT
 
 
 _CASES = {
@@ -101,7 +101,7 @@ def _settled_run(case: _Case) -> tuple[list[int], list[float]]:
     room = PlantModelRC2(case.room, dt_s=ROOM_STEP_S)
     x = np.array([case.setpoint, case.setpoint])
     state = None
-    applied_pct: int | None = None
+    applied_percent: int | None = None
     valves: list[int] = []
     errors: list[float] = []
     t_s = 0.0
@@ -114,58 +114,44 @@ def _settled_run(case: _Case) -> tuple[list[int], list[float]]:
         out, state = compute_mpc_v2(
             MpcV2Input(
                 key="valve-calm",
-                target_temp_C=case.setpoint,
-                current_temp_C=reading,
-                trv_temp_C=float(x[1]),
-                outdoor_temp_C=case.outdoor_temperature,
+                target_temperature=case.setpoint,
+                room_temperature=reading,
+                trv_temperature=float(x[1]),
+                outdoor_temperature=case.outdoor_temperature,
                 window_open=False,
+                applied_valve_percent=None
+                if applied_percent is None
+                else float(applied_percent),
             ),
             params,
             state,
             now=1_700_000_000.0 + t_s,
         )
         assert out is not None
-        applied_pct = out.valve_percent
+        applied_percent = out.valve_percent
         if t_s / 3600.0 >= SETTLED_FROM_H:
-            valves.append(applied_pct)
+            valves.append(applied_percent)
             errors.append(float(x[0]) - case.setpoint)
         for _step in range(int(CYCLE_S / ROOM_STEP_S)):
-            x = room.discrete_step(x, applied_pct / 100.0, case.outdoor_temperature)
+            x = room.discrete_step(x, applied_percent / 100.0, case.outdoor_temperature)
             t_s += ROOM_STEP_S
     return valves, errors
 
 
 # A setpoint between two 0.5 K readings leaves every reading 0.2 or 0.3 K off
-# it, so the valve cycles between the two readings. The bounds are what the
-# controller did before free heat entered its plan (up to 181 moves, a 76 %
-# span at outdoor 0 °C); the planning reading of the disturbance follows that
-# cycle and widens the span to 85..89 %.
+# it, so the valve cycles between the two readings. The weight against valve
+# moves grows with the learned reporting threshold and keeps that cycle to
+# about 110 moves and a 24 % span over the settled day.
 _OFF_QUANTUM_CASES = {
     f"quantum0.5-setpoint{setpoint:.1f}-outdoor+0": _Case(
-        PlantParams(), PlantParams(), 0.0, 0.0, 0.5, 181, 76, 0.25, setpoint=setpoint
+        PlantParams(), PlantParams(), 0.0, 0.0, 0.5, 150, 35, 0.25, setpoint=setpoint
     )
     for setpoint in (21.2, 21.3)
 }
 _CASES.update(_OFF_QUANTUM_CASES)
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        pytest.param(
-            name,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="the planning reading of the disturbance follows the "
-                "cycle between two quantised readings and widens the valve "
-                "span beyond what the controller showed without it",
-            ),
-        )
-        if name in _OFF_QUANTUM_CASES
-        else name
-        for name in _CASES
-    ],
-)
+@pytest.mark.parametrize("name", list(_CASES))
 def test_valve_stays_calm_on_a_noisy_sensor_or_a_mismatched_model(name: str) -> None:
     """The settled valve neither hunts nor wanders while the room holds.
 
@@ -185,5 +171,5 @@ def test_valve_stays_calm_on_a_noisy_sensor_or_a_mismatched_model(name: str) -> 
     assert max(valves) > 0
 
     assert moves <= case.max_moves, f"{moves} valve moves, span {span} %"
-    assert span <= case.max_valve_span_pct, f"valve {min(valves)}..{max(valves)} %"
+    assert span <= case.max_valve_span_percent, f"valve {min(valves)}..{max(valves)} %"
     assert mean_abs_error <= case.max_mean_abs_error

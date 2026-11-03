@@ -4,17 +4,36 @@ Tests the degraded mode functionality including entity availability checks,
 optional vs critical sensor classification, and degraded mode state management.
 """
 
-import inspect
+import asyncio
+from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 from homeassistant.core import State
 import pytest
 
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.core.fsm.lifecycle import (
+    LifecyclePhase,
+    LifecycleState,
+)
+from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn, trv_record
 
-def _close_coro(coro, *args, **kwargs):
-    """Close a coroutine to avoid 'never awaited' RuntimeWarning."""
-    if inspect.iscoroutine(coro):
-        coro.close()
+# The battery level and battery entity a thermostat records per entity.
+BatteryStates = dict[str, dict[str, str | None]]
+
+
+def _answers_with(value):
+    """Answer every lookup with a real state carrying ``value``.
+
+    ``hass.states.get`` is asked for whichever entity the code under test
+    reaches for, so the stand-in is built per lookup rather than shared: one
+    ``State`` would carry a single entity id for all of them. A ``MagicMock``
+    in its place answers any attribute at all, so a field read by the wrong
+    name still comes back with something.
+    """
+    return lambda entity_id: State(entity_id, value)
 
 
 @pytest.fixture
@@ -22,38 +41,47 @@ def mock_hass():
     """Create a mock Home Assistant instance."""
     hass = MagicMock()
     hass.states = MagicMock()
-    hass.async_create_task = MagicMock(side_effect=_close_coro)
-    hass.async_create_background_task = MagicMock(side_effect=_close_coro)
     return hass
 
 
 @pytest.fixture
 def mock_bt_instance(mock_hass):
     """Create a mock BetterThermostat instance."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = mock_hass
     bt.device_name = "Test Thermostat"
     bt.sensor_entity_id = "sensor.room_temp"
-    bt.window_id = "binary_sensor.window"
+    bt.window_sensor_entity_id = "binary_sensor.window"
     # MagicMock would auto-create a truthy attribute; the default fixture has
     # no door sensor configured.
-    bt.door_id = None
-    # Same reason as door_id: the default fixture has no cooler configured.
+    bt.door_sensor_entity_id = None
+    # Same reason as door_sensor_entity_id: the default fixture has no cooler configured.
     bt.cooler_entity_id = None
     bt.humidity_sensor_entity_id = "sensor.humidity"
-    bt.outdoor_sensor = "sensor.outdoor_temp"
-    bt.weather_entity = "weather.home"
-    bt.real_trvs = {"climate.trv_1": {}, "climate.trv_2": {}}
-    bt.devices_errors = []
+    bt.outdoor_sensor_entity_id = "sensor.outdoor_temp"
+    bt.weather_entity_id = "weather.home"
+    bt.real_trvs = {
+        "climate.trv_1": trv_record(entity_id="climate.trv_1"),
+        "climate.trv_2": trv_record(entity_id="climate.trv_2"),
+    }
+    bt.devices_errors = list[str]()
     # A MagicMock would answer .get() with another MagicMock, which the
-    # battery retry pause compares against a timestamp.
-    bt._next_battery_read = {}
-    bt.degraded_mode = False
-    bt.unavailable_sensors = []
-    bt._degraded_grace_until = None
+    # battery reader would take for the entity id of a battery entity and the
+    # retry pause would compare against a timestamp. No battery entity is
+    # mapped by default.
+    bt.devices_states = BatteryStates(
+        {
+            "climate.trv_1": {"battery": None, "battery_id": None},
+            "climate.trv_2": {"battery": None, "battery_id": None},
+        }
+    )
+    bt._next_battery_read = dict[str, float]()
     bt._degraded_warning_emitted = False
-    bt._critical_grace_until = None
     bt.is_removed = False
+    bt.kernel_state = KernelState()
+    bt.clock = FakeClock()
+    bt.in_maintenance = False
+    bt.control_queue_task = asyncio.Queue(maxsize=1)
     return bt
 
 
@@ -85,9 +113,7 @@ class TestIsEntityAvailable:
             is_entity_available,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_hass.states.get.return_value = mock_state
+        mock_hass.states.get.return_value = State("sensor.test", "unavailable")
 
         result = is_entity_available(mock_hass, "sensor.test")
         assert result is False
@@ -98,9 +124,7 @@ class TestIsEntityAvailable:
             is_entity_available,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unknown"
-        mock_hass.states.get.return_value = mock_state
+        mock_hass.states.get.return_value = State("sensor.test", "unknown")
 
         result = is_entity_available(mock_hass, "sensor.test")
         assert result is False
@@ -111,9 +135,7 @@ class TestIsEntityAvailable:
             is_entity_available,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "21.5"
-        mock_hass.states.get.return_value = mock_state
+        mock_hass.states.get.return_value = State("sensor.temperature", "21.5")
 
         result = is_entity_available(mock_hass, "sensor.temperature")
         assert result is True
@@ -124,9 +146,7 @@ class TestIsEntityAvailable:
             is_entity_available,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "on"
-        mock_hass.states.get.return_value = mock_state
+        mock_hass.states.get.return_value = State("binary_sensor.window", "on")
 
         result = is_entity_available(mock_hass, "binary_sensor.window")
         assert result is True
@@ -155,7 +175,7 @@ class TestGetOptionalSensors:
             get_optional_sensors,
         )
 
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
 
         result = get_optional_sensors(mock_bt_instance)
@@ -170,22 +190,27 @@ class TestGetOptionalSensors:
             get_optional_sensors,
         )
 
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.outdoor_sensor = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.outdoor_sensor_entity_id = None
+        mock_bt_instance.weather_entity_id = None
 
         result = get_optional_sensors(mock_bt_instance)
 
         assert result == []
 
-    def test_includes_door_sensor_when_configured(self, mock_bt_instance):
-        """A configured door sensor is watched like the other optional sensors."""
+    def test_includes_the_door_sensor(self, mock_bt_instance):
+        """A configured door sensor is watched like the window sensor.
+
+        Both contact sensors count as closed while unavailable, so
+        heating simply continues and degraded mode is the only thing
+        that reveals the outage.
+        """
         from custom_components.better_thermostat.utils.watcher import (
             get_optional_sensors,
         )
 
-        mock_bt_instance.door_id = "binary_sensor.door"
+        mock_bt_instance.door_sensor_entity_id = "binary_sensor.door"
 
         result = get_optional_sensors(mock_bt_instance)
 
@@ -232,7 +257,7 @@ class TestGetOptionalSensors:
             get_optional_sensors,
         )
 
-        mock_bt_instance.door_id = None
+        mock_bt_instance.door_sensor_entity_id = None
 
         result = get_optional_sensors(mock_bt_instance)
 
@@ -259,159 +284,188 @@ class TestGetCriticalEntities:
         assert "climate.trv_2" in result
         assert len(result) == 2
 
-    def test_default_policy_excludes_unknown_state_while_zwa021_includes_it(
-        self, mock_bt_instance, mock_hass
-    ):
-        """The default policy rejects STATE_UNKNOWN, while direct-valve ZWA021 allows it."""
-        from homeassistant.const import STATE_UNKNOWN
-        from homeassistant.core import State
-
-        import custom_components.better_thermostat.model_fixes.default as default_quirks
-        import custom_components.better_thermostat.model_fixes.ZWA021 as zwa021_quirks
-        from custom_components.better_thermostat.utils.const import CalibrationType
-        from custom_components.better_thermostat.utils.watcher import (
-            get_critical_entities,
-            is_entity_available,
-        )
-
-        class Trv:
-            """Represent a TRV fixture with model-specific policy configuration."""
-
-            def __init__(self, *, model_quirks, calibration=None):
-                """Initialize the TRV fixture.
-
-                Parameters
-                ----------
-                model_quirks
-                    Model quirks module used by the watcher policy.
-                calibration
-                    Optional calibration mode.
-                """
-                self.model_quirks = model_quirks
-                self.advanced = (
-                    {"calibration": calibration} if calibration is not None else {}
-                )
-
-        mock_bt_instance.real_trvs = {
-            "climate.trv_default": Trv(model_quirks=default_quirks),
-            "climate.trv_direct": Trv(
-                model_quirks=zwa021_quirks,
-                calibration=CalibrationType.DIRECT_VALVE_BASED,
-            ),
-        }
-
-        result = get_critical_entities(mock_bt_instance)
-
-        assert result == {"climate.trv_default": False, "climate.trv_direct": True}
-
-        mock_hass.states.get.side_effect = lambda entity_id: State(
-            entity_id, STATE_UNKNOWN
-        )
-        assert (
-            is_entity_available(
-                mock_hass, "climate.trv_default", result["climate.trv_default"]
-            )
-            is False
-        )
-        assert (
-            is_entity_available(
-                mock_hass, "climate.trv_direct", result["climate.trv_direct"]
-            )
-            is True
-        )
-
-    def test_returns_empty_dict_when_no_trvs(self, mock_bt_instance):
-        """Test that an empty dictionary is returned when no TRVs are configured."""
+    def test_returns_empty_list_when_no_trvs(self, mock_bt_instance):
+        """Test that empty list is returned when no TRVs configured."""
         from custom_components.better_thermostat.utils.watcher import (
             get_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {}
+        mock_bt_instance.real_trvs = dict[str, Trv]()
 
         result = get_critical_entities(mock_bt_instance)
 
-        assert result == {}
+        assert result == []
 
 
 class TestCheckCriticalEntities:
     """Tests for check_critical_entities function."""
 
-    async def test_returns_true_when_all_trvs_available(self, mock_bt_instance):
-        """Test that True is returned when all TRVs are available."""
+    @pytest.mark.asyncio
+    async def test_available_trvs_hold_no_error(self, mock_bt_instance):
+        """TRVs that answer are listed nowhere and raise no repair issue."""
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "heat"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
 
-        with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            result = await check_critical_entities(mock_bt_instance)
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is True
+        assert mock_bt_instance.devices_errors == []
+        assert not mock_ir.async_create_issue.called
 
-    async def test_returns_false_when_trv_unavailable(self, mock_bt_instance):
-        """Test that False is returned when a TRV is unavailable."""
+    @pytest.mark.asyncio
+    async def test_an_unavailable_trv_is_recorded_as_an_error(self, mock_bt_instance):
+        """An unavailable TRV lands in the error list."""
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is False
         assert len(mock_bt_instance.devices_errors) > 0
 
+    @pytest.mark.asyncio
+    async def test_a_trv_reporting_unknown_is_recorded_as_an_error(
+        self, mock_bt_instance
+    ):
+        """An entity saying nothing leaves its device unaccounted for."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unknown")
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_critical_entities(mock_bt_instance)
+
+        assert sorted(mock_bt_instance.devices_errors) == sorted(
+            mock_bt_instance.real_trvs
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_model_that_reports_unknown_while_driven_stays_available(
+        self, mock_bt_instance
+    ):
+        """A repair issue for a TRV that is taking commands is a false alarm.
+
+        A TRV driven through a mode its climate entity does not describe
+        reports ``unknown`` for as long as that mode holds, and the outage
+        the watcher would announce never happened.
+        """
+        from custom_components.better_thermostat.model_fixes import ZWA021
+        from custom_components.better_thermostat.utils.const import CalibrationOutput
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.model_quirks = ZWA021
+            trv.advanced = {"calibration": CalibrationOutput.DIRECT_VALVE_BASED}
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unknown")
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            await check_critical_entities(mock_bt_instance)
+
+        assert mock_bt_instance.devices_errors == []
+        assert not mock_ir.async_create_issue.called
+
+    @pytest.mark.asyncio
+    async def test_a_released_trv_going_away_raises_no_issue(self, mock_bt_instance):
+        """An outage of a released device is the user's business.
+
+        Neither the error list nor the repairs carry it, and the issue an
+        earlier outage raised is withdrawn.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_bt_instance.devices_released = True
+        mock_bt_instance.devices_errors = ["climate.trv_1"]
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            await check_critical_entities(mock_bt_instance)
+
+        assert mock_bt_instance.devices_errors == []
+        assert not mock_ir.async_create_issue.called
+        assert mock_ir.async_delete_issue.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_only_the_trv_released_on_its_own_raises_no_issue(
+        self, mock_bt_instance
+    ):
+        """An outage of a TRV released on its own is the user's business.
+
+        Both TRVs go away. The released one leaves the error list and its
+        earlier issue is withdrawn; the other one is reported as before.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_bt_instance.released_trvs = {"climate.trv_1"}
+        mock_bt_instance.devices_errors = ["climate.trv_1"]
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            await check_critical_entities(mock_bt_instance)
+
+        assert mock_bt_instance.devices_errors == ["climate.trv_2"]
+        (created,) = mock_ir.async_create_issue.call_args_list
+        assert created.kwargs["translation_placeholders"]["entity"] == "climate.trv_2"
+        (withdrawn,) = mock_ir.async_delete_issue.call_args_list
+        assert withdrawn.args[2].endswith("_missing_entity_climate.trv_1")
+
+    @pytest.mark.asyncio
     async def test_no_issue_during_grace_period(self, mock_bt_instance):
         """Unavailable TRV during startup grace does not raise a repair issue."""
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
-        mock_bt_instance._critical_grace_until = dt_util.now() + timedelta(minutes=2)
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
+        mock_bt_instance._critical_grace_until = (
+            mock_bt_instance.clock.now() + timedelta(minutes=2)
+        )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is False
         assert len(mock_bt_instance.devices_errors) == 0
         assert not mock_ir.async_create_issue.called
+        # The TRVs still count as gone: no issue of theirs is cleared.
+        assert not mock_ir.async_delete_issue.called
 
+    @pytest.mark.asyncio
     async def test_issue_after_grace_expires(self, mock_bt_instance):
         """Unavailable TRV after grace expiry raises a repair issue."""
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
         # Grace expired one minute ago
-        mock_bt_instance._critical_grace_until = dt_util.now() - timedelta(minutes=1)
+        mock_bt_instance._critical_grace_until = (
+            mock_bt_instance.clock.now() - timedelta(minutes=1)
+        )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is False
         assert len(mock_bt_instance.devices_errors) > 0
         assert mock_ir.async_create_issue.called
 
+    @pytest.mark.asyncio
     async def test_warns_once_while_a_trv_stays_unavailable(
         self, mock_bt_instance, caplog
     ):
@@ -424,16 +478,14 @@ class TestCheckCriticalEntities:
         """
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
-        mock_bt_instance._critical_grace_until = dt_util.now() - timedelta(minutes=1)
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
+        mock_bt_instance._critical_grace_until = (
+            mock_bt_instance.clock.now() - timedelta(minutes=1)
+        )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
             with caplog.at_level("WARNING"):
@@ -450,26 +502,25 @@ class TestCheckCriticalEntities:
         assert len(announced) == len(set(announced)) == trv_count
         assert mock_ir.async_create_issue.call_count == trv_count
 
+    @pytest.mark.asyncio
     async def test_auto_clear_issue_on_recovery(self, mock_bt_instance):
         """Issue is cleared when a previously-unavailable TRV becomes available."""
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "heat"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
         # Simulate a previously raised error
         mock_bt_instance.devices_errors = ["climate.trv_1", "climate.trv_2"]
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is True
         assert len(mock_bt_instance.devices_errors) == 0
         # Issue must be deleted for each recovered TRV
         assert mock_ir.async_delete_issue.call_count == 2
 
+    @pytest.mark.asyncio
     async def test_clears_stale_issue_even_without_devices_errors(
         self, mock_bt_instance
     ):
@@ -478,41 +529,37 @@ class TestCheckCriticalEntities:
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "heat"
-        mock_bt_instance.hass.states.get.return_value = mock_state
-        mock_bt_instance.devices_errors = []
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
+        mock_bt_instance.devices_errors = list[str]()
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is True
         # delete is called idempotently for every available entity
         assert mock_ir.async_delete_issue.call_count == 2
 
+    @pytest.mark.asyncio
     async def test_partial_unavailability_clears_available(self, mock_bt_instance):
         """Available TRVs are processed even when another TRV is unavailable."""
         from datetime import timedelta
-
-        from homeassistant.util import dt as dt_util
 
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
         def mock_get(entity_id):
-            state = MagicMock()
-            state.state = "unavailable" if entity_id == "climate.trv_1" else "heat"
-            return state
+            value = "unavailable" if entity_id == "climate.trv_1" else "heat"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
-        mock_bt_instance._critical_grace_until = dt_util.now() - timedelta(minutes=1)
+        mock_bt_instance._critical_grace_until = (
+            mock_bt_instance.clock.now() - timedelta(minutes=1)
+        )
         mock_bt_instance.devices_errors = ["climate.trv_2"]
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is False
         # trv_1 (unavailable) added to errors and issue created
         assert "climate.trv_1" in mock_bt_instance.devices_errors
         # trv_2 (available) recovered — removed from errors and issue deleted
@@ -524,10 +571,10 @@ class TestCheckCriticalEntities:
 class TestCheckCriticalEntitiesBattery:
     """Battery-refresh de-duplication in check_critical_entities.
 
-    check_critical_entities runs on nearly every event, so it must not queue a
-    get_battery_status background task on every call. A refresh is spawned only
-    on the first pass (battery still unpopulated), when a TRV recovers, or
-    when the battery entity reports a level other than the stored one.
+    check_critical_entities runs on nearly every event, so it must not read a
+    battery entity on every call. A read happens only on the first pass
+    (battery still unpopulated), when a TRV recovers, or when the battery
+    entity reports a level other than the stored one.
     """
 
     @staticmethod
@@ -541,15 +588,28 @@ class TestCheckCriticalEntitiesBattery:
         mock_bt_instance.hass.states.get.side_effect = lambda entity_id: State(
             entity_id, levels.get(entity_id, "heat")
         )
-        mock_bt_instance.devices_errors = []
+        mock_bt_instance.devices_errors = list[str]()
         return mock_bt_instance
 
-    async def test_no_task_when_battery_already_populated(self, mock_bt_instance):
-        """Steady state: populated battery values spawn no background task."""
+    @staticmethod
+    async def _reads(mock_bt_instance):
+        """Run one critical-entity pass and report the battery reads it did."""
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
+        with (
+            patch("custom_components.better_thermostat.utils.watcher.ir"),
+            patch(
+                "custom_components.better_thermostat.utils.watcher.get_battery_status"
+            ) as read_battery,
+        ):
+            await check_critical_entities(mock_bt_instance)
+        return read_battery.call_count
+
+    @pytest.mark.asyncio
+    async def test_no_read_when_battery_already_populated(self, mock_bt_instance):
+        """Steady state: populated battery values are not read again."""
         bt = self._make_available(
             mock_bt_instance, {"sensor.b1": "80", "sensor.b2": "90"}
         )
@@ -557,17 +617,12 @@ class TestCheckCriticalEntitiesBattery:
             "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"},
             "climate.trv_2": {"battery_id": "sensor.b2", "battery": "90"},
         }
-        with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            await check_critical_entities(bt)
 
-        assert bt.hass.async_create_background_task.call_count == 0
+        assert await self._reads(bt) == 0
 
-    async def test_task_when_a_battery_reports_a_new_level(self, mock_bt_instance):
+    @pytest.mark.asyncio
+    async def test_read_when_a_battery_reports_a_new_level(self, mock_bt_instance):
         """A battery whose entity moved on is read while its TRV stays up."""
-        from custom_components.better_thermostat.utils.watcher import (
-            check_critical_entities,
-        )
-
         bt = self._make_available(
             mock_bt_instance, {"sensor.b1": "79", "sensor.b2": "90"}
         )
@@ -575,73 +630,44 @@ class TestCheckCriticalEntitiesBattery:
             "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"},
             "climate.trv_2": {"battery_id": "sensor.b2", "battery": "90"},
         }
-        with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            await check_critical_entities(bt)
 
-        assert bt.hass.async_create_background_task.call_count == 1
+        assert await self._reads(bt) == 1
 
-    async def test_task_on_initial_unpopulated_battery(self, mock_bt_instance):
-        """First pass: an unpopulated battery spawns one task per TRV."""
-        from custom_components.better_thermostat.utils.watcher import (
-            check_critical_entities,
-        )
-
+    @pytest.mark.asyncio
+    async def test_read_on_initial_unpopulated_battery(self, mock_bt_instance):
+        """First pass: an unpopulated battery is read once per TRV."""
         bt = self._make_available(mock_bt_instance)
         bt.devices_states = {
             "climate.trv_1": {"battery_id": "sensor.b1", "battery": None},
             "climate.trv_2": {"battery_id": "sensor.b2", "battery": None},
         }
-        with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            await check_critical_entities(bt)
 
-        assert bt.hass.async_create_background_task.call_count == 2
+        assert await self._reads(bt) == 2
 
-    async def test_task_on_recovery_even_if_populated(self, mock_bt_instance):
+    @pytest.mark.asyncio
+    async def test_read_on_recovery_even_if_populated(self, mock_bt_instance):
         """A recovering TRV refreshes battery even if a value already exists."""
-        from custom_components.better_thermostat.utils.watcher import (
-            check_critical_entities,
-        )
-
         bt = self._make_available(mock_bt_instance)
         bt.devices_errors = ["climate.trv_1", "climate.trv_2"]
         bt.devices_states = {
             "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"},
             "climate.trv_2": {"battery_id": "sensor.b2", "battery": "90"},
         }
-        with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            await check_critical_entities(bt)
 
-        assert bt.hass.async_create_background_task.call_count == 2
+        assert await self._reads(bt) == 2
 
-    async def test_no_task_when_entity_has_no_battery(self, mock_bt_instance):
-        """Entities without a battery id never spawn a refresh in steady state."""
-        from custom_components.better_thermostat.utils.watcher import (
-            check_critical_entities,
+    @pytest.mark.asyncio
+    async def test_no_read_when_entity_has_no_battery(self, mock_bt_instance):
+        """Entities without a battery id are never read in steady state."""
+        bt = self._make_available(mock_bt_instance)
+        bt.devices_states = BatteryStates(
+            {
+                "climate.trv_1": {"battery_id": None, "battery": None},
+                "climate.trv_2": {},
+            }
         )
 
-        bt = self._make_available(mock_bt_instance)
-        bt.devices_states = {
-            "climate.trv_1": {"battery_id": None, "battery": None},
-            "climate.trv_2": {},
-        }
-        with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            await check_critical_entities(bt)
-
-        assert bt.hass.async_create_background_task.call_count == 0
-
-
-class _MonotonicClock:
-    """A monotonic clock the test moves by hand."""
-
-    def __init__(self):
-        self.now = 1000.0
-
-    def __call__(self):
-        return self.now
-
-    def advance(self, seconds):
-        """Move the clock forward by ``seconds``."""
-        self.now += seconds
+        assert await self._reads(bt) == 0
 
 
 class TestGetBatteryStatus:
@@ -653,15 +679,6 @@ class TestGetBatteryStatus:
     """
 
     TRV = "climate.trv_1"
-
-    @pytest.fixture(autouse=True)
-    def clock(self):
-        """Replace the watcher's monotonic clock with one the test moves."""
-        clock = _MonotonicClock()
-        with patch(
-            "custom_components.better_thermostat.utils.watcher.monotonic", clock
-        ):
-            yield clock
 
     @staticmethod
     def _reporting(mock_bt_instance, level):
@@ -678,8 +695,7 @@ class TestGetBatteryStatus:
         self._reporting(mock_bt_instance, level)
         return mock_bt_instance
 
-    @pytest.mark.asyncio
-    async def test_an_unavailable_battery_entity_leaves_the_reading_unset(
+    def test_an_unavailable_battery_entity_leaves_the_reading_unset(
         self, mock_bt_instance
     ):
         """An "unavailable" battery entity has no reading to store."""
@@ -687,12 +703,29 @@ class TestGetBatteryStatus:
 
         bt = self._bt(mock_bt_instance, "unavailable")
 
-        await get_battery_status(bt, self.TRV)
+        get_battery_status(bt, self.TRV)
 
         assert bt.devices_states[self.TRV]["battery"] is None
 
-    @pytest.mark.asyncio
-    async def test_a_battery_entity_without_a_level_yet_leaves_the_reading_unset(
+    @pytest.mark.parametrize(
+        "devices_states",
+        [{}, {TRV: {"battery": None}}],
+        ids=["device_not_mapped", "no_battery_entity"],
+    )
+    def test_a_device_without_a_battery_entity_reads_nothing(
+        self, mock_bt_instance, devices_states
+    ):
+        """A device with no battery entity mapped to it has nothing to read."""
+        from custom_components.better_thermostat.utils.watcher import get_battery_status
+
+        mock_bt_instance.devices_states = devices_states
+
+        get_battery_status(mock_bt_instance, self.TRV)
+
+        mock_bt_instance.hass.states.get.assert_not_called()
+        mock_bt_instance.async_write_ha_state.assert_not_called()
+
+    def test_a_battery_entity_without_a_level_yet_leaves_the_reading_unset(
         self, mock_bt_instance
     ):
         """A battery entity that has not published yet reports "unknown"."""
@@ -700,14 +733,11 @@ class TestGetBatteryStatus:
 
         bt = self._bt(mock_bt_instance, "unknown")
 
-        await get_battery_status(bt, self.TRV)
+        get_battery_status(bt, self.TRV)
 
         assert bt.devices_states[self.TRV]["battery"] is None
 
-    @pytest.mark.asyncio
-    async def test_the_battery_is_read_again_once_the_device_is_back(
-        self, mock_bt_instance, clock
-    ):
+    def test_the_battery_is_read_again_once_the_device_is_back(self, mock_bt_instance):
         """A device offline at startup still gets a battery level afterwards.
 
         Nothing watches the battery entity itself, so only a later pass can
@@ -717,23 +747,20 @@ class TestGetBatteryStatus:
         from custom_components.better_thermostat.utils.watcher import (
             BATTERY_REREAD_DELAY_SECONDS,
             get_battery_status,
-            schedule_battery_refresh,
+            refresh_battery_reading,
         )
 
         bt = self._bt(mock_bt_instance, "unavailable")
-        await get_battery_status(bt, self.TRV)
-
-        clock.advance(BATTERY_REREAD_DELAY_SECONDS)
-        schedule_battery_refresh(bt, self.TRV, recovered=False)
-        assert bt.hass.async_create_background_task.call_count == 1
+        get_battery_status(bt, self.TRV)
 
         self._reporting(bt, "87")
-        await get_battery_status(bt, self.TRV)
+        bt.clock.advance(BATTERY_REREAD_DELAY_SECONDS)
+        refresh_battery_reading(bt, self.TRV, recovered=False)
+
         assert bt.devices_states[self.TRV]["battery"] == "87"
 
-    @pytest.mark.asyncio
-    async def test_a_pending_retry_outranks_the_level_it_was_scheduled_over(
-        self, mock_bt_instance, clock
+    def test_a_pending_retry_outranks_the_level_it_was_scheduled_over(
+        self, mock_bt_instance
     ):
         """A stored level is the one from before the entity went quiet.
 
@@ -746,27 +773,25 @@ class TestGetBatteryStatus:
         from custom_components.better_thermostat.utils.watcher import (
             BATTERY_REREAD_DELAY_SECONDS,
             get_battery_status,
-            schedule_battery_refresh,
+            refresh_battery_reading,
         )
 
         bt = self._bt(mock_bt_instance, "87")
-        await get_battery_status(bt, self.TRV)
+        get_battery_status(bt, self.TRV)
         assert bt.devices_states[self.TRV]["battery"] == "87"
 
         self._reporting(bt, "unavailable")
-        schedule_battery_refresh(bt, self.TRV, recovered=True)
-        await get_battery_status(bt, self.TRV)
+        refresh_battery_reading(bt, self.TRV, recovered=True)
         assert bt.devices_states[self.TRV]["battery"] == "87"
-        bt.hass.async_create_background_task.reset_mock()
 
-        clock.advance(BATTERY_REREAD_DELAY_SECONDS)
-        schedule_battery_refresh(bt, self.TRV, recovered=False)
+        self._reporting(bt, "91")
+        bt.clock.advance(BATTERY_REREAD_DELAY_SECONDS)
+        refresh_battery_reading(bt, self.TRV, recovered=False)
 
-        assert bt.hass.async_create_background_task.call_count == 1
+        assert bt.devices_states[self.TRV]["battery"] == "91"
 
-    @pytest.mark.asyncio
-    async def test_a_battery_without_a_level_is_not_read_on_every_pass(
-        self, mock_bt_instance, clock
+    def test_a_battery_without_a_level_is_not_read_on_every_pass(
+        self, mock_bt_instance
     ):
         """The retries wait, because the checks around them do not.
 
@@ -776,36 +801,37 @@ class TestGetBatteryStatus:
         """
         from custom_components.better_thermostat.utils.watcher import (
             get_battery_status,
-            schedule_battery_refresh,
+            refresh_battery_reading,
         )
 
         bt = self._bt(mock_bt_instance, "unavailable")
-        await get_battery_status(bt, self.TRV)
+        get_battery_status(bt, self.TRV)
 
-        clock.advance(1.0)
-        schedule_battery_refresh(bt, self.TRV, recovered=False)
+        # A level is on offer again, so only the pause can keep it unread.
+        self._reporting(bt, "87")
+        bt.clock.advance(1.0)
+        refresh_battery_reading(bt, self.TRV, recovered=False)
 
-        assert bt.hass.async_create_background_task.call_count == 0
+        assert bt.devices_states[self.TRV]["battery"] is None
 
-    @pytest.mark.asyncio
-    async def test_a_recovering_device_is_asked_without_waiting_out_the_pause(
+    def test_a_recovering_device_is_asked_without_waiting_out_the_pause(
         self, mock_bt_instance
     ):
         """Recovery is worth a read whatever the last one found."""
         from custom_components.better_thermostat.utils.watcher import (
             get_battery_status,
-            schedule_battery_refresh,
+            refresh_battery_reading,
         )
 
         bt = self._bt(mock_bt_instance, "unavailable")
-        await get_battery_status(bt, self.TRV)
+        get_battery_status(bt, self.TRV)
 
-        schedule_battery_refresh(bt, self.TRV, recovered=True)
+        self._reporting(bt, "87")
+        refresh_battery_reading(bt, self.TRV, recovered=True)
 
-        assert bt.hass.async_create_background_task.call_count == 1
+        assert bt.devices_states[self.TRV]["battery"] == "87"
 
-    @pytest.mark.asyncio
-    async def test_a_new_level_from_the_battery_entity_replaces_the_stored_one(
+    def test_a_new_level_from_the_battery_entity_replaces_the_stored_one(
         self, mock_bt_instance
     ):
         """A battery ages while its device stays available the whole time.
@@ -815,38 +841,36 @@ class TestGetBatteryStatus:
         """
         from custom_components.better_thermostat.utils.watcher import (
             get_battery_status,
-            schedule_battery_refresh,
+            refresh_battery_reading,
         )
 
         bt = self._bt(mock_bt_instance, "87")
-        await get_battery_status(bt, self.TRV)
+        get_battery_status(bt, self.TRV)
 
         self._reporting(bt, "82")
-        schedule_battery_refresh(bt, self.TRV, recovered=False)
-        assert bt.hass.async_create_background_task.call_count == 1
+        refresh_battery_reading(bt, self.TRV, recovered=False)
 
-        await get_battery_status(bt, self.TRV)
         assert bt.devices_states[self.TRV]["battery"] == "82"
 
-    @pytest.mark.asyncio
-    async def test_an_unchanged_level_is_not_read_again(self, mock_bt_instance):
-        """A level already on record costs no task and no state write."""
+    def test_an_unchanged_level_is_not_written_again(self, mock_bt_instance):
+        """A level already on record costs no entity state write."""
         from custom_components.better_thermostat.utils.watcher import (
             get_battery_status,
-            schedule_battery_refresh,
+            refresh_battery_reading,
         )
 
         bt = self._bt(mock_bt_instance, "87")
-        await get_battery_status(bt, self.TRV)
+        get_battery_status(bt, self.TRV)
+        bt.async_write_ha_state.reset_mock()
 
-        schedule_battery_refresh(bt, self.TRV, recovered=False)
+        refresh_battery_reading(bt, self.TRV, recovered=False)
 
-        assert bt.hass.async_create_background_task.call_count == 0
+        bt.async_write_ha_state.assert_not_called()
+        assert bt.devices_states[self.TRV]["battery"] == "87"
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("live", ["unavailable", "unknown", None])
-    async def test_a_battery_entity_without_a_level_keeps_the_stored_one(
-        self, mock_bt_instance, clock, live
+    def test_a_battery_entity_without_a_level_keeps_the_stored_one(
+        self, mock_bt_instance, live
     ):
         """A battery entity with nothing to say does not replace the last level.
 
@@ -855,27 +879,30 @@ class TestGetBatteryStatus:
         """
         from custom_components.better_thermostat.utils.watcher import (
             get_battery_status,
-            schedule_battery_refresh,
+            refresh_battery_reading,
         )
 
         bt = self._bt(mock_bt_instance, "87")
-        await get_battery_status(bt, self.TRV)
+        get_battery_status(bt, self.TRV)
+        bt.async_write_ha_state.reset_mock()
 
         self._reporting(bt, live)
-        schedule_battery_refresh(bt, self.TRV, recovered=False)
-        assert bt.hass.async_create_background_task.call_count == 0
+        refresh_battery_reading(bt, self.TRV, recovered=False)
+
+        bt.async_write_ha_state.assert_not_called()
         assert bt.devices_states[self.TRV]["battery"] == "87"
 
         self._reporting(bt, "80")
-        clock.advance(1.0)
-        schedule_battery_refresh(bt, self.TRV, recovered=False)
+        bt.clock.advance(1.0)
+        refresh_battery_reading(bt, self.TRV, recovered=False)
 
-        assert bt.hass.async_create_background_task.call_count == 1
+        assert bt.devices_states[self.TRV]["battery"] == "80"
 
 
 class TestCheckAndUpdateDegradedMode:
     """Tests for check_and_update_degraded_mode function."""
 
+    @pytest.mark.asyncio
     async def test_sets_degraded_mode_when_optional_sensor_unavailable(
         self, mock_bt_instance
     ):
@@ -885,12 +912,11 @@ class TestCheckAndUpdateDegradedMode:
         )
 
         def mock_get(entity_id):
-            state = MagicMock()
             if entity_id == "binary_sensor.window":
-                state.state = "unavailable"
+                value = "unavailable"
             else:
-                state.state = "20.0"
-            return state
+                value = "20.0"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -898,23 +924,30 @@ class TestCheckAndUpdateDegradedMode:
             result = await check_and_update_degraded_mode(mock_bt_instance)
 
         assert result is True
-        assert mock_bt_instance.degraded_mode is True
+        assert mock_bt_instance.kernel_state.control_mode.degraded is True
         assert "binary_sensor.window" in mock_bt_instance.unavailable_sensors
 
+    @pytest.mark.asyncio
     async def test_sets_degraded_mode_when_door_sensor_unavailable(
         self, mock_bt_instance
     ):
-        """A dead door sensor reaches degraded mode and raises the repair issue."""
+        """A dead door sensor surfaces as degraded mode.
+
+        It counts as closed, so heating continues and nothing else in the
+        system reacts — without the annunciation the outage is invisible.
+        """
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
 
-        mock_bt_instance.door_id = "binary_sensor.door"
+        mock_bt_instance.door_sensor_entity_id = "binary_sensor.door"
 
         def mock_get(entity_id):
-            state = MagicMock()
-            state.state = "unavailable" if entity_id == "binary_sensor.door" else "20.0"
-            return state
+            if entity_id == "binary_sensor.door":
+                value = "unavailable"
+            else:
+                value = "20.0"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -922,46 +955,152 @@ class TestCheckAndUpdateDegradedMode:
             result = await check_and_update_degraded_mode(mock_bt_instance)
 
         assert result is True
-        assert mock_bt_instance.degraded_mode is True
+        assert mock_bt_instance.kernel_state.control_mode.degraded is True
         assert "binary_sensor.door" in mock_bt_instance.unavailable_sensors
         assert mock_ir.async_create_issue.called
 
-    async def test_no_degraded_mode_when_door_sensor_not_configured(
+    @pytest.mark.asyncio
+    async def test_ladder_reaches_hold_when_all_trvs_unavailable(
         self, mock_bt_instance
     ):
-        """An unconfigured door sensor never counts as unavailable."""
+        """A full TRV outage steps the ladder down to HOLD and requests control.
+
+        Stored temperatures from before the outage must not keep the
+        ladder off the HOLD rung.
+        """
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
 
-        mock_bt_instance.door_id = None
-        mock_state = MagicMock()
-        mock_state.state = "20.0"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.current_temperature = 21.0
+        # ``in_maintenance`` is a read-only property, so the stand-in would
+        # answer it with a truthy mock and suppress the control request.
+        mock_bt_instance.in_maintenance = False
+        mock_bt_instance.control_queue_task = asyncio.Queue(maxsize=1)
+
+        def mock_get(entity_id):
+            value = "unavailable"
+            return State(entity_id, value)
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            result = await check_and_update_degraded_mode(mock_bt_instance)
+            await check_and_update_degraded_mode(mock_bt_instance)
+            assert mock_bt_instance.control_queue_task.empty()
+            # Downgrades commit after the down-debounce window.
+            mock_bt_instance.clock.advance(121.0)
+            await check_and_update_degraded_mode(mock_bt_instance)
 
-        assert result is False
-        assert mock_bt_instance.unavailable_sensors == []
+        assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.HOLD
+        assert mock_bt_instance.control_queue_task.qsize() == 1
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("reported", "rung"),
+        [
+            pytest.param(21.0, "sensor_fallback", id="usable"),
+            pytest.param(126.5, "hold", id="marker"),
+            pytest.param("not a number", "hold", id="non_numeric"),
+        ],
+    )
+    async def test_a_trv_counts_for_the_ladder_only_on_a_temperature_it_reports(
+        self, mock_bt_instance, reported, rung
+    ):
+        """A stored TRV reading keeps the ladder off HOLD only while the TRV confirms it.
+
+        The handler keeps the stored reading across a report it cannot use,
+        so a TRV that goes on reporting a marker or garbage would otherwise
+        hold the room on SENSOR_FALLBACK with a value it no longer reports.
+        """
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.current_temperature = 21.0
+
+        def mock_get(entity_id):
+            if entity_id in mock_bt_instance.real_trvs:
+                return State(entity_id, "heat", {"current_temperature": reported})
+            if entity_id == "sensor.room_temp":
+                return State(entity_id, "unavailable")
+            return State(entity_id, "20.0")
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+        mock_bt_instance.hass.config.units.temperature_unit = "°C"
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_and_update_degraded_mode(mock_bt_instance)
+            mock_bt_instance.clock.advance(121.0)
+            await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode(rung)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("reading", ["126.5", "-60.0", "not a number"])
+    async def test_ladder_falls_back_when_the_room_sensor_reports_nonsense(
+        self, mock_bt_instance, reading
+    ):
+        """An available room sensor without a plausible reading steps the ladder down.
+
+        The room has no temperature to control on either way, so the TRV
+        temperature takes over as it does for a lost sensor. The sensor is
+        still reachable, so it is not reported as unavailable.
+        """
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.current_temperature = 21.0
+
+        def mock_get(entity_id):
+            if entity_id in mock_bt_instance.real_trvs:
+                return State(entity_id, "heat", {"current_temperature": 21.0})
+            value = reading if entity_id == "sensor.room_temp" else "20.0"
+            return State(entity_id, value)
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+        mock_bt_instance.hass.config.units.temperature_unit = "°C"
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_and_update_degraded_mode(mock_bt_instance)
+            mock_bt_instance.clock.advance(121.0)
+            await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert (
+            mock_bt_instance.kernel_state.control_mode.mode
+            == ControlMode.SENSOR_FALLBACK
+        )
+        assert "sensor.room_temp" not in mock_bt_instance.unavailable_sensors
+
+    @pytest.mark.asyncio
     async def test_no_degraded_mode_when_all_sensors_available(self, mock_bt_instance):
         """Test that degraded_mode is False when all sensors are available."""
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "20.0"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("20.0")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             result = await check_and_update_degraded_mode(mock_bt_instance)
 
         assert result is False
-        assert mock_bt_instance.degraded_mode is False
+        assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert mock_bt_instance.unavailable_sensors == []
 
+    @pytest.mark.asyncio
     async def test_includes_room_sensor_in_unavailable_list(self, mock_bt_instance):
         """Test that room temperature sensor is added to unavailable list when unavailable."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -969,12 +1108,11 @@ class TestCheckAndUpdateDegradedMode:
         )
 
         def mock_get(entity_id):
-            state = MagicMock()
             if entity_id == "sensor.room_temp":
-                state.state = "unavailable"
+                value = "unavailable"
             else:
-                state.state = "20.0"
-            return state
+                value = "20.0"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1022,7 +1160,7 @@ class TestCheckAndUpdateDegradedMode:
 
     @staticmethod
     async def _run(mock_bt_instance):
-        """Run one degraded-mode pass and report the tasks it spawned."""
+        """Run one degraded-mode pass and report the battery reads it did."""
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
@@ -1031,10 +1169,10 @@ class TestCheckAndUpdateDegradedMode:
             patch("custom_components.better_thermostat.utils.watcher.ir"),
             patch(
                 "custom_components.better_thermostat.utils.watcher.get_battery_status"
-            ),
+            ) as read_battery,
         ):
             await check_and_update_degraded_mode(mock_bt_instance)
-        return mock_bt_instance.hass.async_create_background_task.call_count
+        return read_battery.call_count
 
     @pytest.mark.asyncio
     async def test_reads_batteries_while_they_are_still_unpopulated(
@@ -1051,8 +1189,8 @@ class TestCheckAndUpdateDegradedMode:
     ):
         """This runs on nearly every event, so a known battery reads nothing.
 
-        Every read costs a background task and an entity state write, and a
-        battery whose value is already on record has nothing new to report.
+        Every read costs an entity state write, and a battery whose value is
+        already on record has nothing new to report.
         """
         self._with_batteries(mock_bt_instance, battery="87")
 
@@ -1083,13 +1221,196 @@ class TestCheckAndUpdateDegradedMode:
         """Recovery alone is not a reason to read: there has to be something to read.
 
         ``get_battery_status`` returns immediately for an entity with no
-        mapped battery, so scheduling one costs a task and yields nothing.
+        mapped battery, so asking for one yields nothing.
         """
-        mock_bt_instance.devices_states = {}
+        mock_bt_instance.devices_states = BatteryStates()
         self._all_sensors_reporting(mock_bt_instance)
         mock_bt_instance.unavailable_sensors = list(self.WATCHED_SENSORS)
 
         assert await self._run(mock_bt_instance) == 0
+
+
+class TestRungChangeRequestsControl:
+    """A committed ladder rung drives the devices from the new source at once.
+
+    A calibration mode that does not recompute on its own gives the room no
+    other reason to run a control cycle, so the room temperature the new rung
+    selects would otherwise wait for the next unrelated trigger.
+    """
+
+    ROOM_SENSOR = "sensor.room_temp"
+
+    @staticmethod
+    def _prepare(mock_bt_instance, *, room_sensor_available):
+        """Report every entity, the room sensor as given, and idle the queue."""
+
+        def states_get(entity_id):
+            if (
+                entity_id == TestRungChangeRequestsControl.ROOM_SENSOR
+                and not room_sensor_available
+            ):
+                return State(entity_id, "unavailable")
+            if entity_id in mock_bt_instance.real_trvs:
+                return State(entity_id, "heat", {"current_temperature": 21.0})
+            return State(entity_id, "20.0")
+
+        mock_bt_instance.hass.states.get.side_effect = states_get
+        mock_bt_instance.hass.config.units.temperature_unit = "°C"
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.current_temperature = 21.0
+        mock_bt_instance.in_maintenance = False
+        mock_bt_instance.control_queue_task = asyncio.Queue(maxsize=1)
+
+    @staticmethod
+    async def _pass(mock_bt_instance):
+        """Run one degraded-mode pass."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_and_update_degraded_mode(mock_bt_instance)
+
+    @pytest.mark.asyncio
+    async def test_a_committed_downgrade_requests_a_control_cycle(
+        self, mock_bt_instance
+    ):
+        """Falling back to the TRV temperatures is acted on when it commits."""
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+
+        self._prepare(mock_bt_instance, room_sensor_available=False)
+
+        await self._pass(mock_bt_instance)
+        assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+        assert mock_bt_instance.control_queue_task.empty()
+
+        mock_bt_instance.clock.advance(121.0)
+        await self._pass(mock_bt_instance)
+
+        assert (
+            mock_bt_instance.kernel_state.control_mode.mode
+            == ControlMode.SENSOR_FALLBACK
+        )
+        assert mock_bt_instance.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_a_committed_recovery_requests_a_control_cycle(
+        self, mock_bt_instance
+    ):
+        """Returning to the room sensor is acted on when it commits."""
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+            ControlModeState,
+        )
+
+        self._prepare(mock_bt_instance, room_sensor_available=True)
+        mock_bt_instance.kernel_state = replace(
+            mock_bt_instance.kernel_state,
+            control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK),
+        )
+
+        await self._pass(mock_bt_instance)
+        assert (
+            mock_bt_instance.kernel_state.control_mode.mode
+            == ControlMode.SENSOR_FALLBACK
+        )
+        assert mock_bt_instance.control_queue_task.empty()
+
+        mock_bt_instance.clock.advance(301.0)
+        await self._pass(mock_bt_instance)
+
+        assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+        assert mock_bt_instance.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_a_rung_change_during_valve_maintenance_requests_nothing(
+        self, mock_bt_instance
+    ):
+        """Valve maintenance keeps control of the valves until it ends."""
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+
+        self._prepare(mock_bt_instance, room_sensor_available=False)
+        mock_bt_instance.in_maintenance = True
+
+        await self._pass(mock_bt_instance)
+        mock_bt_instance.clock.advance(121.0)
+        await self._pass(mock_bt_instance)
+
+        assert (
+            mock_bt_instance.kernel_state.control_mode.mode
+            == ControlMode.SENSOR_FALLBACK
+        )
+        assert mock_bt_instance.control_queue_task.empty()
+
+
+class TestRoomSensorOutageWarning:
+    """The warning about falling back to the TRV internal temperature.
+
+    The fallback is silent by design, so the warning is the only trace of it
+    a user gets. The check that emits it runs on every trigger, while the
+    outage it reports lasts until the sensor comes back.
+    """
+
+    ROOM_SENSOR = "sensor.room_temp"
+    MESSAGE = "Room temperature sensor"
+
+    @staticmethod
+    def _room_sensor(mock_bt_instance, *, available):
+        """Make the room sensor report a temperature, or drop out."""
+
+        def states_get(entity_id):
+            if entity_id == TestRoomSensorOutageWarning.ROOM_SENSOR and not available:
+                return State(entity_id, "unavailable")
+            return State(entity_id, "20.0")
+
+        mock_bt_instance.hass.states.get.side_effect = states_get
+
+    @staticmethod
+    async def _pass(mock_bt_instance):
+        """Run one degraded-mode pass."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_and_update_degraded_mode(mock_bt_instance)
+
+    def _warnings(self, caplog):
+        """Count the room-sensor warnings logged so far."""
+        return sum(self.MESSAGE in record.message for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_a_lasting_outage_is_reported_once(self, mock_bt_instance, caplog):
+        """An outage is one event, however many triggers arrive during it."""
+        mock_bt_instance.devices_states = BatteryStates()
+        mock_bt_instance.unavailable_sensors = list[str]()
+        self._room_sensor(mock_bt_instance, available=False)
+
+        with caplog.at_level("WARNING"):
+            for _ in range(3):
+                await self._pass(mock_bt_instance)
+
+        assert self._warnings(caplog) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_second_outage_is_reported_again(self, mock_bt_instance, caplog):
+        """Reporting once is per outage, not once for the lifetime of the entity."""
+        mock_bt_instance.devices_states = BatteryStates()
+        mock_bt_instance.unavailable_sensors = list[str]()
+
+        with caplog.at_level("WARNING"):
+            self._room_sensor(mock_bt_instance, available=False)
+            await self._pass(mock_bt_instance)
+            self._room_sensor(mock_bt_instance, available=True)
+            await self._pass(mock_bt_instance)
+            self._room_sensor(mock_bt_instance, available=False)
+            await self._pass(mock_bt_instance)
+
+        assert self._warnings(caplog) == 2
 
 
 class TestDegradedModeGracePeriod:
@@ -1098,12 +1419,12 @@ class TestDegradedModeGracePeriod:
     @staticmethod
     def _mock_get_with_unavailable(unavailable_id):
         def mock_get(entity_id):
-            state = MagicMock()
-            state.state = "unavailable" if entity_id == unavailable_id else "20.0"
-            return state
+            value = "unavailable" if entity_id == unavailable_id else "20.0"
+            return State(entity_id, value)
 
         return mock_get
 
+    @pytest.mark.asyncio
     async def test_warning_and_issue_when_grace_inactive(
         self, mock_bt_instance, caplog
     ):
@@ -1115,7 +1436,10 @@ class TestDegradedModeGracePeriod:
         mock_bt_instance.hass.states.get.side_effect = self._mock_get_with_unavailable(
             "binary_sensor.window"
         )
-        mock_bt_instance._degraded_grace_until = None
+        mock_bt_instance.kernel_state = replace(
+            mock_bt_instance.kernel_state,
+            lifecycle=LifecycleState(phase=LifecyclePhase.STARTING, grace_until=None),
+        )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
             with caplog.at_level("WARNING"):
@@ -1125,11 +1449,10 @@ class TestDegradedModeGracePeriod:
         assert mock_ir.async_create_issue.called
         assert mock_bt_instance._degraded_warning_emitted is True
 
+    @pytest.mark.asyncio
     async def test_silent_during_grace_period(self, mock_bt_instance, caplog):
         """Grace active → degraded transition logs DEBUG, no issue, no WARNING."""
         from datetime import timedelta
-
-        from homeassistant.util import dt as dt_util
 
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
@@ -1138,22 +1461,27 @@ class TestDegradedModeGracePeriod:
         mock_bt_instance.hass.states.get.side_effect = self._mock_get_with_unavailable(
             "binary_sensor.window"
         )
-        mock_bt_instance._degraded_grace_until = dt_util.now() + timedelta(minutes=5)
+        mock_bt_instance.kernel_state = replace(
+            mock_bt_instance.kernel_state,
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING,
+                grace_until=mock_bt_instance.clock.now() + timedelta(minutes=5),
+            ),
+        )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
             with caplog.at_level("WARNING"):
                 await check_and_update_degraded_mode(mock_bt_instance)
 
-        assert mock_bt_instance.degraded_mode is True
+        assert mock_bt_instance.kernel_state.control_mode.degraded is True
         assert not any("Entering degraded mode" in r.message for r in caplog.records)
         assert not mock_ir.async_create_issue.called
         assert mock_bt_instance._degraded_warning_emitted is False
 
+    @pytest.mark.asyncio
     async def test_warns_after_grace_expires(self, mock_bt_instance, caplog):
         """Grace passed → still-degraded re-check logs WARNING and raises issue."""
         from datetime import timedelta
-
-        from homeassistant.util import dt as dt_util
 
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
@@ -1163,7 +1491,13 @@ class TestDegradedModeGracePeriod:
             "binary_sensor.window"
         )
         # Grace expired 1 minute ago
-        mock_bt_instance._degraded_grace_until = dt_util.now() - timedelta(minutes=1)
+        mock_bt_instance.kernel_state = replace(
+            mock_bt_instance.kernel_state,
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING,
+                grace_until=mock_bt_instance.clock.now() - timedelta(minutes=1),
+            ),
+        )
         # Simulate that the silent-during-grace check already set degraded=True
         mock_bt_instance.degraded_mode = True
 
@@ -1175,22 +1509,25 @@ class TestDegradedModeGracePeriod:
         assert mock_ir.async_create_issue.called
         assert mock_bt_instance._degraded_warning_emitted is True
 
+    @pytest.mark.asyncio
     async def test_silent_recovery_during_grace(self, mock_bt_instance, caplog):
         """Recover during grace → no INFO log, no issue deleted (none was created)."""
         from datetime import timedelta
-
-        from homeassistant.util import dt as dt_util
 
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
 
         # All sensors are available now
-        mock_state = MagicMock()
-        mock_state.state = "20.0"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("20.0")
         # Mock was previously set to degraded silently during grace
-        mock_bt_instance._degraded_grace_until = dt_util.now() + timedelta(minutes=5)
+        mock_bt_instance.kernel_state = replace(
+            mock_bt_instance.kernel_state,
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING,
+                grace_until=mock_bt_instance.clock.now() + timedelta(minutes=5),
+            ),
+        )
         mock_bt_instance.degraded_mode = True
         mock_bt_instance._degraded_warning_emitted = False
 
@@ -1198,19 +1535,18 @@ class TestDegradedModeGracePeriod:
             with caplog.at_level("INFO"):
                 await check_and_update_degraded_mode(mock_bt_instance)
 
-        assert mock_bt_instance.degraded_mode is False
+        assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert not any("Exiting degraded mode" in r.message for r in caplog.records)
         assert not mock_ir.async_delete_issue.called
 
+    @pytest.mark.asyncio
     async def test_info_on_recovery_after_warned(self, mock_bt_instance, caplog):
         """Recover after we'd warned → INFO log + issue deleted."""
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "20.0"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("20.0")
         mock_bt_instance.degraded_mode = True
         mock_bt_instance._degraded_warning_emitted = True
 
@@ -1218,11 +1554,13 @@ class TestDegradedModeGracePeriod:
             with caplog.at_level("INFO"):
                 await check_and_update_degraded_mode(mock_bt_instance)
 
-        assert mock_bt_instance.degraded_mode is False
+        assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert any("Exiting degraded mode" in r.message for r in caplog.records)
         assert mock_ir.async_delete_issue.called
-        assert mock_bt_instance._degraded_warning_emitted is False
+        warned: bool = mock_bt_instance._degraded_warning_emitted
+        assert warned is False
 
+    @pytest.mark.asyncio
     async def test_no_double_warning(self, mock_bt_instance, caplog):
         """Subsequent check while already-warned → no second WARNING."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -1255,18 +1593,20 @@ class TestCoolerDegradedMode:
     @staticmethod
     def _arm_grace(bt, delta):
         """Set the degraded-mode grace deadline to ``now + delta``."""
-        from homeassistant.util import dt as dt_util
-
-        bt._degraded_grace_until = dt_util.now() + delta
+        bt.kernel_state = replace(
+            bt.kernel_state,
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING, grace_until=bt.clock.now() + delta
+            ),
+        )
 
     @staticmethod
     def _only_dead(unavailable_id):
         """Build a states.get side effect where one entity is unavailable."""
 
         def mock_get(entity_id):
-            state = MagicMock()
-            state.state = "unavailable" if entity_id == unavailable_id else "20.0"
-            return state
+            value = "unavailable" if entity_id == unavailable_id else "20.0"
+            return State(entity_id, value)
 
         return mock_get
 
@@ -1279,6 +1619,7 @@ class TestCoolerDegradedMode:
             check_and_update_degraded_mode,
         )
 
+        mock_bt_instance._unique_id = "entry_1"
         mock_bt_instance.cooler_entity_id = self.COOLER
         mock_bt_instance.hass.states.get.side_effect = self._only_dead(self.COOLER)
         self._arm_grace(mock_bt_instance, timedelta(minutes=-1))
@@ -1291,7 +1632,7 @@ class TestCoolerDegradedMode:
         assert self.COOLER in mock_bt_instance.unavailable_sensors
         assert any("Entering degraded mode" in r.message for r in caplog.records)
         kwargs = mock_ir.async_create_issue.call_args.kwargs
-        assert kwargs["issue_id"] == "degraded_mode_Test Thermostat"
+        assert kwargs["issue_id"] == "entry_1_degraded_mode"
         assert kwargs["severity"] is mock_ir.IssueSeverity.WARNING
 
     @pytest.mark.asyncio
@@ -1328,10 +1669,9 @@ class TestCoolerDegradedMode:
             check_and_update_degraded_mode,
         )
 
+        mock_bt_instance._unique_id = "entry_1"
         mock_bt_instance.cooler_entity_id = self.COOLER
-        available = MagicMock()
-        available.state = "cool"
-        mock_bt_instance.hass.states.get.return_value = available
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("cool")
         mock_bt_instance._degraded_warning_emitted = True
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
@@ -1341,18 +1681,16 @@ class TestCoolerDegradedMode:
         assert result is False
         assert mock_bt_instance.unavailable_sensors == []
         assert any("Exiting degraded mode" in r.message for r in caplog.records)
-        assert (
-            mock_ir.async_delete_issue.call_args.args[-1]
-            == "degraded_mode_Test Thermostat"
-        )
-        assert mock_bt_instance._degraded_warning_emitted is False
+        assert mock_ir.async_delete_issue.call_args.args[-1] == "entry_1_degraded_mode"
+        warned: bool = mock_bt_instance._degraded_warning_emitted
+        assert warned is False
 
     @pytest.mark.asyncio
     async def test_dead_cooler_is_not_a_critical_entity(self, mock_bt_instance):
         """The cooler stays out of the repair path that reports lost control.
 
         ``check_critical_entities`` reads the TRVs only; a dead cooler
-        neither fails that check nor raises a ``missing_entity`` repair.
+        raises no ``missing_entity`` repair.
         """
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
@@ -1365,9 +1703,9 @@ class TestCoolerDegradedMode:
         assert self.COOLER not in get_critical_entities(mock_bt_instance)
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is True
+        assert mock_bt_instance.devices_errors == []
         assert not mock_ir.async_create_issue.called
 
 
@@ -1393,9 +1731,7 @@ class TestAwaitOptionalSensors:
             await_optional_sensors,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "20.0"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("20.0")
 
         sleep_calls = []
 
@@ -1417,10 +1753,10 @@ class TestAwaitOptionalSensors:
             await_optional_sensors,
         )
 
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.outdoor_sensor = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.outdoor_sensor_entity_id = None
+        mock_bt_instance.weather_entity_id = None
 
         sleep_calls = []
 
@@ -1441,15 +1777,13 @@ class TestAwaitOptionalSensors:
         )
 
         # Only the door sensor is configured, and it stays unavailable.
-        mock_bt_instance.window_id = None
-        mock_bt_instance.door_id = "binary_sensor.door"
+        mock_bt_instance.window_sensor_entity_id = None
+        mock_bt_instance.door_sensor_entity_id = "binary_sensor.door"
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.outdoor_sensor = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.outdoor_sensor_entity_id = None
+        mock_bt_instance.weather_entity_id = None
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         sleep_calls = []
 
@@ -1470,22 +1804,19 @@ class TestAwaitOptionalSensors:
         )
 
         # Only outdoor sensor configured
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.weather_entity_id = None
 
         call_count = 0
 
         def mock_get(entity_id):
             nonlocal call_count
-            state = MagicMock()
             if entity_id == "sensor.outdoor_temp":
                 call_count += 1
                 # Unavailable on first call, available from second onwards
-                state.state = "unavailable" if call_count <= 1 else "15.0"
-            else:
-                state.state = "20.0"
-            return state
+                return State(entity_id, "unavailable" if call_count <= 1 else "15.0")
+            return State(entity_id, "20.0")
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1510,13 +1841,11 @@ class TestAwaitOptionalSensors:
         )
 
         # Only outdoor sensor configured, permanently unavailable
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.weather_entity_id = None
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         sleep_calls = []
 
@@ -1540,9 +1869,7 @@ class TestAwaitOptionalSensors:
         )
 
         # All sensors permanently unavailable
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         sleep_calls = []
 
@@ -1574,9 +1901,7 @@ class TestAwaitOptionalSensors:
             await_optional_sensors,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         sleep_calls = []
 
@@ -1597,24 +1922,23 @@ class TestAwaitOptionalSensors:
         )
 
         # Only outdoor + weather configured
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
 
         outdoor_calls = 0
 
         def mock_get(entity_id):
             nonlocal outdoor_calls
-            state = MagicMock()
             if entity_id == "sensor.outdoor_temp":
                 outdoor_calls += 1
                 # Comes online after first sleep
-                state.state = "unavailable" if outdoor_calls <= 1 else "12.0"
+                value = "unavailable" if outdoor_calls <= 1 else "12.0"
             elif entity_id == "weather.home":
                 # Stays unavailable forever
-                state.state = "unavailable"
+                value = "unavailable"
             else:
-                state.state = "20.0"
-            return state
+                value = "20.0"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1639,25 +1963,24 @@ class TestAwaitOptionalSensors:
             await_optional_sensors,
         )
 
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.weather_entity_id = None
 
         get_count = 0
 
         def mock_get(entity_id):
             nonlocal get_count
-            state = MagicMock()
             if entity_id == "sensor.outdoor_temp":
                 get_count += 1
                 # With delays=(2, 4):
                 # loop check 1: get_count=1 → unavailable → sleep(2)
                 # loop check 2: get_count=2 → unavailable → sleep(4)
                 # final check:  get_count=3 → available
-                state.state = "unavailable" if get_count <= 2 else "10.0"
+                value = "unavailable" if get_count <= 2 else "10.0"
             else:
-                state.state = "20.0"
-            return state
+                value = "20.0"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1704,13 +2027,13 @@ class TestAwaitOptionalSensors:
             await_optional_sensors,
         )
 
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.weather_entity_id = None
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"  # never comes online
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with(
+            "unavailable"
+        )  # never comes online
 
         sleep_calls = []
 
@@ -1756,9 +2079,7 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "heat"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
 
         sleep_calls = []
 
@@ -1780,7 +2101,7 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {}
+        mock_bt_instance.real_trvs = dict[str, Trv]()
 
         sleep_calls = []
 
@@ -1801,20 +2122,21 @@ class TestAwaitCriticalEntities:
         )
 
         # Single TRV configured
-        mock_bt_instance.real_trvs = {"climate.trv_1": {}}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1")
+        }
 
         call_count = 0
 
         def mock_get(entity_id):
             nonlocal call_count
-            state = MagicMock()
             if entity_id == "climate.trv_1":
                 call_count += 1
                 # Unavailable on first call, available from second onwards
-                state.state = "unavailable" if call_count <= 1 else "heat"
+                value = "unavailable" if call_count <= 1 else "heat"
             else:
-                state.state = "heat"
-            return state
+                value = "heat"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1838,10 +2160,12 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": {}}
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"  # never comes online
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1")
+        }
+        mock_bt_instance.hass.states.get.side_effect = _answers_with(
+            "unavailable"
+        )  # never comes online
 
         sleep_calls = []
 
@@ -1867,11 +2191,11 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": {}}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1")
+        }
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         sleep_calls = []
 
@@ -1888,7 +2212,13 @@ class TestAwaitCriticalEntities:
         assert sleep_calls == [2, 4, 8], "Should sleep through all delays"
 
     def test_default_delays_increasing_and_total_roughly_90s(self):
-        """Default critical delays are increasing and sum to roughly 90 s."""
+        """The wait is long enough for a slow integration and no longer.
+
+        A cloud-backed valve can take most of a minute to publish after a
+        restart, so the ladder has to outlast that; stretching it further
+        only delays the repair issue for a device that is genuinely gone.
+        The steps grow so the early passes are cheap.
+        """
         from custom_components.better_thermostat.utils.watcher import (
             DEFAULT_CRITICAL_ENTITY_DELAYS,
         )
@@ -1907,23 +2237,25 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": {}, "climate.trv_2": {}}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1"),
+            "climate.trv_2": trv_record(entity_id="climate.trv_2"),
+        }
 
         trv1_calls = 0
 
         def mock_get(entity_id):
             nonlocal trv1_calls
-            state = MagicMock()
             if entity_id == "climate.trv_1":
                 trv1_calls += 1
                 # Comes online after first sleep
-                state.state = "unavailable" if trv1_calls <= 1 else "heat"
+                value = "unavailable" if trv1_calls <= 1 else "heat"
             elif entity_id == "climate.trv_2":
                 # Stays unavailable forever
-                state.state = "unavailable"
+                value = "unavailable"
             else:
-                state.state = "heat"
-            return state
+                value = "heat"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1947,21 +2279,22 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": {}}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": trv_record(entity_id="climate.trv_1")
+        }
 
         get_count = 0
 
         def mock_get(entity_id):
             nonlocal get_count
-            state = MagicMock()
             if entity_id == "climate.trv_1":
                 get_count += 1
                 # With delays=(2, 4): unavailable for the two loop checks,
                 # available on the final check.
-                state.state = "unavailable" if get_count <= 2 else "heat"
+                value = "unavailable" if get_count <= 2 else "heat"
             else:
-                state.state = "heat"
-            return state
+                value = "heat"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1983,15 +2316,14 @@ class TestAwaitCriticalEntities:
 class TestBatteryStatusCalls:
     """Tests for battery status updates in entity checks."""
 
+    @pytest.mark.asyncio
     async def test_check_critical_entities_calls_battery_status(self, mock_bt_instance):
         """check_critical_entities fetches battery for available TRVs on first pass."""
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "heat"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
         # Battery still unpopulated -> the initial refresh must fire.
         mock_bt_instance.devices_states = {
             "climate.trv_1": {"battery_id": "sensor.b1", "battery": None},
@@ -2001,15 +2333,13 @@ class TestBatteryStatusCalls:
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             with patch(
                 "custom_components.better_thermostat.utils.watcher.get_battery_status"
-            ):
-                result = await check_critical_entities(mock_bt_instance)
+            ) as read_battery:
+                await check_critical_entities(mock_bt_instance)
 
-                assert result is True
                 # Should be called for each available TRV (2 TRVs in fixture)
-                assert (
-                    mock_bt_instance.hass.async_create_background_task.call_count == 2
-                )
+                assert read_battery.call_count == 2
 
+    @pytest.mark.asyncio
     async def test_check_critical_entities_no_battery_call_when_unavailable(
         self, mock_bt_instance
     ):
@@ -2018,16 +2348,82 @@ class TestBatteryStatusCalls:
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             with patch(
                 "custom_components.better_thermostat.utils.watcher.get_battery_status"
-            ):
-                result = await check_critical_entities(mock_bt_instance)
+            ) as read_battery:
+                await check_critical_entities(mock_bt_instance)
 
-                assert result is False
                 # Should not be called for unavailable TRVs
-                assert mock_bt_instance.hass.async_create_task.call_count == 0
+                read_battery.assert_not_called()
+
+
+class TestRoomSensorReading:
+    """The room temperature read from the room sensor's state, in Celsius.
+
+    A sensor that names its unit is read in that unit; one that names none
+    reports in the Home Assistant system unit, like every other entity.
+    """
+
+    @pytest.mark.parametrize(
+        ("system_unit", "attributes", "value", "expected"),
+        [
+            pytest.param("°F", {}, "68", 20.0, id="unitless-on-fahrenheit"),
+            pytest.param("°C", {}, "20", 20.0, id="unitless-on-celsius"),
+            pytest.param(
+                "°F",
+                {"unit_of_measurement": ""},
+                "68",
+                20.0,
+                id="empty-unit-on-fahrenheit",
+            ),
+            pytest.param(
+                "°F",
+                {"unit_of_measurement": "°C"},
+                "20",
+                20.0,
+                id="celsius-sensor-on-fahrenheit",
+            ),
+            pytest.param(
+                "°C",
+                {"unit_of_measurement": "°F"},
+                "68",
+                20.0,
+                id="fahrenheit-sensor-on-celsius",
+            ),
+            pytest.param(
+                "°C",
+                {"unit_of_measurement": "°F", "temperature_unit": "°C"},
+                "68",
+                20.0,
+                id="unit-of-measurement-over-other-unit-attribute",
+            ),
+        ],
+    )
+    def test_the_reading_is_in_celsius(
+        self, mock_bt_instance, system_unit, attributes, value, expected
+    ):
+        """Each reading lands on the same Celsius value whatever unit carries it."""
+        from custom_components.better_thermostat.utils.watcher import (
+            room_sensor_reading,
+        )
+
+        mock_bt_instance.hass.config.units.temperature_unit = system_unit
+        state = State("sensor.room_temp", value, attributes)
+
+        assert room_sensor_reading(mock_bt_instance, state) == pytest.approx(expected)
+
+    def test_a_unitless_fahrenheit_reading_is_not_taken_for_celsius(
+        self, mock_bt_instance
+    ):
+        """50 °F is 10 °C, not the 50 °C the plausibility range would let pass."""
+        from custom_components.better_thermostat.utils.watcher import (
+            room_sensor_reading,
+        )
+
+        mock_bt_instance.hass.config.units.temperature_unit = "°F"
+        state = State("sensor.room_temp", "50")
+
+        assert room_sensor_reading(mock_bt_instance, state) == pytest.approx(10.0)

@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import importlib
 import logging
 import math
-from typing import Any
+from types import ModuleType
 
 import numpy as np
 
@@ -32,7 +32,7 @@ from .plant import PlantModelRC2
 _LOGGER = logging.getLogger(__name__)
 
 
-def _try_import_daqp() -> Any | None:
+def _try_import_daqp() -> ModuleType | None:
     """Return the optional DAQP module, or ``None`` when it is unavailable.
 
     ``daqp`` is an optional dependency — it is not a manifest requirement
@@ -50,6 +50,11 @@ def _try_import_daqp() -> Any | None:
 
 _daqp = _try_import_daqp()
 DAQP_AVAILABLE = _daqp is not None
+
+# Solver notes already written to the log. Which solver plans is a property
+# of the installation, the same for every optimiser in the process, so each
+# note is written once per process rather than once per controller.
+_logged_solver_notes: set[str] = set()
 
 
 # Interior-point budget and tolerances on the scaled problem. The method
@@ -105,6 +110,50 @@ def _newton_direction(
     return dx, d_slack, d_dual
 
 
+def _solve_on_active(
+    hessian: FloatArray, gradient: FloatArray, normals: FloatArray, targets: FloatArray
+) -> tuple[FloatArray, FloatArray] | None:
+    """Return the minimiser on ``normals·x = targets`` and its multipliers.
+
+    The plan is split along a QR factorisation of ``normalsᵀ``: the part in
+    the span of the normals follows from the targets alone, the rest from
+    the objective restricted to the null space. Solving the plan and the
+    multipliers as one system would tie the plan's round-off to the
+    multipliers, which reach 1e11 when the gradient dwarfs the Hessian, and
+    leave a vertex plan 1e-5 inside its constraints. Linearly dependent
+    normals, or a Hessian singular on the null space, return ``None``.
+    """
+    size = hessian.shape[0]
+    count = normals.shape[0]
+    if count == 0:
+        try:
+            return np.linalg.solve(hessian, -gradient), np.zeros(0)
+        except np.linalg.LinAlgError:
+            return None
+    if count > size:
+        return None
+    basis, triangle = np.linalg.qr(normals.T, mode="complete")
+    diagonal = np.abs(np.diag(triangle[:count]))
+    if float(np.min(diagonal)) <= size * np.finfo(float).eps * float(np.max(diagonal)):
+        return None
+    range_basis = basis[:, :count]
+    null_basis = basis[:, count:]
+    upper = triangle[:count]
+    particular = range_basis @ np.linalg.solve(upper.T, targets)
+    exact = particular
+    if count < size:
+        reduced = null_basis.T @ hessian @ null_basis
+        try:
+            free = np.linalg.solve(
+                reduced, -null_basis.T @ (gradient + hessian @ particular)
+            )
+        except np.linalg.LinAlgError:
+            return None
+        exact = particular + null_basis @ free
+    multipliers = np.linalg.solve(upper, -range_basis.T @ (gradient + hessian @ exact))
+    return exact, multipliers
+
+
 def _polish(
     hessian: FloatArray,
     gradient: FloatArray,
@@ -122,18 +171,13 @@ def _polish(
     and every multiplier is non-negative, which makes it the optimum;
     otherwise ``None``.
     """
-    size = hessian.shape[0]
     active = [int(i) for i in np.flatnonzero(dual > slack)]
     for _ in range(2 * rows.shape[0]):
         count = len(active)
-        normals = rows[active]
-        kkt = np.block([[hessian, normals.T], [normals, np.zeros((count, count))]])
-        try:
-            solution = np.linalg.solve(kkt, np.concatenate([-gradient, limits[active]]))
-        except np.linalg.LinAlgError:
+        solved = _solve_on_active(hessian, gradient, rows[active], limits[active])
+        if solved is None:
             return None
-        exact = solution[:size]
-        multipliers = solution[size:]
+        exact, multipliers = solved
         excess = rows @ exact - limits
         worst = int(np.argmax(excess))
         if excess[worst] > _FEASIBILITY_TOL:
@@ -225,7 +269,8 @@ class QpOptimiser:
         self._daqp_failure_reported = False
         self._flat_fallback_reported = False
         self._non_finite_reported = False
-        if not DAQP_AVAILABLE:
+        if not DAQP_AVAILABLE and "numpy" not in _logged_solver_notes:
+            _logged_solver_notes.add("numpy")
             _LOGGER.info(
                 "MPC v2 plans with its NumPy solver; the daqp package is not "
                 "installed on this system"
@@ -235,25 +280,45 @@ class QpOptimiser:
         """Clear the accumulated integral tracking error."""
         self.e_integral_K_min = 0.0
 
+    def upper_bound(self, u_max: float) -> float:
+        """Return the highest valve fraction this cycle may command.
+
+        ``u_max`` is a further limit for the cycle, such as the maximum
+        opening the user set for the valve; the configured ``u_max`` still
+        applies. The bound never drops below ``u_min``.
+        """
+        upper = min(self.params.u_max, u_max)
+        return max(self.params.u_min, upper)
+
     def update_integral(
-        self, T_room: float, T_sp: float, u_applied: float, dt_s: float
+        self,
+        T_room: float,
+        T_sp: float,
+        u_applied: float,
+        dt_s: float,
+        u_max: float = 1.0,
     ) -> None:
         """Accumulate the tracking error with anti-windup and clipping.
 
         Skips accumulation when the applied input is saturated and the error
         sign would only grow the integral further, or when the error lies
-        outside ``integral_error_band``. The running total is clipped to
-        ``±integral_clip_K_min``.
+        outside ``integral_error_band``. The valve counts as saturated at the
+        upper rail when it sits at :meth:`upper_bound` for ``u_max``, so a
+        valve held at the user's maximum opening winds the integral up no
+        more than a fully open one. The interval counts at most one re-plan
+        step: time without a plan is not tracking error. The running total
+        is clipped to ``±integral_clip_K_min``.
         """
         err = T_room - T_sp
         if abs(err) > self.params.integral_error_band:
             return
         band = self.params.saturation_band
-        at_upper = u_applied >= self.params.u_max - band
+        at_upper = u_applied >= self.upper_bound(u_max) - band
         at_lower = u_applied <= self.params.u_min + band
         if (at_upper and err < 0) or (at_lower and err > 0):
             return
-        self.e_integral_K_min += (dt_s / 60.0) * err
+        interval_s = min(max(0.0, dt_s), self.params.step_s)
+        self.e_integral_K_min += (interval_s / 60.0) * err
         clip = self.params.integral_clip_K_min
         self.e_integral_K_min = max(-clip, min(clip, self.e_integral_K_min))
 
@@ -261,9 +326,11 @@ class QpOptimiser:
         self,
         x_pred: FloatArray,
         T_sp: float,
-        T_outdoor_C: float,
+        T_outdoor: float,
         u_last: float,
         D_hat_K_per_min: float = 0.0,
+        u_max: float = 1.0,
+        move_suppression_factor: float = 1.0,
     ) -> float:
         """Solve the horizon QP and return the first valve command ``u_0``.
 
@@ -271,7 +338,19 @@ class QpOptimiser:
         assembles the Hessian and gradient. DAQP solves the small dense QP when
         available; otherwise a NumPy interior-point solver finds the same
         optimum under the same box bounds and rate limits.
+
+        The plan stays below :meth:`upper_bound` for ``u_max``. A last command
+        above that bound, left from before the bound was lowered, anchors the
+        rate limit at the bound: the limit is a hard one, and the first step
+        down to it is not rate limited.
+
+        ``move_suppression_factor`` scales the weight against valve moves
+        (``w_smooth``) for this plan.
         """
+        u_min = self.params.u_min
+        u_max = self.upper_bound(u_max)
+        if math.isfinite(u_last):
+            u_last = max(u_min, min(u_max, u_last))
         n = self.plant.state_dim
         N = self.N
 
@@ -280,14 +359,17 @@ class QpOptimiser:
         # A setpoint the radiator cannot hold puts the steady radiator above
         # what a fully open valve reaches, where the linearised valve gain
         # vanishes or turns negative; the hottest reachable radiator bounds it.
-        # That bound keeps the gain positive only for a setpoint below the
-        # supply water, which a room setpoint always is.
+        # That bound lies below the supply water only for a setpoint below it,
+        # so the supply water caps the operating point as well: at a setpoint
+        # above a low supply water the valve gain vanishes instead of turning
+        # negative, and the plan follows ``u_ss`` instead of closing to heat.
         radiator_operating_point = min(
-            self.plant.steady_radiator_temp(T_sp, T_outdoor_C, D_hat_K_per_min),
-            self.plant.hottest_radiator_temp(T_sp),
+            self.plant.steady_radiator_temperature(T_sp, T_outdoor, D_hat_K_per_min),
+            self.plant.hottest_radiator_temperature(T_sp),
+            self.plant.params.T_water,
         )
-        u_ss = self._steady_input_for(T_sp, T_outdoor_C, D_hat_K_per_min)
-        A, B, d_vec = self.plant.linearised_AB(T_outdoor_C, radiator_operating_point)
+        u_ss = self._steady_input_for(T_sp, T_outdoor, D_hat_K_per_min)
+        A, B, d_vec = self.plant.linearised_system(T_outdoor, radiator_operating_point)
         d_vec = d_vec + np.array([D_hat_K_per_min * self.plant.dt_min, 0.0])
 
         A_pow = [np.eye(n)]
@@ -323,7 +405,7 @@ class QpOptimiser:
 
         w_c = self.params.w_comfort
         w_e = self.params.w_effort
-        w_du = self.params.w_smooth
+        w_du = self.params.w_smooth * move_suppression_factor
         w_i = self.params.w_integral
 
         dt_min = self.plant.dt_min
@@ -354,8 +436,6 @@ class QpOptimiser:
         )
 
         delta_u_max = self.params.delta_u_max
-        u_min = self.params.u_min
-        u_max = self.params.u_max
         A_box = np.eye(N)
         A_con_dense = np.vstack([A_box, D_diff])
         lb = np.concatenate([np.full(N, u_min), -delta_u_max + b_du])
@@ -556,7 +636,7 @@ class QpOptimiser:
         return x if exact is None else exact
 
     def _steady_input_for(
-        self, T_sp: float, T_outdoor_C: float, D_hat_K_per_min: float = 0.0
+        self, T_sp: float, T_outdoor: float, D_hat_K_per_min: float = 0.0
     ) -> float:
-        u_ss = self.plant.steady_input(T_sp, T_outdoor_C, D_hat_K_per_min)
+        u_ss = self.plant.steady_input(T_sp, T_outdoor, D_hat_K_per_min)
         return max(0.0, min(1.0, u_ss))

@@ -12,7 +12,6 @@
 
 - Minimum required Home Assistant version: `2026.9.0`
   (_continuously tested against Home Assistant_ [![Tested Home Assistant version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FKartoffelToby%2Fbetter_thermostat%2Fdevelop%2Fpyproject.toml&search=homeassistant%3E%3D%28%5B0-9.%5D%2B%29&replace=%241&label=&color=009688)](pyproject.toml))
-- Minimum required Python version: `3.14.2` (inherited from Home Assistant; the integration uses syntax that older interpreters reject)
 
 ### Companion UI
 
@@ -20,7 +19,7 @@ We've created a companion UI element which can display more information than the
 
 - If you have a question or need help please create a new [discussion](https://github.com/KartoffelToby/better_thermostat/discussions) or check if your question is already answered
 - If you have a suggestion, found a bug, or want to add a new device or function create a new [issue](https://github.com/KartoffelToby/better_thermostat/issues)
-- If you want to contribute to this project create a new [pull request](https://github.com/KartoffelToby/better_thermostat/pulls)
+- If you want to contribute to this project create a new [pull request](https://github.com/KartoffelToby/better_thermostat/pulls); the architecture is documented under [Internals](https://better-thermostat.org/internals/architecture/)
 
 ### Features
 
@@ -37,6 +36,7 @@ This integration brings some smartness to your connected radiator thermostats se
 - Dynamic preset temperature learning & persistence (baseline/"no preset" remembers the last temperature you set and survives restarts)
 - **Advanced Control Algorithms**: Choose between AI Time Based, MPC, MPC v2, PID, TPI, Aggressive, External Sensor Offset Only or No Calibration.
 - **Selectable Presets**: Configure which preset modes are available for your thermostat during setup.
+- **Fail-soft and observable**: keeps controlling while a usable temperature source remains (a dead room sensor falls back to the TRV-internal mean). When none is left it drops to HOLD, keeping the mode, holding the device on the raw user target, pausing calibration and enforcing the frost floor. Both steps are surfaced as repair issues. Radio writes are spaced out to protect TRV batteries, and the diagnostics download ships a flight recorder for bug reports.
 
 ### Advanced Control Algorithms
 
@@ -71,7 +71,7 @@ Preset temperatures are now fully configurable via dedicated `number` entities.
 How it works:
 
 1. During setup or configuration, you can select which **Presets** you want to enable for this thermostat.
-2. For each enabled preset mode (e.g. Eco, Comfort, Sleep), a corresponding `number` entity is created (e.g., `number.better_thermostat_preset_eco`).
+2. For each enabled preset mode (e.g. Eco, Comfort, Sleep), a corresponding `number` entity is created (e.g., `number.<device>_eco`, where `<device>` is the name of your Better Thermostat device).
 3. These entities are located in the **Configuration** category of the device.
 4. You can adjust the temperature for each preset directly using these number sliders.
 5. The values are automatically persisted across Home Assistant restarts.
@@ -98,6 +98,7 @@ We support all thermostats which are compatible with Home Assistant as long as t
 - Zigbee2Mqtt
 - Deconz
 - Tado
+- Z-Wave JS
 - generic_thermostat
 
 ### How to setup

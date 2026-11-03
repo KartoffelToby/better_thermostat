@@ -17,6 +17,9 @@ from custom_components.better_thermostat.utils.thermal_learning import (
 
 _NOW = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
 _ALPHA = 0.1
+# The middle of a fresh tracker's observed target range (18-21 °C): it weights
+# a cycle by 1.0, so the heating power moves by the base alpha.
+_TARGET = 19.5
 
 
 def _ts(minutes: float) -> datetime:
@@ -34,23 +37,35 @@ def _loss_cycle(
     per minute while ``action`` holds. Returns the minute the cycle ended on.
     """
     minute = start
-    temp = 21.0
+    temperature = 21.0
     for action, minutes, rate in segments:
         for _ in range(int(minutes)):
-            tracker.update(temp, action, _ts(minute))
+            tracker.update(temperature, action, _ts(minute))
             minute += 1.0
-            temp -= rate
-        tracker.update(temp, action, _ts(minute))
-    tracker.update(temp, HVACAction.HEATING, _ts(minute + 1.0))
+            temperature -= rate
+        tracker.update(temperature, action, _ts(minute))
+    tracker.update(temperature, HVACAction.HEATING, _ts(minute + 1.0))
     return minute + 2.0
 
 
 def _heating_cycle(tracker: HeatingPowerTracker, start: float, rise: float) -> float:
     """Heat for 100 minutes by ``rise`` K, then let the room fall off."""
-    tracker.update(20.0, HVACAction.IDLE, _ts(start))
-    tracker.update(20.0, HVACAction.HEATING, _ts(start + 1.0))
-    tracker.update(20.0 + rise, HVACAction.IDLE, _ts(start + 101.0))
-    tracker.update(20.0 + rise - 0.1, HVACAction.IDLE, _ts(start + 102.0))
+    tracker.update(20.0, HVACAction.IDLE, _ts(start), heat_target_temperature=_TARGET)
+    tracker.update(
+        20.0, HVACAction.HEATING, _ts(start + 1.0), heat_target_temperature=_TARGET
+    )
+    tracker.update(
+        20.0 + rise,
+        HVACAction.IDLE,
+        _ts(start + 101.0),
+        heat_target_temperature=_TARGET,
+    )
+    tracker.update(
+        20.0 + rise - 0.1,
+        HVACAction.IDLE,
+        _ts(start + 102.0),
+        heat_target_temperature=_TARGET,
+    )
     return start + 103.0
 
 
@@ -76,7 +91,7 @@ class TestLearnedRatesConverge:
         # temperature above it give the smallest alpha the tracker uses.
         tracker.min_target, tracker.max_target = 18.0, 24.0
         before = tracker.heating_power
-        context = {"target_temp": 18.0, "outdoor_temp": 25.0}
+        context = {"heat_target_temperature": 18.0, "outdoor_temperature": 25.0}
         tracker.update(20.0, HVACAction.IDLE, _ts(0.0), **context)
         tracker.update(20.0, HVACAction.HEATING, _ts(1.0), **context)
         tracker.update(21.1, HVACAction.IDLE, _ts(101.0), **context)

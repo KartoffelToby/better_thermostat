@@ -1,60 +1,48 @@
 """Changing a thermostat's calibration algorithm leaves no dead entities behind.
 
 Every algorithm brings its own diagnostic sensors, and some bring numbers and
-switches. A change of the entry reloads it; the entities of the algorithm the
-thermostat no longer runs must leave the registry then, and the ones of the
-algorithm it runs now must be there and alive.
+switches. A change in the options reloads the entry; the entities of the
+algorithm the thermostat no longer runs must leave the registry then, and
+the ones of the algorithm it runs now must be there and alive.
 """
 
-import copy
+from dataclasses import replace
+from datetime import timedelta
 from unittest.mock import patch
 
-from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
+from homeassistant.config_entries import RELOAD_AFTER_UPDATE_DELAY
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er
-from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    setup_test_component_platform,
-)
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.better_thermostat import climate as climate_module
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 
 from .conftest import (
     DOMAIN,
-    SENSOR_ID,
-    TRV_ID,
-    FakeTrvEntity,
+    build_devices,
+    click_through_the_options,
     make_entry,
+    set_room_sensor,
     setup_entry,
     wait_for_startup,
 )
+from .device_profiles import GENERIC_HEAT_TRV, GROUP_OF_THREE, VALVE_TRV
 
 PID = CalibrationMode.PID_CALIBRATION.value
 MPC = CalibrationMode.MPC_CALIBRATION.value
 DEFAULT = CalibrationMode.DEFAULT.value
 
 _ALGORITHM_SENSOR_SUFFIXES = {
-    PID: {"pid_kp", "pid_ki", "pid_kd", "pid_output", "pid_error"},
+    PID: {"pid_output", "pid_error"},
     MPC: {"virtual_temp", "mpc_gain", "mpc_loss", "mpc_ka"},
     DEFAULT: set(),
 }
-
-
-def _entry_in_mode(mode: str) -> MockConfigEntry:
-    """Return the harness entry with every TRV on calibration ``mode``."""
-    entry = make_entry()
-    data = copy.deepcopy(dict(entry.data))
-    for trv in data["thermostat"]:
-        trv["advanced"]["calibration_mode"] = mode
-    return MockConfigEntry(
-        domain=DOMAIN, version=entry.version, data=data, title=entry.title
-    )
 
 
 def _sensor_suffixes(hass, entry) -> set[str]:
@@ -82,12 +70,8 @@ def _unavailable(hass, entry, domain: str) -> list[str]:
 
 
 async def _choose_algorithm(hass, entry, mode: str) -> None:
-    """Store ``mode`` on every TRV, reload, and wait for the thermostat."""
-    data = copy.deepcopy(dict(entry.data))
-    for trv in data["thermostat"]:
-        trv["advanced"]["calibration_mode"] = mode
-    hass.config_entries.async_update_entry(entry, data=data)
-    assert await hass.config_entries.async_reload(entry.entry_id)
+    """Pick ``mode`` in the options flow and wait for the reloaded thermostat."""
+    await click_through_the_options(hass, entry, calibration_mode=mode)
     await hass.async_block_till_done()
     await wait_for_startup(hass, entry)
     await hass.async_block_till_done()
@@ -97,10 +81,13 @@ async def _choose_algorithm(hass, entry, mode: str) -> None:
     ("first", "then"),
     [(PID, MPC), (MPC, PID), (PID, DEFAULT), (MPC, DEFAULT), (DEFAULT, PID)],
 )
-async def test_the_sensors_follow_the_chosen_algorithm(hass, fake_trv, first, then):
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+async def test_the_sensors_follow_the_chosen_algorithm(hass, first, then):
     """After an algorithm change the registry holds the new algorithm's sensors only."""
-    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
-    entry = _entry_in_mode(first)
+    set_room_sensor(hass, 19.0)
+    profile = replace(GENERIC_HEAT_TRV, calibration_mode=first)
+    await build_devices(hass, profile)
+    entry = make_entry(profile)
     await setup_entry(hass, entry)
     await wait_for_startup(hass, entry)
     assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[first]
@@ -109,6 +96,55 @@ async def test_the_sensors_follow_the_chosen_algorithm(hass, fake_trv, first, th
 
     assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[then]
     assert _unavailable(hass, entry, "sensor") == []
+
+
+async def test_a_sensor_the_user_enabled_stays_enabled_across_an_algorithm_change(hass):
+    """Switching away from an algorithm and back keeps the user's choice.
+
+    An algorithm's sensors start disabled and leave the registry while no TRV
+    uses the algorithm. The one the user turned on comes back on, the one
+    they left alone comes back off.
+    """
+    set_room_sensor(hass, 19.0)
+    profile = replace(GENERIC_HEAT_TRV, calibration_mode=PID)
+    await build_devices(hass, profile)
+    entry = make_entry(profile)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    registry = er.async_get(hass)
+    output = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_pid_output"
+    )
+    error = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_pid_error"
+    )
+    assert output is not None
+    assert error is not None
+    assert hass.states.get(output) is None
+
+    # Home Assistant reloads the entry a while after an entity is enabled.
+    registry.async_update_entity(output, disabled_by=None)
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=RELOAD_AFTER_UPDATE_DELAY + 1)
+    )
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+    assert hass.states.get(output) is not None
+
+    await _choose_algorithm(hass, entry, MPC)
+    assert registry.async_get(output) is None
+
+    await _choose_algorithm(hass, entry, PID)
+
+    output_entry = registry.async_get(output)
+    assert output_entry is not None
+    assert output_entry.disabled_by is None
+    assert hass.states.get(output) is not None
+    error_entry = registry.async_get(error)
+    assert error_entry is not None
+    assert error_entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert hass.states.get(error) is None
 
 
 def _algorithm_controls(hass, entry) -> set[str]:
@@ -141,11 +177,13 @@ _PID_CONTROLS = {
     ],
 )
 async def test_the_numbers_and_switches_follow_the_chosen_algorithm(
-    hass, fake_trv, first, then, controls_before, controls_after
+    hass, first, then, controls_before, controls_after
 ):
     """After an algorithm change only the new algorithm's controls are registered."""
-    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
-    entry = _entry_in_mode(first)
+    set_room_sensor(hass, 19.0)
+    profile = replace(GENERIC_HEAT_TRV, calibration_mode=first)
+    await build_devices(hass, profile)
+    entry = make_entry(profile)
     await setup_entry(hass, entry)
     await wait_for_startup(hass, entry)
     assert _algorithm_controls(hass, entry) == controls_before
@@ -161,31 +199,23 @@ async def test_the_numbers_and_switches_follow_the_chosen_algorithm(
 @pytest.mark.parametrize(
     ("first", "then"),
     [
-        (CalibrationType.DIRECT_VALVE_BASED, CalibrationType.TARGET_TEMP_BASED),
-        (CalibrationType.TARGET_TEMP_BASED, CalibrationType.DIRECT_VALVE_BASED),
+        (CalibrationOutput.DIRECT_VALVE_BASED, CalibrationOutput.TARGET_TEMP_BASED),
+        (CalibrationOutput.TARGET_TEMP_BASED, CalibrationOutput.DIRECT_VALVE_BASED),
     ],
 )
-async def test_the_valve_cap_follows_the_calibration_type(hass, fake_trv, first, then):
+async def test_the_valve_cap_follows_the_calibration_type(hass, first, then):
     """The maximum valve opening number exists exactly while the valve is driven."""
-    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
-    entry = make_entry()
-    data = copy.deepcopy(dict(entry.data))
-    for trv in data["thermostat"]:
-        trv["advanced"]["calibration"] = first.value
-    entry = MockConfigEntry(
-        domain=DOMAIN, version=entry.version, data=data, title=entry.title
-    )
+    set_room_sensor(hass, 19.0)
+    profile = replace(VALVE_TRV, calibration=first.value)
+    await build_devices(hass, profile)
+    entry = make_entry(profile)
     await setup_entry(hass, entry)
     await wait_for_startup(hass, entry)
     cap = {"number.bt_test_valve_max_opening"}
-    driven = CalibrationType.DIRECT_VALVE_BASED
+    driven = CalibrationOutput.DIRECT_VALVE_BASED
     assert _algorithm_controls(hass, entry) == (cap if first == driven else set())
 
-    data = copy.deepcopy(dict(entry.data))
-    for trv in data["thermostat"]:
-        trv["advanced"]["calibration"] = then.value
-    hass.config_entries.async_update_entry(entry, data=data)
-    assert await hass.config_entries.async_reload(entry.entry_id)
+    await click_through_the_options(hass, entry, calibration=then.value)
     await hass.async_block_till_done()
     await wait_for_startup(hass, entry)
     await hass.async_block_till_done()
@@ -194,13 +224,15 @@ async def test_the_valve_cap_follows_the_calibration_type(hass, fake_trv, first,
     assert _unavailable(hass, entry, "number") == []
 
 
-async def test_a_boot_removes_controls_left_by_an_earlier_algorithm(hass, fake_trv):
+async def test_a_boot_removes_controls_left_by_an_earlier_algorithm(hass):
     """Controls registered for an algorithm the entry no longer runs leave on setup."""
-    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
-    entry = _entry_in_mode(MPC)
+    set_room_sensor(hass, 19.0)
+    profile = replace(GENERIC_HEAT_TRV, calibration_mode=MPC)
+    await build_devices(hass, profile)
+    entry = make_entry(profile)
     entry.add_to_hass(hass)
     registry = er.async_get(hass)
-    trv = TRV_ID
+    trv = profile.entity_id
     stale = {
         ("number", f"{entry.entry_id}_{trv}_pid_kp"),
         ("number", f"{entry.entry_id}_{trv}_valve_max_opening"),
@@ -223,44 +255,75 @@ async def test_a_boot_removes_controls_left_by_an_earlier_algorithm(hass, fake_t
     assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[MPC]
 
 
-class _Head(FakeTrvEntity):
-    """A head with its own name and entity id."""
+async def test_a_boot_removes_the_gain_sensors_the_gain_numbers_replace(hass):
+    """The PID gains are numbers only; their former sensors leave on setup.
 
-    def __init__(self, name):
-        super().__init__()
-        self._attr_name = name
+    An installation that had the gain sensors keeps running PID, so they go
+    although the algorithm stays. The numbers with the same keys stay.
+    """
+    set_room_sensor(hass, 19.0)
+    profile = replace(GENERIC_HEAT_TRV, calibration_mode=PID)
+    await build_devices(hass, profile)
+    entry = make_entry(profile)
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    retired = {f"{entry.entry_id}_pid_{gain}" for gain in ("kp", "ki", "kd")}
+    for unique_id in retired:
+        registry.async_get_or_create("sensor", DOMAIN, unique_id, config_entry=entry)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    assert {
+        unique_id
+        for unique_id in retired
+        if registry.async_get_entity_id("sensor", DOMAIN, unique_id)
+    } == set()
+    assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[PID]
+    trv = profile.entity_id
+    for gain in ("kp", "ki", "kd"):
+        unique_id = f"{entry.entry_id}_{trv}_pid_{gain}"
+        assert registry.async_get_entity_id("number", DOMAIN, unique_id)
 
 
-async def test_a_setup_missing_a_trv_removes_none_of_its_entities(hass):
+async def test_a_boot_removes_the_retired_sun_intensity_sensor(hass):
+    """An installation that had the sun intensity sensor loses it on setup."""
+    set_room_sensor(hass, 19.0)
+    profile = replace(GENERIC_HEAT_TRV, calibration_mode=MPC)
+    await build_devices(hass, profile)
+    entry = make_entry(profile)
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    unique_id = f"{entry.entry_id}_solar_intensity"
+    registry.async_get_or_create("sensor", DOMAIN, unique_id, config_entry=entry)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    assert registry.async_get_entity_id("sensor", DOMAIN, unique_id) is None
+    assert registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_external_temp_ema"
+    )
+
+
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True)
+async def test_a_setup_missing_a_trv_removes_none_of_its_entities(hass, trv_group):
     """A thermostat that could not set up one of its TRVs keeps that TRV's entities.
 
     The registry entries of a TRV the thermostat failed to build are not
     stale; they come back once it is built.
     """
-    heads = [_Head("head a"), _Head("head b"), _Head("head c")]
-    setup_test_component_platform(hass, CLIMATE_DOMAIN, heads)
-    assert await async_setup_component(
-        hass, CLIMATE_DOMAIN, {CLIMATE_DOMAIN: {"platform": "test"}}
-    )
-    await hass.async_block_till_done()
-    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
-    template = _entry_in_mode(PID)
-    thermostats = [
-        {**copy.deepcopy(template.data["thermostat"][0]), "trv": head.entity_id}
-        for head in heads
-    ]
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        version=template.version,
-        data={**template.data, "thermostat": thermostats},
-        title=template.title,
-    )
+    set_room_sensor(hass, 18.0)
+    profiles = [replace(p, calibration_mode=PID) for p in trv_group.scenario.profiles]
+    entry = make_entry(replace(trv_group.scenario, profiles=tuple(profiles)))
     await setup_entry(hass, entry)
     await wait_for_startup(hass, entry)
     before = _registered(hass, entry)
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    broken = heads[1].entity_id
+    broken = trv_group.entities[1].entity_id
     load = climate_module.load_model_quirks
 
     async def _failing_for_one(bt, model, entity_id):

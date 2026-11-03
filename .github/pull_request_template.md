@@ -1,9 +1,4 @@
-<!--
-Before proposing a syntax fix: this project requires Python 3.14.2, and
-`except TypeError, ValueError:` without parentheses is PEP 758, valid since 3.14.
-Python 3.13 and older reject that line, so a parser that rejects it is out of date.
-See CONTRIBUTING.md, section "Python version".
--->
+<!-- Target `develop`. A fix for the maintenance line goes to `1.9` as a second pull request. Only release pull requests from `develop` or `1.9` target `master`. -->
 
 ## Motivation:
 

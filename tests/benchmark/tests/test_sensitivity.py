@@ -23,7 +23,7 @@ def test_plant_profiles_registry_complete():
 def test_plant_override_changes_dynamics():
     """Two plant overrides yield measurably different valve usage.
 
-    Uses ``integral_valve_pct_min`` as a proxy.
+    Uses ``integral_valve_percent_minutes`` as a proxy.
     """
     standard = run_scenario(
         IdealOracleAdapter(),
@@ -39,8 +39,8 @@ def test_plant_override_changes_dynamics():
     )
     # Large-slow has bigger heat losses → higher valve usage to maintain SP.
     assert (
-        large_slow.metrics.integral_valve_pct_min
-        > standard.metrics.integral_valve_pct_min
+        large_slow.metrics.integral_valve_percent_minutes
+        > standard.metrics.integral_valve_percent_minutes
     ), "Large-slow plant should require more valve time than standard"
 
 

@@ -17,11 +17,11 @@ def _ctx(
     return BenchmarkContext(
         t=t,
         dt=30.0,
-        target_temp_C=target,
-        current_temp_C=current,
-        raw_room_temp_C=current,
-        trv_temp_C=current,
-        outdoor_temp_C=5.0,
+        target_temperature=target,
+        room_temperature=current,
+        raw_room_temperature=current,
+        trv_temperature=current,
+        outdoor_temperature=5.0,
     )
 
 
@@ -82,7 +82,7 @@ def test_reset_clears_cycle_and_restores_initial_power():
     adapter.heating_power = 0.05  # mutate to verify reset path
     adapter.reset()
     assert adapter.heating_power == 0.02
-    assert adapter._cycle_start_temp is None
+    assert adapter._cycle_start_temperature is None
 
 
 def test_reset_seeds_from_prior():
@@ -133,7 +133,7 @@ def test_cycle_finalizes_when_room_cools_after_peak():
     # heating_power should have moved off its initial value.
     assert adapter.heating_power != 0.02
     # And cycle state has been cleared.
-    assert adapter._cycle_start_temp is None
+    assert adapter._cycle_start_temperature is None
 
 
 def test_cycle_finalize_clamps_to_max():

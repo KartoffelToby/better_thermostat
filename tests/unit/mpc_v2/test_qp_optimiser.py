@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import numpy as np
@@ -27,7 +28,7 @@ def test_cold_room_commands_heat() -> None:
     """A cold room below target commands a substantial heat call."""
     opt = _make_optimiser()
     x_pred = np.array([18.0, 18.0])
-    u = opt.solve(x_pred, T_sp=22.0, T_outdoor_C=5.0, u_last=0.0)
+    u = opt.solve(x_pred, T_sp=22.0, T_outdoor=5.0, u_last=0.0)
     assert u > 0.1, f"expected substantial heat call, got u={u}"
 
 
@@ -44,7 +45,7 @@ def test_cold_room_below_a_setpoint_beyond_the_water_still_commands_heat(
     plant_params = PlantParams(tau_room_min=720.0)
     opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
     target = target_temperature
-    assert opt.plant.steady_radiator_temp(target, -16.0) > plant_params.T_water_C
+    assert opt.plant.steady_radiator_temperature(target, -16.0) > plant_params.T_water
 
     u = opt.solve(np.array([target - 3.0, target - 3.0]), target, -16.0, u_last=0.0)
 
@@ -65,19 +66,36 @@ def test_warm_room_above_a_setpoint_beyond_the_water_backs_the_valve_off(
     plant_params = PlantParams(tau_room_min=720.0)
     opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
     target = target_temperature
-    hottest = opt.plant.hottest_radiator_temp(target)
-    assert opt.plant.steady_radiator_temp(target, -16.0) > plant_params.T_water_C
+    hottest = opt.plant.hottest_radiator_temperature(target)
+    assert opt.plant.steady_radiator_temperature(target, -16.0) > plant_params.T_water
 
     u = opt.solve(np.array([target + 2.0, hottest]), target, -16.0, u_last=0.5)
 
     assert u == pytest.approx(0.5 - QpParams().delta_u_max)
 
 
+def test_setpoint_above_the_supply_water_never_reads_opening_as_cooling() -> None:
+    """A setpoint above the supply water keeps the valve gain non-negative.
+
+    The hottest radiator a fully open valve holds at a 26 °C room is above
+    24 °C water, where the bilinear valve term turns negative. A room on the
+    setpoint must not be planned shut on that sign: the plan moves toward
+    the open valve the unreachable setpoint asks for.
+    """
+    plant_params = PlantParams(coupling_rad_room=3.0, T_water=24.0)
+    opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
+    assert opt.plant.hottest_radiator_temperature(26.0) > plant_params.T_water
+
+    u = opt.solve(np.array([26.0, 26.0]), 26.0, 5.0, u_last=0.5)
+
+    assert u >= 0.5
+
+
 def test_warm_room_above_target_commands_zero() -> None:
     """A room above target commands little to no heat."""
     opt = _make_optimiser()
     x_pred = np.array([24.0, 35.0])
-    u = opt.solve(x_pred, T_sp=22.0, T_outdoor_C=5.0, u_last=0.5)
+    u = opt.solve(x_pred, T_sp=22.0, T_outdoor=5.0, u_last=0.5)
     assert u < 0.2
 
 
@@ -85,16 +103,88 @@ def test_delta_u_constraint_clamps_first_step() -> None:
     """The delta-u constraint clamps how far the first command can move."""
     opt = _make_optimiser(delta_u_max=0.05)
     x_pred = np.array([15.0, 15.0])
-    u = opt.solve(x_pred, T_sp=22.0, T_outdoor_C=-10.0, u_last=0.0)
+    u = opt.solve(x_pred, T_sp=22.0, T_outdoor=-10.0, u_last=0.0)
     assert 0.0 <= u <= 0.05 + 1e-6
 
 
-def test_box_constraint_clamps_to_u_max() -> None:
-    """The box constraint keeps the command at or below u_max."""
-    opt = _make_optimiser()
-    x_pred = np.array([10.0, 10.0])
-    u = opt.solve(x_pred, T_sp=25.0, T_outdoor_C=-20.0, u_last=1.0)
-    assert u <= 1.0 + 1e-6
+@pytest.mark.parametrize("factor", [0.5, 4.0, 25.0])
+def test_move_suppression_factor_scales_the_smoothing_weight(factor: float) -> None:
+    """A factor on the plan is the same plan as a weight scaled by it."""
+    plant = PlantModelRC2(PlantParams(), dt_s=300.0)
+    x_pred = np.array([20.4, 30.0])
+    scaled = QpOptimiser(plant, QpParams()).solve(
+        x_pred, 21.0, 5.0, u_last=0.2, move_suppression_factor=factor
+    )
+    weighted = QpOptimiser(
+        plant, QpParams(w_smooth=QpParams().w_smooth * factor)
+    ).solve(x_pred, 21.0, 5.0, u_last=0.2)
+
+    assert scaled == pytest.approx(weighted)
+
+
+def test_a_larger_move_suppression_factor_moves_the_valve_less() -> None:
+    """The same room error asks for a smaller first step under a larger factor."""
+    plant = PlantModelRC2(PlantParams(), dt_s=300.0)
+    x_pred = np.array([20.4, 30.0])
+    steps = [
+        QpOptimiser(plant, QpParams()).solve(
+            x_pred, 21.0, 5.0, u_last=0.2, move_suppression_factor=factor
+        )
+        - 0.2
+        for factor in (1.0, 25.0, 100.0)
+    ]
+
+    assert steps[0] > steps[1] > steps[2] > 0.0
+
+
+@pytest.mark.parametrize("solver", ["daqp", "portable"])
+def test_box_constraint_bounds_the_whole_horizon(monkeypatch, solver) -> None:
+    """Every planned step stays inside the valve box, and a cold room reaches it.
+
+    The first command is clamped once more on its way out, so only the
+    planned trajectory shows whether the optimiser itself honours the box.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    plans: list[np.ndarray] = []
+    if solver == "daqp":
+        if not qp_optimiser.DAQP_AVAILABLE or qp_optimiser._daqp is None:
+            pytest.skip("the daqp solver is not installed")
+        real_solve = qp_optimiser._daqp.solve
+
+        def _recording_solve(*args):
+            result = real_solve(*args)
+            plans.append(np.asarray(result[0], dtype=float))
+            return result
+
+        monkeypatch.setattr(
+            qp_optimiser, "_daqp", SimpleNamespace(solve=_recording_solve)
+        )
+    else:
+        monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+        monkeypatch.setattr(qp_optimiser, "_daqp", None)
+        real_portable = qp_optimiser.QpOptimiser._solve_portable
+
+        def _recording_portable_plan(self, *args):
+            result = real_portable(self, *args)
+            plans.append(np.asarray(result, dtype=float))
+            return result
+
+        monkeypatch.setattr(
+            qp_optimiser.QpOptimiser, "_solve_portable", _recording_portable_plan
+        )
+
+    plant = PlantModelRC2(PlantParams(), dt_s=300.0)
+    opt = QpOptimiser(plant, QpParams(delta_u_max=1.0, u_max=0.6))
+    opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=5.0, u_last=0.6)
+
+    assert len(plans) == 1
+    plan = plans[0]
+    assert plan.max() <= 0.6 + 1e-6, plan
+    assert plan.min() >= -1e-6, plan
+    assert plan[0] == pytest.approx(0.6, abs=1e-6), plan
 
 
 def test_anti_windup_skips_saturated_integration() -> None:
@@ -115,6 +205,65 @@ def test_anti_windup_skips_saturated_integration() -> None:
     opt.reset_integral()
     opt.update_integral(T_room=22.4, T_sp=22.0, u_applied=0.0, dt_s=300.0)
     assert opt.e_integral_K_min == 0.0
+
+
+def test_a_valve_held_at_the_user_maximum_does_not_wind_the_integral_up() -> None:
+    """The user's maximum opening is the upper rail for the anti-windup.
+
+    A valve pinned at a 44 % cap cannot add heat any more than a fully open
+    one can; integrating the remaining shortfall would only leave an overshoot
+    once the cap stops binding.
+    """
+    opt = _make_optimiser()
+    opt.update_integral(T_room=21.6, T_sp=22.0, u_applied=0.44, dt_s=300.0, u_max=0.44)
+    assert opt.e_integral_K_min == 0.0
+
+    # Below the cap the valve still has room to open, so the error counts.
+    opt.update_integral(T_room=21.6, T_sp=22.0, u_applied=0.30, dt_s=300.0, u_max=0.44)
+    assert opt.e_integral_K_min == pytest.approx(-2.0)
+
+
+def test_without_a_cycle_limit_the_valve_may_open_fully() -> None:
+    """With no cap for the cycle the rail is the fully open valve.
+
+    A valve just short of fully open still has room to add heat, so its error
+    counts, and a cold room gets the fully open valve.
+    """
+    opt = _make_optimiser()
+    opt.update_integral(T_room=21.6, T_sp=22.0, u_applied=0.95, dt_s=300.0)
+    assert opt.e_integral_K_min == pytest.approx(-2.0)
+
+    u = opt.solve(np.array([16.0, 16.0]), T_sp=22.0, T_outdoor=5.0, u_last=1.0)
+    assert u == pytest.approx(1.0, abs=1e-6)
+
+
+def test_the_plan_stays_below_the_cycle_limit() -> None:
+    """A cold room asks for more than the cap allows; the plan stops at it."""
+    opt = _make_optimiser()
+
+    u = opt.solve(
+        np.array([18.0, 18.0]), T_sp=22.0, T_outdoor=5.0, u_last=0.3, u_max=0.4
+    )
+
+    assert u == pytest.approx(0.4, abs=1e-6)
+
+
+def test_a_lowered_limit_takes_effect_at_once_without_a_solver_failure(caplog) -> None:
+    """A cap below the last command bounds the next one without a rate limit.
+
+    With the rate limit anchored at the old opening, no command at or below the
+    new cap would be reachable within one step and the solver would report the
+    problem infeasible.
+    """
+    opt = _make_optimiser(delta_u_max=0.2)
+    caplog.set_level("DEBUG")
+
+    u = opt.solve(
+        np.array([21.0, 40.0]), T_sp=22.0, T_outdoor=5.0, u_last=0.9, u_max=0.3
+    )
+
+    assert 0.0 <= u <= 0.3 + 1e-9
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 @pytest.mark.parametrize(
@@ -157,7 +306,7 @@ def test_numpy_fallback_obeys_constraints(monkeypatch) -> None:
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
     monkeypatch.setattr(qp_optimiser, "_daqp", None)
     opt = _make_optimiser(delta_u_max=0.05)
-    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.0)
+    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.0)
     assert 0.0 <= u <= 0.05 + 1e-6
     assert u > 0.0
 
@@ -222,18 +371,23 @@ def test_portable_solver_commands_the_valve_daqp_commands(
     assert worst <= 1e-6, f"{100 * worst:.6f} percentage points apart"
 
 
-def test_missing_daqp_is_logged_once_per_optimiser(monkeypatch, caplog) -> None:
-    """A controller built without daqp says in the log which solver plans."""
+def test_missing_daqp_is_logged_once_per_process(monkeypatch, caplog) -> None:
+    """Every controller plans with the same solver, so the log says so once.
+
+    A thermostat holds one optimiser per target bucket and rebuilds it on a
+    restore or a prior change; none of them repeats the note.
+    """
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
         qp_optimiser,
     )
 
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
     monkeypatch.setattr(qp_optimiser, "_daqp", None)
+    monkeypatch.setattr(qp_optimiser, "_logged_solver_notes", set())
     caplog.set_level("INFO", logger=qp_optimiser.__name__)
-    opt = _make_optimiser()
-    for _ in range(3):
-        opt.solve(np.array([19.0, 30.0]), T_sp=21.0, T_outdoor_C=0.0, u_last=0.3)
+    for _ in range(4):
+        opt = _make_optimiser()
+        opt.solve(np.array([19.0, 30.0]), T_sp=21.0, T_outdoor=0.0, u_last=0.3)
 
     notes = [r for r in caplog.records if "daqp" in r.getMessage()]
     assert len(notes) == 1
@@ -266,13 +420,13 @@ def test_a_failing_daqp_solve_is_logged_once_and_the_plan_still_comes(
     caplog.set_level("DEBUG", logger=qp_optimiser.__name__)
     opt = _make_optimiser()
     commands = [
-        opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3)
+        opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.3)
         for _ in range(3)
     ]
 
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
     portable = _make_optimiser().solve(
-        np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3
+        np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.3
     )
 
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
@@ -289,9 +443,7 @@ def test_portable_solver_holds_the_valve_on_a_non_finite_objective(monkeypatch) 
 
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
     opt = _make_optimiser(delta_u_max=0.45)
-    u = opt.solve(
-        np.array([float("nan"), 30.0]), T_sp=21.0, T_outdoor_C=0.0, u_last=0.4
-    )
+    u = opt.solve(np.array([float("nan"), 30.0]), T_sp=21.0, T_outdoor=0.0, u_last=0.4)
     assert u == pytest.approx(0.4)
 
 
@@ -344,7 +496,7 @@ def test_portable_solver_plans_feasibly_and_like_daqp_for_any_plant_and_weights(
                 tau_rad_min=float(rng.uniform(2.0, 60.0)),
                 gain_heater=float(rng.uniform(0.2, 8.0)),
                 coupling_rad_room=float(rng.uniform(0.2, 3.0)),
-                T_water_C=float(rng.uniform(35.0, 80.0)),
+                T_water=float(rng.uniform(35.0, 80.0)),
             ),
             dt_s=300.0,
         )
@@ -435,7 +587,7 @@ def test_portable_solver_plans_flat_and_says_so_when_it_does_not_converge(
 
     monkeypatch.setattr(qp_optimiser.QpOptimiser, "_solve_portable", _recording)
     opt = _make_optimiser(delta_u_max=0.2)
-    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3)
+    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.3)
 
     (plan,) = plans
     assert np.all(plan == plan[0])
@@ -500,9 +652,9 @@ def test_portable_solver_is_exact_on_arbitrary_convex_plans(seed: int) -> None:
         plan = opt._solve_portable(hessian, gradient, bounds)
 
         rise = np.eye(n) - np.eye(n, k=-1)
-        offset = np.zeros(n)
-        offset[0] = bounds.u_last
-        steps = rise @ plan - offset
+        previous_input = np.zeros(n)
+        previous_input[0] = bounds.u_last
+        steps = rise @ plan - previous_input
         worst_violation = max(
             worst_violation,
             float(np.max(plan - 1.0)),
@@ -513,11 +665,11 @@ def test_portable_solver_is_exact_on_arbitrary_convex_plans(seed: int) -> None:
             hessian,
             gradient,
             np.vstack([np.eye(n), rise]),
-            np.concatenate([np.ones(n), bounds.delta_u_max + offset]),
-            np.concatenate([np.zeros(n), -bounds.delta_u_max + offset]),
+            np.concatenate([np.ones(n), bounds.delta_u_max + previous_input]),
+            np.concatenate([np.zeros(n), -bounds.delta_u_max + previous_input]),
             np.zeros(2 * n, dtype=np.int32),
         )
-        reference_steps = rise @ reference - offset
+        reference_steps = rise @ reference - previous_input
         reference_violation = max(
             float(np.max(reference - 1.0)),
             float(np.max(-reference)),
@@ -549,6 +701,64 @@ def test_portable_solver_is_exact_on_arbitrary_convex_plans(seed: int) -> None:
     assert worst_gap <= 1.0
 
 
+# Each case is a plan objective whose gradient is about 1e11 times its
+# Hessian, so the optimum is a vertex of the limits held by multipliers of
+# that size: a rise at the rate limit, a climb to the top of the valve, and
+# a rise and fall at the rate limit.
+@pytest.mark.parametrize(
+    ("factor", "gradient", "u_last", "delta_u_max", "vertex"),
+    [
+        ([[2.3, -0.8], [0.1, 1.4]], [-1.5, -2.0], 0.0, 0.3, [0.3, 0.6]),
+        (
+            [
+                [-0.1, -0.4, 0.8, 0.2],
+                [-1.6, -1.2, 0.9, 0.7],
+                [-0.6, 0.0, 0.4, 0.5],
+                [0.9, 0.3, -0.1, -0.3],
+            ],
+            [1.1, -2.3, -0.1, 0.0],
+            0.0,
+            2.0,
+            [0.0, 1.0, 1.0, 1.0],
+        ),
+        (
+            [
+                [-0.3, 0.1, -0.3, 0.8],
+                [-0.3, -0.1, -0.7, -0.5],
+                [-1.3, 0.5, -1.1, -0.7],
+                [0.4, 0.4, -0.4, -2.0],
+            ],
+            [0.4, 0.3, -1.4, 0.8],
+            0.0,
+            0.05,
+            [0.0, 0.05, 0.1, 0.05],
+        ),
+    ],
+)
+def test_portable_solver_lands_on_a_vertex_held_by_huge_multipliers(
+    factor: list[list[float]],
+    gradient: list[float],
+    u_last: float,
+    delta_u_max: float,
+    vertex: list[float],
+) -> None:
+    """The plan sits on its limits however large the multipliers holding it."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.qp_optimiser import (
+        _SolverBounds,
+    )
+
+    root = 1e-4 * np.array(factor)
+    opt = _make_optimiser()
+    opt.N = len(gradient)
+    bounds = _SolverBounds(u_last=u_last, u_min=0.0, u_max=1.0, delta_u_max=delta_u_max)
+
+    plan = opt._solve_portable(
+        root @ root.T + 1e-10 * np.eye(opt.N), 1e4 * np.array(gradient), bounds
+    )
+
+    np.testing.assert_allclose(plan, vertex, rtol=0.0, atol=1e-12)
+
+
 def test_portable_solver_never_returns_an_infeasible_plan(monkeypatch, caplog) -> None:
     """A plan that breaks a limit is replaced by the best flat plan."""
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
@@ -564,7 +774,7 @@ def test_portable_solver_never_returns_an_infeasible_plan(monkeypatch, caplog) -
     caplog.set_level("DEBUG", logger=qp_optimiser.__name__)
     opt = _make_optimiser(delta_u_max=0.2)
 
-    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3)
+    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.3)
 
     assert u == pytest.approx(0.5)
     assert any("planning flat" in r.getMessage() for r in caplog.records)
@@ -591,7 +801,7 @@ def test_portable_solver_finishes_a_plan_whose_last_newton_matrix_breaks_down(
             tau_rad_min=8.027735022147063,
             gain_heater=0.05,
             coupling_rad_room=10.0,
-            T_water_C=25.0,
+            T_water=25.0,
         ),
         300.0,
     )
@@ -632,7 +842,7 @@ _NON_FINITE_STATES = {
     "room-nan": {"x_pred": np.array([float("nan"), 30.0])},
     "radiator-inf": {"x_pred": np.array([19.0, float("inf")])},
     "setpoint-nan": {"T_sp": float("nan")},
-    "outdoor-nan": {"T_outdoor_C": float("nan")},
+    "outdoor-nan": {"T_outdoor": float("nan")},
     "disturbance-inf": {"D_hat_K_per_min": float("inf")},
 }
 
@@ -655,7 +865,7 @@ def test_a_non_finite_plan_holds_the_last_command(
     arguments = {
         "x_pred": np.array([19.0, 30.0]),
         "T_sp": 21.0,
-        "T_outdoor_C": 0.0,
+        "T_outdoor": 0.0,
         "u_last": 0.4,
         "D_hat_K_per_min": 0.0,
     }
@@ -675,7 +885,7 @@ def test_a_repeated_flat_fallback_warns_once(monkeypatch, caplog) -> None:
     caplog.set_level("DEBUG", logger=qp_optimiser.__name__)
     opt = _make_optimiser(delta_u_max=0.2)
     for _ in range(3):
-        opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3)
+        opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.3)
 
     flat = [r for r in caplog.records if "planning flat" in r.getMessage()]
     assert [r.levelname for r in flat] == ["WARNING", "DEBUG", "DEBUG"]
@@ -698,7 +908,7 @@ def test_a_non_finite_objective_holds_the_command_and_warns_once(
     opt = _make_optimiser(delta_u_max=0.2)
     commands = [
         opt.solve(
-            np.array([float("nan"), 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3
+            np.array([float("nan"), 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.3
         )
         for _ in range(3)
     ]
@@ -706,3 +916,23 @@ def test_a_non_finite_objective_holds_the_command_and_warns_once(
     held = [r for r in caplog.records if "not finite" in r.getMessage()]
     assert commands == [pytest.approx(0.3)] * 3
     assert [r.levelname for r in held] == ["WARNING", "DEBUG", "DEBUG"]
+
+
+def test_a_non_finite_last_command_does_not_become_the_cycle_limit() -> None:
+    """A last command that is not a number closes the valve, capped or not."""
+    opt = _make_optimiser()
+
+    u = opt.solve(
+        np.array([18.0, 18.0]), T_sp=22.0, T_outdoor=5.0, u_last=float("nan"), u_max=0.4
+    )
+
+    assert u == 0.0
+
+
+def test_a_negative_rate_limit_returns_the_clamped_last_command() -> None:
+    """A rate limit below zero leaves no command; the last one holds."""
+    opt = _make_optimiser(delta_u_max=-0.1)
+
+    u = opt.solve(np.array([18.0, 18.0]), T_sp=22.0, T_outdoor=5.0, u_last=0.3)
+
+    assert u == pytest.approx(0.3)

@@ -1,6 +1,6 @@
 """What a quirk module may define, and what it must.
 
-Thirteen modules extend Better Thermostat for one device family each, and
+Sixteen modules extend Better Thermostat for one device family each, and
 the shell reaches them through a duck-typed dispatch: an attribute lookup
 on whichever module ``load_model_quirks`` imported. Nothing checks the
 result. A module that spells a name wrong either crashes the calibration
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+from collections.abc import Sequence
 import functools
 import importlib
 import inspect
@@ -36,7 +37,7 @@ import pytest
 
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
-from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn, trv_record
 
 QUIRKS_DIR = Path(default_quirk.__file__).parent
 PRODUCTION_ROOT = QUIRKS_DIR.parent
@@ -55,11 +56,14 @@ REQUIRED = (
 # Reached through hasattr/getattr, so a module may leave these out — and a
 # typo in one of them is invisible rather than loud.
 OPTIONAL = (
-    "fix_valve_calibration",
     "override_set_valve",
     "initial_tweak",
     "lowest_setpoint",
     "maybe_set_external_temperature",
+    "trv_state_unknown_as_available",
+    "local_calibration_shifts_setpoint",
+    "local_calibration_inverted",
+    "valve_readings",
 )
 SURFACE = REQUIRED + OPTIONAL
 
@@ -67,13 +71,16 @@ SURFACE = REQUIRED + OPTIONAL
 # function's own contract says it hands back.
 CALL_CONTRACT = {
     "fix_local_calibration": ((0.5,), float),
-    "fix_valve_calibration": ((50,), (int, float)),
     "fix_target_temperature_calibration": ((21.0,), float),
     "override_set_hvac_mode": (("heat",), bool),
     "override_set_temperature": ((21.0,), bool),
     "override_set_valve": ((50,), bool),
     "initial_tweak": ((), type(None)),
     "lowest_setpoint": ((4.0,), float),
+    "trv_state_unknown_as_available": ((), bool),
+    "local_calibration_shifts_setpoint": ((), bool),
+    "local_calibration_inverted": ((), bool),
+    "valve_readings": ((50,), Sequence),
 }
 
 
@@ -110,11 +117,12 @@ def _host():
     the promised shape, so a quirk that trips over one is tripping over
     the contract and not over the fixture.
     """
-    host = MagicMock()
+    host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
-    host.cur_temp = 19.5
-    host.bt_target_temp = 21.0
+    host.room_temperature = 19.5
+    host.heat_target_temperature = 21.0
+    host.in_maintenance = False
     host.hass = MagicMock()
     host.hass.services.async_call = AsyncMock()
     host.hass.states.get = lambda requested: State(
@@ -129,15 +137,15 @@ def _host():
             "local_temperature_calibration": 0.0,
         },
     )
-    trv = Trv(entity_id=ENTITY_ID)
+    trv = trv_record(entity_id=ENTITY_ID)
     trv.model = "generic"
     trv.local_temperature_calibration_entity = "number.trv_calibration"
     trv.valve_position_entity = "number.trv_valve"
     trv.valve_position_writable = True
-    trv.local_calibration_min = -10.0
-    trv.local_calibration_max = 10.0
+    trv.min_local_calibration = -10.0
+    trv.max_local_calibration = 10.0
     trv.last_hvac_mode = "heat"
-    trv.last_temperature = 20.0
+    trv.commanded_setpoint = 20.0
     host.real_trvs = {ENTITY_ID: trv}
     return host
 
@@ -273,7 +281,7 @@ def _scopes_inside(node):
             yield from _scopes_inside(child)
 
 
-def _names_bound_by(node):
+def _names_bound_by(node) -> list[str]:
     """Names a statement binds without an ``ast.Name`` store node.
 
     An import, an ``except ... as``, a ``match`` capture and a nested
@@ -353,7 +361,7 @@ def _position(node):
     return (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
 
 
-def _parameter_names(scope):
+def _parameter_names(scope) -> list[str]:
     """Every name a callable scope binds through its own parameters."""
     arguments = getattr(scope, "args", None)
     if not isinstance(arguments, ast.arguments):
@@ -581,7 +589,7 @@ class TestAQuirkOnlyReadsWhatTheHostPromises:
 
 
 class TestEveryImplementationSurvivesBeingCalled:
-    """Six of the thirteen modules have no test of their own."""
+    """Six of the sixteen modules have no test of their own."""
 
     @pytest.mark.parametrize(("model", "name"), CALLABLE_PAIRS, ids=CALLABLE_IDS)
     def test_it_returns_what_its_contract_declares(self, model, name):

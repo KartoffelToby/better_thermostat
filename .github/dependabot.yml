@@ -1,0 +1,52 @@
+# Dependabot version updates.
+# Options reference:
+# https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+#
+# Pull requests target `develop`; `master` carries releases only. Security
+# updates ignore `target-branch` and always open against the default branch,
+# so this file configures version updates only. The website is not listed:
+# its Astro and Starlight upgrades are major-version moves made by hand.
+
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "monthly"
+    # A release has a week to be pulled or fixed before it is proposed.
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: "uv"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "monthly"
+    # The floors in pyproject.toml follow Home Assistant and are raised by
+    # hand; Dependabot only moves the versions pinned in uv.lock.
+    versioning-strategy: "lockfile-only"
+    cooldown:
+      default-days: 7
+    groups:
+      # pytest-homeassistant-custom-component pins an exact Home Assistant
+      # release, so the two only move together.
+      home-assistant:
+        patterns:
+          - "homeassistant"
+          - "pytest-homeassistant-custom-component"
+      dev-dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "homeassistant"
+          - "pytest-homeassistant-custom-component"
+    commit-message:
+      prefix: "chore"

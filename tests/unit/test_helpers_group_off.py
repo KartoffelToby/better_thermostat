@@ -5,23 +5,33 @@ when every available member is off (or, for ``no_off_system_mode`` devices, at
 its minimum temperature). Single-TRV instances always agree.
 """
 
-import types
+from collections.abc import Mapping
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 import pytest
 
+from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.containers import BtConfig
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.helpers import (
     bound_to_celsius,
     group_all_members_off,
     setpoint_at_minimum,
 )
+from tests.factories import trv_record
 
 
-def _member(no_off=False, min_temp=5.0, target_temp_step=None):
-    """A minimal stand-in for a Trv exposing only what the helper reads."""
-    return types.SimpleNamespace(
+def _member(
+    no_off: bool = False,
+    min_temp: float | None = 5.0,
+    target_temp_step: float | None = None,
+) -> Trv:
+    """A Trv carrying what the helper reads; ``_fake_self`` sets its entity id."""
+    return trv_record(
+        entity_id="climate.member",
         advanced={"no_off_system_mode": no_off},
         min_temp=min_temp,
         target_temp_step=target_temp_step,
@@ -32,10 +42,21 @@ def _state(entity_id, state_str, temperature=19.0):
     return State(entity_id, state_str, attributes={"temperature": temperature})
 
 
-def _fake_self(members, states, system_unit=UnitOfTemperature.CELSIUS):
-    self_ = types.SimpleNamespace()
-    self_.device_name = "Test"
-    self_.real_trvs = members
+def _fake_self(
+    members: Mapping[str, Trv],
+    states: Mapping[str, State],
+    system_unit: UnitOfTemperature = UnitOfTemperature.CELSIUS,
+) -> BetterThermostat:
+    self_ = object.__new__(BetterThermostat)
+    self_.config = BtConfig(
+        sensor_entity_id="sensor.room_temperature", device_name="Test"
+    )
+    self_.devices_released = False
+    self_.released_trvs = set()
+    self_.real_trvs = {
+        entity_id: replace(member, entity_id=entity_id)
+        for entity_id, member in members.items()
+    }
     hass = MagicMock()
     hass.states.get.side_effect = states.get
     hass.config.units.temperature_unit = system_unit
@@ -43,10 +64,11 @@ def _fake_self(members, states, system_unit=UnitOfTemperature.CELSIUS):
     return self_
 
 
-def test_single_member_always_true():
+@pytest.mark.parametrize("mode", ["heat", "off", "auto", "unavailable"])
+def test_single_member_always_true(mode):
     """Single-TRV instances always "agree", regardless of that valve's mode."""
     self_ = _fake_self(
-        {"climate.a": _member()}, {"climate.a": _state("climate.a", "heat")}
+        {"climate.a": _member()}, {"climate.a": _state("climate.a", mode)}
     )
     assert group_all_members_off(self_) is True
 
@@ -110,7 +132,7 @@ def test_no_off_fahrenheit_above_min_false():
     assert group_all_members_off(self_) is False
 
 
-def test_no_off_target_temp_low_at_min_true():
+def test_no_off_target_temperature_low_at_min_true():
     """A member exposing only target_temp_low at min_temp counts as off."""
     members = {"climate.a": _member(no_off=True), "climate.b": _member(no_off=True)}
     states = {
@@ -120,7 +142,7 @@ def test_no_off_target_temp_low_at_min_true():
     assert group_all_members_off(_fake_self(members, states)) is True
 
 
-def test_no_off_null_temperature_falls_back_to_target_temp_low():
+def test_no_off_null_temperature_falls_back_to_target_temperature_low():
     """A device on a target range publishes ``temperature`` as None.
 
     Home Assistant emits both attributes for a device that supports a single
@@ -261,3 +283,49 @@ def test_a_missing_setpoint_or_minimum_is_not_at_the_minimum(setpoint, min_temp)
     assert (
         setpoint_at_minimum(setpoint, min_temp, step=None, whole_degrees=False) is False
     )
+
+
+@pytest.mark.parametrize(("setpoint", "at_minimum"), [(0.0, True), (0.5, False)])
+def test_a_negative_minimum_parks_on_the_grid_point_zero(setpoint, at_minimum):
+    """A minimum just below zero parks the device on 0.0, its first grid point."""
+    assert (
+        setpoint_at_minimum(setpoint, -0.3, step=0.5, whole_degrees=False) is at_minimum
+    )
+
+
+@pytest.mark.parametrize(
+    ("released", "expected"),
+    [
+        pytest.param(set(), False, id="none_released"),
+        pytest.param({"climate.b"}, True, id="heating_trv_released"),
+        pytest.param({"climate.a"}, False, id="off_trv_released"),
+    ],
+)
+def test_a_released_member_has_no_say(released, expected):
+    """A TRV released on its own neither keeps the room on nor counts as off.
+
+    Two of three heads are off and the third heats. Released, the heating
+    head is left out and the room is off; one of the off heads released
+    leaves the heating head to keep the room on.
+    """
+    members = {f"climate.{n}": _member() for n in ("a", "b", "c")}
+    states = {
+        "climate.a": _state("climate.a", "off"),
+        "climate.b": _state("climate.b", "heat"),
+        "climate.c": _state("climate.c", "off"),
+    }
+    self_ = _fake_self(members, states)
+    self_.released_trvs = released
+    assert group_all_members_off(self_) is expected
+
+
+def test_one_member_left_under_control_decides_alone():
+    """With every other head released, the remaining head is the group."""
+    members = {f"climate.{n}": _member() for n in ("a", "b")}
+    states = {
+        "climate.a": _state("climate.a", "heat"),
+        "climate.b": _state("climate.b", "heat"),
+    }
+    self_ = _fake_self(members, states)
+    self_.released_trvs = {"climate.a"}
+    assert group_all_members_off(self_) is True

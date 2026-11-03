@@ -17,19 +17,19 @@ from homeassistant.core import Context
 import pytest
 
 from .conftest import (
-    SENSOR_ID,
-    TRV_ID,
-    FakeTrvEntity,
+    BT_ENTITY,
+    WRITE_BUDGET,
+    SimulatedClimate,
+    build_devices,
     make_entry,
+    set_room_sensor,
     setup_entry,
     wait_for,
     wait_for_startup,
 )
+from .device_profiles import TRV_ID, ZWAVE_CAPPED_TRV
+from .write_hold import CONFIRM_TIMEOUT
 
-BT_ENTITY = "climate.bt_test"
-CONFIRM_TIMEOUT = (
-    "custom_components.better_thermostat.utils.controlling.WRITE_CONFIRM_TIMEOUT_S"
-)
 ROOM_TEMPERATURE = 21.5
 ROOM_TARGET = 20.5
 # The head reads far above the room, so the calibration asks it for a
@@ -39,23 +39,27 @@ HEAD_TEMPERATURE = 30.0
 # the head to have answered the write before it does.
 SHORT_CONFIRM_TIMEOUT_S = 3
 CEILING = 28.0
+assert ZWAVE_CAPPED_TRV.setpoint_ceiling == CEILING
 
 
-def _publish(head: FakeTrvEntity) -> None:
-    """Publish the head's state as a report of its own."""
-    head.async_set_context(Context())
-    head.async_write_ha_state()
+def _above_ceiling(call: float | dict[str, float]) -> bool:
+    """Return whether a recorded setpoint write went out above the ceiling."""
+    return isinstance(call, float) and call > CEILING
 
 
-async def _capped_head(hass, head: FakeTrvEntity):
-    """Return the entity once the watchdog gave up on a capped write."""
-    head.setpoint_ceiling = CEILING
+def _publish(device: SimulatedClimate) -> None:
+    """Publish the device's state as a report of its own."""
+    device.async_set_context(Context())
+    device.async_write_ha_state()
+
+
+async def _capped_head(hass):
+    """Return the entity and the head once the watchdog gave up on a capped write."""
+    (head,) = await build_devices(hass, ZWAVE_CAPPED_TRV)
     head._attr_current_temperature = HEAD_TEMPERATURE
     _publish(head)
-    hass.states.async_set(
-        SENSOR_ID, str(ROOM_TEMPERATURE), {"unit_of_measurement": "°C"}
-    )
-    entry = make_entry()
+    set_room_sensor(hass, ROOM_TEMPERATURE)
+    entry = make_entry(ZWAVE_CAPPED_TRV)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
     trv = bt.real_trvs[TRV_ID]
@@ -67,50 +71,51 @@ async def _capped_head(hass, head: FakeTrvEntity):
         blocking=True,
     )
     assert await wait_for(
-        hass, lambda: any(call > CEILING for call in head.set_temperature_calls)
+        hass, lambda: any(_above_ceiling(call) for call in head.set_temperature_calls)
     ), f"no write above the ceiling: {head.set_temperature_calls}"
     assert head.target_temperature == CEILING
     assert await wait_for(
-        hass, lambda: trv.target_temp_received and not bt.ignore_states
+        hass, lambda: trv.target_temperature_received and not bt.ignore_states
     )
-    assert bt.bt_target_temp == ROOM_TARGET
-    return bt
+    assert bt.heat_target_temperature == ROOM_TARGET
+    return bt, head
 
 
 @pytest.fixture
 def _short_confirm_timeout():
     """Let the setpoint watchdog give up within the test."""
-    with patch(CONFIRM_TIMEOUT, SHORT_CONFIRM_TIMEOUT_S):
+    with patch(WRITE_BUDGET, 0.0), patch(CONFIRM_TIMEOUT, SHORT_CONFIRM_TIMEOUT_S):
         yield
 
 
 @pytest.mark.usefixtures("_short_confirm_timeout")
-async def test_the_ceiling_a_head_holds_is_not_read_as_a_turn(hass, fake_trv):
+async def test_the_ceiling_a_head_holds_is_not_read_as_a_turn(hass):
     """A report that carries the head's ceiling leaves the room target alone.
 
     The watchdog gave up on the calibrated write while the head held its
     ceiling. The head's next report moves only its own reading and carries
     the ceiling again; the room keeps the target the user set.
     """
-    bt = await _capped_head(hass, fake_trv)
+    bt, head = await _capped_head(hass)
 
-    fake_trv._attr_current_temperature = HEAD_TEMPERATURE + 0.2
-    _publish(fake_trv)
+    head._attr_current_temperature = HEAD_TEMPERATURE + 0.2
+    _publish(head)
     await hass.async_block_till_done()
 
     assert (
-        await wait_for(hass, lambda: bt.bt_target_temp != ROOM_TARGET, 1.0) is False
-    ), f"the room took {bt.bt_target_temp}"
+        await wait_for(hass, lambda: bt.heat_target_temperature != ROOM_TARGET, 1.0)
+        is False
+    ), f"the room took {bt.heat_target_temperature}"
 
 
 @pytest.mark.usefixtures("_short_confirm_timeout")
-async def test_a_turn_away_from_the_ceiling_is_the_users_target(hass, fake_trv):
+async def test_a_turn_away_from_the_ceiling_is_the_users_target(hass):
     """A knob turned at a head that holds its ceiling becomes the room's target."""
-    bt = await _capped_head(hass, fake_trv)
+    bt, head = await _capped_head(hass)
 
-    fake_trv._attr_target_temperature = 23.0
-    _publish(fake_trv)
+    head._attr_target_temperature = 23.0
+    _publish(head)
 
-    assert await wait_for(hass, lambda: bt.bt_target_temp == 23.0), (
-        f"the room kept {bt.bt_target_temp}"
+    assert await wait_for(hass, lambda: bt.heat_target_temperature == 23.0), (
+        f"the room kept {bt.heat_target_temperature}"
     )

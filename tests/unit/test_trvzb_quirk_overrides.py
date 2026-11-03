@@ -3,21 +3,29 @@
 import asyncio
 import contextlib
 import importlib
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, create_autospec
 
-from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfTemperature
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import (
+    RELEASE_SCOPES,
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    release_device,
+    trv_record,
+)
 
 quirk = importlib.import_module("custom_components.better_thermostat.model_fixes.TRVZB")
 
 
 def _make_self():
     """Create a mock BetterThermostat with a spied service-call layer."""
-    mock_self = MagicMock()
+    mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
     mock_self.context = MagicMock()
     mock_self.sensor_entity_id = "sensor.room_temperature"
@@ -56,16 +64,14 @@ class TestOverrideSetHvacMode:
 ENTITY = "climate.trv1"
 
 
-def _make_valve_self(last_pct=40, *, in_maintenance=False):
+def _make_valve_self(last_percent=40, *, in_maintenance=False):
     """Create a mock BetterThermostat whose TRV records a commanded valve percent."""
     mock_self = _make_self()
     mock_self.in_maintenance = in_maintenance
-    trv_state = Trv(entity_id=ENTITY)
-    trv_state.last_valve_percent = last_pct
+    mock_self.is_removed = False
+    trv_state = trv_record(entity_id=ENTITY)
+    trv_state.last_valve_percent = last_percent
     mock_self.real_trvs = {ENTITY: trv_state}
-    mock_self.hass.async_create_background_task = lambda coro, name=None: (
-        asyncio.ensure_future(coro)
-    )
     return mock_self, trv_state
 
 
@@ -102,7 +108,7 @@ class TestOverrideSetValve:
     @pytest.mark.asyncio
     async def test_a_close_bumps_open_and_defers_the_target(self, writes):
         """A close drives the valve open first and schedules the target."""
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         handled = await quirk.override_set_valve(mock_self, ENTITY, 30)
         task = trv_state.extra.get("_trvzb_valve_bump_task")
@@ -117,7 +123,7 @@ class TestOverrideSetValve:
     @pytest.mark.asyncio
     async def test_a_close_superseding_a_due_bump_writes_the_target(self, writes):
         """A close arriving before the deferred write lands goes out directly."""
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
         await quirk.override_set_valve(mock_self, ENTITY, 30)
         first_task = trv_state.extra["_trvzb_valve_bump_task"]
         trv_state.last_valve_percent = 30
@@ -138,7 +144,7 @@ class TestOverrideSetValve:
     ):
         """Closes faster than the delay still put the newest position on the wire."""
         monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 30.0)
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         for target in (38, 36, 34, 32):
             await quirk.override_set_valve(mock_self, ENTITY, target)
@@ -158,7 +164,7 @@ class TestOverrideSetValve:
     ):
         """Once the deferred write has run, the next close bumps again."""
         monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         await quirk.override_set_valve(mock_self, ENTITY, 30)
         await trv_state.extra["_trvzb_valve_bump_task"]
@@ -172,7 +178,7 @@ class TestOverrideSetValve:
     @pytest.mark.asyncio
     async def test_an_opening_command_writes_directly(self, writes):
         """Opening needs no de-sticking, so the position goes out unchanged."""
-        mock_self, trv_state = _make_valve_self(last_pct=40)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
 
         handled = await quirk.override_set_valve(mock_self, ENTITY, 60)
 
@@ -183,7 +189,7 @@ class TestOverrideSetValve:
     @pytest.mark.asyncio
     async def test_valve_maintenance_writes_directly(self, writes):
         """Maintenance drives the valve itself and takes no deferred steps."""
-        mock_self, trv_state = _make_valve_self(last_pct=40, in_maintenance=True)
+        mock_self, trv_state = _make_valve_self(last_percent=40, in_maintenance=True)
 
         handled = await quirk.override_set_valve(mock_self, ENTITY, 0)
 
@@ -192,9 +198,29 @@ class TestOverrideSetValve:
         assert "_trvzb_valve_bump_task" not in trv_state.extra
 
     @pytest.mark.asyncio
+    async def test_valve_maintenance_drops_a_deferred_close(self, writes, monkeypatch):
+        """A close still due from before maintenance stays off the valve.
+
+        Maintenance opens the valve fully and holds it there; the target a
+        bump deferred just before would land in that hold and close it.
+        """
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.01)
+        mock_self, trv_state = _make_valve_self(last_percent=60)
+        await quirk.override_set_valve(mock_self, ENTITY, 20)
+        deferred = trv_state.extra["_trvzb_valve_bump_task"]
+
+        mock_self.in_maintenance = True
+        await quirk.override_set_valve(mock_self, ENTITY, 100)
+        await asyncio.wait([deferred])
+        await asyncio.sleep(0.02)
+
+        assert writes == [70, 100]
+        assert "_trvzb_valve_bump_task" not in trv_state.extra
+
+    @pytest.mark.asyncio
     async def test_an_unknown_last_position_writes_directly(self, writes):
         """With no recorded position there is nothing to close further from."""
-        mock_self, trv_state = _make_valve_self(last_pct=None)
+        mock_self, trv_state = _make_valve_self(last_percent=None)
 
         handled = await quirk.override_set_valve(mock_self, ENTITY, 30)
 
@@ -203,17 +229,11 @@ class TestOverrideSetValve:
         assert "_trvzb_valve_bump_task" not in trv_state.extra
 
 
-def _registry_entry(entity_id, *, domain, translation_key=None, device_id="dev1"):
-    """A registry entry stand-in with the fields the lookup reads."""
-    entry = MagicMock()
-    entry.entity_id = entity_id
-    entry.domain = domain
-    entry.device_id = device_id
-    entry.unique_id = entity_id
-    entry.translation_key = translation_key
-    entry.original_name = None
-    entry.disabled_by = None
-    return entry
+def _registry_entry(entity_id, *, translation_key=None, device_id="dev1"):
+    """A registry entry on the TRV's device; its domain is the entity id's."""
+    return make_registry_entry(
+        entity_id, translation_key=translation_key, device_id=device_id
+    )
 
 
 # The selector options Zigbee2MQTT publishes for a TRVZB from 2.14.2 on.
@@ -236,19 +256,14 @@ def _make_selector_self(
     """
     mock_self = _make_self()
     if trv is None:
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
     selector = _registry_entry(
         "select.trv1_temperature_sensor_select",
-        domain="select",
         translation_key="temperature_sensor_select",
     )
-    entries = entries if entries is not None else [trv, selector]
-    by_id = {entry.entity_id: entry for entry in entries}
-    by_id[trv.entity_id] = trv
-    registry = MagicMock()
-    registry.async_get.side_effect = by_id.get
-    registry.entities.values.return_value = entries
-    mock_self._registry = registry
+    mock_self._registry = make_entity_registry(
+        *(entries if entries is not None else [trv, selector])
+    )
 
     selector_state = None
     if state is not None:
@@ -368,10 +383,9 @@ class TestMaybeSelectExternalSensor:
         to the selector's translation key or id fragment would be written
         as if it sat on this TRV.
         """
-        trv = _registry_entry("climate.trv1", domain="climate", device_id=None)
+        trv = _registry_entry("climate.trv1", device_id=None)
         stray = _registry_entry(
             "select.somewhere_else_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
             device_id=None,
         )
@@ -412,18 +426,15 @@ class TestMaybeSelectExternalSensor:
     async def test_the_translation_key_wins_over_an_earlier_id_match(self, monkeypatch):
         """The key names the selector; the id fragment only guesses at it.
 
-        A device that carries a second select whose id reads like the
-        selector — a leftover from a rename, say — hands it out first, and
-        matching per entry would write to it and never reach the entry that
-        names itself.
+        A device can carry a second select whose id reads like the
+        selector, a leftover from a rename. The registry hands that one
+        out first, so matching per entry would write to it and never
+        reach the entry that names itself.
         """
-        trv = _registry_entry("climate.trv1", domain="climate")
-        decoy = _registry_entry(
-            "select.trv1_temperature_sensor_select_old", domain="select"
-        )
+        trv = _registry_entry("climate.trv1")
+        decoy = _registry_entry("select.trv1_temperature_sensor_select_old")
         selector = _registry_entry(
             "select.trv1_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
         )
         mock_self = _make_selector_self("internal", entries=[trv, decoy, selector])
@@ -438,9 +449,57 @@ class TestMaybeSelectExternalSensor:
         ]
 
     @pytest.mark.asyncio
+    async def test_a_selector_that_names_itself_nothing_is_found_by_its_id(
+        self, monkeypatch
+    ):
+        """Not every integration publishes a translation key.
+
+        The id is the only handle left on such an entry, so it stays the
+        fallback for the siblings that carry no key.
+        """
+        trv = _registry_entry("climate.trv1")
+        unnamed = _registry_entry("select.trv1_temperature_sensor_select")
+        mock_self = _make_selector_self("internal", entries=[trv, unnamed])
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _selector_calls(mock_self) == [
+            {"entity_id": "select.trv1_temperature_sensor_select", "option": "external"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_sibling_that_names_something_else_is_left_alone(self, monkeypatch):
+        """An entry with a key of its own has said what it is.
+
+        Guessing at its id would write the sensor choice into whatever
+        else the device exposes, so the fallback passes it by.
+        """
+        trv = _registry_entry("climate.trv1")
+        named_otherwise = _registry_entry(
+            "select.trv1_temperature_sensor_select",
+            translation_key="valve_opening_degree",
+        )
+        unrelated = _registry_entry("select.trv1_backlight")
+        mock_self = _make_selector_self(
+            "internal", entries=[trv, named_otherwise, unrelated]
+        )
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert (
+            await quirk.maybe_select_external_sensor(mock_self, "climate.trv1") is False
+        )
+
+        assert _selector_calls(mock_self) == []
+
+    @pytest.mark.asyncio
     async def test_a_device_without_a_selector_is_not_written(self, monkeypatch):
         """Nothing on the device answers for the sensor choice."""
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
         mock_self = _make_selector_self("internal", entries=[trv])
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
@@ -464,20 +523,18 @@ class TestExternalTemperatureWriteSelectsTheSensor:
         has to happen on the path that writes the value, because that is
         the only path that knows a value was written.
         """
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
         number = _registry_entry(
             "number.trv1_external_temperature_input",
-            domain="number",
             translation_key="external_temperature_input",
         )
         selector = _registry_entry(
             "select.trv1_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
         )
         mock_self = _make_selector_self("internal", entries=[trv, number, selector])
         mock_self.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")
+            "climate.trv1": trv_record(entity_id="climate.trv1", model="TRVZB")
         }
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
@@ -500,21 +557,19 @@ class TestExternalTemperatureWriteSelectsTheSensor:
 
 
 class TestExternalTemperatureIsNotMirroredIntoItsOwnSource:
-    """A reading the TRV took itself is not written back into it."""
+    """A reading the TRV took itself is not written back into it (#2751)."""
 
     @staticmethod
     def _trv_with_room_sensor(
         monkeypatch, room_sensor, selected="internal", options=("internal", "external")
     ):
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
         number = _registry_entry(
             "number.trv1_external_temperature_input",
-            domain="number",
             translation_key="external_temperature_input",
         )
         selector = _registry_entry(
             "select.trv1_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
         )
         mock_self = _make_selector_self(
@@ -522,7 +577,7 @@ class TestExternalTemperatureIsNotMirroredIntoItsOwnSource:
         )
         mock_self.sensor_entity_id = room_sensor.entity_id
         mock_self.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")
+            "climate.trv1": trv_record(entity_id="climate.trv1", model="TRVZB")
         }
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
@@ -539,7 +594,7 @@ class TestExternalTemperatureIsNotMirroredIntoItsOwnSource:
         input, freezes the reading at the value of the first write.
         """
         mock_self = self._trv_with_room_sensor(
-            monkeypatch, _registry_entry("sensor.trv1_temperature", domain="sensor")
+            monkeypatch, _registry_entry("sensor.trv1_temperature")
         )
 
         assert (
@@ -565,20 +620,15 @@ class TestExternalTemperatureIsNotMirroredIntoItsOwnSource:
         Otherwise it keeps reporting the last value written into it.
         """
         mock_self = self._trv_with_room_sensor(
-            monkeypatch,
-            _registry_entry("sensor.trv1_temperature", domain="sensor"),
-            selected,
-            options,
+            monkeypatch, _registry_entry("sensor.trv1_temperature"), selected, options
         )
 
         assert (
             await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.4)
             is False
         )
-        payloads = [
-            call.args[2] for call in mock_self.hass.services.async_call.await_args_list
-        ]
-        assert payloads == [
+        assert _number_writes(mock_self) == []
+        assert _selector_calls(mock_self) == [
             {"entity_id": "select.trv1_temperature_sensor_select", "option": internal}
         ]
 
@@ -589,7 +639,7 @@ class TestExternalTemperatureIsNotMirroredIntoItsOwnSource:
         """Without an option to go back to, nothing is selected."""
         mock_self = self._trv_with_room_sensor(
             monkeypatch,
-            _registry_entry("sensor.trv1_temperature", domain="sensor"),
+            _registry_entry("sensor.trv1_temperature"),
             "external",
             ("external",),
         )
@@ -605,21 +655,15 @@ class TestExternalTemperatureIsNotMirroredIntoItsOwnSource:
         """Only the TRV's own reading is held back."""
         mock_self = self._trv_with_room_sensor(
             monkeypatch,
-            _registry_entry(
-                "sensor.living_room_temperature", domain="sensor", device_id="dev2"
-            ),
+            _registry_entry("sensor.living_room_temperature", device_id="dev2"),
         )
 
         assert await quirk.maybe_set_external_temperature(
             mock_self, "climate.trv1", 21.4
         )
-        payloads = [
-            call.args[2] for call in mock_self.hass.services.async_call.await_args_list
+        assert _number_writes(mock_self) == [
+            {"entity_id": "number.trv1_external_temperature_input", "value": 21.4}
         ]
-        assert payloads[0] == {
-            "entity_id": "number.trv1_external_temperature_input",
-            "value": 21.4,
-        }
 
 
 VALVE_OPENING = "number.trv1_valve_opening_degree"
@@ -636,7 +680,7 @@ WRITE_REFUSAL_IDS = ["unreachable", "out_of_range", "transport"]
 
 def _valve_number(entity_id, translation_key=None):
     """A number entity on the TRV's device that the valve write can pick up."""
-    return _registry_entry(entity_id, domain="number", translation_key=translation_key)
+    return _registry_entry(entity_id, translation_key=translation_key)
 
 
 class TestValveWriteTheDeviceRefuses:
@@ -654,18 +698,14 @@ class TestValveWriteTheDeviceRefuses:
     @staticmethod
     def _trvzb_carrying(monkeypatch, numbers):
         """A TRVZB whose device carries the given number entities."""
-        trv = _registry_entry(ENTITY, domain="climate")
-        registry = MagicMock()
-        registry.async_get.return_value = trv
-        registry.entities.values.return_value = [trv, *numbers]
+        trv = _registry_entry(ENTITY)
+        registry = make_entity_registry(trv, *numbers)
         monkeypatch.setattr(quirk.er, "async_get", lambda hass: registry, raising=True)
 
         mock_self = _make_self()
         mock_self.in_maintenance = False
-        mock_self.real_trvs = {ENTITY: Trv(entity_id=ENTITY, model="TRVZB")}
-        mock_self.hass.async_create_background_task = lambda coro, name=None: (
-            asyncio.ensure_future(coro)
-        )
+        mock_self.is_removed = False
+        mock_self.real_trvs = {ENTITY: trv_record(entity_id=ENTITY, model="TRVZB")}
         return mock_self
 
     @pytest.mark.parametrize(
@@ -750,20 +790,18 @@ class TestExternalTemperatureWriteTheDeviceRefuses:
     @staticmethod
     def _device_on_the_internal_sensor(monkeypatch):
         """A TRVZB whose device carries both the input and the selector."""
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
         number = _registry_entry(
             "number.trv1_external_temperature_input",
-            domain="number",
             translation_key="external_temperature_input",
         )
         selector = _registry_entry(
             "select.trv1_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
         )
         mock_self = _make_selector_self("internal", entries=[trv, number, selector])
         mock_self.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")
+            "climate.trv1": trv_record(entity_id="climate.trv1", model="TRVZB")
         }
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
@@ -799,95 +837,841 @@ class TestExternalTemperatureWriteTheDeviceRefuses:
         )
 
 
-EXTERNAL_INPUT = "number.trv1_external_temperature_input"
+def _trvzb_with_numbers(monkeypatch, numbers, *, model="TRVZB"):
+    """A TRVZB whose device carries ``numbers`` and accepts every write."""
+    registry = make_entity_registry(_registry_entry(ENTITY), *numbers)
+    monkeypatch.setattr(quirk.er, "async_get", lambda hass: registry, raising=True)
+    mock_self = _make_self()
+    mock_self.in_maintenance = False
+    mock_self.real_trvs = {ENTITY: trv_record(entity_id=ENTITY, model=model)}
+    return mock_self
 
 
-def _input_attributes(unit, low=None, high=None):
-    """Attributes of an external temperature input published in ``unit``."""
-    attributes: dict[str, object] = {ATTR_UNIT_OF_MEASUREMENT: unit}
-    if low is not None:
-        attributes["min"] = low
-    if high is not None:
-        attributes["max"] = high
-    return attributes
+def _number_writes(mock_self):
+    """The number.set_value payloads the quirk dispatched, in order."""
+    return [
+        call.args[2]
+        for call in mock_self.hass.services.async_call.await_args_list
+        if call.args[:2] == ("number", "set_value")
+    ]
 
 
-class TestExternalTemperatureIsWrittenInTheInputsUnit:
-    """Home Assistant checks a written value against the unit the input shows.
-
-    Zigbee2MQTT publishes the input in Celsius and Home Assistant shows it in
-    the system unit, so on a Fahrenheit system the input takes Fahrenheit
-    and refuses a Celsius reading below its published minimum.
-    """
+class TestValveNumbersWithoutATranslationKey:
+    """A valve number that carries no key is found by the names it does carry."""
 
     @pytest.mark.parametrize(
-        ("attributes", "celsius", "written"),
+        ("opening", "closing"),
         [
-            pytest.param(
-                _input_attributes(UnitOfTemperature.FAHRENHEIT, 32, 211.9),
-                21.42,
-                70.52,
-                id="fahrenheit_in_range",
+            (_registry_entry(VALVE_OPENING), _registry_entry(VALVE_CLOSING)),
+            (
+                make_registry_entry(
+                    "number.radiator_a",
+                    unique_id="0x1234_valve_opening_degree",
+                    device_id="dev1",
+                ),
+                make_registry_entry(
+                    "number.radiator_b",
+                    unique_id="0x1234_valve_closing_degree",
+                    device_id="dev1",
+                ),
             ),
-            pytest.param(
-                _input_attributes(UnitOfTemperature.FAHRENHEIT, 32, 211.9),
-                -5.0,
-                32.0,
-                id="fahrenheit_below_the_input",
-            ),
-            pytest.param(
-                _input_attributes(UnitOfTemperature.CELSIUS, 0, 99.9),
-                21.42,
-                21.4,
-                id="celsius_in_range",
-            ),
-            pytest.param(
-                _input_attributes(UnitOfTemperature.CELSIUS),
-                120.0,
-                99.9,
-                id="celsius_without_bounds",
-            ),
-            pytest.param(
-                _input_attributes(UnitOfTemperature.FAHRENHEIT),
-                -20.0,
-                32.0,
-                id="fahrenheit_without_bounds",
+            (
+                make_registry_entry(
+                    "number.radiator_a",
+                    original_name="Valve opening degree",
+                    device_id="dev1",
+                ),
+                make_registry_entry(
+                    "number.radiator_b",
+                    original_name="Valve closing degree",
+                    device_id="dev1",
+                ),
             ),
         ],
+        ids=["entity_id", "unique_id", "original_name"],
     )
     @pytest.mark.asyncio
-    async def test_the_reading_is_converted_and_held_inside_the_input(
-        self, monkeypatch, attributes, celsius, written
+    async def test_the_opening_and_its_complement_are_written(
+        self, monkeypatch, opening, closing
     ):
-        """The Celsius reading reaches the input in its unit and its range."""
-        trv = _registry_entry("climate.trv1", domain="climate")
+        """The opening degree takes the position, the closing degree the rest."""
+        mock_self = _trvzb_with_numbers(monkeypatch, [opening, closing])
+
+        assert await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30)
+
+        assert _number_writes(mock_self) == [
+            {"entity_id": opening.entity_id, "value": 30},
+            {"entity_id": closing.entity_id, "value": 70},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_generic_valve_number_is_preferred_over_a_position(
+        self, monkeypatch
+    ):
+        """Without either degree, a number naming the valve takes the position."""
+        mock_self = _trvzb_with_numbers(
+            monkeypatch,
+            [
+                _valve_number("number.trv1_motor_degree"),
+                _valve_number("number.trv1_position_limit"),
+                _valve_number("number.trv1_valve_target"),
+            ],
+        )
+
+        assert await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30)
+
+        assert _number_writes(mock_self) == [
+            {"entity_id": "number.trv1_valve_target", "value": 30}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_position_number_is_preferred_over_any_other_match(
+        self, monkeypatch
+    ):
+        """Among generic matches that do not name the valve, position comes first."""
+        mock_self = _trvzb_with_numbers(
+            monkeypatch,
+            [
+                _valve_number("number.trv1_motor_degree"),
+                _valve_number("number.trv1_position_limit"),
+            ],
+        )
+
+        assert await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30)
+
+        assert _number_writes(mock_self) == [
+            {"entity_id": "number.trv1_position_limit", "value": 30}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_number_keyed_as_something_else_is_no_valve(self, monkeypatch):
+        """The external temperature input is a number, but no valve channel."""
+        mock_self = _trvzb_with_numbers(
+            monkeypatch,
+            [
+                _registry_entry(
+                    "number.trv1_external_temperature_input",
+                    translation_key="external_temperature_input",
+                )
+            ],
+        )
+
+        assert quirk.has_valve_channel(mock_self, ENTITY) is False
+        assert (
+            await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30) is False
+        )
+        assert _number_writes(mock_self) == []
+
+
+class TestOverrideSetValveEdges:
+    """The valve override around its de-sticking bump."""
+
+    @pytest.mark.asyncio
+    async def test_a_trv_bt_does_not_hold_is_declined(self, writes):
+        """Without the TRV's record there is no position to start from."""
+        mock_self, _ = _make_valve_self(last_percent=40)
+        mock_self.real_trvs = dict[str, Trv]()
+
+        assert await quirk.override_set_valve(mock_self, ENTITY, 30) is False
+        assert writes == []
+
+    @pytest.mark.asyncio
+    async def test_a_position_that_is_no_number_is_declined(self, writes):
+        """The adapter's own valve channel is left to handle it."""
+        mock_self, _ = _make_valve_self(last_percent=40)
+
+        assert await quirk.override_set_valve(mock_self, ENTITY, "half") is False
+        assert writes == []
+
+    @pytest.mark.asyncio
+    async def test_a_refused_bump_still_writes_the_target(self, monkeypatch):
+        """A device that did not take the bump is handed the target directly."""
+        recorded = []
+
+        async def _write(_self, _entity_id, percent):
+            recorded.append(percent)
+            return percent != 50
+
+        monkeypatch.setattr(quirk, "maybe_set_sonoff_valve_percent", _write)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+
+        assert await quirk.override_set_valve(mock_self, ENTITY, 30) is True
+
+        assert recorded == [50, 30]
+        assert "_trvzb_valve_bump_task" not in trv_state.extra
+
+    @pytest.mark.asyncio
+    async def test_a_bump_the_loop_can_no_longer_cancel_is_no_pending_write(
+        self, writes
+    ):
+        """A reference left behind by a closed loop does not stand in for a bump.
+
+        Cancelling a task whose loop is closed raises; the close that
+        follows is then treated as the first one and bumps again.
+        """
+        stale = create_autospec(asyncio.Task, instance=True)
+        stale.done.return_value = False
+        stale.cancel.side_effect = RuntimeError("Event loop is closed")
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+        trv_state.extra["_trvzb_valve_bump_task"] = stale
+
+        handled = await quirk.override_set_valve(mock_self, ENTITY, 30)
+        task = trv_state.extra.get("_trvzb_valve_bump_task")
+
+        try:
+            assert handled is True
+            assert writes == [50]
+            assert task is not None and task is not stale
+        finally:
+            await _settle(task)
+
+
+class TestTheDeferredValveWrite:
+    """The target a bump deferred lands only while it is still the newest."""
+
+    @pytest.mark.asyncio
+    async def test_it_lands_after_the_delay(self, writes, monkeypatch):
+        """The baseline: the deferred target follows the bump."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        await trv_state.extra["_trvzb_valve_bump_task"]
+
+        assert writes == [50, 30]
+
+    @pytest.mark.asyncio
+    async def test_a_trv_removed_meanwhile_is_not_written(self, writes, monkeypatch):
+        """A TRV that left the thermostat during the delay takes no write."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        mock_self.real_trvs = dict[str, Trv]()
+        await trv_state.extra["_trvzb_valve_bump_task"]
+
+        assert writes == [50]
+
+    @pytest.mark.asyncio
+    async def test_a_thermostat_removed_meanwhile_does_not_write(
+        self, writes, monkeypatch
+    ):
+        """A thermostat removed during the delay leaves the valve alone."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        mock_self.is_removed = True
+        await trv_state.extra["_trvzb_valve_bump_task"]
+
+        assert writes == [50]
+
+    @pytest.mark.asyncio
+    async def test_the_removal_cancels_the_waiting_write(self, writes, monkeypatch):
+        """The deferred write is the thermostat's own work and ends with it."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.01)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        task = trv_state.extra["_trvzb_valve_bump_task"]
+        cancelled = mock_self.task_manager.cancel_all()
+        await asyncio.wait(cancelled)
+        await asyncio.sleep(0.02)
+
+        assert task in cancelled
+        assert writes == [50]
+
+    @pytest.mark.asyncio
+    async def test_a_removed_thermostat_closes_without_deferring(self, writes):
+        """Once the removal has closed the task owner, the close goes out at once.
+
+        The bump has already opened the valve; with no deferred write to
+        follow it, leaving the valve there would hold it further open than
+        asked for.
+        """
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+        mock_self.task_manager.cancel_all()
+
+        assert await quirk.override_set_valve(mock_self, ENTITY, 30) is True
+
+        assert writes == [50, 30]
+        assert "_trvzb_valve_bump_task" not in trv_state.extra
+
+    @pytest.mark.asyncio
+    async def test_a_superseded_write_is_dropped(self, writes, monkeypatch):
+        """A newer bump sequence owns the valve; the older target stays off it."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        trv_state.extra["_trvzb_valve_bump_seq"] += 1
+        await trv_state.extra["_trvzb_valve_bump_task"]
+
+        assert writes == [50]
+
+    @pytest.mark.asyncio
+    async def test_a_write_cancelled_during_the_delay_never_lands(
+        self, writes, monkeypatch
+    ):
+        """Cancelling the waiting task drops the target it carried."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.01)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        task = trv_state.extra["_trvzb_valve_bump_task"]
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.wait([task])
+        await asyncio.sleep(0.02)
+
+        assert writes == [50]
+
+    @pytest.mark.asyncio
+    async def test_a_failing_write_is_logged_not_raised(self, monkeypatch, caplog):
+        """Nothing awaits the background task, so its error goes to the log."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+
+        async def _write(_self, _entity_id, percent):
+            if percent == 30:
+                raise RuntimeError("integration is shutting down")
+            return True
+
+        monkeypatch.setattr(quirk, "maybe_set_sonoff_valve_percent", _write)
+        mock_self, trv_state = _make_valve_self(last_percent=40)
+
+        with caplog.at_level("DEBUG", logger=quirk.__name__):
+            await quirk.override_set_valve(mock_self, ENTITY, 30)
+            task = trv_state.extra["_trvzb_valve_bump_task"]
+            await asyncio.wait([task])
+
+        assert task.exception() is None
+        assert "TRVZB delayed valve set exception" in caplog.text
+        assert "integration is shutting down" in caplog.text
+
+
+class TestExternalTemperatureIsOnlyWrittenWhereItCanLand:
+    """The input is written for a Sonoff device and a numeric reading only."""
+
+    @staticmethod
+    def _device_with_input(monkeypatch, model):
         number = _registry_entry(
-            EXTERNAL_INPUT,
-            domain="number",
+            "number.trv1_external_temperature_input",
+            translation_key="external_temperature_input",
+        )
+        return _trvzb_with_numbers(monkeypatch, [number], model=model)
+
+    @pytest.mark.parametrize("model", ["TS0601", "", None])
+    @pytest.mark.asyncio
+    async def test_a_device_of_another_model_is_not_written(self, monkeypatch, model):
+        """An input of the same name on another device means something else."""
+        mock_self = self._device_with_input(monkeypatch, model)
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, ENTITY, 21.0) is False
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.parametrize("reading", [None, "unknown"])
+    @pytest.mark.asyncio
+    async def test_a_reading_that_is_no_number_is_not_written(
+        self, monkeypatch, reading
+    ):
+        """Without a room temperature the input keeps its last value."""
+        mock_self = self._device_with_input(monkeypatch, "TRVZB")
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, ENTITY, reading)
+            is False
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.parametrize(("reading", "written"), [(-3.0, 0.0), (120.0, 99.9)])
+    @pytest.mark.asyncio
+    async def test_the_reading_is_clamped_to_the_input_range(
+        self, monkeypatch, reading, written
+    ):
+        """The input takes 0 to 99.9 degrees."""
+        mock_self = self._device_with_input(monkeypatch, "TRVZB")
+
+        assert await quirk.maybe_set_external_temperature(mock_self, ENTITY, reading)
+
+        assert _number_writes(mock_self) == [
+            {"entity_id": "number.trv1_external_temperature_input", "value": written}
+        ]
+
+
+class TestNothingFollowsTheRelease:
+    """A write under way when the devices are released is the last one.
+
+    The bump and the external input are written first, and what follows
+    them, the deferred target and the sensor selector, are writes of their
+    own that the released devices do not get.
+    """
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_the_target_a_bump_deferred_is_not_sent(self, monkeypatch, scope):
+        """The valve stays on the bump; the user owns it from the release on."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+        mock_self = _trvzb_with_numbers(
+            monkeypatch, [_valve_number(VALVE_OPENING, "valve_opening_degree")]
+        )
+        mock_self.is_removed = False
+        trv_state = mock_self.real_trvs[ENTITY]
+        trv_state.last_valve_percent = 40
+
+        assert await quirk.override_set_valve(mock_self, ENTITY, 30) is True
+        release_device(mock_self, ENTITY, scope)
+        await trv_state.extra["_trvzb_valve_bump_task"]
+
+        assert _number_writes(mock_self) == [{"entity_id": VALVE_OPENING, "value": 50}]
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_the_selector_is_not_moved_after_the_input(self, monkeypatch, scope):
+        """The input went out; the selector that would follow it does not."""
+        device = TestExternalTemperatureWriteTheDeviceRefuses
+        mock_self = device._device_on_the_internal_sensor(monkeypatch)
+
+        async def released_during_the_input(domain, *_args, **_kwargs):
+            if domain == "number":
+                release_device(mock_self, "climate.trv1", scope)
+
+        mock_self.hass.services.async_call = AsyncMock(
+            side_effect=released_during_the_input
+        )
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.4
+        )
+        assert len(_number_writes(mock_self)) == 1
+        assert _selector_calls(mock_self) == []
+
+
+class TestValveReadings:
+    """The numbers a valve write set are the ones its position is read back from."""
+
+    @staticmethod
+    def _serve(mock_self, states):
+        mock_self.hass.states.get.side_effect = states.get
+
+    @pytest.mark.asyncio
+    async def test_the_opening_and_closing_degree_are_read_back(self, monkeypatch):
+        """Each degree is named with the value the write gave it."""
+        opening = _valve_number(VALVE_OPENING, "valve_opening_degree")
+        closing = _valve_number(VALVE_CLOSING, "valve_closing_degree")
+        mock_self = _trvzb_with_numbers(monkeypatch, [opening, closing])
+        states = {
+            VALVE_OPENING: State(VALVE_OPENING, "30"),
+            VALVE_CLOSING: State(VALVE_CLOSING, "70"),
+        }
+        self._serve(mock_self, states)
+
+        await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30)
+        readings = quirk.valve_readings(mock_self, ENTITY, 30)
+
+        written = {
+            payload["entity_id"]: payload["value"]
+            for payload in _number_writes(mock_self)
+        }
+        assert {
+            reading.state.entity_id: reading.expected_value for reading in readings
+        } == written
+        assert [reading.state for reading in readings] == [
+            states[VALVE_OPENING],
+            states[VALVE_CLOSING],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_generic_number_is_read_back_where_it_was_written(
+        self, monkeypatch
+    ):
+        """Without either degree, the number that took the position is read."""
+        mock_self = _trvzb_with_numbers(
+            monkeypatch,
+            [
+                _valve_number("number.trv1_position_limit"),
+                _valve_number("number.trv1_valve_target"),
+            ],
+        )
+        self._serve(
+            mock_self,
+            {
+                entity_id: State(entity_id, "30")
+                for entity_id in (
+                    "number.trv1_position_limit",
+                    "number.trv1_valve_target",
+                )
+            },
+        )
+
+        await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30)
+        readings = quirk.valve_readings(mock_self, ENTITY, 30)
+
+        assert _number_writes(mock_self) == [
+            {"entity_id": "number.trv1_valve_target", "value": 30}
+        ]
+        assert [
+            (reading.state.entity_id, reading.expected_value) for reading in readings
+        ] == [("number.trv1_valve_target", 30.0)]
+
+    @pytest.mark.asyncio
+    async def test_nothing_is_read_back_while_the_bump_write_is_due(
+        self, monkeypatch, writes
+    ):
+        """The bump opening is held on purpose until the deferred write goes out."""
+        opening = _valve_number(VALVE_OPENING, "valve_opening_degree")
+        mock_self = _trvzb_with_numbers(monkeypatch, [opening])
+        mock_self.is_removed = False
+        trv_state = mock_self.real_trvs[ENTITY]
+        trv_state.last_valve_percent = 40
+        self._serve(mock_self, {VALVE_OPENING: State(VALVE_OPENING, "50")})
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        task = trv_state.extra.get("_trvzb_valve_bump_task")
+        try:
+            assert task is not None and not task.done()
+            assert quirk.valve_readings(mock_self, ENTITY, 30) == []
+        finally:
+            await _settle(task)
+
+        assert len(quirk.valve_readings(mock_self, ENTITY, 30)) == 1
+
+    def test_a_trv_without_valve_numbers_names_none(self, monkeypatch):
+        """No number to read means nothing to compare against."""
+        mock_self = _trvzb_with_numbers(monkeypatch, [])
+        assert quirk.valve_readings(mock_self, ENTITY, 30) == []
+
+
+class TestAnAssumedSensorSelector:
+    """A selector whose state is assumed shows what was sent, not the device."""
+
+    @staticmethod
+    def _assumed_selector(monkeypatch, shown, options):
+        mock_self = _make_selector_self(shown, options)
+        mock_self.hass.states.get.return_value = State(
+            "select.trv1_temperature_sensor_select",
+            shown,
+            {"options": list(options), "assumed_state": True},
+        )
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+        return mock_self
+
+    @pytest.mark.asyncio
+    async def test_the_external_option_shown_is_sent_again(self, monkeypatch):
+        """The owner's external option is re-sent, not swapped for another."""
+        mock_self = self._assumed_selector(
+            monkeypatch, "remote_temperature", Z2M_2_14_2_OPTIONS
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+        assert _selector_calls(mock_self) == [
+            {
+                "entity_id": "select.trv1_temperature_sensor_select",
+                "option": "remote_temperature",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_the_offline_report_is_replaced_by_the_external_option(
+        self, monkeypatch
+    ):
+        """``remote_source_offline`` is no choice, so the external option goes out."""
+        mock_self = self._assumed_selector(
+            monkeypatch, "remote_source_offline", Z2M_2_14_2_OPTIONS
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+        assert _selector_calls(mock_self) == [
+            {
+                "entity_id": "select.trv1_temperature_sensor_select",
+                "option": "remote_temperature",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_reported_external_option_is_left_alone(self, monkeypatch):
+        """A state the device reported confirms the choice; nothing is sent."""
+        mock_self = self._assumed_selector(
+            monkeypatch, "remote_temperature", Z2M_2_14_2_OPTIONS
+        )
+        mock_self.hass.states.get.return_value = State(
+            "select.trv1_temperature_sensor_select",
+            "remote_temperature",
+            {"options": list(Z2M_2_14_2_OPTIONS)},
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+        assert _selector_calls(mock_self) == []
+
+
+def test_a_trv_the_thermostat_does_not_hold_has_no_valve_readings():
+    """Nothing is named for a TRV the thermostat does not control."""
+    mock_self = _make_self()
+    mock_self.real_trvs = dict[str, Trv]()
+    assert quirk.valve_readings(mock_self, ENTITY, 30) == []
+
+
+ZHA_INPUT = "number.trv1_external_temperature_sensor_value"
+ZHA_SWITCH = "switch.trv1_external_temperature_sensor"
+
+
+def _make_zha_self(monkeypatch, switch_state, *, extra=(), room_sensor=None):
+    """A BT stand-in whose TRVZB is paired through ZHA.
+
+    ZHA names the input ``external_temperature_sensor_value`` and offers the
+    sensor choice as the ``external_temperature_sensor`` switch. Each entity
+    reports its own state; ``switch_state`` is the switch's, ``None`` for a
+    switch that publishes none.
+    """
+    entries = [
+        _registry_entry("climate.trv1"),
+        _registry_entry(ZHA_INPUT, translation_key="external_temperature_sensor_value"),
+        _registry_entry(ZHA_SWITCH, translation_key="external_temperature_sensor"),
+        *extra,
+    ]
+    if room_sensor is not None:
+        entries.append(room_sensor)
+    mock_self = _make_self()
+    mock_self._registry = make_entity_registry(*entries)
+    states = {ZHA_INPUT: State(ZHA_INPUT, "20.0", {"min": 0.0, "max": 99.9})}
+    if switch_state is not None:
+        states[ZHA_SWITCH] = State(ZHA_SWITCH, switch_state)
+    mock_self.hass.states.get.side_effect = states.get
+    mock_self._states = states
+    if room_sensor is not None:
+        mock_self.sensor_entity_id = room_sensor.entity_id
+    mock_self.real_trvs = {
+        "climate.trv1": trv_record(entity_id="climate.trv1", model="TRVZB")
+    }
+    monkeypatch.setattr(
+        quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+    )
+    return mock_self
+
+
+def _service_calls(mock_self):
+    """Every service call the quirk dispatched, as (domain, service, data)."""
+    return [
+        call.args[:3] for call in mock_self.hass.services.async_call.await_args_list
+    ]
+
+
+class TestATrvzbPairedThroughZha:
+    """ZHA exposes the input and the sensor choice under its own names."""
+
+    @pytest.mark.asyncio
+    async def test_the_room_temperature_reaches_the_input_and_the_switch_is_turned_on(
+        self, monkeypatch
+    ):
+        """The input is found under ZHA's key, and the switch has it read."""
+        mock_self = _make_zha_self(monkeypatch, STATE_OFF)
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.42
+        )
+
+        assert _service_calls(mock_self) == [
+            ("number", "set_value", {"entity_id": ZHA_INPUT, "value": 21.4}),
+            ("switch", "turn_on", {"entity_id": ZHA_SWITCH}),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_switch_already_on_is_left_alone(self, monkeypatch):
+        """Only the value goes out to a device already reading the input."""
+        mock_self = _make_zha_self(monkeypatch, STATE_ON)
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.42
+        )
+
+        assert _service_calls(mock_self) == [
+            ("number", "set_value", {"entity_id": ZHA_INPUT, "value": 21.4})
+        ]
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+    @pytest.mark.parametrize("switch_state", [None, STATE_UNAVAILABLE, STATE_UNKNOWN])
+    @pytest.mark.asyncio
+    async def test_a_switch_not_reporting_is_not_switched(
+        self, monkeypatch, switch_state
+    ):
+        """A device whose switch reports nothing is in no state to take a command."""
+        mock_self = _make_zha_self(monkeypatch, switch_state)
+
+        assert not await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+        assert not await quirk.maybe_select_internal_sensor(mock_self, "climate.trv1")
+
+        assert _service_calls(mock_self) == []
+
+    @pytest.mark.asyncio
+    async def test_a_device_with_a_select_is_switched_through_the_select(
+        self, monkeypatch
+    ):
+        """The switch only stands in for a select the device does not carry."""
+        selector = _registry_entry(
+            "select.trv1_temperature_sensor_select",
+            translation_key="temperature_sensor_select",
+        )
+        mock_self = _make_zha_self(monkeypatch, STATE_OFF, extra=[selector])
+        mock_self._states[selector.entity_id] = State(
+            selector.entity_id, "internal", {"options": ["internal", "external"]}
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _service_calls(mock_self) == [
+            (
+                "select",
+                "select_option",
+                {"entity_id": selector.entity_id, "option": "external"},
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_room_sensor_on_the_trv_itself_turns_the_switch_off(
+        self, monkeypatch
+    ):
+        """A TRV left on its own fed reading regulates on its own sensor again."""
+        mock_self = _make_zha_self(
+            monkeypatch,
+            STATE_ON,
+            room_sensor=_registry_entry("sensor.trv1_temperature"),
+        )
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.4)
+            is False
+        )
+
+        assert _service_calls(mock_self) == [
+            ("switch", "turn_off", {"entity_id": ZHA_SWITCH})
+        ]
+
+    @pytest.mark.parametrize(
+        ("switch_state", "switched"), [(STATE_ON, True), (STATE_OFF, False)]
+    )
+    @pytest.mark.asyncio
+    async def test_turning_back_reports_whether_this_call_switched(
+        self, monkeypatch, switch_state, switched
+    ):
+        """A switch already off takes no command and reports no move."""
+        mock_self = _make_zha_self(monkeypatch, switch_state)
+
+        assert (
+            await quirk.maybe_select_internal_sensor(mock_self, "climate.trv1")
+            is switched
+        )
+
+        assert len(_service_calls(mock_self)) == int(switched)
+
+
+def _keeping(record: Trv, keep: bool) -> Trv:
+    """Return ``record`` with its ``keep_sensor_selection`` option set to ``keep``."""
+    record.advanced = {**record.advanced, "keep_sensor_selection": keep}
+    return record
+
+
+class TestTheUserKeepsTheSensorSelection:
+    """With ``keep_sensor_selection`` on, the sensor choice stays the user's.
+
+    A user who regulates each TRV on its own sensor, so the TRVs' readings
+    differ, picks the internal option on purpose. The room temperature still
+    goes into the input, so a device switched to it later starts from a
+    current value, but the selector or the switch is not touched.
+    """
+
+    @staticmethod
+    def _z2m_device_on_its_local_sensor(monkeypatch, keep):
+        trv = _registry_entry("climate.trv1")
+        number = _registry_entry(
+            "number.trv1_external_temperature_input",
             translation_key="external_temperature_input",
         )
         selector = _registry_entry(
             "select.trv1_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
         )
-        mock_self = _make_selector_self("external", entries=[trv, number, selector])
-        selector_state = mock_self.hass.states.get.return_value
-        input_state = State(EXTERNAL_INPUT, "70.0", attributes)
-        mock_self.hass.states.get.side_effect = lambda entity_id: (
-            input_state if entity_id == EXTERNAL_INPUT else selector_state
+        mock_self = _make_selector_self(
+            "local_temperature", Z2M_2_14_2_OPTIONS, entries=[trv, number, selector]
         )
+        mock_self.devices_released = False
+        mock_self.released_trvs = set()
         mock_self.real_trvs = {
-            "climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")
+            "climate.trv1": _keeping(
+                trv_record(entity_id="climate.trv1", model="TRVZB"), keep
+            )
         }
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
         )
+        return mock_self
+
+    @pytest.mark.parametrize(
+        ("keep", "selected"), [(True, []), (False, ["remote_temperature"])]
+    )
+    @pytest.mark.asyncio
+    async def test_a_local_selection_stays_while_the_input_is_written(
+        self, monkeypatch, keep, selected
+    ):
+        """The input is written either way; only without the option is it selected."""
+        mock_self = self._z2m_device_on_its_local_sensor(monkeypatch, keep)
 
         assert await quirk.maybe_set_external_temperature(
-            mock_self, "climate.trv1", celsius
+            mock_self, "climate.trv1", 21.42
         )
 
-        payload = mock_self.hass.services.async_call.await_args_list[0].args[2]
-        assert payload["entity_id"] == EXTERNAL_INPUT
-        assert payload["value"] == pytest.approx(written)
+        assert _number_writes(mock_self) == [
+            {"entity_id": "number.trv1_external_temperature_input", "value": 21.4}
+        ]
+        assert [call["option"] for call in _selector_calls(mock_self)] == selected
+
+    @pytest.mark.parametrize(
+        ("keep", "switched"), [(True, []), (False, [("switch", "turn_on")])]
+    )
+    @pytest.mark.asyncio
+    async def test_a_zha_switch_left_off_stays_off(self, monkeypatch, keep, switched):
+        """ZHA's sensor switch is the selector there, and it is kept the same way."""
+        mock_self = _make_zha_self(monkeypatch, STATE_OFF)
+        mock_self.devices_released = False
+        mock_self.released_trvs = set()
+        _keeping(mock_self.real_trvs["climate.trv1"], keep)
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.42
+        )
+
+        calls = _service_calls(mock_self)
+        assert calls[0] == (
+            "number",
+            "set_value",
+            {"entity_id": ZHA_INPUT, "value": 21.4},
+        )
+        assert [call[:2] for call in calls[1:]] == switched
+
+    @pytest.mark.parametrize(
+        ("keep", "selected"), [(True, []), (False, ["local_temperature"])]
+    )
+    @pytest.mark.asyncio
+    async def test_a_room_sensor_on_the_trv_leaves_a_kept_selection_alone(
+        self, monkeypatch, keep, selected
+    ):
+        """No value goes out, and a kept remote selection is not moved back."""
+        mock_self = (
+            TestExternalTemperatureIsNotMirroredIntoItsOwnSource._trv_with_room_sensor(
+                monkeypatch,
+                _registry_entry("sensor.trv1_temperature"),
+                "remote_temperature",
+                Z2M_2_14_2_OPTIONS,
+            )
+        )
+        _keeping(mock_self.real_trvs["climate.trv1"], keep)
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.4)
+            is False
+        )
+
+        assert _number_writes(mock_self) == []
+        assert [call["option"] for call in _selector_calls(mock_self)] == selected

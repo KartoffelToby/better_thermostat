@@ -47,6 +47,7 @@ async def test_notifications_name_the_selected_thermostat(hass, path):
     inputs = _resolve_inputs(blueprint)
     inputs["thermostat_device"] = device.id
     variables = _substitute(blueprint.get("variables", {}), inputs)
+    assert isinstance(variables, dict)
     variables["trigger"] = {
         "platform": "device",
         "entity_id": "climate.living_room",

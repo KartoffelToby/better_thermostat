@@ -8,16 +8,14 @@ from homeassistant.components.climate.const import (
 from homeassistant.core import Context
 
 from .conftest import (
-    SENSOR_ID,
-    TRV_ID,
+    BT_ENTITY,
     WINDOW_ID,
     make_entry,
+    set_room_sensor,
     setup_entry,
     wait_for,
     wait_for_startup,
 )
-
-BT_ENTITY = "climate.bt_test"
 
 
 def _report(head) -> None:
@@ -38,12 +36,12 @@ async def test_a_turn_the_room_wants_anyway_is_not_read_as_a_press_later(
     already holds and writes nothing. The head's next report, which only
     moves its reading, carries that value again; it is not a press.
     """
-    hass.states.async_set(SENSOR_ID, "21.5", {"unit_of_measurement": "°C"})
+    set_room_sensor(hass, 21.5)
     hass.states.async_set(WINDOW_ID, "off")
-    entry = make_entry(with_window=True)
+    entry = make_entry(fake_trv.profile, with_window=True)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
-    trv = bt.real_trvs[TRV_ID]
+    trv = bt.real_trvs[fake_trv.entity_id]
 
     hass.states.async_set(WINDOW_ID, "on")
     assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.OFF)
@@ -56,13 +54,13 @@ async def test_a_turn_the_room_wants_anyway_is_not_read_as_a_press_later(
     fake_trv._attr_target_temperature = 20.0
     _report(fake_trv)
     await hass.async_block_till_done()
-    assert bt.bt_target_temp == 22.0
+    assert bt.heat_target_temperature == 22.0
 
     hass.states.async_set(WINDOW_ID, "off")
     assert await wait_for(
         hass,
         lambda: (
-            fake_trv.hvac_mode == HVACMode.HEAT
+            fake_trv.hvac_mode == fake_trv.profile.hvac_mode
             and trv.system_mode_received
             and not bt.ignore_states
         ),
@@ -72,6 +70,6 @@ async def test_a_turn_the_room_wants_anyway_is_not_read_as_a_press_later(
     fake_trv._attr_current_temperature = 19.4
     _report(fake_trv)
     await hass.async_block_till_done()
-    assert await wait_for(hass, lambda: bt.bt_target_temp != 22.0, 1.0) is False, (
-        f"the room took {bt.bt_target_temp}"
-    )
+    assert (
+        await wait_for(hass, lambda: bt.heat_target_temperature != 22.0, 1.0) is False
+    ), f"the room took {bt.heat_target_temperature}"

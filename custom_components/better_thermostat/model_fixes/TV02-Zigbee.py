@@ -7,24 +7,33 @@ import logging
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.exceptions import HomeAssistantError
 
+from custom_components.better_thermostat.model_fixes.types import (
+    ModelFixHost,
+    ModelQuirks,
+)
 from custom_components.better_thermostat.utils.helpers import (
     celsius_to_system_temperature,
+    device_released,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def fix_local_calibration(self, entity_id, offset):
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Return local calibration offset unchanged for TRV02 devices."""
-    return offset
+    return calibration_offset
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """Return target temperature unchanged for TRV02 devices."""
     return temperature
 
 
-async def _select_manual_preset(self, entity_id):
+async def _select_manual_preset(self: ModelFixHost, entity_id: str) -> None:
     """Take the TRV off its internal schedule.
 
     A device that refuses the preset keeps running its own schedule and
@@ -34,11 +43,15 @@ async def _select_manual_preset(self, entity_id):
 
     Parameters
     ----------
-    self :
-        self instance of better_thermostat
+    self : ModelFixHost
+        Host providing Home Assistant access and the per-TRV records
     entity_id : str
         Entity ID of the TRV to take off its schedule
     """
+    # The preset follows or precedes the command it belongs to, and it is
+    # not sent once the device is the user's.
+    if device_released(self, entity_id):
+        return
     try:
         await self.hass.services.async_call(
             "climate",
@@ -57,16 +70,18 @@ async def _select_manual_preset(self, entity_id):
         )
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
     """Enable device quirks while setting HVAC mode.
 
     Parameters
     ----------
-    self :
-        self instance of better_thermostat
-    entity_id :
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
+    entity_id : str
         Entity id of the TRV.
-    hvac_mode:
+    hvac_mode : str
         HVAC mode to be set.
 
     Returns
@@ -104,7 +119,9 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
     return True
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """Enable device quirks while setting temperature.
 
     Switches the TRV to the manual preset before the setpoint write so
@@ -112,11 +129,11 @@ async def override_set_temperature(self, entity_id, temperature):
 
     Parameters
     ----------
-    self :
-        self instance of better_thermostat
-    entity_id :
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
+    entity_id : str
         Entity id of the TRV.
-    temperature:
+    temperature : float
         Temperature to be set, in Celsius (converted to the system unit
         before the write).
 
@@ -124,9 +141,10 @@ async def override_set_temperature(self, entity_id, temperature):
     -------
     bool
         True once the setpoint write went out, so the caller does not need
-        the generic adapter fallback. False when the device refused it: the
-        adapter write then carries the setpoint instead, with its own step
-        rounding and retry handling.
+        the generic adapter fallback, and also when the device was
+        released during the preset write, which leaves the setpoint unsent.
+        False when the device refused it: the adapter write then carries the
+        setpoint instead, with its own step rounding and retry handling.
     """
     model = self.real_trvs[entity_id].model
     if model == "TV02-Zigbee":
@@ -136,6 +154,8 @@ async def override_set_temperature(self, entity_id, temperature):
             entity_id,
         )
         await _select_manual_preset(self, entity_id)
+        if device_released(self, entity_id):
+            return True
 
     try:
         await self.hass.services.async_call(
@@ -157,3 +177,17 @@ async def override_set_temperature(self, entity_id, temperature):
         )
         return False
     return True
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()

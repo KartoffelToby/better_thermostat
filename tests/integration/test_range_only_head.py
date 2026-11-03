@@ -5,133 +5,118 @@ publishes its heating setpoint as ``target_temp_low``. Home Assistant refuses a
 ``temperature`` write to it, so the setpoint has to travel as the lower bound
 of the range, with the upper bound the head already holds. The value on the
 wire is the calibrated setpoint BT computes for the room target, which it
-keeps as the head's ``last_temperature``.
+keeps as the head's ``commanded_setpoint``.
+
+Every test moves the room target after startup, so the write under test is
+the one that follows a user's change rather than the startup write. The write
+budget is lifted, so that write goes out at once instead of waiting out the
+interval since the startup write.
 """
+
+from dataclasses import replace
+from unittest.mock import patch
 
 from homeassistant.components.climate import (
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
     DOMAIN as CLIMATE_DOMAIN,
-    ClimateEntityFeature,
+    SERVICE_SET_TEMPERATURE,
 )
 from homeassistant.const import ATTR_ENTITY_ID, ATTR_TEMPERATURE
-from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component.common import setup_test_component_platform
+import pytest
 
 from .conftest import (
-    SENSOR_ID,
-    TRV_ID,
-    FakeTrvEntity,
+    BT_ENTITY,
+    WRITE_BUDGET,
     make_entry,
+    set_room_sensor,
     setup_entry,
     wait_for,
     wait_for_startup,
 )
+from .device_profiles import RANGE_ONLY_HEAT_TRV, TRV_ID
 
-BT_ENTITY = "climate.bt_test"
-
-
-class _RangeHead(FakeTrvEntity):
-    """A heating head on an 18-25 °C band with no single setpoint."""
-
-    _attr_supported_features = (
-        ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-        | ClimateEntityFeature.TURN_OFF
-        | ClimateEntityFeature.TURN_ON
-    )
-
-    def __init__(self, *, low=18.0, high=25.0):
-        super().__init__()
-        self._attr_target_temperature = None
-        self._attr_target_temperature_low = low
-        self._attr_target_temperature_high = high
-        self.range_writes: list[dict] = []
-
-    async def async_set_temperature(self, **kwargs) -> None:
-        """Apply and confirm a range write, recording what arrived."""
-        assert ATTR_TEMPERATURE not in kwargs
-        self.range_writes.append(
-            {k: v for k, v in kwargs.items() if k != ATTR_ENTITY_ID}
-        )
-        if ATTR_TARGET_TEMP_LOW in kwargs:
-            self._attr_target_temperature_low = kwargs[ATTR_TARGET_TEMP_LOW]
-        if ATTR_TARGET_TEMP_HIGH in kwargs:
-            self._attr_target_temperature_high = kwargs[ATTR_TARGET_TEMP_HIGH]
-        self.async_write_ha_state()
+LOW_TOP = replace(RANGE_ONLY_HEAT_TRV, target_temperature_high=20.0)
+"""The same head with the top of its band at 20 °C."""
 
 
-async def _start(hass, head):
-    setup_test_component_platform(hass, CLIMATE_DOMAIN, [head])
-    assert await async_setup_component(
-        hass, CLIMATE_DOMAIN, {CLIMATE_DOMAIN: {"platform": "test"}}
-    )
-    await hass.async_block_till_done()
-    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
-    entry = make_entry()
+@pytest.fixture(autouse=True)
+def _no_write_budget():
+    """Let a write follow the previous one without waiting out the interval."""
+    with patch(WRITE_BUDGET, 0.0):
+        yield
+
+
+async def _start(hass, fake_trv):
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(fake_trv.profile)
     await setup_entry(hass, entry)
     return await wait_for_startup(hass, entry)
 
 
 def _head_low(hass):
-    return hass.states.get(TRV_ID).attributes["target_temp_low"]
+    return hass.states.get(TRV_ID).attributes[ATTR_TARGET_TEMP_LOW]
 
 
 async def _set_room_target(hass, value):
     await hass.services.async_call(
         CLIMATE_DOMAIN,
-        "set_temperature",
+        SERVICE_SET_TEMPERATURE,
         {ATTR_ENTITY_ID: BT_ENTITY, ATTR_TEMPERATURE: value},
         blocking=True,
     )
     await hass.async_block_till_done()
 
 
-async def test_a_range_only_head_takes_the_room_target_as_its_lower_bound(hass):
+@pytest.mark.parametrize("fake_trv", [RANGE_ONLY_HEAT_TRV], indirect=True)
+async def test_a_range_only_head_takes_the_room_target_as_its_lower_bound(
+    hass, fake_trv
+):
     """A new room target reaches the head as target_temp_low; the band's top stays."""
-    head = _RangeHead()
-    bt = await _start(hass, head)
+    bt = await _start(hass, fake_trv)
 
     await _set_room_target(hass, 22.0)
 
     trv = bt.real_trvs[TRV_ID]
     assert await wait_for(hass, lambda: _head_low(hass) >= 22.0)
-    assert _head_low(hass) == trv.last_temperature
-    assert head.range_writes[-1] == {
-        ATTR_TARGET_TEMP_LOW: trv.last_temperature,
+    assert _head_low(hass) == trv.commanded_setpoint
+    assert fake_trv.set_temperature_calls[-1] == {
+        ATTR_TARGET_TEMP_LOW: trv.commanded_setpoint,
         ATTR_TARGET_TEMP_HIGH: 25.0,
     }
-    assert bt.bt_target_temp == 22.0
+    assert bt.heat_target_temperature == 22.0
 
 
-async def test_a_range_only_head_confirms_the_write(hass):
+@pytest.mark.parametrize("fake_trv", [RANGE_ONLY_HEAT_TRV], indirect=True)
+async def test_a_range_only_head_confirms_the_write(hass, fake_trv):
     """The head's echo on target_temp_low confirms the write and moves nothing."""
-    head = _RangeHead()
-    bt = await _start(hass, head)
+    bt = await _start(hass, fake_trv)
 
     await _set_room_target(hass, 22.0)
 
     trv = bt.real_trvs[TRV_ID]
     assert await wait_for(hass, lambda: _head_low(hass) >= 22.0)
-    assert await wait_for(hass, lambda: trv.target_temp_received is True)
-    assert bt.bt_target_temp == 22.0
-    writes = len(head.range_writes)
+    assert await wait_for(hass, lambda: trv.target_temperature_received is True)
+    assert trv.confirmed_setpoint == trv.commanded_setpoint
+    assert bt.heat_target_temperature == 22.0
+    writes = len(fake_trv.set_temperature_calls)
     await _set_room_target(hass, 22.0)
-    assert len(head.range_writes) == writes
-    assert bt.bt_target_temp == 22.0
+    assert len(fake_trv.set_temperature_calls) == writes
+    assert bt.heat_target_temperature == 22.0
 
 
-async def test_a_range_only_head_raises_a_top_below_the_new_lower_bound(hass):
+@pytest.mark.parametrize("fake_trv", [LOW_TOP], indirect=True)
+async def test_a_range_only_head_raises_a_top_below_the_new_lower_bound(hass, fake_trv):
     """A room target above the band's top lifts the top with it."""
-    head = _RangeHead(low=18.0, high=20.0)
-    bt = await _start(hass, head)
+    bt = await _start(hass, fake_trv)
 
     await _set_room_target(hass, 23.0)
 
     trv = bt.real_trvs[TRV_ID]
     assert await wait_for(hass, lambda: _head_low(hass) >= 23.0)
-    assert _head_low(hass) == trv.last_temperature
-    assert head.range_writes[-1] == {
-        ATTR_TARGET_TEMP_LOW: trv.last_temperature,
-        ATTR_TARGET_TEMP_HIGH: trv.last_temperature,
+    assert _head_low(hass) == trv.commanded_setpoint
+    assert fake_trv.set_temperature_calls[-1] == {
+        ATTR_TARGET_TEMP_LOW: trv.commanded_setpoint,
+        ATTR_TARGET_TEMP_HIGH: trv.commanded_setpoint,
     }
-    assert bt.bt_target_temp == 23.0
+    assert bt.heat_target_temperature == 23.0

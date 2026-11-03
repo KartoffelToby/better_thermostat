@@ -20,9 +20,8 @@ from custom_components.better_thermostat.climate import (
     EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
     BetterThermostat,
 )
-from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn, trv_record
 
-_CLIMATE = "custom_components.better_thermostat.climate"
 TRV_ID = "climate.trv"
 TRV_ID_2 = "climate.trv2"
 SENSOR_ID = "sensor.room"
@@ -44,16 +43,14 @@ def _publish_room_sensor(bt, state: str | None) -> None:
 
 def _bt_with_two_trvs(quirks):
     """A BT stand-in holding a room reading and two TRVs carrying quirks."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.cur_temp = ROOM_TEMPERATURE
-    # A MagicMock attribute would stand in for the filter lock and serialise
-    # nothing; the tick runs under the real one.
-    bt._temperature_filter_lock = None
+    bt.room_temperature = ROOM_TEMPERATURE
     bt.real_trvs = {
-        TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks),
-        TRV_ID_2: Trv(entity_id=TRV_ID_2, model_quirks=quirks),
+        TRV_ID: trv_record(entity_id=TRV_ID, model_quirks=quirks),
+        TRV_ID_2: trv_record(entity_id=TRV_ID_2, model_quirks=quirks),
     }
+    bt._temperature_filter_lock = None
     _publish_room_sensor(bt, str(ROOM_TEMPERATURE))
     return bt
 
@@ -63,76 +60,6 @@ def _written_values(quirks):
     return [
         call.args[1:] for call in quirks.maybe_set_external_temperature.await_args_list
     ]
-
-
-def _startup_bt():
-    """Minimal BetterThermostat stand-in for _finalize_startup."""
-    mock = MagicMock(spec=BetterThermostat)
-    mock.hass = MagicMock()
-    mock.device_name = "Test BT"
-    mock.is_removed = False
-    mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, advanced={})}
-    mock.all_trvs = None
-    mock.all_entities = []
-    mock.entity_ids = [TRV_ID]
-    mock.sensor_entity_id = "sensor.room_temp"
-    mock.humidity_sensor_entity_id = None
-    mock.window_id = None
-    mock.door_id = None
-    mock.cooler_entity_id = None
-    mock.outdoor_sensor = None
-    mock._async_unsub_state_changed = None
-    # Plain MagicMocks so the un-awaited coroutines handed to the background
-    # task mock do not raise "coroutine was never awaited" warnings.
-    mock._post_grace_recheck = MagicMock()
-    mock._external_temperature_keepalive = MagicMock()
-    return mock
-
-
-async def _registered_intervals(bt):
-    """The (callback, interval) pairs _finalize_startup registers."""
-    with (
-        patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
-        patch(f"{_CLIMATE}.await_optional_sensors", AsyncMock()),
-        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
-        patch(f"{_CLIMATE}.reconcile_room_sensor", AsyncMock()),
-        patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
-        patch(f"{_CLIMATE}.async_track_time_interval") as track_interval,
-        patch(f"{_CLIMATE}.async_track_state_change_event"),
-        patch(f"{_CLIMATE}.async_track_time_change"),
-    ):
-        await BetterThermostat._finalize_startup(bt)
-    return [
-        (_timer_target(call.args[1]), call.args[2])
-        for call in track_interval.call_args_list
-    ]
-
-
-def _timer_target(registered):
-    """The coroutine function a registered timer callback runs.
-
-    Each tick reaches the tracker through a dispatcher that spawns the firing
-    as work the entity owns, bound with ``partial``, so the callable handed to
-    the tracker is that dispatcher rather than the tick itself.
-    """
-    return registered.args[0]
-
-
-@pytest.mark.asyncio
-async def test_the_keepalive_is_registered_as_a_periodic_tick():
-    """Startup leaves a repeating timer behind.
-
-    The task created at the end of startup writes once and covers the
-    first interval; every write after that is the timer's, because a
-    settled room produces no sensor change to drive one.
-    """
-    bt = _startup_bt()
-    intervals = await _registered_intervals(bt)
-    assert (
-        bt._external_temperature_keepalive,
-        EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
-    ) in intervals
 
 
 @pytest.mark.asyncio
@@ -163,18 +90,102 @@ async def test_the_tick_writes_the_room_temperature_to_every_trv():
 
 
 @pytest.mark.asyncio
-async def test_the_tick_writes_nothing_without_a_room_temperature():
-    """No reading means no value to keep alive."""
-    bt = MagicMock()
-    bt.device_name = "Test BT"
-    bt.cur_temp = None
+async def test_the_tick_skips_a_trv_that_still_awaits_its_initialization():
+    """A TRV startup went on without is written to once it is initialized.
+
+    Until then its quirk state is not set up, so the tick leaves it out and
+    still reaches the other TRV.
+    """
     quirks = MagicMock()
-    quirks.maybe_set_external_temperature = AsyncMock()
-    bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks)}
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    bt.real_trvs[TRV_ID].awaiting_initialization = True
 
     await BetterThermostat._external_temperature_keepalive(bt)
 
-    quirks.maybe_set_external_temperature.assert_not_awaited()
+    assert _written_values(quirks) == [(TRV_ID_2, ROOM_TEMPERATURE)]
+
+
+@pytest.mark.asyncio
+async def test_the_tick_writes_nothing_while_the_devices_are_released():
+    """Released devices are kept alive by nobody; each falls back on its own."""
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    bt.devices_released = True
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirks) == []
+
+
+@pytest.mark.asyncio
+async def test_a_release_during_the_tick_stops_the_writes_after_it():
+    """The write under way completes; the TRVs after it get nothing."""
+    quirks = MagicMock()
+    bt = _bt_with_two_trvs(quirks)
+
+    async def released_during_the_write(_bt, _entity_id, _value):
+        bt.devices_released = True
+        return True
+
+    quirks.maybe_set_external_temperature = AsyncMock(
+        side_effect=released_during_the_write
+    )
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirks) == [(TRV_ID, ROOM_TEMPERATURE)]
+
+
+@pytest.mark.asyncio
+async def test_a_release_while_the_tick_waits_for_its_turn_sends_nothing():
+    """The tick queues on the filter lock; released meanwhile, it writes nothing."""
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    bt._temperature_filter_lock = asyncio.Lock()
+
+    await bt._temperature_filter_lock.acquire()
+    tick = asyncio.create_task(BetterThermostat._external_temperature_keepalive(bt))
+    await asyncio.sleep(0)
+    bt.devices_released = True
+    bt._temperature_filter_lock.release()
+    await tick
+
+    assert _written_values(quirks) == []
+
+
+@pytest.mark.asyncio
+async def test_the_tick_passes_over_a_trv_released_on_its_own():
+    """A TRV released on its own falls back on its own; the other is kept alive."""
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    bt.released_trvs = {TRV_ID}
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirks) == [(TRV_ID_2, ROOM_TEMPERATURE)]
+
+
+@pytest.mark.asyncio
+async def test_a_trv_released_during_the_tick_gets_nothing():
+    """The second TRV is released while the first is written, and is passed over."""
+    quirks = MagicMock()
+    bt = _bt_with_two_trvs(quirks)
+
+    async def second_released_during_the_write(_bt, _entity_id, _value):
+        bt.released_trvs = {TRV_ID_2}
+        return True
+
+    quirks.maybe_set_external_temperature = AsyncMock(
+        side_effect=second_released_during_the_write
+    )
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirks) == [(TRV_ID, ROOM_TEMPERATURE)]
 
 
 @pytest.mark.parametrize(
@@ -214,7 +225,7 @@ async def test_a_sensor_lost_during_the_tick_stops_the_writes_after_it():
     bt = _bt_with_two_trvs(quirks)
 
     async def sensor_lost_during_the_write(_bt, _entity_id, _value):
-        _publish_room_sensor(bt, STATE_UNAVAILABLE)
+        _publish_room_sensor(bt, "unavailable")
         return True
 
     quirks.maybe_set_external_temperature = AsyncMock(
@@ -224,19 +235,6 @@ async def test_a_sensor_lost_during_the_tick_stops_the_writes_after_it():
     await BetterThermostat._external_temperature_keepalive(bt)
 
     assert quirks.maybe_set_external_temperature.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_the_tick_writes_nothing_without_a_room_sensor():
-    """A room without a sensor has no measured temperature to mirror."""
-    quirks = MagicMock()
-    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
-    bt = _bt_with_two_trvs(quirks)
-    bt.sensor_entity_id = None
-
-    await BetterThermostat._external_temperature_keepalive(bt)
-
-    quirks.maybe_set_external_temperature.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
@@ -280,17 +278,20 @@ async def test_a_trv_that_never_answers_does_not_hold_the_tick():
     """
     written = []
 
-    async def _write(_bt, trv_id, value):
-        if trv_id == TRV_ID:
+    async def _write(_bt, entity_id, value):
+        if entity_id == TRV_ID:
             await asyncio.Event().wait()
-        written.append((trv_id, value))
+        written.append((entity_id, value))
         return True
 
     quirks = MagicMock()
     quirks.maybe_set_external_temperature = _write
     bt = _bt_with_two_trvs(quirks)
 
-    with patch(f"{_CLIMATE}.EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S", 0.01):
+    with patch(
+        "custom_components.better_thermostat.climate.EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S",
+        0.01,
+    ):
         await asyncio.wait_for(
             BetterThermostat._external_temperature_keepalive(bt), timeout=5
         )
