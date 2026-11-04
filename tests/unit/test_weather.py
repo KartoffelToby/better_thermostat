@@ -450,8 +450,8 @@ class TestCheckWeatherPrediction:
         assert await check_weather_prediction(bt) is True
         assert hass.services.async_call.call_args[0][2]["type"] == "twice_daily"
 
-    async def test_feature_selection_prefers_daily(self):
-        """When several forecast features are advertised, daily wins."""
+    async def test_feature_selection_prefers_hourly(self):
+        """When several forecast features are advertised, hourly wins for offline slots."""
         feats = int(
             WeatherEntityFeature.FORECAST_DAILY | WeatherEntityFeature.FORECAST_HOURLY
         )
@@ -464,7 +464,7 @@ class TestCheckWeatherPrediction:
         await check_weather_prediction(bt)
         # The service was asked for the daily forecast type.
         called_with = hass.services.async_call.call_args[0]
-        assert called_with[2]["type"] == "daily"
+        assert called_with[2]["type"] == "hourly"
 
 
 # ===========================================================================

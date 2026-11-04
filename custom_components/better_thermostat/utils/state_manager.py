@@ -138,6 +138,8 @@ class RuntimeState:
     tpi: dict[str, TpiState] = field(default_factory=dict)
     thermal: ThermalStats = field(default_factory=ThermalStats)
     presets: dict[str, float] = field(default_factory=dict)
+    # Last valid weather forecast; the cache is validated again on every read.
+    weather_forecast: dict[str, Any] = field(default_factory=dict)
 
 
 # Serialization helpers
@@ -494,6 +496,13 @@ def _deserialize(
             number = _stored_optional_number(presets_raw, "presets", name, dropped)
             if number is not None:
                 state.presets[str(name)] = number
+
+    # Backward-compatible additive section in the version-one Store.
+    weather_cache = raw.get("weather_forecast")
+    if isinstance(weather_cache, dict):
+        state.weather_forecast = weather_cache
+    elif weather_cache is not None:
+        dropped.append("weather_forecast")
 
     return state
 

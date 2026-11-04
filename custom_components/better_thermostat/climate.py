@@ -228,6 +228,7 @@ from .utils.watcher import (
     is_entity_available,
 )
 from .utils.weather import check_ambient_air_temperature, check_weather
+from .utils.weather_cache import usable_weather_cache
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -3168,6 +3169,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "external_temp_ema": self.cur_temp_filtered,
             # Degraded mode: thermostat running with some sensors unavailable
             "degraded_mode": self.degraded_mode,
+            "weather_forecast_cache_active": bool(
+                self.weather_entity
+                and not is_entity_available(self.hass, self.weather_entity)
+                and usable_weather_cache(self)
+            ),
             "unavailable_sensors": self.unavailable_sensors,
             # ECO mode attribute removed: eco preset supported via PRESET_ECO
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps(

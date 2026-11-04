@@ -48,6 +48,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
     MpcV2PlantPreset,
 )
+from custom_components.better_thermostat.utils.weather_cache import cache_current_weather
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
     convert_to_float_celsius,
@@ -115,27 +116,33 @@ def _filtered_room_temp(self) -> float | None:
 
 
 def _get_current_outdoor_temp(self) -> float | None:
-    """Get current outdoor temperature from outdoor sensor or weather entity."""
+    """Get outdoor temperature from sensors, live weather or a cached slot."""
     if self.outdoor_sensor is not None:
         state = self.hass.states.get(self.outdoor_sensor)
-        if state:
-            return convert_to_float_celsius(
+        if state and state.state not in ("unavailable", "unknown", None):
+            temperature = convert_to_float_celsius(
                 state.state,
                 self.device_name,
                 "_get_current_outdoor_temp()",
                 unit_of_measurement=state.attributes.get("unit_of_measurement"),
             )
+            if temperature is not None:
+                return temperature
 
     if self.weather_entity is not None:
         state = self.hass.states.get(self.weather_entity)
-        if state and state.attributes:
-            return convert_to_float_celsius(
+        if state and state.state not in ("unavailable", "unknown", None):
+            temperature = convert_to_float_celsius(
                 state.attributes.get("temperature"),
                 self.device_name,
                 "_get_current_outdoor_temp()",
                 unit_of_measurement=state.attributes.get("temperature_unit"),
             )
-
+            if temperature is not None:
+                return temperature
+        slot = cache_current_weather(self)
+        if slot is not None:
+            return slot["temperature"]
     return None
 
 
@@ -145,8 +152,18 @@ def _get_current_solar_intensity(self) -> float:
         return 0.0
 
     state = self.hass.states.get(self.weather_entity)
-    if not state or not state.attributes:
-        return 0.0
+    if not state or state.state in ("unavailable", "unknown", None):
+        slot = cache_current_weather(self)
+        if slot is None:
+            return 0.0
+        condition = slot.get("condition")
+        if condition in ("sunny", "clear", "clear-night", "windy", "exceptional"):
+            return 1.0
+        if condition == "partlycloudy":
+            return 0.7
+        if condition == "cloudy":
+            return 0.4
+        return 0.1
 
     def _get_val(data, key):
         if not isinstance(data, dict):

@@ -27,6 +27,24 @@ while their integrations load. Better Thermostat waits out a grace
 period before raising the issue, so a warning means a sensor stayed
 unavailable beyond startup.
 
+## Weather forecast fallback
+
+When a weather provider goes offline, Better Thermostat can use its last
+**timestamped forecast**, stored with the thermostat's other runtime state.
+It prefers hourly forecast data when the provider supports it. Each saved
+slot is used at its scheduled time, even after a Home Assistant restart.
+The cache is limited to **24 hours since the last successful refresh**, and
+individual slots expire when their forecast period has passed.
+
+While usable forecast slots remain, the weather entity alone does not trigger
+degraded mode; the thermostat exposes `weather_forecast_cache_active` to
+make this fallback visible. Other unavailable sensors still trigger degraded
+mode normally. Once the forecast expires, weather loss is reported again.
+
+The cache supplies the outdoor-temperature and weather-condition fallback
+for weather-based controllers, but does not turn a standard PID controller
+into a weather-predictive algorithm.
+
 ## Common causes
 
 - The sensor's battery is empty or the device lost its radio connection.

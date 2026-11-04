@@ -25,6 +25,7 @@ from sqlalchemy.exc import SQLAlchemyError
 # import homeassistant.util.dt as dt_util
 # from homeassistant.components.recorder.history import state_changes_during_period
 from .helpers import convert_to_float_celsius
+from .weather_cache import remember_weather_forecast, usable_weather_cache
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -169,27 +170,26 @@ async def check_weather(self) -> bool:
     return old_call_for_heat != self.call_for_heat
 
 
+def _cached_weather_verdict(self) -> bool | None:
+    """Reuse remaining forecast slots; expired/misconfigured caches give no verdict."""
+    slots = usable_weather_cache(self)
+    if not slots:
+        return None
+    avg = sum(item["temperature"] for item in slots) / len(slots)
+    return avg < self.off_temperature
+
+
 async def check_weather_prediction(self) -> bool | None:
-    """Check configured weather entity over roughly the next two days.
+    """Decide the heating season from a live forecast or a validated cached one.
 
-    The forecast horizon is normalised to about two days regardless of the
-    entity's forecast granularity (daily, twice-daily or hourly), and the
-    sampled temperatures are averaged.
-
-    Returns
-    -------
-    bool
-            True if the average forecast temperature (or the current
-            temperature) is below the off temperature, i.e. heat is required
-    None
-            if not successful
+    Prefer hourly forecasts for an exact wall-clock fallback on connectivity loss.
+    Missing or expired predictions never silently masquerade as live data.
     """
     if self.weather_entity is None:
         _LOGGER.warning(
-            "better_thermostat %s: weather entity not available.", self.device_name
+            "better_thermostat %s: weather entity not configured.", self.device_name
         )
         return False
-
     if self.off_temperature is None or not isinstance(self.off_temperature, float):
         _LOGGER.warning(
             "better_thermostat %s: off_temperature not set or not a float.",
@@ -197,124 +197,89 @@ async def check_weather_prediction(self) -> bool | None:
         )
         return None
 
-    try:
-        state = self.hass.states.get(self.weather_entity)
-        features = state.attributes.get("supported_features", 0) if state else 0
+    state = self.hass.states.get(self.weather_entity)
+    if state is None or state.state in ("unavailable", "unknown", None):
+        return _cached_weather_verdict(self)
 
-        if features & WeatherEntityFeature.FORECAST_DAILY:
-            ftype = "daily"
-        elif features & WeatherEntityFeature.FORECAST_TWICE_DAILY:
-            ftype = "twice_daily"
-        elif features & WeatherEntityFeature.FORECAST_HOURLY:
-            ftype = "hourly"
-        else:
-            _LOGGER.warning(
-                "better_thermostat %s: weather entity '%s' does not advertise any forecast support.",
-                self.device_name,
-                self.weather_entity,
-            )
-            return None
-
-        # Sample roughly the next two days regardless of forecast granularity.
-        _forecast_samples = {"daily": 2, "twice_daily": 4, "hourly": 48}[ftype]
-
-        try:
-            async with asyncio.timeout(FORECAST_CALL_TIMEOUT.total_seconds()):
-                forecasts = await self.hass.services.async_call(
-                    WEATHER_DOMAIN,
-                    "get_forecasts",
-                    {"type": ftype, "entity_id": [self.weather_entity]},
-                    blocking=True,
-                    return_response=True,
-                )
-        except TimeoutError:
-            _LOGGER.warning(
-                "better_thermostat %s: weather entity %s did not return a "
-                "forecast within %.0f seconds",
-                self.device_name,
-                self.weather_entity,
-                FORECAST_CALL_TIMEOUT.total_seconds(),
-            )
-            return None
-        forecast_container = (
-            forecasts.get(self.weather_entity) if isinstance(forecasts, dict) else None
-        )
-        forecast = (
-            forecast_container.get("forecast")
-            if isinstance(forecast_container, dict)
-            else None
-        )
-        if isinstance(forecast, list) and len(forecast) > 0:
-            # current outside temp from entity state (may be None)
-            cur_state = self.hass.states.get(self.weather_entity)
-            cur_outside_temp = convert_to_float_celsius(
-                (
-                    str(cur_state.attributes.get("temperature"))
-                    if cur_state and cur_state.attributes
-                    else ""
-                ),
-                self.device_name,
-                "check_weather_prediction()",
-                unit_of_measurement=(
-                    cur_state.attributes.get("temperature_unit")
-                    if cur_state and cur_state.attributes
-                    else None
-                ),
-            )
-            # average the sampled forecast temps over the two-day horizon
-            _entity_temp_unit = (
-                cur_state.attributes.get("temperature_unit")
-                if cur_state and cur_state.attributes
-                else None
-            )
-            temps = []
-            for i in range(min(_forecast_samples, len(forecast))):
-                temps.append(
-                    convert_to_float_celsius(
-                        (
-                            str(forecast[i].get("temperature"))
-                            if isinstance(forecast[i], dict)
-                            else ""
-                        ),
-                        self.device_name,
-                        "check_weather_prediction()",
-                        unit_of_measurement=(
-                            forecast[i].get("temperature_unit", _entity_temp_unit)
-                            if isinstance(forecast[i], dict)
-                            else _entity_temp_unit
-                        ),
-                    )
-                )
-            valid_temps: list[float] = [t for t in temps if isinstance(t, (int, float))]
-            avg_forecast_temp = None
-            if valid_temps:
-                avg_forecast_temp = sum(valid_temps) / float(len(valid_temps))
-
-            # A forecast whose entries and current reading are all unusable
-            # carries no temperature at all, so it gives no opinion rather
-            # than the "warm" an empty comparison would read as.
-            if avg_forecast_temp is None and not isinstance(
-                cur_outside_temp, (int, float)
-            ):
-                return None
-            cond_cur = (
-                isinstance(cur_outside_temp, (int, float))
-                and cur_outside_temp < self.off_temperature
-            )
-            cond_fc = (
-                isinstance(avg_forecast_temp, (int, float))
-                and avg_forecast_temp < self.off_temperature
-            )
-            return bool(cond_cur or cond_fc)
-        else:
-            raise TypeError
-    except TypeError, ServiceNotSupported, HomeAssistantError:
+    features = state.attributes.get("supported_features", 0)
+    if features & WeatherEntityFeature.FORECAST_HOURLY:
+        ftype = "hourly"
+    elif features & WeatherEntityFeature.FORECAST_TWICE_DAILY:
+        ftype = "twice_daily"
+    elif features & WeatherEntityFeature.FORECAST_DAILY:
+        ftype = "daily"
+    else:
         _LOGGER.warning(
-            "better_thermostat %s: no weather entity data found.", self.device_name
+            "better_thermostat %s: weather entity '%s' has no forecast support.",
+            self.device_name,
+            self.weather_entity,
         )
-        # Return None (no opinion) on a transient failure so check_weather keeps
-        # the current call_for_heat decision while weather data is unavailable.
-        return None
+        return _cached_weather_verdict(self)
+
+    samples = {"daily": 2, "twice_daily": 4, "hourly": 48}[ftype]
+    try:
+        async with asyncio.timeout(FORECAST_CALL_TIMEOUT.total_seconds()):
+            response = await self.hass.services.async_call(
+                WEATHER_DOMAIN,
+                "get_forecasts",
+                {"type": ftype, "entity_id": [self.weather_entity]},
+                blocking=True,
+                return_response=True,
+            )
+    except TimeoutError:
+        _LOGGER.warning(
+            "better_thermostat %s: forecast %s timed out after %.0fs",
+            self.device_name,
+            self.weather_entity,
+            FORECAST_CALL_TIMEOUT.total_seconds(),
+        )
+        return _cached_weather_verdict(self)
+    except (TypeError, ServiceNotSupported, HomeAssistantError):
+        _LOGGER.warning(
+            "better_thermostat %s: no weather forecast data found.", self.device_name
+        )
+        return _cached_weather_verdict(self)
+
+    container = response.get(self.weather_entity) if isinstance(response, dict) else None
+    forecast = container.get("forecast") if isinstance(container, dict) else None
+    if not isinstance(forecast, list) or not forecast:
+        return _cached_weather_verdict(self)
+
+    unit = state.attributes.get("temperature_unit")
+    current_temp = convert_to_float_celsius(
+        str(state.attributes.get("temperature")),
+        self.device_name,
+        "check_weather_prediction()",
+        unit_of_measurement=unit,
+    )
+    temps = [
+        convert_to_float_celsius(
+            str(row.get("temperature", "")) if isinstance(row, dict) else "",
+            self.device_name,
+            "check_weather_prediction()",
+            unit_of_measurement=row.get("temperature_unit", unit)
+            if isinstance(row, dict)
+            else unit,
+        )
+        for row in forecast[:samples]
+    ]
+    valid = [t for t in temps if isinstance(t, (int, float))]
+    if not valid and not isinstance(current_temp, (int, float)):
+        return _cached_weather_verdict(self)
+
+    # Only persist timestamped, finite temperatures. Older providers that omit
+    # datetime still work as before but cannot offer an offline forecast.
+    remember_weather_forecast(
+        self, ftype, forecast[:samples], current_unit=unit
+    )
+    avg_forecast = sum(valid) / len(valid) if valid else None
+    return bool(
+        (isinstance(current_temp, (int, float)) and current_temp < self.off_temperature)
+        or (
+            isinstance(avg_forecast, (int, float))
+            and avg_forecast < self.off_temperature
+        )
+    )
 
 
 def outdoor_check_lock(self) -> asyncio.Lock:
