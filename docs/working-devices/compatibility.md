@@ -11,7 +11,7 @@ Because Better Thermostat talks through Home Assistant entities rather than dire
 
 | Integration | `Target Temperature Based` | `Offset Based` | `Direct Valve Based` (`0–100 %`) | Notes |
 |---|---|---|---|---|
-| **Zigbee2MQTT (Z2M)** *(Recommended for Zigbee)* | ✅ All TRVs | ✅ Most TRVs (`number.*_local_temperature_calibration`) | ✅ Supported models (`TRVZB`, `SPZB0001`, Danfoss/Popp/Hive) | Exposes full device clusters (offsets, valve position, child lock, external sensor input). Enable Z2M's **Availability** tracking so dead batteries trigger [Degraded mode](/faq/degraded-mode/). |
+| **Zigbee2MQTT (Z2M)** *(Recommended for Zigbee)* | ✅ All TRVs | ✅ Most TRVs (`number.*_local_temperature_calibration`) | ✅ Supported models (`TRVZB`, `SPZB0001`, Danfoss/Popp/Hive) | Exposes full device clusters (offsets, valve position, child lock, external sensor input). Enable Z2M's **Availability** tracking so unavailable TRVs are reported through Better Thermostat's critical-entity error path ([Missing entity](/faq/missing-entity/)). |
 | **ZHA (Zigbee Home Automation)** | ✅ All TRVs | ⚠️ Device-dependent (many TRVs hide offset in ZHA) | ⚠️ Rarely exposed | Works reliably via `Target Temperature Based` even when ZHA only creates a `climate` entity. |
 | **Shelly (Native HA)** | ✅ Shelly TRV Gen1 (`SHTRV-01`) | ✅ Where exposed | ✅ **Shelly BLU TRV** (via BLU Gateway Gen3) | Disable Shelly's internal auto-temp mode on BLU TRVs to unlock writable valve control (see below). |
 | **Homematic(IP) Local / OpenCCU** | ✅ All TRVs | ✅ Yes (via `select.*_temperature_offset` once un-ignored) | ❌ Not writable | Un-ignore `TEMPERATURE_OFFSET` in OpenCCU ([instructions](/configuration/#homematicip--openccu-enabling-offset-based-calibration)) and keep the **HomematicIP** 10-minute duty-cycle option enabled. |
@@ -147,6 +147,7 @@ Use Home Assistant's native **Shelly** integration with a compatible Shelly BLU 
 ## Known limitations
 
 ### 1. Better Thermostat can only use entities your integration exposes
+
 Better Thermostat has no Zigbee, Z-Wave, or Bluetooth radio of its own:
 - **`Offset Based`** requires a writable `number` or `select` offset entity on the TRV device (on Z-Wave JS, configuration parameters in `°C`, `0.1 °C`, or `0.01 °C`—such as parameter 8 in tenths of a degree on Eurotronic Spirit Z / Aeotec `ZWA021`—are supported once you enable that disabled-by-default entity in Home Assistant and reload Better Thermostat).
 - **`Direct Valve Based`** requires a writable valve-opening entity (or dedicated model quirk).
@@ -154,24 +155,31 @@ Better Thermostat has no Zigbee, Z-Wave, or Bluetooth radio of its own:
 - Better Thermostat cannot force a sleepy battery TRV to wake up faster, and it spaces routine writes at least **30 seconds** apart (**10 minutes** with the HomematicIP option) to protect batteries and radio airtime.
 
 ### 2. Frozen sensors require integration availability tracking
-Every algorithm trusts your **`Room temperature sensor`**. When that sensor turns `unavailable`/`unknown` (or leaves `-50..60 °C`), Better Thermostat steps down safely to `sensor_fallback` after 2 minutes ([Degraded mode](/faq/degraded-mode/)). However, if a crashed sensor stops transmitting while its integration keeps showing a frozen `20.4 °C` forever, Home Assistant still marks it available!
-- **Fix:** Turn on **Availability** in **Zigbee2MQTT** (and `expire_after` on custom MQTT sensors); ZHA enables timeout tracking automatically.
+
+Every algorithm trusts your **`Room temperature sensor`**. When that sensor turns `unavailable`/`unknown` (or leaves `-50..60 °C`), Better Thermostat steps down after 2 minutes to `sensor_fallback` when at least one TRV temperature remains usable, or to `hold` (keeping the last state, or a `25 %` emergency valve opening on valve-only direct-valve devices) when both the room sensor and all TRV readings are unavailable ([Degraded mode](/faq/degraded-mode/)). However, if a crashed sensor stops transmitting while its integration keeps showing a frozen `20.4 °C` forever, Home Assistant still marks it available!
+- **Fix:** Turn on **Availability** in **Zigbee2MQTT** (and `expire_after` on custom MQTT sensors), and in **ZHA** configure the device **unavailable-after timeout** and verify that availability timeout tracking is enabled.
 
 ### 3. One physical TRV belongs to at most one Better Thermostat
+
 Setup prevents assigning the same TRV to two Better Thermostat rooms, because two controllers fighting over one valve breaks calibration. Legacy configurations sharing a TRV raise a [Thermostat in multiple rooms](/faq/shared-trv/) repair warning. Put multiple TRVs of the same room into **one** Better Thermostat entry instead.
 
 ### 4. No built-in boiler relay or timetable
+
 Better Thermostat controls room TRVs and an optional AC cooler—not central boiler switches, flow curves, or clock schedules. Pair it with a simple [`hvac_action` boiler automation](/deep-explanations/central-heating-thermostat/) and the bundled **[Weekly Heating Schedule blueprint](/setup/automation-blueprints/)**.
 
 ### 5. Humidity is for display and automation triggers only
+
 Attaching a humidity sensor exposes live humidity on the `climate` entity and triggers `humidity_high` / `current_humidity_changed` automations, without shifting target temperatures.
 
 ### 6. Weather entities must provide a forecast
+
 When using a `weather.*` entity for [Summer mode](/deep-explanations/summer-mode/), the integration must support Home Assistant weather forecasts. If forecast calls stop answering for more than 3 hours, Better Thermostat fails safe by allowing heating until forecasts return (or use a local **`Outdoor temperature sensor`** instead).
 
 ### 7. Fahrenheit systems: rate sensors stay in Kelvin & Celsius TRVs round to whole `°F`
+
 - Diagnostic rate and error sensors (`Temperature Slope`, `Heating Power`, `Heat Loss`, `MPC Gain`, `MPC Loss`, `MPC v2 Disturbance` in `K/min`, and `PID Error` in `K`) always report temperature *differences* in **Kelvin** (`1 K = 1.8 °F`) ([Entities & attributes](/setup/entities/)).
-- Most Zigbee TRVs work natively in `0.5 °C` (`0.9 °F`) steps and round Fahrenheit states in Home Assistant to whole degrees (`70 °F`, `71 °F`). To prevent endless reconciliation retries when `71.5 °F` echoes back as `71 °F` or `72 °F`, Better Thermostat keeps your room target at `70.5 °F` while sending whole-degree `°F` commands to whole-degree hardware.
+- Most Zigbee TRVs work natively in `0.5 °C` (`0.9 °F`) steps and round Fahrenheit states in Home Assistant to whole degrees (`70 °F`, `71 °F`). To prevent endless reconciliation retries when `71.5 °F` echoes back as `71 °F` or `72 °F`, Better Thermostat keeps your room target at `71.5 °F` while rounding outbound commands onto the device's whole-degree `°F` grid.
 
 ### 8. Learning algorithms improve over days, not minutes
+
 `(AI) Time Based`, `PID Auto Tune`, and `(AI) MPC v2` (`Auto`) learn across complete heating and cooling cycles. `PID Controller` and `MPC Predictive` are in Beta (`MPC Predictive` causes higher valve wear and can over-react in multi-TRV rooms), and `(AI) MPC v2` is experimental for direct-valve TRVs ([Calibration types & algorithms](/calibration_algorithms/)).

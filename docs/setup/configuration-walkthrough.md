@@ -44,7 +44,7 @@ If a room has two or three windows, combine them into one `binary_sensor` before
 **Recommended (No YAML, no restart):**
 1. Go to **Settings → Devices & Services → Helpers** (top tab).
 2. Click **+ Create Helper → Group → Binary sensor group**.
-3. Name it (e.g. `Living Room Windows`), leave **All entities** turned **Off** *(so any single open window reports the group as open)*, add your window contacts, and click **Submit**.
+3. Name it (e.g. `Living Room Windows`), leave **All entities** turned **Off** *(so any single open window reports the group as open)*, add your window contacts, and click **Submit**. *(Note: Because Better Thermostat monitors the group entity's state, an individual contact that turns `unavailable` while the others are closed still leaves the group state as closed even though Home Assistant reports that contact's unavailability separately—monitor each contact entity's availability individually if you want offline-sensor alerts.)*
 
 *(YAML alternative in `configuration.yaml` if you prefer text files:)*
 ```yaml

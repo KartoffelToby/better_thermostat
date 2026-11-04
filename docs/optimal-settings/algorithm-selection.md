@@ -28,7 +28,7 @@ Not sure which options to pick on **Screen 2** of Better Thermostat's setup? Use
 | **Kitchen, sunny south room, or drafty hallway** | **`PID Controller`** *(with `0.1 °C` room sensor)* or **`TPI Controller`** | **`0.2–0.3 °C`** | PID's derivative brake reacts rapidly to cooking heat, afternoon sun, or door drafts. |
 | **Cold, poorly insulated room** that warms up too slowly | **`Aggressive`** *(non-direct-valve)* | **`0.3 °C`** | Adds `+2.5 °C` extra push immediately on temperature dips. Keep `Overheating protection?` **On**. |
 | **Underfloor heating / heavy cast-iron radiators** | **`(AI) Time Based (Default)`** or **`TPI Controller`** | **`0.5 °C`** | Wider tolerance prevents fighting multi-hour thermal inertia. |
-| **Smart TRV whose internal loop you want to keep** (e.g. tado°) | **`External Sensor Offset Only`** | *(not used)* | Pure 1:1 sensor bias correction; TRV's own firmware handles modulation. |
+| **Smart TRV whose internal loop you want to keep** (e.g. tado°) | **`External Sensor Offset Only`** *(or **`No Calibration`** on Matter TRVs bound to a room sensor, where setup accepts only `No Calibration`)* | *(not used on `External Sensor Offset Only`)* | Pure 1:1 sensor bias correction; TRV's own firmware handles modulation (Matter bound-sensor TRVs regulate on the bound room sensor directly and reject `External Sensor Offset Only`). |
 
 ---
 
