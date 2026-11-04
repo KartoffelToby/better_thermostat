@@ -9,7 +9,7 @@ Whenever a room does not heat the way you expect, open **Developer Tools → Sta
 
 - **`heating_blocked_by`**: Immediately tells you *why* Better Thermostat is holding the radiator off right now:
   - `null` / empty → Heating is allowed (if the radiator is still cold, check the table below!).
-  - `no_call_for_heat` → **[Summer mode](/deep-explanations/summer-mode/)** turned heating off because the 24h-smoothed outdoor temperature is above your threshold (or within its `1 °C` switch-back hysteresis).
+  - `no_call_for_heat` → **[Summer mode](/deep-explanations/summer-mode/)** turned heating off because the outdoor temperature is above your threshold (or within its `1 °C` switch-back hysteresis). With an outdoor sensor, its 24h-smoothed reading decides alone; with only a weather entity, heating stays off while both the 24h-smoothed current temperature and the forecast mean are at or above that line.
   - `window` or `door` → A configured **[Window](/faq/window-sensor/)** or **[Door](/faq/door-sensor/)** sensor currently reports open (or is still counting down its close delay).
   - `hvac_off` → The Better Thermostat entity itself is set to `off`.
   - `devices_released` → The **`Release devices`** switch (or every TRV's **`Release`** switch) is turned `on` ([Releasing devices](/setup/releasing-devices/)).
@@ -47,19 +47,19 @@ See side-by-side numerical examples in **[Calibration types & algorithms](/calib
 ### Which algorithm should I start with?
 Start with **`(AI) Time Based (Default)`** or **`TPI Controller`**.
 - `(AI) Time Based` learns your room's warming speed automatically over 2–3 heating cycles.
-- `TPI Controller` needs zero learning wait, moves the valve motor far less than `PID` or `MPC Predictive`, and eliminates overshoot in bedrooms, well-insulated rooms, and multi-radiator rooms.
+- `TPI Controller` needs zero learning wait, moves the valve motor far less than `PID` or `MPC Predictive`, and usually reduces overshoot in steady rooms such as bedrooms, well-insulated rooms, and multi-radiator rooms.
 - On **`Direct Valve Based`** TRVs, **`(AI) MPC v2 (QP + Kalman, experimental)`** adds physics-based predictive braking.
 
 ### Why does my TRV pick up a change with a 30-second (or 10-minute) delay?
 Better Thermostat spaces routine radio writes to each TRV at least **30 seconds apart** (tracked independently for setpoint, offset, and valve commands). Battery-powered Zigbee/Z-Wave/BLE valves sit on shared low-bandwidth radios; sending write bursts drains batteries rapidly and drops packets.
 
-- Any change made inside that 30-second window isn't lost—it is queued and sent automatically the moment the 30-second timer expires.
+- Any change made inside that 30-second window isn't lost—rapid writes are coalesced, and the latest desired value is retried automatically once the write budget reopens (intermediate targets or offsets are not queued and sent one by one).
 - With the **HomematicIP** option enabled, background writes are spaced **10 minutes apart** to protect the strict 868 MHz 1 % airtime budget, while your *first* manual target/mode change still goes out at the 30-second pace.
 - **Safety writes** (turning `off`, closing a valve to `0 %`, or frost-floor protection) **bypass the timer and go out immediately**.
 - If a radio packet is dropped anyway, Better Thermostat's 5-minute reconciler spots the mismatch and re-sends it automatically ([Data updates & radio limits](/deep-explanations/data-updates/)).
 
 ### Can Better Thermostat use my boiler or heat-pump flow temperature?
-No—and intentionally so. Better Thermostat neither asks for a fixed flow temperature nor reads a supply-pipe sensor, because in thermal benchmarks across 40 boiler and heat-pump scenarios, feeding flow temperature without knowing exact radiator wattage degraded heat-pump accuracy and quadrupled valve wear. Read the full benchmark breakdown in **[Why MPC v2 does not use the flow temperature](/calibration_algorithms/#why-mpc-v2-does-not-use-the-flow-temperature)**.
+No—and intentionally so. Better Thermostat neither asks for a fixed flow temperature nor reads a supply-pipe sensor, because in thermal benchmarks across 40 boiler and heat-pump scenarios, feeding flow temperature without knowing exact radiator wattage degraded heat-pump accuracy and nearly quadrupled daily valve travel. Read the full benchmark breakdown in **[Why MPC v2 does not use the flow temperature](/calibration_algorithms/#why-mpc-v2-does-not-use-the-flow-temperature)**.
 
 ### How do I collect logs or diagnostics for a bug report?
 Better Thermostat includes an internal **50-cycle deterministic flight recorder** inside Home Assistant's one-click Diagnostics file—so developers can replay your exact room decisions offline! Follow **[Debugging & diagnostics](/faq/debugging/)**.

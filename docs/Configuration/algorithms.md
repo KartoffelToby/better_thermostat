@@ -37,7 +37,7 @@ To see what each option actually sends over the radio, imagine this everyday sna
   The algorithm sets the valve opening itself rather than asking the TRV's own logic for it, so the response arrives without a detour and the room's reaction is a cleaner signal to learn from. Valve position is not heat output (flow temperature and the valve's own authority still sit in between), but it is the most direct handle Better Thermostat can get on the device. Every mode runs without it.
 - **Compatible algorithms:** Works with the **5 valve-computing modes**: `(AI) Time Based (Default)`, `TPI Controller`, `(AI) MPC v2 (QP + Kalman, experimental)`, `PID Controller`, and `MPC Predictive (Beta)`.
   - If you pair `Direct Valve Based` with `Aggressive`, `External Sensor Offset Only`, or `No Calibration`, standard TRVs automatically fall back to setpoint control (`Target Temperature Based`). On valve-only TRVs like the **Shelly BLU TRV**, setup rejects incompatible modes—and if a stored configuration carries one, Better Thermostat returns a **`0 %` valve command** (raising a Home Assistant Repair warning and blocking heating, including `Boost`) until you select a compatible controller.
-- **Boost preset**: While Boost is heating, Better Thermostat opens the valve to the TRV's *Valve Max Opening* under every calibration mode. When the TRV is switched off during Boost (Better Thermostat off, a window open, no heat called for), it closes the valve to 0 %, as it does under the modes that write the valve.
+- **Boost preset**: While Boost is heating, Better Thermostat opens the valve to the TRV's *Valve Max Opening* under every calibration mode, with one exception: a valve-only TRV (such as the Shelly BLU TRV) whose stored configuration carries an incompatible calibration mode stays blocked and receives a `0 %` valve command during Boost as well. When the TRV is switched off during Boost (Better Thermostat off, a window open, no heat called for), it closes the valve to 0 %, as it does under the modes that write the valve.
 - **Missing TRV temperature reading:** The valve opening is sized from your room sensor, not from the TRV's own temperature. A TRV that stops reporting its own temperature still has its valve opened and closed; only the target temperature that accompanies the valve command is held back until the TRV reports a temperature again.
 
 #### Direct valve control
@@ -75,7 +75,7 @@ Many TRVs clamp their local offset in firmware (for example `±2.5 °C` on Saswe
 - **What you'll notice on the TRV screen:** Seeing **`26 °C` or `30 °C`** on the radiator's physical display while heating is **completely normal and expected**. Better Thermostat is temporarily pulling the valve open and will throttle it back down before your room exceeds `21.0 °C`.
 
 :::tip[How 0–100 % algorithms work on Offset Based and Target Temperature Based TRVs]
-Even without `Direct Valve Based`, algorithms like `(AI) Time Based`, `TPI`, and `PID` still compute a `0–100 %` valve demand. Better Thermostat translates `0 %` into a setpoint/offset at the TRV's current temperature (closing the valve) and `100 %` toward the TRV's maximum setpoint (opening the valve), giving you smooth proportional modulation on ordinary TRVs ([Virtual hydraulic balancing](/deep-explanations/hydraulic-balance/)).
+Even without `Direct Valve Based`, algorithms like `(AI) Time Based`, `TPI`, and `PID` still compute a `0–100 %` valve demand. For `TPI`, `PID`, and the MPC modes on either calibration type, and for `(AI) Time Based` on `Target Temperature Based`, Better Thermostat translates `0 %` into a setpoint/offset at the TRV's current temperature (closing the valve) and `100 %` toward the TRV's maximum setpoint (opening the valve), giving you smooth proportional modulation on ordinary TRVs. `(AI) Time Based` on `Offset Based` uses its own legacy offset formula instead: the new offset is the current offset minus `(TRV minimum local calibration + TRV reading) × valve fraction` ([Virtual hydraulic balancing](/deep-explanations/hydraulic-balance/)).
 :::
 
 ---
@@ -144,7 +144,7 @@ Still unsure? Run the **[Interactive Configurator](/setup/configurator/)** for a
   |---|---|---|---|
   | **`19.5 °C`** | `1.5 °C` too cold | **`100 %`** (`90 % + 16 %`, capped) | Full heat-up power |
   | **`20.5 °C`** | `0.5 °C` below target | **`46 %`** (`30 % + 16 %`) | Gently throttles down *before* hitting `21.0 °C` |
-  | **`21.0 °C`** | `0.0 °C` (right on target!) | **`16 %`** (`0 % + 16 %`) | Holds a tiny steady trickle matching heat escaping outdoors—no sawtooth cycling! |
+  | **`21.0 °C`** | `0.0 °C` (right on target!) | **`16 %`** (`0 % + 16 %`) | Holds a tiny steady trickle matching heat escaping outdoors—no sawtooth cycling. Note that at target the room's `hvac_action` is `idle`, so if your boiler is switched off whenever no room reports heating, this `16 %` request receives no hot water. |
   | **`21.3 °C`** | `0.3 °C` above target | **`0 %`** | Shuts completely if sunlight or body heat warms the room |
 
   *(Without an outdoor sensor or weather entity, TPI still works great using just the `60 %` per `°C` indoor term, closing to `0 %` at `21.0 °C`.)*
