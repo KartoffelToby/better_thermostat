@@ -15,47 +15,31 @@ Because Better Thermostat talks through Home Assistant entities rather than dire
 | **ZHA (Zigbee Home Automation)** | ✅ All TRVs | ⚠️ Device-dependent (many TRVs hide offset in ZHA) | ⚠️ Rarely exposed | Works reliably via `Target Temperature Based` even when ZHA only creates a `climate` entity. |
 | **Shelly (Native HA)** | ✅ Shelly TRV Gen1 (`SHTRV-01`) | ✅ Where exposed | ✅ **Shelly BLU TRV** (via BLU Gateway Gen3) | Disable Shelly's internal auto-temp mode on BLU TRVs to unlock writable valve control (see below). |
 | **Homematic(IP) Local / OpenCCU** | ✅ All TRVs | ✅ Yes (via `select.*_temperature_offset` once un-ignored) | ❌ Not writable | Un-ignore `TEMPERATURE_OFFSET` in OpenCCU ([instructions](/configuration/#homematicip--openccu-enabling-offset-based-calibration)) and keep the **HomematicIP** 10-minute duty-cycle option enabled. |
-| **Z-Wave JS** | ✅ All TRVs | ✅ When exposed as a `number` entity | ✅ **Eurotronic Spirit Z / Aeotec `ZWA021`** | On `ZWA021`, Better Thermostat automatically engages *Manufacturer Specific* mode when `Direct Valve Based` is chosen. |
-| **tado° / deCONZ / Matter / Generic `climate`** | ✅ All TRVs | ✅ tado°, deCONZ, and any device exposing an offset entity | ❌ Usually not exposed | Works out of the box. |
+| **Z-Wave JS** | ✅ All TRVs | ✅ When exposed as a `number` entity (including `0.1 °C` / `0.01 °C` config parameters once enabled) | ✅ **Eurotronic Spirit Z / Aeotec `ZWA021`** | On `ZWA021`, Better Thermostat supports parameter 8 local offsets and engages *Manufacturer Specific* mode when `Direct Valve Based` is chosen. |
+| **tado° / deCONZ / Matter / Generic `climate`** | ✅ All TRVs | ✅ tado°, deCONZ, and any device exposing an offset entity | ❌ Usually not exposed | Works out of the box (Matter remote-sensing bindings automatically select `No Calibration`). |
 
 ---
-1. Adapter support in Better Thermostat
-2. A compatible offset capability on your TRV/integration
 
-Currently, integrations with local calibration support include:
+## Local offset & direct valve requirements
 
-- Tado
-- Zigbee2MQTT
-- deCONZ
-- Z-Wave JS, when the TRV exposes a calibration entity. A configuration parameter is used as one when its unit is degrees Celsius or a tenth or hundredth of one: the temperature offset of the Eurotronic Spirit and the Aeotec ZWA021, parameter 8, counts tenths of a degree and is read and written in that unit, and its reserved value -128 (external sensor) is never written. Home Assistant creates configuration parameters disabled, so enable that entity and reload Better Thermostat
+### Local offset calibration (`Offset Based`)
+
+`Offset Based` calibration is offered whenever your integration exposes a writable temperature calibration entity (`number` or `select`) on the TRV device:
+
+- **Zigbee2MQTT**, **tado°**, **deCONZ**, and **Homematic(IP) Local / OpenCCU** (once `TEMPERATURE_OFFSET` is un-ignored)
+- **Z-Wave JS**, when the TRV exposes a calibration entity. A configuration parameter is used as one when its unit is degrees Celsius or a tenth or hundredth of one: the temperature offset of the Eurotronic Spirit and the Aeotec ZWA021, parameter 8, counts tenths of a degree and is read and written in that unit, and its reserved value -128 (external sensor) is never written. Home Assistant creates configuration parameters disabled, so enable that entity and reload Better Thermostat
 - Any other integration whose TRV exposes a calibration entity (a `number` or `select`) that Better Thermostat can find
 
-## Direct valve control (recommended for MPC/PID)
+### Direct valve control (recommended for MPC/PID)
 
 Direct valve control requires one of:
 
 1. Adapter support in Better Thermostat together with a controllable valve position entity exposed by your TRV/integration
 2. A valve control built into Better Thermostat for your model, as for the Sonoff TRVZB and the Eurotronic Spirit Z / Aeotec ZWA021 (see [Direct valve control](/calibration_algorithms/#devices-that-support-it))
 
-Devices that expose a controllable valve position work best with the advanced control modes (MPC/PID), because BT can set the valve opening directly. Select the **Direct Valve Based** calibration type to use it.
+Devices that expose a controllable valve position work best with the advanced control modes (`(AI) MPC v2`, `TPI Controller`, `PID Controller`, and `(AI) Time Based`), because Better Thermostat can set the valve opening directly. Select the **`Direct Valve Based`** calibration type to use it.
 
-### Shelly BLU TRV (direct valve control)
-
-Use Home Assistant's native Shelly integration with a compatible BLU gateway. The BLU TRV's own automatic temperature control must be disabled in Shelly's settings. Home Assistant then exposes its writable **Valve position** `number` instead of the read-only position sensor. Wait for the number to become available before configuring Better Thermostat. It must belong to the same TRV device as the `climate` entity; a gateway can serve several TRVs.
-
-In Better Thermostat, select the physical TRV and the room temperature sensor, then set the **Calibration type** to **Direct Valve Based** and the **Calibration mode** to **AI Time Based**, **MPC**, **MPC v2**, **PID** or **TPI**. The calibration modes External Sensor Offset Only (stored as Normal), Aggressive and No Calibration do not produce a valve opening and are rejected for this combination in both setup and options. A stored configuration with an incompatible or unknown calibration mode raises a Repairs issue; BT requests 0% and blocks opening that valve, including Boost, until its options are corrected. The entry stays loaded to retry closure if the device is temporarily unreachable. BT does not replace the saved calibration mode automatically.
-
-During regulation, the valve percentage is the only actuator: Better Thermostat does not send a setpoint, HVAC mode or calibration offset to the BLU TRV. A device that still reports a target temperature follows the same rule. Change the room's target and mode on Better Thermostat; setpoint or mode reports from the physical TRV do not change them. Temperature and availability reports are still read. Periodic reconciliation checks the valve position, leaving differences in thermostat settings alone. An OFF or open-contact decision closes the valve rather than switching the device's thermostat off. Standard startup tweaks and the common valve-maintenance routine are unchanged.
-
-This policy is specific to an adopted BLU TRV valve. The Shelly TRV Gen1 also exposes a valve number, but its thermostat keeps running; that number does not enable this direct-control path. Ordinary target-temperature and offset control retain their existing behaviour.
-
-#### Switching back to Shelly's temperature control
-
-First set Better Thermostat to OFF and wait until the valve reports 0%. Stop any other automation that writes the valve. Re-enable automatic temperature control in Shelly, wait for Home Assistant to update the device's entities, then set the **Calibration type** in Better Thermostat to **Target Temperature Based** (or stop using Better Thermostat for that device). For direct control again, disable Shelly's automatic control, wait for the writable number, and set the calibration type to Direct Valve Based with a supported calibration mode. Do not switch Shelly modes while Better Thermostat is actively controlling the valve.
-
-#### Unavailable devices and outages
-
-An unavailable valve number does not cause Better Thermostat to fall back to setpoint or HVAC commands. The normal write budget and retry handling apply; there is no extra sleep inside the control lock for BLU TRVs. Restore the gateway connection or reload the Shelly integration after a firmware update if its entities do not recover. If an entity was disabled, re-enable it; if the device's mode changed, restore the intended mode and reconfigure BT.
+---
 
 ## Built-in device quirks & optimizations
 
@@ -63,12 +47,14 @@ Better Thermostat automatically detects the device model in Home Assistant's Dev
 
 | Model ID / Family | Brand & Device | What Better Thermostat handles automatically |
 |---|---|---|
-| **`TRVZB`** | **Sonoff Zigbee TRV** | Supports **`Direct Valve Based`** (`0–100 %`), **`Offset Based`** (note `-12.7 °C` firmware lower bound), and automatically **mirrors your external room sensor reading** into the TRV's external temperature input when available. |
+| **`TRVZB`** | **Sonoff Zigbee TRV (Z2M & ZHA)** | Supports **`Direct Valve Based`** (`0–100 %` via opening and closing degree numbers), **`Offset Based`** (note `-12.7 °C` firmware lower bound), and automatically **mirrors your external room sensor reading** into the TRV's external temperature input and selects external sensor mode (unless `Keep the TRV's sensor selection` is enabled). |
 | **`TRV-ZBT`** | **Sonoff Zigbee TRV Gen2** | Automatically mirrors your external room sensor reading into the TRV's external sensor input. *(Does **not** use `Direct Valve Based`: its `heating_valve_position` / `idle_valve_position` numbers only set internal limits rather than positioning the motor directly.)* |
-| **Shelly BLU TRV** | **Shelly BLU TRV (via BLU Gateway)** | Dedicated **`Direct Valve Based`** adapter (`0–100 %` valve actuator, `25 %` emergency opening on total sensor loss). See dedicated setup rules below. |
+| **`SRTS-A01`** | **Aqara Smart Radiator Thermostat E1** | Automatically mirrors your external room sensor reading into `external_temperature_input` and switches `sensor` between `external` (during normal `optimal` control) and `internal` (during `sensor_fallback` / `hold`), unless `Keep the TRV's sensor selection` is enabled. |
+| **`014G2461`** | **Danfoss Ally (`014G2461` / `014G2463`), Popp `701721`, Hive `UK7004240`** | In **`No Calibration`** mode, automatically writes your room sensor reading (in hundredths of a `°C`, refreshed every 30 min) to `external_measured_room_sensor` so the Danfoss firmware regulates on your room thermometer natively. |
+| **`SBTR-001AEU` (`Shelly BLU TRV`)** | **Shelly BLU TRV (via BLU Gateway)** | Dedicated **`Direct Valve Based`** adapter (`0–100 %` valve actuator, `25 %` emergency opening on total sensor loss), or writes your room temperature to `external_temperature` when used in **`No Calibration`** mode with Shelly's own thermostat enabled. See dedicated setup rules below. |
 | **`SHTRV-01`** | **Shelly TRV (Gen1 Wi-Fi)** | Prevents `4.0 °C` minimum-setpoint writes from unintentionally reporting back as the user turning the thermostat `off` (floors active closing writes one `0.5 °C` step above `4.0 °C`). |
 | **`SPZB0001`** | **Eurotronic Spirit Zigbee** | Supports **`Direct Valve Based`** (`0–100 %`) and safely clamps **`Offset Based`** writes to the hardware's `±5.0 °C` limit. |
-| **`ZWA021`** | **Eurotronic Spirit Z / Aeotec Z-Wave** | Automatically switches the TRV into its hidden Z-Wave *Manufacturer Specific* mode when **`Direct Valve Based`** is selected (and leaves standard `climate` control untouched otherwise). |
+| **`ZWA021`** | **Eurotronic Spirit Z / Aeotec Z-Wave** | Automatically switches the TRV into its hidden Z-Wave *Manufacturer Specific* mode (`Multilevel Switch`) when **`Direct Valve Based`** is selected, and supports Z-Wave parameter 8 (`0.1 °C` tenths of a degree, skipping reserved `-128`) for **`Offset Based`** calibration once enabled in Home Assistant. |
 | **`COZB0001`** | **Eurotronic Comet Zigbee** | Compensates for firmware that applies `local_temperature_calibration` to the internal setpoint instead of the reported temperature reading. |
 | **`SEA801-Zigbee` / `SEA802-Zigbee`** | **Saswell / Tuya OEM Zigbee TRVs** | Normalizes offset rounding quirks. *(Hardware has a small local offset window—switch to **`Target Temperature Based`** if the radiator sits in a hot pocket!)* |
 | **`BTH-RM` / `BTH-RM230Z`** | **Bosch Smart Home Thermostats** | Adapts temperature ranges and dual-setpoint climate handling. |
@@ -84,20 +70,43 @@ Better Thermostat automatically detects the device model in Home Assistant's Dev
 
 Missing a quirk for your TRV model? [Open a GitHub issue](https://github.com/KartoffelToby/better_thermostat/issues) with a [Diagnostics download](/faq/debugging/).
 
-## Shelly BLU TRV (own thermostat)
+### Devices that are known to work
 
-To keep the BLU TRV's own automatic temperature control, set the **Calibration type** to **Target Temperature Based** and the **Calibration mode** to **No Calibration**. Better Thermostat then passes its target to the TRV unchanged and writes the room temperature to the TRV's **External temperature** `number`, so the TRV regulates on the room sensor; see [Room temperature written to the TRV](#room-temperature-written-to-the-trv). If that number is missing or disabled in Home Assistant, Better Thermostat logs a warning once and the TRV regulates without a room temperature (the gateway reports `ext_temp_missing`).
+Models with dedicated built-in handling in Better Thermostat:
+
+- `014G2461` (Danfoss Ally, also Danfoss `014G2463`, Popp `701721` and Hive `UK7004240`)
+- `BHT-002-GCLZB`
+- `BTH-RM`
+- `BTH-RM230Z`
+- `COZB0001` (Eurotronic Comet Zigbee)
+- `Heater` (TermoWeb electric radiator, through the `ha-termoweb` integration)
+- `ME167` (Avatto)
+- `SEA801-Zigbee` / `SEA802-Zigbee`
+- `SBTR-001AEU` (Shelly BLU TRV)
+- `SHTRV-01` (Shelly TRV, Gen1)
+- `SPZB0001` (Eurotronic Spirit Zigbee)
+- `SRTS-A01` (Aqara Smart Radiator Thermostat E1)
+- `TRV-ZBT` (Sonoff TRV-ZBT)
+- `TRVZB` (Sonoff TRVZB)
+- `TS0601`
+- `TS0601_thermostat`
+- `TV02-Zigbee`
+- `ZWA021` (Eurotronic Spirit Z / Aeotec ZWA021, Z-Wave)
+
+---
 
 ## Room temperature written to the TRV
 
 Some TRVs can regulate on a room temperature sent to them instead of their own sensor. For these models Better Thermostat writes its room temperature to the device:
 
 - **Sonoff TRVZB and TRV-ZBT** (Zigbee2MQTT): to `external_temperature_input`, and switches the device's temperature sensor selection to it. A TRVZB paired through ZHA gets it in `external_temperature_sensor_value`, and its `external_temperature_sensor` switch is turned on. With the TRV's advanced option **Keep the TRV's sensor selection** on, the value is still written but the selection and the switch stay as you set them, for example on `local_temperature` so that each TRV regulates on its own sensor (see [Configuration](/configuration/#second-step)).
+- **Aqara SRTS-A01 (Smart Radiator Thermostat E1)** (Zigbee2MQTT): writes the room temperature to `external_temperature_input` and switches the device's `sensor` selector to `external` while Better Thermostat is in normal (`optimal`) control. Because the SRTS-A01 does not time out an external reading on its own, Better Thermostat automatically switches `sensor` back to `internal` whenever the room sensor enters `sensor_fallback` or `hold` (unless **Keep the TRV's sensor selection** is turned on).
 - **Danfoss Ally, Popp 701721, Hive UK7004240** (Zigbee2MQTT): to `external_measured_room_sensor`, in hundredths of a degree Celsius as Zigbee2MQTT expects, but only with the calibration mode **No Calibration**. The device corrects for its own sensor itself once it has the room temperature, so any other calibration mode would correct the same bias a second time. A change of at least 0.1 °C is written at once. An unchanged value goes out again with Better Thermostat's 30-minute refresh, which stays within the time after which the device drops the value and returns to its own sensor: 3 hours, or 35 minutes with `radiator_covered` on. Better Thermostat does not change `radiator_covered`; set it to match how the radiator is mounted. Open windows are not reported through `window_open_external`, and `heat_available` is not used.
-
 - **Shelly BLU TRV** (SBTR-001AEU, Home Assistant's Shelly integration): to its **External temperature** number (`external_temperature`), but only with the calibration mode **No Calibration** and not under **Direct Valve Based** control, for the same reason as the Danfoss Ally: the TRV corrects for its own sensor once it has the room temperature, and under direct valve control its own thermostat is off. Only readings Better Thermostat accepts are written; its sensor filter can hold a small or flickering change back for a while. An accepted change of at least 0.1 °C is written at once. An unchanged value goes out again with the first accepted reading or 30-minute refresh that comes at least 5 minutes after the last write, so two writes stay less than 35 minutes apart. If the number is missing or disabled, a warning is logged once.
 
 No value is written while the room sensor gives no reading, or when the room sensor belongs to the TRV itself.
+
+---
 
 ## TRVs bound to a room sensor over Matter
 
@@ -113,41 +122,25 @@ The room temperature sensor is still required in setup. Select the sensor the th
 
 These thermostats offer no valve control over Matter, so the **Direct Valve Based** calibration type is not available for them.
 
-## Devices that are known to work
+---
 
 ## Shelly BLU TRV (direct valve control & repair warning)
 
 Use Home Assistant's native **Shelly** integration with a compatible Shelly BLU Gateway (e.g. BLU Gateway Gen3):
-- 014G2461 (Danfoss Ally, also Danfoss 014G2463, Popp 701721 and Hive UK7004240)
-- BHT-002-GCLZB
-- BTH-RM
-- BTH-RM230Z
-- COZB0001 (Eurotronic Comet Zigbee)
-- Heater (TermoWeb electric radiator, through the ha-termoweb integration)
-- ME167 (Avatto)
-- SEA801-Zigbee / SEA802-Zigbee
-- SBTR-001AEU (Shelly BLU TRV)
-- SHTRV-01 (Shelly TRV, Gen1)
-- SPZB0001 (Eurotronic Spirit Zigbee)
-- TRV-ZBT (Sonoff TRV-ZBT)
-- TRVZB (Sonoff TRVZB)
-- TS0601
-- TS0601_thermostat
-- TV02-Zigbee
-- ZWA021 (Eurotronic Spirit Z / Aeotec ZWA021, Z-Wave)
 
-1. **Disable Shelly's internal automatic temperature control** in the Shelly device settings first. Home Assistant will then replace the read-only valve sensor with a writable **`Valve position` (`number.*`)** entity on the same TRV device. Wait until that `number` entity is available before setting up Better Thermostat.
+1. **Disable Shelly's internal automatic temperature control** in the Shelly device settings first. Home Assistant will then replace the read-only valve sensor with a writable **`Valve position` (`number.*`)** entity on the same TRV device (a gateway can serve several TRVs, and the `number` must belong to the same device as the `climate` entity). Wait until that `number` entity is available before setting up Better Thermostat. *(Note: Shelly TRV Gen1 `SHTRV-01` also exposes a valve number, but its internal thermostat stays active, so this direct-control path is specific to the BLU TRV.)*
 2. In Better Thermostat (Screen 2), select:
    - **`Calibration type`:** **`Direct Valve Based`**
    - **`Calibration mode`:** One of the **5 valve-computing modes** — **`(AI) Time Based (Default)`**, **`TPI Controller`**, **`(AI) MPC v2 (QP + Kalman, experimental)`**, **`PID Controller`**, or **`MPC Predictive (Beta)`**.
 3. **Why you might see the *"Incompatible calibration mode for direct valve control"* repair warning (`invalid_valve_calibration`):**
-   - `External Sensor Offset Only`, `Aggressive`, and `No Calibration` do not compute a `0–100 %` valve opening. Setup refuses that combination, and if an older stored configuration carries one, Better Thermostat raises a Repair warning, commands **`0 %` (closed)** for safety (blocking `Boost` too), and waits until you open **Configure** and pick one of the 5 valve modes above.
+   - `External Sensor Offset Only`, `Aggressive`, and `No Calibration` do not compute a `0–100 %` valve opening. Setup refuses that combination, and if a stored configuration carries one, Better Thermostat raises a Repair warning, commands **`0 %` (closed)** for safety (blocking `Boost` too), and keeps the entry loaded to retry closing until you open **Configure** and pick one of the 5 valve modes above.
 4. **How daily operation differs on an adopted Shelly BLU TRV:**
    - The `0–100 %` valve `number` is the **only** actuator: Better Thermostat sends no setpoints, HVAC modes, or offsets to the BLU TRV, and physical target/mode reports from the BLU TRV do not alter Better Thermostat's room target. Change temperatures and modes on the Better Thermostat entity.
    - Turning Better Thermostat `off` or opening a window/door closes the valve to **`0 %`**.
    - **Total sensor loss (`hold` mode):** Because Shelly's internal thermostat loop is disabled, if *both* your room sensor and the TRV's own temperature reading fail simultaneously, Better Thermostat requests a fixed **`25 %` emergency valve opening** (unless Better Thermostat is `off` or a window/door is open) until a temperature reading returns for 5 minutes ([Degraded mode](/faq/degraded-mode/)).
-5. **Switching back to Shelly's built-in temperature control:**
-   - First set Better Thermostat to **`off`** and wait until the valve reports **`0 %`**. Re-enable automatic temperature control inside Shelly, wait for Home Assistant to refresh the entities, and then reconfigure Better Thermostat to **`Target Temperature Based`** (or remove the room entry). Never flip Shelly's internal control mode while Better Thermostat is actively driving the valve.
+   - **Unavailable devices and outages:** An unavailable valve `number` does not cause Better Thermostat to fall back to setpoint or HVAC commands; normal write budgets and retry handling apply. Restore the gateway connection or reload the Shelly integration after a firmware update if its entities do not recover.
+5. **Switching back to Shelly's built-in temperature control (own thermostat):**
+   - First set Better Thermostat to **`off`**, wait until the valve reports **`0 %`**, and stop any other automation that writes the valve. Re-enable automatic temperature control inside Shelly, wait for Home Assistant to refresh the device's entities, and then set **`Calibration type`** in Better Thermostat to **`Target Temperature Based`** (and **`Calibration mode`** to **`No Calibration`** if you want Better Thermostat to pass its target unchanged and write the room temperature to Shelly's **External temperature** `number`; see [Room temperature written to the TRV](#room-temperature-written-to-the-trv)). Never flip Shelly's internal control mode while Better Thermostat is actively driving the valve.
 
 ---
 
@@ -155,7 +148,7 @@ Use Home Assistant's native **Shelly** integration with a compatible Shelly BLU 
 
 ### 1. Better Thermostat can only use entities your integration exposes
 Better Thermostat has no Zigbee, Z-Wave, or Bluetooth radio of its own:
-- **`Offset Based`** requires a writable `number` or `select` offset entity on the TRV device (Z-Wave raw configuration parameters—like parameter 8 in tenths of a degree on Spirit Z-Wave—are intentionally not treated as offset entities).
+- **`Offset Based`** requires a writable `number` or `select` offset entity on the TRV device (on Z-Wave JS, configuration parameters in `°C`, `0.1 °C`, or `0.01 °C`—such as parameter 8 in tenths of a degree on Eurotronic Spirit Z / Aeotec `ZWA021`—are supported once you enable that disabled-by-default entity in Home Assistant and reload Better Thermostat).
 - **`Direct Valve Based`** requires a writable valve-opening entity (or dedicated model quirk).
 - **`Target Temperature Based`** works on every `climate` TRV.
 - Better Thermostat cannot force a sleepy battery TRV to wake up faster, and it spaces routine writes at least **30 seconds** apart (**10 minutes** with the HomematicIP option) to protect batteries and radio airtime.

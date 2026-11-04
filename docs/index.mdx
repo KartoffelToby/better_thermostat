@@ -21,6 +21,7 @@ hero:
 ---
 
 import { Card, CardGrid } from '/node_modules/@astrojs/starlight/components';
+import WhyDiagram from '../website/src/components/WhyDiagram.astro';
 
 <div align="center">
 
@@ -31,39 +32,38 @@ import { Card, CardGrid } from '/node_modules/@astrojs/starlight/components';
 
 ## Why Better Thermostat exists
 
+### 1. The physical flaw of every radiator valve
 Every smart radiator thermostat (TRV) has the same physical flaw: **its built-in thermometer sits millimeters away from a 55–70 °C hot water pipe.**
 
 Within minutes of opening the valve, trapped heat around the radiator makes the TRV read **23 °C** and throttle back—even though your sofa in the middle of the room is still **19 °C**. Behind curtains, covers, or furniture, the heat pocket is even worse and the room never reaches your target temperature.
 
 Better Thermostat fixes this by wrapping your radiator valves and a **separate room temperature sensor** into **one virtual `climate` entity** in Home Assistant.
 
-```mermaid
-flowchart LR
-    subgraph Inputs["Your Existing Room Entities"]
-        RS["Room Temp Sensor (Required)"]
-        TRV["1 or More Radiator TRVs"]
-        WD["Window & Door Sensors (Optional)"]
-        OUT["Outdoor Sensor / Weather (Optional)"]
-        AC["Cooling / AC Device (Optional)"]
-    end
+<WhyDiagram />
 
-    BT["Better Thermostat (One Virtual climate Entity)"]
+### 2. No expensive vendor lock-in, no cloud, and no monthly subscriptions
+Commercial smart-heating ecosystems like **Bosch Smart Home** or **tado°** solve the radiator sensor problem only if you buy their expensive proprietary wireless room thermostats (`50–80 €` per room), stay locked inside a single manufacturer's bridge, and—in ecosystems like tado°—pay for a **monthly or yearly subscription** just to unlock automatic open-window shutoff or presence automation.
 
-    subgraph Control["What You Control From Now On"]
-        UI["Dashboard & BT UI Card"]
-        SCH["Schedules & Blueprints"]
-        VA["Voice Assistants (Google / Alexa / Assist)"]
-    end
+**With Better Thermostat, you get the same—or an even more powerful—feature set completely free, 100 % local, and with zero subscriptions:**
+- **Mix and match any sensor & TRV brand:** Pair affordable `10 €` Zigbee/Bluetooth room thermometers and window contacts (Aqara, Sonoff, Shelly, IKEA, ESPHome, KNX, etc.) with any TRV in Home Assistant—whether that's a `25 €` Sonoff `TRVZB`, Shelly BLU TRV, Eurotronic, Danfoss, HomematicIP, Z-Wave, or your existing Bosch and tado° valves.
+- **One unified interface across mixed hardware:** Even if you have Zigbee TRVs in the bedroom, HomematicIP in the living room, and a split AC in the attic, every room gets the exact same smart features, presets, and dashboard behavior.
 
-    RS --> BT
-    TRV <--> BT
-    WD --> BT
-    OUT --> BT
-    AC <--> BT
-    UI --> BT
-    SCH --> BT
-    VA --> BT
-```
+---
+
+## Everything you can do with Better Thermostat (Complete Feature List)
+
+| Category | Built-in Functions & Features |
+|---|---|
+| **Universal Hardware & Sensor Freedom** | • Combine **any Home Assistant `climate` TRV** (Zigbee2MQTT, ZHA, Shelly, HomematicIP/OpenCCU, Z-Wave JS, Matter, deCONZ, tado°) with **any `sensor.*` room thermometer**<br />• Mix different TRV brands inside the same home—or even inside the same room<br />• **15+ built-in hardware quirks** (`TRVZB`, `TRV-ZBT`, `SRTS-A01`, `014G2461`, `SBTR-001AEU`, `SPZB0001`, `ZWA021`, `COZB0001`, `SHTRV-01`, `SEA801`/`802`, `BTH-RM`, `ME167`, `TS0601`, `TV02-Zigbee`, `BHT-002-GCLZB`, TermoWeb `Heater`) |
+| **3 Hardware Control Channels (`Calibration type`)** | • **[`Direct Valve Based` (`0–100 %`)](/calibration_algorithms/#1-direct-valve-based-highest-precision--use-when-offered):** Positions the stepper motor directly on supported TRVs (Sonoff `TRVZB`, Shelly BLU TRV, Eurotronic Spirit Zigbee/Z-Wave, Danfoss/Popp/Hive)<br />• **[`Offset Based`](/calibration_algorithms/#2-offset-based-local-temperature-calibration):** Shifts the TRV's local offset (`number.*`, `select.*`, or Z-Wave JS `0.1 °C` config parameters) so the radiator screen still shows your real room setpoint<br />• **[`Target Temperature Based`](/calibration_algorithms/#3-target-temperature-based-always-available-for-setpoint-capable-trvs):** Shifts the TRV setpoint dynamically—works on every TRV and never hits narrow `±2.5–5 °C` firmware offset limits behind curtains or sofas<br />• **[External room-temperature mirroring](/working-devices/compatibility/#room-temperature-written-to-the-trv):** Automatically writes your live room sensor reading into supported TRVs (`TRVZB`, `TRV-ZBT`, `SRTS-A01`, Danfoss Ally, Shelly BLU TRV) |
+| **8 Control Algorithms (`Calibration mode`)** | • **[`(AI) Time Based (Default)`](/calibration_algorithms/#1-ai-time-based-default):** Learns your room's actual heating speed (`Heating Power`) and cooling speed (`Heat Loss`) locally<br />• **[`TPI Controller`](/calibration_algorithms/#2-tpi-controller-time-proportional-integral):** Holds a smooth proportional valve opening from indoor + outdoor temperature gaps with **zero learning wait** and minimal motor wear<br />• **[`(AI) MPC v2`](/calibration_algorithms/#3-ai-mpc-v2-qp--kalman-experimental):** Kalman state observer + quadratic-program predictive braking for direct-valve TRVs (`Auto`, `Small`, `Medium`, `Large` room models)<br />• **[`PID Controller`](/calibration_algorithms/#4-pid-controller-beta):** P+I+D control with per-target **`PID Auto Tune`** (`switch`) and live **`Kp` / `Ki` / `Kd`** sliders<br />• **[`Aggressive`](/calibration_algorithms/#5-aggressive):** Immediate `+2.5 °C` boost for slow, drafty rooms<br />• **[`External Sensor Offset Only`](/calibration_algorithms/#6-external-sensor-offset-only-formerly-called-normal):** Pure 1:1 sensor bias correction while keeping the TRV's own internal controller<br />• **[`MPC Predictive (Beta)`](/calibration_algorithms/#7-mpc-predictive-beta)** & **[`No Calibration`](/calibration_algorithms/#8-no-calibration)** |
+| **Multi-Radiator Grouping & Hydraulic Balancing** | • Synchronizes **2, 3, or more TRVs in one room** under a single `climate` entity<br />• **[Virtual hydraulic balancing](/deep-explanations/hydraulic-balance/):** Per-TRV **`Valve Max Opening` (`1–100 %`)** sliders to throttle oversized radiators<br />• **Cold-corner split:** Optional **`Split the valve opening by each TRV's own temperature`** gives colder TRVs in multi-radiator `MPC`/`MPC v2` rooms `+8 %` extra valve opening per `°C` |
+| **Combined Heating & AC Cooling (`heat_cool`)** | • Attach an optional **`cooling device` (`climate.*`)** (split AC, heat pump) to the same room<br />• Automatic coordination prevents heating and cooling from fighting each other<br />• Switches presets to dual **`Min` (heating)** and **`Max` (cooling)** sliders + **4-minute compressor anti-short-cycling guard** |
+| **Window & Separate Door Pause** | • Connect any **[Window](/faq/window-sensor/)** and **[Door](/faq/door-sensor/)** contact sensors (`binary_sensor.*` or groups) with **no subscription required**<br />• **Independent open and close debounce delays** (e.g. 2 min for windows, 5 min for interior doors so walking through never cycles valve motors)<br />• Live **`Window Detection`** switch to pause/resume contact detection anytime |
+| **24-Hour Damped Summer Mode** | • Automatic warm-weather shutdown using a local **[`Outdoor temperature sensor` or `Weather entity`](/deep-explanations/summer-mode/)**<br />• **24-hour exponential smoothing** (seeded from up to 3 days of HA Recorder history) + **`1.0 °C` (`1.8 °F`) hysteresis** so sunny afternoon spikes or cool mornings don't flip heating erratically<br />• Live **`Outdoor Temperature Threshold`** slider on the device page |
+| **7 Live Presets & Comfort Controls** | • Selectable **[Presets](/setup/presets/):** `Eco`, `Comfort`, `Sleep`, `Away`, `Home`, `Activity`, and `Boost` (opens direct valves to `Valve Max Opening`)<br />• Every enabled preset creates its own **live `number` slider** in Home Assistant—change preset temperatures anytime without reconfiguring<br />• Live **`Tolerance` (`0.0–2.0 °C`)** slider to stop valve hunting + **`Overheating protection?`** (`8×` closing push) |
+| **Manual Knob Sync, Child Lock & Valve Care** | • **Bidirectional manual sync:** Turning a physical radiator knob updates Better Thermostat's target (and turning all TRVs down to `min_temp` can switch BT `off`)<br />• **Per-TRV `Child Lock` switch:** Blocks manual changes on the radiator and syncs with the TRV's native hardware child-lock entity<br />• **[`Pause Learning`](/setup/pause-learning/) & [`Release devices`](/setup/releasing-devices/) switches:** Freeze adaptation while a fireplace burns or release TRVs for manual bleeding<br />• **Automatic Valve Maintenance (`better_thermostat.run_valve_maintenance`):** Exercises valve pins periodically so they never seize over summer |
+| **Battery Protection, Fail-Soft Safety & Blueprints** | • **Radio write throttling:** Spaces routine writes **30 s apart** (**10 min** for HomematicIP duty-cycle protection) to maximize battery life<br />• **[3-stage fail-soft degradation](/faq/degraded-mode/):** Steps down gracefully (`optimal` → `sensor_fallback` → `hold`) if sensors drop offline; dead window/door batteries count as closed so rooms never freeze<br />• **[9 ready-made Automation Blueprints](/setup/automation-blueprints/):** 4-slot Weekly Heating Schedule, Night Mode, Presence Away, Window Reminder, High Humidity Alert, Low Battery Alert, Frost Protection, Pause Learning, and Manual Override Release<br />• **50-cycle deterministic flight recorder** in Home Assistant Diagnostics + automatic **Entity Registry rename migration** |
 
 ### The Golden Rule
 

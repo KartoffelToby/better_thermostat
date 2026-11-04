@@ -73,17 +73,6 @@ For the full explanation of 24-hour exponential smoothing and hysteresis, read *
 #### `Outdoor temperature sensor` *(Optional)*
 - **What it does:** Feeds local outdoor temperature into Summer Mode (and into `TPI` / `MPC` heat-loss compensation).
 - **Important:** Better Thermostat smooths outdoor readings over a **24-hour time constant** (seeded from up to 3 days of Home Assistant Recorder history) so brief afternoon sunshine on a sensor wall doesn't prematurely kill heating. Mount the sensor in permanent north-side shade.
-**Split the valve opening by each TRV's own temperature** Off by default. Only matters for a room with two or more TRVs on the calibration mode *MPC Predictive* or *MPC v2*. Both run one controller for the whole room, on the room temperature sensor, and by default every TRV gets the valve opening that controller computes, each held to its own **Valve Max Opening**. With this option on, a TRV whose own temperature reads colder than the warmest TRV of the room gets more: 8 % per °C (4.4 % per °F) of difference. The warmest TRV gets the room's opening unchanged, and no TRV gets less than it; each TRV's **Valve Max Opening** still caps the result afterwards. A closed valve stays closed for every TRV.
-
-The option compares what each TRV measures at its radiator, so it only helps when those readings differ for a reason, such as a radiator in a cold corner of a large room. A TRV that reads warmer because its valve is further open, or colder because it sits by a window, shifts the split as well. Which TRVs take part:
-
-- A Sonoff TRVZB or TRV-ZBT regulating on the external temperature reports the room temperature Better Thermostat writes to it, so all of them read the same and get the room's opening, each held to its own **Valve Max Opening**. To compare their own readings, select the TRV's own sensor on the device and turn on **Keep the TRV's sensor selection** for it (second step).
-- A TRV calibrated with *Offset Based* takes no part and gets the room's opening: the offset Better Thermostat writes shifts its reading along with the valve command.
-- A TRV that is unavailable or [released](/setup/releasing-devices/) takes no part either.
-
-The benchmark Better Thermostat is tested with models the room as a single temperature, so it cannot show whether the split helps in a room with a warm and a cold side; in that model the even split scored as well or better.
-
-## Second step
 
 #### `Weather entity to get the outdoor temperature` *(Optional)*
 - **What it does:** Alternative outdoor source if you don't own a physical outdoor sensor (must provide a forecast). If **both** an outdoor sensor and a weather entity are configured, the **`Outdoor temperature sensor` automatically takes priority**.
@@ -105,7 +94,6 @@ The benchmark Better Thermostat is tested with models the room as a single tempe
   - **Cooling example (`24.0 °C` cooling target, `0.3 °C` tolerance):** Better Thermostat waits until the room warms to **`24.3 °C`** before starting the AC, then cools back down to `24.0 °C` (the cooling band is always at least `0.2 °C` wide to protect AC compressors).
   - *(Note: `External Sensor Offset Only` mode ignores the tolerance band and passes continuous sensor offset updates directly to the TRV.)*
   - Live-adjustable anytime via `number.<room>_tolerance`.
-- ***Direct Valve Based***: Set the valve opening directly. This is only offered when Better Thermostat can write your TRV's valve, through a writable valve position entity or a valve control built into Better Thermostat for that model. The valve opening comes from the calibration mode: AI Time Based, MPC Predictive, MPC v2, TPI Controller and PID Controller produce one, and close the valve to 0 % while the TRV is off because Better Thermostat is off, a window is open or no heat is called for. The other modes send a target temperature, as with Target Temperature Based.
 
 #### `Enabled Presets` *(Default: `Eco`)*
 - **What it does:** Chooses which preset modes (`Eco`, `Away`, `Boost`, `Comfort`, `Home`, `Sleep`, `Activity`) appear on this thermostat. Every enabled preset creates its own configurable temperature slider (`number.<room>_<preset>`) under the device's **Configuration** section ([Presets](/setup/presets/)).
@@ -116,6 +104,15 @@ The benchmark Better Thermostat is tested with models the room as a single tempe
 #### `Availability guard` & `Grace period after the availability guard turns on` *(Default grace: `10 min`)*
 - **What they do:** Optional `binary_sensor`, `switch`, or `input_boolean` that is `on` when your thermostats have mains power and `off` when powered down (for example, wired floor/wall thermostats powered directly by a heat pump or boiler circuit). While the guard is `off`—and for `10 minutes` after power returns—offline TRVs suppress log warnings and [Missing entity](/faq/missing-entity/) repair alerts while booting up.
 
+#### `Split the valve opening by each TRV's own temperature` *(Default: `Off`)*
+- **What it does:** Only applies in rooms with **two or more TRVs** running **`MPC Predictive`** or **`(AI) MPC v2`**. Both modes run one room-wide controller on your room temperature sensor and, by default, send the same computed valve opening to every TRV in the room (each capped by its own **`Valve Max Opening`**). With this option turned on, any participating TRV whose own radiator thermometer reads colder than the warmest TRV in the room receives an extra **`+8 %` per `°C` (`4.4 %` per `°F`)** of valve opening. The warmest TRV receives the room's base opening unchanged, no TRV receives less than the room opening, each TRV's **`Valve Max Opening`** still caps the result afterwards, and a closed (`0 %`) command stays closed for every TRV.
+- **When it helps & which TRVs take part:**
+  - The option compares what each TRV measures at its radiator, so it helps when those readings differ for a physical reason (such as a second radiator in a cold corner of a large room). Note that a TRV reading warmer because its valve is already open wider, or colder because it sits below a drafty window, shifts the split as well.
+  - **Sonoff `TRVZB` / `TRV-ZBT`:** When regulating on the external room temperature that Better Thermostat writes to them, all TRVs report the same room temperature and therefore receive the same base opening. To compare their own radiator readings instead, select the TRV's internal sensor on the device and turn on **`Keep the TRV's sensor selection`** in the second step.
+  - **`Offset Based` TRVs:** Take no part in the split and receive the room's base opening, because the calibration offset written by Better Thermostat shifts their reported temperature reading along with the valve command.
+  - **Unavailable or [released](/setup/releasing-devices/) TRVs:** Take no part either.
+  - *(In Better Thermostat's single-temperature room benchmark, the even split scored as well or better; use this option specifically for multi-radiator rooms with a distinct warm and cold side.)*
+
 ---
 
 ## Second step
@@ -123,20 +120,20 @@ The benchmark Better Thermostat is tested with models the room as a single tempe
 Screen 2 configures how Better Thermostat drives **each individual physical TRV** in the room.
 
 #### `Calibration type` *(Required)*
-- **`Direct Valve Based`:** Writes `0–100 %` directly to the valve motor (offered when your TRV exposes a writable valve opening, e.g. Sonoff TRVZB, Shelly BLU TRV, Eurotronic Spirit). Requires one of the 5 valve-computing modes (`(AI) Time Based`, `TPI`, `MPC v2`, `PID`, or `MPC Predictive`).
+- **`Direct Valve Based`:** Writes `0–100 %` directly to the valve motor (offered when your TRV exposes a writable valve opening or built-in model control, e.g. Sonoff `TRVZB`, Shelly BLU TRV, Eurotronic Spirit). The valve opening comes from the calibration mode (`(AI) Time Based`, `MPC Predictive`, `MPC v2`, `TPI Controller`, and `PID Controller` compute one and close the valve to `0 %` while the TRV is off; the other modes fall back to sending a target temperature on standard TRVs).
 - **`Offset Based`:** Adjusts the TRV's local temperature calibration entity (`number.*` or `select.*`, such as HomematicIP steps). Keeps the TRV's physical screen showing your true room target, but can hit firmware limits (`±2.5–5 °C`) behind curtains or covers.
-- **`Target Temperature Based`:** Shifts the setpoint sent to the TRV. Works universally on every Home Assistant `climate` TRV and never hits narrow offset caps.
+- **`Target Temperature Based`:** Shifts the setpoint sent to the TRV. Works universally on every Home Assistant `climate` TRV that exposes a target temperature or range, and never hits narrow offset caps.
 
 #### `Calibration mode` *(Required)*
 Chooses one of the **8 control algorithms**—see **[Calibration types & algorithms](/calibration_algorithms/)** for detailed numerical examples:
 - **`(AI) Time Based (Default)`** — Self-learning room heating-speed controller (recommended default).
 - **`TPI Controller`** — Zero-learning proportional controller; very gentle on batteries, minimal overshoot, great for bedrooms & multi-TRV rooms.
-- **`(AI) MPC v2 (QP + Kalman, experimental)`** — Predictive physics controller tailored for **`Direct Valve Based`** TRVs.
+- **`(AI) MPC v2 (QP + Kalman, experimental)`** — Predictive physics controller; writes the valve directly with `Direct Valve Based`, and otherwise steers through the target temperature or the offset depending on `Calibration type`.
 - **`PID Controller`** — Responsive P+I+D loop with Auto-Tune; great for sunny rooms/kitchens with `Direct Valve Based` and `0.1 °C` room sensors.
 - **`Aggressive`** — Adds an immediate `+2.5 °C` boost while heating for cold/drafty rooms (non-direct-valve).
 - **`External Sensor Offset Only`** — Pure 1:1 sensor correction with no tolerance band or extra controller math.
 - **`MPC Predictive (Beta)`** — Earlier 30-min predictive beta (higher valve wear; prefer `TPI` or `MPC v2`).
-- **`No Calibration`** — Sends target temperatures unchanged while keeping window pause, Summer Mode, presets, and grouping.
+- **`No Calibration`** — Sends target temperatures unchanged and writes no offset while keeping window pause, Summer Mode, presets, and grouping.
 
 #### `MPC v2 room size` *(Default: `Auto`)*
 - **What it does:** Only used when `Calibration mode` is `(AI) MPC v2 (QP + Kalman, experimental)`. `Auto` adapts from learned thermal behavior, while `Small`, `Medium`, and `Large` fix a starting thermal envelope profile with approximate **3-hour**, **8-hour**, and **12-hour** room time constants (`tau_room_min = 180`, `480`, and `720` minutes), respectively.
@@ -146,19 +143,11 @@ Chooses one of the **8 control algorithms**—see **[Calibration types & algorit
 
 #### `Use the minimum temperature instead of 'off'` *(Default: `Off`)*
 - **What happens when enabled:**
-  1. Whenever Better Thermostat wants to turn this TRV off (HVAC mode `off`, open window/door, or Summer Mode), it sends the TRV's own reported `min_temp` instead of `hvac_mode: off`—essential for TRVs whose firmware ignores or misbehaves on `off`. *(TRVs that don't advertise an `off` mode in Home Assistant already receive `min_temp` automatically.)*
-  2. Turning the physical radiator knob all the way down to `min_temp` by hand tells Better Thermostat you turned the radiator off (once every TRV in the room is turned to `min_temp`, Better Thermostat switches to `off`; turning a knob back up switches Better Thermostat back to `heat`—unless Child Lock is active).
+  1. Whenever Better Thermostat wants to turn this TRV off (HVAC mode `off`, open window/door, or Summer Mode), it sends the TRV's own reported `min_temp` instead of `hvac_mode: off`—essential for TRVs whose firmware ignores or misbehaves on `off`. *(TRVs that don't advertise an `off` mode in Home Assistant already receive `min_temp` automatically, but only count a manual turn to `min_temp` as turning Better Thermostat off when this option is enabled.)*
+  2. Turning the physical radiator knob all the way down to `min_temp` by hand tells Better Thermostat you turned the radiator off (once every TRV in the room is turned to `min_temp`, Better Thermostat switches to `off`; turning a knob back up switches Better Thermostat back to `heat`—unless Child Lock is active). Turning the knob while a window or door is open is also recorded as the room's new setting: Better Thermostat returns the TRV to its minimum while the contact stays open and heats to the new target once every window and door is closed.
 
 #### `If 'auto' means 'heat' for your TRV and you want to swap it` *(Default: `Off`)*
 - **What it does:** Some TRV integrations map `heat` to an uncontrolled full-open "boost" mode while `auto` represents normal temperature control. Enable this checkbox to swap the two so Better Thermostat sends `auto` during normal heating.
-- ***(AI) Time Based (Default)***: **[Recommended]** Learns your room's heating patterns and adapts automatically
-- ***External Sensor Offset Only***: Simple and reliable - uses your external sensor to correct the TRV's internal sensor
-- ***MPC Predictive (Beta)***: Predicts how the room temperature will change and sets its correction ahead of time. Still in testing
-- ***(AI) MPC v2 (QP + Kalman, experimental)***: Experimental predictive controller; writes the valve directly with Direct Valve Based, otherwise works through the target temperature or the offset, depending on the calibration type
-- ***Aggressive***: Pushes the TRV harder for faster heating (good for slow-heating rooms)
-- ***TPI Controller***: Simple duty-cycle based control for consistent heating
-- ***PID Controller***: Classic control method that responds well to varying heating conditions
-- ***No Calibration***: BT passes your target temperature to the TRV unchanged and writes no offset
 
 #### `If your thermostat has no own maintenance mode, you can use this one` *(Default: `Off`)*
 - **What it does:** Periodically exercises the valve pin fully open and closed so mineral scale does not jam the pin during long summer shutdowns. The next scheduled run appears on the `climate` entity's `next_valve_maintenance` attribute, and you can also trigger a run manually via `better_thermostat.run_valve_maintenance`.
@@ -168,6 +157,15 @@ Chooses one of the **8 control algorithms**—see **[Calibration types & algorit
 
 #### `If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle` *(Auto-enabled for Homematic)*
 - **What happens when enabled:** Spaces routine background writes to this TRV to **at most once every 10 minutes** (instead of the standard **30 seconds**) so your HomematicIP Access Point / OpenCCU never hits its strict 868 MHz 1 % radio airtime limit. Your first manual target change on Better Thermostat still goes out immediately at the normal 30-second pace, and critical safety/off commands are never dropped.
+
+#### `Keep the TRV's sensor selection` *(Default: `Off`)*
+- **What it does:** Applies to TRVs that can regulate either on their own built-in sensor or on a room temperature written to them by Better Thermostat (**Sonoff `TRVZB` & `TRV-ZBT`** and **Aqara `SRTS-A01`**):
+  - **When `Off` (default):** Better Thermostat writes the room temperature to the TRV and automatically switches the TRV's sensor selection to `external` (and switches it back after a reset, re-pairing, or sensor fallback so the TRV keeps regulating on your room sensor).
+  - **When `On`:** Better Thermostat never changes the TRV's sensor selection—whichever sensor mode you chose on the device stays untouched. The room temperature is still written in the background so switching the TRV to external mode later starts from a current reading (except when the configured room sensor belongs to the TRV itself, in which case its reading is not written back).
+- **When to turn it on & what to keep in mind:**
+  - Turn it **On** (and set the TRV to its internal sensor) when you want **`Split the valve opening by each TRV's own temperature`** on Screen 1 to compare individual radiator temperatures on Sonoff `TRVZB` / `TRV-ZBT` valves.
+  - A **Sonoff `TRVZB`** reverts to its internal sensor if it receives no external temperature for ~2 hours or after a reset/re-pairing; with this option on, Better Thermostat will not switch it back to external.
+  - An **Aqara `SRTS-A01`** left on its external input keeps regulating on the last written temperature if the room sensor stops reporting; with this option off, Better Thermostat automatically switches it to its internal sensor during `sensor_fallback` / `hold`, whereas with this option on it leaves the selector untouched.
 
 ---
 
@@ -187,12 +185,3 @@ On **Homematic(IP) Local for OpenCCU**, Better Thermostat supports dropdown `sel
 ## Renaming entities safely
 
 If you rename any entity ID that Better Thermostat uses in Home Assistant (a TRV, cooler, room sensor, window/door sensor, or outdoor sensor), **Better Thermostat detects the registry rename automatically**, migrates all per-TRV options, helper entities, and learned thermal/PID/MPC data to the new entity ID, and reloads itself cleanly. Removing a TRV from a room purges its learned state so reusing that entity ID later starts fresh.
-**If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle** If your entity is a HomematicIP entity this option should be enabled, to prevent a duty cycle overload. It is pre-enabled when the TRV's integration name contains "homematic". With it, BT writes to the TRV at most once every ten minutes; the first target change after you adjust the thermostat still goes out at the normal pace.
-
-**Keep the TRV's sensor selection** Off by default. For TRVs that can regulate either on their own sensor or on a room temperature written to them: the Sonoff TRVZB and TRV-ZBT and the Aqara SRTS-A01. With the option off, Better Thermostat writes the room temperature to the TRV and switches the TRV's sensor selection to it. It switches it back after a reset, a re-pairing or a fallback to the TRV's own sensor, so the TRV keeps regulating on the room temperature. With the option on, Better Thermostat never changes the sensor selection: the one you set on the device stays. The room temperature is still written, so a TRV you switch to it later starts from a current value. On a Sonoff TRVZB or TRV-ZBT, a room sensor that belongs to the TRV itself is the exception: its reading is not written back to the TRV, so with this option on, leave such a TRV on its own sensor, or it regulates on the last value written.
-
-Turn it on when a TRV should regulate on its own sensor, for example so that **Split the valve opening by each TRV's own temperature** (first step) can compare the TRVs' readings. Keep in mind:
-
-- A Sonoff TRVZB falls back to its own sensor when it receives no room temperature for about two hours, and after a reset or re-pairing. With the option on, Better Thermostat does not switch it back.
-- An Aqara SRTS-A01 left on the external input keeps regulating on the last value written once the room sensor stops reporting. With the option off, Better Thermostat switches it to its own sensor for that time; with the option on, it does not.
-- When the room temperature sensor belongs to the TRV itself, Better Thermostat writes no room temperature to it, and with the option on it does not switch the selection back to the TRV's own sensor either.

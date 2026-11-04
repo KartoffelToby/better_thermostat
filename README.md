@@ -10,7 +10,8 @@
 
 ## What is Better Thermostat?
 
-Every smart radiator thermostat (TRV) measures temperature millimeters away from its own hot water pipe, causing it to read several degrees too warm and shut off while your room is still cold.
+1. **Fixes the physical radiator sensor flaw:** Every smart radiator thermostat (TRV) measures temperature millimeters away from its own `55–70 °C` hot water pipe, causing it to read several degrees too warm and shut off while your room is still cold.
+2. **Replaces expensive proprietary ecosystems & subscriptions (Bosch, tado°, etc.):** Commercial ecosystems lock you into `50–80 €` brand-specific room sensors, proprietary bridges, and paid subscriptions for basic features like open-window shutoff. **Better Thermostat is 100 % free, local, and subscription-free**—letting you combine **any TRV brand** with **any room temperature, window, door, or outdoor sensor** in Home Assistant with the same or an even more advanced feature set.
 
 **Better Thermostat** wraps one or more radiator valves (plus an optional air-conditioning cooler) and a **separate room temperature sensor** into **one smart virtual `climate` entity** in Home Assistant. It regulates your room accurately through whichever hardware channel each TRV supports (**Direct Valve `0–100 %`**, **Local Offset**, or **Target Setpoint**), pauses heating for open windows and doors, shuts off automatically during warm weather, and protects TRV batteries by spacing radio writes.
 
@@ -32,7 +33,7 @@ Display open-window status, Summer Mode, ambient humidity, and heating/cooling s
 
 ## Key Features (v2.0)
 
-- **True room-center regulation:** Drives TRVs via **Direct Valve (`0–100 %`)**, **Local Offset**, or **Target Temperature** calibration, plus automatic external room-temperature mirroring on supported models (such as Sonoff `TRVZB` & `TRV-ZBT`).
+- **True room-center regulation:** Drives TRVs via **Direct Valve (`0–100 %`)**, **Local Offset**, or **Target Temperature** calibration, plus automatic external room-temperature mirroring on supported models (such as Sonoff `TRVZB` & `TRV-ZBT`, Aqara `SRTS-A01`, Danfoss Ally `014G2461`, and `Shelly BLU TRV`).
 - **Multi-TRV grouping & optional AC cooling:** Synchronizes multiple radiators in one room (even mixed brands) and optionally coordinates an air conditioner without heating/cooling fights.
 - **Window & separate Door pause:** Independent open/close debounce delays; offline contact sensors count as closed so dead coin-cell batteries never freeze a room.
 - **24-hour damped Summer Mode:** Smooths outdoor sensors or weather forecasts over 24 hours with a `1.0 °C` (`1.8 °F`) hysteresis band so sunny sensor spikes or cool spring mornings don't flip heating erratically.
@@ -44,29 +45,19 @@ Display open-window status, Summer Mode, ambient humidity, and heating/cooling s
 ---
 
 ## Control Algorithms (`Calibration mode`)
-- **MPC (Model Predictive Control)**: Uses a physical model of your room and radiator to predict future temperature changes and optimize valve opening.
-- **PID Controller**: A classic Proportional-Integral-Derivative controller that learns your room's characteristics to maintain a stable temperature. It features auto-tuning (currently in beta) to automatically find the best parameters (Kp, Ki, Kd) for your room.
-- **TPI (Time Proportional Integral)**: Turns the distance from the target into a duty cycle and holds the valve at that opening, which keeps the temperature stable and reduces overshoot.
-- **AI Time Based**: Uses a custom algorithm based on simple measurements and calculations (not actual AI) to calculate the required heating power and adjusts the TRV calibration to achieve it. This improves upon the standard TRV internal algorithm. It is the default.
-- **MPC v2** (experimental): A predictive controller with a Kalman observer and a quadratic-program optimiser. It writes the valve directly with Direct Valve Based and otherwise works through the target temperature or the offset.
-- **Aggressive**: Pushes the TRV harder while heating for a faster warm-up, at the price of more overshoot.
-- **External Sensor Offset Only**: Corrects the TRV's internal sensor with your room sensor and nothing more.
-- **No Calibration**: Passes your target temperature to the TRV unchanged.
 
 Better Thermostat offers **8 control algorithms**—see [Calibration types & algorithms](https://better-thermostat.org/calibration_algorithms/) for concrete numerical examples:
 
-| Algorithm | Best For | Trade-off |
-|---|---|---|
-| **`(AI) Time Based (Default)`** | Everyday rooms — learns your room's actual warming speed locally over 2–3 cycles | Needs a few cycles to adapt after setup |
-| **`TPI Controller`** | Zero-learning comfort, bedrooms, well-insulated rooms, and multi-radiator rooms (holds a smooth proportional opening, no noisy on/off clicking) | Slightly gentler initial heat-up than PID/Aggressive |
-| **`(AI) MPC v2`** *(experimental)* | **Direct-valve TRVs** (Sonoff `TRVZB`, Shelly BLU TRV, Eurotronic Spirit) — Kalman observer + QP predictive braking | Experimental; designed for direct-valve hardware |
-| **`PID Controller`** *(Beta)* | Kitchens, sunny rooms, and hallways with sudden disturbances (`Direct Valve` + `0.1 °C` room sensor recommended) | Higher valve motor activity; Auto-Tune is in beta |
-| **`Aggressive`** | Drafty, poorly insulated rooms that warm up too slowly (`+2.5 °C` boost while heating) | Higher overshoot risk; non-direct-valve only |
-| **`External Sensor Offset Only`** | Smart TRVs (e.g. tado°) whose internal controller you want to keep—pure 1:1 sensor bias fix | No tolerance band or extra controller modulation |
-| **`MPC Predictive`** *(Beta)* | First-generation 30-min predictive model | Higher valve wear; prefer **TPI** or **MPC v2** |
-| **`No Calibration`** | Using Better Thermostat only for window/door pause, Summer Mode, presets, or multi-TRV grouping | Passes target temperature unchanged |
+- **AI Time Based**: Uses a custom algorithm based on simple measurements and calculations (not actual AI) to calculate the required heating power and adjusts the TRV calibration to achieve it. This improves upon the standard TRV internal algorithm. It is the default.
+- **TPI (Time Proportional Integral)**: Turns the distance from the target into a duty cycle and holds the valve at that opening, which keeps the temperature stable and reduces overshoot.
+- **MPC v2** (experimental): A predictive controller with a Kalman observer and a quadratic-program optimiser. It writes the valve directly with Direct Valve Based and otherwise works through the target temperature or the offset.
+- **PID Controller**: A classic Proportional-Integral-Derivative controller that learns your room's characteristics to maintain a stable temperature. It features auto-tuning (currently in beta) to automatically find the best parameters (Kp, Ki, Kd) for your room.
+- **Aggressive**: Pushes the TRV harder while heating for a faster warm-up, at the price of more overshoot.
+- **External Sensor Offset Only**: Corrects the TRV's internal sensor with your room sensor and nothing more.
+- **MPC (Model Predictive Control)**: Uses a physical model of your room and radiator to predict future temperature changes and optimize valve opening.
+- **No Calibration**: Passes your target temperature to the TRV unchanged.
 
-Not sure which combination fits your room? Try the **[Interactive Configurator](https://better-thermostat.org/setup/configurator/)**.
+Start with **AI Time Based** (the default) or **TPI**. Try **PID** for tighter tracking in a stable room, or **MPC** for disturbance anticipation. The [algorithm documentation](https://better-thermostat.org/calibration_algorithms/) describes every mode, or use the **[Interactive Configurator](https://better-thermostat.org/setup/configurator/)** to get a tailored room setup.
 
 ---
 
@@ -78,10 +69,10 @@ Any thermostat exposed as a Home Assistant `climate` entity with a writable targ
 - **ZHA (Zigbee Home Automation)** & **deCONZ**
 - **Shelly** *(including dedicated direct-valve support for **Shelly BLU TRV** via BLU Gateway)*
 - **Homematic(IP) Local / OpenCCU** *(supports `select` temperature offsets + 10-minute radio duty-cycle protection)*
-- **Z-Wave JS** *(including Eurotronic Spirit Z / Aeotec `ZWA021` direct-valve mode)*
+- **Z-Wave JS** *(including Eurotronic Spirit Z / Aeotec `ZWA021` direct-valve mode and parameter 8 local offsets)*
 - **tado°** & **`generic_thermostat`**
 
-Built-in quirk fixes are included for 15+ popular models (`TRVZB`, `TRV-ZBT`, `SPZB0001`, `ZWA021`, `COZB0001`, `SHTRV-01`, `SEA801`/`802`, `BTH-RM`, `ME167`, `TS0601`, `TV02-Zigbee`, `BHT-002-GCLZB`, TermoWeb `Heater`, and more)—see [Supported devices & compatibility](https://better-thermostat.org/working-devices/compatibility/).
+Built-in quirk fixes are included for 15+ popular models (`TRVZB`, `TRV-ZBT`, `SRTS-A01`, `014G2461`, `SPZB0001`, `ZWA021`, `COZB0001`, `SHTRV-01`, `SEA801`/`802`, `BTH-RM`, `ME167`, `TS0601`, `TV02-Zigbee`, `BHT-002-GCLZB`, TermoWeb `Heater`, and more)—see [Supported devices & compatibility](https://better-thermostat.org/working-devices/compatibility/).
 
 ---
 

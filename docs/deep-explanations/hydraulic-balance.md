@@ -20,14 +20,13 @@ Better Thermostat adds a complementary **software-driven virtual balancing layer
 ## How `0–100 %` demand reaches your radiator
 
 Every control cycle, the active algorithm computes a desired valve opening between **`0 %` (closed)** and **`100 %` (full flow)** for each room based on how far the room is from target and how fast it warms or loses heat.
-- Direct valve percentage, with the Direct Valve Based calibration type (if the integration exposes a writable valve position, or Better Thermostat has a valve control for the model). On a Sonoff TRVZB, BT writes the valve opening degree and, where the device exposes it, sets the closing degree to 100 minus the opening.
-- A mapped setpoint or offset otherwise: BT places the setpoint the TRV sees between the TRV's current temperature (0 %) and its maximum temperature (100 %). Depending on the percentage, that setpoint can lie above or below your target.
 
 Better Thermostat then applies that percentage through your TRV's configured **[`Calibration type`](/calibration_algorithms/)**:
 
 1. **`Direct Valve Based` *(True motor positioning)*:**
    - Scales the requested `0–100 %` opening onto each valve entity's own `min`, `max`, and `step` attributes (so the written position may be quantized to the entity's supported increments; on Sonoff `TRVZB` where a closing-degree entity exists, it sets closing degree to `100 − opening` as well).
    - **Capping an oversized radiator (`Valve Max Opening`):** Every direct-valve TRV gets its own `number.<trv>_valve_max_opening` slider (default `100 %`). Lowering a fast guest-bathroom radiator to **`60 %`** restricts its peak water flow so slower rooms down the hall receive hot water faster and the small room stops overshooting!
+   - **Per-TRV cold-corner boost in multi-radiator rooms (`Split the valve opening by each TRV's own temperature`):** When a single room has two or more TRVs running `MPC Predictive` or `MPC v2` and you enable **`Split the valve opening by each TRV's own temperature`** on Screen 1 ([All settings reference](/configuration/#first-step)), any eligible TRV whose own radiator sensor reads colder than the warmest TRV in the room receives an extra **`+8 %` per `°C`** (`4.4 %` per `°F`) of valve opening (still capped by its individual `Valve Max Opening`).
 2. **`Offset Based` & `Target Temperature Based` *(Mapped proportional setpoint)*:**
    - Even when a TRV has no direct valve entity, Better Thermostat maps `0–100 %` between the **TRV's current internal reading (`0 %` = close valve)** and the **TRV's maximum setpoint (`100 %` = open wide)**, then rounds the resulting offset or setpoint onto the device's supported step grid.
    - Example: If the TRV currently reads `23.0 °C` and its maximum setpoint is `30.0 °C`, a **`50 %` demand** places the effective TRV target midway (~`26.5 °C`, rounded to the TRV's supported step) rather than slamming it to `30.0 °C`, nudging the TRV's internal stepper motor to a partial opening.

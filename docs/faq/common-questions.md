@@ -17,28 +17,6 @@ Whenever a room does not heat the way you expect, open **Developer Tools → Sta
 - **`control_mode`**: Shows `optimal` during normal control, `sensor_fallback` if your room sensor failed (falling back to TRV sensors), or `hold` if all temperature readings are unavailable ([Degraded mode](/faq/degraded-mode/)).
 
 ---
-- Tado
-- Zigbee2MQTT
-- deCONZ
-- Z-Wave JS, when the TRV exposes a calibration entity. A configuration parameter is used as one when its unit is degrees Celsius or a tenth or hundredth of one: the temperature offset of the Eurotronic Spirit and the Aeotec ZWA021, parameter 8, counts tenths of a degree and is read and written in that unit, and its reserved value -128 (external sensor) is never written. Home Assistant creates configuration parameters disabled, so enable that entity and reload Better Thermostat
-- Any other integration whose TRV exposes a calibration entity (a `number` or `select`) that Better Thermostat can find
-
-For device-level details, see [Working devices](/working-devices/compatibility/).
-
-## Local calibration vs target temperature calibration
-
-- **Local calibration (offset based)**: BT adjusts TRV offset so TRV reading matches room sensor.
-- **Target temperature based**: BT adjusts requested target temperature to compensate internally.
-
-Choose offset-based where available; use target-based for broad compatibility.
-
-## Which algorithm should I start with?
-
-Start with **AI Time Based**. It is the best default for most homes.
-
-If the temperature overshoots, try **TPI Controller**. In the project's benchmark it overshoots less than PID or MPC and moves the valve far less. MPC Predictive is still in testing.
-
-## Why does my TRV pick up a change with a delay?
 
 ## Symptom → Cause → Solution matrix
 
