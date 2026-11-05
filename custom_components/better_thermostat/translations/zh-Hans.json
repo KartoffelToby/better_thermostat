@@ -8,8 +8,7 @@
           "name": "名称",
           "thermostat": "真实温控器",
           "cooler": "制冷设备（可选）",
-          "min_cooler_resend_interval": "重复制冷命令之间的最小秒数（0 = 禁用）",
-          "temperature_sensor": "温度传感器",
+          "temperature_sensor": "室内温度传感器",
           "humidity_sensor": "湿度传感器",
           "window_sensors": "窗户传感器",
           "door_sensors": "门传感器",
@@ -21,32 +20,64 @@
           "door_off_delay_after": "门关闭后温控器开启前的延迟",
           "outdoor_sensor": "室外温度传感器",
           "weather": "用于获取室外温度的天气实体",
+          "availability_guard": "可用性守护",
+          "availability_guard_grace_seconds": "可用性守护开启后的宽限期",
           "target_temp_min": "目标最低温度",
           "target_temp_max": "目标最高温度",
           "target_temp_step": "目标温度步长",
-          "presets": "启用的预设"
+          "presets": "启用的预设",
+          "distribute_valve_by_trv_temperature": "根据各 TRV 自身温度分配阀门开度"
         },
         "data_description": {
-          "presets": "选择你希望此温控器可用的预设。"
+          "name": "此温控器及其在 Home Assistant 中设备的名称。",
+          "thermostat": "此房间的暖气温控器（TRV）。Better Thermostat 会统一控制它们。",
+          "cooler": "可选。空调或其他 climate 实体，与温控器一起为此房间制冷。",
+          "temperature_sensor": "Better Thermostat 用于控制室内温度的传感器。请远离暖气片放置。",
+          "humidity_sensor": "可选。其读数会显示在温控器上，并用于触发湿度设备。",
+          "window_sensors": "可选。报告窗户打开的传感器或组；打开期间供暖会暂停。",
+          "door_sensors": "可选。工作方式类似窗户传感器，但有自己的延迟设置。",
+          "off_temperature": "室外温度达到此值时停止供暖，降到比此值低 1 °C（1.8 °F）时恢复供暖。当前室外温度按约一天的平均值计算。",
+          "tolerance": "房间温度低于目标多少后才重新开始供暖：目标 20、容差 0.3 时，降到 19.7 会重新供暖。",
+          "window_off_delay": "窗户需要保持打开多久后供暖才暂停。",
+          "window_off_delay_after": "所有窗户需要保持关闭多久后供暖才恢复。",
+          "door_off_delay": "门需要保持打开多久后供暖才暂停。",
+          "door_off_delay_after": "所有门需要保持关闭多久后供暖才恢复。",
+          "outdoor_sensor": "可选。为室外温度阈值提供室外温度，并优先于天气实体。",
+          "weather": "可选。未选择室外传感器时，由它提供室外温度。",
+          "availability_guard": "可选。一个 binary sensor、switch 或 input boolean，温控器有电时为开启。它关闭时，不可用的温控器不会产生警告或修复提示。",
+          "availability_guard_grace_seconds": "可用性守护开启后，温控器可保持不可用多久才被报告。",
+          "target_temp_min": "可设置的最低目标温度。自动会采用设备报告的范围。",
+          "target_temp_max": "可设置的最高目标温度。自动会采用设备报告的范围。",
+          "target_temp_step": "每次调整目标温度的变化量。自动会采用温控器报告的最粗步长。",
+          "presets": "选择你希望此温控器可用的预设。",
+          "distribute_valve_by_trv_temperature": "仅适用于 MPC 或 MPC v2 校准模式下有两个或更多 TRV 的情况。关闭：每个 TRV 获得相同阀门开度。开启：比房间最暖 TRV 读数更低的 TRV 会开得更大，每低 1 °C（1.8 °F）增加 8%（4.4%）。比较的是 TRV 自身读数，因此 Sonoff TRVZB 或 TRV-ZBT 需要选择其自身传感器并开启“保留 TRV 的传感器选择”。通过偏移校准的 TRV 会获得房间的阀门开度。"
         }
       },
       "advanced": {
         "description": "高级配置 {trv}\n\n**详细信息：** {docs_url}",
         "data": {
           "protect_overheating": "过热保护？",
-          "heat_auto_swapped": "如果你的 TRV 的 '自动' 表示 '制热'，而你想互换它",
+          "heat_auto_swapped": "如果你的 TRV 的“自动”表示“制热”，而你想互换它",
           "child_lock": "像童锁一样忽略 TRV 上的所有输入",
           "homematicip": "如果你使用 HomematicIP，应启用此项以减慢请求，防止占空比限制",
           "valve_maintenance": "如果你的温控器没有自己的维护模式，可以使用此项",
           "calibration": "校准类型",
           "calibration_mode": "校准模式",
-          "no_off_system_mode": "如果你的 TRV 不支持 '关闭' 模式，请启用此项以改用 5°C 的目标温度"
-          "mpc_v2_plant_preset": "MPC v2 房间大小"
+          "no_off_system_mode": "使用最低温度代替“关闭”",
+          "mpc_v2_plant_preset": "MPC v2 房间大小",
+          "keep_sensor_selection": "保留 TRV 的传感器选择"
         },
         "data_description": {
-          "protect_overheating": "有些 TRV 在达到温度时不会完全关闭阀门，或者散热器有较多余热。这可能导致过热。此选项可以防止这种情况。",
-          "calibration_mode": "校准如何计算\n***普通***：使用你的外部温度传感器来校正 TRV 的内部传感器。简单可靠，适合大多数配置。\n***激进***：与普通类似，但会更用力地推动 TRV 以更快达到温度。适合房间升温较慢的情况。\n***AI 基于时间***：随时间学习你房间的供暖模式并自动调整。平衡舒适性与效率。\n***MPC 预测***：预测温度变化并优化阀门位置的高级算法。最适合稳定、高效且超调最小的供暖。会学习你房间的热行为。\n***PID 控制器***：响应温度误差的经典控制方法。适合供暖功率变化或存在外部干扰的系统。\n***TPI 控制器***：根据温差计算供暖占空比。简单有效，适合一致的供暖模式。",
-          "calibration": "校准如何应用到 TRV\n***基于目标温度***：将校准应用于目标温度。\n***基于偏移***：将校准应用于温度偏移。"
+          "protect_overheating": "有些 TRV 在达到温度时不会完全关闭阀门，或者暖气片有较多余热。这可能导致过热。此选项可以防止这种情况。",
+          "heat_auto_swapped": "适用于制热模式名为“自动”的 TRV：Better Thermostat 会发送“自动”来制热。",
+          "child_lock": "在 TRV 有童锁功能时锁定其按键，从而忽略在 TRV 本身上所做的更改。",
+          "homematicip": "降低命令发送频率，使 HomematicIP 设备保持在占空比限制内。",
+          "valve_maintenance": "定期开关阀门，防止卡死。适用于自身没有维护程序的 TRV。",
+          "calibration": "校准如何应用到 TRV\n***基于目标温度***：将校准应用于目标温度。\n***基于偏移***：将校准应用于温度偏移。仅当 TRV 有可写温度偏移时提供。\n***基于阀门直接控制***：直接设置阀门开度。仅当 TRV 有可写阀门位置，或 Better Thermostat 为其型号提供阀门控制时提供。不产生阀门开度的校准模式会改为发送目标温度。",
+          "calibration_mode": "校准如何计算\n***(AI) 基于时间（默认）***：随时间学习房间的供暖功率，并据此推导校准。\n***仅外部传感器偏移***：用外部温度传感器校正 TRV 的内部传感器。其上不运行控制器。\n***MPC 预测（Beta）***：预测房间温度并据此计算阀门开度。会学习房间的热行为。\n***(AI) MPC v2（QP + Kalman，实验性）***：用 Kalman 滤波器估计房间状态，并用模型预测控制器计算阀门开度。MPC v2 房间大小设置决定房间模型：从房间学习（自动），或按房间大小固定（小、中、大）。\n***激进***：房间升温时对校准增加助推并跳过容差延迟，使 TRV 更早开始供暖。适合房间升温较慢的情况。\n***TPI 控制器***：根据温差计算供暖占空比。\n***PID 控制器***：根据温度误差，用比例、积分和微分项计算阀门开度。\n***无校准***：将目标温度原样发送给 TRV，不做任何校正。",
+          "no_off_system_mode": "启用此选项后，Better Thermostat 会用最低温度代替“关闭”发送给 TRV。TRV 调到最低温度即视为关闭：房间所有 TRV 都关闭后，房间关闭；调高任一旋钮会重新开启。窗户或门打开时调高也算；此时供暖会等到所有窗户和门关闭。不提供“关闭”模式的 TRV 即使不启用此选项也会收到最低温度。对于“关闭”模式无效的 TRV，或没有“关闭”模式但希望用旋钮开关 Better Thermostat 的 TRV，请启用此项。",
+          "mpc_v2_plant_preset": "仅由 MPC v2 校准模式使用。\n***自动***：根据 Better Thermostat 已学习到的房间信息（例如热损失率）推导房间模型。\n***小、中或大房间***：从该房间大小对应的固定房间模型开始。",
+          "keep_sensor_selection": "适用于可根据外部温度调节的 TRV（Sonoff TRVZB 和 TRV-ZBT、Aqara SRTS-A01）。关闭：Better Thermostat 会将 TRV 切换到它写入的外部温度，重置或重新配对后也会如此。开启：你在 TRV 上选择的传感器保持选中，室内温度仍会写入外部输入。此后回退到自身传感器的 TRV 不会被切回。"
         }
       },
       "confirm": {
@@ -59,13 +90,19 @@
       "no_name": "请输入名称。",
       "no_heater": "请至少选择一个真实温控器。",
       "no_off_mode": "你的设备比较特殊，没有关闭模式 :(\nBetter Thermostat 将改用最低目标温度。",
-      "target_temp_min_above_max": "目标最低温度不得超过目标最高温度。",
       "no_outside_temp": "你没有室外温度传感器。Better Thermostat 将改用天气实体。",
-      "no_data": "未收到数据。请重试。"
+      "target_temp_min_above_max": "目标最低温度不得超过目标最高温度。",
+      "trv_not_found": "Home Assistant 找不到 {trv}。请选择一个存在的温控器。",
+      "trv_is_better_thermostat": "{trv} 是一个 Better Thermostat。请改选真实温控器。",
+      "trv_no_target_temperature": "{trv} 不接受目标温度。请选择一个接受目标温度的温控器。",
+      "cooler_is_better_thermostat": "{cooler} 是一个 Better Thermostat。请改选真实制冷设备。",
+      "cooler_no_target_temperature": "{cooler} 不接受目标温度。请选择一个接受目标温度的制冷设备。",
+      "valve_only_calibration_mode": "此设备上的直接阀门控制需要能产生阀门位置的控制器。请选择 AI 基于时间、MPC、MPC v2、PID 或 TPI。",
+      "bound_sensor_calibration_mode": "此温控器根据绑定到它的温度传感器（Matter Binding）进行调节，并自行控制房间。请选择“无校准”：其他任何模式都会在温控器自身控制之上再叠加第二个控制环。"
     },
     "abort": {
       "single_instance_allowed": "每个真实温控器只允许有一个 Better Thermostat。",
-      "no_devices_found": "未找到温控器实体，请确保你的 Home Assistant 中有 climate 实体"
+      "no_devices_found": "未找到温控器实体，请确保你的 Home Assistant 中有 climate 实体",
       "already_configured": "已有同名的 Better Thermostat 控制这些温控器。",
       "trv_in_use": "{trv} 已被 Better Thermostat {entry} 控制。一个温控器只能属于一个 Better Thermostat；请先在那里将其移除。"
     }
@@ -77,96 +114,126 @@
         "data": {
           "name": "名称",
           "thermostat": "真实温控器",
-          "temperature_sensor": "温度传感器",
+          "temperature_sensor": "室内温度传感器",
           "humidity_sensor": "湿度传感器",
           "window_sensors": "窗户传感器",
           "door_sensors": "门传感器",
-          "off_temperature": "温控器应关闭时的室外温度",
+          "off_temperature": "温控器关闭时的室外温度",
           "tolerance": "容差，用于防止温控器过于频繁地开启和关闭",
-          "window_off_delay": "窗户打开后温控器关闭前的延迟",
-          "window_off_delay_after": "窗户关闭后温控器开启前的延迟",
-          "door_off_delay": "门打开后温控器关闭前的延迟",
-          "door_off_delay_after": "门关闭后温控器开启前的延迟",
+          "window_off_delay": "窗户打开后温控器关闭的延迟",
+          "window_off_delay_after": "窗户关闭后温控器开启的延迟",
+          "door_off_delay": "门打开后温控器关闭的延迟",
+          "door_off_delay_after": "门关闭后温控器开启的延迟",
           "outdoor_sensor": "室外温度传感器",
           "weather": "用于获取室外温度的天气实体",
+          "availability_guard": "可用性守护",
+          "availability_guard_grace_seconds": "可用性守护开启后的宽限期",
           "target_temp_min": "目标最低温度",
           "target_temp_max": "目标最高温度",
           "target_temp_step": "目标温度步长",
           "presets": "启用的预设",
-          "valve_maintenance": "如果你的温控器没有自己的维护模式，可以使用此项",
-          "calibration": "校准类型",
-          "heat_auto_swapped": "如果你的 TRV 的 '自动' 表示 '制热'，而你想互换它",
-          "child_lock": "像童锁一样忽略 TRV 上的所有输入",
-          "homematicip": "如果你使用 HomematicIP，应启用此项以减慢请求，防止占空比限制"
-          "cooler": "制冷设备（可选）"
+          "cooler": "制冷设备（可选）",
+          "distribute_valve_by_trv_temperature": "根据各 TRV 自身温度分配阀门开度"
         },
         "data_description": {
-          "presets": "选择你希望此温控器可用的预设。"
+          "name": "此温控器及其在 Home Assistant 中设备的名称。",
+          "thermostat": "此房间的暖气温控器（TRV）。Better Thermostat 会统一驱动它们。",
+          "temperature_sensor": "Better Thermostat 用于控制室内温度的传感器。请远离暖气片放置。",
+          "humidity_sensor": "可选。其读数会显示在温控器上，并用于触发湿度设备。",
+          "window_sensors": "可选。报告窗户打开的传感器或组；打开期间供暖会暂停。",
+          "door_sensors": "可选。工作方式类似窗户传感器，但有自己的延迟设置。",
+          "off_temperature": "室外温度达到此值时停止供暖，降到比此值低 1 °C（1.8 °F）时恢复供暖。当前室外温度按约一天的平均值计算。",
+          "tolerance": "房间温度低于目标多少后才重新开始供暖：目标 20、容差 0.3 时，降到 19.7 会重新供暖。",
+          "window_off_delay": "窗户需要保持打开多久后供暖才暂停。",
+          "window_off_delay_after": "所有窗户需要保持关闭多久后供暖才恢复。",
+          "door_off_delay": "门需要保持打开多久后供暖才暂停。",
+          "door_off_delay_after": "所有门需要保持关闭多久后供暖才恢复。",
+          "outdoor_sensor": "可选。为室外温度阈值提供室外温度，并优先于天气实体。",
+          "weather": "可选。未选择室外传感器时，由它提供室外温度。",
+          "availability_guard": "可选。一个 binary sensor、switch 或 input boolean，温控器有电时为开启。它关闭时，不可用的温控器不会产生警告或修复提示。",
+          "availability_guard_grace_seconds": "可用性守护开启后，温控器可保持不可用多久才被报告。",
+          "target_temp_min": "可设置的最低目标温度。自动会采用设备报告的范围。",
+          "target_temp_max": "可设置的最高目标温度。自动会采用设备报告的范围。",
+          "target_temp_step": "每次调整目标温度的变化量。自动会采用温控器报告的最粗步长。",
+          "presets": "选择你希望此温控器可用的预设。",
+          "cooler": "可选。空调或其他 climate 实体，与温控器一起为此房间制冷。",
+          "distribute_valve_by_trv_temperature": "仅适用于 MPC 或 MPC v2 校准模式下有两个或更多 TRV 的情况。关闭：每个 TRV 获得相同阀门开度。开启：比房间最暖 TRV 读数更低的 TRV 会开得更大，每低 1 °C（1.8 °F）增加 8%（4.4%）。比较的是 TRV 自身读数，因此 Sonoff TRVZB 或 TRV-ZBT 需要选择其自身传感器并开启“保留 TRV 的传感器选择”。通过偏移校准的 TRV 会获得房间的阀门开度。"
         }
       },
       "advanced": {
         "description": "高级配置 {trv}\n\n**详细信息：** {docs_url}",
         "data": {
           "protect_overheating": "过热保护？",
-          "heat_auto_swapped": "如果你的 TRV 的 '自动' 表示 '制热'，而你想互换它",
+          "heat_auto_swapped": "如果你的 TRV 的“自动”表示“制热”，而你想互换它",
           "child_lock": "像童锁一样忽略 TRV 上的所有输入",
           "homematicip": "如果你使用 HomematicIP，应启用此项以减慢请求，防止占空比限制",
           "valve_maintenance": "如果你的温控器没有自己的维护模式，可以使用此项",
           "calibration": "校准类型",
           "calibration_mode": "校准模式",
-          "no_off_system_mode": "如果你的 TRV 不支持 '关闭' 模式，请启用此项以改用 5°C 的目标温度"
-          "mpc_v2_plant_preset": "MPC v2 房间大小"
+          "no_off_system_mode": "使用最低温度代替“关闭”",
+          "mpc_v2_plant_preset": "MPC v2 房间大小",
+          "keep_sensor_selection": "保留 TRV 的传感器选择"
         },
         "data_description": {
-          "protect_overheating": "有些 TRV 在达到温度时不会完全关闭阀门，或者散热器有较多余热。这可能导致过热。此选项可以防止这种情况。",
-          "calibration_mode": "校准如何计算\n***普通***：使用你的外部温度传感器来校正 TRV 的内部传感器。简单可靠，适合大多数配置。\n***激进***：与普通类似，但会更用力地推动 TRV 以更快达到温度。适合房间升温较慢的情况。\n***AI 基于时间***：随时间学习你房间的供暖模式并自动调整。平衡舒适性与效率。\n***MPC 预测***：预测温度变化并优化阀门位置的高级算法。最适合稳定、高效且超调最小的供暖。会学习你房间的热行为。\n***PID 控制器***：响应温度误差的经典控制方法。适合供暖功率变化或存在外部干扰的系统。\n***TPI 控制器***：根据温差计算供暖占空比。简单有效，适合一致的供暖模式。",
-          "calibration": "校准如何应用到 TRV\n***基于目标温度***：将校准应用于目标温度。\n***基于偏移***：将校准应用于温度偏移。"
+          "protect_overheating": "有些 TRV 在达到温度时不会完全关闭阀门，或者暖气片有较多余热。这可能导致过热。此选项可以防止这种情况。",
+          "heat_auto_swapped": "适用于制热模式名为“自动”的 TRV：Better Thermostat 会发送“自动”来制热。",
+          "child_lock": "在 TRV 有童锁功能时锁定其按键，从而忽略在 TRV 本身上所做的更改。",
+          "homematicip": "降低命令发送频率，使 HomematicIP 设备保持在占空比限制内。",
+          "valve_maintenance": "定期开关阀门，防止卡死。适用于自身没有维护程序的 TRV。",
+          "calibration": "校准如何应用到 TRV\n***基于目标温度***：将校准应用于目标温度。\n***基于偏移***：将校准应用于温度偏移。仅当 TRV 有可写温度偏移时提供。\n***基于阀门直接控制***：直接设置阀门开度。仅当 TRV 有可写阀门位置，或 Better Thermostat 为其型号提供阀门控制时提供。不产生阀门开度的校准模式会改为发送目标温度。",
+          "calibration_mode": "校准如何计算\n***(AI) 基于时间（默认）***：随时间学习房间的供暖功率，并据此推导校准。\n***仅外部传感器偏移***：用外部温度传感器校正 TRV 的内部传感器。其上不运行控制器。\n***MPC 预测（Beta）***：预测房间温度并据此计算阀门开度。会学习房间的热行为。\n***(AI) MPC v2（QP + Kalman，实验性）***：用 Kalman 滤波器估计房间状态，并用模型预测控制器计算阀门开度。MPC v2 房间大小设置决定房间模型：从房间学习（自动），或按房间大小固定（小、中、大）。\n***激进***：房间升温时对校准增加助推并跳过容差延迟，使 TRV 更早开始供暖。适合房间升温较慢的情况。\n***TPI 控制器***：根据温差计算供暖占空比。\n***PID 控制器***：根据温度误差，用比例、积分和微分项计算阀门开度。\n***无校准***：将目标温度原样发送给 TRV，不做任何校正。",
+          "no_off_system_mode": "启用此选项后，Better Thermostat 会用最低温度代替“关闭”发送给 TRV。TRV 调到最低温度即视为关闭：房间所有 TRV 都关闭后，房间关闭；调高任一旋钮会重新开启。窗户或门打开时调高也算；此时供暖会等到所有窗户和门关闭。不提供“关闭”模式的 TRV 即使不启用此选项也会收到最低温度。对于“关闭”模式无效的 TRV，或没有“关闭”模式但希望用旋钮开关 Better Thermostat 的 TRV，请启用此项。",
+          "mpc_v2_plant_preset": "仅由 MPC v2 校准模式使用。\n***自动***：根据 Better Thermostat 已学习到的房间信息（例如热损失率）推导房间模型。\n***小、中或大房间***：从该房间大小对应的固定房间模型开始。",
+          "keep_sensor_selection": "适用于可根据外部温度调节的 TRV（Sonoff TRVZB 和 TRV-ZBT、Aqara SRTS-A01）。关闭：Better Thermostat 会将 TRV 切换到它写入的外部温度，重置或重新配对后也会如此。开启：你在 TRV 上选择的传感器保持选中，室内温度仍会写入外部输入。此后回退到自身传感器的 TRV 不会被切回。"
         }
       }
     },
     "error": {
-      "failed": "出现问题。",
-      "no_name": "请输入名称。",
       "no_heater": "请至少选择一个真实温控器。",
-      "no_off_mode": "你的设备比较特殊，没有关闭模式 :(\nBetter Thermostat 将改用最低目标温度。",
       "target_temp_min_above_max": "目标最低温度不得超过目标最高温度。",
-      "no_outside_temp": "你没有室外温度传感器。Better Thermostat 将改用天气实体。",
-      "no_data": "未收到数据。请重试。"
       "no_sensor": "请选择一个室内温度传感器。",
-      "trv_in_use": "{trv} 已被 Better Thermostat {entry} 控制。一个温控器只有一个 Better Thermostat。"
+      "trv_in_use": "{trv} 已被 Better Thermostat {entry} 控制。一个温控器只能属于一个 Better Thermostat。",
+      "trv_not_found": "Home Assistant 找不到 {trv}。请选择一个存在的温控器。",
+      "trv_is_better_thermostat": "{trv} 是一个 Better Thermostat。请改选真实温控器。",
+      "trv_no_target_temperature": "{trv} 不接受目标温度。请选择一个接受目标温度的温控器。",
+      "cooler_is_better_thermostat": "{cooler} 是一个 Better Thermostat。请改选真实制冷设备。",
+      "cooler_no_target_temperature": "{cooler} 不接受目标温度。请选择一个接受目标温度的制冷设备。",
+      "valve_only_calibration_mode": "此设备上的直接阀门控制需要能产生阀门位置的控制器。请选择 AI 基于时间、MPC、MPC v2、PID 或 TPI。",
+      "bound_sensor_calibration_mode": "此温控器根据绑定到它的温度传感器（Matter Binding）进行调节，并自行控制房间。请选择“无校准”：其他任何模式都会在温控器自身控制之上再叠加第二个控制环。"
     }
   },
   "issues": {
+    "invalid_valve_calibration": {
+      "title": "BT：{name} - 阀门控制器不兼容",
+      "description": "已保存的校准模式（{mode}）无法控制 {entity} 的阀门。Better Thermostat 会请求关闭阀门，并阻止此设备供暖，直到配置被修正。关闭阀门需要设备可达。\n\n打开 设置 → 设备与服务 → Better Thermostat → 配置，并为“基于阀门直接控制”选择 AI 基于时间、MPC、MPC v2、PID 或 TPI。已保存的算法不会自动更改。"
+    },
     "missing_entity": {
-      "title": "BT: {name} - 相关实体缺失",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "相关实体 {entity} 缺失",
-            "description": "原因是实体（{entity}）在你的 Home Assistant 中不可用。\n\n你可以检查设备电池是否电量充足，或将其重新连接到 HA 来修复此问题。继续之前，请确保该实体已恢复到 HA 中。"
-          }
-        }
-      }
+      "title": "BT：{name} - 相关实体缺失",
+      "description": "原因是实体（{entity}）在你的 Home Assistant 中不可用。\n\n如果实体被重命名或设备被更换，其实体 ID 已改变，但 Better Thermostat 仍在寻找 {entity}。请打开此 Better Thermostat 的设置（设置 → 设备与服务 → Better Thermostat → 配置），选择新的实体。\n\n你也可以检查设备电池是否电量充足，或将其重新连接到 HA 来修复此问题。此问题会在实体重新可用，或从该 Better Thermostat 设置中移除后自动清除。"
     },
     "degraded_mode": {
-      "title": "BT: {name} - 传感器错误：{sensors} 正在以降级模式运行",
-      "description": "Better Thermostat 正在以降级模式运行，因为部分传感器不可用：{sensors}\n\n温控器将继续以降低的功能运行。例如：\n- 如果室内温度传感器不可用，将改用 TRV 的内部传感器。\n- 如果窗户或门传感器不可用，其最后已知状态将继续生效：处于关闭状态的触点会保持供暖启用，处于打开状态的触点会保持供暖抑制，直到传感器再次报告关闭。只有在启动时，不可用的触点传感器才会被视为关闭。\n- 如果室外/天气传感器不可用，供暖将始终启用。\n\n请检查受影响的设备是否存在电池问题或连接问题。"
+      "title": "BT：{name} - 传感器错误：{sensors} 正在以降级模式运行",
+      "description": "Better Thermostat 正在以降级模式运行，因为部分传感器不可用：{sensors}\n\n温控器会继续控制，并平稳降级：\n- 如果室内温度传感器不可用，将用 TRV 内部温度的平均值代替。\n- 如果室内传感器和所有 TRV 温度都不可用，温控器会停止调节并保持最后一次下发的状态；防冻保护仍保持启用。仅以阀门作为执行器的设备则会收到固定的 25% 应急开度，因为它们自身的温控器无法接管。这可保留有限供暖，但不能保证防冻保护。命令要成功，设备必须可达。增压不会覆盖此开度；关闭、窗户或门打开、以及无效校准模式仍会关闭阀门。\n- 如果触点传感器（窗户或门）不可用，会假定触点关闭并继续供暖；丢失的传感器不应停止供暖。\n- 如果室外/天气传感器不可用，供暖会保持启用。\n\n请检查受影响的设备是否存在电池或连接问题。此问题会在所有传感器重新可用后自动清除。"
     },
     "invalid_window_state": {
-      "title": "BT: {name} - 窗户传感器状态无效",
+      "title": "BT：{name} - 窗户传感器状态无效",
       "description": "Better Thermostat {name} 的窗户传感器报告了无法识别的状态：{state}。\n\n预期状态为：'on'、'off'、'true'、'false'、'open'、'closed'。\n\n请检查你的窗户传感器配置。"
     },
     "invalid_door_state": {
-      "title": "BT: {name} - 门传感器状态无效",
+      "title": "BT：{name} - 门传感器状态无效",
       "description": "Better Thermostat {name} 的门传感器报告了无法识别的状态：{state}。\n\n预期状态为：'on'、'off'、'true'、'false'、'open'、'closed'。\n\n请检查你的门传感器配置。"
     },
     "invalid_external_temperature": {
-      "title": "BT: {name} - 外部温度无效",
+      "title": "BT：{name} - 外部温度无效",
       "description": "Better Thermostat {name} 的外部温度传感器报告了不合理值：{value}。\n\n该读数超出合理范围，已被忽略。请检查你的温度传感器配置。"
-    }
+    },
     "shared_trv": {
       "title": "BT：{trv} 被多个 Better Thermostat 控制",
-      "description": "温控器 {trv} 属于以下 Better Thermostat：{entries}。它们会向其写入相互冲突的目标温度和模式。请把其余的删除，确保在设置中只有一个 Better Thermostat 使用此温控器；之后此问题会自动清除。"
+      "description": "温控器 {trv} 同时被以下多个 Better Thermostat 使用：{entries}。这些实例会向它写入相互冲突的目标温度和模式。请在设置中只保留一个 Better Thermostat 使用该温控器，把其余的移除；移除后此问题会自动消失。"
+    },
+    "setpoint_not_applied": {
+      "title": "BT：{name} - {entity} 未接受目标温度",
+      "description": "Better Thermostat 一直向 {entity} 写入目标温度 {wanted}，但温控器仍报告 {held}。房间没有按 Better Thermostat 的意图被加热。\n\n常见原因：\n- 温控器自身有一个低于其公布最大值的设定点限制，例如 Zigbee2MQTT 中的 `max_heat_setpoint_limit`。\n- 温控器处于忽略目标温度的模式或预设中，例如日程模式。\n- 温控器失去无线连接或电池电量低。\n\nBetter Thermostat 会继续写入目标温度，最多每小时一次。此问题会在温控器报告目标温度后自动清除。"
     }
   },
   "services": {
@@ -188,15 +255,15 @@
         },
         "defaults_kp": {
           "name": "默认 kp",
-          "description": "重置后用于初始化的比例增益（如果未提供，则回退到 BalanceParams.kp）。"
+          "description": "重置后用于初始化的比例增益（如果未提供，则回退到内置 PID 默认值）。"
         },
         "defaults_ki": {
           "name": "默认 ki",
-          "description": "重置后用于初始化的积分增益（如果未提供，则回退到 BalanceParams.ki）。"
+          "description": "重置后用于初始化的积分增益（如果未提供，则回退到内置 PID 默认值）。"
         },
         "defaults_kd": {
           "name": "默认 kd",
-          "description": "重置后用于初始化的微分增益（如果未提供，则回退到 BalanceParams.kd）。"
+          "description": "重置后用于初始化的微分增益（如果未提供，则回退到内置 PID 默认值）。"
         }
       }
     }
@@ -328,7 +395,7 @@
         "no_calibration": "无校准"
       }
     },
-    "calibration_type": {
+    "calibration_output": {
       "options": {
         "direct_valve_based": "基于阀门直接控制",
         "target_temp_based": "基于目标温度",
@@ -345,6 +412,33 @@
     }
   },
   "entity": {
+    "climate": {
+      "better_thermostat": {
+        "state_attributes": {
+          "heating_blocked_by": {
+            "name": "供暖受阻原因",
+            "state": {
+              "devices_released": "设备已释放",
+              "startup": "正在启动",
+              "valve_maintenance": "阀门维护",
+              "hvac_off": "温控器关闭",
+              "window": "窗户打开",
+              "door": "门打开",
+              "no_call_for_heat": "无供暖请求"
+            }
+          },
+          "active_overrides": {
+            "name": "活动覆盖",
+            "state": {
+              "devices_released": "设备已释放",
+              "trvs_released": "TRV 已释放",
+              "learning_paused": "学习已暂停",
+              "window_detection_off": "窗户检测已关闭"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "pid_kp": {
         "name": "{trv_name} PID Kp（比例）"
@@ -432,9 +526,24 @@
       },
       "valve_max_opening_no_trv": {
         "name": "阀门最大开度"
+      },
+      "off_temperature": {
+        "name": "室外温度阈值"
+      },
+      "tolerance": {
+        "name": "容差"
       }
     },
     "switch": {
+      "release_devices": {
+        "name": "释放设备"
+      },
+      "release_trv": {
+        "name": "{trv_name} 释放"
+      },
+      "release_trv_no_trv": {
+        "name": "TRV 释放"
+      },
       "pid_auto_tune": {
         "name": "{trv_name} PID 自动调参"
       },
@@ -446,6 +555,12 @@
       },
       "child_lock_no_trv": {
         "name": "童锁"
+      },
+      "pause_learning": {
+        "name": "暂停学习"
+      },
+      "window_detection": {
+        "name": "窗户检测"
       }
     },
     "sensor": {
@@ -489,23 +604,23 @@
       "mpc_ka": {
         "name": "MPC 保温性 (Ka)"
       },
-      "pid_kp": {
-        "name": "PID Kp"
+      "mpc_v2_virtual_temp": {
+        "name": "MPC v2 虚拟温度"
       },
-      "pid_ki": {
-        "name": "PID Ki"
+      "mpc_v2_coupling": {
+        "name": "MPC v2 耦合"
       },
-      "pid_kd": {
-        "name": "PID Kd"
+      "mpc_v2_disturbance": {
+        "name": "MPC v2 扰动"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "MPC v2 房间时间常数"
       },
       "pid_output": {
         "name": "PID 输出"
       },
       "pid_error": {
         "name": "PID 误差"
-      },
-      "solar_intensity": {
-        "name": "日照强度加热"
       }
     }
   },
@@ -530,6 +645,41 @@
     "action_type": {
       "set_hvac_mode": "设置 HVAC 模式",
       "set_temperature": "设置目标温度"
+    }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} 不支持 HVAC 模式 {mode}。支持的模式：{modes}。"
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} 收到的 {attribute} 值为 {value}，它不是数字。"
+    },
+    "valve_maintenance_running": {
+      "message": "{device_name} 上的阀门维护已在运行。"
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} 没有阀门启用了阀门维护。"
+    },
+    "valve_maintenance_failed": {
+      "message": "{device_name} 上的阀门维护失败。日志中有详细信息。"
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} 尚未加载其学习状态。请在其启动后重试。"
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} 没有可应用 PID 默认值的目标温度。未重置任何内容。"
+    },
+    "pid_reset_failed": {
+      "message": "重置 {device_name} 的 PID 学习数据失败。日志中有详细信息。"
+    },
+    "invalid_settings": {
+      "message": "无法读取此 Better Thermostat 的已保存设置：{reason}。请在其选项中更改，或将其移除后重新添加。"
+    },
+    "devices_released": {
+      "message": "{device_name} 的设备已释放。关闭“释放设备”以让 Better Thermostat 重新控制它们。"
+    },
+    "trv_released": {
+      "message": "{device_name} 的这些 TRV 已释放：{entity}。关闭它们的释放开关以让 Better Thermostat 重新控制它们。"
     }
   }
 }
