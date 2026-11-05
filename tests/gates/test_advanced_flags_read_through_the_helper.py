@@ -21,6 +21,7 @@ _FLAG_CONSTANTS = (
     "CONF_VALVE_MAINTENANCE",
     "CONF_CHILD_LOCK",
     "CONF_HOMEMATICIP",
+    "CONF_KEEP_SENSOR_SELECTION",
 )
 _FLAG_VALUES = frozenset(getattr(const, name) for name in _FLAG_CONSTANTS)
 

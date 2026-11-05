@@ -17,7 +17,7 @@ from homeassistant.helpers import entity_registry as er, issue_registry as ir, s
 from homeassistant.helpers.entity_platform import async_get_platforms
 from homeassistant.helpers.typing import ConfigType, VolDictType, VolSchemaType
 from homeassistant.util.unit_conversion import TemperatureConverter
-import voluptuous as vol
+import probatio as vol
 
 from .tracked_entities import TrackedEntities
 from .utils.const import (

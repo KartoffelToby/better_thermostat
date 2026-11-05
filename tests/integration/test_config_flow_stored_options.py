@@ -90,6 +90,7 @@ CREATE_USER_INPUT = {
     "target_temp_min": "min_max_10",
     "target_temp_max": "min_max_28",
     "target_temp_step": "step_0_5",
+    "distribute_valve_by_trv_temperature": True,
 }
 
 CREATED_OPTIONS = {
@@ -110,6 +111,7 @@ CREATED_OPTIONS = {
                 "valve_maintenance": False,
                 "child_lock": True,
                 "homematicip": False,
+                "keep_sensor_selection": True,
             },
         },
         {
@@ -127,6 +129,7 @@ CREATED_OPTIONS = {
                 "valve_maintenance": False,
                 "child_lock": False,
                 "homematicip": False,
+                "keep_sensor_selection": False,
             },
         },
     ],
@@ -149,6 +152,7 @@ CREATED_OPTIONS = {
     "target_temp_min": "10.0",
     "target_temp_max": "28.0",
     "target_temp_step": "0.5",
+    "distribute_valve_by_trv_temperature": True,
     "model": "generic/generic",
 }
 
@@ -161,7 +165,11 @@ async def test_the_create_flow_writes_the_frozen_options(hass):
         hass,
         CREATE_USER_INPUT,
         [
-            {"child_lock": True, "calibration_mode": "pid_calibration"},
+            {
+                "child_lock": True,
+                "calibration_mode": "pid_calibration",
+                "keep_sensor_selection": True,
+            },
             {"protect_overheating": False, "mpc_v2_plant_preset": "small_room"},
         ],
     )
@@ -230,6 +238,7 @@ UPDATED_OPTIONS = {
                 "valve_maintenance": False,
                 "child_lock": True,
                 "homematicip": False,
+                "keep_sensor_selection": False,
             },
             "adapter": None,
         },
@@ -248,6 +257,7 @@ UPDATED_OPTIONS = {
                 "valve_maintenance": False,
                 "child_lock": False,
                 "homematicip": True,
+                "keep_sensor_selection": False,
             },
         },
     ],
@@ -272,6 +282,7 @@ UPDATED_OPTIONS = {
     "door_off_delay_after": 0,
     "target_temp_min": "-1.0",
     "target_temp_max": "25.0",
+    "distribute_valve_by_trv_temperature": False,
 }
 
 
@@ -327,7 +338,11 @@ async def test_a_refused_first_submission_leaves_nothing_behind(hass):
         hass,
         CREATE_USER_INPUT,
         [
-            {"child_lock": True, "calibration_mode": "pid_calibration"},
+            {
+                "child_lock": True,
+                "calibration_mode": "pid_calibration",
+                "keep_sensor_selection": True,
+            },
             {"protect_overheating": False, "mpc_v2_plant_preset": "small_room"},
         ],
         refused_first=CREATE_USER_INPUT

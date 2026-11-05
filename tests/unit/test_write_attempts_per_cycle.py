@@ -16,8 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import Context, State
 from homeassistant.exceptions import HomeAssistantError
+import probatio as vol
 import pytest
-import voluptuous as vol
 
 from custom_components.better_thermostat.adapters import (
     deconz,

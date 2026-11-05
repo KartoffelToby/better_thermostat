@@ -25,7 +25,8 @@
           "target_temp_min": "Minimálna cieľová teplota",
           "target_temp_max": "Maximálna cieľová teplota",
           "target_temp_step": "Krok cieľovej teploty",
-          "presets": "Povolené predvoľby"
+          "presets": "Povolené predvoľby",
+          "distribute_valve_by_trv_temperature": "Rozdeliť otvorenie ventilu podľa vlastnej teploty každého TRV"
         },
         "data_description": {
           "name": "Názov tohto termostatu a jeho zariadenia v Home Assistant.",
@@ -48,7 +49,8 @@
           "target_temp_min": "Najnižší cieľ, ktorý môžete nastaviť. Auto preberá rozsah, ktorý hlásia zariadenia.",
           "target_temp_max": "Najvyšší cieľ, ktorý môžete nastaviť. Auto preberá rozsah, ktorý hlásia zariadenia.",
           "target_temp_step": "O koľko sa cieľ zmení za jeden krok. Auto preberá najhrubší krok, ktorý hlásia termostaty.",
-          "presets": "Vyberte predvoľby, ktoré chcete mať k dispozícii pre tento termostat."
+          "presets": "Vyberte predvoľby, ktoré chcete mať k dispozícii pre tento termostat.",
+          "distribute_valve_by_trv_temperature": "Len pre dva alebo viac TRV v režime kalibrácie MPC alebo MPC v2. Vypnuté: každý TRV dostane rovnaké otvorenie ventilu. Zapnuté: TRV, ktorý nameria nižšiu teplotu ako najteplejší TRV v miestnosti, sa otvorí viac, o 8 % na každý °C (4,4 % na °F) rozdielu. Porovnávajú sa vlastné merania TRV, preto Sonoff TRVZB alebo TRV-ZBT musí mať zvolený vlastný snímač a zapnutú možnosť „Zachovať výber snímača TRV“. TRV kalibrovaný cez offset dostane otvorenie ventilu miestnosti."
         }
       },
       "advanced": {
@@ -62,7 +64,8 @@
           "calibration": "Typ kalibrácie",
           "calibration_mode": "Režim kalibrácie",
           "no_off_system_mode": "Použiť minimálnu teplotu namiesto 'vypnuté'",
-          "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti"
+          "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti",
+          "keep_sensor_selection": "Zachovať výber snímača TRV"
         },
         "data_description": {
           "protect_overheating": "Niektoré termostatické ventily úplne neuzatvoria ventil po dosiahnutí požadovanej teploty. Alebo má radiátor veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
@@ -73,7 +76,8 @@
           "calibration": "Ako sa kalibrácia použije na TRV\n***Podľa cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Podľa posunu***: Použite kalibráciu na posun teploty. Ponúka sa len vtedy, keď má TRV zapisovateľný posun teploty.\n***Priame ovládanie ventilu***: Nastavte otvorenie ventilu priamo. Ponúka sa len vtedy, keď má TRV zapisovateľnú polohu ventilu. Režimy kalibrácie, ktoré nevypočítajú otvorenie ventilu, namiesto toho posielajú cieľovú teplotu.",
           "calibration_mode": "Ako sa kalibrácia vypočíta\n***AI podľa času (predvolené)***: Postupne sa učí vykurovací výkon miestnosti a odvodí z neho kalibráciu.\n***Iba posun externého snímača***: Opraví interný snímač TRV podľa vášho externého snímača teploty. Navyše nebeží žiadny regulátor.\n***Prediktívne MPC (beta)***: Predpovedá teplotu v miestnosti a vypočíta z nej otvorenie ventilu. Učí sa tepelné správanie miestnosti.\n***(AI) MPC v2 (QP + Kalman, experimentálne)***: Odhaduje stav miestnosti Kalmanovým filtrom a vypočíta otvorenie ventilu modelovým prediktívnym regulátorom. Nastavenie MPC v2 veľkosť miestnosti vyberá model miestnosti: naučený z miestnosti (Automaticky) alebo pevný pre veľkosť miestnosti (malá, stredná, veľká).\n***Agresívne***: Pridá ku kalibrácii navýšenie, kým sa miestnosť vykuruje, a preskočí oneskorenie tolerancie, aby TRV začal kúriť skôr. Užitočné, ak sa miestnosť ohrieva pomaly.\n***Regulátor TPI***: Vypočíta dobu zopnutia vykurovacích cyklov z rozdielu teplôt.\n***Regulátor PID***: Vypočíta otvorenie ventilu z odchýlky teploty pomocou proporcionálnej, integračnej a derivačnej zložky.\n***Bez kalibrácie***: Pošle cieľovú teplotu do TRV bez zmeny a nepoužije žiadnu korekciu.",
           "no_off_system_mode": "S touto možnosťou Better Thermostat posiela TRV jeho minimálnu teplotu namiesto 'vypnuté'. TRV, ktorý hlási svoju minimálnu teplotu, sa považuje za vypnutý: keď sú všetky TRV v miestnosti vypnuté, miestnosť sa vypne, a otočenie gombíka nahor ju znova zapne. Počíta sa aj otočenie pri otvorenom okne alebo dverách; kúrenie potom čaká, kým nie sú všetky okná a dvere zatvorené. TRV bez režimu vypnutia dostane svoju minimálnu teplotu aj bez tejto možnosti. Zapnite ju pre TRV, ktorého režim vypnutia nefunguje, alebo pre TRV bez režimu vypnutia, ktorého gombík má zapínať a vypínať Better Thermostat.",
-          "mpc_v2_plant_preset": "Používa sa iba v režime kalibrácie MPC v2.\n***Automaticky***: Odvodí model miestnosti z toho, čo sa Better Thermostat o miestnosti naučil, napríklad z miery jej tepelných strát.\n***Malá, stredná alebo veľká miestnosť***: Začína s pevným modelom miestnosti pre túto veľkosť."
+          "mpc_v2_plant_preset": "Používa sa iba v režime kalibrácie MPC v2.\n***Automaticky***: Odvodí model miestnosti z toho, čo sa Better Thermostat o miestnosti naučil, napríklad z miery jej tepelných strát.\n***Malá, stredná alebo veľká miestnosť***: Začína s pevným modelom miestnosti pre túto veľkosť.",
+          "keep_sensor_selection": "Pre TRV, ktoré môžu regulovať podľa externej teploty (Sonoff TRVZB a TRV-ZBT, Aqara SRTS-A01). Vypnuté: Better Thermostat prepne TRV na externú teplotu, ktorú zapisuje, aj po resetovaní alebo opätovnom spárovaní. Zapnuté: snímač zvolený na TRV zostane zvolený a teplota miestnosti sa naďalej zapisuje do externého vstupu. TRV, ktorý sa vráti k vlastnému snímaču, sa potom neprepne späť."
         }
       },
       "confirm": {
@@ -92,7 +96,8 @@
       "trv_is_better_thermostat": "{trv} je Better Thermostat. Vyberte namiesto neho reálny termostat.",
       "trv_no_target_temperature": "{trv} neprijíma cieľovú teplotu. Vyberte termostat, ktorý ju prijíma.",
       "cooler_is_better_thermostat": "{cooler} je Better Thermostat. Vyberte namiesto neho reálne chladiace zariadenie.",
-      "cooler_no_target_temperature": "{cooler} neprijíma cieľovú teplotu. Vyberte chladiace zariadenie, ktoré ju prijíma."
+      "cooler_no_target_temperature": "{cooler} neprijíma cieľovú teplotu. Vyberte chladiace zariadenie, ktoré ju prijíma.",
+      "bound_sensor_calibration_mode": "Tento termostat reguluje podľa teplotného senzora, ktorý je k nemu viazaný (Matter Binding), a miestnosť riadi sám. Zvoľte Bez kalibrácie: každý iný režim pridá druhú regulačnú slučku nad vlastnú slučku termostatu."
     },
     "abort": {
       "single_instance_allowed": "Pre každý real je povolený len jeden termostat.",
@@ -126,7 +131,8 @@
           "target_temp_max": "Maximálna cieľová teplota",
           "target_temp_step": "Krok cieľovej teploty",
           "presets": "Enabled Predvoľby",
-          "cooler": "Chladiace zariadenie (voliteľné)"
+          "cooler": "Chladiace zariadenie (voliteľné)",
+          "distribute_valve_by_trv_temperature": "Rozdeliť otvorenie ventilu podľa vlastnej teploty každého TRV"
         },
         "data_description": {
           "name": "Názov tohto termostatu a jeho zariadenia v Home Assistant.",
@@ -149,7 +155,8 @@
           "target_temp_max": "Najvyšší cieľ, ktorý môžete nastaviť. Auto preberá rozsah, ktorý hlásia zariadenia.",
           "target_temp_step": "O koľko sa cieľ zmení za jeden krok. Auto preberá najhrubší krok, ktorý hlásia termostaty.",
           "presets": "Vyberte predvoľby, ktoré chcete mať k dispozícii pre tento termostat.",
-          "cooler": "Voliteľné. Klimatizácia alebo iná klimatizačná entita, ktorá chladí túto miestnosť spolu s termostatmi."
+          "cooler": "Voliteľné. Klimatizácia alebo iná klimatizačná entita, ktorá chladí túto miestnosť spolu s termostatmi.",
+          "distribute_valve_by_trv_temperature": "Len pre dva alebo viac TRV v režime kalibrácie MPC alebo MPC v2. Vypnuté: každý TRV dostane rovnaké otvorenie ventilu. Zapnuté: TRV, ktorý nameria nižšiu teplotu ako najteplejší TRV v miestnosti, sa otvorí viac, o 8 % na každý °C (4,4 % na °F) rozdielu. Porovnávajú sa vlastné merania TRV, preto Sonoff TRVZB alebo TRV-ZBT musí mať zvolený vlastný snímač a zapnutú možnosť „Zachovať výber snímača TRV“. TRV kalibrovaný cez offset dostane otvorenie ventilu miestnosti."
         }
       },
       "advanced": {
@@ -163,7 +170,8 @@
           "calibration": "Druh kalibrácie, ktorý chcete použiť",
           "calibration_mode": "Režim kalibrácie",
           "no_off_system_mode": "Použiť minimálnu teplotu namiesto 'vypnuté'",
-          "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti"
+          "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti",
+          "keep_sensor_selection": "Zachovať výber snímača TRV"
         },
         "data_description": {
           "protect_overheating": "Niektoré TRV nezatvárajú ventil úplne, keď sa dosiahne požadovaná teplota. Alebo je v radiátore veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
@@ -174,7 +182,8 @@
           "calibration": "Ako sa kalibrácia použije na TRV\n***Podľa cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Podľa posunu***: Použite kalibráciu na posun teploty. Ponúka sa len vtedy, keď má TRV zapisovateľný posun teploty.\n***Priame ovládanie ventilu***: Nastavte otvorenie ventilu priamo. Ponúka sa len vtedy, keď má TRV zapisovateľnú polohu ventilu. Režimy kalibrácie, ktoré nevypočítajú otvorenie ventilu, namiesto toho posielajú cieľovú teplotu.",
           "calibration_mode": "Ako sa kalibrácia vypočíta\n***AI podľa času (predvolené)***: Postupne sa učí vykurovací výkon miestnosti a odvodí z neho kalibráciu.\n***Iba posun externého snímača***: Opraví interný snímač TRV podľa vášho externého snímača teploty. Navyše nebeží žiadny regulátor.\n***Prediktívne MPC (beta)***: Predpovedá teplotu v miestnosti a vypočíta z nej otvorenie ventilu. Učí sa tepelné správanie miestnosti.\n***(AI) MPC v2 (QP + Kalman, experimentálne)***: Odhaduje stav miestnosti Kalmanovým filtrom a vypočíta otvorenie ventilu modelovým prediktívnym regulátorom. Nastavenie MPC v2 veľkosť miestnosti vyberá model miestnosti: naučený z miestnosti (Automaticky) alebo pevný pre veľkosť miestnosti (malá, stredná, veľká).\n***Agresívne***: Pridá ku kalibrácii navýšenie, kým sa miestnosť vykuruje, a preskočí oneskorenie tolerancie, aby TRV začal kúriť skôr. Užitočné, ak sa miestnosť ohrieva pomaly.\n***Regulátor TPI***: Vypočíta dobu zopnutia vykurovacích cyklov z rozdielu teplôt.\n***Regulátor PID***: Vypočíta otvorenie ventilu z odchýlky teploty pomocou proporcionálnej, integračnej a derivačnej zložky.\n***Bez kalibrácie***: Pošle cieľovú teplotu do TRV bez zmeny a nepoužije žiadnu korekciu.",
           "no_off_system_mode": "S touto možnosťou Better Thermostat posiela TRV jeho minimálnu teplotu namiesto 'vypnuté'. TRV, ktorý hlási svoju minimálnu teplotu, sa považuje za vypnutý: keď sú všetky TRV v miestnosti vypnuté, miestnosť sa vypne, a otočenie gombíka nahor ju znova zapne. Počíta sa aj otočenie pri otvorenom okne alebo dverách; kúrenie potom čaká, kým nie sú všetky okná a dvere zatvorené. TRV bez režimu vypnutia dostane svoju minimálnu teplotu aj bez tejto možnosti. Zapnite ju pre TRV, ktorého režim vypnutia nefunguje, alebo pre TRV bez režimu vypnutia, ktorého gombík má zapínať a vypínať Better Thermostat.",
-          "mpc_v2_plant_preset": "Používa sa iba v režime kalibrácie MPC v2.\n***Automaticky***: Odvodí model miestnosti z toho, čo sa Better Thermostat o miestnosti naučil, napríklad z miery jej tepelných strát.\n***Malá, stredná alebo veľká miestnosť***: Začína s pevným modelom miestnosti pre túto veľkosť."
+          "mpc_v2_plant_preset": "Používa sa iba v režime kalibrácie MPC v2.\n***Automaticky***: Odvodí model miestnosti z toho, čo sa Better Thermostat o miestnosti naučil, napríklad z miery jej tepelných strát.\n***Malá, stredná alebo veľká miestnosť***: Začína s pevným modelom miestnosti pre túto veľkosť.",
+          "keep_sensor_selection": "Pre TRV, ktoré môžu regulovať podľa externej teploty (Sonoff TRVZB a TRV-ZBT, Aqara SRTS-A01). Vypnuté: Better Thermostat prepne TRV na externú teplotu, ktorú zapisuje, aj po resetovaní alebo opätovnom spárovaní. Zapnuté: snímač zvolený na TRV zostane zvolený a teplota miestnosti sa naďalej zapisuje do externého vstupu. TRV, ktorý sa vráti k vlastnému snímaču, sa potom neprepne späť."
         }
       }
     },
@@ -187,7 +196,8 @@
       "trv_is_better_thermostat": "{trv} je Better Thermostat. Vyberte namiesto neho reálny termostat.",
       "trv_no_target_temperature": "{trv} neprijíma cieľovú teplotu. Vyberte termostat, ktorý ju prijíma.",
       "cooler_is_better_thermostat": "{cooler} je Better Thermostat. Vyberte namiesto neho reálne chladiace zariadenie.",
-      "cooler_no_target_temperature": "{cooler} neprijíma cieľovú teplotu. Vyberte chladiace zariadenie, ktoré ju prijíma."
+      "cooler_no_target_temperature": "{cooler} neprijíma cieľovú teplotu. Vyberte chladiace zariadenie, ktoré ju prijíma.",
+      "bound_sensor_calibration_mode": "Tento termostat reguluje podľa teplotného senzora, ktorý je k nemu viazaný (Matter Binding), a miestnosť riadi sám. Zvoľte Bez kalibrácie: každý iný režim pridá druhú regulačnú slučku nad vlastnú slučku termostatu."
     }
   },
   "issues": {

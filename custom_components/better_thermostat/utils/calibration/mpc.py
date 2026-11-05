@@ -527,6 +527,61 @@ def build_mpc_group_key(bt: BetterThermostat) -> str:
     return build_bucket_key(bt, GROUP_KEY_SEGMENT)
 
 
+# Additional valve percent per kelvin that a TRV reads below the warmest TRV
+# of its group: a TRV 3 K colder than the warmest gets 24 percent more.
+DISTRIBUTE_COMPENSATION_PERCENT_PER_K: float = 8.0
+
+
+def distribute_valve_percent(
+    u_total_percent: float, trv_temperatures: Mapping[str, float | None]
+) -> dict[str, float]:
+    """Split a group's valve command across its TRVs by their own readings.
+
+    The warmest TRV is the reference and receives ``u_total_percent``
+    unchanged. Every colder TRV gets a boost proportional to how much colder
+    it reads than the warmest::
+
+        result[trv] = u_total_percent + (T_warmest - T_trv) * COMPENSATION
+
+    with ``COMPENSATION`` = ``DISTRIBUTE_COMPENSATION_PERCENT_PER_K``. The
+    boost only adds: no TRV receives less than the group command. A TRV
+    without a reading receives the group command and is no reference. A
+    command of zero stays zero for every TRV, so a closed group stays closed.
+
+    Parameters
+    ----------
+    u_total_percent : float
+        The group's valve command in percent (0 to 100).
+    trv_temperatures : Mapping[str, float | None]
+        Each TRV's own reading in degrees Celsius, or ``None`` when it has
+        none to compare by, keyed by entity id.
+
+    Returns
+    -------
+    dict[str, float]
+        Each TRV's valve percent, held to 0 to 100, keyed by entity id.
+    """
+    baseline = max(0.0, min(100.0, u_total_percent))
+    readings = {
+        entity_id: float(reading)
+        for entity_id, reading in trv_temperatures.items()
+        if reading is not None and math.isfinite(reading)
+    }
+    if u_total_percent <= 0.0 or len(readings) < 2:
+        return dict.fromkeys(trv_temperatures, baseline)
+    warmest = max(readings.values())
+    result: dict[str, float] = {}
+    for entity_id in trv_temperatures:
+        reading = readings.get(entity_id)
+        if reading is None:
+            result[entity_id] = baseline
+            continue
+        deficit_K = warmest - reading
+        percent = u_total_percent + deficit_K * DISTRIBUTE_COMPENSATION_PERCENT_PER_K
+        result[entity_id] = max(0.0, min(100.0, percent))
+    return result
+
+
 def _detect_regime_change(recent_errors: deque[float] | list[float]) -> bool:
     """Detect systematic bias in prediction errors using Student's t-test.
 

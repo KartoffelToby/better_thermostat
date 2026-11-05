@@ -21,9 +21,9 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.helpers import entity_registry as er
+import probatio as vol
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-import voluptuous as vol
 
 from custom_components.better_thermostat import RELOAD_LOCKS
 from custom_components.better_thermostat.utils.const import (
@@ -93,7 +93,7 @@ RELOAD_TIMEOUT_S = 10
 
 
 def _marker(form, key: str) -> vol.Marker:
-    """Return the voluptuous marker a step published for ``key``."""
+    """Return the schema marker a step published for ``key``."""
     for marker in form["data_schema"].schema:
         if marker == key:
             return marker

@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 
 from homeassistant.const import UnitOfTemperature
-import voluptuous as vol
+import probatio as vol
 
 from custom_components.better_thermostat.config_flow import (
     _build_user_fields,

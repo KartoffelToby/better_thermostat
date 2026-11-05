@@ -19,7 +19,7 @@ It derives a control signal to reduce overheating and improve distribution betwe
 
 The controller produces a valve opening in percent. Depending on device capability and calibration type, BT uses it as either:
 
-- Direct valve percentage, with the Direct Valve Based calibration type (if the integration exposes a writable valve position). On a Sonoff TRVZB, BT writes the valve opening degree and, where the device exposes it, sets the closing degree to 100 minus the opening.
+- Direct valve percentage, with the Direct Valve Based calibration type (if the integration exposes a writable valve position, or Better Thermostat has a valve control for the model). On a Sonoff TRVZB, BT writes the valve opening degree and, where the device exposes it, sets the closing degree to 100 minus the opening.
 - A mapped setpoint or offset otherwise: BT places the setpoint the TRV sees between the TRV's current temperature (0 %) and its maximum temperature (100 %). Depending on the percentage, that setpoint can lie above or below your target.
 
 ## Why this helps

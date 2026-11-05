@@ -28,6 +28,7 @@ from homeassistant.const import (
     ATTR_ASSUMED_STATE,
     ATTR_UNIT_OF_MEASUREMENT,
     CONF_NAME,
+    STATE_ON,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     Platform,
@@ -49,6 +50,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
     CONF_HEAT_AUTO_SWAPPED,
+    CONF_KEEP_SENSOR_SELECTION,
     CONF_NO_OFF_SYSTEM_MODE,
     CONF_THERMOSTAT,
     DEFAULT_CALIBRATION_MODE,
@@ -156,6 +158,18 @@ def every_trv_released(host: ReleaseHost, trv_ids: Iterable[str]) -> bool:
     return bool(trv_ids) and all(
         entity_id in host.released_trvs for entity_id in trv_ids
     )
+
+
+def keeps_sensor_selection(host: _CalibrationModeHost, entity_id: str) -> bool:
+    """Return whether the user keeps the sensor selector of ``entity_id``.
+
+    A TRV that regulates either on its own sensor or on an external input
+    has a selector for that choice. Better Thermostat moves it to the input
+    it writes unless the TRV's ``keep_sensor_selection`` option is on; then
+    the option the user picked stays, whichever it is.
+    """
+    trv = host.real_trvs.get(entity_id)
+    return trv is not None and advanced_flag(trv.advanced, CONF_KEEP_SENSOR_SELECTION)
 
 
 def entry_settings(entry: BetterThermostatConfigEntry) -> dict[str, object]:
@@ -342,19 +356,23 @@ def find_device_entity(
     domains: Iterable[str],
     keywords: Iterable[str],
     excluded: Iterable[str] = (),
+    owner: er.RegistryEntry | None = None,
 ) -> str | None:
     """Return the entity_id of the first matching entity on a device.
 
     A match is any enabled entity belonging to ``device_id`` whose domain is
     in ``domains`` and whose name, unique_id or object-id contains any of
-    ``keywords`` and none of ``excluded`` (case-insensitive). Returns
-    ``None`` if nothing matches.
+    ``keywords`` and none of ``excluded`` (case-insensitive). With an
+    ``owner``, an entity on another Matter endpoint than the owner's is no
+    match. Returns ``None`` if nothing matches.
     """
     domains = tuple(domains)
     keywords = tuple(k.lower() for k in keywords)
     excluded = tuple(k.lower() for k in excluded)
     for ent in entity_registry.entities.values():
         if not is_sibling_entry(ent, device_id) or ent.domain not in domains:
+            continue
+        if on_other_matter_endpoint(owner, ent):
             continue
         name = (ent.original_name or "").lower()
         uid = (ent.unique_id or "").lower()
@@ -433,6 +451,138 @@ def find_keyed_device_entity(
         if any(id_fragment in haystack for haystack in haystacks):
             return ent.entity_id
     return None
+
+
+# Translation key of the diagnostic binary sensor Home Assistant's Matter
+# integration creates from a thermostat's RemoteSensing attribute. It is on
+# while the thermostat takes its LocalTemperature from a remote sensor, such
+# as a room sensor bound to it over Matter Binding, instead of its own.
+REMOTE_SENSING_LOCAL_TEMPERATURE_KEY: Final = (
+    "thermostat_remote_sensing_local_temperature"
+)
+
+
+def _matter_endpoint(unique_id: str | None) -> str | None:
+    """Return the endpoint a Matter entity's unique id names, if it names one.
+
+    Home Assistant's Matter integration builds the id as ``<fabric>-<node>-
+    <device postfix>-<endpoint>-<key>-<cluster>-<attribute>``; the three
+    parts of the device id hold no dash, so the endpoint is the fourth part.
+    """
+    parts = (unique_id or "").split("-")
+    return parts[3] if len(parts) >= 7 else None
+
+
+def on_other_matter_endpoint(
+    entry: er.RegistryEntry | None, other: er.RegistryEntry | None
+) -> bool:
+    """Whether two Matter entities name different endpoints of their device.
+
+    False whenever either entity is missing, is no Matter entity, or its
+    unique id names no endpoint, so only entities that are known to belong
+    apart are told apart.
+    """
+    if (
+        entry is None
+        or other is None
+        or entry.platform != "matter"
+        or other.platform != "matter"
+    ):
+        return False
+    endpoint = _matter_endpoint(entry.unique_id)
+    other_endpoint = _matter_endpoint(other.unique_id)
+    return bool(endpoint and other_endpoint and endpoint != other_endpoint)
+
+
+def remote_sensing_entity(hass: HomeAssistant, trv_entity_id: str) -> str | None:
+    """Return the remote-sensing binary sensor of a TRV's device, if it has one.
+
+    A Matter device without a bridge carries all its endpoints on one device,
+    so a sensor whose unique id names another endpoint than the TRV's belongs
+    to another thermostat of that device and is skipped.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The Home Assistant instance whose entity registry is searched.
+    trv_entity_id : str
+        The climate entity of the TRV.
+
+    Returns
+    -------
+    str | None
+        The entity id of the enabled Matter binary sensor on the TRV's device
+        that tells whether the TRV's LocalTemperature is remotely sensed, or
+        ``None`` when the device has none.
+    """
+    registry = er.async_get(hass)
+    climate_entry = registry.async_get(trv_entity_id)
+    if climate_entry is None or climate_entry.device_id is None:
+        return None
+    for sibling in er.async_entries_for_device(registry, climate_entry.device_id):
+        if (
+            sibling.domain == Platform.BINARY_SENSOR
+            and sibling.platform == "matter"
+            and sibling.translation_key == REMOTE_SENSING_LOCAL_TEMPERATURE_KEY
+            and not on_other_matter_endpoint(climate_entry, sibling)
+        ):
+            return sibling.entity_id
+    return None
+
+
+def regulates_on_bound_sensor(hass: HomeAssistant, trv_entity_id: str) -> bool | None:
+    """Whether a TRV regulates on a remote room sensor instead of its own.
+
+    A Matter thermostat bound to a room temperature sensor takes its
+    LocalTemperature from that sensor and controls the room on it. Its
+    local temperature calibration then shifts the room temperature the
+    thermostat controls on, so it belongs to the user and is never written.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The Home Assistant instance.
+    trv_entity_id : str
+        The climate entity of the TRV.
+
+    Returns
+    -------
+    bool | None
+        True while the TRV's remote-sensing binary sensor is on. False when
+        it is off or the TRV's device has no such sensor. None while the
+        sensor exists but reports no state, so nothing tells whether the
+        TRV regulates on a remote sensor.
+    """
+    entity_id = remote_sensing_entity(hass, trv_entity_id)
+    if entity_id is None:
+        return False
+    state = hass.states.get(entity_id)
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return None
+    return state.state == STATE_ON
+
+
+def defers_to_bound_sensor(hass: HomeAssistant, trv_entity_id: str) -> bool:
+    """Whether Better Thermostat leaves a TRV to regulate on a bound sensor.
+
+    Such a TRV gets the target temperature unchanged and its local
+    temperature calibration is left as the user set it. That holds while
+    the TRV regulates on a remote sensor, and while its remote-sensing
+    sensor reports no state and so cannot rule that out.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The Home Assistant instance.
+    trv_entity_id : str
+        The climate entity of the TRV.
+
+    Returns
+    -------
+    bool
+        True unless the TRV is known not to regulate on a remote sensor.
+    """
+    return regulates_on_bound_sensor(hass, trv_entity_id) is not False
 
 
 def external_temperature_input_value(
@@ -3177,6 +3327,7 @@ async def find_local_calibration_entity(
         entity
         for entity in entity_entries
         if _shares_device(entity, reg_entity.device_id)
+        and not on_other_matter_endpoint(reg_entity, entity)
         and entity.domain in _CALIBRATION_ENTITY_DOMAINS
         and not _is_unusable_zwave_configuration_parameter(entity)
     ]

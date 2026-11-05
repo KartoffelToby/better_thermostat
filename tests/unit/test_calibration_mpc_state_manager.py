@@ -2,6 +2,10 @@
 
 from unittest.mock import MagicMock, patch
 
+from homeassistant.const import UnitOfTemperature
+from homeassistant.core import State
+import pytest
+
 from custom_components.better_thermostat.calibration import _compute_mpc_balance
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcState,
@@ -41,6 +45,7 @@ def _make_bt(state_mgr: _MpcStateStub) -> ThermostatStandIn:
     bt.room_temperature_filtered = None
     bt.temperature_slope = 0.0
     bt.tolerance = 0.0
+    bt.distribute_valve_by_trv_temperature = False
     bt.window_open = False
     bt.contact_open = False
     bt.bt_hvac_mode = "heat"
@@ -213,3 +218,49 @@ def test_mpc_balance_holds_a_group_only_to_its_widest_cap() -> None:
 
     assert payload is not None
     assert payload.valve_percent > 40
+
+
+def _group_split_by_trv_temperature(split: bool) -> ThermostatStandIn:
+    """Return a two-TRV group whose TRVs read 20 °C and 21.5 °C."""
+    bt = _make_bt(_MpcStateStub())
+    bt.heat_target_temperature = 20.5
+    bt.distribute_valve_by_trv_temperature = split
+    bt.devices_released = False
+    bt.released_trvs = set()
+    bt.real_trvs["climate.trv"] = trv_record(
+        entity_id="climate.trv",
+        advanced={},
+        current_temperature=20.0,
+        min_temp=5.0,
+        max_temp=30.0,
+    )
+    bt.real_trvs["climate.trv2"] = trv_record(
+        entity_id="climate.trv2",
+        advanced={},
+        current_temperature=21.5,
+        min_temp=5.0,
+        max_temp=30.0,
+    )
+    states = {
+        entity_id: State(
+            entity_id, "heat", {"current_temperature": trv.current_temperature}
+        )
+        for entity_id, trv in bt.real_trvs.items()
+    }
+    bt.hass.states.get.side_effect = states.get
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    return bt
+
+
+@pytest.mark.parametrize(("split", "boost"), [(True, 12.0), (False, 0.0)])
+def test_mpc_balance_splits_a_group_by_trv_temperature_only_when_asked(split, boost):
+    """With the split on, the TRV 1.5 K colder than its partner gets 12 % more."""
+    bt = _group_split_by_trv_temperature(split)
+
+    _compute_mpc_balance(bt, "climate.trv")
+    balance = bt.real_trvs["climate.trv"].calibration_balance
+
+    assert balance is not None
+    group = balance["debug"]["group_valve_pct"]
+    assert 0.0 < group < 100.0 - boost
+    assert balance["debug"]["distributed_valve_pct"] == pytest.approx(group + boost)

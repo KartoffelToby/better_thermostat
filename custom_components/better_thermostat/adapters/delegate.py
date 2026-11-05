@@ -15,6 +15,7 @@ from homeassistant.helpers.importlib import async_import_module
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.utils.helpers import (
+    defers_to_bound_sensor,
     device_released,
     published_setpoint_grid,
     round_by_step,
@@ -590,6 +591,10 @@ async def set_calibration_offset(
     is not written to: the call would be dropped, and answering ``True``
     would leave the caller waiting on an offset that never arrives.
 
+    The offset of a TRV that regulates on a remote sensor bound to it is
+    the user's: it shifts the room temperature the TRV controls on, and is
+    not written either.
+
     Parameters
     ----------
     self : BetterThermostat
@@ -606,9 +611,17 @@ async def set_calibration_offset(
     bool
         True when the adapter put the offset on the wire, False when the
         device has no offset channel, its calibration entity is disabled,
-        or every attempt raised
+        its offset is the user's, or every attempt raised
     """
     if calibration_entity_disabled(self, entity_id):
+        return False
+    if defers_to_bound_sensor(self.hass, entity_id):
+        _LOGGER.debug(
+            "better_thermostat %s: %s regulates on a remote sensor, its "
+            "calibration offset is left as set",
+            self.device_name,
+            entity_id,
+        )
         return False
 
     write = _adapter(self, entity_id).set_calibration_offset

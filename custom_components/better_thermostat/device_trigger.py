@@ -57,7 +57,7 @@ from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 from homeassistant.helpers import config_validation as cv, entity_registry
 from homeassistant.helpers.trigger import TriggerActionType, TriggerInfo
 from homeassistant.helpers.typing import ConfigType
-import voluptuous as vol
+import probatio as vol
 
 from . import DOMAIN
 from .utils.const import CONF_HUMIDITY_SENSOR

@@ -36,6 +36,11 @@ reviews:
       - "work in progress"
       - "DO NOT MERGE"
 
+    # Dependency bumps are checked by CI; a review would spend a slot of the
+    # review quota on a lock file the path filters already exclude.
+    ignore_usernames:
+      - "dependabot[bot]"
+
   # Don't spend review effort on generated, vendored or lock files.
   path_filters:
     - "!custom_components/better_thermostat/translations/**"

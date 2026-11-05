@@ -11,8 +11,8 @@ from homeassistant.exceptions import (
     ServiceNotSupported,
     ServiceValidationError,
 )
+import probatio as vol
 import pytest
-import voluptuous as vol
 
 from custom_components.better_thermostat.utils.retry import (
     DeviceCallTimeoutError,
