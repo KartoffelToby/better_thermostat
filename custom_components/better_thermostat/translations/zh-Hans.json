@@ -41,6 +41,7 @@
           "calibration": "校准类型",
           "calibration_mode": "校准模式",
           "no_off_system_mode": "如果你的 TRV 不支持 '关闭' 模式，请启用此项以改用 5°C 的目标温度"
+          "mpc_v2_plant_preset": "MPC v2 房间大小"
         },
         "data_description": {
           "protect_overheating": "有些 TRV 在达到温度时不会完全关闭阀门，或者散热器有较多余热。这可能导致过热。此选项可以防止这种情况。",
@@ -65,6 +66,8 @@
     "abort": {
       "single_instance_allowed": "每个真实温控器只允许有一个 Better Thermostat。",
       "no_devices_found": "未找到温控器实体，请确保你的 Home Assistant 中有 climate 实体"
+      "already_configured": "已有同名的 Better Thermostat 控制这些温控器。",
+      "trv_in_use": "{trv} 已被 Better Thermostat {entry} 控制。一个温控器只能属于一个 Better Thermostat；请先在那里将其移除。"
     }
   },
   "options": {
@@ -95,6 +98,7 @@
           "heat_auto_swapped": "如果你的 TRV 的 '自动' 表示 '制热'，而你想互换它",
           "child_lock": "像童锁一样忽略 TRV 上的所有输入",
           "homematicip": "如果你使用 HomematicIP，应启用此项以减慢请求，防止占空比限制"
+          "cooler": "制冷设备（可选）"
         },
         "data_description": {
           "presets": "选择你希望此温控器可用的预设。"
@@ -111,6 +115,7 @@
           "calibration": "校准类型",
           "calibration_mode": "校准模式",
           "no_off_system_mode": "如果你的 TRV 不支持 '关闭' 模式，请启用此项以改用 5°C 的目标温度"
+          "mpc_v2_plant_preset": "MPC v2 房间大小"
         },
         "data_description": {
           "protect_overheating": "有些 TRV 在达到温度时不会完全关闭阀门，或者散热器有较多余热。这可能导致过热。此选项可以防止这种情况。",
@@ -127,6 +132,8 @@
       "target_temp_min_above_max": "目标最低温度不得超过目标最高温度。",
       "no_outside_temp": "你没有室外温度传感器。Better Thermostat 将改用天气实体。",
       "no_data": "未收到数据。请重试。"
+      "no_sensor": "请选择一个室内温度传感器。",
+      "trv_in_use": "{trv} 已被 Better Thermostat {entry} 控制。一个温控器只有一个 Better Thermostat。"
     }
   },
   "issues": {
@@ -156,6 +163,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - 外部温度无效",
       "description": "Better Thermostat {name} 的外部温度传感器报告了不合理值：{value}。\n\n该读数超出合理范围，已被忽略。请检查你的温度传感器配置。"
+    }
+    "shared_trv": {
+      "title": "BT：{trv} 被多个 Better Thermostat 控制",
+      "description": "温控器 {trv} 属于以下 Better Thermostat：{entries}。它们会向其写入相互冲突的目标温度和模式。请把其余的删除，确保在设置中只有一个 Better Thermostat 使用此温控器；之后此问题会自动清除。"
     }
   },
   "services": {
@@ -444,6 +455,7 @@
           "window_close": "因窗户关闭而恢复供暖",
           "summer_mode_on": "因室外温度过高而关闭",
           "summer_mode_off": "因室外温度下降而恢复供暖",
+          "weather_forecast_missing": "因天气预报不可用而恢复供暖",
           "degraded_mode_entered": "因部分传感器不可用而进入降级模式",
           "degraded_mode_resolved": "因所有传感器可用而退出降级模式",
           "door_open": "因门打开而关闭",
