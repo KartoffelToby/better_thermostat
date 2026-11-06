@@ -75,6 +75,7 @@ CONF_TOLERANCE: Final = "tolerance"
 CONF_TARGET_TEMP_MIN: Final = "target_temp_min"
 CONF_TARGET_TEMP_MAX: Final = "target_temp_max"
 CONF_TARGET_TEMP_STEP: Final = "target_temp_step"
+CONF_ZWAVE_EXTERNAL_TEMPERATURE: Final = "zwave_external_temperature"
 
 # Model string a TRV carries when the device registry has nothing that
 # identifies it. No quirk module answers for it, so a TRV on this model is

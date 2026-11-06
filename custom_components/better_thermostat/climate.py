@@ -1275,7 +1275,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.async_set_context(event.context)
             await trigger_temperature_change(self, event)
 
-    async def _external_temperature_keepalive(self, event=None):
+    async def _external_temperature_keepalive(self, event=None, trv_id=None):
         """Re-send the external temperature regularly to the TRVs.
 
         Many devices expect an update at least every ~30 minutes.
@@ -1308,8 +1308,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                     return
 
-                # Use the known TRV entity IDs (keys in real_trvs)
-                trv_ids = list(self.real_trvs.keys())
+                # A returning TRV needs its own refresh; the regular interval
+                # still refreshes every configured TRV.
+                trv_ids = (
+                    [trv_id]
+                    if trv_id in self.real_trvs
+                    else list(self.real_trvs.keys())
+                )
                 # Fallback (normally should not be needed)
                 if not trv_ids and hasattr(self, "entity_ids"):
                     trv_ids = list(self.entity_ids or [])
@@ -1342,9 +1347,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             async with asyncio.timeout(
                                 EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S
                             ):
-                                ok = await quirks.maybe_set_external_temperature(
-                                    self, trv_id, cur
-                                )
+                                if getattr(
+                                    quirks,
+                                    "external_temperature_force_refresh",
+                                    False,
+                                ):
+                                    ok = await quirks.maybe_set_external_temperature(
+                                        self, trv_id, cur, force_refresh=True
+                                    )
+                                else:
+                                    ok = await quirks.maybe_set_external_temperature(
+                                        self, trv_id, cur
+                                    )
                             _LOGGER.debug(
                                 "better_thermostat %s: external_temperature keepalive sent to %s (ok=%s, value=%s)",
                                 self.device_name,
@@ -1410,6 +1424,23 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # A report from a TRV startup went ahead without is the sign it is
         # back; it is initialised before the report is read.
         await self._initialize_arrived_trvs()
+        old_state = event.data.get("old_state")
+        new_state = event.data.get("new_state")
+        returning_trv_id = event.data.get("entity_id")
+        if (
+            old_state is not None
+            and new_state is not None
+            and old_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+            and new_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+            and returning_trv_id in self.real_trvs
+        ):
+            # A TRV can forget a remote temperature while it is offline. Send
+            # its current room reading as soon as it has been initialized
+            # again, without refreshing the other TRVs in the same room.
+            self._spawn_owned(
+                self._external_temperature_keepalive(trv_id=returning_trv_id),
+                name=f"bt_ext_temp_reconnect_{self.device_name}",
+            )
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
         if getattr(self, "in_maintenance", False):
@@ -2212,6 +2243,28 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     trv,
                     exc,
                 )
+
+            # Apply the external-temperature offset after the adapter has
+            # discovered the physical offset entity, before reading its
+            # calibration state or starting normal control.
+            quirks = trv_data.model_quirks
+            if quirks and hasattr(quirks, "async_apply_external_temperature_mode"):
+                try:
+                    await quirks.async_apply_external_temperature_mode(self, trv)
+                except (
+                    HomeAssistantError,
+                    OSError,
+                    RuntimeError,
+                    AttributeError,
+                    TypeError,
+                    ValueError,
+                ) as exc:
+                    _LOGGER.warning(
+                        "better_thermostat %s: external temperature mode setup failed for %s: %s",
+                        self.device_name,
+                        trv,
+                        exc,
+                    )
 
             try:
                 with command_cancellation_as_disconnect():

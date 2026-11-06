@@ -41,12 +41,14 @@
           "calibration": "Kalibrasyon Türü",
           "calibration_mode": "Kalibrasyon modu",
           "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz",
-          "mpc_v2_plant_preset": "MPC v2 oda boyutu"
+          "mpc_v2_plant_preset": "MPC v2 oda boyutu",
+          "zwave_external_temperature": "Harici sıcaklığı Z-Wave ile Spirit/ZWA021 cihazına gönder"
         },
         "data_description": {
           "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
           "calibration_mode": "Kalibrasyonun nasıl hesaplanacağı\n***Normal***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir.\n***Agresif***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir ancak daha hızlı bir artış için çok daha düşük/yüksek ayarlanır.\n***Yapay Zeka Zaman Tabanlı***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir, ancak özel bir algoritma TRV iç algoritmasını iyileştirmek için değeri hesaplar.\n***MPC Tahminli (Beta)***: Doğrudan vana kontrolü mevcut olmadığında bir vana açıklığı türetmek ve bunu ofsetlere veya ayar noktasına dönüştürmek için MPC tahminli denetleyiciyi kullanır.",
-          "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı (Hedef sıcaklık veya ofset)\n***Hedef Sıcaklık Tabanlı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofset Tabanlı***: Kalibrasyonu ofsete uygula."
+          "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı (Hedef sıcaklık veya ofset)\n***Hedef Sıcaklık Tabanlı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofset Tabanlı***: Kalibrasyonu ofsete uygula.",
+          "zwave_external_temperature": "Etkinleştirildiğinde Better Thermostat, TRV'nin yerel ofsetini ayrılmış -128 değerine ayarlar ve seçilen sensörün sıcaklığını hava sıcaklığı raporu olarak gönderir. Better Thermostat kalibrasyonu duraklatılır; devre dışı bırakıldığında önceki ofset ve kalibrasyon ayarları geri yüklenir. TRV kendi sıcaklık kontrolünü ve vana yönetimini sürdürür."
         }
       },
       "confirm": {
@@ -115,12 +117,14 @@
           "calibration": "Kullanmak istediğiniz kalibrasyon türü",
           "calibration_mode": "Kalibrasyon modu",
           "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz",
-          "mpc_v2_plant_preset": "MPC v2 oda boyutu"
+          "mpc_v2_plant_preset": "MPC v2 oda boyutu",
+          "zwave_external_temperature": "Harici sıcaklığı Z-Wave ile Spirit/ZWA021 cihazına gönder"
         },
         "data_description": {
           "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
           "calibration_mode": "Kalibrasyonun nasıl hesaplanacağı\n***Normal***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir.\n***Agresif***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir ancak daha hızlı bir artış için çok daha düşük/yüksek ayarlanır.\n***Yapay Zeka Zaman Tabanlı***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir, ancak özel bir algoritma TRV iç algoritmasını iyileştirmek için değeri hesaplar.\n***MPC Tahminli (Beta)***: Doğrudan vana kontrolü mevcut olmadığında bir vana açıklığı türetmek ve bunu ofsetlere veya ayar noktasına dönüştürmek için MPC hidrolik denge algoritmasını kullanır.",
-          "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı (Hedef sıcaklık veya ofset)\n***Hedef Sıcaklık Tabanlı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofset Tabanlı***: Kalibrasyonu ofsete uygula."
+          "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı (Hedef sıcaklık veya ofset)\n***Hedef Sıcaklık Tabanlı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofset Tabanlı***: Kalibrasyonu ofsete uygula.",
+          "zwave_external_temperature": "Etkinleştirildiğinde Better Thermostat, TRV'nin yerel ofsetini ayrılmış -128 değerine ayarlar ve seçilen sensörün sıcaklığını hava sıcaklığı raporu olarak gönderir. Better Thermostat kalibrasyonu duraklatılır; devre dışı bırakıldığında önceki ofset ve kalibrasyon ayarları geri yüklenir. TRV kendi sıcaklık kontrolünü ve vana yönetimini sürdürür."
         }
       }
     },

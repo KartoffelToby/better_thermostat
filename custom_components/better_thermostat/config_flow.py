@@ -60,6 +60,7 @@ from .utils.const import (
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
     CONF_VALVE_MAINTENANCE,
+    CONF_ZWAVE_EXTERNAL_TEMPERATURE,
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
@@ -71,6 +72,7 @@ from .utils.const import (
 from .utils.helpers import (
     device_offers_mode,
     entry_settings,
+    find_local_calibration_entity,
     get_device_model,
     get_trv_intigration,
 )
@@ -379,6 +381,7 @@ def _build_advanced_fields(
     has_auto: bool,
     support_valve: bool = False,
     support_offset: bool = False,
+    support_zwave_external_temperature: bool = False,
 ) -> OrderedDict:
     # Migrate old balance_mode to calibration_mode
     sources_list = list(sources)
@@ -475,6 +478,14 @@ def _build_advanced_fields(
         vol.Optional(CONF_HOMEMATICIP, default=get_bool(CONF_HOMEMATICIP, homematic))
     ] = bool
 
+    if support_zwave_external_temperature:
+        ordered[
+            vol.Optional(
+                CONF_ZWAVE_EXTERNAL_TEMPERATURE,
+                default=get_bool(CONF_ZWAVE_EXTERNAL_TEMPERATURE, False),
+            )
+        ] = bool
+
     return ordered
 
 
@@ -500,6 +511,9 @@ def _normalize_advanced_submission(
     )
     normalized[CONF_CHILD_LOCK] = _as_bool(normalized.get(CONF_CHILD_LOCK), False)
     normalized[CONF_HOMEMATICIP] = _as_bool(normalized.get(CONF_HOMEMATICIP), homematic)
+    normalized[CONF_ZWAVE_EXTERNAL_TEMPERATURE] = _as_bool(
+        normalized.get(CONF_ZWAVE_EXTERNAL_TEMPERATURE), False
+    )
 
     _LOGGER.debug("Normalized advanced submission: %s", normalized)
 
@@ -933,6 +947,12 @@ async def _prepare_advanced_context(
     )
     default_calibration = _default_calibration_from_info(info)
     homematic = bool(integration and "homematic" in integration.lower())
+    model = str(trv_config.get("model") or "").lower()
+    support_zwave_external_temperature = (
+        integration == "zwave_js"
+        and ("spirit" in model or "zwa021" in model)
+        and bool(info.get("support_offset", False))
+    )
     has_auto = _trv_supports_auto(flow, trv_id)
 
     return {
@@ -943,6 +963,7 @@ async def _prepare_advanced_context(
         "has_auto": has_auto,
         "integration": integration,
         "trv_id": trv_id,
+        "support_zwave_external_temperature": support_zwave_external_temperature,
     }
 
 
@@ -1076,6 +1097,34 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 homematic=ctx["homematic"],
                 has_auto=ctx["has_auto"],
             )
+            if advanced_data[CONF_ZWAVE_EXTERNAL_TEMPERATURE]:
+                advanced_data["_zwave_external_previous_calibration_mode"] = (
+                    advanced_data.get(CONF_CALIBRATION_MODE)
+                )
+                advanced_data["_zwave_external_previous_calibration_type"] = (
+                    advanced_data.get(CONF_CALIBRATION)
+                )
+                advanced_data[CONF_CALIBRATION_MODE] = (
+                    CalibrationMode.NO_CALIBRATION.value
+                )
+                advanced_data[CONF_CALIBRATION] = (
+                    CalibrationType.TARGET_TEMP_BASED.value
+                )
+                calibration_entity = await find_local_calibration_entity(
+                    self, ctx["trv_id"]
+                )
+                calibration_state = (
+                    self.hass.states.get(calibration_entity)
+                    if calibration_entity
+                    else None
+                )
+                if calibration_state is not None:
+                    try:
+                        saved_offset = float(calibration_state.state)
+                    except (TypeError, ValueError):
+                        saved_offset = None
+                    if saved_offset is not None and saved_offset != -128:
+                        advanced_data["_zwave_external_previous_offset"] = saved_offset
             _LOGGER.debug(
                 "ConfigFlow advanced step storing data for %s (index %s): %s",
                 trv_cfg.get("trv"),
@@ -1116,6 +1165,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             has_auto=ctx["has_auto"],
             support_valve=info.get("support_valve", False),
             support_offset=info.get("support_offset", False),
+            support_zwave_external_temperature=ctx[
+                "support_zwave_external_temperature"
+            ],
         )
         _LOGGER.debug(
             "ConfigFlow advanced step showing form for trv=%s with defaults=%s",
@@ -1254,6 +1306,65 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 homematic=ctx["homematic"],
                 has_auto=ctx["has_auto"],
             )
+            was_enabled = bool(
+                (existing_adv or {}).get(CONF_ZWAVE_EXTERNAL_TEMPERATURE, False)
+            )
+            saved_offset = (existing_adv or {}).get(
+                "_zwave_external_previous_offset"
+            )
+            if advanced_data[CONF_ZWAVE_EXTERNAL_TEMPERATURE] and not was_enabled:
+                advanced_data["_zwave_external_previous_calibration_mode"] = (
+                    advanced_data.get(CONF_CALIBRATION_MODE)
+                )
+                advanced_data["_zwave_external_previous_calibration_type"] = (
+                    advanced_data.get(CONF_CALIBRATION)
+                )
+                calibration_entity = await find_local_calibration_entity(
+                    self, ctx["trv_id"]
+                )
+                calibration_state = (
+                    self.hass.states.get(calibration_entity)
+                    if calibration_entity
+                    else None
+                )
+                if calibration_state is not None:
+                    try:
+                        candidate = float(calibration_state.state)
+                    except (TypeError, ValueError):
+                        candidate = -128.0
+                    if candidate != -128:
+                        saved_offset = candidate
+            if saved_offset is not None:
+                advanced_data["_zwave_external_previous_offset"] = saved_offset
+            if advanced_data[CONF_ZWAVE_EXTERNAL_TEMPERATURE]:
+                if was_enabled:
+                    advanced_data["_zwave_external_previous_calibration_mode"] = (
+                        (existing_adv or {}).get(
+                            "_zwave_external_previous_calibration_mode"
+                        )
+                    )
+                    advanced_data["_zwave_external_previous_calibration_type"] = (
+                        (existing_adv or {}).get(
+                            "_zwave_external_previous_calibration_type"
+                        )
+                    )
+                advanced_data[CONF_CALIBRATION_MODE] = (
+                    CalibrationMode.NO_CALIBRATION.value
+                )
+                advanced_data[CONF_CALIBRATION] = (
+                    CalibrationType.TARGET_TEMP_BASED.value
+                )
+            elif was_enabled:
+                previous_mode = (existing_adv or {}).get(
+                    "_zwave_external_previous_calibration_mode"
+                )
+                previous_type = (existing_adv or {}).get(
+                    "_zwave_external_previous_calibration_type"
+                )
+                if previous_mode is not None:
+                    advanced_data[CONF_CALIBRATION_MODE] = previous_mode
+                if previous_type is not None:
+                    advanced_data[CONF_CALIBRATION] = previous_type
             _LOGGER.debug(
                 "OptionsFlow advanced step storing data for %s (index %s): %s",
                 trv_cfg.get("trv"),
@@ -1320,6 +1431,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             has_auto=ctx["has_auto"],
             support_valve=info.get("support_valve", False),
             support_offset=info.get("support_offset", False),
+            support_zwave_external_temperature=ctx[
+                "support_zwave_external_temperature"
+            ],
         )
         _LOGGER.debug(
             "OptionsFlow advanced step showing form for trv=%s with defaults=%s",

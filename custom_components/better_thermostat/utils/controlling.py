@@ -1386,6 +1386,22 @@ async def control_trv(self, heater_entity_id=None):
             _calibration_type = self.real_trvs[heater_entity_id].advanced.get(
                 "calibration", CalibrationType.TARGET_TEMP_BASED
             )
+            _trv_data = self.real_trvs[heater_entity_id]
+            _external_temperature_mode = (
+                _trv_data.integration == "zwave_js"
+                and bool(
+                    (_trv_data.advanced or {}).get(
+                        "zwave_external_temperature", False
+                    )
+                )
+                and callable(
+                    getattr(
+                        _trv_data.model_quirks,
+                        "async_apply_external_temperature_mode",
+                        None,
+                    )
+                )
+            )
             # Pair the forced 100 % valve with a max-temp setpoint so the TRV
             # firmware does not fight the valve command.
             if (
@@ -1549,6 +1565,7 @@ async def control_trv(self, heater_entity_id=None):
                 _calibration is not None
                 and _new_hvac_mode != HVACMode.OFF
                 and _calibration_mode != CalibrationMode.NO_CALIBRATION
+                and not _external_temperature_mode
             ):
                 _current_calibration_s = await get_current_offset(
                     self, heater_entity_id
