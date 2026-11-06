@@ -104,6 +104,52 @@ class TestZWA021Passthroughs:
         )
 
 
+class TestZWA021ExternalTemperatureMode:
+    """The reserved offset is retried until the number entity confirms it."""
+
+    @pytest.mark.asyncio
+    async def test_retries_when_offset_entity_becomes_available(self):
+        """A missing initial state does not permanently block report mode."""
+        mock_self = _make_self()
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.integration = "zwave_js"
+        trv.advanced = {"zwave_external_temperature": True}
+        trv.local_temperature_calibration_entity = "number.trv1_offset"
+        mock_self.hass.states.get = MagicMock(return_value=None)
+
+        assert await quirk.async_apply_external_temperature_mode(
+            mock_self, "climate.trv1"
+        ) is False
+        assert quirk.external_temperature_mode_pending(mock_self, "climate.trv1")
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+        mock_self.hass.states.get.return_value = State("number.trv1_offset", "0")
+        assert await quirk.async_retry_external_temperature_mode(
+            mock_self, "climate.trv1", force=True
+        ) is False
+        mock_self.hass.services.async_call.assert_awaited_once_with(
+            "number",
+            "set_value",
+            {"entity_id": "number.trv1_offset", "value": -128.0},
+            blocking=True,
+            context=mock_self.context,
+        )
+        assert quirk.external_temperature_mode_pending(mock_self, "climate.trv1")
+
+        # The write is complete only when Home Assistant reports the reserved
+        # value back; that confirmation clears the pending transition.
+        mock_self.hass.states.get.return_value = State(
+            "number.trv1_offset", "-128"
+        )
+        assert await quirk.async_retry_external_temperature_mode(
+            mock_self, "climate.trv1", force=True
+        ) is True
+        assert not quirk.external_temperature_mode_pending(
+            mock_self, "climate.trv1"
+        )
+        mock_self.hass.services.async_call.assert_awaited_once()
+
+
 class TestZWA021SetValve:
     """The valve is driven via the Multilevel Switch command class (0x26)."""
 

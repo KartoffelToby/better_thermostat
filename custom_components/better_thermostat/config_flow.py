@@ -6,6 +6,7 @@ from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 import copy
 import logging
+import math
 from typing import Any
 
 from homeassistant import config_entries
@@ -1309,10 +1310,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             was_enabled = bool(
                 (existing_adv or {}).get(CONF_ZWAVE_EXTERNAL_TEMPERATURE, False)
             )
-            saved_offset = (existing_adv or {}).get(
-                "_zwave_external_previous_offset"
-            )
             if advanced_data[CONF_ZWAVE_EXTERNAL_TEMPERATURE] and not was_enabled:
+                # A new enable cycle needs a fresh backup. Reusing a value
+                # from an earlier cycle could restore the wrong offset if the
+                # current calibration entity is unavailable now.
+                saved_offset = None
                 advanced_data["_zwave_external_previous_calibration_mode"] = (
                     advanced_data.get(CONF_CALIBRATION_MODE)
                 )
@@ -1331,11 +1333,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     try:
                         candidate = float(calibration_state.state)
                     except (TypeError, ValueError):
-                        candidate = -128.0
-                    if candidate != -128:
+                        candidate = None
+                    if (
+                        candidate is not None
+                        and math.isfinite(candidate)
+                        and candidate != -128.0
+                    ):
                         saved_offset = candidate
+            else:
+                saved_offset = (existing_adv or {}).get(
+                    "_zwave_external_previous_offset"
+                )
             if saved_offset is not None:
                 advanced_data["_zwave_external_previous_offset"] = saved_offset
+            elif advanced_data[CONF_ZWAVE_EXTERNAL_TEMPERATURE] and not was_enabled:
+                advanced_data.pop("_zwave_external_previous_offset", None)
             if advanced_data[CONF_ZWAVE_EXTERNAL_TEMPERATURE]:
                 if was_enabled:
                     advanced_data["_zwave_external_previous_calibration_mode"] = (

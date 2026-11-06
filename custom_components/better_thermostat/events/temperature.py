@@ -35,6 +35,9 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     is_reasonable_temperature,
 )
+from custom_components.better_thermostat.utils.retry import (
+    command_cancellation_as_disconnect,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -517,9 +520,10 @@ async def _commit_temperature_update(self, new_temp):
             quirks = _trv.model_quirks if _trv is not None else None
             if quirks and hasattr(quirks, "maybe_set_external_temperature"):
                 async with asyncio.timeout(EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S):
-                    await quirks.maybe_set_external_temperature(
-                        self, trv_id, self.cur_temp
-                    )
+                    with command_cancellation_as_disconnect():
+                        await quirks.maybe_set_external_temperature(
+                            self, trv_id, self.cur_temp
+                        )
             else:
                 _LOGGER.debug(
                     "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
