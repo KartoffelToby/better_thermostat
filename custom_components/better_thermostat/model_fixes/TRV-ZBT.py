@@ -1,4 +1,4 @@
-"""Quirks and helpers for Sonoff TRVZB (Zigbee TRV) devices.
+"""Quirks and helpers for Sonoff TRV-ZBT (TRV Gen2) (Zigbee TRV) devices.
 
 Provides Sonoff TRVZB specific helper functions such as writing valve
 percentages and mirroring external temperature into the TRV when supported.
