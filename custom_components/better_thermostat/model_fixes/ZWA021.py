@@ -8,6 +8,7 @@ mode the module is inert and the device is driven through the standard
 ``climate`` services, exactly like an unquirked TRV.
 """
 
+import asyncio
 import logging
 import math
 from time import monotonic
@@ -59,10 +60,15 @@ _EXTERNAL_TEMPERATURE_MODE_PENDING = "_zwa021_external_temperature_mode_pending"
 _EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING = (
     "_zwa021_external_temperature_mode_write_pending"
 )
+_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING_AT = (
+    "_zwa021_external_temperature_mode_write_pending_at"
+)
 _EXTERNAL_TEMPERATURE_MODE_LAST_ATTEMPT = (
     "_zwa021_external_temperature_mode_last_attempt"
 )
 _EXTERNAL_TEMPERATURE_MODE_RETRY_INTERVAL_S = 60.0
+_EXTERNAL_TEMPERATURE_MODE_WRITE_TIMEOUT_S = 30.0
+_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING_TIMEOUT_S = 60.0
 
 # Let the shared keepalive distinguish its deliberate refresh from ordinary
 # sensor updates, which are deduplicated above.
@@ -189,7 +195,7 @@ async def maybe_set_external_temperature(
 
 
 def external_temperature_mode_pending(self, entity_id: str) -> bool:
-    """Return whether an external-temperature mode transition needs retrying.
+    """Return whether a mode transition or late disable needs retrying.
 
     Parameters
     ----------
@@ -201,10 +207,34 @@ def external_temperature_mode_pending(self, entity_id: str) -> bool:
     Returns
     -------
     bool
-        ``True`` while the mode's offset write is waiting for a usable state.
+        ``True`` while a mode write needs retrying or a late ``-128`` report
+        needs restoration after the option was disabled.
     """
     trv = self.real_trvs.get(entity_id)
-    return bool(trv and trv.extra.get(_EXTERNAL_TEMPERATURE_MODE_PENDING))
+    if trv is None:
+        return False
+    if trv.extra.get(_EXTERNAL_TEMPERATURE_MODE_PENDING):
+        return True
+
+    # A timed-out enable write can report -128 after the option was disabled.
+    # Treat that late report as pending restoration instead of leaving the TRV
+    # in external-temperature mode.
+    if (trv.advanced or {}).get(_EXTERNAL_TEMPERATURE_OPTION, False):
+        return False
+    previous_offset = (trv.advanced or {}).get(_EXTERNAL_TEMPERATURE_PREVIOUS_OFFSET)
+    if previous_offset is None:
+        return False
+    calibration_entity = trv.local_temperature_calibration_entity
+    state = self.hass.states.get(calibration_entity) if calibration_entity else None
+    if state is None:
+        return False
+    try:
+        current = float(state.state)
+    except (TypeError, ValueError):
+        return False
+    return math.isclose(
+        current, _EXTERNAL_TEMPERATURE_MODE_VALUE, rel_tol=0.0, abs_tol=1e-6
+    )
 
 
 async def async_retry_external_temperature_mode(
@@ -233,10 +263,25 @@ async def async_retry_external_temperature_mode(
         confirmed; otherwise, ``False``.
     """
     trv = self.real_trvs.get(entity_id)
-    if trv is None or not trv.extra.get(_EXTERNAL_TEMPERATURE_MODE_PENDING):
+    if trv is None:
         return True
+    if not trv.extra.get(_EXTERNAL_TEMPERATURE_MODE_PENDING):
+        if not external_temperature_mode_pending(self, entity_id):
+            return True
+        trv.extra[_EXTERNAL_TEMPERATURE_MODE_PENDING] = True
 
     now = monotonic()
+    write_pending_at = trv.extra.get(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING_AT)
+    if trv.extra.get(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING) and (
+        write_pending_at is None
+        or now - write_pending_at
+        >= _EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING_TIMEOUT_S
+    ):
+        # A report can be lost even when the command was accepted. Bound the
+        # wait, then retry against the currently reported offset below.
+        trv.extra.pop(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING, None)
+        trv.extra.pop(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING_AT, None)
+
     last_attempt = trv.extra.get(_EXTERNAL_TEMPERATURE_MODE_LAST_ATTEMPT)
     if (
         not force
@@ -300,6 +345,7 @@ async def async_apply_external_temperature_mode(self, entity_id) -> bool:
         if math.isclose(current, target, rel_tol=0.0, abs_tol=1e-6):
             extra.pop(_EXTERNAL_TEMPERATURE_MODE_PENDING, None)
             extra.pop(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING, None)
+            extra.pop(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING_AT, None)
             extra.pop(_EXTERNAL_TEMPERATURE_MODE_LAST_ATTEMPT, None)
             return True
         if extra.get(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING):
@@ -311,12 +357,15 @@ async def async_apply_external_temperature_mode(self, entity_id) -> bool:
         ):
             extra.pop(_EXTERNAL_TEMPERATURE_MODE_PENDING, None)
             extra.pop(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING, None)
+            extra.pop(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING_AT, None)
             extra.pop(_EXTERNAL_TEMPERATURE_MODE_LAST_ATTEMPT, None)
             return True
         if extra.get(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING):
             return False
         try:
-            target = float((trv.advanced or {}).get(_EXTERNAL_TEMPERATURE_PREVIOUS_OFFSET))
+            target = float(
+                (trv.advanced or {}).get(_EXTERNAL_TEMPERATURE_PREVIOUS_OFFSET)
+            )
         except (TypeError, ValueError):
             _LOGGER.warning(
                 "better_thermostat %s: cannot restore the previous offset for %s; no saved value",
@@ -325,12 +374,14 @@ async def async_apply_external_temperature_mode(self, entity_id) -> bool:
             )
             extra.pop(_EXTERNAL_TEMPERATURE_MODE_PENDING, None)
             extra.pop(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING, None)
+            extra.pop(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING_AT, None)
             return False
         if not math.isfinite(target) or math.isclose(
             target, _EXTERNAL_TEMPERATURE_MODE_VALUE, rel_tol=0.0, abs_tol=1e-6
         ):
             extra.pop(_EXTERNAL_TEMPERATURE_MODE_PENDING, None)
             extra.pop(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING, None)
+            extra.pop(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING_AT, None)
             _LOGGER.warning(
                 "better_thermostat %s: cannot restore the previous offset for %s; saved value is invalid",
                 self.device_name,
@@ -340,15 +391,30 @@ async def async_apply_external_temperature_mode(self, entity_id) -> bool:
         action = "restoring"
 
     try:
-        await self.hass.services.async_call(
-            "number",
-            "set_value",
-            {"entity_id": calibration_entity, "value": target},
-            blocking=True,
-            context=self.context,
+        async with asyncio.timeout(_EXTERNAL_TEMPERATURE_MODE_WRITE_TIMEOUT_S):
+            await self.hass.services.async_call(
+                "number",
+                "set_value",
+                {"entity_id": calibration_entity, "value": target},
+                blocking=True,
+                context=self.context,
+            )
+    except TimeoutError:
+        # The call may have reached Z-Wave JS even though no reply arrived.
+        # Keep the transition pending and reconcile any late state report.
+        extra[_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING] = True
+        extra[_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING_AT] = monotonic()
+        _LOGGER.warning(
+            "better_thermostat %s: %s external temperature mode for %s timed out; "
+            "waiting for state confirmation",
+            self.device_name,
+            action,
+            entity_id,
         )
+        return False
     except (HomeAssistantError, OSError, RuntimeError, TypeError, ValueError) as ex:
         extra.pop(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING, None)
+        extra.pop(_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING_AT, None)
         _LOGGER.warning(
             "better_thermostat %s: %s external temperature mode for %s failed: %s",
             self.device_name,
@@ -358,6 +424,7 @@ async def async_apply_external_temperature_mode(self, entity_id) -> bool:
         )
         return False
     extra[_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING] = True
+    extra[_EXTERNAL_TEMPERATURE_MODE_WRITE_PENDING_AT] = monotonic()
     _LOGGER.info(
         "better_thermostat %s: %s external temperature offset for %s: %s",
         self.device_name,

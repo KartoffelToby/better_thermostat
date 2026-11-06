@@ -149,6 +149,33 @@ class TestZWA021ExternalTemperatureMode:
         )
         mock_self.hass.services.async_call.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_expired_unconfirmed_write_can_be_retried(self):
+        """An old unconfirmed service result does not block future attempts."""
+        mock_self = _make_self()
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.integration = "zwave_js"
+        trv.advanced = {"zwave_external_temperature": True}
+        trv.local_temperature_calibration_entity = "number.trv1_offset"
+        trv.extra.update(
+            {
+                "_zwa021_external_temperature_mode_pending": True,
+                "_zwa021_external_temperature_mode_write_pending": True,
+                "_zwa021_external_temperature_mode_write_pending_at": 0.0,
+                "_zwa021_external_temperature_mode_last_attempt": 0.0,
+            }
+        )
+        mock_self.hass.states.get.return_value = State("number.trv1_offset", "0")
+
+        with patch.object(quirk, "monotonic", return_value=1000.0):
+            assert await quirk.async_retry_external_temperature_mode(
+                mock_self, "climate.trv1"
+            ) is False
+
+        mock_self.hass.services.async_call.assert_awaited_once()
+        assert trv.extra["_zwa021_external_temperature_mode_write_pending"] is True
+        assert trv.extra["_zwa021_external_temperature_mode_write_pending_at"] == 1000.0
+
 
 class TestZWA021SetValve:
     """The valve is driven via the Multilevel Switch command class (0x26)."""

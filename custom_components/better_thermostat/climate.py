@@ -2368,8 +2368,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             quirks = trv_data.model_quirks
             if quirks and hasattr(quirks, "async_apply_external_temperature_mode"):
                 try:
-                    with command_cancellation_as_disconnect():
-                        await quirks.async_apply_external_temperature_mode(self, trv)
+                    async with asyncio.timeout(
+                        EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S + 5
+                    ):
+                        with command_cancellation_as_disconnect():
+                            await quirks.async_apply_external_temperature_mode(
+                                self, trv
+                            )
                 except (
                     HomeAssistantError,
                     OSError,

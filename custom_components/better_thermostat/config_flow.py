@@ -491,7 +491,12 @@ def _build_advanced_fields(
 
 
 def _normalize_advanced_submission(
-    data: dict[str, Any], *, default_calibration: str, homematic: bool, has_auto: bool
+    data: dict[str, Any],
+    *,
+    default_calibration: str,
+    homematic: bool,
+    has_auto: bool,
+    existing_advanced: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized: dict[str, Any] = dict(data)
     normalized[CONF_CALIBRATION] = normalized.get(CONF_CALIBRATION, default_calibration)
@@ -513,7 +518,8 @@ def _normalize_advanced_submission(
     normalized[CONF_CHILD_LOCK] = _as_bool(normalized.get(CONF_CHILD_LOCK), False)
     normalized[CONF_HOMEMATICIP] = _as_bool(normalized.get(CONF_HOMEMATICIP), homematic)
     normalized[CONF_ZWAVE_EXTERNAL_TEMPERATURE] = _as_bool(
-        normalized.get(CONF_ZWAVE_EXTERNAL_TEMPERATURE), False
+        normalized.get(CONF_ZWAVE_EXTERNAL_TEMPERATURE),
+        bool((existing_advanced or {}).get(CONF_ZWAVE_EXTERNAL_TEMPERATURE, False)),
     )
 
     _LOGGER.debug("Normalized advanced submission: %s", normalized)
@@ -1097,6 +1103,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 default_calibration=ctx["default_calibration"],
                 homematic=ctx["homematic"],
                 has_auto=ctx["has_auto"],
+                existing_advanced=existing_adv,
             )
             if advanced_data[CONF_ZWAVE_EXTERNAL_TEMPERATURE]:
                 advanced_data["_zwave_external_previous_calibration_mode"] = (
@@ -1306,6 +1313,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 default_calibration=ctx["default_calibration"],
                 homematic=ctx["homematic"],
                 has_auto=ctx["has_auto"],
+                existing_advanced=existing_adv,
             )
             was_enabled = bool(
                 (existing_adv or {}).get(CONF_ZWAVE_EXTERNAL_TEMPERATURE, False)
@@ -1367,16 +1375,41 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     CalibrationType.TARGET_TEMP_BASED.value
                 )
             elif was_enabled:
-                previous_mode = (existing_adv or {}).get(
-                    "_zwave_external_previous_calibration_mode"
+                # Restore the saved calibration configuration only while the
+                # device still confirms external-temperature mode. If the
+                # offset was changed manually, preserve the submitted values.
+                calibration_entity = await find_local_calibration_entity(
+                    self, ctx["trv_id"]
                 )
-                previous_type = (existing_adv or {}).get(
-                    "_zwave_external_previous_calibration_type"
+                calibration_state = (
+                    self.hass.states.get(calibration_entity)
+                    if calibration_entity
+                    else None
                 )
-                if previous_mode is not None:
-                    advanced_data[CONF_CALIBRATION_MODE] = previous_mode
-                if previous_type is not None:
-                    advanced_data[CONF_CALIBRATION] = previous_type
+                try:
+                    offset_is_external = (
+                        calibration_state is not None
+                        and math.isclose(
+                            float(calibration_state.state),
+                            -128.0,
+                            rel_tol=0.0,
+                            abs_tol=1e-6,
+                        )
+                    )
+                except (TypeError, ValueError):
+                    offset_is_external = False
+
+                if offset_is_external:
+                    previous_mode = (existing_adv or {}).get(
+                        "_zwave_external_previous_calibration_mode"
+                    )
+                    previous_type = (existing_adv or {}).get(
+                        "_zwave_external_previous_calibration_type"
+                    )
+                    if previous_mode is not None:
+                        advanced_data[CONF_CALIBRATION_MODE] = previous_mode
+                    if previous_type is not None:
+                        advanced_data[CONF_CALIBRATION] = previous_type
             _LOGGER.debug(
                 "OptionsFlow advanced step storing data for %s (index %s): %s",
                 trv_cfg.get("trv"),

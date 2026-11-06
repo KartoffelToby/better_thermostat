@@ -23,11 +23,13 @@ import pytest
 from custom_components.better_thermostat.config_flow import (
     ConfigFlow,
     OptionsFlowHandler,
+    _normalize_advanced_submission,
     _trv_supports_auto,
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
     CONF_HEATER,
+    CONF_ZWAVE_EXTERNAL_TEMPERATURE,
     CalibrationType,
 )
 
@@ -40,6 +42,33 @@ def _flow_with_modes(modes):
     flow = MagicMock()
     flow.hass.states.get.return_value = state
     return flow
+
+
+@pytest.mark.parametrize(
+    ("submitted", "existing", "expected"),
+    [
+        ({}, {CONF_ZWAVE_EXTERNAL_TEMPERATURE: True}, True),
+        (
+            {CONF_ZWAVE_EXTERNAL_TEMPERATURE: False},
+            {CONF_ZWAVE_EXTERNAL_TEMPERATURE: True},
+            False,
+        ),
+        ({}, {CONF_ZWAVE_EXTERNAL_TEMPERATURE: False}, False),
+    ],
+)
+def test_hidden_external_temperature_option_preserves_existing_value(
+    submitted, existing, expected
+):
+    """A hidden option is preserved; an explicit submitted false disables it."""
+    normalized = _normalize_advanced_submission(
+        submitted,
+        default_calibration="target_temp_based",
+        homematic=False,
+        has_auto=False,
+        existing_advanced=existing,
+    )
+
+    assert normalized[CONF_ZWAVE_EXTERNAL_TEMPERATURE] is expected
 
 
 class TestTrvSupportsAuto:
