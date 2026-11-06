@@ -4,6 +4,7 @@ import starlight from "@astrojs/starlight";
 import mermaid from "astro-mermaid";
 import starlightThemeFlexoki from "starlight-theme-flexoki";
 import lit from "@astrojs/lit";
+import { fileURLToPath } from "node:url";
 
 // https://astro.build/config
 export default defineConfig({
@@ -29,9 +30,9 @@ export default defineConfig({
     starlight({
       title: "Better Thermostat",
       favicon: "/favicon.png",
-      social: {
-        github: "https://github.com/KartoffelToby/better_thermostat",
-      },
+      social: [
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/KartoffelToby/better_thermostat' },
+      ],
       sidebar: [
         {
           label: "Start Here",
@@ -162,7 +163,7 @@ export default defineConfig({
         {
           label: "Internals (Developers)",
           collapsed: true,
-          autogenerate: { directory: "internals" },
+          items: [{ autogenerate: { directory: "internals" } }],
         },
         {
           label: "Support",
@@ -175,4 +176,18 @@ export default defineConfig({
       },
     }),
   ],
+  vite: {
+    resolve: {
+      // docs/ lives outside website/ (symlinked), so bare imports in MDX
+      // cannot find website/node_modules on their own.
+      alias: [
+        {
+          find: /^@astrojs\/starlight\/components$/,
+          replacement: fileURLToPath(
+            new URL("./node_modules/@astrojs/starlight/dist/components.ts", import.meta.url),
+          ),
+        },
+      ],
+    },
+  },
 });
