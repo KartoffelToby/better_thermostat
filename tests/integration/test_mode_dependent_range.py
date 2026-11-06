@@ -18,7 +18,7 @@ from homeassistant.core import Context, callback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.setup import async_setup_component
 import pytest
-from pytest_homeassistant_custom_component.common import setup_test_component_platform
+from pytest_homeassistant.common import setup_test_component_platform
 
 from .conftest import (
     SENSOR_ID,

@@ -10,7 +10,7 @@ settings here writes them to the data and empties the options, which is how
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.better_thermostat.diagnostics import (
     async_get_config_entry_diagnostics,

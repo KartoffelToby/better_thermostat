@@ -15,10 +15,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.setup import async_setup_component
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    setup_test_component_platform,
-)
+from pytest_homeassistant.common import MockConfigEntry, setup_test_component_platform
 
 from .conftest import (
     SENSOR_ID,

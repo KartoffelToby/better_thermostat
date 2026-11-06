@@ -32,10 +32,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.yaml import loader as yaml_loader
 import jinja2
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    async_fire_time_changed,
-    async_mock_service,
-)
+from pytest_homeassistant.common import async_fire_time_changed, async_mock_service
 import voluptuous as vol
 import yaml
 

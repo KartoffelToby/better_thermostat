@@ -18,7 +18,7 @@ from homeassistant.helpers import storage
 from homeassistant.util import dt as dt_util
 from homeassistant.util.file import WriteError
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from custom_components.better_thermostat.utils.state_manager import StateManager
 

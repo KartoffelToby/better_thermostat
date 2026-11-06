@@ -18,10 +18,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.setup import async_setup_component
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    setup_test_component_platform,
-)
+from pytest_homeassistant.common import MockConfigEntry, setup_test_component_platform
 
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,

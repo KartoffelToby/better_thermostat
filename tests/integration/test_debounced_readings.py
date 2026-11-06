@@ -6,7 +6,7 @@ from unittest.mock import patch
 from homeassistant.core import Context
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from .conftest import (
     SENSOR_ID,

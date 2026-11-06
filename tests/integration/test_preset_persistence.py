@@ -14,10 +14,7 @@ from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import State
 from homeassistant.data_entry_flow import FlowResultType
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    mock_restore_cache,
-)
+from pytest_homeassistant.common import MockConfigEntry, mock_restore_cache
 import voluptuous as vol
 
 from custom_components.better_thermostat.utils.const import (

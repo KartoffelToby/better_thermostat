@@ -8,7 +8,7 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.core import Context
 from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component.common import setup_test_component_platform
+from pytest_homeassistant.common import setup_test_component_platform
 
 from .conftest import (
     SENSOR_ID,

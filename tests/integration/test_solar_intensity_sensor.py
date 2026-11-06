@@ -5,10 +5,7 @@ from datetime import timedelta
 
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-)
+from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
 
 from .conftest import DOMAIN, SENSOR_ID, make_entry, setup_entry, wait_for_startup
 

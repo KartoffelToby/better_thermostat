@@ -12,10 +12,7 @@ from unittest.mock import patch
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.setup import async_setup_component
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    setup_test_component_platform,
-)
+from pytest_homeassistant.common import MockConfigEntry, setup_test_component_platform
 
 from .conftest import DOMAIN, SENSOR_ID, TRV_ID, FakeTrvEntity, setup_entry, wait_for
 

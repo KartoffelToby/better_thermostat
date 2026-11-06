@@ -22,10 +22,7 @@ from homeassistant.core import Context
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    setup_test_component_platform,
-)
+from pytest_homeassistant.common import MockConfigEntry, setup_test_component_platform
 
 from .conftest import (
     SENSOR_ID,

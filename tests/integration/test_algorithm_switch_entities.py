@@ -14,10 +14,7 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    setup_test_component_platform,
-)
+from pytest_homeassistant.common import MockConfigEntry, setup_test_component_platform
 
 from custom_components.better_thermostat import climate as climate_module
 from custom_components.better_thermostat.utils.const import (

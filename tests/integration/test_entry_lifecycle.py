@@ -18,10 +18,7 @@ from homeassistant.components.weather import (
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.core import State, SupportsResponse
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    mock_restore_cache,
-)
+from pytest_homeassistant.common import MockConfigEntry, mock_restore_cache
 
 from custom_components.better_thermostat.utils.state_manager import StateManager
 
