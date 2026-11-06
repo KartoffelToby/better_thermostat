@@ -116,6 +116,12 @@ rejected = ["current_temp"]
 note = "The owner prefix carries the distinction from `ClimateEntity.current_temperature`, which BT implements on the entity."
 
 [[term]]
+name = "trv.raw_temperature"
+zone = "A"
+definition = "Unshifted sensor temperature of one TRV in °C, with BT's local calibration offset removed."
+rejected = ["raw_temp"]
+
+[[term]]
 name = "outdoor_temperature"
 zone = "A"
 definition = "Outdoor temperature from the weather entity or outdoor sensor."
@@ -321,6 +327,43 @@ zone = "C"
 definition = "The switches the user holds away from their default: devices released, TRVs released on their own, learning paused, window detection off."
 rejected = []
 note = "Published as `ATTR_STATE_ACTIVE_OVERRIDES`, a list of `Override` values, whatever the kernel decides."
+
+[[term]]
+name = "normalised_innovation"
+zone = "A"
+definition = "Kalman observation residual divided by the square root of its innovation variance, dimensionless."
+rejected = ["normalized_innovation"]
+
+[[term]]
+name = "slope_residual_kelvin_per_min"
+zone = "A"
+definition = "Observed room temperature slope minus the expected slope, in kelvin per minute."
+rejected = []
+
+[[term]]
+name = "predicted_disturbance_kelvin_per_min"
+zone = "C"
+definition = "Forecast exogenous room heat-gain rate across the lookahead horizon, in kelvin per minute."
+rejected = []
+
+[[term]]
+name = "routine_gain_kelvin_per_min"
+zone = "A"
+definition = "Learned recurring internal heat-gain rate for a day category and slot, in kelvin per minute."
+rejected = []
+
+[[term]]
+name = "solar_gain_kelvin_per_min"
+zone = "A"
+definition = "Learned clear-sky solar heat-gain rate for a season bin and slot, in kelvin per minute."
+rejected = []
+
+[[term]]
+name = "anomaly"
+zone = "C"
+definition = "A detected thermal or actuator fault reported by the anomaly region."
+rejected = []
+note = "Published on the climate entity as `anomalies`, a list of `AnomalyCode` values."
 
 # ---------------------------------------------------------------------------
 # General

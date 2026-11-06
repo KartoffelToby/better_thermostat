@@ -25,7 +25,9 @@ from custom_components.better_thermostat.core.recorder import (
 )
 from custom_components.better_thermostat.core.snapshot import (
     HvacMode,
+    ObserverReading,
     Preset,
+    ThermalEvidence,
     TrvReported,
     WorldSnapshot,
 )
@@ -684,8 +686,29 @@ class TestRoundtripCompleteness:
             "valve_max_opening": 80.0,
             "min_local_calibration": -4.0,
             "max_local_calibration": 4.0,
+            "raw_temperature": 23.5,
+            "valve_percent": 45.0,
+            "raw_temperature_slope_kelvin_per_min": 0.08,
         }
         assert set(trv_reported_kwargs) == {f.name for f in fields(TrvReported)}
+
+        observer_kwargs = {
+            "age_seconds": 120.0,
+            "normalised_innovation": -2.4,
+            "disturbance_kelvin_per_min": -0.03,
+            "disturbance_at_bound": True,
+            "room_time_constant_minutes": 110.0,
+            "disturbance_baseline_kelvin_per_min": 0.005,
+        }
+        assert set(observer_kwargs) == {f.name for f in fields(ObserverReading)}
+
+        thermal_evidence_kwargs = {
+            "slope_residual_kelvin_per_min": -0.06,
+            "slope_residual_sigma_kelvin_per_min": 0.015,
+            "expected_passive_slope_kelvin_per_min": -0.02,
+            "observer": ObserverReading(**observer_kwargs),
+        }
+        assert set(thermal_evidence_kwargs) == {f.name for f in fields(ThermalEvidence)}
 
         snapshot_kwargs = {
             "now": datetime(2026, 1, 10, 7, 0, tzinfo=UTC),
@@ -707,6 +730,7 @@ class TestRoundtripCompleteness:
             "min_temp": 5.0,
             "max_temp": 30.0,
             "trvs": {"climate.trv": TrvReported(**trv_reported_kwargs)},
+            "thermal_evidence": ThermalEvidence(**thermal_evidence_kwargs),
         }
         assert set(snapshot_kwargs) == {f.name for f in fields(WorldSnapshot)}
         snapshot = WorldSnapshot(**snapshot_kwargs)
@@ -771,3 +795,105 @@ class TestRoundtripCompleteness:
             "next_due": "2026-02-01T00:00:00+00:00",
             "running_since": 950.0,
         }
+
+
+class TestThermalEvidenceRoundtrip:
+    """ThermalEvidence, ObserverReading and new TRV fields import and validate."""
+
+    def test_legacy_export_without_evidence_or_trv_telemetry_replays(self):
+        """An export recorded before thermal evidence existed loads with None defaults."""
+        recorder = FlightRecorder()
+        snapshot = _snapshot()
+        desired, _ = decide(snapshot, running_kernel_state())
+        recorder.record(snapshot, running_kernel_state(), desired)
+        entry = json.loads(json.dumps(recorder.export()))[0]
+
+        del entry["snapshot"]["thermal_evidence"]
+        for raw_trv in entry["snapshot"]["trvs"].values():
+            del raw_trv["raw_temperature"]
+            del raw_trv["valve_percent"]
+            del raw_trv["raw_temperature_slope_kelvin_per_min"]
+
+        rebuilt = snapshot_from_dict(entry["snapshot"])
+        assert rebuilt.thermal_evidence is None
+        trv = rebuilt.trvs["climate.trv"]
+        assert trv.raw_temperature is None
+        assert trv.valve_percent is None
+        assert trv.raw_temperature_slope_kelvin_per_min is None
+        assert replay(entry) == (True, desired)
+
+    def test_evidence_without_observer_roundtrips(self):
+        """Model-free residual evidence without an observer reading reconstructs."""
+        evidence = ThermalEvidence(
+            slope_residual_kelvin_per_min=-0.05,
+            slope_residual_sigma_kelvin_per_min=0.012,
+            expected_passive_slope_kelvin_per_min=-0.01,
+            observer=None,
+        )
+        recorder = FlightRecorder()
+        snapshot = replace(_snapshot(), thermal_evidence=evidence)
+        desired, _ = decide(snapshot, running_kernel_state())
+        recorder.record(snapshot, running_kernel_state(), desired)
+        entry = json.loads(json.dumps(recorder.export(), allow_nan=False))[0]
+
+        assert snapshot_from_dict(entry["snapshot"]).thermal_evidence == evidence
+
+    def test_non_finite_observer_floats_roundtrip_to_zero_defaults(self):
+        """Non-finite observer scalars export as null and import as 0.0."""
+        observer = ObserverReading(
+            age_seconds=float("nan"),
+            normalised_innovation=float("-inf"),
+            disturbance_kelvin_per_min=float("inf"),
+            disturbance_at_bound=False,
+            room_time_constant_minutes=float("nan"),
+            disturbance_baseline_kelvin_per_min=float("nan"),
+        )
+        recorder = FlightRecorder()
+        snapshot = replace(
+            _snapshot(), thermal_evidence=ThermalEvidence(observer=observer)
+        )
+        desired, _ = decide(snapshot, running_kernel_state())
+        recorder.record(snapshot, running_kernel_state(), desired)
+        entry = json.loads(json.dumps(recorder.export(), allow_nan=False))[0]
+
+        rebuilt = snapshot_from_dict(entry["snapshot"])
+        assert rebuilt.thermal_evidence is not None
+        assert rebuilt.thermal_evidence.observer == ObserverReading(
+            age_seconds=0.0,
+            normalised_innovation=0.0,
+            disturbance_kelvin_per_min=0.0,
+            disturbance_at_bound=False,
+            room_time_constant_minutes=0.0,
+            disturbance_baseline_kelvin_per_min=0.0,
+        )
+
+    def test_malformed_thermal_evidence_raises(self):
+        """Non-mapping evidence or observer payloads raise ValueError."""
+        recorder = FlightRecorder()
+        desired, _ = decide(_snapshot(), running_kernel_state())
+        recorder.record(_snapshot(), running_kernel_state(), desired)
+        base = json.loads(json.dumps(recorder.export()))[0]
+
+        bad_evidence = json.loads(json.dumps(base))
+        bad_evidence["snapshot"]["thermal_evidence"] = "invalid"
+        with pytest.raises(ValueError, match="mapping"):
+            snapshot_from_dict(bad_evidence["snapshot"])
+
+        bad_observer = json.loads(json.dumps(base))
+        bad_observer["snapshot"]["thermal_evidence"] = {"observer": [1, 2]}
+        with pytest.raises(ValueError, match="mapping"):
+            snapshot_from_dict(bad_observer["snapshot"])
+
+        bad_bound = json.loads(json.dumps(base))
+        bad_bound["snapshot"]["thermal_evidence"] = {
+            "observer": {
+                "age_seconds": 10.0,
+                "normalised_innovation": -1.0,
+                "disturbance_kelvin_per_min": -0.01,
+                "disturbance_at_bound": "yes",
+                "room_time_constant_minutes": 90.0,
+                "disturbance_baseline_kelvin_per_min": 0.0,
+            }
+        }
+        with pytest.raises(ValueError, match="bool"):
+            snapshot_from_dict(bad_bound["snapshot"])

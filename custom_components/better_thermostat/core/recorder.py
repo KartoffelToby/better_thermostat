@@ -29,7 +29,14 @@ from .fsm.maintenance import (
 from .fsm.mode import ModeState
 from .fsm.reachability import ReachabilityState
 from .fsm.window import WindowPhase, WindowState
-from .snapshot import TrvReported, WorldSnapshot, parse_hvac_mode, parse_preset
+from .snapshot import (
+    ObserverReading,
+    ThermalEvidence,
+    TrvReported,
+    WorldSnapshot,
+    parse_hvac_mode,
+    parse_preset,
+)
 
 DEFAULT_CAPACITY = 50
 
@@ -276,6 +283,46 @@ def _renamed_key(raw: dict[str, Json], key: str, earlier: str) -> Json:
     return raw[key] if key in raw else raw[earlier]
 
 
+def _observer_reading_of(raw: Json) -> ObserverReading | None:
+    """Reconstruct an :class:`ObserverReading` from its exported form."""
+    if raw is None:
+        return None
+    obs = _dict_of(raw)
+    return ObserverReading(
+        age_seconds=_float_or_default(obs["age_seconds"], 0.0),
+        normalised_innovation=_float_or_default(obs["normalised_innovation"], 0.0),
+        disturbance_kelvin_per_min=_float_or_default(
+            obs["disturbance_kelvin_per_min"], 0.0
+        ),
+        disturbance_at_bound=_bool_of(obs["disturbance_at_bound"]),
+        room_time_constant_minutes=_float_or_default(
+            obs["room_time_constant_minutes"], 0.0
+        ),
+        disturbance_baseline_kelvin_per_min=_float_or_default(
+            obs["disturbance_baseline_kelvin_per_min"], 0.0
+        ),
+    )
+
+
+def _thermal_evidence_of(raw: Json) -> ThermalEvidence | None:
+    """Reconstruct a :class:`ThermalEvidence` from its exported form."""
+    if raw is None:
+        return None
+    evidence = _dict_of(raw)
+    return ThermalEvidence(
+        slope_residual_kelvin_per_min=_float_or_none(
+            evidence.get("slope_residual_kelvin_per_min")
+        ),
+        slope_residual_sigma_kelvin_per_min=_float_or_none(
+            evidence.get("slope_residual_sigma_kelvin_per_min")
+        ),
+        expected_passive_slope_kelvin_per_min=_float_or_none(
+            evidence.get("expected_passive_slope_kelvin_per_min")
+        ),
+        observer=_observer_reading_of(evidence.get("observer")),
+    )
+
+
 def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
     """Reconstruct a WorldSnapshot from its exported form."""
     trvs = {}
@@ -298,6 +345,11 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
             ),
             max_local_calibration=_float_or_none(
                 _renamed_key(raw, "max_local_calibration", "local_calibration_max")
+            ),
+            raw_temperature=_float_or_none(raw.get("raw_temperature")),
+            valve_percent=_float_or_none(raw.get("valve_percent")),
+            raw_temperature_slope_kelvin_per_min=_float_or_none(
+                raw.get("raw_temperature_slope_kelvin_per_min")
             ),
         )
     now = _datetime_or_none(data["now"])
@@ -339,6 +391,7 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
         min_temp=_float_or_none(data["min_temp"]),
         max_temp=_float_or_none(data["max_temp"]),
         trvs=trvs,
+        thermal_evidence=_thermal_evidence_of(data.get("thermal_evidence")),
     )
 
 

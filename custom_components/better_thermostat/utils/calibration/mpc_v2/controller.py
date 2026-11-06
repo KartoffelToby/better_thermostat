@@ -593,10 +593,16 @@ class MpcV2Controller:
             self._u_history[-1] = self._last_u
 
     def _diagnostics(self) -> MpcV2Diagnostics:
+        disturbance = self.dob.D_hat_K_per_min
         return MpcV2Diagnostics(
             T_room_hat=float(self.kalman.x_hat[0]),
             T_rad_hat=float(self.kalman.x_hat[1]),
-            D_hat_K_per_min=self.dob.D_hat_K_per_min,
+            D_hat_K_per_min=disturbance,
             tau_room_min=self.plant_fine.params.tau_room_min,
             coupling_rad_room=self.plant_fine.params.coupling_rad_room,
+            normalised_innovation=self.kalman.normalised_innovation,
+            disturbance_at_bound=(
+                abs(disturbance) > 0.0 and abs(disturbance) >= self.dob.bound_K_per_min
+            ),
+            unbounded_D_hat_K_per_min=self.kalman.unbounded_disturbance_K_per_min,
         )

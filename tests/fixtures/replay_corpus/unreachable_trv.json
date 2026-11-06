@@ -31,6 +31,7 @@
     "room_temperature_filtered": null,
     "solar_intensity": 0.0,
     "temperature_slope": null,
+    "thermal_evidence": null,
     "tolerance": 0.3,
     "trvs": {
       "climate.trv1": {
@@ -42,9 +43,12 @@
         "max_temp": null,
         "min_local_calibration": null,
         "min_temp": null,
+        "raw_temperature": null,
+        "raw_temperature_slope_kelvin_per_min": null,
         "released": false,
         "setpoint": null,
-        "valve_max_opening": null
+        "valve_max_opening": null,
+        "valve_percent": null
       },
       "climate.trv2": {
         "available": true,
@@ -55,9 +59,12 @@
         "max_temp": null,
         "min_local_calibration": null,
         "min_temp": null,
+        "raw_temperature": null,
+        "raw_temperature_slope_kelvin_per_min": null,
         "released": false,
         "setpoint": null,
-        "valve_max_opening": null
+        "valve_max_opening": null,
+        "valve_percent": null
       }
     },
     "window_open": null
