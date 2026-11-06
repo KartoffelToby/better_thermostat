@@ -7,7 +7,7 @@ last reading is not a measurement of the room any more.
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from .conftest import (
     DOMAIN,

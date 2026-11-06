@@ -16,7 +16,7 @@ from homeassistant.components.climate import (
 )
 from homeassistant.const import ATTR_ENTITY_ID, ATTR_TEMPERATURE
 from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component.common import setup_test_component_platform
+from pytest_homeassistant.common import setup_test_component_platform
 
 from .conftest import (
     SENSOR_ID,

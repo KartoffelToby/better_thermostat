@@ -7,7 +7,7 @@ restores them from keeps the value the trackers learned.
 from datetime import timedelta
 
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from .conftest import DOMAIN, SENSOR_ID, make_entry, setup_entry, wait_for_startup
 

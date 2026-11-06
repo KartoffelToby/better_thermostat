@@ -3,7 +3,7 @@
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.template import Template
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.better_thermostat.utils.const import DOMAIN
 from tests.unit.test_blueprints import (

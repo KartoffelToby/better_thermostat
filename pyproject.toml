@@ -7,10 +7,11 @@ dependencies = ["homeassistant>=2026.9.0"]
 
 [dependency-groups]
 dev = [
+    "numpy>=2",  # integration requirement previously supplied by the test harness
     "daqp>=0.8.7",  # speeds up the MPC v2 QP; a NumPy solver runs without it
     "pytest>=9",
     "pytest-asyncio>=1.4.0",
-    "pytest-homeassistant-custom-component>=0.13.363",
+    "pytest-homeassistant==2026.11.0",
     "pre-commit>=4.6.0",
     "codespell>=2.4.3",
     "pyrefly>=1.1.1",
@@ -82,6 +83,8 @@ split-on-trailing-comma = false
 skip-magic-trailing-comma = true
 
 [tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-p no:respx"
 asyncio_mode = "auto"
 filterwarnings = [
     # Upstream Home Assistant warning triggered during test imports.

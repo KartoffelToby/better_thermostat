@@ -8,7 +8,7 @@ thermostat saves is read here from the storage the store writes into.
 from datetime import timedelta
 
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from custom_components.better_thermostat.utils.const import SERVICE_RESET_HEATING_POWER
 

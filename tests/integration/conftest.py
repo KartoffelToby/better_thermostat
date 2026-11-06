@@ -11,10 +11,7 @@ import contextlib
 from unittest.mock import patch
 
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    setup_test_component_platform,
-)
+from pytest_homeassistant.common import MockConfigEntry, setup_test_component_platform
 
 # Pin the repository's custom_components namespace package before the
 # hass fixture mounts the plugin's testing config dir: that dir carries
