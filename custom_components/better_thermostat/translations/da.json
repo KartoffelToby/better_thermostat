@@ -41,12 +41,14 @@
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
           "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet",
-          "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
+          "mpc_v2_plant_preset": "MPC v2 rumstørrelse",
+          "zwave_external_temperature": "Send rumtemperaturen til en Spirit/ZWA021 via Z-Wave"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
           "calibration_mode": "Hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fastgjort af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
-          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
+          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset.",
+          "zwave_external_temperature": "Når funktionen er aktiveret, sætter Better Thermostat TRV'ets lokale offset til den reserverede værdi -128 og sender den valgte rumføler som en lufttemperaturmelding. Better Thermostats kalibrering sættes på pause; når funktionen deaktiveres, gendannes det tidligere offset og de tidligere kalibreringsindstillinger. TRV'et regulerer og styrer fortsat selv ventilen."
         }
       },
       "confirm": {
@@ -115,12 +117,14 @@
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
           "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet",
-          "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
+          "mpc_v2_plant_preset": "MPC v2 rumstørrelse",
+          "zwave_external_temperature": "Send rumtemperaturen til en Spirit/ZWA021 via Z-Wave"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
           "calibration_mode": "Hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
-          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
+          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset.",
+          "zwave_external_temperature": "Når funktionen er aktiveret, sætter Better Thermostat TRV'ets lokale offset til den reserverede værdi -128 og sender den valgte rumføler som en lufttemperaturmelding. Better Thermostats kalibrering sættes på pause; når funktionen deaktiveres, gendannes det tidligere offset og de tidligere kalibreringsindstillinger. TRV'et regulerer og styrer fortsat selv ventilen."
         }
       }
     },

@@ -9,12 +9,14 @@ mode the module is inert and the device is driven through the standard
 """
 
 import logging
+import math
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNKNOWN
 from homeassistant.exceptions import HomeAssistantError
 
 from ..utils.const import CalibrationType
+from ..utils.helpers import find_local_calibration_entity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,6 +50,219 @@ def _is_direct_valve(self, entity_id):
     """Return True when this TRV is configured for direct valve control."""
     adv = self.real_trvs[entity_id].advanced or {}
     return adv.get("calibration") == CalibrationType.DIRECT_VALVE_BASED
+
+
+# The Spirit/ZWA021 accepts an externally reported air temperature when its
+# local temperature offset is set to the reserved -128 value. Remember the
+# last report per TRV so an unchanged sensor value does not generate another
+# radio transmission on each accepted Better Thermostat update.
+_EXTERNAL_TEMPERATURE_MODE_VALUE = -128.0
+_EXTERNAL_TEMPERATURE_LAST_SENT = "_zwa021_external_temperature_last_sent"
+_EXTERNAL_TEMPERATURE_OPTION = "zwave_external_temperature"
+_EXTERNAL_TEMPERATURE_PREVIOUS_OFFSET = "_zwave_external_previous_offset"
+
+# Let the shared keepalive distinguish its deliberate refresh from ordinary
+# sensor updates, which are deduplicated above.
+external_temperature_force_refresh = True
+
+
+def _is_direct_valve(self, entity_id):
+    """Return True when this TRV is configured for direct valve control."""
+    adv = self.real_trvs[entity_id].advanced or {}
+    return adv.get("calibration") == CalibrationType.DIRECT_VALVE_BASED
+
+
+async def maybe_set_external_temperature(
+    self, entity_id, temperature: float, *, force_refresh: bool = False
+) -> bool:
+    """Send the room temperature to the Spirit/ZWA021 as a Z-Wave report.
+
+    The TRV keeps its own thermostat and valve regulation. Better Thermostat
+    only sends a Sensor Multilevel air-temperature report (CC 49); it never
+    calculates or writes a valve position here. To avoid changing normal
+    offset calibration behaviour, the report is sent only while the device's
+    local offset number currently reports the reserved external-sensor value
+    (-128).
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance.
+    entity_id : str
+        Climate entity ID of the Spirit/ZWA021.
+    temperature : float
+        Filtered room temperature in Celsius, as produced by the existing
+        external-sensor path.
+    force_refresh : bool
+        Send even if the value is unchanged. The existing periodic keepalive
+        uses this to refresh the report without causing writes on every
+        unchanged sensor update.
+
+    Returns
+    -------
+    bool
+        True if a report was sent or the current value was already present;
+        False if this device is not in external-temperature mode or the write
+        could not be sent.
+    """
+    if self.real_trvs[entity_id].integration != "zwave_js":
+        return False
+    if _is_direct_valve(self, entity_id):
+        return False
+
+    trv = self.real_trvs[entity_id]
+    if not (trv.advanced or {}).get(_EXTERNAL_TEMPERATURE_OPTION, False):
+        return False
+    calibration_entity = trv.local_temperature_calibration_entity
+    if calibration_entity is None:
+        # Temperature forwarding is independent of Better Thermostat's own
+        # calibration type, so discover the sibling offset entity here too.
+        calibration_entity = await find_local_calibration_entity(self, entity_id)
+        trv.local_temperature_calibration_entity = calibration_entity
+    if calibration_entity is None:
+        return False
+    calibration_state = self.hass.states.get(calibration_entity)
+    if calibration_state is None:
+        return False
+    try:
+        offset_value = float(calibration_state.state)
+        temperature_value = float(temperature)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(temperature_value):
+        return False
+
+    # This is an explicit opt-in guard: -128 is the device's reserved
+    # external-temperature mode, not a usable local offset.
+    if not math.isclose(
+        offset_value, _EXTERNAL_TEMPERATURE_MODE_VALUE, rel_tol=0.0, abs_tol=1e-6
+    ):
+        return False
+
+    # The Air Temperature sensor type (1), Celsius scale (0), and the
+    # filtered room value match the Z-Wave JS invoke_cc_api call used to verify
+    # this command against the test thermostat.
+    report_value = round(temperature_value, 2)
+    extra = self.real_trvs[entity_id].extra
+    previous = extra.get(_EXTERNAL_TEMPERATURE_LAST_SENT)
+    if previous is not None and not force_refresh:
+        if math.isclose(report_value, previous, rel_tol=0.0, abs_tol=0.005):
+            return True
+
+    try:
+        await self.hass.services.async_call(
+            "zwave_js",
+            "invoke_cc_api",
+            {
+                "entity_id": entity_id,
+                "command_class": 49,
+                "endpoint": 0,
+                "method_name": "sendReport",
+                "parameters": [1, 0, report_value],
+            },
+            blocking=True,
+            context=self.context,
+        )
+    except (HomeAssistantError, OSError, RuntimeError, TypeError, ValueError) as ex:
+        _LOGGER.warning(
+            "better_thermostat %s: Spirit/ZWA021 external temperature report for %s failed: %s",
+            self.device_name,
+            entity_id,
+            ex,
+        )
+        return False
+
+    extra[_EXTERNAL_TEMPERATURE_LAST_SENT] = report_value
+    _LOGGER.debug(
+        "better_thermostat %s: sent Spirit/ZWA021 external air temperature %.2f C to %s%s",
+        self.device_name,
+        report_value,
+        entity_id,
+        " (keepalive)" if force_refresh else "",
+    )
+    return True
+
+
+async def async_apply_external_temperature_mode(self, entity_id) -> bool:
+    """Set the reserved local offset for report mode, or restore its backup.
+
+    On disable, restore the saved offset only when the device still reports
+    -128; an intervening manual change is left untouched.
+    """
+    trv = self.real_trvs[entity_id]
+    if trv.integration != "zwave_js" or _is_direct_valve(self, entity_id):
+        return False
+    enabled = bool((trv.advanced or {}).get(_EXTERNAL_TEMPERATURE_OPTION, False))
+    calibration_entity = trv.local_temperature_calibration_entity
+    if calibration_entity is None:
+        calibration_entity = await find_local_calibration_entity(self, entity_id)
+        trv.local_temperature_calibration_entity = calibration_entity
+    if calibration_entity is None:
+        _LOGGER.warning(
+            "better_thermostat %s: external temperature mode has no local offset entity for %s",
+            self.device_name,
+            entity_id,
+        )
+        return False
+    state = self.hass.states.get(calibration_entity)
+    if state is None:
+        return False
+    try:
+        current = float(state.state)
+    except (TypeError, ValueError):
+        return False
+
+    if enabled:
+        target = _EXTERNAL_TEMPERATURE_MODE_VALUE
+        if math.isclose(current, target, rel_tol=0.0, abs_tol=1e-6):
+            return True
+        action = "enabling"
+    else:
+        if not math.isclose(
+            current, _EXTERNAL_TEMPERATURE_MODE_VALUE, rel_tol=0.0, abs_tol=1e-6
+        ):
+            return True
+        try:
+            target = float((trv.advanced or {}).get(_EXTERNAL_TEMPERATURE_PREVIOUS_OFFSET))
+        except (TypeError, ValueError):
+            _LOGGER.warning(
+                "better_thermostat %s: cannot restore the previous offset for %s; no saved value",
+                self.device_name,
+                entity_id,
+            )
+            return False
+        if not math.isfinite(target) or math.isclose(
+            target, _EXTERNAL_TEMPERATURE_MODE_VALUE, rel_tol=0.0, abs_tol=1e-6
+        ):
+            return False
+        action = "restoring"
+
+    try:
+        await self.hass.services.async_call(
+            "number",
+            "set_value",
+            {"entity_id": calibration_entity, "value": target},
+            blocking=True,
+            context=self.context,
+        )
+    except (HomeAssistantError, OSError, RuntimeError, TypeError, ValueError) as ex:
+        _LOGGER.warning(
+            "better_thermostat %s: %s external temperature mode for %s failed: %s",
+            self.device_name,
+            action,
+            entity_id,
+            ex,
+        )
+        return False
+    _LOGGER.info(
+        "better_thermostat %s: %s external temperature offset for %s: %s",
+        self.device_name,
+        action,
+        entity_id,
+        target,
+    )
+    return True
+
 
 
 # When Thermostat Mode is set to command class (0x40) with the manufacturer-specific mode

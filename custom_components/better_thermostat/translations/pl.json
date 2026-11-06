@@ -41,12 +41,14 @@
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C",
-          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia"
+          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia",
+          "zwave_external_temperature": "Wysyłaj temperaturę zewnętrzną do Spirit/ZWA021 przez Z-Wave"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
           "calibration_mode": "Rodzaj sposobu obliczania kalibracji\n***Normalny***: W tym trybie wewnętrzny czujnik temperatury TRV jest zależny od zewnętrznego czujnika temperatury.\n***Agresywny***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale jest ustawiony znacznie niżej/wyżej, aby uzyskać szybsze przyspieszenie.\n***AI Time Based***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale wartość jest obliczana przez niestandardowy algorytm w celu ulepszenia wewnętrznego algorytmu TRV.",
-          "calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia."
+          "calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia.",
+          "zwave_external_temperature": "Po włączeniu Better Thermostat ustawia lokalny offset TRV na zarezerwowaną wartość -128 i wysyła temperaturę wybranego czujnika jako raport temperatury powietrza. Kalibracja Better Thermostat zostaje wstrzymana; po wyłączeniu przywracane są poprzedni offset i ustawienia kalibracji. TRV nadal samodzielnie reguluje temperaturę i steruje zaworem."
         }
       },
       "confirm": {
@@ -115,12 +117,14 @@
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C",
-          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia"
+          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia",
+          "zwave_external_temperature": "Wysyłaj temperaturę zewnętrzną do Spirit/ZWA021 przez Z-Wave"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
           "calibration_mode": "Rodzaj sposobu obliczania kalibracji\n***Normalny***: W tym trybie wewnętrzny czujnik temperatury TRV jest zależny od zewnętrznego czujnika temperatury.\n***Agresywny***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale jest ustawiony znacznie niżej/wyżej, aby uzyskać szybsze przyspieszenie.\n***AI Time Based***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale wartość jest obliczana przez niestandardowy algorytm w celu ulepszenia wewnętrznego algorytmu TRV.",
-          "calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia."
+          "calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia.",
+          "zwave_external_temperature": "Po włączeniu Better Thermostat ustawia lokalny offset TRV na zarezerwowaną wartość -128 i wysyła temperaturę wybranego czujnika jako raport temperatury powietrza. Kalibracja Better Thermostat zostaje wstrzymana; po wyłączeniu przywracane są poprzedni offset i ustawienia kalibracji. TRV nadal samodzielnie reguluje temperaturę i steruje zaworem."
         }
       }
     },
