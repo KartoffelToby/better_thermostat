@@ -48,6 +48,9 @@ class MpcV2Diagnostics:
     D_hat_K_per_min: float
     tau_room_min: float
     coupling_rad_room: float
+    normalised_innovation: float = 0.0
+    disturbance_at_bound: bool = False
+    unbounded_D_hat_K_per_min: float = 0.0
 
 
 @dataclass
