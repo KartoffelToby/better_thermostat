@@ -48,7 +48,6 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
     MpcV2PlantPreset,
 )
-from custom_components.better_thermostat.utils.weather_cache import cache_current_weather
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
     convert_to_float_celsius,
@@ -57,6 +56,9 @@ from custom_components.better_thermostat.utils.helpers import (
     normalize_step,
     round_by_step,
     rounding,
+)
+from custom_components.better_thermostat.utils.weather_cache import (
+    cache_current_weather,
 )
 
 _LOGGER = logging.getLogger(__name__)

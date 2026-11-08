@@ -564,9 +564,8 @@ async def check_and_update_degraded_mode(self) -> bool:
 
     for entity in optional:
         if not is_entity_available(self.hass, entity):
-            if (
-                entity == getattr(self, "weather_entity", None)
-                and usable_weather_cache(self)
+            if entity == getattr(self, "weather_entity", None) and usable_weather_cache(
+                self
             ):
                 # A valid snapshot stands in for the optional weather entity.
                 continue

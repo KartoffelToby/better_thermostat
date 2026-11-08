@@ -234,13 +234,15 @@ async def check_weather_prediction(self) -> bool | None:
             FORECAST_CALL_TIMEOUT.total_seconds(),
         )
         return _cached_weather_verdict(self)
-    except (TypeError, ServiceNotSupported, HomeAssistantError):
+    except TypeError, ServiceNotSupported, HomeAssistantError:
         _LOGGER.warning(
             "better_thermostat %s: no weather forecast data found.", self.device_name
         )
         return _cached_weather_verdict(self)
 
-    container = response.get(self.weather_entity) if isinstance(response, dict) else None
+    container = (
+        response.get(self.weather_entity) if isinstance(response, dict) else None
+    )
     forecast = container.get("forecast") if isinstance(container, dict) else None
     if not isinstance(forecast, list) or not forecast:
         return _cached_weather_verdict(self)
@@ -267,11 +269,9 @@ async def check_weather_prediction(self) -> bool | None:
     if not valid and not isinstance(current_temp, (int, float)):
         return _cached_weather_verdict(self)
 
-    # Only persist timestamped, finite temperatures. Older providers that omit
-    # datetime still work as before but cannot offer an offline forecast.
-    remember_weather_forecast(
-        self, ftype, forecast[:samples], current_unit=unit
-    )
+    # Only timestamped, finite temperatures are persisted. A provider that
+    # omits datetime gives a live verdict but no offline forecast.
+    remember_weather_forecast(self, ftype, forecast[:samples], current_unit=unit)
     avg_forecast = sum(valid) / len(valid) if valid else None
     return bool(
         (isinstance(current_temp, (int, float)) and current_temp < self.off_temperature)

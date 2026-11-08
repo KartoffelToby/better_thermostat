@@ -6,7 +6,7 @@ A stale forecast is never presented as live weather.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 import math
 from typing import Any
 
@@ -30,7 +30,7 @@ def _utc_time(value: str) -> datetime | None:
         return None
     if parsed.tzinfo is None:
         return None
-    return parsed.astimezone(timezone.utc)
+    return parsed.astimezone(UTC)
 
 
 def _stored_cache(bt: Any) -> dict | None:
@@ -56,7 +56,7 @@ def usable_weather_cache(bt: Any, now: datetime | None = None) -> list[dict]:
     snapshot = _stored_cache(bt)
     if not snapshot or snapshot.get("entity_id") != getattr(bt, "weather_entity", None):
         return []
-    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    now = (now or datetime.now(UTC)).astimezone(UTC)
     saved_at = _utc_time(snapshot.get("saved_at"))
     interval = SLOT_INTERVALS.get(snapshot.get("type"))
     if (
@@ -82,8 +82,13 @@ def usable_weather_cache(bt: Any, now: datetime | None = None) -> list[dict]:
             or not now - interval < stamp <= now + MAX_FUTURE
         ):
             continue
-        valid.append({"datetime": stamp, "temperature": float(temp),
-                      "condition": item.get("condition")})
+        valid.append(
+            {
+                "datetime": stamp,
+                "temperature": float(temp),
+                "condition": item.get("condition"),
+            }
+        )
     valid.sort(key=lambda row: row["datetime"])
     # A future-only forecast cannot stand in for the current conditions.
     if valid and valid[0]["datetime"] > now + interval:
@@ -92,17 +97,13 @@ def usable_weather_cache(bt: Any, now: datetime | None = None) -> list[dict]:
 
 
 def cache_current_weather(bt: Any, now: datetime | None = None) -> dict | None:
-    """The forecast slot that covers the current time, if one is still valid."""
+    """Return the forecast slot covering the current time, when valid."""
     slots = usable_weather_cache(bt, now=now)
     return slots[0] if slots else None
 
 
 def remember_weather_forecast(
-    bt: Any,
-    forecast_type: str,
-    rows: list[dict],
-    *,
-    current_unit: str | None,
+    bt: Any, forecast_type: str, rows: list[dict], *, current_unit: str | None
 ) -> bool:
     """Save valid timestamped slots using the existing Better Thermostat store."""
     from .helpers import convert_to_float_celsius
@@ -124,19 +125,23 @@ def remember_weather_forecast(
         )
         if type(temperature) not in (int, float) or not math.isfinite(temperature):
             continue
-        slots.append({
-            "datetime": stamp.isoformat(),
-            "temperature": float(temperature),
-            "condition": (
-                row.get("condition") if isinstance(row.get("condition"), str) else None
-            ),
-        })
+        slots.append(
+            {
+                "datetime": stamp.isoformat(),
+                "temperature": float(temperature),
+                "condition": (
+                    row.get("condition")
+                    if isinstance(row.get("condition"), str)
+                    else None
+                ),
+            }
+        )
     if not slots:
         return False
     snapshot = {
         "entity_id": bt.weather_entity,
         "type": forecast_type,
-        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "saved_at": datetime.now(UTC).isoformat(),
         "slots": slots,
     }
     bt._weather_forecast_cache = snapshot
