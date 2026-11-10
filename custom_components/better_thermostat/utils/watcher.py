@@ -24,7 +24,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
 )
 
 from .const import DOMAIN, ROOM_SENSOR_FALLBACK_DELAY_S
-from .weather_cache import usable_weather_cache
+from .weather_cache import cache_current_weather
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -411,7 +411,7 @@ async def await_optional_sensors(
             if not is_entity_available(self.hass, eid)
             and not (
                 eid == getattr(self, "weather_entity", None)
-                and usable_weather_cache(self)
+                and cache_current_weather(self)
             )
         ]
         if not pending:
@@ -441,7 +441,7 @@ async def await_optional_sensors(
         for eid in get_optional_sensors(self)
         if not is_entity_available(self.hass, eid)
         and not (
-            eid == getattr(self, "weather_entity", None) and usable_weather_cache(self)
+            eid == getattr(self, "weather_entity", None) and cache_current_weather(self)
         )
     ]
     if not pending:
@@ -564,9 +564,9 @@ async def check_and_update_degraded_mode(self) -> bool:
 
     for entity in optional:
         if not is_entity_available(self.hass, entity):
-            if entity == getattr(self, "weather_entity", None) and usable_weather_cache(
-                self
-            ):
+            if entity == getattr(
+                self, "weather_entity", None
+            ) and cache_current_weather(self):
                 # A valid snapshot stands in for the optional weather entity.
                 continue
             unavailable.append(entity)

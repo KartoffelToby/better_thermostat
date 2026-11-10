@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -84,6 +84,44 @@ def test_forecast_uses_current_hour_not_oldest_prediction():
     assert cache_current_weather(bt, now=at(14))["temperature"] == 2.0
 
 
+def test_future_forecasts_cannot_masquerade_as_current_weather():
+    """Keep upcoming forecasts for prediction, but not outdoor calibration."""
+    bt = bt_with_store()
+    bt.state_mgr.state.weather_forecast = snapshot(at(12), [(1, 5), (2, 2)])
+
+    now = at(12) + timedelta(minutes=30)
+    assert [item["temperature"] for item in usable_weather_cache(bt, now)] == [5.0, 2.0]
+    assert cache_current_weather(bt, now=now) is None
+    assert cache_current_weather(bt, now=at(13))["temperature"] == 5.0
+
+
+def test_most_recent_started_slot_is_current():
+    """When predictions overlap, the most recently started slot wins."""
+    bt = bt_with_store()
+    bt.state_mgr.state.weather_forecast = snapshot(at(12), [(0, 9), (0.5, 6), (1, 2)])
+    assert (
+        cache_current_weather(bt, now=at(12) + timedelta(minutes=45))["temperature"]
+        == 6.0
+    )
+
+
+def test_aware_offset_now_is_normalized_to_utc():
+    """Equivalent timezone-aware instants give the same forecast."""
+    bt = bt_with_store()
+    bt.state_mgr.state.weather_forecast = snapshot(at(12), [(0, 9), (1, 5)])
+    local = at(12).astimezone(timezone(timedelta(hours=5)))
+    assert cache_current_weather(bt, now=local)["temperature"] == 9.0
+
+
+@pytest.mark.parametrize("reader", [usable_weather_cache, cache_current_weather])
+def test_naive_now_is_rejected(reader):
+    """An unspecified timezone must never silently shift a forecast."""
+    bt = bt_with_store()
+    bt.state_mgr.state.weather_forecast = snapshot(at(12), [(0, 9)])
+    with pytest.raises(ValueError, match="timezone-aware"):
+        reader(bt, now=at(12).replace(tzinfo=None))
+
+
 def test_cache_expires_after_forecast_horizon():
     bt = bt_with_store()
     bt.state_mgr.state.weather_forecast = snapshot(at(12), [(0, 9), (1, 5)])
@@ -162,8 +200,8 @@ async def test_valid_cache_prevents_weather_only_degraded_mode():
             side_effect=lambda hass, entity: entity != WEATHER,
         ),
         patch(
-            "custom_components.better_thermostat.utils.watcher.usable_weather_cache",
-            return_value=[{"temperature": 4.0}],
+            "custom_components.better_thermostat.utils.watcher.cache_current_weather",
+            return_value={"temperature": 4.0},
         ),
         patch(
             "custom_components.better_thermostat.utils.watcher.schedule_battery_refresh"
@@ -182,8 +220,8 @@ async def test_valid_cache_prevents_weather_only_degraded_mode():
             side_effect=lambda hass, entity: entity != WEATHER,
         ),
         patch(
-            "custom_components.better_thermostat.utils.watcher.usable_weather_cache",
-            return_value=[],
+            "custom_components.better_thermostat.utils.watcher.cache_current_weather",
+            return_value=None,
         ),
         patch(
             "custom_components.better_thermostat.utils.watcher.ir.async_create_issue"
@@ -194,6 +232,66 @@ async def test_valid_cache_prevents_weather_only_degraded_mode():
     ):
         assert await check_and_update_degraded_mode(bt) is True
         assert WEATHER in bt.unavailable_sensors
+
+
+@pytest.mark.asyncio
+async def test_future_only_weather_cache_still_supports_forecast_decision():
+    """The heating-season forecast can look ahead without a current slot."""
+    bt = bt_with_store()
+    bt.off_temperature = 10.0
+    bt.state_mgr.state.weather_forecast = snapshot(
+        datetime.now(UTC), [(1, 4.0), (2, 6.0)]
+    )
+    bt.hass = MagicMock()
+    bt.hass.states.get.return_value = SimpleNamespace(
+        state="unavailable", attributes={}
+    )
+    bt.outdoor_sensor = None
+    assert cache_current_weather(bt) is None
+    assert _get_current_outdoor_temp(bt) is None
+    assert _get_current_solar_intensity(bt) == 0.0
+    assert await check_weather_prediction(bt) is True
+
+
+@pytest.mark.asyncio
+async def test_future_only_forecast_does_not_hide_weather_outage():
+    """Only a slot covering the current time prevents weather-only degradation."""
+    from custom_components.better_thermostat.utils.watcher import (
+        check_and_update_degraded_mode,
+    )
+
+    bt = bt_with_store()
+    bt.state_mgr.state.weather_forecast = snapshot(
+        datetime.now(UTC), [(1, 4.0), (2, 6.0)]
+    )
+    bt.hass = MagicMock()
+    bt.sensor_entity_id = "sensor.room"
+    bt.device_name = "Room"
+    bt.degraded_mode = False
+    bt.unavailable_sensors = []
+    bt.devices_states = {}
+    bt._degraded_grace_until = None
+    bt._degraded_warning_emitted = False
+    bt.async_write_ha_state = MagicMock()
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.watcher.get_optional_sensors",
+            return_value=[WEATHER],
+        ),
+        patch(
+            "custom_components.better_thermostat.utils.watcher.is_entity_available",
+            side_effect=lambda hass, entity: entity != WEATHER,
+        ),
+        patch(
+            "custom_components.better_thermostat.utils.watcher.ir.async_create_issue"
+        ),
+        patch(
+            "custom_components.better_thermostat.utils.helpers.async_fire_logbook_entry"
+        ),
+    ):
+        assert await check_and_update_degraded_mode(bt) is True
+        assert bt.unavailable_sensors == [WEATHER]
 
 
 @pytest.mark.parametrize(

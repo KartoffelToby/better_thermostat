@@ -20,6 +20,15 @@ SLOT_INTERVALS = {
 MAX_FUTURE = timedelta(days=2)
 
 
+def _effective_utc_now(now: datetime | None) -> datetime:
+    """Normalize an aware timestamp, rejecting ambiguous naive inputs."""
+    if now is None:
+        return datetime.now(UTC)
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must be timezone-aware")
+    return now.astimezone(UTC)
+
+
 def _utc_time(value: str) -> datetime | None:
     """Return an aware UTC datetime for a persisted ISO timestamp."""
     if not isinstance(value, str):
@@ -51,12 +60,13 @@ def usable_weather_cache(bt: Any, now: datetime | None = None) -> list[dict]:
 
     The entity ID binds the cache to the configured provider; do not use data
     from a previous integration configuration. Expiry uses wall-clock time so
-    it also works after a Home Assistant restart.
+    it also works after a Home Assistant restart. The optional now must be
+    timezone-aware.
     """
+    now = _effective_utc_now(now)
     snapshot = _stored_cache(bt)
     if not snapshot or snapshot.get("entity_id") != getattr(bt, "weather_entity", None):
         return []
-    now = (now or datetime.now(UTC)).astimezone(UTC)
     saved_at = _utc_time(snapshot.get("saved_at"))
     interval = SLOT_INTERVALS.get(snapshot.get("type"))
     if (
@@ -90,16 +100,14 @@ def usable_weather_cache(bt: Any, now: datetime | None = None) -> list[dict]:
             }
         )
     valid.sort(key=lambda row: row["datetime"])
-    # A future-only forecast cannot stand in for the current conditions.
-    if valid and valid[0]["datetime"] > now + interval:
-        return []
     return valid
 
 
 def cache_current_weather(bt: Any, now: datetime | None = None) -> dict | None:
-    """Return the forecast slot covering the current time, when valid."""
+    """Return the most recent forecast slot covering the current time."""
+    now = _effective_utc_now(now)
     slots = usable_weather_cache(bt, now=now)
-    return slots[0] if slots else None
+    return next((slot for slot in reversed(slots) if slot["datetime"] <= now), None)
 
 
 def remember_weather_forecast(

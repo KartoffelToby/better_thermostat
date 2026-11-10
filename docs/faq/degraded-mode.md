@@ -36,10 +36,11 @@ slot is used at its scheduled time, even after a Home Assistant restart.
 The cache is limited to **24 hours since the last successful refresh**, and
 individual slots expire when their forecast period has passed.
 
-While usable forecast slots remain, the weather entity alone does not trigger
-degraded mode; the thermostat exposes `weather_forecast_cache_active` to
-make this fallback visible. Other unavailable sensors still trigger degraded
-mode normally. Once the forecast expires, weather loss is reported again.
+While a cached forecast slot covers the current time, weather unavailability
+alone does not trigger degraded mode. Future forecast slots are still available
+for heating-season predictions but are not treated as current weather.
+Other unavailable sensors still trigger degraded mode normally. Once the
+current forecast expires, weather loss is reported again.
 
 The cache supplies the outdoor-temperature and weather-condition fallback
 for weather-based controllers, but does not turn a standard PID controller
