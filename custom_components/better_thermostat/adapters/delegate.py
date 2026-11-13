@@ -23,9 +23,12 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 
 from ..model_fixes.model_quirks import (
+    highest_applied_calibration_offset,
     local_calibration_inverted,
+    lowest_applied_calibration_offset,
     offset_from_device,
     offset_to_device,
+    quirk_ignores_calibration_offset,
 )
 from ..model_fixes.types import ValveChannelQuirk, ValveQuirk
 from ..utils.retry import (
@@ -182,14 +185,20 @@ async def get_min_calibration_offset(self: AdapterHost, entity_id: str) -> float
     """Get min offset, in Better Thermostat's convention.
 
     For a device that negates its offset this is the negation of the
-    highest offset the device accepts.
+    highest offset the device applies. A device applies every offset its
+    calibration entity accepts, unless its model's quirk names a narrower
+    range.
     """
-    adapter = _adapter(self, entity_id)
+    trv = self.real_trvs[entity_id]
+    adapter = trv.adapter
     if local_calibration_inverted(self, entity_id):
-        return offset_from_device(
-            self, entity_id, await adapter.get_max_calibration_offset(self, entity_id)
+        highest = highest_applied_calibration_offset(
+            trv.model_quirks, await adapter.get_max_calibration_offset(self, entity_id)
         )
-    return await adapter.get_min_calibration_offset(self, entity_id)
+        return offset_from_device(self, entity_id, highest)
+    return lowest_applied_calibration_offset(
+        trv.model_quirks, await adapter.get_min_calibration_offset(self, entity_id)
+    )
 
 
 @async_retry(retries=5)
@@ -197,14 +206,20 @@ async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> float
     """Get max offset, in Better Thermostat's convention.
 
     For a device that negates its offset this is the negation of the
-    lowest offset the device accepts.
+    lowest offset the device applies. A device applies every offset its
+    calibration entity accepts, unless its model's quirk names a narrower
+    range.
     """
-    adapter = _adapter(self, entity_id)
+    trv = self.real_trvs[entity_id]
+    adapter = trv.adapter
     if local_calibration_inverted(self, entity_id):
-        return offset_from_device(
-            self, entity_id, await adapter.get_min_calibration_offset(self, entity_id)
+        lowest = lowest_applied_calibration_offset(
+            trv.model_quirks, await adapter.get_min_calibration_offset(self, entity_id)
         )
-    return await adapter.get_max_calibration_offset(self, entity_id)
+        return offset_from_device(self, entity_id, lowest)
+    return highest_applied_calibration_offset(
+        trv.model_quirks, await adapter.get_max_calibration_offset(self, entity_id)
+    )
 
 
 def setpoint_write_step(self: BetterThermostat, entity_id: str) -> float:
@@ -589,7 +604,10 @@ async def set_calibration_offset(
 
     A calibration entity disabled in Home Assistant since it was adopted
     is not written to: the call would be dropped, and answering ``True``
-    would leave the caller waiting on an offset that never arrives.
+    would leave the caller waiting on an offset that never arrives. Nor is
+    the entity of a model whose quirk declares that the device ignores its
+    offset: every correction would stay without effect, and the next one
+    would be computed on top of it.
 
     The offset of a TRV that regulates on a remote sensor bound to it is
     the user's: it shifts the room temperature the TRV controls on, and is
@@ -611,9 +629,18 @@ async def set_calibration_offset(
     bool
         True when the adapter put the offset on the wire, False when the
         device has no offset channel, its calibration entity is disabled,
-        its offset is the user's, or every attempt raised
+        its model ignores the offset, its offset is the user's, or every
+        attempt raised
     """
     if calibration_entity_disabled(self, entity_id):
+        return False
+    if quirk_ignores_calibration_offset(self.real_trvs[entity_id].model_quirks):
+        _LOGGER.debug(
+            "better_thermostat %s: %s ignores its calibration offset, "
+            "nothing was written",
+            self.device_name,
+            entity_id,
+        )
         return False
     if defers_to_bound_sensor(self.hass, entity_id):
         _LOGGER.debug(

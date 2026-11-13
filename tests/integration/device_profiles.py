@@ -476,6 +476,25 @@ The parameter counts tenths of a degree Celsius from -128 to 50 in whole
 steps, and -128 stands for "use the external sensor" rather than an offset.
 """
 
+MATTER_NARROW_OFFSET_TRV = DeviceProfile(
+    name="matter_narrow_offset_trv",
+    integration="matter",
+    calibration="local_calibration_based",
+    has_device_registry_entry=True,
+    model="18437",
+    current_temperature=19.0,
+    offset_channel=OffsetChannel.NUMBER_ENTITY,
+    offset_translation_key="temperature_offset",
+    offset_device_class=NumberDeviceClass.TEMPERATURE_DELTA,
+    offset_unit=UnitOfTemperature.CELSIUS,
+    offset_range=(-12.7, 12.7, 0.1),
+)
+"""An Aqara W600 under Matter, registered with its Matter product id as model.
+
+Its offset number takes the -12.7 to 12.7 °C Matter allows, while the head
+applies only -5.0 to 5.0 °C; the model's quirk declares that narrower range.
+"""
+
 TADO_OFFSET_TRV = DeviceProfile(
     name="tado_offset_trv",
     integration="tado",
@@ -806,6 +825,7 @@ SINGLE_ROLE_PROFILES = (
     TUYA_OFFSET_TRV,
     ZWAVE_CAPPED_TRV,
     ZWAVE_SPIRIT_OFFSET_TRV,
+    MATTER_NARROW_OFFSET_TRV,
     TADO_OFFSET_TRV,
     VALVE_TRV,
     BOSCH_BTH_RA_VALVE_TRV,
@@ -840,6 +860,9 @@ SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario | GroupScenario] = {
     ),
     "a head whose offset counts tenths of a degree and reserves a value": (
         ZWAVE_SPIRIT_OFFSET_TRV
+    ),
+    "a head that applies less of its offset than its number entity takes": (
+        MATTER_NARROW_OFFSET_TRV
     ),
 }
 """The device shapes users have reported a bug against, by what they are.

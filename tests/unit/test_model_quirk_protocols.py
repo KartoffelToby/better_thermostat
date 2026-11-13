@@ -26,11 +26,13 @@ from custom_components.better_thermostat.model_fixes import (
 )
 from custom_components.better_thermostat.model_fixes.types import (
     ExternalTemperatureQuirk,
+    IgnoredOffsetQuirk,
     InitialTweakQuirk,
     InvertedOffsetQuirk,
     LowestSetpointQuirk,
     MaintenanceIntervalQuirk,
     ModelQuirks,
+    OffsetRangeQuirk,
     SetpointOffsetQuirk,
     UnknownStateQuirk,
     ValveChannelQuirk,
@@ -48,10 +50,12 @@ ENTITY_ID = "climate.trv"
 PROTOCOLS = (
     ModelQuirks,
     ExternalTemperatureQuirk,
+    IgnoredOffsetQuirk,
     InitialTweakQuirk,
     InvertedOffsetQuirk,
     LowestSetpointQuirk,
     MaintenanceIntervalQuirk,
+    OffsetRangeQuirk,
     SetpointOffsetQuirk,
     UnknownStateQuirk,
     ValveChannelQuirk,
