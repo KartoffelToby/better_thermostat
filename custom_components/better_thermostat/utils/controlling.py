@@ -867,15 +867,21 @@ def _valve_repeat_readback(
     return _valve_readback(self, trv, last_percent)
 
 
-def _valve_keepalive_due(self: BetterThermostat, trv: Trv) -> bool:
-    """Whether a valve opening has to be written again before the device forgets it.
+def _valve_keepalive_due(
+    self: BetterThermostat, trv: Trv, hvac_mode: HvacMode | None
+) -> bool:
+    """Whether a valve demand has to be written again before the device forgets it.
 
     Only a TRV whose quirk declares a keepalive interval is written again,
-    and only while it is driven by its valve and the last opening written
-    is open; a closed valve is left as it is. The interval counts from the
-    last valve write a channel took, so any such write in between, a changed
-    opening or a repeat the readback asked for, starts it afresh, and a
-    refused write leaves the keepalive due for the retry that follows it.
+    and only while it is driven by its valve. ``hvac_mode`` is the kernel's
+    intended mode for the TRV: a closed valve is kept alive unless that
+    mode is OFF, since a head left to its own controller below its setpoint
+    opens again, and left as it is under an OFF intent, which commands no
+    heating. The
+    interval counts from the last valve write a channel took, so any such
+    write in between, a changed opening or a repeat the readback asked for,
+    starts it afresh, and a refused write leaves the keepalive due for the
+    retry that follows it.
     """
     quirks: object = trv.model_quirks
     if not isinstance(quirks, ValveKeepaliveQuirk):
@@ -885,7 +891,9 @@ def _valve_keepalive_due(self: BetterThermostat, trv: Trv) -> bool:
         != CalibrationOutput.DIRECT_VALVE_BASED
     ):
         return False
-    if trv.last_valve_percent is None or round(trv.last_valve_percent) <= 0:
+    if trv.last_valve_percent is None or (
+        round(trv.last_valve_percent) <= 0 and hvac_mode == HvacMode.OFF
+    ):
         return False
     last_write = trv.last_valve_written_monotonic
     if last_write is None:
@@ -902,8 +910,9 @@ def _valve_keepalive_pending(self: BetterThermostat, desired: DesiredState) -> b
     queues a cycle that would write nothing to it.
     """
     return any(
-        trv is not None and _valve_keepalive_due(self, trv)
-        for trv in (self.real_trvs.get(entity_id) for entity_id in desired.trvs)
+        (trv := self.real_trvs.get(entity_id)) is not None
+        and _valve_keepalive_due(self, trv, intent.hvac_mode)
+        for entity_id, intent in desired.trvs.items()
     )
 
 
@@ -1007,7 +1016,7 @@ async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) ->
     enqueues one control cycle when any device diverges — the general
     mechanism that heals lost writes. A device that holds the intent gets
     a cycle too when its valve keepalive is due, since it would otherwise
-    drop the opening it holds.
+    drop the valve demand it holds.
 
     The control watchdog is read here too. A divergence behind a loop that
     has not completed a cycle for ``WATCHDOG_MAX_AGE_S`` is the silent hang
@@ -2763,13 +2772,15 @@ async def control_trv(
                     # for the next slot and converges via the next cycle. A
                     # repeat that only an assumed state leaves unconfirmed
                     # gains no safety from going out early, so it waits too.
-                    # A device that forgets an opening it is not written
+                    # A device that forgets a valve demand it is not written
                     # again takes the repeat once its keepalive is due.
                     _repeat = _valve_repeat_readback(self, entity_id, target_percent)
                     _keepalive = _repeat in (
                         ValveReadback.HOLDS,
                         ValveReadback.UNREADABLE,
-                    ) and _valve_keepalive_due(self, self.real_trvs[entity_id])
+                    ) and _valve_keepalive_due(
+                        self, self.real_trvs[entity_id], trv_desired.hvac_mode
+                    )
                     if (
                         _repeat in (ValveReadback.HOLDS, ValveReadback.UNREADABLE)
                         and not _keepalive

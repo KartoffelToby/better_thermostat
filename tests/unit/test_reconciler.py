@@ -987,10 +987,11 @@ class TestValveKeepalive:
     """A head that forgets an opening it is not written again is written in time.
 
     A Bosch BTH-RA hands its valve back to its own controller after a quarter
-    of an hour without a write, and that controller shuts a valve Better
-    Thermostat holds open. A quirk declaring a keepalive interval has the held
-    opening written again once the interval has passed since the last valve
-    write, from the control cycle and from the reconcile tick alike.
+    of an hour without a write, and that controller sets a demand of its own.
+    A quirk declaring a keepalive interval has the held opening written again
+    once the interval has passed since the last valve write, from the control
+    cycle and from the reconcile tick alike. A closed valve is kept alive while
+    the intent heats and left alone while it holds the TRV off.
     """
 
     VALVE = "number.valve"
@@ -1109,7 +1110,6 @@ class TestValveKeepalive:
         "setup",
         [
             pytest.param({"keepalive": False}, id="no-keepalive-quirk"),
-            pytest.param({"last_percent": 0}, id="closed-valve"),
             pytest.param(
                 {"output": CalibrationOutput.TARGET_TEMP_BASED}, id="setpoint-driven"
             ),
@@ -1117,11 +1117,11 @@ class TestValveKeepalive:
     )
     @pytest.mark.asyncio
     async def test_a_valve_without_a_due_keepalive_is_left_alone(self, setup):
-        """Only an open valve the quirk keeps alive under valve control is repeated.
+        """Only a valve the quirk keeps alive under valve control is repeated.
 
-        A head without the quirk holds what it was written, a closed valve
-        stays closed without a write, and a head steered through its
-        setpoint holds no valve demand of Better Thermostat's.
+        A head without the quirk holds what it was written, and a head
+        steered through its setpoint holds no valve demand of Better
+        Thermostat's.
         """
         bt = self._bt(**setup)
         percent = bt.real_trvs["climate.trv"].last_valve_percent
@@ -1129,6 +1129,36 @@ class TestValveKeepalive:
 
         assert await self._tick_queues(bt) is False
         assert await self._cycle_writes(bt, percent=percent) == []
+
+    @pytest.mark.asyncio
+    async def test_a_closed_valve_is_kept_alive_while_the_intent_heats(self):
+        """A head held shut in heat mode is written its 0 % again in time.
+
+        Left to its own controller, a head whose setpoint stays above its
+        reading would open the valve Better Thermostat holds shut.
+        """
+        bt = self._bt(last_percent=0)
+        bt.clock.monotonic_value = self.WRITTEN_AT + self.INTERVAL - 1.0
+        before = (await self._tick_queues(bt), await self._cycle_writes(bt, 0))
+        bt.clock.monotonic_value = self.WRITTEN_AT + self.INTERVAL
+        due = (await self._tick_queues(bt), await self._cycle_writes(bt, 0))
+
+        assert (before, due) == ((False, []), (True, [0]))
+
+    @pytest.mark.asyncio
+    async def test_a_closed_valve_is_left_alone_while_the_intent_is_off(self):
+        """A head Better Thermostat holds off is not written its 0 % again.
+
+        It stays shut for as long as nothing calls for heat, and a write
+        every interval over those hours would only cost its battery.
+        """
+        bt = self._bt(last_percent=0)
+        bt.call_for_heat = False
+        bt.hass.states.get.return_value.state = HVACMode.OFF
+        bt.clock.monotonic_value = self.WRITTEN_AT + 4 * self.INTERVAL
+
+        assert await self._tick_queues(bt) is False
+        assert await self._cycle_writes(bt, percent=0) == []
 
     @pytest.mark.asyncio
     async def test_a_head_that_reports_no_state_gets_no_keepalive_cycle(self):

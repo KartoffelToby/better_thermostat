@@ -11,11 +11,15 @@ The keepalive is due eight minutes after the last valve write the head took.
 The reconcile tick reads it every five minutes, so the write goes out
 thirteen minutes after the one before at the latest, inside the head's
 window, unless that tick falls into a control cycle that is still running
-and the next one has to take it. A closed
-valve is not written again: Better Thermostat holds the valve shut for hours
-while the room is off or a window is open, and a write every few minutes
-over those hours costs the head's battery for an opening that does not
-change.
+and the next one has to take it.
+
+A closed valve is written again too while Better Thermostat keeps the head
+heating: the setpoint it leaves on the head can stay above the head's own
+reading, and the head's controller would open the valve. A head Better
+Thermostat has turned off, because the room is off, a window is open or
+nothing calls for heat, is not written again: it stays shut for hours, and a
+write every few minutes over those hours costs the head's battery for a
+demand that does not change.
 
 Everything else stays as the default quirks have it.
 """
