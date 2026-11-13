@@ -284,6 +284,36 @@ class TestValveWrite:
         assert result["entity_id"] == HEATING_VALVE
         assert result["writable"] is writable
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("trv_model", "writable"), [("TRV-ZBT", False), ("OTHER-TRV", True)]
+    )
+    async def test_a_registry_without_a_model_leaves_the_configured_one(
+        self, trv_model, writable
+    ):
+        """The TRV's own model decides when the device registry names none."""
+        bt = ThermostatStandIn()
+        device = dr.DeviceEntry(config_entry_id="entry", identifiers={("mqtt", DEVICE)})
+        registry = make_entity_registry(_entry(ENTITY), _entry(HEATING_VALVE))
+
+        with (
+            patch(
+                "custom_components.better_thermostat.utils.helpers.er.async_get",
+                return_value=registry,
+            ),
+            patch(
+                "custom_components.better_thermostat.utils.helpers.dr.async_get"
+            ) as dev_reg,
+        ):
+            dev_reg.return_value.async_get.return_value = device
+            result = await find_valve_entity(
+                bt, ENTITY, trv=trv_record(entity_id=ENTITY, model=trv_model)
+            )
+
+        assert result is not None
+        assert result["entity_id"] == HEATING_VALVE
+        assert result["writable"] is writable
+
 
 def _disabled(entity_id):
     """A registry entry on the TRV's device that the user disabled."""

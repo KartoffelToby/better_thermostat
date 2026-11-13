@@ -2974,12 +2974,15 @@ async def find_valve_entity(
 
     # Only a main device carries a model; a child device has none. Zigbee2MQTT
     # names the model in model_id, ZHA in model, which may carry a
-    # description in parentheses after it.
+    # description in parentheses after it. A registry that names none leaves
+    # the model the TRV's quirk was chosen by.
     base_model = (
         base_device.model_id or base_device.model
         if isinstance(base_device, dr.DeviceEntry)
         else None
     )
+    if not base_model and trv is not None:
+        base_model = trv.model
     paired_valve = (
         isinstance(base_model, str)
         and re.sub(r"\s*\(.*\)\s*$", "", base_model).strip().lower()
