@@ -90,7 +90,7 @@ def test_the_first_sample_replaces_and_later_samples_average() -> None:
 
 
 def test_a_long_unseen_bucket_still_moves_at_the_minimum_rate() -> None:
-    """A bucket never seen for many samples keeps the EMA responsive."""
+    """A bucket with a large sample count still follows a new reading at the minimum rate."""
     profile = DisturbanceProfile()
     index = half_hour(8, 0)
     values = list(profile.routine_gain_kelvin_per_min)
@@ -180,7 +180,7 @@ def test_a_non_finite_bucket_falls_back_to_zero() -> None:
 
 @pytest.mark.parametrize("broken", [None, {}, {"routine_gain_kelvin_per_min": [1.0]}])
 def test_an_unusable_stored_profile_starts_from_zero(broken: object) -> None:
-    """A wrong-shaped section never feeds a stale or partial profile."""
+    """A stored section of the wrong shape restores the empty profile."""
     rebuilt = DisturbanceProfile.from_mapping(
         broken if isinstance(broken, dict) else {}, key="room"
     )

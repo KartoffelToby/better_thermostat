@@ -244,6 +244,7 @@
     "valve_leak_detected": {
       "title": "BT: {name} - leaking or stuck-open valve on {entity}",
       "description": "The room {name} continues to warm above target temperature even though {entity} has been commanded closed and residual radiator heat has already dissipated.\n\nInspect the thermostat head mounting, adapter ring, and valve pin on {entity} to ensure the valve can close completely. This issue clears itself once the unexpected warming stops."
+    },
     "calibration_offset_at_limit": {
       "title": "BT: {name} - {entity} kalibrasyon ofseti sınırında kalıyor",
       "description": "Better Thermostat'ın {entity} cihazına yazdığı kalibrasyon ofseti {minutes} dakikadır termostatın kabul ettiği aralığın sınırında duruyor. Ofsete dayalı kalibrasyon, oda sıcaklığı ile termostatın kendi ölçümü arasındaki farkı ofsete ekler; bu nedenle sınırda kalan bir ofsetin artık düzeltme payı yoktur.\n\nYaygın nedenler:\n- Termostat ofseti kabul eder ama uygulamaz, bu yüzden ölçümü hiç değişmez. Bazı Matter termostatları böyle davranır.\n- Termostat ofsetleri yalnızca yayınladığından daha dar bir aralıkta uygular.\n- Termostatın kendi ölçümü oda sıcaklığından, ofset aralığının yetişebileceğinden daha uzaktır; örneğin doğrudan radyatörün üzerinde durduğu için.\n\nBu termostatı **Hedef sıcaklığa dayalı** kalibrasyon türüne geçirin (Ayarlar → Cihazlar ve hizmetler → Better Thermostat → Yapılandır); bu tür ofsete bağlı değildir. Bu sorun, ofset sınırdan ayrıldığında veya termostat artık ofsete dayalı kalibrasyon kullanmadığında kendiliğinden kaybolur."
