@@ -10,7 +10,8 @@ import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
-from homeassistant.helpers import device_registry as dr
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
 
 from custom_components.better_thermostat.model_fixes import model_quirks as quirks
@@ -239,18 +240,22 @@ class TestValveWrite:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("model_id", "model"),
+        ("model_id", "model", "writable"),
         [
-            ("TRV-ZBT", None),
-            (None, "TRV-ZBT (Thermostatic radiator valve)"),
-            ("OTHER-TRV", None),
+            ("TRV-ZBT", None, False),
+            (None, "TRV-ZBT (Thermostatic radiator valve)", False),
+            ("OTHER-TRV", None, True),
         ],
     )
-    async def test_the_valve_lookup_finds_the_heating_opening(self, model_id, model):
+    async def test_the_valve_lookup_finds_the_heating_opening(
+        self, model_id, model, writable
+    ):
         """Direct valve control reads the valve back from the heating opening.
 
         The idle number is listed first, so a lookup that ranked both as a
-        valve position would take it.
+        valve position would take it. On the TRV-ZBT the heating opening is
+        read-only to the adapter: written alone, it would leave the idle
+        opening at its old value.
         """
         bt = ThermostatStandIn()
         device = dr.DeviceEntry(
@@ -277,4 +282,54 @@ class TestValveWrite:
 
         assert result is not None
         assert result["entity_id"] == HEATING_VALVE
-        assert result["writable"] is True
+        assert result["writable"] is writable
+
+
+def _disabled(entity_id):
+    """A registry entry on the TRV's device that the user disabled."""
+    return make_registry_entry(
+        entity_id, device_id=DEVICE, disabled_by=er.RegistryEntryDisabler.USER
+    )
+
+
+class TestAnIncompletePair:
+    """With one opening missing or disabled, the TRV-ZBT offers no valve."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "numbers",
+        [
+            pytest.param([_entry(HEATING_VALVE)], id="no-idle"),
+            pytest.param([_entry(IDLE_VALVE)], id="no-heating"),
+            pytest.param(
+                [_entry(HEATING_VALVE), _disabled(IDLE_VALVE)], id="idle-disabled"
+            ),
+            pytest.param(
+                [_disabled(HEATING_VALVE), _entry(IDLE_VALVE)], id="heating-disabled"
+            ),
+        ],
+    )
+    async def test_no_position_goes_out(self, monkeypatch, numbers):
+        """No channel, no write and nothing to read back."""
+        mock_self = _make_self()
+        mock_self._registry = make_entity_registry(_entry(ENTITY), *numbers)
+        monkeypatch.setattr(trvzb.er, "async_get", lambda hass: mock_self._registry)
+
+        assert trv_zbt.has_valve_channel(mock_self, ENTITY) is False
+        assert await trv_zbt.override_set_valve(mock_self, ENTITY, 40) is False
+        assert trv_zbt.valve_readings(mock_self, ENTITY, 40) == []
+        assert _number_writes(mock_self) == []
+
+    @pytest.mark.asyncio
+    async def test_a_refused_idle_opening_declines_the_position(self, monkeypatch):
+        """The heating opening went out, the idle one did not: not taken."""
+        mock_self = _make_self()
+        monkeypatch.setattr(trvzb.er, "async_get", lambda hass: mock_self._registry)
+
+        async def _refuse_idle(domain, service, data, **kwargs):
+            if data.get("entity_id") == IDLE_VALVE:
+                raise HomeAssistantError("device asleep")
+
+        mock_self.hass.services.async_call = AsyncMock(side_effect=_refuse_idle)
+
+        assert await trv_zbt.override_set_valve(mock_self, ENTITY, 40) is False

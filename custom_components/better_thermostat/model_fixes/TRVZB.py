@@ -269,6 +269,16 @@ def _valve_number_candidates(
             or "degree" in name
         ):
             generic_candidates.append(ent.entity_id)
+    # The TRV-ZBT holds a position only once both openings carry it; with
+    # one of them missing or disabled, the other would keep its old value.
+    if is_trv_zbt and not (opening_candidates and idle_candidates):
+        _LOGGER.debug(
+            "better_thermostat %s: TRV-ZBT valve needs both its heating and its idle opening (heating=%s, idle=%s)",
+            self.device_name,
+            opening_candidates,
+            idle_candidates,
+        )
+        return _ValveNumberCandidates([], [], [], [])
     return _ValveNumberCandidates(
         opening_candidates, closing_candidates, idle_candidates, generic_candidates
     )

@@ -2927,6 +2927,14 @@ _VALVE_CLOSING_DESCRIPTORS = ("valve_closing_degree", "valve closing degree")
 # idle opening is never the valve entity.
 _VALVE_IDLE_DESCRIPTORS = ("idle_valve_position",)
 
+# Device models whose valve takes a position only as a pair of numbers that
+# their model quirk writes together. The adapter's channel writes the one
+# number this lookup finds, which would leave the other at its old opening,
+# so on these models that number is read back but not offered as writable.
+# The names are lower case and compared without regard to case, as the
+# quirk modules match.
+_MODELS_WITH_A_PAIRED_VALVE = frozenset({"trv-zbt"})
+
 
 async def find_valve_entity(
     self: AdapterProbeHost, entity_id: str, *, trv: Trv | None = None
@@ -2962,6 +2970,20 @@ async def find_valve_entity(
     base_device = dev_reg.async_get(device_id) if device_id is not None else None
     base_identifiers: set[tuple[str, str]] = set(
         base_device.identifiers if base_device is not None else set()
+    )
+
+    # Only a main device carries a model; a child device has none. Zigbee2MQTT
+    # names the model in model_id, ZHA in model, which may carry a
+    # description in parentheses after it.
+    base_model = (
+        base_device.model_id or base_device.model
+        if isinstance(base_device, dr.DeviceEntry)
+        else None
+    )
+    paired_valve = (
+        isinstance(base_model, str)
+        and re.sub(r"\s*\(.*\)\s*$", "", base_model).strip().lower()
+        in _MODELS_WITH_A_PAIRED_VALVE
     )
 
     config_entry_id = reg_entity.config_entry_id
@@ -3061,7 +3083,7 @@ async def find_valve_entity(
             disabled_match = disabled_match or entity.entity_id
             continue
         domain = (entity.entity_id or "").split(".", 1)[0]
-        writable = domain in preferred_domains
+        writable = domain in preferred_domains and not paired_valve
         info: ValveEntityInfo = {
             "entity_id": entity.entity_id,
             "writable": writable,
