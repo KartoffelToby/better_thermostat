@@ -111,6 +111,13 @@ class ScenarioConfig:
     # Realisation of the sensor's noise and jitter. ``0`` is the
     # scenario's own; other values draw an independent one.
     noise_seed: int = 0
+    # Anomaly and physical fault simulation extensions (default inactive so
+    # the 38-scenario baseline remains byte-identical).
+    controller_sees_window: bool = True
+    valve_floor_percent: Callable[[float], float] | float = 0.0
+    extra_disturbance_schedule: Callable[[float], float] | None = None
+    anomaly_detection: bool = False
+    anomaly_suppression: bool = False
 
 
 # --- Schedule helpers ---
@@ -777,4 +784,55 @@ ALL_SCENARIOS: dict[str, ScenarioConfig] = {
     S38_WINTER_WEEK_SEMI_ARID.name: S38_WINTER_WEEK_SEMI_ARID,
     S39_HEAT_PUMP_HEATING_CURVE.name: S39_HEAT_PUMP_HEATING_CURVE,
     S40_HEAT_PUMP_HOT_WATER.name: S40_HEAT_PUMP_HOT_WATER,
+}
+
+
+S40_BOILER_OUTAGE = ScenarioConfig(
+    name="S40_boiler_outage",
+    description="3 h boiler supply outage (30..210 min) under heat demand followed by boiler recovery",
+    duration_minutes=270,
+    initial=InitialConditions(T_room=19.5, T_rad=28.0),
+    plant=PROFILE_STANDARD,
+    setpoint_schedule=schedules.step(30 * 60.0, 19.5, 21.0),
+    outdoor_schedule=schedules.constant(2.0),
+    transient_start_s=30 * 60.0,
+    heat_delivery_schedule=lambda t: not (30 * 60.0 <= t < 210 * 60.0),
+    trv_sensor_rad_fraction=0.25,
+    anomaly_detection=True,
+)
+
+
+S41_STUCK_OPEN_VALVE = ScenarioConfig(
+    name="S41_stuck_open_valve",
+    description="Valve mechanically stuck at 40% after setpoint drop 21 -> 18 °C at 30 min",
+    duration_minutes=180,
+    initial=InitialConditions(T_room=21.0, T_rad=38.0),
+    plant=PROFILE_STANDARD,
+    setpoint_schedule=schedules.step(30 * 60.0, 21.0, 18.0),
+    outdoor_schedule=schedules.constant(8.0),
+    transient_start_s=30 * 60.0,
+    valve_floor_percent=lambda t: 40.0 if 30 * 60.0 <= t < 120 * 60.0 else 0.0,
+    trv_sensor_rad_fraction=0.25,
+    anomaly_detection=True,
+)
+
+
+S42_OPEN_INTERIOR_DOOR = ScenarioConfig(
+    name="S42_open_interior_door",
+    description="Sustained parasitic loss (-0.015 K/min) from an open interior door starting at 60 min",
+    duration_minutes=180,
+    initial=InitialConditions(T_room=21.0, T_rad=31.0),
+    plant=PROFILE_STANDARD,
+    setpoint_schedule=schedules.constant(21.0),
+    outdoor_schedule=schedules.constant(5.0),
+    transient_start_s=60 * 60.0,
+    extra_disturbance_schedule=lambda t: -0.015 if t >= 60 * 60.0 else 0.0,
+    anomaly_detection=True,
+)
+
+
+ANOMALY_FAULT_SCENARIOS: dict[str, ScenarioConfig] = {
+    S40_BOILER_OUTAGE.name: S40_BOILER_OUTAGE,
+    S41_STUCK_OPEN_VALVE.name: S41_STUCK_OPEN_VALVE,
+    S42_OPEN_INTERIOR_DOOR.name: S42_OPEN_INTERIOR_DOOR,
 }

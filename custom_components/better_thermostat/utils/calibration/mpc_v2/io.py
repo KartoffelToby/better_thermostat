@@ -10,6 +10,13 @@ deliberately HA-free so the controller core can be exercised in isolation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from ..disturbance_forecast import HourlyForecastPoint
+    from ..disturbance_profile import DisturbanceProfile
 
 
 @dataclass
@@ -37,6 +44,16 @@ class MpcV2Input:
     room_temperature_from_trvs: bool = False
     bt_name: str | None = None
     entity_id: str | None = None
+    # Learned gain expected at each future QP step, in K/min. When empty and
+    # a profile is supplied, ``compute_mpc_v2`` builds it from the profile and
+    # the hourly forecast on the controller's actual planning grid.
+    predicted_disturbance_K_per_min: tuple[float, ...] = ()
+    disturbance_profile: DisturbanceProfile | None = None
+    hourly_forecast: tuple[HourlyForecastPoint, ...] = ()
+    # Timezone-aware wall clock of this cycle. Only needed when the profile is
+    # supplied and the prediction is built here; the pure core never reads the
+    # system clock itself.
+    now_wall: datetime | None = None
 
 
 @dataclass
@@ -51,6 +68,9 @@ class MpcV2Diagnostics:
     normalised_innovation: float = 0.0
     disturbance_at_bound: bool = False
     unbounded_D_hat_K_per_min: float = 0.0
+    # Learned gain the profile expects at the first step of this plan; None
+    # while no predictive profile is active.
+    predicted_disturbance_kelvin_per_min: float | None = None
 
 
 @dataclass

@@ -16,7 +16,8 @@ import math
 from typing import Final, NamedTuple, TypedDict
 
 from .decide import KernelState, decide
-from .desired import DesiredState, HeatingBlock, Suppression, TrvDesired
+from .desired import AnomalyCode, DesiredState, HeatingBlock, Suppression, TrvDesired
+from .fsm.anomaly import AnomalyState, FaultPhase, FaultSlot, TrvFaultState
 from .fsm.control_mode import ControlMode, ControlModeState, PendingWindow
 from .fsm.lifecycle import LifecyclePhase, LifecycleState
 from .fsm.maintenance import (
@@ -188,6 +189,18 @@ def _maintenance_asdict(state: MaintenanceState) -> dict[str, _Recordable]:
         "phase": _MAINTENANCE_PHASE_TAGS[type(state)],
         "next_due": state.next_due,
         "running_since": running_since,
+        "last_anomaly_run_monotonic": state.last_anomaly_run_monotonic,
+    }
+
+
+def _anomaly_asdict(state: AnomalyState) -> dict[str, _Recordable]:
+    """Return ``asdict``-equivalent output for an ``AnomalyState``."""
+    return {
+        "rapid_loss": asdict(state.rapid_loss),
+        "parasitic_loss": asdict(state.parasitic_loss),
+        "no_heat_delivery": asdict(state.no_heat_delivery),
+        "trvs": {entity_id: asdict(entry) for entity_id, entry in state.trvs.items()},
+        "last_rapid_loss_monotonic": state.last_rapid_loss_monotonic,
     }
 
 
@@ -220,7 +233,10 @@ def _state_asdict(state: KernelState) -> dict[str, _Recordable]:
         "reachability": {
             entity_id: asdict(entry) for entity_id, entry in state.reachability.items()
         },
+        "anomaly": _anomaly_asdict(state.anomaly),
         "window_detection": state.window_detection,
+        "anomaly_detection": state.anomaly_detection,
+        "anomaly_suppression": state.anomaly_suppression,
         "last_control_monotonic": state.last_control_monotonic,
     }
 
@@ -447,16 +463,77 @@ def _maintenance_of(raw: dict[str, Json]) -> MaintenanceState:
     if next_due is None:
         next_due = DUE_AT_FIRST_TICK
     running_since = _float_or_none(raw["running_since"])
+    last_anomaly_run_monotonic = _float_or_none(raw.get("last_anomaly_run_monotonic"))
     match phase:
         case "idle":
-            return MaintenanceIdle(next_due=next_due)
+            return MaintenanceIdle(
+                next_due=next_due, last_anomaly_run_monotonic=last_anomaly_run_monotonic
+            )
         case "due":
-            return MaintenanceDue(next_due=next_due)
+            return MaintenanceDue(
+                next_due=next_due, last_anomaly_run_monotonic=last_anomaly_run_monotonic
+            )
         case "running" if running_since is not None:
-            return MaintenanceRunning(running_since=running_since, next_due=next_due)
+            return MaintenanceRunning(
+                running_since=running_since,
+                next_due=next_due,
+                last_anomaly_run_monotonic=last_anomaly_run_monotonic,
+            )
         case "running":
-            return MaintenanceIdle(next_due=next_due)
+            return MaintenanceIdle(
+                next_due=next_due, last_anomaly_run_monotonic=last_anomaly_run_monotonic
+            )
     raise ValueError(f"unknown maintenance phase {phase!r}")
+
+
+def _slot_of(raw: Json) -> FaultSlot:
+    """Reconstruct one :class:`FaultSlot` from its exported form."""
+    slot = _dict_of(raw)
+    return FaultSlot(
+        phase=FaultPhase(_str_of(slot["phase"])),
+        since=_float_or_none(slot["since"]),
+        active_since=_float_or_none(slot["active_since"]),
+    )
+
+
+def _anomaly_of(raw: Json) -> AnomalyState:
+    """Reconstruct an :class:`AnomalyState` from its exported form."""
+    if raw is None:
+        return AnomalyState()
+    anomaly = _dict_of(raw)
+    trvs = {}
+    for entity_id, raw_entry in _dict_of(anomaly["trvs"]).items():
+        entry = _dict_of(raw_entry)
+        trvs[entity_id] = TrvFaultState(
+            no_heat_delivery=_slot_of(entry["no_heat_delivery"]),
+            valve_stuck_open=_slot_of(entry["valve_stuck_open"]),
+        )
+    return AnomalyState(
+        rapid_loss=_slot_of(anomaly["rapid_loss"]),
+        parasitic_loss=_slot_of(anomaly["parasitic_loss"]),
+        no_heat_delivery=_slot_of(anomaly["no_heat_delivery"]),
+        trvs=trvs,
+        last_rapid_loss_monotonic=_float_or_none(anomaly["last_rapid_loss_monotonic"]),
+    )
+
+
+def _anomaly_codes_of(raw: Json) -> tuple[AnomalyCode, ...]:
+    """Reconstruct a tuple of :class:`AnomalyCode` values from an exported list."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError("anomalies must be a list")
+    return tuple(AnomalyCode(_str_of(item)) for item in raw)
+
+
+def _trv_anomalies_of(raw: Json) -> dict[str, tuple[AnomalyCode, ...]]:
+    """Reconstruct per-TRV anomaly codes from their exported mapping."""
+    if raw is None:
+        return {}
+    return {
+        entity_id: _anomaly_codes_of(codes)
+        for entity_id, codes in _dict_of(raw).items()
+    }
 
 
 def state_from_dict(data: dict[str, Json]) -> KernelState:
@@ -510,8 +587,11 @@ def state_from_dict(data: dict[str, Json]) -> KernelState:
             pending=_pending_window_of(control_mode),
         ),
         reachability=reachability,
+        anomaly=_anomaly_of(data.get("anomaly")),
         # An export without the flag was recorded with window detection on.
         window_detection=_bool_of(data.get("window_detection", True)),
+        anomaly_detection=_bool_of(data.get("anomaly_detection", False)),
+        anomaly_suppression=_bool_of(data.get("anomaly_suppression", False)),
         last_control_monotonic=_float_or_none(data["last_control_monotonic"]),
     )
 
@@ -542,6 +622,8 @@ def desired_from_dict(data: dict[str, Json]) -> DesiredState:
             if data.get("heating_blocked_by") is not None
             else None
         ),
+        anomalies=_anomaly_codes_of(data.get("anomalies")),
+        trv_anomalies=_trv_anomalies_of(data.get("trv_anomalies")),
     )
 
 

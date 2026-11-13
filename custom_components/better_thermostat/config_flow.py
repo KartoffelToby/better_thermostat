@@ -62,6 +62,7 @@ from .utils.const import (
     CONF_NO_OFF_SYSTEM_MODE,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
+    CONF_PREDICTIVE_DISTURBANCE,
     CONF_PRESETS,
     CONF_PROTECT_OVERHEATING,
     CONF_TARGET_TEMP_MAX,
@@ -311,6 +312,7 @@ _AdvancedDraft = TypedDict(  # noqa: UP013
         "child_lock": bool,
         "homematicip": bool,
         "keep_sensor_selection": bool,
+        "predictive_disturbance": bool,
     },
 )
 
@@ -483,6 +485,7 @@ def _stored_advanced(draft: _AdvancedDraft) -> TrvAdvanced:
     stored[CONF_CHILD_LOCK] = draft[CONF_CHILD_LOCK]
     stored[CONF_HOMEMATICIP] = draft[CONF_HOMEMATICIP]
     stored[CONF_KEEP_SENSOR_SELECTION] = draft[CONF_KEEP_SENSOR_SELECTION]
+    stored[CONF_PREDICTIVE_DISTURBANCE] = draft[CONF_PREDICTIVE_DISTURBANCE]
     return stored
 
 
@@ -687,6 +690,7 @@ def _build_advanced_fields(
     ordered[
         vol.Optional(
             CONF_MPC_V2_PLANT_PRESET,
+            CONF_PREDICTIVE_DISTURBANCE,
             default=get_choice(
                 CONF_MPC_V2_PLANT_PRESET,
                 _MPC_V2_PLANT_PRESET_CHOICES,
@@ -727,6 +731,12 @@ def _build_advanced_fields(
             default=get_bool(CONF_KEEP_SENSOR_SELECTION, False),
         )
     ] = bool
+    ordered[
+        vol.Optional(
+            CONF_PREDICTIVE_DISTURBANCE,
+            default=get_bool(CONF_PREDICTIVE_DISTURBANCE, False),
+        )
+    ] = bool
 
     return ordered
 
@@ -754,6 +764,9 @@ def _normalize_advanced_submission(
         CONF_HOMEMATICIP: _as_bool(data.get(CONF_HOMEMATICIP), homematic),
         CONF_KEEP_SENSOR_SELECTION: _as_bool(
             data.get(CONF_KEEP_SENSOR_SELECTION), False
+        ),
+        CONF_PREDICTIVE_DISTURBANCE: _as_bool(
+            data.get(CONF_PREDICTIVE_DISTURBANCE), False
         ),
     }
     if CONF_MPC_V2_PLANT_PRESET in data:

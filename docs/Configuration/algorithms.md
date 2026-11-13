@@ -90,7 +90,7 @@ MPC v2 plans a new valve opening at most every 1.5 to 5 minutes, depending on ho
 
 Many room sensors send a new value only after the temperature has changed by a fixed step. MPC v2 recognises that step from the values your sensor reports. Until a new value arrives, it treats the last one as "the room is still within one step of it", not as an exact measurement. The coarser the step, the more calmly MPC v2 moves the valve, which saves valve wear and battery. In simulation, a sensor that reports every 0.1 °C keeps the room closest to the target temperature; coarser sensors reduce valve movement but do not reduce the deviation. If your sensor lets you set how small a change it reports, choose 0.1 °C.
 
-Its estimates show up in the *MPC v2 Virtual Temperature*, *MPC v2 Coupling*, *MPC v2 Disturbance* and *MPC v2 Room Time Constant* sensors. They start disabled on new installations; see [Entities](/setup/entities/#mpc-v2).
+Its estimates show up in the *MPC v2 Virtual Temperature*, *MPC v2 Coupling*, *MPC v2 Disturbance*, *MPC v2 Predicted Disturbance* and *MPC v2 Room Time Constant* sensors. They start disabled on new installations; see [Entities](/setup/entities/#mpc-v2).
 
 #### Why MPC v2 does not use the flow temperature
 

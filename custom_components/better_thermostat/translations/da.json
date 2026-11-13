@@ -65,7 +65,8 @@
           "calibration_mode": "Kalibreringstilstand",
           "no_off_system_mode": "Brug minimumstemperaturen i stedet for 'slukket'",
           "mpc_v2_plant_preset": "MPC v2 rumstørrelse",
-          "keep_sensor_selection": "Behold TRV'ens sensorvalg"
+          "keep_sensor_selection": "Behold TRV'ens sensorvalg",
+          "predictive_disturbance": "Forudsigende læring af forstyrrelser"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
@@ -77,7 +78,8 @@
           "calibration_mode": "Hvordan kalibreringen beregnes\n***AI tidsbaseret (standard)***: Lærer rummets varmeeffekt over tid og udleder kalibreringen af den.\n***Kun ekstern sensorforskydning***: Korrigerer TRV'ens interne sensor med din eksterne temperatursensor. Der kører ingen regulator ovenpå.\n***MPC forudsigende (beta)***: Forudsiger rumtemperaturen og beregner en ventilåbning ud fra den. Lærer rummets termiske adfærd.\n***(AI) MPC v2 (QP + Kalman, eksperimentel)***: Estimerer rummets tilstand med et Kalman-filter og beregner en ventilåbning med en modelprædiktiv regulator. Indstillingen MPC v2 rumstørrelse vælger rummodellen: lært fra rummet (automatisk) eller fast for en rumstørrelse (lille, mellemstort, stort).\n***Aggressiv***: Hæver kalibreringen, mens rummet opvarmes, og springer toleranceforsinkelsen over, så TRV'en begynder at varme tidligere. Nyttigt, hvis dit rum varmes langsomt op.\n***TPI-regulator***: Beregner varmecyklussernes driftstid ud fra temperaturforskellen.\n***PID-regulator***: Beregner en ventilåbning ud fra temperaturafvigelsen med et proportional-, integral- og differentialled.\n***Ingen kalibrering***: Sender måltemperaturen uændret til TRV'en og foretager ingen korrektion.",
           "no_off_system_mode": "Med denne indstilling sender Better Thermostat TRV'en dens minimumstemperatur i stedet for 'slukket'. En TRV, der rapporterer sin minimumstemperatur, regnes som slukket: når alle rummets TRV'er er slukket, slukker rummet, og når en drejeknap skrues op, tænder det igen. Et drej, mens et vindue eller en dør er åben, tæller også; opvarmningen venter så, til alle vinduer og døre er lukket. En TRV uden 'slukket'-tilstand får sin minimumstemperatur også uden denne indstilling. Slå den til for en TRV, hvis 'slukket'-tilstand ikke virker, eller for en TRV uden 'slukket'-tilstand, hvis drejeknap skal tænde og slukke Better Thermostat.",
           "mpc_v2_plant_preset": "Bruges kun af kalibreringstilstanden MPC v2.\n***Automatisk***: Udleder rummodellen af det, Better Thermostat har lært om rummet, f.eks. dets varmetabsrate.\n***Lille, mellemstort eller stort rum***: Starter fra en fast rummodel for den rumstørrelse.",
-          "keep_sensor_selection": "For TRV'er, der kan regulere efter en ekstern temperatur (Sonoff TRVZB og TRV-ZBT, Aqara SRTS-A01). Fra: Better Thermostat skifter TRV'en til den eksterne temperatur, den skriver, også efter en nulstilling eller ny parring. Til: den sensor, du har valgt på TRV'en, forbliver valgt, og rumtemperaturen skrives stadig til den eksterne indgang. En TRV, der falder tilbage til sin egen sensor, skiftes så ikke tilbage."
+          "keep_sensor_selection": "For TRV'er, der kan regulere efter en ekstern temperatur (Sonoff TRVZB og TRV-ZBT, Aqara SRTS-A01). Fra: Better Thermostat skifter TRV'en til den eksterne temperatur, den skriver, også efter en nulstilling eller ny parring. Til: den sensor, du har valgt på TRV'en, forbliver valgt, og rumtemperaturen skrives stadig til den eksterne indgang. En TRV, der falder tilbage til sin egen sensor, skiftes så ikke tilbage.",
+          "predictive_disturbance": "Fra: MPC v2-horisonten planlægger kun med det nuværende estimat af forstyrrelsen. Til: Better Thermostat lærer gentagne gevinster (belægning, madlavning, sol) i halvtimesintervaller og fører den forventede gevinst for de næste to timer ind i planen. Sol-delen kræver timevarslen fra vejretiteten, og det kræver et par dages rene MPC v2-cykler, før det bliver nyttigt. Det står fra som standard, mens prognosen er uprøvet; slå det til, når dit rum viser en gentagen dagstidsgevinst."
         }
       },
       "confirm": {
@@ -171,7 +173,8 @@
           "calibration_mode": "Kalibreringstilstand",
           "no_off_system_mode": "Brug minimumstemperaturen i stedet for 'slukket'",
           "mpc_v2_plant_preset": "MPC v2 rumstørrelse",
-          "keep_sensor_selection": "Behold TRV'ens sensorvalg"
+          "keep_sensor_selection": "Behold TRV'ens sensorvalg",
+          "predictive_disturbance": "Forudsigende læring af forstyrrelser"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
@@ -183,7 +186,8 @@
           "calibration_mode": "Hvordan kalibreringen beregnes\n***AI tidsbaseret (standard)***: Lærer rummets varmeeffekt over tid og udleder kalibreringen af den.\n***Kun ekstern sensorforskydning***: Korrigerer TRV'ens interne sensor med din eksterne temperatursensor. Der kører ingen regulator ovenpå.\n***MPC forudsigende (beta)***: Forudsiger rumtemperaturen og beregner en ventilåbning ud fra den. Lærer rummets termiske adfærd.\n***(AI) MPC v2 (QP + Kalman, eksperimentel)***: Estimerer rummets tilstand med et Kalman-filter og beregner en ventilåbning med en modelprædiktiv regulator. Indstillingen MPC v2 rumstørrelse vælger rummodellen: lært fra rummet (automatisk) eller fast for en rumstørrelse (lille, mellemstort, stort).\n***Aggressiv***: Hæver kalibreringen, mens rummet opvarmes, og springer toleranceforsinkelsen over, så TRV'en begynder at varme tidligere. Nyttigt, hvis dit rum varmes langsomt op.\n***TPI-regulator***: Beregner varmecyklussernes driftstid ud fra temperaturforskellen.\n***PID-regulator***: Beregner en ventilåbning ud fra temperaturafvigelsen med et proportional-, integral- og differentialled.\n***Ingen kalibrering***: Sender måltemperaturen uændret til TRV'en og foretager ingen korrektion.",
           "no_off_system_mode": "Med denne indstilling sender Better Thermostat TRV'en dens minimumstemperatur i stedet for 'slukket'. En TRV, der rapporterer sin minimumstemperatur, regnes som slukket: når alle rummets TRV'er er slukket, slukker rummet, og når en drejeknap skrues op, tænder det igen. Et drej, mens et vindue eller en dør er åben, tæller også; opvarmningen venter så, til alle vinduer og døre er lukket. En TRV uden 'slukket'-tilstand får sin minimumstemperatur også uden denne indstilling. Slå den til for en TRV, hvis 'slukket'-tilstand ikke virker, eller for en TRV uden 'slukket'-tilstand, hvis drejeknap skal tænde og slukke Better Thermostat.",
           "mpc_v2_plant_preset": "Bruges kun af kalibreringstilstanden MPC v2.\n***Automatisk***: Udleder rummodellen af det, Better Thermostat har lært om rummet, f.eks. dets varmetabsrate.\n***Lille, mellemstort eller stort rum***: Starter fra en fast rummodel for den rumstørrelse.",
-          "keep_sensor_selection": "For TRV'er, der kan regulere efter en ekstern temperatur (Sonoff TRVZB og TRV-ZBT, Aqara SRTS-A01). Fra: Better Thermostat skifter TRV'en til den eksterne temperatur, den skriver, også efter en nulstilling eller ny parring. Til: den sensor, du har valgt på TRV'en, forbliver valgt, og rumtemperaturen skrives stadig til den eksterne indgang. En TRV, der falder tilbage til sin egen sensor, skiftes så ikke tilbage."
+          "keep_sensor_selection": "For TRV'er, der kan regulere efter en ekstern temperatur (Sonoff TRVZB og TRV-ZBT, Aqara SRTS-A01). Fra: Better Thermostat skifter TRV'en til den eksterne temperatur, den skriver, også efter en nulstilling eller ny parring. Til: den sensor, du har valgt på TRV'en, forbliver valgt, og rumtemperaturen skrives stadig til den eksterne indgang. En TRV, der falder tilbage til sin egen sensor, skiftes så ikke tilbage.",
+          "predictive_disturbance": "Fra: MPC v2-horisonten planlægger kun med det nuværende estimat af forstyrrelsen. Til: Better Thermostat lærer gentagne gevinster (belægning, madlavning, sol) i halvtimesintervaller og fører den forventede gevinst for de næste to timer ind i planen. Sol-delen kræver timevarslen fra vejretiteten, og det kræver et par dages rene MPC v2-cykler, før det bliver nyttigt. Det står fra som standard, mens prognosen er uprøvet; slå det til, når dit rum viser en gentagen dagstidsgevinst."
         }
       }
     },
@@ -228,6 +232,18 @@
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} overtager ikke måltemperaturen",
       "description": "Better Thermostat skriver gentagne gange måltemperaturen {wanted} til {entity}, men termostaten melder stadig {held}. Rummet opvarmes ikke, som Better Thermostat har tænkt.\n\nAlmindelige årsager:\n- Termostaten har sin egen grænse for setpunktet under det maksimum, den oplyser, for eksempel `max_heat_setpoint_limit` i Zigbee2MQTT.\n- Termostaten er i en tilstand eller forudindstilling, hvor den ignorerer måltemperaturer, f.eks. en tidsplantilstand.\n- Termostaten har mistet radioforbindelsen, eller batteriet er svagt.\n\nBetter Thermostat bliver ved med at skrive måltemperaturen, højst én gang i timen. Dette problem forsvinder af sig selv, når termostaten melder måltemperaturen."
+    },
+    "heating_supply_failure": {
+      "title": "BT: {name} - heating supply failure detected",
+      "description": "All radiator thermostats of {name} have been commanding significant heat for an extended period while the room remains below target temperature and fails to warm.\n\nCheck whether your boiler, heat pump, or circulation pump is switched on and supplying hot water, and verify that system water pressure is sufficient. This issue clears itself once the room responds to heating again."
+    },
+    "trv_no_heat_response": {
+      "title": "BT: {name} - {entity} is not producing heat",
+      "description": "The radiator thermostat {entity} in {name} has been commanding heat for an extended period without warming the room.\n\nCheck whether the radiator needs bleeding, whether the mechanical valve pin beneath {entity} is stuck closed, and whether the thermostat head is firmly mounted. This issue clears itself once heating response returns."
+    },
+    "valve_leak_detected": {
+      "title": "BT: {name} - leaking or stuck-open valve on {entity}",
+      "description": "The room {name} continues to warm above target temperature even though {entity} has been commanded closed and residual radiator heat has already dissipated.\n\nInspect the thermostat head mounting, adapter ring, and valve pin on {entity} to ensure the valve can close completely. This issue clears itself once the unexpected warming stops."
     }
   },
   "services": {
@@ -418,7 +434,8 @@
               "hvac_off": "Termostat slukket",
               "window": "Vindue åbent",
               "door": "Dør åben",
-              "no_call_for_heat": "Intet varmebehov"
+              "no_call_for_heat": "Intet varmebehov",
+              "suspected_window": "Mistænkt åbent vindue"
             }
           },
           "active_overrides": {
@@ -431,6 +448,14 @@
             }
           }
         }
+      }
+    },
+    "binary_sensor": {
+      "heat_source_detected": {
+        "name": "Yderligere varmekilde registreret"
+      },
+      "heat_loss_detected": {
+        "name": "Uventet varmetab registreret"
       }
     },
     "number": {
@@ -555,6 +580,12 @@
       },
       "window_detection": {
         "name": "Vinduesregistrering"
+      },
+      "anomaly_detection": {
+        "name": "Anomalidetektion"
+      },
+      "anomaly_suppression": {
+        "name": "Varmestop ved mistænkt åbent vindue"
       }
     },
     "sensor": {
@@ -568,7 +599,17 @@
           "degraded_mode_entered": "gik i degraderet tilstand fordi nogle sensorer er utilgængelige",
           "degraded_mode_resolved": "forlod degraderet tilstand fordi alle sensorer er tilgængelige",
           "door_open": "turned off because a door was opened",
-          "door_close": "resumed heating because a door was closed"
+          "door_close": "resumed heating because a door was closed",
+          "anomaly_heating_supply_failure": "detected a heating supply failure",
+          "anomaly_heating_supply_failure_resolved": "heating supply failure resolved",
+          "anomaly_trv_no_heat_response": "detected no heating response from a radiator thermostat",
+          "anomaly_trv_no_heat_response_resolved": "radiator thermostat heating response restored",
+          "anomaly_valve_leak_detected": "detected a leaking or stuck-open radiator valve",
+          "anomaly_valve_leak_detected_resolved": "radiator valve leak resolved",
+          "anomaly_rapid_heat_loss": "detected rapid heat loss (suspected open window)",
+          "anomaly_rapid_heat_loss_resolved": "rapid heat loss ended",
+          "anomaly_sustained_parasitic_loss": "detected sustained elevated heat loss",
+          "anomaly_sustained_parasitic_loss_resolved": "sustained elevated heat loss ended"
         }
       },
       "external_temp_ema": {
@@ -615,6 +656,9 @@
       },
       "pid_error": {
         "name": "PID-afvigelse"
+      },
+      "mpc_v2_predicted_disturbance": {
+        "name": "MPC v2-forudsagt forstyrrelse"
       }
     }
   },

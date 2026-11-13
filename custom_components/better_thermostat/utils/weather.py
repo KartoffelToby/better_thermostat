@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -30,6 +30,7 @@ from ..core.outdoor import (
     heat_threshold,
     start_damping,
 )
+from .calibration.disturbance_forecast import HourlyForecastPoint, clear_sky_factor
 from .helpers import (
     async_fire_logbook_entry,
     convert_to_float_celsius,
@@ -249,6 +250,11 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
         # Sample roughly the next two days regardless of forecast granularity.
         _forecast_samples = {"daily": 2, "twice_daily": 4, "hourly": 48}[ftype]
 
+        if features & WeatherEntityFeature.FORECAST_HOURLY:
+            await _refresh_hourly_forecast(self)
+        else:
+            self.hourly_forecast = None
+
         try:
             async with asyncio.timeout(FORECAST_CALL_TIMEOUT.total_seconds()):
                 forecasts = await self.hass.services.async_call(
@@ -364,6 +370,71 @@ def _weather_reading(
         "check_weather_prediction()",
         unit_of_measurement=unit if isinstance(unit, str) else entity_unit,
     )
+
+
+async def _refresh_hourly_forecast(self: BetterThermostat) -> None:
+    """Cache the hourly cloud/condition forecast for the disturbance horizon.
+
+    The forecast is a best-effort extra: an entity without hourly support, a
+    missing timestamp or a failed call leaves the cache empty, and the
+    learned profile then predicts the routine envelope alone.
+    """
+    if self.weather_entity_id is None:
+        self.hourly_forecast = None
+        return
+    try:
+        async with asyncio.timeout(FORECAST_CALL_TIMEOUT.total_seconds()):
+            forecasts = await self.hass.services.async_call(
+                WEATHER_DOMAIN,
+                "get_forecasts",
+                {"type": "hourly", "entity_id": [self.weather_entity_id]},
+                blocking=True,
+                return_response=True,
+            )
+    except TimeoutError, ServiceNotSupported, HomeAssistantError, TypeError:
+        self.hourly_forecast = None
+        return
+    container = (
+        forecasts.get(self.weather_entity_id) if isinstance(forecasts, dict) else None
+    )
+    forecast = container.get("forecast") if isinstance(container, dict) else None
+    if not isinstance(forecast, list):
+        self.hourly_forecast = None
+        return
+    points: list[HourlyForecastPoint] = []
+    for entry in forecast:
+        if not isinstance(entry, dict):
+            continue
+        timestamp = _forecast_entry_timestamp(entry)
+        if timestamp is None:
+            continue
+        points.append(
+            HourlyForecastPoint(
+                timestamp=timestamp,
+                clear_sky_factor=clear_sky_factor(
+                    entry.get("condition"), entry.get("cloud_coverage")
+                ),
+            )
+        )
+    points.sort(key=lambda point: point.timestamp)
+    self.hourly_forecast = tuple(points) if points else None
+
+
+def _forecast_entry_timestamp(entry: Mapping[str, object]) -> float | None:
+    """Return a forecast entry's UTC timestamp, or None without a usable one."""
+    raw = entry.get("datetime")
+    if not isinstance(raw, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    try:
+        return moment.timestamp()
+    except OverflowError, OSError, ValueError:
+        return None
 
 
 def _forecast_entry_temperature(

@@ -55,6 +55,7 @@ class BenchmarkContext:
     # ``False`` while the heat source delivers no heat, as while a heat
     # pump heats hot water.
     heat_delivered: bool = True
+    learning_paused: bool = False
 
 
 @dataclass(frozen=True)

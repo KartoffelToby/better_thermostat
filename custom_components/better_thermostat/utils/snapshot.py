@@ -7,6 +7,7 @@ Assistant states are read and condensed into the immutable
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -128,22 +129,47 @@ def build_snapshot(self: BetterThermostat) -> WorldSnapshot:
     WorldSnapshot
         Immutable observation used by the core control cycle.
     """
+    now_monotonic = self.clock.monotonic()
+    room_temperature = _as_float(self, self.current_temperature)
+    room_temperature_filtered = _as_float(self, self.room_temperature_filtered)
+    temperature_slope = _as_float(self, self.temperature_slope)
+    outdoor_temperature = _get_current_outdoor_temperature(self)
+    window_open = _raw_window_open(self)
+
     # A TRV that startup has not initialised yet carries none of the values
     # a decision reads, and boost would address it even while unreachable,
     # so it is not part of the room until its initialisation has completed.
     # A released TRV is never addressed, so it stays part of the room: the
     # kernel reads from it that the room has a TRV released.
-    trvs = {
+    raw_trvs = {
         entity_id: _build_trv_reported(self, entity_id, trv)
         for entity_id, trv in self.real_trvs.items()
         if not trv.awaiting_initialization or entity_id in self.released_trvs
+    }
+    thermal_evidence, trv_slopes = self.anomaly_evidence.observe_snapshot(
+        now_monotonic=now_monotonic,
+        room_temperature=room_temperature,
+        room_temperature_filtered=room_temperature_filtered,
+        outdoor_temperature=outdoor_temperature,
+        temperature_slope_kelvin_per_min=temperature_slope,
+        heat_loss_rate_kelvin_per_hour_per_kelvin=_as_float(self, self.heat_loss_rate),
+        trv_raw_temperatures={
+            entity_id: rep.raw_temperature for entity_id, rep in raw_trvs.items()
+        },
+        contact_open=bool(window_open),
+    )
+    trvs = {
+        entity_id: replace(
+            rep, raw_temperature_slope_kelvin_per_min=trv_slopes.get(entity_id)
+        )
+        for entity_id, rep in raw_trvs.items()
     }
 
     is_day, solar_intensity = _get_solar_context(self)
 
     return WorldSnapshot(
         now=self.clock.now(),
-        now_monotonic=self.clock.monotonic(),
+        now_monotonic=now_monotonic,
         # The 0.01 grid convert_to_float puts the room temperature on, so a
         # room resting on its target compares equal to it.
         heat_target_temperature=round_by_step(self.heat_target_temperature, 0.01),
@@ -152,18 +178,19 @@ def build_snapshot(self: BetterThermostat) -> WorldSnapshot:
         # A snapshot can be asked for before startup has measured the room
         # (the devices can be released while Home Assistant starts), so it
         # reads the value that is still None then.
-        room_temperature=_as_float(self, self.current_temperature),
-        room_temperature_filtered=_as_float(self, self.room_temperature_filtered),
-        temperature_slope=_as_float(self, self.temperature_slope),
+        room_temperature=room_temperature,
+        room_temperature_filtered=room_temperature_filtered,
+        temperature_slope=temperature_slope,
         call_for_heat=self.call_for_heat,
-        window_open=_raw_window_open(self),
+        window_open=window_open,
         preset_mode=parse_preset(self.preset_mode),
         devices_released=self.devices_released,
         tolerance=_as_float(self, self.tolerance) or 0.0,
-        outdoor_temperature=_get_current_outdoor_temperature(self),
+        outdoor_temperature=outdoor_temperature,
         is_day=is_day,
         solar_intensity=solar_intensity,
         min_temp=_as_float(self, self.bt_min_temp),
         max_temp=_as_float(self, self.bt_max_temp),
         trvs=trvs,
+        thermal_evidence=thermal_evidence,
     )

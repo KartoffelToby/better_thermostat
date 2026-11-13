@@ -653,10 +653,17 @@ class TestRoundtripCompleteness:
 
         from custom_components.better_thermostat.core.decide import KernelState
         from custom_components.better_thermostat.core.desired import (
+            AnomalyCode,
             DesiredState,
             HeatingBlock,
             Suppression,
             TrvDesired,
+        )
+        from custom_components.better_thermostat.core.fsm.anomaly import (
+            AnomalyState,
+            FaultPhase,
+            FaultSlot,
+            TrvFaultState,
         )
         from custom_components.better_thermostat.core.fsm.control_mode import (
             ControlMode,
@@ -759,7 +766,25 @@ class TestRoundtripCompleteness:
                     offline_since=700.0, retry_count=2, retry_at=1100.0
                 )
             },
+            "anomaly": AnomalyState(
+                rapid_loss=FaultSlot(phase=FaultPhase.ACTIVE, active_since=600.0),
+                parasitic_loss=FaultSlot(phase=FaultPhase.SUSPECT, since=650.0),
+                no_heat_delivery=FaultSlot(
+                    phase=FaultPhase.RECOVERING, since=680.0, active_since=500.0
+                ),
+                trvs={
+                    "climate.trv": TrvFaultState(
+                        no_heat_delivery=FaultSlot(),
+                        valve_stuck_open=FaultSlot(
+                            phase=FaultPhase.ACTIVE, active_since=550.0
+                        ),
+                    )
+                },
+                last_rapid_loss_monotonic=600.0,
+            ),
             "window_detection": False,
+            "anomaly_detection": True,
+            "anomaly_suppression": True,
             "last_control_monotonic": 990.0,
         }
         assert set(state_kwargs) == {f.name for f in fields(KernelState)}
@@ -779,6 +804,12 @@ class TestRoundtripCompleteness:
             "trvs": {"climate.trv": TrvDesired(**trv_desired_kwargs)},
             "devices_released": True,
             "heating_blocked_by": HeatingBlock.DEVICES_RELEASED,
+            "anomalies": (
+                AnomalyCode.NO_HEAT_DELIVERY,
+                AnomalyCode.UNEXPECTED_RAPID_LOSS,
+                AnomalyCode.VALVE_STUCK_OPEN,
+            ),
+            "trv_anomalies": {"climate.trv": (AnomalyCode.VALVE_STUCK_OPEN,)},
         }
         assert set(desired_kwargs) == {f.name for f in fields(DesiredState)}
         desired = DesiredState(**desired_kwargs)
@@ -794,6 +825,7 @@ class TestRoundtripCompleteness:
             "phase": "running",
             "next_due": "2026-02-01T00:00:00+00:00",
             "running_since": 950.0,
+            "last_anomaly_run_monotonic": None,
         }
 
 
@@ -897,3 +929,33 @@ class TestThermalEvidenceRoundtrip:
         }
         with pytest.raises(ValueError, match="bool"):
             snapshot_from_dict(bad_bound["snapshot"])
+
+    def test_legacy_state_and_desired_without_anomaly_fields_load(self):
+        """Exports from before the anomaly region existed load with clean defaults."""
+        recorder = FlightRecorder()
+        snapshot = _snapshot()
+        desired, _ = decide(snapshot, running_kernel_state())
+        recorder.record(snapshot, running_kernel_state(), desired)
+        entry = json.loads(json.dumps(recorder.export()))[0]
+
+        del entry["state"]["anomaly"]
+        del entry["state"]["anomaly_detection"]
+        del entry["desired"]["anomalies"]
+        del entry["desired"]["trv_anomalies"]
+
+        rebuilt_state = state_from_dict(_json_object(entry["state"]))
+        assert rebuilt_state.anomaly_detection is False
+        rebuilt_desired = desired_from_dict(entry["desired"])
+        assert rebuilt_desired.anomalies == ()
+        assert dict(rebuilt_desired.trv_anomalies) == {}
+        assert replay(entry) == (True, desired)
+
+    def test_malformed_anomalies_in_desired_raise(self):
+        """Non-list anomaly payloads in desired exports raise ValueError."""
+        recorder = FlightRecorder()
+        desired, _ = decide(_snapshot(), running_kernel_state())
+        recorder.record(_snapshot(), running_kernel_state(), desired)
+        base = json.loads(json.dumps(recorder.export()))[0]
+        base["desired"]["anomalies"] = "unexpected_rapid_loss"
+        with pytest.raises(ValueError, match="anomalies must be a list"):
+            desired_from_dict(base["desired"])

@@ -65,7 +65,13 @@ if TYPE_CHECKING:
     from .climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
+PLATFORMS = [
+    Platform.CLIMATE,
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.NUMBER,
+    Platform.SWITCH,
+]
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
 RELOAD_LOCKS = f"{DOMAIN}_reload_locks"

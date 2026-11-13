@@ -96,7 +96,9 @@ flowchart TD
     B -->|yes| B1[OFF intent for every TRV]
     B -->|no| C{Window or door open?}
     C -->|yes| C1[OFF intent, suppression = window or door]
-    C -->|no| D{Call for heat?}
+    C -->|no| CW{Suspected window suppression?}
+    CW -->|yes| CW1[OFF intent, suppression = suspected_window]
+    CW -->|no| D{Call for heat?}
     D -->|no| D1[OFF intent, suppression = no_call_for_heat]
     D -->|yes| E[Heating intent: mode + setpoint = room target]
 ```
@@ -129,14 +131,15 @@ released reads as such.
 
 Every tier above the heating intent also puts its own `heating_blocked_by`
 block into the desired state: `devices_released`, `startup`,
-`valve_maintenance`, `hvac_off`, `window`, `door` or `no_call_for_heat`.
+`valve_maintenance`, `hvac_off`, `window`, `door`, `suspected_window` or
+`no_call_for_heat`.
 The heating intent names none. The shell publishes the block of each
 decision it commits as the thermostat attribute of the same name, and
 asks the kernel once more where a cascade input changes without a control
 cycle: when the devices are released or taken back, and when valve
 maintenance starts and ends. These words are the public values of that
-attribute; `window`, `door` and `no_call_for_heat` are also the suppression
-reasons below.
+attribute; `window`, `door`, `suspected_window` and `no_call_for_heat` are
+also the suppression reasons below.
 
 OFF intents carry their **suppression reason** so the shell can choose
 between a literal OFF (window, no heat demand) and the device-specific

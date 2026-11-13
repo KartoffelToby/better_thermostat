@@ -34,6 +34,13 @@ SNAPSHOT_VERSION = 4
 # no real cycle carries either value.
 _LAST_SENTINEL_STAMP_VERSION = 2
 
+# Predicted gains may not talk the plan into more than this much steady-state
+# setback below the setpoint: with a positive disturbance D and the room's
+# time constant tau, the holding input falls by D * tau. Capping D at
+# ``margin / tau`` keeps the forecast from turning an unknown disturbance into
+# a cold room.
+PREDICTIVE_SETBACK_MARGIN_K = 1.5
+
 # Steps arriving closer together than this carry no new information: in a
 # multi-TRV group every TRV dispatch steps the same shared controller within
 # one control pass, milliseconds apart. Re-folding the same room measurement
@@ -303,6 +310,7 @@ class MpcV2Controller:
         u_max: float = 1.0,
         learning_paused: bool = False,
         room_reading_from_trvs: bool = False,
+        predicted_disturbance_K_per_min: tuple[float, ...] = (),
     ) -> tuple[float, MpcV2Diagnostics]:
         """Run one control cycle. Returns (valve_fraction, diagnostics).
 
@@ -340,6 +348,11 @@ class MpcV2Controller:
             ``T_room`` is the TRVs' substitute for a failed room sensor. It
             counts as a fresh reading and teaches the reporting threshold
             nothing.
+        predicted_disturbance_K_per_min : tuple[float, ...], optional
+            Learned gain expected at each future QP step. Clamped to a
+            positive hazard below :data:`PREDICTIVE_SETBACK_MARGIN_K` before
+            the plan sees it; empty or unusable entries leave the constant
+            disturbance estimate in charge.
 
         Between re-plans the cycle returns the command of the last plan. The
         applied input the caller confirms through :meth:`set_applied_u` feeds
@@ -429,6 +442,7 @@ class MpcV2Controller:
                 u_max=u_max,
             )
 
+        predicted_profile = self._bounded_disturbance(predicted_disturbance_K_per_min)
         u = self.optimiser.solve(
             x_pred=x_pred,
             T_sp=sp_for_opt,
@@ -437,6 +451,7 @@ class MpcV2Controller:
             D_hat_K_per_min=self.dob.planning_rate,
             u_max=u_max,
             move_suppression_factor=self.report_band.move_suppression_factor,
+            D_profile_K_per_min=predicted_profile,
         )
         self._last_u = u
         self._command_u = u
@@ -445,6 +460,23 @@ class MpcV2Controller:
         self._next_mpc_t_s = t_s + self.params.qp.step_s
 
         return u, self._diagnostics()
+
+    def _bounded_disturbance(
+        self, profile: tuple[float, ...]
+    ) -> tuple[float, ...] | None:
+        """Clamp a predicted-gain profile to the anti-setback safety hull."""
+        if not profile:
+            return None
+        cap = PREDICTIVE_SETBACK_MARGIN_K / max(
+            1.0, self.plant_fine.params.tau_room_min
+        )
+        bounded: list[float] = []
+        for value in profile:
+            if not isinstance(value, int | float) or not math.isfinite(value):
+                bounded.append(0.0)
+                continue
+            bounded.append(max(0.0, min(cap, float(value))))
+        return tuple(bounded) if any(bounded) else None
 
     @property
     def paused(self) -> bool:

@@ -29,11 +29,15 @@ from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.containers import BtConfig, BtRuntime
 from custom_components.better_thermostat.core.outdoor import add_reading, start_damping
+from custom_components.better_thermostat.utils.calibration.disturbance_forecast import (
+    HourlyForecastPoint,
+)
 from custom_components.better_thermostat.utils.weather import (
     FORECAST_CALL_TIMEOUT,
     OUTDOOR_HISTORY_RETRY,
     OUTDOOR_HISTORY_WINDOW,
     DampedSource,
+    _refresh_hourly_forecast,
     check_ambient_air_temperature,
     check_weather,
     check_weather_prediction,
@@ -105,6 +109,7 @@ def make_bt(
     bt.weather_source = DampedSource()
     bt.damped_weather_temperature = None
     bt.forecast_temperature = None
+    bt.hourly_forecast = None
     bt._outdoor_check_lock = None
     return bt
 
@@ -149,6 +154,78 @@ def forecast_resp(entity_id, temps, unit=None):
             entry["temperature_unit"] = unit
         items.append(entry)
     return {entity_id: {"forecast": items}}
+
+
+def hourly_resp(entity_id, items):
+    """Wrap hourly forecast entries as a get_forecasts service response."""
+    return {entity_id: {"forecast": items}}
+
+
+class TestHourlyForecastCache:
+    """The hourly cloud/condition cache the disturbance horizon reads."""
+
+    async def test_the_cache_normalises_and_sorts_hourly_points(self):
+        hass = make_hass()
+        hass.services.async_call = AsyncMock(
+            return_value=hourly_resp(
+                WEATHER_ID,
+                [
+                    {
+                        "datetime": "2025-01-01T14:00:00+00:00",
+                        "condition": "sunny",
+                        "cloud_coverage": 50,
+                    },
+                    {"datetime": "2025-01-01T12:00:00+00:00", "condition": "cloudy"},
+                ],
+            )
+        )
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID)
+
+        await _refresh_hourly_forecast(bt)
+
+        assert bt.hourly_forecast is not None
+        assert [p.clear_sky_factor for p in bt.hourly_forecast] == [0.25, 0.5]
+        assert bt.hourly_forecast[0].timestamp < bt.hourly_forecast[1].timestamp
+
+    async def test_entries_without_a_timestamp_are_dropped(self):
+        hass = make_hass()
+        hass.services.async_call = AsyncMock(
+            return_value=forecast_resp(WEATHER_ID, [1.0, 2.0])
+        )
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID)
+
+        await _refresh_hourly_forecast(bt)
+
+        assert bt.hourly_forecast is None
+
+    async def test_a_failed_call_clears_the_stale_cache(self):
+        hass = make_hass()
+        hass.services.async_call = AsyncMock(side_effect=HomeAssistantError("boom"))
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID)
+        bt.hourly_forecast = (HourlyForecastPoint(0.0, 1.0),)
+
+        await _refresh_hourly_forecast(bt)
+
+        assert bt.hourly_forecast is None
+
+    async def test_an_hourly_entity_reports_a_cache_after_the_verdict(self):
+        states = {
+            WEATHER_ID: weather_state(
+                features=int(WeatherEntityFeature.FORECAST_HOURLY), temperature=2.0
+            )
+        }
+        hass = make_hass(states=states)
+        hass.services.async_call = AsyncMock(
+            return_value=hourly_resp(
+                WEATHER_ID,
+                [{"datetime": "2025-01-01T12:00:00+00:00", "condition": "sunny"}],
+            )
+        )
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
+
+        assert await check_weather_prediction(bt) is True
+        assert bt.hourly_forecast is not None
+        assert bt.hourly_forecast[0].clear_sky_factor == 1.0
 
 
 # ===========================================================================

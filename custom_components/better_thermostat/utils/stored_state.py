@@ -128,6 +128,17 @@ StoredFilterState = TypedDict(  # noqa: UP013
     },
 )
 
+StoredDisturbanceProfile = TypedDict(  # noqa: UP013
+    "StoredDisturbanceProfile",
+    {
+        "routine_gain_kelvin_per_min": list[float],
+        "solar_gain_kelvin_per_min": list[float],
+        "routine_samples": list[float],
+        "solar_samples": list[float],
+        "last_learned_ts": float | None,
+    },
+)
+
 StoredRuntimeState = TypedDict(  # noqa: UP013
     "StoredRuntimeState",
     {
@@ -135,6 +146,7 @@ StoredRuntimeState = TypedDict(  # noqa: UP013
         "mpc": dict[str, StoredMpcState],
         "mpc_v2": dict[str, StoredMpcV2State],
         "mpc_v2_reid": dict[str, StoredMpcV2Reid],
+        "disturbance_profile": dict[str, StoredDisturbanceProfile],
         "pid": dict[str, StoredPidState],
         "tpi": dict[str, StoredTpiState],
         "thermal": StoredThermalStats,

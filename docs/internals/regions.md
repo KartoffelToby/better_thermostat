@@ -1,15 +1,16 @@
 ---
 title: The regions
-description: Seven orthogonal state machines gate the control law; controllers compute, regions gate.
+description: Eight orthogonal state machines gate the control law; controllers compute, regions gate.
 sidebar:
   order: 2
 ---
 
-Seven small, orthogonal state machines built from `core/fsm/` hold the
+Eight small, orthogonal state machines built from `core/fsm/` hold the
 discrete concerns: is a window open, is maintenance running, which
-fail-soft rung applies. Together they form the **regions** of the
-`KernelState`, and the door region is a second instance of the window
-machine. Two rules hold everywhere:
+fail-soft rung applies, has a thermal or valve anomaly occurred.
+Together they form the **regions** of the `KernelState`, and the door
+region is a second instance of the window machine. Two rules hold
+everywhere:
 
 1. **Regions gate, controllers compute.** A region decides *whether*
    heating may happen; the continuous controllers (PID/MPC/TPI) decide
@@ -137,3 +138,39 @@ unreachable TRVs are dropped from the commanded set and receive no
 intent (except while boost heating is active, which keeps commanding so
 the TRV catches up the moment it returns). The record also lands in the
 flight recorder, where it serves outage analysis.
+
+## Anomaly: sensorless fault detection with liveness bounds
+
+```mermaid
+stateDiagram-v2
+    CLEAR --> SUSPECT: evidence on (since = now)
+    SUSPECT --> CLEAR: evidence off
+    SUSPECT --> ACTIVE: dwell elapsed
+    ACTIVE --> RECOVERING: evidence off (since = now)
+    RECOVERING --> ACTIVE: evidence on again
+    RECOVERING --> CLEAR: recovery dwell elapsed
+    ACTIVE --> EXPIRED: liveness bound reached
+    EXPIRED --> CLEAR: recovery dwell elapsed
+```
+
+Evaluates four thermal and actuator fault classes inside `decide()`
+whenever `KernelState.anomaly_detection` is enabled:
+
+* `unexpected_rapid_loss` — unmonitored open window (180 s dwell, 300 s
+  recovery, **60-minute liveness bound**).
+* `sustained_parasitic_loss` — steady extra heat loss such as an open
+  interior door (900 s dwell, 900 s recovery, **24-hour liveness bound**).
+* `no_heat_delivery` — room-wide supply outage when every addressed TRV
+  stays cold across `valve_command_delay + 0.5 * tau_room`, or per-TRV
+  failure when a sibling warms up.
+* `valve_stuck_open` — per-TRV valve leak while heating is suppressed or
+  commanded to zero (1800 s dwell, 900 s recovery, solar-excluded).
+
+Continuous residuals and observer innovations are computed in the shell
+and enter through `WorldSnapshot.thermal_evidence`; the region holds
+only thresholds, dwell timers, hysteresis, and liveness bounds. Once a
+liveness-bounded fault reaches `EXPIRED`, it stops gating learning or
+heating while remaining visible in `DesiredState.anomalies` for
+diagnostics. An open contact sensor resets `unexpected_rapid_loss` and
+`sustained_parasitic_loss` immediately because the cause is already
+known.

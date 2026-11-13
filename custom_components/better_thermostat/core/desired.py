@@ -25,6 +25,7 @@ class Suppression(StrEnum):
 
     WINDOW = "window"
     DOOR = "door"
+    SUSPECTED_WINDOW = "suspected_window"
     NO_CALL_FOR_HEAT = "no_call_for_heat"
 
 
@@ -42,7 +43,21 @@ class HeatingBlock(StrEnum):
     HVAC_OFF = "hvac_off"
     WINDOW = "window"
     DOOR = "door"
+    SUSPECTED_WINDOW = "suspected_window"
     NO_CALL_FOR_HEAT = "no_call_for_heat"
+
+
+class AnomalyCode(StrEnum):
+    """Detected thermal or actuator fault reported by the anomaly region.
+
+    Published on the climate entity as ``anomalies``, so the values are a
+    public contract.
+    """
+
+    UNEXPECTED_RAPID_LOSS = "unexpected_rapid_loss"
+    SUSTAINED_PARASITIC_LOSS = "sustained_parasitic_loss"
+    NO_HEAT_DELIVERY = "no_heat_delivery"
+    VALVE_STUCK_OPEN = "valve_stuck_open"
 
 
 # The block each suppression on a TRV intent stands for. A suppression and
@@ -52,6 +67,7 @@ SUPPRESSION_BLOCKS: Final[Mapping[Suppression, HeatingBlock]] = MappingProxyType
     {
         Suppression.WINDOW: HeatingBlock.WINDOW,
         Suppression.DOOR: HeatingBlock.DOOR,
+        Suppression.SUSPECTED_WINDOW: HeatingBlock.SUSPECTED_WINDOW,
         Suppression.NO_CALL_FOR_HEAT: HeatingBlock.NO_CALL_FOR_HEAT,
     }
 )
@@ -87,3 +103,20 @@ class DesiredState:
     trvs: Mapping[str, TrvDesired] = field(default_factory=dict)
     devices_released: bool = False
     heating_blocked_by: HeatingBlock | None = None
+    anomalies: tuple[AnomalyCode, ...] = ()
+    trv_anomalies: Mapping[str, tuple[AnomalyCode, ...]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Normalise anomaly collections for deterministic equality and export."""
+        if self.anomalies:
+            object.__setattr__(self, "anomalies", tuple(sorted(set(self.anomalies))))
+        if self.trv_anomalies:
+            object.__setattr__(
+                self,
+                "trv_anomalies",
+                {
+                    entity_id: tuple(sorted(set(codes)))
+                    for entity_id, codes in sorted(self.trv_anomalies.items())
+                    if codes
+                },
+            )

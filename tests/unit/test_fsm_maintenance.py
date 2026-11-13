@@ -4,12 +4,14 @@ from datetime import UTC, datetime, timedelta
 
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.maintenance import (
+    ANOMALY_MAINTENANCE_COOLDOWN_SECONDS,
     DUE_AT_FIRST_TICK,
     MaintenanceDue,
     MaintenanceIdle,
     MaintenanceRunning,
     evaluate_tick,
     finish_run,
+    request_now,
     reschedule,
     start_run,
 )
@@ -147,3 +149,46 @@ def test_reschedule_keeps_the_phase_and_the_run_start():
     assert reschedule(MaintenanceIdle(next_due=PAST_DUE), NOW) == MaintenanceIdle(
         next_due=NOW
     )
+
+
+def test_request_now_arms_idle_and_respects_cooldown():
+    """request_now arms an idle region once per cooldown window."""
+    idle = MaintenanceIdle(next_due=NOW + timedelta(days=7))
+    armed = request_now(idle, NOW, now_monotonic=1000.0)
+    assert armed == MaintenanceDue(next_due=NOW, last_anomaly_run_monotonic=1000.0)
+
+    running = start_run(armed, now_monotonic=1005.0)
+    assert running.last_anomaly_run_monotonic == 1000.0
+    finished = finish_run(running, next_due=NOW + timedelta(days=7))
+    assert finished.last_anomaly_run_monotonic == 1000.0
+
+    # Within cooldown window: stays idle
+    in_cooldown = request_now(
+        finished,
+        NOW + timedelta(hours=1),
+        now_monotonic=1000.0 + ANOMALY_MAINTENANCE_COOLDOWN_SECONDS - 1.0,
+    )
+    assert in_cooldown == finished
+
+    # After cooldown window: arms again
+    after_cooldown = request_now(
+        finished,
+        NOW + timedelta(days=1, minutes=1),
+        now_monotonic=1000.0 + ANOMALY_MAINTENANCE_COOLDOWN_SECONDS,
+    )
+    assert isinstance(after_cooldown, MaintenanceDue)
+    assert (
+        after_cooldown.last_anomaly_run_monotonic
+        == 1000.0 + ANOMALY_MAINTENANCE_COOLDOWN_SECONDS
+    )
+
+
+def test_request_now_leaves_due_and_running_unchanged():
+    """request_now is a no-op when maintenance is already due or running."""
+    due = MaintenanceDue(next_due=NOW, last_anomaly_run_monotonic=500.0)
+    assert request_now(due, NOW, now_monotonic=90000.0) == due
+
+    running = MaintenanceRunning(
+        running_since=600.0, next_due=NOW, last_anomaly_run_monotonic=500.0
+    )
+    assert request_now(running, NOW, now_monotonic=90000.0) == running

@@ -19,6 +19,9 @@ from typing import Final
 # A valve exercise takes a few minutes per TRV; an hour means it died.
 MAX_RUN_S = 3600.0
 
+# Minimum interval between anomaly-triggered emergency valve-maintenance runs.
+ANOMALY_MAINTENANCE_COOLDOWN_SECONDS: Final[float] = 86_400.0
+
 # Schedule of a region that has none of its own yet: earlier than any
 # clock reading, so the first scheduler tick finds it due.
 DUE_AT_FIRST_TICK: Final = datetime.min.replace(tzinfo=UTC)
@@ -29,6 +32,7 @@ class MaintenanceIdle:
     """Maintenance region waiting for ``next_due``."""
 
     next_due: datetime
+    last_anomaly_run_monotonic: float | None = None
 
     def is_blocking(
         self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
@@ -42,6 +46,7 @@ class MaintenanceDue:
     """Maintenance region with a run armed but not yet started."""
 
     next_due: datetime
+    last_anomaly_run_monotonic: float | None = None
 
     def is_blocking(
         self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
@@ -60,6 +65,7 @@ class MaintenanceRunning:
 
     running_since: float
     next_due: datetime
+    last_anomaly_run_monotonic: float | None = None
 
     def is_blocking(
         self, now_monotonic: float, max_run_seconds: float = MAX_RUN_S
@@ -118,10 +124,58 @@ def evaluate_tick(
     if now < state.next_due:
         return state
     if window_open or devices_released:
-        return MaintenanceIdle(next_due=now + timedelta(hours=1))
+        return MaintenanceIdle(
+            next_due=now + timedelta(hours=1),
+            last_anomaly_run_monotonic=state.last_anomaly_run_monotonic,
+        )
     if not has_enabled_trvs:
-        return MaintenanceIdle(next_due=now + timedelta(days=7))
-    return MaintenanceDue(next_due=state.next_due)
+        return MaintenanceIdle(
+            next_due=now + timedelta(days=7),
+            last_anomaly_run_monotonic=state.last_anomaly_run_monotonic,
+        )
+    return MaintenanceDue(
+        next_due=state.next_due,
+        last_anomaly_run_monotonic=state.last_anomaly_run_monotonic,
+    )
+
+
+def request_now(
+    state: MaintenanceState,
+    now: datetime,
+    now_monotonic: float,
+    *,
+    cooldown_seconds: float = ANOMALY_MAINTENANCE_COOLDOWN_SECONDS,
+) -> MaintenanceState:
+    """Arm an immediate valve-maintenance run unless already due/running or in cooldown.
+
+    Parameters
+    ----------
+    state : MaintenanceState
+        Current maintenance state.
+    now : datetime
+        Current wall-clock time.
+    now_monotonic : float
+        Current monotonic timestamp used to enforce the 24-hour cooldown.
+    cooldown_seconds : float, optional
+        Minimum monotonic interval between anomaly-triggered maintenance runs.
+
+    Returns
+    -------
+    MaintenanceState
+        ``MaintenanceDue`` with ``last_anomaly_run_monotonic=now_monotonic`` when
+        armed from ``MaintenanceIdle`` outside cooldown; otherwise ``state``
+        unchanged.
+    """
+    if not isinstance(state, MaintenanceIdle):
+        return state
+    if (
+        state.last_anomaly_run_monotonic is not None
+        and (now_monotonic - state.last_anomaly_run_monotonic) < cooldown_seconds
+    ):
+        return state
+    return MaintenanceDue(
+        next_due=min(state.next_due, now), last_anomaly_run_monotonic=now_monotonic
+    )
 
 
 def start_run(state: MaintenanceState, now_monotonic: float) -> MaintenanceState:
@@ -141,7 +195,11 @@ def start_run(state: MaintenanceState, now_monotonic: float) -> MaintenanceState
     """
     if not isinstance(state, MaintenanceDue):
         return state
-    return MaintenanceRunning(running_since=now_monotonic, next_due=state.next_due)
+    return MaintenanceRunning(
+        running_since=now_monotonic,
+        next_due=state.next_due,
+        last_anomaly_run_monotonic=state.last_anomaly_run_monotonic,
+    )
 
 
 def reschedule(state: MaintenanceState, next_due: datetime) -> MaintenanceState:
@@ -182,4 +240,6 @@ def finish_run(state: MaintenanceState, next_due: datetime) -> MaintenanceIdle:
     MaintenanceIdle
         A fresh IDLE state carrying ``next_due``.
     """
-    return MaintenanceIdle(next_due=next_due)
+    return MaintenanceIdle(
+        next_due=next_due, last_anomaly_run_monotonic=state.last_anomaly_run_monotonic
+    )

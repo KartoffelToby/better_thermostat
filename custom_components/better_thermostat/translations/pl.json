@@ -65,7 +65,8 @@
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Użyj temperatury minimalnej zamiast 'wyłączony'",
           "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia",
-          "keep_sensor_selection": "Zachowaj wybór czujnika TRV"
+          "keep_sensor_selection": "Zachowaj wybór czujnika TRV",
+          "predictive_disturbance": "Predykcyjne uczenie zakłóceń"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
@@ -77,7 +78,8 @@
           "calibration_mode": "Jak obliczana jest kalibracja\n***AI na podstawie czasu (domyślne)***: Z czasem uczy się mocy grzewczej pomieszczenia i wyznacza z niej kalibrację.\n***Tylko przesunięcie czujnika zewnętrznego***: Koryguje wewnętrzny czujnik TRV za pomocą zewnętrznego czujnika temperatury. Żaden regulator nie działa dodatkowo.\n***Predykcyjne MPC (beta)***: Przewiduje temperaturę pomieszczenia i oblicza z niej otwarcie zaworu. Uczy się zachowania cieplnego pomieszczenia.\n***(AI) MPC v2 (QP + Kalman, eksperymentalne)***: Szacuje stan pomieszczenia filtrem Kalmana i oblicza otwarcie zaworu regulatorem predykcyjnym z modelem. Ustawienie MPC v2 wielkość pomieszczenia wybiera model pomieszczenia: wyuczony w pomieszczeniu (Automatycznie) lub stały dla danej wielkości (małe, średnie, duże).\n***Agresywne***: Podbija kalibrację, gdy pomieszczenie się nagrzewa, i pomija opóźnienie tolerancji, aby TRV zaczął grzać wcześniej. Przydatne, gdy pomieszczenie nagrzewa się powoli.\n***Regulator TPI***: Oblicza czas załączenia cykli grzewczych na podstawie różnicy temperatur.\n***Regulator PID***: Oblicza otwarcie zaworu z uchybu temperatury za pomocą członu proporcjonalnego, całkującego i różniczkującego.\n***Bez kalibracji***: Wysyła temperaturę docelową do TRV bez zmian i nie stosuje żadnej korekty.",
           "no_off_system_mode": "Przy tej opcji Better Thermostat wysyła do TRV jego temperaturę minimalną zamiast 'wyłączony'. TRV, który zgłasza swoją temperaturę minimalną, uznaje się za wyłączony: gdy wszystkie TRV w pomieszczeniu są wyłączone, pomieszczenie się wyłącza, a podkręcenie pokrętła włącza je ponownie. Liczy się też obrót przy otwartym oknie lub drzwiach; ogrzewanie czeka wtedy, aż wszystkie okna i drzwi zostaną zamknięte. TRV bez trybu wyłączenia otrzymuje swoją temperaturę minimalną także bez tej opcji. Włącz ją dla TRV, którego tryb wyłączenia nie działa, albo dla TRV bez trybu wyłączenia, którego pokrętło ma włączać i wyłączać Better Thermostat.",
           "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia.",
-          "keep_sensor_selection": "Dla TRV, które mogą regulować według temperatury zewnętrznej (Sonoff TRVZB i TRV-ZBT, Aqara SRTS-A01). Wyłączone: Better Thermostat przełącza TRV na zapisywaną przez siebie temperaturę zewnętrzną, także po resecie lub ponownym parowaniu. Włączone: czujnik wybrany na TRV pozostaje wybrany, a temperatura pomieszczenia nadal jest zapisywana do wejścia zewnętrznego. TRV, który wróci do własnego czujnika, nie zostanie wtedy przełączony z powrotem."
+          "keep_sensor_selection": "Dla TRV, które mogą regulować według temperatury zewnętrznej (Sonoff TRVZB i TRV-ZBT, Aqara SRTS-A01). Wyłączone: Better Thermostat przełącza TRV na zapisywaną przez siebie temperaturę zewnętrzną, także po resecie lub ponownym parowaniu. Włączone: czujnik wybrany na TRV pozostaje wybrany, a temperatura pomieszczenia nadal jest zapisywana do wejścia zewnętrznego. TRV, który wróci do własnego czujnika, nie zostanie wtedy przełączony z powrotem.",
+          "predictive_disturbance": "Wyłączone: horyzont MPC v2 planuje tylko z bieżącym szacunkiem zakłócenia. Włączone: Better Thermostat uczy się powtarzalnych zysków ciepła (obecność, gotowanie, słońce) w półgodzinnych koszykach i przekazuje oczekiwany zysk z najbliższych dwóch godzin do planu. Wymaga godzinowej prognozy encji pogody dla części słonecznej oraz kilku dni czystych cykli MPC v2, aby stać się użyteczne. Domyślnie wyłączone, dopóki prognoza nie jest sprawdzona; włącz, gdy pomieszczenie pokazuje powtarzalny dzienny zysk."
         }
       },
       "confirm": {
@@ -171,7 +173,8 @@
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Użyj temperatury minimalnej zamiast 'wyłączony'",
           "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia",
-          "keep_sensor_selection": "Zachowaj wybór czujnika TRV"
+          "keep_sensor_selection": "Zachowaj wybór czujnika TRV",
+          "predictive_disturbance": "Predykcyjne uczenie zakłóceń"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
@@ -183,7 +186,8 @@
           "calibration_mode": "Jak obliczana jest kalibracja\n***AI na podstawie czasu (domyślne)***: Z czasem uczy się mocy grzewczej pomieszczenia i wyznacza z niej kalibrację.\n***Tylko przesunięcie czujnika zewnętrznego***: Koryguje wewnętrzny czujnik TRV za pomocą zewnętrznego czujnika temperatury. Żaden regulator nie działa dodatkowo.\n***Predykcyjne MPC (beta)***: Przewiduje temperaturę pomieszczenia i oblicza z niej otwarcie zaworu. Uczy się zachowania cieplnego pomieszczenia.\n***(AI) MPC v2 (QP + Kalman, eksperymentalne)***: Szacuje stan pomieszczenia filtrem Kalmana i oblicza otwarcie zaworu regulatorem predykcyjnym z modelem. Ustawienie MPC v2 wielkość pomieszczenia wybiera model pomieszczenia: wyuczony w pomieszczeniu (Automatycznie) lub stały dla danej wielkości (małe, średnie, duże).\n***Agresywne***: Podbija kalibrację, gdy pomieszczenie się nagrzewa, i pomija opóźnienie tolerancji, aby TRV zaczął grzać wcześniej. Przydatne, gdy pomieszczenie nagrzewa się powoli.\n***Regulator TPI***: Oblicza czas załączenia cykli grzewczych na podstawie różnicy temperatur.\n***Regulator PID***: Oblicza otwarcie zaworu z uchybu temperatury za pomocą członu proporcjonalnego, całkującego i różniczkującego.\n***Bez kalibracji***: Wysyła temperaturę docelową do TRV bez zmian i nie stosuje żadnej korekty.",
           "no_off_system_mode": "Przy tej opcji Better Thermostat wysyła do TRV jego temperaturę minimalną zamiast 'wyłączony'. TRV, który zgłasza swoją temperaturę minimalną, uznaje się za wyłączony: gdy wszystkie TRV w pomieszczeniu są wyłączone, pomieszczenie się wyłącza, a podkręcenie pokrętła włącza je ponownie. Liczy się też obrót przy otwartym oknie lub drzwiach; ogrzewanie czeka wtedy, aż wszystkie okna i drzwi zostaną zamknięte. TRV bez trybu wyłączenia otrzymuje swoją temperaturę minimalną także bez tej opcji. Włącz ją dla TRV, którego tryb wyłączenia nie działa, albo dla TRV bez trybu wyłączenia, którego pokrętło ma włączać i wyłączać Better Thermostat.",
           "mpc_v2_plant_preset": "Używane tylko przez tryb kalibracji MPC v2.\n***Automatycznie***: Wyznacza model pomieszczenia z tego, czego Better Thermostat nauczył się o pomieszczeniu, np. jego szybkości strat ciepła.\n***Małe, średnie lub duże pomieszczenie***: Zaczyna od stałego modelu dla tej wielkości pomieszczenia.",
-          "keep_sensor_selection": "Dla TRV, które mogą regulować według temperatury zewnętrznej (Sonoff TRVZB i TRV-ZBT, Aqara SRTS-A01). Wyłączone: Better Thermostat przełącza TRV na zapisywaną przez siebie temperaturę zewnętrzną, także po resecie lub ponownym parowaniu. Włączone: czujnik wybrany na TRV pozostaje wybrany, a temperatura pomieszczenia nadal jest zapisywana do wejścia zewnętrznego. TRV, który wróci do własnego czujnika, nie zostanie wtedy przełączony z powrotem."
+          "keep_sensor_selection": "Dla TRV, które mogą regulować według temperatury zewnętrznej (Sonoff TRVZB i TRV-ZBT, Aqara SRTS-A01). Wyłączone: Better Thermostat przełącza TRV na zapisywaną przez siebie temperaturę zewnętrzną, także po resecie lub ponownym parowaniu. Włączone: czujnik wybrany na TRV pozostaje wybrany, a temperatura pomieszczenia nadal jest zapisywana do wejścia zewnętrznego. TRV, który wróci do własnego czujnika, nie zostanie wtedy przełączony z powrotem.",
+          "predictive_disturbance": "Wyłączone: horyzont MPC v2 planuje tylko z bieżącym szacunkiem zakłócenia. Włączone: Better Thermostat uczy się powtarzalnych zysków ciepła (obecność, gotowanie, słońce) w półgodzinnych koszykach i przekazuje oczekiwany zysk z najbliższych dwóch godzin do planu. Wymaga godzinowej prognozy encji pogody dla części słonecznej oraz kilku dni czystych cykli MPC v2, aby stać się użyteczne. Domyślnie wyłączone, dopóki prognoza nie jest sprawdzona; włącz, gdy pomieszczenie pokazuje powtarzalny dzienny zysk."
         }
       }
     },
@@ -228,6 +232,18 @@
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} nie przyjmuje temperatury docelowej",
       "description": "Better Thermostat wielokrotnie zapisuje temperaturę docelową {wanted} do {entity}, ale termostat nadal zgłasza {held}. Pomieszczenie nie jest ogrzewane tak, jak zamierza Better Thermostat.\n\nCzęste przyczyny:\n- Termostat ma własny limit nastawy niższy niż publikowane maksimum, na przykład `max_heat_setpoint_limit` w Zigbee2MQTT.\n- Termostat jest w trybie lub presecie, w którym ignoruje temperatury docelowe, na przykład w trybie harmonogramu.\n- Termostat utracił połączenie radiowe lub ma słabą baterię.\n\nBetter Thermostat nadal zapisuje temperaturę docelową, najwyżej raz na godzinę. Ten problem znika sam, gdy termostat zgłosi temperaturę docelową."
+    },
+    "heating_supply_failure": {
+      "title": "BT: {name} - heating supply failure detected",
+      "description": "All radiator thermostats of {name} have been commanding significant heat for an extended period while the room remains below target temperature and fails to warm.\n\nCheck whether your boiler, heat pump, or circulation pump is switched on and supplying hot water, and verify that system water pressure is sufficient. This issue clears itself once the room responds to heating again."
+    },
+    "trv_no_heat_response": {
+      "title": "BT: {name} - {entity} is not producing heat",
+      "description": "The radiator thermostat {entity} in {name} has been commanding heat for an extended period without warming the room.\n\nCheck whether the radiator needs bleeding, whether the mechanical valve pin beneath {entity} is stuck closed, and whether the thermostat head is firmly mounted. This issue clears itself once heating response returns."
+    },
+    "valve_leak_detected": {
+      "title": "BT: {name} - leaking or stuck-open valve on {entity}",
+      "description": "The room {name} continues to warm above target temperature even though {entity} has been commanded closed and residual radiator heat has already dissipated.\n\nInspect the thermostat head mounting, adapter ring, and valve pin on {entity} to ensure the valve can close completely. This issue clears itself once the unexpected warming stops."
     }
   },
   "services": {
@@ -418,6 +434,7 @@
               "hvac_off": "Termostat wyłączony",
               "window": "Okno otwarte",
               "door": "Drzwi otwarte",
+              "suspected_window": "Podejrzenie otwartego okna",
               "no_call_for_heat": "Brak zapotrzebowania na ciepło"
             }
           },
@@ -431,6 +448,14 @@
             }
           }
         }
+      }
+    },
+    "binary_sensor": {
+      "heat_source_detected": {
+        "name": "Wykryto dodatkowe źródło ciepła"
+      },
+      "heat_loss_detected": {
+        "name": "Wykryto nieoczekiwaną utratę ciepła"
       }
     },
     "number": {
@@ -555,6 +580,12 @@
       },
       "window_detection": {
         "name": "Wykrywanie okna"
+      },
+      "anomaly_detection": {
+        "name": "Wykrywanie anomalii"
+      },
+      "anomaly_suppression": {
+        "name": "Wstrzymanie grzania przy podejrzeniu otwartego okna"
       }
     },
     "sensor": {
@@ -568,7 +599,17 @@
           "degraded_mode_entered": "wszedł w tryb awaryjny, ponieważ niektóre czujniki są niedostępne",
           "degraded_mode_resolved": "opuścił tryb awaryjny, ponieważ wszystkie czujniki są dostępne",
           "door_open": "turned off because a door was opened",
-          "door_close": "resumed heating because a door was closed"
+          "door_close": "resumed heating because a door was closed",
+          "anomaly_heating_supply_failure": "detected a heating supply failure",
+          "anomaly_heating_supply_failure_resolved": "heating supply failure resolved",
+          "anomaly_trv_no_heat_response": "detected no heating response from a radiator thermostat",
+          "anomaly_trv_no_heat_response_resolved": "radiator thermostat heating response restored",
+          "anomaly_valve_leak_detected": "detected a leaking or stuck-open radiator valve",
+          "anomaly_valve_leak_detected_resolved": "radiator valve leak resolved",
+          "anomaly_rapid_heat_loss": "detected rapid heat loss (suspected open window)",
+          "anomaly_rapid_heat_loss_resolved": "rapid heat loss ended",
+          "anomaly_sustained_parasitic_loss": "detected sustained elevated heat loss",
+          "anomaly_sustained_parasitic_loss_resolved": "sustained elevated heat loss ended"
         }
       },
       "external_temp_ema": {
@@ -606,6 +647,9 @@
       },
       "mpc_v2_disturbance": {
         "name": "Zakłócenie MPC v2"
+      },
+      "mpc_v2_predicted_disturbance": {
+        "name": "MPC v2 Przewidywane zakłócenie"
       },
       "mpc_v2_room_time_constant": {
         "name": "Stała czasowa pomieszczenia MPC v2"

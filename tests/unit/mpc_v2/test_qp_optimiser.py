@@ -64,14 +64,17 @@ def test_warm_room_above_a_setpoint_beyond_the_water_backs_the_valve_off(
     the valve's full gain at that radiator temperature to decide this.
     """
     plant_params = PlantParams(tau_room_min=720.0)
-    opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
+    # A one-hour horizon keeps this a test of the valve-gain sign; over the
+    # longer default horizon the plan pre-heats for the cold outdoor loss.
+    params = QpParams(horizon_steps=12, move_block_steps=1)
+    opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), params)
     target = target_temperature
     hottest = opt.plant.hottest_radiator_temperature(target)
     assert opt.plant.steady_radiator_temperature(target, -16.0) > plant_params.T_water
 
     u = opt.solve(np.array([target + 2.0, hottest]), target, -16.0, u_last=0.5)
 
-    assert u == pytest.approx(0.5 - QpParams().delta_u_max)
+    assert u == pytest.approx(0.5 - params.delta_u_max)
 
 
 def test_setpoint_above_the_supply_water_never_reads_opening_as_cooling() -> None:
@@ -469,8 +472,8 @@ def test_portable_solver_plans_feasibly_and_like_daqp_for_any_plant_and_weights(
     plans: list[tuple[np.ndarray, float, float, float, float]] = []
     real_portable = qp_optimiser.QpOptimiser._solve_portable
 
-    def _recording_portable(self, hessian, gradient, bounds):
-        plan = real_portable(self, hessian, gradient, bounds)
+    def _recording_portable(self, hessian, gradient, bounds, count):
+        plan = real_portable(self, hessian, gradient, bounds, count)
         plans.append(
             (
                 np.asarray(plan, dtype=float),
@@ -649,7 +652,7 @@ def test_portable_solver_is_exact_on_arbitrary_convex_plans(seed: int) -> None:
         first_hi = min(bounds.u_max, bounds.u_last + bounds.delta_u_max)
         if first_lo > first_hi:
             continue
-        plan = opt._solve_portable(hessian, gradient, bounds)
+        plan = opt._solve_portable(hessian, gradient, bounds, n)
 
         rise = np.eye(n) - np.eye(n, k=-1)
         previous_input = np.zeros(n)
@@ -753,7 +756,7 @@ def test_portable_solver_lands_on_a_vertex_held_by_huge_multipliers(
     bounds = _SolverBounds(u_last=u_last, u_min=0.0, u_max=1.0, delta_u_max=delta_u_max)
 
     plan = opt._solve_portable(
-        root @ root.T + 1e-10 * np.eye(opt.N), 1e4 * np.array(gradient), bounds
+        root @ root.T + 1e-10 * np.eye(opt.N), 1e4 * np.array(gradient), bounds, opt.N
     )
 
     np.testing.assert_allclose(plan, vertex, rtol=0.0, atol=1e-12)
@@ -936,3 +939,72 @@ def test_a_negative_rate_limit_returns_the_clamped_last_command() -> None:
     u = opt.solve(np.array([18.0, 18.0]), T_sp=22.0, T_outdoor=5.0, u_last=0.3)
 
     assert u == pytest.approx(0.3)
+
+
+def test_a_uniform_disturbance_profile_plans_like_the_constant_estimate() -> None:
+    """A constant per-step profile is the same disturbance the solver already had."""
+    opt = _make_optimiser()
+    x_pred = np.array([19.0, 25.0])
+
+    constant = opt.solve(x_pred, 21.0, 0.0, u_last=0.2, D_hat_K_per_min=0.02)
+    profiled = opt.solve(
+        x_pred,
+        21.0,
+        0.0,
+        u_last=0.2,
+        D_hat_K_per_min=0.0,
+        D_profile_K_per_min=(0.02,) * opt.N,
+    )
+
+    assert profiled == pytest.approx(constant)
+
+
+def test_a_non_finite_profile_entry_falls_back_to_the_constant_estimate() -> None:
+    """A poisoned forecast bucket cannot poison the plan."""
+    opt = _make_optimiser()
+    x_pred = np.array([19.0, 25.0])
+
+    constant = opt.solve(x_pred, 21.0, 0.0, u_last=0.2, D_hat_K_per_min=0.01)
+    poisoned = opt.solve(
+        x_pred,
+        21.0,
+        0.0,
+        u_last=0.2,
+        D_hat_K_per_min=0.01,
+        D_profile_K_per_min=(float("nan"), float("inf"), 0.01),
+    )
+
+    assert poisoned == pytest.approx(constant)
+
+
+def test_a_future_gain_tapers_the_plan_before_it_arrives() -> None:
+    """A gain forecast inside the horizon opens the valve less now."""
+    opt = _make_optimiser()
+    x_pred = np.array([21.5, 35.0])
+    profile = (0.0,) * 4 + (0.01,) * (opt.N - 4)
+
+    without_gain = opt.solve(x_pred, 22.0, 10.0, u_last=0.2)
+    with_gain = opt.solve(x_pred, 22.0, 10.0, u_last=0.2, D_profile_K_per_min=profile)
+
+    assert with_gain < without_gain
+
+
+def test_move_blocks_condense_the_horizon_into_twelve_decisions() -> None:
+    """The twelve-block default holds each command over two fine steps."""
+    opt = QpOptimiser(PlantModelRC2(PlantParams(), dt_s=300.0), QpParams())
+
+    assert opt.N == 24
+    assert opt.M == 12
+    assert opt._expand.shape == (24, 12)
+    assert opt._expand.sum(axis=0).tolist() == [2] * 12
+
+
+def test_move_blocking_survives_a_horizon_that_does_not_fill_its_last_block() -> None:
+    """A short final block still gets exactly one decision."""
+    opt = QpOptimiser(
+        PlantModelRC2(PlantParams(), dt_s=300.0),
+        QpParams(horizon_steps=25, move_block_steps=2),
+    )
+
+    assert opt.M == 13
+    assert opt._expand.sum(axis=0).tolist() == [2] * 12 + [1]

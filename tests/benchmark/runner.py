@@ -13,12 +13,30 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime
 import math
 import sys
 from typing import Any, Protocol
 import zlib
 
+from custom_components.better_thermostat.core.desired import HeatingBlock
+from custom_components.better_thermostat.core.fsm.anomaly import (
+    AnomalyState,
+    gating_codes as anomaly_gating_codes,
+    next_evaluation_monotonic as anomaly_next_evaluation_monotonic,
+    step as anomaly_step,
+    visible_codes as anomaly_visible_codes,
+)
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
+from custom_components.better_thermostat.core.snapshot import (
+    HvacMode,
+    TrvReported,
+    WorldSnapshot,
+)
 from custom_components.better_thermostat.core.watchdog import CONTROL_TICK_S
+from custom_components.better_thermostat.utils.anomaly_evidence import (
+    AnomalyEvidenceTracker,
+)
 
 from .actuator import Actuator, ActuatorParams, ActuatorProfile
 from .adapters.base import BenchmarkContext, ControlCycleGate, ControllerAdapter
@@ -355,6 +373,12 @@ def _drive_adapter(
     T_setpoint_list: list[float] = []
     valve_percent_list: list[float] = []
     heat_to_room_list: list[float] = []
+    anomalies_list: list[tuple[str, ...]] = []
+
+    anomaly_tracker = AnomalyEvidenceTracker() if scenario.anomaly_detection else None
+    anomaly_state = AnomalyState()
+    learning_held = False
+    followup_due_t: float | None = None
 
     t = 0.0
     last_valve_percent = 0.0
@@ -395,6 +419,9 @@ def _drive_adapter(
             if scenario.window_open_schedule is not None
             else False
         )
+        controller_window_open = (
+            window_open if scenario.controller_sees_window else False
+        )
         solar_intensity = (
             scenario.solar_intensity_schedule(t)
             if scenario.solar_intensity_schedule is not None
@@ -418,12 +445,21 @@ def _drive_adapter(
         T_measured = room_input.room_temperature
         if T_measured is None:
             T_measured = trv_report
-        now_seen = (room_input.commits, trv_report, target, window_open)
+        now_seen = (room_input.commits, trv_report, target, controller_window_open)
         control_event = now_seen != seen
         seen = now_seen
+        if followup_due_t is not None and t >= followup_due_t - 1e-6:
+            control_event = True
+            followup_due_t = None
         control_tick = t >= next_tick_t
         if control_tick:
             next_tick_t += CONTROL_TICK_S
+
+        suspected_window_active = (
+            scenario.anomaly_suppression
+            and anomaly_state.rapid_loss.is_gating(t, 3600.0)
+        )
+        effective_window_open = controller_window_open or suspected_window_active
 
         ctx = BenchmarkContext(
             t=t,
@@ -433,7 +469,7 @@ def _drive_adapter(
             raw_room_temperature=facade.T_room,
             trv_temperature=trv_report,
             outdoor_temperature=T_outdoor,
-            window_open=window_open,
+            window_open=effective_window_open,
             solar_intensity=controller_solar,
             last_valve_percent=last_valve_percent,
             sensor_calibration_error_K=sensor.observed_calibration_error_K,
@@ -454,6 +490,7 @@ def _drive_adapter(
             ),
             nominal_flow_temperature=nominal_flow_temperature,
             heat_delivered=heat_delivered,
+            learning_paused=learning_held,
         )
 
         out = adapter.step(ctx)
@@ -461,12 +498,107 @@ def _drive_adapter(
         # whatever the calibration mode: the kernel's window region decides
         # that above the controller. The controller still runs and sees the
         # open window, but the plant gets a closed valve.
-        valve_percent = (
-            0.0 if window_open or out.valve_percent is None else out.valve_percent
+        raw_valve_percent = (
+            0.0
+            if controller_window_open or out.valve_percent is None
+            else out.valve_percent
         )
         if isinstance(adapter, ControlCycleGate):
             # BT writes a direct-valve command as a whole percent.
-            valve_percent = float(round(valve_percent))
+            raw_valve_percent = float(round(raw_valve_percent))
+
+        if anomaly_tracker is not None and (control_event or control_tick):
+            if "normalised_innovation" in out.diagnostics:
+                prior_plant = getattr(
+                    getattr(adapter, "_params", None), "plant", scenario.plant
+                )
+                anomaly_tracker.record_mpc_v2_diagnostics(
+                    now_monotonic=t,
+                    room_temperature_hat=float(out.diagnostics["T_room_hat"]),
+                    radiator_temperature_hat=float(out.diagnostics["T_rad_hat"]),
+                    disturbance_kelvin_per_min=float(
+                        out.diagnostics["D_hat_K_per_min"]
+                    ),
+                    disturbance_at_bound=bool(out.diagnostics["disturbance_at_bound"]),
+                    normalised_innovation=float(
+                        out.diagnostics["normalised_innovation"]
+                    ),
+                    room_time_constant_minutes=float(out.diagnostics["tau_room_min"]),
+                    k_rad_room_per_min=float(out.diagnostics["coupling_rad_room"]),
+                    k_loss_per_min=1.0 / float(prior_plant.tau_room_min),
+                    learning_held=learning_held,
+                    room_temperature=T_measured,
+                    contact_open=controller_window_open,
+                )
+            thermal_evidence, trv_slopes = anomaly_tracker.observe_snapshot(
+                now_monotonic=t,
+                room_temperature=T_measured,
+                room_temperature_filtered=room_input.room_temperature_filtered,
+                outdoor_temperature=T_outdoor,
+                temperature_slope_kelvin_per_min=room_input.temperature_slope_K_per_min,
+                heat_loss_rate_kelvin_per_hour_per_kelvin=(
+                    60.0 / scenario.plant.tau_room_min
+                ),
+                trv_raw_temperatures={"bench_trv": trv_report},
+                contact_open=controller_window_open,
+            )
+            snap = WorldSnapshot(
+                now=datetime.fromtimestamp(t, tz=UTC),
+                now_monotonic=t,
+                heat_target_temperature=target,
+                hvac_mode=HvacMode.HEAT,
+                room_temperature=T_measured,
+                room_temperature_filtered=room_input.room_temperature_filtered,
+                temperature_slope=room_input.temperature_slope_K_per_min,
+                outdoor_temperature=T_outdoor,
+                window_open=controller_window_open,
+                is_day=controller_solar > 0.0,
+                solar_intensity=controller_solar,
+                trvs={
+                    "bench_trv": TrvReported(
+                        entity_id="bench_trv",
+                        hvac_mode=HvacMode.HEAT,
+                        current_temperature=trv_report,
+                        setpoint=target,
+                        raw_temperature=trv_report,
+                        raw_temperature_slope_kelvin_per_min=trv_slopes.get(
+                            "bench_trv"
+                        ),
+                        valve_percent=raw_valve_percent,
+                    )
+                },
+                thermal_evidence=thermal_evidence,
+            )
+            heating_blocked_by = HeatingBlock.WINDOW if controller_window_open else None
+            anomaly_state = anomaly_step(
+                anomaly_state,
+                snap,
+                control_mode=ControlMode.OPTIMAL,
+                heating_blocked_by=heating_blocked_by,
+                contact_open=controller_window_open,
+                addressed_trvs=("bench_trv",),
+            )
+            gating = anomaly_gating_codes(anomaly_state, t)
+            learning_held = bool(gating)
+            anomaly_tracker.commit_cycle(
+                snap,
+                anomaly_state,
+                anomaly_detection=True,
+                control_mode=ControlMode.OPTIMAL,
+                learning_held=learning_held,
+                heating_blocked_by=heating_blocked_by,
+                contact_open=controller_window_open,
+            )
+            followup_due_t = anomaly_next_evaluation_monotonic(
+                anomaly_state,
+                room_time_constant_minutes=anomaly_tracker.room_time_constant_minutes,
+            )
+
+        suspected_window_active = (
+            scenario.anomaly_suppression
+            and anomaly_state.rapid_loss.is_gating(t, 3600.0)
+        )
+        valve_percent = 0.0 if suspected_window_active else raw_valve_percent
         last_valve_percent = valve_percent
 
         t_s_list.append(t)
@@ -474,14 +606,31 @@ def _drive_adapter(
         T_setpoint_list.append(target)
         valve_percent_list.append(valve_percent)
         heat_to_room_list.append(facade.heat_to_room_K_per_min)
+        if anomaly_tracker is not None:
+            room_codes, trv_codes = anomaly_visible_codes(anomaly_state)
+            combined_codes = {code.value for code in room_codes}
+            for per_trv in trv_codes.values():
+                combined_codes.update(code.value for code in per_trv)
+            anomalies_list.append(tuple(sorted(combined_codes)))
 
+        floor_percent = (
+            scenario.valve_floor_percent(t)
+            if callable(scenario.valve_floor_percent)
+            else float(scenario.valve_floor_percent)
+        )
+        plant_valve_percent = max(valve_percent, floor_percent)
         Q_solar = solar_intensity * scenario.solar_max_K_per_min
         Q_window = -scenario.window_loss_K_per_min if window_open else 0.0
+        Q_extra = (
+            scenario.extra_disturbance_schedule(t)
+            if scenario.extra_disturbance_schedule is not None
+            else 0.0
+        )
         facade.apply(
             step_s,
-            valve_percent,
+            plant_valve_percent,
             T_outdoor,
-            Q_K_per_min=Q_solar + Q_window,
+            Q_K_per_min=Q_solar + Q_window + Q_extra,
             flow_temperature=flow_temperature,
             heat_delivered=heat_delivered,
         )
@@ -493,6 +642,7 @@ def _drive_adapter(
         T_setpoint=T_setpoint_list,
         valve_percent=valve_percent_list,
         heat_to_room_K_per_min=heat_to_room_list,
+        anomalies=anomalies_list if anomaly_tracker is not None else (),
     )
 
 
@@ -575,6 +725,7 @@ def run_scenario(
         controller=adapter.name,
         scenario=scenario.name,
         metrics=compute_metrics(series, scenario.transient_start_s),
+        series=series,
     )
 
 

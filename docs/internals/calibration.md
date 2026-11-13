@@ -110,14 +110,19 @@ State estimates (the EMA, the slope, the MPC virtual temperature, the
 MPC v2 observer, the PID measurement chain) keep tracking the room, so
 learning resumes from fresh estimates and no interval spans the pause.
 
-The *Release devices* switch holds the learners through the same flag.
-`learning_held` is on while learning is paused, the devices are released
-or any TRV is released on its own, and turns off at the end of the first
+The *Release devices* switch and the anomaly region hold the learners
+through the same flag. `learning_held` is on while learning is paused,
+the devices are released, any TRV is released on its own, or an active
+anomaly is gating learning (`anomaly.gating_codes` non-empty while
+`anomaly_detection` is enabled), and turns off at the end of the first
 control cycle after all of them have ended. For a release that is the cycle the take-back requests, the
 one that writes the devices once, so neither PID, MPC nor MPC v2 learns
 over the released time and the re-identification buffer is cut there.
-`learning_paused` stays the pause switch's own state; a release does not
-set it.
+When `compute_control_cycle` commits an anomaly transition into a gating
+phase (`ACTIVE` or `RECOVERING`), it sets `learning_held` immediately so
+the learners and re-identification buffer hold on the onset cycle itself.
+`learning_paused` stays the pause switch's own state; neither a release
+nor an anomaly sets it.
 
 There is **no external readiness gate** in front of actuation:
 closed-loop learners bootstrap *through* actuation, and an external

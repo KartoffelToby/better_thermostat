@@ -1,8 +1,10 @@
 {
   "desired": {
+    "anomalies": [],
     "call_for_heat": true,
     "devices_released": false,
     "heating_blocked_by": null,
+    "trv_anomalies": {},
     "trvs": {
       "climate.trv1": {
         "calibration_offset": null,
@@ -78,6 +80,27 @@
     "window_open": null
   },
   "state": {
+    "anomaly": {
+      "last_rapid_loss_monotonic": null,
+      "no_heat_delivery": {
+        "active_since": null,
+        "phase": "clear",
+        "since": null
+      },
+      "parasitic_loss": {
+        "active_since": null,
+        "phase": "clear",
+        "since": null
+      },
+      "rapid_loss": {
+        "active_since": null,
+        "phase": "clear",
+        "since": null
+      },
+      "trvs": {}
+    },
+    "anomaly_detection": false,
+    "anomaly_suppression": false,
     "control_mode": {
       "degraded_since": 700.0,
       "mode": "sensor_fallback",
@@ -94,6 +117,7 @@
       "phase": "running"
     },
     "maintenance": {
+      "last_anomaly_run_monotonic": null,
       "next_due": "0001-01-01T00:00:00+00:00",
       "phase": "idle",
       "running_since": null

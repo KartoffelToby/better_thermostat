@@ -31,6 +31,9 @@ from custom_components.better_thermostat.calibration import (
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.anomaly_evidence import (
+    AnomalyEvidenceTracker,
+)
 from custom_components.better_thermostat.utils.calibration.mpc import MpcState
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Params,
@@ -140,9 +143,13 @@ def _bt(real_trvs: dict[str, Trv], *, window_open: bool, door_open: bool) -> Any
         device_id="bt_contact_gate_device",
         entry_id="bt_contact_gate_entry",
         state_mgr=_InMemoryStateManager(),
+        anomaly_evidence=AnomalyEvidenceTracker(),
         schedule_save_state=lambda: None,
         kernel_state=SimpleNamespace(
-            control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL)
+            control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL),
+            anomaly_detection=False,
+            anomaly_suppression=False,
+            anomaly=SimpleNamespace(rapid_loss=SimpleNamespace(is_visible=False)),
         ),
         clock=FakeClock(monotonic_value=1_000_000.0),
     )
