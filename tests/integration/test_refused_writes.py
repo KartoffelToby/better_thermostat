@@ -197,7 +197,7 @@ async def test_a_target_the_trv_takes_reaches_it_after_a_refused_one(
 
     assert await wait_for(
         hass,
-        lambda: (trv.target_temperature or 99.0) <= _DEVICE_TAKES_UP_TO,
+        lambda: (trv.native_target_temperature or 99.0) <= _DEVICE_TAKES_UP_TO,
         timeout_seconds=20.0,
     ), trv.set_temperature_calls[-5:]
     assert bt.heat_target_temperature == _TAKEN_TARGET

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine, Sequence
+from collections.abc import Coroutine, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
@@ -49,10 +49,14 @@ from custom_components.better_thermostat.adapters.valve_entity import (
     valve_entity_range,
     valve_entity_value,
 )
+from custom_components.better_thermostat.calibration import effective_room_temperature
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
-from custom_components.better_thermostat.core.safety import clamp as safety_clamp
+from custom_components.better_thermostat.core.safety import (
+    clamp as safety_clamp,
+    resolve_offset_bounds,
+)
 from custom_components.better_thermostat.core.snapshot import HvacMode, WorldSnapshot
 from custom_components.better_thermostat.core.watchdog import (
     WATCHDOG_MAX_AGE_S,
@@ -69,11 +73,15 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     offset_from_device,
     override_set_hvac_mode,
     override_set_temperature,
+    quirk_ignores_calibration_offset,
     trv_report_is_unreadable,
     trv_state_unknown_as_available,
     valve_readings,
 )
-from custom_components.better_thermostat.model_fixes.types import ValveReading
+from custom_components.better_thermostat.model_fixes.types import (
+    ValveKeepaliveQuirk,
+    ValveReading,
+)
 from custom_components.better_thermostat.trv import BudgetRetry, WithdrawnHvacMode
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
@@ -137,6 +145,7 @@ from custom_components.better_thermostat.utils.stored_values import finite_or_no
 from custom_components.better_thermostat.utils.watcher import (
     UNAVAILABLE_OR_UNKNOWN_STATES,
     clear_unapplied_setpoint,
+    follow_calibration_offset_at_limit,
     report_invalid_valve_calibration,
     report_unapplied_setpoint,
 )
@@ -864,6 +873,55 @@ def _valve_repeat_readback(
     return _valve_readback(self, trv, last_percent)
 
 
+def _valve_keepalive_due(
+    self: BetterThermostat, trv: Trv, hvac_mode: HvacMode | None
+) -> bool:
+    """Whether a valve demand has to be written again before the device forgets it.
+
+    Only a TRV whose quirk declares a keepalive interval is written again,
+    and only while it is driven by its valve. ``hvac_mode`` is the kernel's
+    intended mode for the TRV: a closed valve is kept alive unless that
+    mode is OFF, since a head left to its own controller below its setpoint
+    opens again, and left as it is under an OFF intent, which commands no
+    heating. The
+    interval counts from the last valve write a channel took, so any such
+    write in between, a changed opening or a repeat the readback asked for,
+    starts it afresh, and a refused write leaves the keepalive due for the
+    retry that follows it.
+    """
+    quirks: object = trv.model_quirks
+    if not isinstance(quirks, ValveKeepaliveQuirk):
+        return False
+    if (
+        configured_calibration_output(trv.advanced)
+        != CalibrationOutput.DIRECT_VALVE_BASED
+    ):
+        return False
+    if trv.last_valve_percent is None or (
+        round(trv.last_valve_percent) <= 0 and hvac_mode == HvacMode.OFF
+    ):
+        return False
+    last_write = trv.last_valve_written_monotonic
+    if last_write is None:
+        return False
+    return (
+        self.clock.monotonic() - last_write >= quirks.VALVE_KEEPALIVE_INTERVAL_SECONDS
+    )
+
+
+def _valve_keepalive_pending(self: BetterThermostat, desired: DesiredState) -> bool:
+    """Whether a TRV the intent commands is due a valve keepalive.
+
+    The intent leaves out a TRV that is unreachable or released, so neither
+    queues a cycle that would write nothing to it.
+    """
+    return any(
+        (trv := self.real_trvs.get(entity_id)) is not None
+        and _valve_keepalive_due(self, trv, intent.hvac_mode)
+        for entity_id, intent in desired.trvs.items()
+    )
+
+
 def desired_diverges(
     self: BetterThermostat, snapshot: WorldSnapshot, desired: DesiredState
 ) -> bool:
@@ -962,7 +1020,9 @@ async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) ->
 
     Builds a snapshot, asks the kernel for the desired state, and
     enqueues one control cycle when any device diverges — the general
-    mechanism that heals lost writes without per-case keepalives.
+    mechanism that heals lost writes. A device that holds the intent gets
+    a cycle too when its valve keepalive is due, since it would otherwise
+    drop the valve demand it holds.
 
     The control watchdog is read here too. A divergence behind a loop that
     has not completed a cycle for ``WATCHDOG_MAX_AGE_S`` is the silent hang
@@ -986,6 +1046,13 @@ async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) ->
             return
         desired = safety_clamp(desired, snapshot)
         if not desired_diverges(self, snapshot, desired):
+            if _valve_keepalive_pending(self, desired):
+                _LOGGER.debug(
+                    "better_thermostat %s: reconcile: valve keepalive due, "
+                    "queueing a control cycle",
+                    self.device_name,
+                )
+                request_control_cycle(self)
             return
         if control_loop_stalled(
             self.kernel_state.last_control_monotonic, self.clock.monotonic()
@@ -1588,6 +1655,21 @@ def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[objec
     )
 
 
+def _end_offset_at_limit_runs(
+    self: BetterThermostat, entity_ids: Iterable[str]
+) -> None:
+    """End the run of cycles with the offset at its limit for these TRVs.
+
+    The run has to be unbroken, so a TRV that a paused queue or a cycle
+    leaves out starts it afresh with its next control cycle. A report the
+    run raised stands until a cycle takes it back.
+    """
+    for entity_id in entity_ids:
+        trv = self.real_trvs.get(entity_id)
+        if trv is not None:
+            trv.calibration_offset_at_limit = None
+
+
 async def control_queue(self: BetterThermostat) -> None:
     """Process control commands from the queue and coordinate TRV control.
 
@@ -1612,10 +1694,12 @@ async def control_queue(self: BetterThermostat) -> None:
     try:
         while True:
             if self.in_maintenance:
+                _end_offset_at_limit_runs(self, self.real_trvs)
                 await asyncio.sleep(1)
                 continue
 
             if self.ignore_states or self.startup_running:
+                _end_offset_at_limit_runs(self, self.real_trvs)
                 await asyncio.sleep(1)
                 continue
             else:
@@ -1729,6 +1813,11 @@ async def control_queue(self: BetterThermostat) -> None:
                             continue
                         controlled_trvs.append(trv)
                         tasks.append(control_trv(self, trv, cycle=cycle))
+
+                    _end_offset_at_limit_runs(
+                        self,
+                        [trv for trv in self.real_trvs if trv not in controlled_trvs],
+                    )
 
                     if not tasks and not _released:
                         # The heating action and its hysteresis are advanced
@@ -2588,6 +2677,10 @@ async def control_trv(
         async with self._temperature_lock:
             self.real_trvs[entity_id].ignore_trv_states = True
             _suppression_owned = True
+            # The run of cycles with the offset at its limit continues only
+            # if this cycle follows the offset again below.
+            _offset_at_limit = self.real_trvs[entity_id].calibration_offset_at_limit
+            self.real_trvs[entity_id].calibration_offset_at_limit = None
             advance_hvac_action(self)
             _trv = self.hass.states.get(entity_id)
 
@@ -2710,9 +2803,22 @@ async def control_trv(
                     # and bypasses the write budget; everything else waits
                     # for the next slot and converges via the next cycle. A
                     # repeat that only an assumed state leaves unconfirmed
-                    # gains no safety from going out early, so it waits too.
+                    # gains no safety from going out early, so it waits too,
+                    # and so does a keepalive, which repeats a closure the
+                    # valve still holds. A device that forgets a valve demand
+                    # it is not written again takes the repeat once its
+                    # keepalive is due.
                     _repeat = _valve_repeat_readback(self, entity_id, target_percent)
-                    if _repeat in (ValveReadback.HOLDS, ValveReadback.UNREADABLE):
+                    _keepalive = _repeat in (
+                        ValveReadback.HOLDS,
+                        ValveReadback.UNREADABLE,
+                    ) and _valve_keepalive_due(
+                        self, self.real_trvs[entity_id], trv_desired.hvac_mode
+                    )
+                    if (
+                        _repeat in (ValveReadback.HOLDS, ValveReadback.UNREADABLE)
+                        and not _keepalive
+                    ):
                         _LOGGER.debug(
                             "better_thermostat %s: valve of %s already at %s%%, "
                             "skipping write",
@@ -2725,17 +2831,24 @@ async def control_trv(
                         entity_id,
                         "valve",
                         bypass=target_percent == 0
-                        and _repeat is not ValveReadback.UNCONFIRMED,
+                        and _repeat is not ValveReadback.UNCONFIRMED
+                        and not _keepalive,
                     ):
                         _LOGGER.debug(
-                            "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
+                            "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s%s)",
                             self.device_name,
                             entity_id,
                             target_percent,
                             _source,
+                            ", keepalive" if _keepalive else "",
                         )
                         ok = await set_valve(self, entity_id, target_percent)
-                        if not ok:
+                        if ok:
+                            _written = self.real_trvs[entity_id]
+                            _written.last_valve_written_monotonic = (
+                                self.clock.monotonic()
+                            )
+                        else:
                             _LOGGER.debug(
                                 "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
                                 self.device_name,
@@ -2925,6 +3038,10 @@ async def control_trv(
                 # A disabled calibration entity is no offset channel: the
                 # offset is not pursued until it is enabled again.
                 and not calibration_entity_disabled(self, entity_id)
+                # Nor is the offset of a model that ignores it.
+                and not quirk_ignores_calibration_offset(
+                    self.real_trvs[entity_id].model_quirks
+                )
             ):
                 _current_calibration_raw = await get_calibration_offset(self, entity_id)
 
@@ -3030,6 +3147,22 @@ async def control_trv(
                                 entity_id,
                                 _budget_remaining(self, entity_id, "offset"),
                             )
+
+                # An adapter reads an offset entity that reports nothing as
+                # 0.0, which is no offset the TRV holds.
+                _offset_entity = trv.local_temperature_calibration_entity
+                follow_calibration_offset_at_limit(
+                    self,
+                    entity_id,
+                    _calibration,
+                    _current_calibration
+                    if _offset_entity is None
+                    or state_is_live(self.hass.states.get(_offset_entity))
+                    else None,
+                    resolve_offset_bounds(snapshot.trvs.get(entity_id)),
+                    effective_room_temperature(self),
+                    _offset_at_limit,
+                )
 
             # set new target temperature
             _safety_overrode_setpoint = False

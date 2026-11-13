@@ -145,6 +145,23 @@ once. After six writes of a run the TRV is listed in the thermostat's
 away when the device is seen holding the value. A report without a
 readable setpoint neither extends nor ends a run.
 
+The offset channel writes no differently when the offset runs out of
+range, but it watches for that. A cycle continues a run of such cycles
+(`core/offset_limit.py`) when its offset intent, after the safety hull,
+and the reported offset both lie within one offset step of the same limit
+of the range the hull clamps to, and the correction the gap between room
+temperature and TRV reading asks for (the gap plus the offset held, or the
+negated gap for a TRV that shifts its setpoint) lies more than a step past
+that limit. A calibration mode or overheating protection that holds the
+offset at a limit on a TRV that applies it leaves that correction inside
+the range. A run that lasts an hour gives the TRV a
+`calibration_offset_at_limit` repair issue and logs one warning; a cycle
+that finds any of the three otherwise ends the run and takes the issue
+back. The run comes off the TRV at the start of every `control_trv` call
+and goes back only through the offset block, so a cycle that returns early
+or follows no offset ends it, and a raised issue stays in place. An offset
+entity that is unavailable or unknown counts as no report.
+
 ## The reconciler
 
 Every five minutes, `reconcile_tick` runs the same observe-decide step

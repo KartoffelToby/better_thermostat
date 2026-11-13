@@ -14,7 +14,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import CoreState, State
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import mock_restore_cache
+from pytest_homeassistant.common import mock_restore_cache
 
 from custom_components.better_thermostat.utils.state_manager import CURRENT_VERSION
 

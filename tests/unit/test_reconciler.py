@@ -26,6 +26,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    MIN_WRITE_INTERVAL_S,
     ValveReadback,
     _valve_readback,
     control_trv,
@@ -81,6 +82,9 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     trv.model_quirks.override_set_temperature = AsyncMock(return_value=False)
     trv.model_quirks.override_set_hvac_mode = AsyncMock(return_value=False)
     trv.model_quirks.override_set_valve = AsyncMock(return_value=True)
+    # A bare mock answers every quirk Protocol; only the keepalive tests
+    # give the TRV a keepalive interval.
+    del trv.model_quirks.VALVE_KEEPALIVE_INTERVAL_SECONDS
     bt.real_trvs = {"climate.trv": trv}
     state = Mock()
     state.state = trv_mode
@@ -977,6 +981,215 @@ class TestValveReadback:
             override_set_temperature=AsyncMock(return_value=False),
         )
         assert await self._tick_queues(bt) is True
+
+
+class TestValveKeepalive:
+    """A head that forgets an opening it is not written again is written in time.
+
+    A Bosch BTH-RA hands its valve back to its own controller after a quarter
+    of an hour without a write, and that controller sets a demand of its own.
+    A quirk declaring a keepalive interval has the held opening written again
+    once the interval has passed since the last valve write, from the control
+    cycle and from the reconcile tick alike. A closed valve is kept alive while
+    the intent heats and left alone while it holds the TRV off.
+    """
+
+    VALVE = "number.valve"
+    INTERVAL = 480.0
+    WRITTEN_AT = 1_000.0
+
+    def _bt(
+        self,
+        *,
+        keepalive=True,
+        last_percent=50,
+        output=CalibrationOutput.DIRECT_VALVE_BASED,
+    ):
+        """A TRV whose valve holds ``last_percent``, last written at ``WRITTEN_AT``."""
+        bt = _control_bt()
+        bt.clock.monotonic_value = self.WRITTEN_AT
+        trv = bt.real_trvs["climate.trv"]
+        trv.advanced = {**trv.advanced, "calibration": output}
+        trv.valve_position_entity = self.VALVE
+        trv.valve_position_writable = True
+        trv.last_valve_percent = last_percent
+        trv.last_valve_method = "adapter"
+        trv.last_write_monotonic["valve"] = self.WRITTEN_AT
+        trv.last_valve_written_monotonic = self.WRITTEN_AT
+        if keepalive:
+            trv.model_quirks.VALVE_KEEPALIVE_INTERVAL_SECONDS = self.INTERVAL
+        valve = State(self.VALVE, str(last_percent))
+        trv_state = bt.hass.states.get.return_value
+        bt.hass.states.get.side_effect = lambda entity_id: (
+            valve if entity_id == self.VALVE else trv_state
+        )
+        return bt
+
+    async def _cycle_writes(self, bt, percent=50, *, taken=True):
+        """Run a cycle that wants ``percent``; return the openings it wrote.
+
+        A write the channel takes records its opening on the TRV the way
+        the delegate records it; one it refuses records nothing.
+        """
+        trv = bt.real_trvs["climate.trv"]
+
+        async def _set_valve(_bt, _entity_id, written):
+            if taken:
+                trv.last_valve_percent = written
+            return taken
+
+        with (
+            patch(f"{_CTRL}.convert_outbound_states") as conv,
+            patch(
+                f"{_CTRL}._get_valve_control",
+                return_value=({"valve_percent": percent}, "test"),
+            ),
+            patch(
+                f"{_CTRL}.set_valve", autospec=True, side_effect=_set_valve
+            ) as set_valve,
+            patch(f"{_CTRL}.set_hvac_mode", autospec=True),
+            patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            conv.return_value = {"system_mode": HVACMode.HEAT}
+            await control_trv(bt, "climate.trv")
+        return [call.args[2] for call in set_valve.call_args_list]
+
+    async def _tick_queues(self, bt):
+        """Run a reconcile tick and answer whether it queued a cycle."""
+        bt.control_queue_task.put_nowait.reset_mock()
+        await reconcile_tick(bt)
+        return bt.control_queue_task.put_nowait.called
+
+    @pytest.mark.asyncio
+    async def test_a_refused_keepalive_is_taken_again_by_the_retry(self):
+        """A keepalive the channel refused goes out with the next free budget slot.
+
+        The head has not been written since the opening it holds, so the
+        window it falls back after keeps running; waiting another interval
+        would let it run out.
+        """
+        bt = self._bt()
+        bt.clock.monotonic_value = self.WRITTEN_AT + self.INTERVAL
+        refused = await self._cycle_writes(bt, taken=False)
+        bt.clock.monotonic_value += MIN_WRITE_INTERVAL_S
+        retried = await self._cycle_writes(bt)
+
+        assert (refused, retried) == ([50], [50])
+
+    @pytest.mark.asyncio
+    async def test_a_held_opening_is_written_again_once_the_interval_passed(self):
+        """The repeat waits for the interval and then starts it afresh."""
+        bt = self._bt()
+        writes = []
+        for elapsed in (self.INTERVAL - 1.0, self.INTERVAL, self.INTERVAL + 60.0):
+            bt.clock.monotonic_value = self.WRITTEN_AT + elapsed
+            writes.append(await self._cycle_writes(bt))
+
+        assert writes == [[], [50], []]
+
+    @pytest.mark.asyncio
+    async def test_the_reconcile_tick_queues_a_cycle_once_the_keepalive_is_due(self):
+        """A head that holds its opening gets a cycle only for the keepalive."""
+        bt = self._bt()
+        bt.clock.monotonic_value = self.WRITTEN_AT + self.INTERVAL - 1.0
+        before = await self._tick_queues(bt)
+        bt.clock.monotonic_value = self.WRITTEN_AT + self.INTERVAL
+        due = await self._tick_queues(bt)
+
+        assert (before, due) == (False, True)
+
+    @pytest.mark.asyncio
+    async def test_a_changed_opening_is_written_without_waiting_for_the_keepalive(self):
+        """The keepalive adds writes; it holds back none the budget lets through."""
+        bt = self._bt()
+        bt.clock.monotonic_value = self.WRITTEN_AT + MIN_WRITE_INTERVAL_S
+        assert await self._cycle_writes(bt, percent=60) == [60]
+
+    @pytest.mark.parametrize(
+        "setup",
+        [
+            pytest.param({"keepalive": False}, id="no-keepalive-quirk"),
+            pytest.param(
+                {"output": CalibrationOutput.TARGET_TEMP_BASED}, id="setpoint-driven"
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_valve_without_a_due_keepalive_is_left_alone(self, setup):
+        """Only a valve the quirk keeps alive under valve control is repeated.
+
+        A head without the quirk holds what it was written, and a head
+        steered through its setpoint holds no valve demand of Better
+        Thermostat's.
+        """
+        bt = self._bt(**setup)
+        percent = bt.real_trvs["climate.trv"].last_valve_percent
+        bt.clock.monotonic_value = self.WRITTEN_AT + 4 * self.INTERVAL
+
+        assert await self._tick_queues(bt) is False
+        assert await self._cycle_writes(bt, percent=percent) == []
+
+    @pytest.mark.asyncio
+    async def test_a_closed_valve_is_kept_alive_while_the_intent_heats(self):
+        """A head held shut in heat mode is written its 0 % again in time.
+
+        Left to its own controller, a head whose setpoint stays above its
+        reading would open the valve Better Thermostat holds shut.
+        """
+        bt = self._bt(last_percent=0)
+        bt.clock.monotonic_value = self.WRITTEN_AT + self.INTERVAL - 1.0
+        before = (await self._tick_queues(bt), await self._cycle_writes(bt, 0))
+        bt.clock.monotonic_value = self.WRITTEN_AT + self.INTERVAL
+        due = (await self._tick_queues(bt), await self._cycle_writes(bt, 0))
+
+        assert (before, due) == ((False, []), (True, [0]))
+
+    @pytest.mark.asyncio
+    async def test_a_refused_closed_keepalive_waits_for_the_write_spacing(self):
+        """A closure the valve still holds gains nothing from going out early.
+
+        A refused 0 % keepalive stays due, but the next cycle inside the
+        write spacing does not repeat it; the one after the spacing does.
+        """
+        bt = self._bt(last_percent=0)
+        bt.clock.monotonic_value = self.WRITTEN_AT + self.INTERVAL
+        bt.real_trvs["climate.trv"].last_write_monotonic["valve"] = (
+            bt.clock.monotonic_value
+        )
+        early = await self._cycle_writes(bt, 0, taken=False)
+        bt.clock.monotonic_value += MIN_WRITE_INTERVAL_S
+        spaced = await self._cycle_writes(bt, 0)
+
+        assert (early, spaced) == ([], [0])
+
+    @pytest.mark.asyncio
+    async def test_a_closed_valve_is_left_alone_while_the_intent_is_off(self):
+        """A head Better Thermostat holds off is not written its 0 % again.
+
+        It stays shut for as long as nothing calls for heat, and a write
+        every interval over those hours would only cost its battery.
+        """
+        bt = self._bt(last_percent=0)
+        bt.call_for_heat = False
+        bt.hass.states.get.return_value.state = HVACMode.OFF
+        bt.clock.monotonic_value = self.WRITTEN_AT + 4 * self.INTERVAL
+
+        assert await self._tick_queues(bt) is False
+        assert await self._cycle_writes(bt, percent=0) == []
+
+    @pytest.mark.asyncio
+    async def test_a_head_that_reports_no_state_gets_no_keepalive_cycle(self):
+        """A head that is not on the air is due a keepalive nobody can deliver.
+
+        A cycle skips the head, so it stays due, and a tick that queued a
+        cycle for it would queue one on every tick until it reports again.
+        """
+        bt = self._bt()
+        bt.hass.states.get.return_value.state = STATE_UNAVAILABLE
+        bt.clock.monotonic_value = self.WRITTEN_AT + self.INTERVAL
+
+        assert await self._tick_queues(bt) is False
 
 
 class TestValveReadbackInEntityUnits:

@@ -14,9 +14,7 @@ from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    mock_restore_cache_with_extra_data,
-)
+from pytest_homeassistant.common import mock_restore_cache_with_extra_data
 
 from custom_components.better_thermostat import climate as climate_module
 

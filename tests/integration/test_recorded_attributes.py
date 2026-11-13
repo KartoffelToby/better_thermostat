@@ -21,13 +21,8 @@ from homeassistant.core import State
 from homeassistant.helpers.recorder import get_instance
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    async_fire_time_changed,
-    mock_restore_cache,
-)
-from pytest_homeassistant_custom_component.components.recorder.common import (
-    async_wait_recording_done,
-)
+from pytest_homeassistant.common import async_fire_time_changed, mock_restore_cache
+from pytest_homeassistant.components.recorder.common import async_wait_recording_done
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock

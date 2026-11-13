@@ -14,9 +14,7 @@ from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import ATTR_TEMPERATURE, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import State
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    mock_restore_cache_with_extra_data,
-)
+from pytest_homeassistant.common import mock_restore_cache_with_extra_data
 
 from custom_components.better_thermostat.entity import LAST_AVAILABLE_STATE
 from custom_components.better_thermostat.utils.const import CalibrationOutput

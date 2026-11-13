@@ -20,7 +20,7 @@ from homeassistant.const import (
 from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
 import pytest
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     mock_restore_cache,
     mock_restore_cache_with_extra_data,

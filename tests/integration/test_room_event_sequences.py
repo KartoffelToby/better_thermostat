@@ -74,7 +74,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 import pytest
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     async_capture_events,
     async_fire_time_changed,
@@ -292,7 +292,7 @@ class Room:
         head's range.
         """
         head = self.heads[index]
-        head_reading = head.current_temperature
+        head_reading = head.native_current_temperature
         assert head_reading is not None
         head_bias = head_reading - self.room_temperature
         profile = head.profile
@@ -409,7 +409,7 @@ class Turn(RoomEvent):
         """Only a reachable head can be turned, and only to a new value."""
         return (
             self.head in room.available
-            and self.value != room.heads[self.head].target_temperature
+            and self.value != room.heads[self.head].native_target_temperature
         )
 
     @override
@@ -680,14 +680,14 @@ class HeadReads(RoomEvent):
         """A reachable head reports a reading it does not show yet."""
         return (
             self.head in room.available
-            and self.value != room.heads[self.head].current_temperature
+            and self.value != room.heads[self.head].native_current_temperature
         )
 
     @override
     async def happen(self, room: Room) -> None:
         """Publish the reading as the head's own report."""
         head = room.heads[self.head]
-        head._attr_current_temperature = self.value
+        head._attr_native_current_temperature = self.value
         head.async_set_context(Context())
         head.async_write_ha_state()
         await _let_debounce_pass(room)
@@ -764,14 +764,14 @@ def _apart(room: Room, index: int, value: float, target: float) -> bool:
 def _write_reaches(room: Room, index: int, value: float) -> bool:
     """Return whether setting ``value`` on the room has to write to the head."""
     head = room.heads[index]
-    return head.target_temperature is not None and _apart(
-        room, index, head.target_temperature, value
+    return head.native_target_temperature is not None and _apart(
+        room, index, head.native_target_temperature, value
     )
 
 
 def _turn(head: SimulatedClimate, value: float) -> None:
     """Change a head's setpoint the way a knob press reaches Home Assistant."""
-    head._attr_target_temperature = value
+    head._attr_native_target_temperature = value
     head.async_set_context(Context())
     head.async_write_ha_state()
 
@@ -846,7 +846,7 @@ async def running_room(
     assert all(p.temperature_unit is scale.unit for p in scenario.profiles)
     heads = await build_devices(hass, *scenario.profiles)
     for head in heads:
-        head._attr_current_temperature = scale.room_temperature
+        head._attr_native_current_temperature = scale.room_temperature
     set_room_sensor(hass, scale.room_temperature, scale.unit)
     hass.states.async_set(WINDOW_ID, "off")
     entry = make_entry(scenario, with_window=True)
@@ -983,7 +983,7 @@ async def assert_rules(room: Room, before: _Before) -> None:
             )
         return all(
             room.heads[i].hvac_mode == room.device_mode(i, HVACMode.HEAT)
-            and room.carries(i, room.heads[i].target_temperature, room.target())
+            and room.carries(i, room.heads[i].native_target_temperature, room.target())
             for i in room.reachable()
         )
 
@@ -1249,7 +1249,7 @@ async def test_a_head_turned_while_the_window_is_open_sets_the_room_target(hass)
         )
         parked_at = head.profile.min_temp
         assert await wait_for(
-            room.hass, lambda: head.target_temperature == parked_at, CONVERGE_S
+            room.hass, lambda: head.native_target_temperature == parked_at, CONVERGE_S
         ), f"the open window left the head at {head.target_temperature}"
         await _quiet(room)
         turned_to = target + 3.0
@@ -1260,7 +1260,7 @@ async def test_a_head_turned_while_the_window_is_open_sets_the_room_target(hass)
             f"{turned_to} with the window open"
         )
         assert await wait_for(
-            room.hass, lambda: head.target_temperature == parked_at, CONVERGE_S
+            room.hass, lambda: head.native_target_temperature == parked_at, CONVERGE_S
         ), (
             f"the head was left at {head.target_temperature} with the window open, "
             f"it was parked at {parked_at}"
@@ -1273,7 +1273,7 @@ async def test_a_head_turned_while_the_window_is_open_sets_the_room_target(hass)
         await Window(False).happen(room)
         assert await wait_for(
             room.hass,
-            lambda: room.carries(0, head.target_temperature, turned_to),
+            lambda: room.carries(0, head.native_target_temperature, turned_to),
             CONVERGE_S,
         ), (
             f"the shut window left the head at {head.target_temperature}, "
