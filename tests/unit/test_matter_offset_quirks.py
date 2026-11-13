@@ -535,10 +535,20 @@ class TestTheLiljebaggeIsNotCalibratedByOffset:
 
         with (
             patch.object(
-                config_flow, "get_device_model", side_effect=_registry_without_model
+                config_flow,
+                "get_device_model",
+                autospec=True,
+                side_effect=_registry_without_model,
             ),
-            patch.object(config_flow, "load_model_quirks", side_effect=_quirks_of),
-            patch.object(config_flow, "regulates_on_bound_sensor", return_value=False),
+            patch.object(
+                config_flow, "load_model_quirks", autospec=True, side_effect=_quirks_of
+            ),
+            patch.object(
+                config_flow,
+                "regulates_on_bound_sensor",
+                autospec=True,
+                return_value=False,
+            ),
         ):
             context = await config_flow._prepare_advanced_context(flow, draft)
 
@@ -566,12 +576,18 @@ class TestTheLiljebaggeIsNotCalibratedByOffset:
 
         with (
             patch.object(
-                config_flow, "get_device_model", side_effect=_registry_without_model
+                config_flow,
+                "get_device_model",
+                autospec=True,
+                side_effect=_registry_without_model,
             ),
-            patch.object(config_flow, "load_model_quirks", side_effect=_quirks_of),
+            patch.object(
+                config_flow, "load_model_quirks", autospec=True, side_effect=_quirks_of
+            ),
             patch.object(
                 config_flow,
                 "quirk_writes_valve",
+                autospec=True,
                 side_effect=lambda quirks: quirks is valve_quirks,
             ),
         ):
