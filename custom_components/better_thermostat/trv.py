@@ -19,6 +19,7 @@ from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.core import State
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.core.offset_limit import OffsetAtLimit
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     quirk_ignores_calibration_offset,
     quirk_writes_valve,
@@ -279,6 +280,15 @@ class Trv:
     # negated offset.
     last_calibration: float = 0.0
     last_calibration_requested: float | None = None
+    # The unbroken run of control cycles that found the offset stuck at a
+    # limit of the TRV's offset range: asked for and reported at the limit,
+    # with the gap between room and reading asking for a correction past it.
+    # ``None`` while the latest cycle found it otherwise or followed no
+    # offset, and while a cycle runs. A run that lasts long enough is reported
+    # until a cycle finds the offset no longer stuck.
+    calibration_offset_at_limit: OffsetAtLimit | None = None
+    # Whether that report is raised: the TRV carries a repair issue.
+    calibration_offset_at_limit_reported: bool = False
     # Identity of the offset command currently in flight. Each accepted write
     # takes the next number, and only the watchdog holding that number may
     # release ``calibration_received``.

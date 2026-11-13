@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine, Sequence
+from collections.abc import Coroutine, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
@@ -49,10 +49,14 @@ from custom_components.better_thermostat.adapters.valve_entity import (
     valve_entity_range,
     valve_entity_value,
 )
+from custom_components.better_thermostat.calibration import effective_room_temperature
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
-from custom_components.better_thermostat.core.safety import clamp as safety_clamp
+from custom_components.better_thermostat.core.safety import (
+    clamp as safety_clamp,
+    resolve_offset_bounds,
+)
 from custom_components.better_thermostat.core.snapshot import HvacMode, WorldSnapshot
 from custom_components.better_thermostat.core.watchdog import (
     WATCHDOG_MAX_AGE_S,
@@ -141,6 +145,7 @@ from custom_components.better_thermostat.utils.stored_values import finite_or_no
 from custom_components.better_thermostat.utils.watcher import (
     UNAVAILABLE_OR_UNKNOWN_STATES,
     clear_unapplied_setpoint,
+    follow_calibration_offset_at_limit,
     report_invalid_valve_calibration,
     report_unapplied_setpoint,
 )
@@ -1650,6 +1655,21 @@ def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[objec
     )
 
 
+def _end_offset_at_limit_runs(
+    self: BetterThermostat, entity_ids: Iterable[str]
+) -> None:
+    """End the run of cycles with the offset at its limit for these TRVs.
+
+    The run has to be unbroken, so a TRV that a paused queue or a cycle
+    leaves out starts it afresh with its next control cycle. A report the
+    run raised stands until a cycle takes it back.
+    """
+    for entity_id in entity_ids:
+        trv = self.real_trvs.get(entity_id)
+        if trv is not None:
+            trv.calibration_offset_at_limit = None
+
+
 async def control_queue(self: BetterThermostat) -> None:
     """Process control commands from the queue and coordinate TRV control.
 
@@ -1674,10 +1694,12 @@ async def control_queue(self: BetterThermostat) -> None:
     try:
         while True:
             if self.in_maintenance:
+                _end_offset_at_limit_runs(self, self.real_trvs)
                 await asyncio.sleep(1)
                 continue
 
             if self.ignore_states or self.startup_running:
+                _end_offset_at_limit_runs(self, self.real_trvs)
                 await asyncio.sleep(1)
                 continue
             else:
@@ -1791,6 +1813,11 @@ async def control_queue(self: BetterThermostat) -> None:
                             continue
                         controlled_trvs.append(trv)
                         tasks.append(control_trv(self, trv, cycle=cycle))
+
+                    _end_offset_at_limit_runs(
+                        self,
+                        [trv for trv in self.real_trvs if trv not in controlled_trvs],
+                    )
 
                     if not tasks and not _released:
                         # The heating action and its hysteresis are advanced
@@ -2650,6 +2677,10 @@ async def control_trv(
         async with self._temperature_lock:
             self.real_trvs[entity_id].ignore_trv_states = True
             _suppression_owned = True
+            # The run of cycles with the offset at its limit continues only
+            # if this cycle follows the offset again below.
+            _offset_at_limit = self.real_trvs[entity_id].calibration_offset_at_limit
+            self.real_trvs[entity_id].calibration_offset_at_limit = None
             advance_hvac_action(self)
             _trv = self.hass.states.get(entity_id)
 
@@ -3116,6 +3147,22 @@ async def control_trv(
                                 entity_id,
                                 _budget_remaining(self, entity_id, "offset"),
                             )
+
+                # An adapter reads an offset entity that reports nothing as
+                # 0.0, which is no offset the TRV holds.
+                _offset_entity = trv.local_temperature_calibration_entity
+                follow_calibration_offset_at_limit(
+                    self,
+                    entity_id,
+                    _calibration,
+                    _current_calibration
+                    if _offset_entity is None
+                    or state_is_live(self.hass.states.get(_offset_entity))
+                    else None,
+                    resolve_offset_bounds(snapshot.trvs.get(entity_id)),
+                    effective_room_temperature(self),
+                    _offset_at_limit,
+                )
 
             # set new target temperature
             _safety_overrode_setpoint = False

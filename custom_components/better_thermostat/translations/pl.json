@@ -228,6 +228,10 @@
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} nie przyjmuje temperatury docelowej",
       "description": "Better Thermostat wielokrotnie zapisuje temperaturę docelową {wanted} do {entity}, ale termostat nadal zgłasza {held}. Pomieszczenie nie jest ogrzewane tak, jak zamierza Better Thermostat.\n\nCzęste przyczyny:\n- Termostat ma własny limit nastawy niższy niż publikowane maksimum, na przykład `max_heat_setpoint_limit` w Zigbee2MQTT.\n- Termostat jest w trybie lub presecie, w którym ignoruje temperatury docelowe, na przykład w trybie harmonogramu.\n- Termostat utracił połączenie radiowe lub ma słabą baterię.\n\nBetter Thermostat nadal zapisuje temperaturę docelową, najwyżej raz na godzinę. Ten problem znika sam, gdy termostat zgłosi temperaturę docelową."
+    },
+    "calibration_offset_at_limit": {
+      "title": "BT: {name} - przesunięcie kalibracji {entity} pozostaje na swojej granicy",
+      "description": "Przesunięcie kalibracji, które Better Thermostat zapisuje w {entity}, od {minutes} minut pozostaje na granicy zakresu akceptowanego przez termostat. Kalibracja na podstawie przesunięcia dodaje do przesunięcia różnicę między temperaturą pomieszczenia a własnym odczytem termostatu, więc przesunięcie, które pozostaje na granicy, nie ma już zapasu korekty.\n\nCzęste przyczyny:\n- Termostat przyjmuje przesunięcie, ale go nie stosuje, więc jego odczyt nigdy się nie zmienia. Niektóre termostaty Matter zachowują się w ten sposób.\n- Termostat stosuje przesunięcia tylko w węższym zakresie niż ten, który publikuje.\n- Własny odczyt termostatu jest dalej od temperatury pomieszczenia, niż sięga jego zakres przesunięcia, na przykład dlatego, że znajduje się tuż nad grzejnikiem.\n\nZmień typ kalibracji tego termostatu na **Na podstawie temperatury docelowej** (Ustawienia → Urządzenia oraz usługi → Better Thermostat → Konfiguruj); nie zależy on od przesunięcia. Ten problem zniknie sam, gdy przesunięcie opuści granicę lub gdy termostat przestanie używać kalibracji na podstawie przesunięcia."
     }
   },
   "services": {
