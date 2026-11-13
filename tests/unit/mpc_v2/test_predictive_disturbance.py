@@ -76,11 +76,66 @@ def test_an_empty_profile_leaves_the_constant_estimate_in_charge() -> None:
     assert controller._bounded_disturbance((0.0, 0.0)) is None
 
 
-def test_a_predicted_gain_holds_the_valve_back() -> None:
+def test_a_gain_predicted_ahead_holds_the_valve_back() -> None:
     baseline = _plan(())
-    predicted = _plan((0.01,) * 24)
+    predicted = _plan((0.0,) * 4 + (0.01,) * 20)
 
     assert predicted < baseline
+
+
+def test_a_gain_predicted_for_the_whole_horizon_changes_no_plan() -> None:
+    """A gain the room has from the first step on is in the estimate already."""
+    assert _plan((0.01,) * 24) == _plan(())
+
+
+def test_a_measured_loss_stays_in_the_plan_under_a_predicted_gain() -> None:
+    """The profile holds gains only, so the observer's loss is not its to drop."""
+    controller = MpcV2Controller(MpcV2Params())
+
+    planned = controller._planned_disturbance((0.0, 0.0, 0.003), -0.02)
+
+    assert planned == pytest.approx((-0.02, -0.02, -0.017))
+
+
+def test_a_predicted_gain_that_ends_takes_away_the_measured_gain_at_most() -> None:
+    controller = MpcV2Controller(MpcV2Params())
+
+    assert controller._planned_disturbance((0.002, 0.0), 0.002) == pytest.approx(
+        (0.002, 0.0)
+    )
+    # The profile expects a gain the room does not have today.
+    assert controller._planned_disturbance((0.002, 0.0), 0.0) == (0.0, 0.0)
+    assert controller._planned_disturbance((0.002, 0.0), -0.01) == (-0.01, -0.01)
+    # A gain beside the predicted one stays when the predicted one ends.
+    assert controller._planned_disturbance((0.002, 0.0), 0.005) == pytest.approx(
+        (0.005, 0.003)
+    )
+
+
+def test_the_plan_is_handed_the_profile_anchored_on_the_measured_rate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = MpcV2Controller(MpcV2Params())
+    controller.dob.planning_filtered = -0.02
+    measured = controller.dob.planning_rate
+    assert measured < 0.0
+    seen: list[tuple[float, ...] | None] = []
+
+    def solve(**kwargs: Any) -> float:
+        seen.append(kwargs["D_profile_K_per_min"])
+        return 0.5
+
+    monkeypatch.setattr(controller.optimiser, "solve", solve)
+    controller.step(
+        t_s=0.0,
+        T_room=21.0,
+        T_target=21.0,
+        T_outdoor=10.0,
+        learning_paused=True,
+        predicted_disturbance_K_per_min=(0.0, 0.001),
+    )
+
+    assert seen == [pytest.approx((measured, measured + 0.001))]
 
 
 def test_compute_builds_the_profile_on_the_controller_grid() -> None:

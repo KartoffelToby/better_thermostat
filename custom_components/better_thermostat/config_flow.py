@@ -749,7 +749,6 @@ def _build_advanced_fields(
     ordered[
         vol.Optional(
             CONF_MPC_V2_PLANT_PRESET,
-            CONF_PREDICTIVE_DISTURBANCE,
             default=get_choice(
                 CONF_MPC_V2_PLANT_PRESET,
                 _MPC_V2_PLANT_PRESET_CHOICES,

@@ -29,6 +29,7 @@ from custom_components.better_thermostat.calibration import (
     _compute_tpi_balance,
 )
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.fsm.anomaly import AnomalyState
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.anomaly_evidence import (
@@ -149,7 +150,7 @@ def _bt(real_trvs: dict[str, Trv], *, window_open: bool, door_open: bool) -> Any
             control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL),
             anomaly_detection=False,
             anomaly_suppression=False,
-            anomaly=SimpleNamespace(rapid_loss=SimpleNamespace(is_visible=False)),
+            anomaly=AnomalyState(),
         ),
         clock=FakeClock(monotonic_value=1_000_000.0),
     )

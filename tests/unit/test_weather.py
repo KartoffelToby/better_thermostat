@@ -12,10 +12,11 @@ The module has three public coroutines:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Coroutine, Mapping
 from datetime import UTC, datetime, timedelta
 import logging
 import math
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.recorder import history
@@ -32,6 +33,7 @@ from custom_components.better_thermostat.core.outdoor import add_reading, start_
 from custom_components.better_thermostat.utils.calibration.disturbance_forecast import (
     HourlyForecastPoint,
 )
+from custom_components.better_thermostat.utils.const import CONF_PREDICTIVE_DISTURBANCE
 from custom_components.better_thermostat.utils.weather import (
     FORECAST_CALL_TIMEOUT,
     OUTDOOR_HISTORY_RETRY,
@@ -43,9 +45,11 @@ from custom_components.better_thermostat.utils.weather import (
     check_weather_prediction,
     summer_mode_facts,
 )
+from tests.factories import trv_record
 
 WEATHER_ID = "weather.home"
 OUTDOOR_ID = "sensor.outdoor"
+TRV_ID = "climate.trv"
 
 WEATHER_MOD = "custom_components.better_thermostat.utils.weather"
 
@@ -110,6 +114,7 @@ def make_bt(
     bt.damped_weather_temperature = None
     bt.forecast_temperature = None
     bt.hourly_forecast = None
+    bt.real_trvs = {}
     bt._outdoor_check_lock = None
     return bt
 
@@ -161,11 +166,54 @@ def hourly_resp(entity_id, items):
     return {entity_id: {"forecast": items}}
 
 
+HOURLY_ENTRY = {"datetime": "2025-01-01T12:00:00+00:00", "condition": "sunny"}
+
+
+def hourly_weather_state(
+    *, coarser: WeatherEntityFeature | int = 0, temperature: float = 2.0
+):
+    """Build a weather entity that forecasts hourly, and coarser when asked."""
+    return weather_state(
+        features=int(WeatherEntityFeature.FORECAST_HOURLY | coarser),
+        temperature=temperature,
+    )
+
+
+def predictive_bt(hass, *, predictive_disturbance: bool = True, **kwargs):
+    """Build a thermostat whose one TRV has predictive disturbance as given."""
+    bt = make_bt(hass, weather_entity_id=WEATHER_ID, **kwargs)
+    bt.real_trvs = {
+        TRV_ID: trv_record(
+            entity_id=TRV_ID,
+            advanced={CONF_PREDICTIVE_DISTURBANCE: predictive_disturbance},
+        )
+    }
+    return bt
+
+
+def owned_tasks(bt: BetterThermostat) -> list[asyncio.Task[Any]]:
+    """Let the thermostat start background tasks, and return them as it does."""
+    tasks: list[asyncio.Task[Any]] = []
+
+    def spawn[T](coro: Coroutine[Any, Any, T], *, name: str) -> asyncio.Task[T] | None:
+        task = asyncio.get_running_loop().create_task(coro, name=name)
+        tasks.append(task)
+        return task
+
+    bt._spawn_owned = spawn
+    return tasks
+
+
+def forecast_types(hass) -> list[str]:
+    """Return the forecast type of every get_forecasts call, in order."""
+    return [call.args[2]["type"] for call in hass.services.async_call.await_args_list]
+
+
 class TestHourlyForecastCache:
     """The hourly cloud/condition cache the disturbance horizon reads."""
 
     async def test_the_cache_normalises_and_sorts_hourly_points(self):
-        hass = make_hass()
+        hass = make_hass(states={WEATHER_ID: hourly_weather_state()})
         hass.services.async_call = AsyncMock(
             return_value=hourly_resp(
                 WEATHER_ID,
@@ -179,7 +227,7 @@ class TestHourlyForecastCache:
                 ],
             )
         )
-        bt = make_bt(hass, weather_entity_id=WEATHER_ID)
+        bt = predictive_bt(hass)
 
         await _refresh_hourly_forecast(bt)
 
@@ -188,44 +236,144 @@ class TestHourlyForecastCache:
         assert bt.hourly_forecast[0].timestamp < bt.hourly_forecast[1].timestamp
 
     async def test_entries_without_a_timestamp_are_dropped(self):
-        hass = make_hass()
+        hass = make_hass(states={WEATHER_ID: hourly_weather_state()})
         hass.services.async_call = AsyncMock(
             return_value=forecast_resp(WEATHER_ID, [1.0, 2.0])
         )
-        bt = make_bt(hass, weather_entity_id=WEATHER_ID)
+        bt = predictive_bt(hass)
 
         await _refresh_hourly_forecast(bt)
 
         assert bt.hourly_forecast is None
 
     async def test_a_failed_call_clears_the_stale_cache(self):
-        hass = make_hass()
+        hass = make_hass(states={WEATHER_ID: hourly_weather_state()})
         hass.services.async_call = AsyncMock(side_effect=HomeAssistantError("boom"))
-        bt = make_bt(hass, weather_entity_id=WEATHER_ID)
+        bt = predictive_bt(hass)
         bt.hourly_forecast = (HourlyForecastPoint(0.0, 1.0),)
 
         await _refresh_hourly_forecast(bt)
 
         assert bt.hourly_forecast is None
 
-    async def test_an_hourly_entity_reports_a_cache_after_the_verdict(self):
-        states = {
-            WEATHER_ID: weather_state(
-                features=int(WeatherEntityFeature.FORECAST_HOURLY), temperature=2.0
-            )
-        }
-        hass = make_hass(states=states)
-        hass.services.async_call = AsyncMock(
-            return_value=hourly_resp(
-                WEATHER_ID,
-                [{"datetime": "2025-01-01T12:00:00+00:00", "condition": "sunny"}],
-            )
-        )
-        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
+    @pytest.mark.parametrize(
+        "state",
+        [None, weather_state(features=int(WeatherEntityFeature.FORECAST_DAILY))],
+        ids=["no state", "daily only"],
+    )
+    async def test_an_entity_without_an_hourly_forecast_is_not_asked_for_one(
+        self, state
+    ):
+        hass = make_hass(states={WEATHER_ID: state})
+        bt = predictive_bt(hass)
+        bt.hourly_forecast = (HourlyForecastPoint(0.0, 1.0),)
 
-        assert await check_weather_prediction(bt) is True
+        await _refresh_hourly_forecast(bt)
+
+        assert bt.hourly_forecast is None
+        hass.services.async_call.assert_not_awaited()
+
+    async def test_a_room_without_predictive_disturbance_reads_no_hourly_forecast(self):
+        """The second forecast call is for the room that plans with it only."""
+        hass = make_hass(
+            states={
+                WEATHER_ID: hourly_weather_state(
+                    coarser=WeatherEntityFeature.FORECAST_DAILY
+                )
+            },
+            forecast_response=forecast_resp(WEATHER_ID, [1.0, 2.0]),
+        )
+        bt = predictive_bt(hass, predictive_disturbance=False)
+        bt.hourly_forecast = (HourlyForecastPoint(0.0, 1.0),)
+
+        await check_weather(bt)
+
+        assert forecast_types(hass) == ["daily"]
+        assert bt.hourly_forecast is None
+
+    async def test_the_hourly_forecast_is_read_beside_the_verdict(self):
+        """A slow hourly answer does not hold the call for heat back.
+
+        The caller acts on the verdict once the check returns, so the check
+        returns while the weather entity still owes the hourly forecast.
+        """
+        hass = make_hass(
+            states={
+                WEATHER_ID: hourly_weather_state(
+                    coarser=WeatherEntityFeature.FORECAST_DAILY, temperature=25.0
+                )
+            }
+        )
+        bt = predictive_bt(hass, call_for_heat=True, off_temperature=10.0)
+        tasks = owned_tasks(bt)
+        hourly_answer = asyncio.Event()
+
+        async def get_forecasts(_domain, _service, data, **_kwargs):
+            if data["type"] == "hourly":
+                await hourly_answer.wait()
+                return hourly_resp(WEATHER_ID, [HOURLY_ENTRY])
+            return forecast_resp(WEATHER_ID, [25.0, 25.0])
+
+        hass.services.async_call = AsyncMock(side_effect=get_forecasts)
+
+        assert await check_weather(bt) is True
+        assert bt.call_for_heat is False
+        assert bt.hourly_forecast is None
+
+        hourly_answer.set()
+        await asyncio.gather(*tasks)
+        assert forecast_types(hass) == ["daily", "hourly"]
+        assert bt.hourly_forecast is not None
+
+    async def test_an_hourly_only_entity_is_asked_once(self):
+        """The verdict's own hourly forecast fills the cache."""
+        hass = make_hass(
+            states={WEATHER_ID: hourly_weather_state()},
+            forecast_response=hourly_resp(
+                WEATHER_ID, [{**HOURLY_ENTRY, "temperature": 2.0}]
+            ),
+        )
+        bt = predictive_bt(hass, off_temperature=10.0)
+
+        await check_weather(bt)
+
+        assert forecast_types(hass) == ["hourly"]
         assert bt.hourly_forecast is not None
         assert bt.hourly_forecast[0].clear_sky_factor == 1.0
+
+    async def test_the_cache_fills_without_an_outdoor_threshold(self):
+        """The disturbance horizon needs the sky, not the threshold."""
+        hass = make_hass(
+            states={WEATHER_ID: hourly_weather_state()},
+            forecast_response=hourly_resp(WEATHER_ID, [HOURLY_ENTRY]),
+        )
+        bt = predictive_bt(hass, off_temperature=None)
+        tasks = owned_tasks(bt)
+
+        await check_weather(bt)
+        await asyncio.gather(*tasks)
+
+        assert forecast_types(hass) == ["hourly"]
+        assert bt.hourly_forecast is not None
+
+    async def test_a_verdict_that_failed_leaves_the_hourly_forecast_to_its_own_call(
+        self,
+    ):
+        hass = make_hass(states={WEATHER_ID: hourly_weather_state()})
+        hass.services.async_call = AsyncMock(
+            side_effect=[
+                HomeAssistantError("boom"),
+                hourly_resp(WEATHER_ID, [HOURLY_ENTRY]),
+            ]
+        )
+        bt = predictive_bt(hass, off_temperature=10.0)
+        tasks = owned_tasks(bt)
+
+        await check_weather(bt)
+        await asyncio.gather(*tasks)
+
+        assert forecast_types(hass) == ["hourly", "hourly"]
+        assert bt.hourly_forecast is not None
 
 
 # ===========================================================================

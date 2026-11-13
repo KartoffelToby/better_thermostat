@@ -174,3 +174,15 @@ heating while remaining visible in `DesiredState.anomalies` for
 diagnostics. An open contact sensor resets `unexpected_rapid_loss` and
 `sustained_parasitic_loss` immediately because the cause is already
 known.
+
+The shell reads the room's slope under every block that only shuts the
+valves (`hvac_off`, `no_call_for_heat`, `suspected_window`), so a
+suspected window keeps the evidence it stands on while it suppresses
+heating. Under an open contact, and while the devices are released,
+starting up or in valve maintenance, the room is not read: the residual
+then stands on a zero slope and `thermal_evidence.slope_measured` is
+false. That residual keeps a loss from being suspected and is no
+evidence of a `valve_stuck_open`. The valve exercise a stuck-open
+finding asks for does not start under an open contact either: it
+becomes due on the maintenance schedule, which postpones it until the
+contact has closed.

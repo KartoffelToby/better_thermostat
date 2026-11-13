@@ -303,7 +303,15 @@ def _sync_trv_repairs_and_actions(
         now_mono = (
             snapshot.now_monotonic if snapshot is not None else self.clock.monotonic()
         )
-        next_maint = maintenance_request_now(prev_maint, now_dt, now_mono)
+        # The contact tier as this cycle's decision read it; the scheduled
+        # run is postponed on the same condition.
+        next_maint = maintenance_request_now(
+            prev_maint,
+            now_dt,
+            now_mono,
+            window_open=post_state.window_detection
+            and (post_state.window.effective_open or post_state.door.effective_open),
+        )
         self.kernel_state = replace(self.kernel_state, maintenance=next_maint)
         if isinstance(next_maint, MaintenanceDue) and not isinstance(
             prev_maint, MaintenanceDue

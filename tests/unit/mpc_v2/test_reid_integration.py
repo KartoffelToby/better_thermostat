@@ -15,6 +15,7 @@ import pytest
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.fsm.anomaly import AnomalyState
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.anomaly_evidence import (
@@ -181,7 +182,7 @@ def _make_bt(preset: StoredChoice = MpcV2PlantPreset.AUTO) -> Any:
             control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL),
             anomaly_detection=False,
             anomaly_suppression=False,
-            anomaly=SimpleNamespace(rapid_loss=SimpleNamespace(is_visible=False)),
+            anomaly=AnomalyState(),
         ),
         device_name="BT_TEST",
         bt_hvac_mode=HVACMode.HEAT,

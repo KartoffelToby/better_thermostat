@@ -200,14 +200,12 @@ class QpParams:
     # Key levers: a rate limit large enough for the valve to track the
     # setpoint, and a small integral weight — the feed-forward ``u_ss`` carries
     # steady state, so heavy integral action only adds overshoot.
-    # 24 fine steps: at the default ~300 s grid the plan reaches two hours
-    # ahead, long enough for the morning solar gain to enter the horizon
-    # before the room needs it.
-    horizon_steps: int = 24
+    horizon_steps: int = 12
     # Hold each planned command over this many fine steps (move blocking).
-    # The 24-step default with two-step blocks leaves 12 decision variables,
-    # one per ten minutes at the default grid.
-    move_block_steps: int = 2
+    # One step per command is no blocking. A longer horizon blocks its moves
+    # to keep the number of decision variables, see
+    # ``predictive_qp_params``.
+    move_block_steps: int = 1
     # MPC re-plan cadence (seconds). Overridden by the adaptive_step logic
     # below unless ``adaptive_step_s`` is disabled.
     step_s: float = 300.0
@@ -275,6 +273,9 @@ class QpOptimiser:
         self._expand = np.zeros((self.N, self.M))
         for step in range(self.N):
             self._expand[step, step // self.block_steps] = 1.0
+        # Fine steps each decision is held over; the last block of a horizon
+        # the blocks do not divide is shorter.
+        self._steps_held = self._expand.sum(axis=0)
         self.e_integral_K_min: float = 0.0
         self._L_cumsum = np.tril(np.ones((self.N, self.N)))
         # A daqp failure and a flat fallback of the NumPy solver are each
@@ -453,17 +454,20 @@ class QpOptimiser:
 
         # Hessian of the QP cost, summed from the four squared-residual terms.
         # ``H_raw`` is symmetrised into ``H`` and later doubled into
-        # ``H_scaled`` for DAQP's ½ convention (see the note below).
+        # ``H_scaled`` for DAQP's ½ convention (see the note below). The cost
+        # is the one over the fine steps with ``u = expand · v`` put in: the
+        # effort of a decision counts once per fine step it is held over,
+        # and the fine-step moves are the moves between blocks.
         H_raw = (
-            w_c * (Y_T_u_N.T @ Y_T_u_N)
-            + w_e * np.eye(M)
+            w_c * (Y_T_u_dec.T @ Y_T_u_dec)
+            + w_e * np.diag(self._steps_held)
             + w_du * (D_diff.T @ D_diff)
             + w_i * (I_T_u.T @ I_T_u)
         )
         H = 0.5 * (H_raw + H_raw.T)
         g = (
             w_c * (Y_T_u_dec.T @ track_const)
-            - w_e * u_ss * np.ones(M)
+            - w_e * u_ss * self._steps_held
             - w_du * (D_diff.T @ b_du)
             + w_i * (I_T_u.T @ I_const)
         )

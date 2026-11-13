@@ -54,6 +54,20 @@ ROOM_SLOPE_WINDOW_MIN_SECONDS: Final[float] = 150.0
 ROOM_SLOPE_WINDOW_TARGET_SECONDS: Final[float] = 180.0
 ROOM_SLOPE_WINDOW_MAX_SECONDS: Final[float] = 240.0
 POST_CONTACT_FLUSH_SECONDS: Final[float] = 300.0
+# Blocks under which the room's slope is not read. The room's devices are
+# then out of Better Thermostat's hands, or an open contact drives the room.
+# A block that only shuts the valves leaves the room as readable as before:
+# heating switched off, no call for heat, and a suspected window, whose
+# finding rests on the very slope that keeps being read.
+UNREAD_ROOM_BLOCKS: Final[frozenset[HeatingBlock]] = frozenset(
+    {
+        HeatingBlock.DEVICES_RELEASED,
+        HeatingBlock.STARTUP,
+        HeatingBlock.VALVE_MAINTENANCE,
+        HeatingBlock.WINDOW,
+        HeatingBlock.DOOR,
+    }
+)
 
 
 class FaultSlotExport(TypedDict):
@@ -562,10 +576,15 @@ class AnomalyEvidenceTracker:
         room_temperature: float | None,
         fallback_slope_kelvin_per_min: float | None,
         contact_open: bool,
-    ) -> tuple[float | None, bool]:
-        """Return ``(observed_slope, from_window)`` using the committed 3-min buffer."""
+    ) -> tuple[float | None, bool, bool]:
+        """Return ``(observed_slope, from_window, measured)`` from the 3-min buffer.
+
+        ``measured`` is ``False`` for the zero slope that stands in while the
+        room is not read: under an open contact, and for the flush after it
+        or after a block of ``UNREAD_ROOM_BLOCKS``.
+        """
         if contact_open:
-            return 0.0, True
+            return 0.0, True, False
 
         in_post_contact_flush = (
             self._last_contact_or_block_monotonic is not None
@@ -584,10 +603,11 @@ class AnomalyEvidenceTracker:
                 return (
                     (room_temperature - prev_room_temperature) / (dt_last / 60.0),
                     True,
+                    True,
                 )
 
             if in_post_contact_flush:
-                return 0.0, True
+                return 0.0, True, False
 
             best_ref: tuple[float, float] | None = None
             for ref_t, ref_temperature in self._room_temperature_window:
@@ -601,12 +621,12 @@ class AnomalyEvidenceTracker:
                         best_ref = (ref_t, ref_temperature)
             if best_ref is not None:
                 dt = now_monotonic - best_ref[0]
-                return (room_temperature - best_ref[1]) / (dt / 60.0), True
+                return (room_temperature - best_ref[1]) / (dt / 60.0), True, True
 
         if in_post_contact_flush:
-            return 0.0, True
+            return 0.0, True, False
 
-        return fallback_slope_kelvin_per_min, False
+        return fallback_slope_kelvin_per_min, False, True
 
     def observe_snapshot(
         self,
@@ -693,7 +713,7 @@ class AnomalyEvidenceTracker:
                     k_loss_per_min=self._observer.k_loss_per_min,
                 )
 
-        observed_slope, from_window = self._windowed_room_slope(
+        observed_slope, from_window, slope_measured = self._windowed_room_slope(
             now_monotonic=now_monotonic,
             room_temperature=room_temperature,
             fallback_slope_kelvin_per_min=temperature_slope_kelvin_per_min,
@@ -725,6 +745,7 @@ class AnomalyEvidenceTracker:
             slope_residual_kelvin_per_min=raw_residual,
             slope_residual_sigma_kelvin_per_min=self.residual_sigma_kelvin_per_min,
             observer=observer_reading,
+            slope_measured=slope_measured,
         )
         return evidence, trv_slopes
 
@@ -791,13 +812,13 @@ class AnomalyEvidenceTracker:
                     ema_slope_kelvin_per_min=new_slope,
                 )
 
+        room_unread = contact_open or heating_blocked_by in UNREAD_ROOM_BLOCKS
         if (
-            contact_open
-            or heating_blocked_by is not None
+            room_unread
             or control_mode != ControlMode.OPTIMAL
             or snapshot.room_temperature is None
         ):
-            if contact_open or heating_blocked_by is not None:
+            if room_unread:
                 self._last_contact_or_block_monotonic = now_monotonic
             self._room_temperature_window.clear()
         else:
@@ -916,6 +937,7 @@ __all__ = [
     "DEFAULT_TRV_TAU_SECONDS",
     "FaultSlotExport",
     "TrvFaultExport",
+    "UNREAD_ROOM_BLOCKS",
     "compute_expected_passive_slope",
     "compute_rc2_model_slope",
     "compute_slope_residual",

@@ -53,6 +53,7 @@
         "normalised_innovation": -3.8,
         "room_time_constant_minutes": 90.0
       },
+      "slope_measured": true,
       "slope_residual_kelvin_per_min": null,
       "slope_residual_sigma_kelvin_per_min": null
     },

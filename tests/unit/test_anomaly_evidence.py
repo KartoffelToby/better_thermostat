@@ -18,11 +18,15 @@ from custom_components.better_thermostat.core.fsm.anomaly import (
     FaultSlot,
     TrvFaultState,
 )
-from custom_components.better_thermostat.core.snapshot import TrvReported
+from custom_components.better_thermostat.core.snapshot import (
+    ThermalEvidence,
+    TrvReported,
+)
 from custom_components.better_thermostat.model_fixes import COZB0001
 from custom_components.better_thermostat.utils.anomaly_evidence import (
     DEFAULT_ARM_SAMPLES,
     DEFAULT_MIN_SIGMA_KELVIN_PER_MIN,
+    UNREAD_ROOM_BLOCKS,
     AnomalyEvidenceTracker,
     compute_expected_passive_slope,
     compute_rc2_model_slope,
@@ -506,6 +510,97 @@ class TestAnomalyEvidenceTracker:
             AnomalyCode.VALVE_STUCK_OPEN.value,
         ]
         assert exported["next_evaluation_monotonic"] == 6500.0
+
+
+def _observe_falling_room(
+    tracker: AnomalyEvidenceTracker, minute: int, *, contact_open: bool = False
+) -> ThermalEvidence:
+    """Read a room that falls by 0.1 K a minute, at the given minute."""
+    evidence, _ = tracker.observe_snapshot(
+        now_monotonic=minute * 60.0,
+        room_temperature=20.0 - 0.1 * minute,
+        room_temperature_filtered=20.0 - 0.1 * minute,
+        outdoor_temperature=5.0,
+        temperature_slope_kelvin_per_min=-0.1,
+        heat_loss_rate_kelvin_per_hour_per_kelvin=None,
+        trv_raw_temperatures={},
+        contact_open=contact_open,
+    )
+    return evidence
+
+
+def _commit_falling_room(
+    tracker: AnomalyEvidenceTracker,
+    minutes: range,
+    block: HeatingBlock | None,
+    *,
+    contact_open: bool = False,
+) -> None:
+    """Commit one cycle a minute of the falling room under ``block``."""
+    for minute in minutes:
+        evidence = _observe_falling_room(tracker, minute, contact_open=contact_open)
+        tracker.commit_cycle(
+            make_snapshot(
+                now_monotonic=minute * 60.0,
+                room_temperature=20.0 - 0.1 * minute,
+                thermal_evidence=evidence,
+            ),
+            AnomalyState(),
+            heating_blocked_by=block,
+            contact_open=contact_open,
+        )
+
+
+class TestRoomSlopeUnderAHeatingBlock:
+    """Which heating blocks leave the room's slope readable."""
+
+    @pytest.mark.parametrize(
+        "block",
+        [
+            HeatingBlock.SUSPECTED_WINDOW,
+            HeatingBlock.HVAC_OFF,
+            HeatingBlock.NO_CALL_FOR_HEAT,
+        ],
+    )
+    def test_a_block_that_only_shuts_the_valves_leaves_the_slope_read(self, block):
+        """The room cools the same whether the valves are shut or not."""
+        tracker = AnomalyEvidenceTracker()
+        _commit_falling_room(tracker, range(1, 5), None)
+        _commit_falling_room(tracker, range(5, 12), block)
+
+        evidence = _observe_falling_room(tracker, 12)
+
+        assert evidence.slope_measured
+        assert evidence.slope_residual_kelvin_per_min == pytest.approx(-0.1)
+
+    @pytest.mark.parametrize("block", sorted(UNREAD_ROOM_BLOCKS))
+    def test_a_room_out_of_control_gets_a_zero_slope_marked_as_not_measured(
+        self, block
+    ):
+        tracker = AnomalyEvidenceTracker()
+        _commit_falling_room(tracker, range(1, 5), None)
+        _commit_falling_room(tracker, range(5, 8), block)
+
+        evidence = _observe_falling_room(tracker, 8)
+
+        assert not evidence.slope_measured
+        assert evidence.slope_residual_kelvin_per_min == 0.0
+
+    def test_the_slope_is_measured_again_once_the_flush_has_passed(self):
+        tracker = AnomalyEvidenceTracker()
+        _commit_falling_room(
+            tracker, range(1, 4), HeatingBlock.WINDOW, contact_open=True
+        )
+        assert not _observe_falling_room(tracker, 3, contact_open=True).slope_measured
+
+        _commit_falling_room(tracker, range(4, 9), None)
+        # Five minutes on from the last cycle under the open contact.
+        assert not _observe_falling_room(tracker, 8).slope_measured
+
+        _commit_falling_room(tracker, range(9, 13), None)
+        evidence = _observe_falling_room(tracker, 13)
+        assert evidence.slope_measured
+        assert evidence.slope_residual_kelvin_per_min == pytest.approx(-0.1)
 
 
 class TestFollowUpSchedulingAndAttributes:

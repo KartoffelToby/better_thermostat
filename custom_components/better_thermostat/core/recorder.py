@@ -336,6 +336,9 @@ def _thermal_evidence_of(raw: Json) -> ThermalEvidence | None:
             evidence.get("expected_passive_slope_kelvin_per_min")
         ),
         observer=_observer_reading_of(evidence.get("observer")),
+        # Absent from a recording made before the flag existed, which only
+        # ever held residuals read as measured.
+        slope_measured=evidence.get("slope_measured") is not False,
     )
 
 

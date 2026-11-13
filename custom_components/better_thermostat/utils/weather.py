@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -30,7 +30,9 @@ from ..core.outdoor import (
     heat_threshold,
     start_damping,
 )
+from .advanced_flags import advanced_flag
 from .calibration.disturbance_forecast import HourlyForecastPoint, clear_sky_factor
+from .const import CONF_PREDICTIVE_DISTURBANCE
 from .helpers import (
     async_fire_logbook_entry,
     convert_to_float_celsius,
@@ -91,9 +93,11 @@ async def check_weather(self: BetterThermostat) -> bool:
     )
     _call_for_heat_weather: bool | None = None
     _call_for_heat_outdoor = False
+    # The forecasts this check read, by type, for the hourly cache below.
+    forecasts_read: dict[str, Sequence[object]] = {}
 
     if self.weather_entity_id is not None:
-        _call_for_heat_weather = await check_weather_prediction(self)
+        _call_for_heat_weather = await check_weather_prediction(self, forecasts_read)
         if isinstance(_call_for_heat_weather, bool):
             if self.weather_fallback_active:
                 _LOGGER.info(
@@ -193,15 +197,38 @@ async def check_weather(self: BetterThermostat) -> bool:
                 "resumed heating because the outdoor temperature dropped",
             )
 
+    # The hourly forecast serves the disturbance horizon only. One the
+    # verdict has read is at hand. Any other is read beside this check: the
+    # caller acts on the verdict once the check returns, and a slow answer
+    # may not hold that back.
+    hourly = forecasts_read.get("hourly")
+    if hourly is not None or not _wants_hourly_forecast(self):
+        _cache_hourly_forecast(self, hourly)
+    else:
+        self._spawn_owned(
+            _refresh_hourly_forecast(self),
+            name=f"bt_hourly_forecast_{self.device_name}",
+        )
+
     return old_call_for_heat != self.call_for_heat
 
 
-async def check_weather_prediction(self: BetterThermostat) -> bool | None:
+async def check_weather_prediction(
+    self: BetterThermostat, forecasts_read: dict[str, Sequence[object]] | None = None
+) -> bool | None:
     """Check configured weather entity over roughly the next two days.
 
     The forecast horizon is normalised to about two days regardless of the
     entity's forecast granularity (daily, twice-daily or hourly), and the
     sampled temperatures are averaged.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    forecasts_read :
+            takes the forecast this check read, under its type, so the
+            caller does not ask the entity for the same one again
 
     Returns
     -------
@@ -250,11 +277,6 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
         # Sample roughly the next two days regardless of forecast granularity.
         _forecast_samples = {"daily": 2, "twice_daily": 4, "hourly": 48}[ftype]
 
-        if features & WeatherEntityFeature.FORECAST_HOURLY:
-            await _refresh_hourly_forecast(self)
-        else:
-            self.hourly_forecast = None
-
         try:
             async with asyncio.timeout(FORECAST_CALL_TIMEOUT.total_seconds()):
                 forecasts = await self.hass.services.async_call(
@@ -284,6 +306,8 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
             else None
         )
         if isinstance(forecast, list) and len(forecast) > 0:
+            if forecasts_read is not None:
+                forecasts_read[ftype] = forecast
             entity_temperature_unit = state.attributes.get("temperature_unit")
             temps = [
                 _forecast_entry_temperature(self, entry, entity_temperature_unit)
@@ -372,37 +396,29 @@ def _weather_reading(
     )
 
 
-async def _refresh_hourly_forecast(self: BetterThermostat) -> None:
-    """Cache the hourly cloud/condition forecast for the disturbance horizon.
+def _wants_hourly_forecast(self: BetterThermostat) -> bool:
+    """Return whether the room plans with predicted gains and has a forecast.
 
-    The forecast is a best-effort extra: an entity without hourly support, a
-    missing timestamp or a failed call leaves the cache empty, and the
-    learned profile then predicts the routine envelope alone.
+    The option is a TRV's; the room reads the hourly forecast as soon as one
+    of its TRVs has it on.
     """
-    if self.weather_entity_id is None:
-        self.hourly_forecast = None
-        return
-    try:
-        async with asyncio.timeout(FORECAST_CALL_TIMEOUT.total_seconds()):
-            forecasts = await self.hass.services.async_call(
-                WEATHER_DOMAIN,
-                "get_forecasts",
-                {"type": "hourly", "entity_id": [self.weather_entity_id]},
-                blocking=True,
-                return_response=True,
-            )
-    except TimeoutError, ServiceNotSupported, HomeAssistantError, TypeError:
-        self.hourly_forecast = None
-        return
-    container = (
-        forecasts.get(self.weather_entity_id) if isinstance(forecasts, dict) else None
+    return self.weather_entity_id is not None and any(
+        advanced_flag(trv.advanced, CONF_PREDICTIVE_DISTURBANCE, False)
+        for trv in self.real_trvs.values()
     )
-    forecast = container.get("forecast") if isinstance(container, dict) else None
-    if not isinstance(forecast, list):
-        self.hourly_forecast = None
-        return
+
+
+def _cache_hourly_forecast(
+    self: BetterThermostat, forecast: Sequence[object] | None
+) -> None:
+    """Cache an hourly forecast as the cloud factors the disturbance horizon reads.
+
+    The forecast is a best-effort extra: a room that does not plan with it,
+    a missing forecast and entries without a timestamp leave the cache
+    empty, and the learned profile then predicts the routine envelope alone.
+    """
     points: list[HourlyForecastPoint] = []
-    for entry in forecast:
+    for entry in (forecast or ()) if _wants_hourly_forecast(self) else ():
         if not isinstance(entry, dict):
             continue
         timestamp = _forecast_entry_timestamp(entry)
@@ -418,6 +434,47 @@ async def _refresh_hourly_forecast(self: BetterThermostat) -> None:
         )
     points.sort(key=lambda point: point.timestamp)
     self.hourly_forecast = tuple(points) if points else None
+
+
+async def _refresh_hourly_forecast(self: BetterThermostat) -> None:
+    """Read the weather entity's hourly forecast into the cache.
+
+    An entity without hourly support and a failed call leave the cache
+    empty.
+    """
+    weather_entity_id = self.weather_entity_id
+    _cache_hourly_forecast(
+        self,
+        await _read_hourly_forecast(self, weather_entity_id)
+        if weather_entity_id is not None and _wants_hourly_forecast(self)
+        else None,
+    )
+
+
+async def _read_hourly_forecast(
+    self: BetterThermostat, weather_entity_id: str
+) -> Sequence[object] | None:
+    """Ask the weather entity for its hourly forecast, ``None`` without one."""
+    state = self.hass.states.get(weather_entity_id)
+    features = state.attributes.get("supported_features", 0) if state else 0
+    if not features & WeatherEntityFeature.FORECAST_HOURLY:
+        return None
+    try:
+        async with asyncio.timeout(FORECAST_CALL_TIMEOUT.total_seconds()):
+            forecasts = await self.hass.services.async_call(
+                WEATHER_DOMAIN,
+                "get_forecasts",
+                {"type": "hourly", "entity_id": [weather_entity_id]},
+                blocking=True,
+                return_response=True,
+            )
+    except TimeoutError, ServiceNotSupported, HomeAssistantError, TypeError:
+        return None
+    container = (
+        forecasts.get(weather_entity_id) if isinstance(forecasts, dict) else None
+    )
+    forecast = container.get("forecast") if isinstance(container, dict) else None
+    return forecast if isinstance(forecast, list) else None
 
 
 def _forecast_entry_timestamp(entry: Mapping[str, object]) -> float | None:

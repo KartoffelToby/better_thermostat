@@ -781,9 +781,83 @@ class TestValveStuckOpen:
             )
             assert "climate.stuck" not in res.trvs
 
+    @pytest.mark.parametrize(
+        ("slope_measured", "suspected"), [(True, True), (False, False)]
+    )
+    def test_a_residual_on_a_slope_nobody_measured_is_no_evidence(
+        self, slope_measured, suspected
+    ):
+        """The stand-in slope of an unread room does not show a room warming."""
+        snap = make_snapshot(
+            hvac_mode=HvacMode.OFF,
+            room_temperature=21.0,
+            thermal_evidence=ThermalEvidence(
+                slope_residual_kelvin_per_min=0.01, slope_measured=slope_measured
+            ),
+            trvs={
+                "climate.stuck": TrvReported(
+                    entity_id="climate.stuck",
+                    hvac_mode=HvacMode.OFF,
+                    raw_temperature=25.5,
+                    valve_percent=0.0,
+                )
+            },
+        )
+
+        stepped = an.step(
+            an.AnomalyState(),
+            snap,
+            control_mode=ControlMode.OPTIMAL,
+            heating_blocked_by=HeatingBlock.HVAC_OFF,
+            contact_open=False,
+            addressed_trvs=("climate.stuck",),
+        )
+
+        assert ("climate.stuck" in stepped.trvs) is suspected
+
 
 class TestNextEvaluationAndDecideIntegration:
     """Follow-up deadline calculation and decide() cascade integration."""
+
+    @pytest.mark.parametrize(
+        ("slot", "block"),
+        [
+            (
+                an.FaultSlot(phase=an.FaultPhase.ACTIVE, active_since=900.0),
+                HeatingBlock.SUSPECTED_WINDOW,
+            ),
+            (
+                an.FaultSlot(
+                    phase=an.FaultPhase.RECOVERING, since=990.0, active_since=900.0
+                ),
+                HeatingBlock.SUSPECTED_WINDOW,
+            ),
+            (an.FaultSlot(phase=an.FaultPhase.EXPIRED, active_since=-2700.0), None),
+            # Its liveness bound ends on this very cycle.
+            (an.FaultSlot(phase=an.FaultPhase.ACTIVE, active_since=-2600.0), None),
+        ],
+    )
+    def test_a_suspected_window_suppresses_heating_only_while_it_gates(
+        self, slot, block
+    ):
+        """An expired finding stays visible and gives the room its heat back."""
+        snap = make_snapshot(
+            now_monotonic=1000.0,
+            temperature_slope=-0.08,
+            thermal_evidence=ThermalEvidence(
+                observer=_observer(normalised_innovation=-4.0)
+            ),
+        )
+        state = make_state(
+            anomaly_detection=True,
+            anomaly_suppression=True,
+            anomaly=an.AnomalyState(rapid_loss=slot),
+        )
+
+        desired, _ = decide(snap, state)
+
+        assert desired.heating_blocked_by == block
+        assert desired.anomalies == (AnomalyCode.UNEXPECTED_RAPID_LOSS,)
 
     def test_next_evaluation_monotonic_picks_earliest_pending_timer(self):
         """next_evaluation_monotonic returns None when idle and earliest deadline when active."""

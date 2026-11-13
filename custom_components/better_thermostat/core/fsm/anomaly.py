@@ -525,8 +525,11 @@ def _valve_stuck_open_evidence(
         return False
     evidence = snapshot.thermal_evidence
     if evidence is not None and evidence.slope_residual_kelvin_per_min is not None:
+        # A residual on a slope nobody measured says nothing about a room
+        # that keeps warming.
         return (
-            evidence.slope_residual_kelvin_per_min
+            evidence.slope_measured
+            and evidence.slope_residual_kelvin_per_min
             >= params.stuck_open_min_residual_kelvin_per_min
         )
     return (

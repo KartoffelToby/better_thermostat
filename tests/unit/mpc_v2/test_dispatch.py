@@ -19,10 +19,14 @@ import pytest
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.fsm.anomaly import AnomalyState
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.anomaly_evidence import (
     AnomalyEvidenceTracker,
+)
+from custom_components.better_thermostat.utils.calibration.disturbance_profile import (
+    DisturbanceProfile,
 )
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Params,
@@ -120,7 +124,7 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
             control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL),
             anomaly_detection=False,
             anomaly_suppression=False,
-            anomaly=SimpleNamespace(rapid_loss=SimpleNamespace(is_visible=False)),
+            anomaly=AnomalyState(),
         ),
         device_name="BT_TEST",
         bt_hvac_mode=HVACMode.HEAT,
@@ -644,3 +648,23 @@ def test_an_unavailable_trv_is_no_reference() -> None:
     assert _debug_number(balance, "distributed_valve_pct") == _debug_number(
         balance, "group_valve_pct"
     )
+
+
+@pytest.mark.parametrize(("predictive", "horizon_steps"), [(False, 12), (True, 24)])
+def test_only_a_room_planning_with_predicted_gains_takes_the_longer_horizon(
+    predictive: bool, horizon_steps: int
+) -> None:
+    """The room that did not ask for the prediction keeps its one-hour plan."""
+    trv = _make_trv("climate.single", current_temperature=19.0, supports_valve=True)
+    trv.advanced["predictive_disturbance"] = predictive
+    bt = _make_bt(real_trvs={"climate.single": trv})
+    bt.heating_blocked_by = None
+    bt.hourly_forecast = None
+    bt.state_mgr.get_disturbance_profile = lambda key: DisturbanceProfile()
+    bt.state_mgr.set_disturbance_profile = lambda key, profile: None
+
+    _compute_mpc_v2_balance(bt, "climate.single")
+
+    (state,) = bt.state_mgr._mpc_v2_live.values()
+    assert state.controller is not None
+    assert state.controller.optimiser.N == horizon_steps

@@ -54,6 +54,8 @@ radiator heat has already dissipated.
 When **Valve maintenance** is enabled for the affected thermostat, Better
 Thermostat automatically triggers a one-shot valve exercise cycle (at most once
 every 24 hours) to help dislodge scale or debris on the valve seat.
+The exercise opens the valve fully, so it waits while a window or door
+contact is open and runs once the contact has closed.
 
 **What to check:**
 - Inspect the thermostat head mounting and adapter ring to make sure the pin is

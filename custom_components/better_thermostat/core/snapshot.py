@@ -91,6 +91,11 @@ class ThermalEvidence:
     slope_residual_sigma_kelvin_per_min: float | None = None
     expected_passive_slope_kelvin_per_min: float | None = None
     observer: ObserverReading | None = None
+    # False while the residual stands on a zero slope the tracker puts in
+    # for a room it does not read: under an open contact, while the room's
+    # devices are not under control, and for the flush after either. Such a
+    # residual keeps a loss from being suspected and proves nothing else.
+    slope_measured: bool = True
 
 
 @dataclass(frozen=True)

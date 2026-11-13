@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Final
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.core.decide import suspected_window_suppresses
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
@@ -43,6 +44,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     ReidSample,
     compute_mpc_v2,
     make_plant_prior,
+    predictive_qp_params,
     run_reid_fit,
 )
 from custom_components.better_thermostat.utils.calibration.pid import (
@@ -428,10 +430,8 @@ def _trv_share_percent(
 
 def _window_suppresses_heating(self: BetterThermostat) -> bool:
     """Return whether a physical or suspected open window suppresses heating."""
-    return self.contact_open or (
-        self.kernel_state.anomaly_detection
-        and self.kernel_state.anomaly_suppression
-        and self.kernel_state.anomaly.rapid_loss.is_visible
+    return self.contact_open or suspected_window_suppresses(
+        self.kernel_state, self.clock.monotonic()
     )
 
 
@@ -952,7 +952,14 @@ def _compute_mpc_v2_balance(
             heat_loss_rate=self.heat_loss_rate,
             preset=preset,
         )
-    v2_params = MpcV2Params(plant=plant_prior)
+    # Only a room that plans with its predicted gains takes the longer
+    # horizon they need; an options change reloads the entry, so the
+    # controller is built on the horizon its room has.
+    v2_params = (
+        MpcV2Params(plant=plant_prior, qp=predictive_qp_params())
+        if predictive_disturbance
+        else MpcV2Params(plant=plant_prior)
+    )
 
     outdoor_temperature = _get_current_outdoor_temperature(self)
     # The single-TRV path has one physical input.  A group controller's

@@ -24,6 +24,7 @@ from custom_components.better_thermostat.core.fsm.maintenance import (
     MaintenanceDue,
     MaintenanceIdle,
 )
+from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
 from custom_components.better_thermostat.core.recorder import (
     _json_safe,
     _state_asdict,
@@ -218,6 +219,53 @@ async def test_valve_leak_creates_issue_and_requests_maintenance_once_per_cooldo
     assert _open_issues(hass) == {expected_id}
     assert isinstance(bt.kernel_state.maintenance, MaintenanceIdle)
     assert len(spawned) == 1
+
+
+@pytest.mark.parametrize(
+    ("contact", "window_detection", "armed"),
+    [
+        ("window", True, False),
+        ("door", True, False),
+        # With window detection off an open contact shuts no valve, so it
+        # does not stand in the way of the exercise either.
+        ("window", False, True),
+    ],
+)
+def test_a_leak_found_under_an_open_contact_starts_no_valve_exercise(
+    hass, contact, window_detection, armed
+):
+    """The exercise opens the valve fully, as the scheduled one does."""
+    bt = _configured_bt(hass)
+    bt.real_trvs[DEFAULT_TRV_ID].advanced[CONF_VALVE_MAINTENANCE] = True
+    bt._run_valve_maintenance = MagicMock(return_value=None)
+    idle_maint = MaintenanceIdle(next_due=datetime(2026, 1, 17, 12, 0, tzinfo=UTC))
+    open_contact = {contact: WindowState(phase=WindowPhase.OPEN)}
+    clear_state = make_state(
+        anomaly_detection=True,
+        maintenance=idle_maint,
+        window_detection=window_detection,
+        **open_contact,
+    )
+    active_state = replace(
+        clear_state,
+        anomaly=AnomalyState(
+            trvs={DEFAULT_TRV_ID: TrvFaultState(valve_stuck_open=ACTIVE_SLOT)}
+        ),
+    )
+    bt.kernel_state = active_state
+
+    snapshot = make_snapshot()
+    sync_anomaly_repairs_and_actions(bt, snapshot, clear_state, active_state)
+
+    assert isinstance(bt.kernel_state.maintenance, MaintenanceDue) is armed
+    assert bt._run_valve_maintenance.called is armed
+    # Either way the run is due now; under the open contact the schedule
+    # holds it until the contact has closed.
+    assert bt.kernel_state.maintenance.next_due == snapshot.now
+    # The finding itself is reported either way.
+    assert _open_issues(hass) == {
+        entry_issue_id(DEFAULT_CONFIG_ENTRY_ID, "valve_leak_detected", DEFAULT_TRV_ID)
+    }
 
 
 def test_recorder_round_trips_last_anomaly_run_monotonic():

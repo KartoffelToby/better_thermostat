@@ -8,6 +8,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from custom_components.better_thermostat.utils.calibration.mpc_v2.params import (
+    predictive_qp_params,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     PlantModelRC2,
     PlantParams,
@@ -64,17 +67,14 @@ def test_warm_room_above_a_setpoint_beyond_the_water_backs_the_valve_off(
     the valve's full gain at that radiator temperature to decide this.
     """
     plant_params = PlantParams(tau_room_min=720.0)
-    # A one-hour horizon keeps this a test of the valve-gain sign; over the
-    # longer default horizon the plan pre-heats for the cold outdoor loss.
-    params = QpParams(horizon_steps=12, move_block_steps=1)
-    opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), params)
+    opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
     target = target_temperature
     hottest = opt.plant.hottest_radiator_temperature(target)
     assert opt.plant.steady_radiator_temperature(target, -16.0) > plant_params.T_water
 
     u = opt.solve(np.array([target + 2.0, hottest]), target, -16.0, u_last=0.5)
 
-    assert u == pytest.approx(0.5 - params.delta_u_max)
+    assert u == pytest.approx(0.5 - QpParams().delta_u_max)
 
 
 def test_setpoint_above_the_supply_water_never_reads_opening_as_cooling() -> None:
@@ -989,14 +989,118 @@ def test_a_future_gain_tapers_the_plan_before_it_arrives() -> None:
     assert with_gain < without_gain
 
 
-def test_move_blocks_condense_the_horizon_into_twelve_decisions() -> None:
-    """The twelve-block default holds each command over two fine steps."""
+def test_the_default_horizon_plans_one_decision_per_step() -> None:
+    """A room without the prediction keeps the one-hour, unblocked plan."""
     opt = QpOptimiser(PlantModelRC2(PlantParams(), dt_s=300.0), QpParams())
+
+    assert (opt.N, opt.M) == (12, 12)
+    assert opt._expand.tolist() == np.eye(12).tolist()
+
+
+def test_the_predictive_horizon_condenses_into_twelve_decisions() -> None:
+    """The two-hour horizon holds each command over two fine steps."""
+    opt = QpOptimiser(PlantModelRC2(PlantParams(), dt_s=300.0), predictive_qp_params())
 
     assert opt.N == 24
     assert opt.M == 12
     assert opt._expand.shape == (24, 12)
     assert opt._expand.sum(axis=0).tolist() == [2] * 12
+
+
+def _captured_qp(
+    monkeypatch: pytest.MonkeyPatch,
+    opt: QpOptimiser,
+    x_pred: np.ndarray,
+    *,
+    T_sp: float,
+    T_outdoor: float,
+    u_last: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the Hessian and gradient one solve hands the portable solver."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    captured: list[tuple[np.ndarray, np.ndarray]] = []
+
+    def record(hessian, gradient, bounds, count):
+        captured.append((np.array(hessian), np.array(gradient)))
+        return np.full(count, bounds.u_last)
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+    monkeypatch.setattr(opt, "_solve_portable", record)
+    opt.solve(x_pred, T_sp=T_sp, T_outdoor=T_outdoor, u_last=u_last)
+    (qp,) = captured
+    return qp
+
+
+def _fine_step_cost(
+    opt: QpOptimiser,
+    decisions: np.ndarray,
+    x_pred: np.ndarray,
+    *,
+    T_sp: float,
+    T_outdoor: float,
+    u_last: float,
+) -> float:
+    """Simulate the plant over the fine steps and sum the documented cost.
+
+    Comfort counts the room at every step of the horizon, its end included.
+    Effort counts every fine step, the valve moves count where the command
+    changes, and the integral runs over the steps before the last.
+    """
+    params = opt.params
+    u = opt._expand @ decisions
+    radiator = min(
+        opt.plant.steady_radiator_temperature(T_sp, T_outdoor, 0.0),
+        opt.plant.hottest_radiator_temperature(T_sp),
+        opt.plant.params.T_water,
+    )
+    A, B, drift = opt.plant.linearised_system(T_outdoor, radiator)
+    u_ss = opt._steady_input_for(T_sp, T_outdoor, 0.0)
+    state = x_pred.astype(float)
+    errors = [state[0] - T_sp]
+    for command in u:
+        state = A @ state + B.flatten() * command + drift
+        errors.append(state[0] - T_sp)
+    moves = np.diff(np.concatenate([[u_last], u]))
+    integral = opt.e_integral_K_min + opt.plant.dt_min * np.cumsum(errors[:-1])
+    return float(
+        params.w_comfort * sum(error**2 for error in errors)
+        + params.w_effort * sum((command - u_ss) ** 2 for command in u)
+        + params.w_smooth * float(moves @ moves)
+        + params.w_integral * float(integral @ integral)
+    )
+
+
+@pytest.mark.parametrize(
+    "qp_params", [QpParams(), predictive_qp_params()], ids=["default", "predictive"]
+)
+def test_the_qp_is_the_cost_summed_over_the_fine_steps(
+    monkeypatch: pytest.MonkeyPatch, qp_params: QpParams
+) -> None:
+    """The Hessian and gradient describe one cost, the last step included.
+
+    A quadratic is fixed by its values, so the form the solver is handed
+    has to reproduce the difference in simulated cost between two plans.
+    """
+    opt = QpOptimiser(PlantModelRC2(PlantParams(), dt_s=300.0), qp_params)
+    opt.e_integral_K_min = 3.0
+    x_pred = np.array([19.5, 27.0])
+    room = {"T_sp": 21.0, "T_outdoor": 2.0, "u_last": 0.3}
+    hessian, gradient = _captured_qp(monkeypatch, opt, x_pred, **room)
+
+    def form(decisions: np.ndarray) -> float:
+        return float(0.5 * decisions @ hessian @ decisions + gradient @ decisions)
+
+    rng = np.random.default_rng(3)
+    reference = np.full(opt.M, 0.3)
+    for _ in range(5):
+        plan = rng.uniform(0.0, 1.0, opt.M)
+        simulated = _fine_step_cost(opt, plan, x_pred, **room) - _fine_step_cost(
+            opt, reference, x_pred, **room
+        )
+        assert form(plan) - form(reference) == pytest.approx(simulated, rel=1e-9)
 
 
 def test_move_blocking_survives_a_horizon_that_does_not_fill_its_last_block() -> None:

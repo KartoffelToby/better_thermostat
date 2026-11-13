@@ -11,6 +11,7 @@ calibration type that put it there.
 import contextlib
 from dataclasses import replace
 from datetime import timedelta
+import math
 from unittest.mock import patch
 
 from homeassistant.components.climate import (
@@ -70,7 +71,9 @@ class _VirtualTime:
     def __init__(self, real_clock) -> None:
         self.t = 0.0
         self._real = real_clock
-        self.origin = real_clock.monotonic()
+        # A whole number of seconds, so the ticks add to it without rounding
+        # and a run is exactly as old as the ticks since it began.
+        self.origin = float(math.ceil(real_clock.monotonic()))
 
     def monotonic(self) -> float:
         return self.origin + self.t
@@ -98,8 +101,22 @@ class _Ticks:
         self.count = 0
         self.room_temperature: float | None = None
 
+    def _idle(self) -> bool:
+        """Whether no control cycle is running or waiting to run."""
+        return (
+            self.bt.control_cycle_started_monotonic is None
+            and self.bt.control_queue_task.empty()
+        )
+
     async def fire(self) -> None:
-        """Move on one tick and wait for the control cycle it asks for."""
+        """Move on one tick and wait for the control cycle it asks for.
+
+        The cycle stamps its heartbeat before it writes the TRVs, so the
+        heartbeat alone holds while the TRV's run is still off its record.
+        The tick is over once a cycle that read its time has ended, and the
+        clock only moves between cycles.
+        """
+        assert await wait_for(self.hass, self._idle)
         self.count += 1
         self.clock.t = self.count * _TICK_MINUTES * 60.0
         if self.room_temperature is not None:
@@ -111,6 +128,7 @@ class _Ticks:
             self.hass,
             lambda: (
                 self.bt.kernel_state.last_control_monotonic == self.clock.monotonic()
+                and self._idle()
             ),
         )
         await self.hass.async_block_till_done()

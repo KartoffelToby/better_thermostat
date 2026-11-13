@@ -144,9 +144,15 @@ def request_now(
     now: datetime,
     now_monotonic: float,
     *,
+    window_open: bool,
     cooldown_seconds: float = ANOMALY_MAINTENANCE_COOLDOWN_SECONDS,
 ) -> MaintenanceState:
     """Arm an immediate valve-maintenance run unless already due/running or in cooldown.
+
+    An open window arms nothing: the exercise drives the valve fully open.
+    The run is handed to the schedule instead, where ``evaluate_tick``
+    postpones it hour by hour until the window has closed. No run started,
+    so the cooldown does not start either.
 
     Parameters
     ----------
@@ -156,6 +162,8 @@ def request_now(
         Current wall-clock time.
     now_monotonic : float
         Current monotonic timestamp used to enforce the 24-hour cooldown.
+    window_open : bool
+        Whether a window is currently open.
     cooldown_seconds : float, optional
         Minimum monotonic interval between anomaly-triggered maintenance runs.
 
@@ -163,8 +171,9 @@ def request_now(
     -------
     MaintenanceState
         ``MaintenanceDue`` with ``last_anomaly_run_monotonic=now_monotonic`` when
-        armed from ``MaintenanceIdle`` outside cooldown; otherwise ``state``
-        unchanged.
+        armed from ``MaintenanceIdle`` outside cooldown with the window
+        closed; ``MaintenanceIdle`` due at once under an open window;
+        otherwise ``state`` unchanged.
     """
     if not isinstance(state, MaintenanceIdle):
         return state
@@ -173,6 +182,8 @@ def request_now(
         and (now_monotonic - state.last_anomaly_run_monotonic) < cooldown_seconds
     ):
         return state
+    if window_open:
+        return replace(state, next_due=min(state.next_due, now))
     return MaintenanceDue(
         next_due=min(state.next_due, now), last_anomaly_run_monotonic=now_monotonic
     )

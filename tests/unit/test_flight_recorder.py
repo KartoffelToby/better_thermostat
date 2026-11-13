@@ -714,6 +714,7 @@ class TestRoundtripCompleteness:
             "slope_residual_sigma_kelvin_per_min": 0.015,
             "expected_passive_slope_kelvin_per_min": -0.02,
             "observer": ObserverReading(**observer_kwargs),
+            "slope_measured": False,
         }
         assert set(thermal_evidence_kwargs) == {f.name for f in fields(ThermalEvidence)}
 
@@ -869,6 +870,25 @@ class TestThermalEvidenceRoundtrip:
         entry = json.loads(json.dumps(recorder.export(), allow_nan=False))[0]
 
         assert snapshot_from_dict(entry["snapshot"]).thermal_evidence == evidence
+
+    def test_evidence_recorded_before_the_slope_flag_reads_as_measured(self):
+        """A recording without the flag held measured residuals only."""
+        recorder = FlightRecorder()
+        snapshot = replace(
+            _snapshot(),
+            thermal_evidence=ThermalEvidence(
+                slope_residual_kelvin_per_min=-0.05, slope_measured=False
+            ),
+        )
+        desired, _ = decide(snapshot, running_kernel_state())
+        recorder.record(snapshot, running_kernel_state(), desired)
+        entry = json.loads(json.dumps(recorder.export(), allow_nan=False))[0]
+        del entry["snapshot"]["thermal_evidence"]["slope_measured"]
+
+        rebuilt = snapshot_from_dict(entry["snapshot"]).thermal_evidence
+
+        assert rebuilt is not None
+        assert rebuilt.slope_measured is True
 
     def test_non_finite_observer_floats_roundtrip_to_zero_defaults(self):
         """Non-finite observer scalars export as null and import as 0.0."""

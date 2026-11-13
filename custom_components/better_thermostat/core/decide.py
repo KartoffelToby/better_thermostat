@@ -55,6 +55,7 @@ from .desired import (
     TrvDesired,
 )
 from .fsm.anomaly import (
+    DEFAULT_ANOMALY_PARAMS,
     AnomalyState,
     step as anomaly_step,
     visible_codes as anomaly_visible_codes,
@@ -183,6 +184,36 @@ def _with_mode(
     }
 
 
+def suspected_window_suppresses(state: KernelState, now_monotonic: float) -> bool:
+    """Return whether a suspected open window keeps the room unheated.
+
+    The rapid-loss finding suppresses heating only while it gates: once it
+    has run for its liveness bound it stays visible as ``EXPIRED`` and the
+    room is heated again, so a finding that never ends cannot leave a room
+    cold for good.
+
+    Parameters
+    ----------
+    state : KernelState
+        Kernel state carrying the anomaly region and the user's two switches.
+    now_monotonic : float
+        Monotonic time the liveness bound is checked against.
+
+    Returns
+    -------
+    bool
+        ``True`` while anomaly detection and its suppression are on and the
+        rapid-loss finding gates.
+    """
+    return (
+        state.anomaly_detection
+        and state.anomaly_suppression
+        and state.anomaly.rapid_loss.is_gating(
+            now_monotonic, DEFAULT_ANOMALY_PARAMS.rapid_loss_liveness_seconds
+        )
+    )
+
+
 def _pre_anomaly_block(
     snapshot: WorldSnapshot, state: KernelState
 ) -> HeatingBlock | None:
@@ -201,11 +232,7 @@ def _pre_anomaly_block(
         state.window.effective_open or state.door.effective_open
     ):
         return HeatingBlock.WINDOW if state.window.effective_open else HeatingBlock.DOOR
-    if (
-        state.anomaly_detection
-        and state.anomaly_suppression
-        and state.anomaly.rapid_loss.is_visible
-    ):
+    if suspected_window_suppresses(state, snapshot.now_monotonic):
         return HeatingBlock.SUSPECTED_WINDOW
     if not snapshot.call_for_heat:
         return HeatingBlock.NO_CALL_FOR_HEAT
@@ -270,11 +297,7 @@ def _cascade_desired(
             heating_blocked_by=SUPPRESSION_BLOCKS[suppression],
         )
 
-    if (
-        state.anomaly_detection
-        and state.anomaly_suppression
-        and state.anomaly.rapid_loss.is_visible
-    ):
+    if suspected_window_suppresses(state, snapshot.now_monotonic):
         return DesiredState(
             call_for_heat=snapshot.call_for_heat,
             trvs=_with_mode(addressed, HvacMode.OFF, Suppression.SUSPECTED_WINDOW),
