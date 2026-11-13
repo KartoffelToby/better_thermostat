@@ -92,6 +92,31 @@ def _clamp_value(value: float, lower: float, upper: float) -> float:
     return value
 
 
+def resolve_offset_bounds(reported: TrvReported | None) -> tuple[float, float]:
+    """Return the calibration offset range the hull clamps a TRV's offset to.
+
+    The range is the one the TRV reports, in Better Thermostat's convention;
+    a bound it does not report, or reports as no finite number, is the
+    fallback bound.
+
+    Parameters
+    ----------
+    reported : TrvReported | None
+        The TRV's reported state, ``None`` when the snapshot holds none.
+
+    Returns
+    -------
+    tuple[float, float]
+        The lowest and the highest offset in Kelvin, lowest first.
+    """
+    return _resolve_bounds(
+        reported.min_local_calibration if reported is not None else None,
+        reported.max_local_calibration if reported is not None else None,
+        FALLBACK_MIN_OFFSET,
+        FALLBACK_MAX_OFFSET,
+    )
+
+
 def _valve_upper_bound(reported: TrvReported | None) -> float:
     """Return the highest valve percentage the TRV may be commanded to.
 
@@ -130,12 +155,7 @@ def _clamp_trv(
             # withholds the write instead of inventing one.
             calibration_offset = None
         else:
-            lower, upper = _resolve_bounds(
-                reported.min_local_calibration if reported is not None else None,
-                reported.max_local_calibration if reported is not None else None,
-                FALLBACK_MIN_OFFSET,
-                FALLBACK_MAX_OFFSET,
-            )
+            lower, upper = resolve_offset_bounds(reported)
             calibration_offset = _clamp_value(calibration_offset, lower, upper)
 
     valve = intent.valve_percent

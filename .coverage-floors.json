@@ -29,6 +29,7 @@
   "custom_components/better_thermostat/core/fsm/mode.py": 100.0,
   "custom_components/better_thermostat/core/fsm/reachability.py": 100.0,
   "custom_components/better_thermostat/core/fsm/window.py": 100.0,
+  "custom_components/better_thermostat/core/offset_limit.py": 100.0,
   "custom_components/better_thermostat/core/outdoor.py": 100.0,
   "custom_components/better_thermostat/core/recorder.py": 100.0,
   "custom_components/better_thermostat/core/safety.py": 100.0,

@@ -228,6 +228,10 @@
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} overtager ikke måltemperaturen",
       "description": "Better Thermostat skriver gentagne gange måltemperaturen {wanted} til {entity}, men termostaten melder stadig {held}. Rummet opvarmes ikke, som Better Thermostat har tænkt.\n\nAlmindelige årsager:\n- Termostaten har sin egen grænse for setpunktet under det maksimum, den oplyser, for eksempel `max_heat_setpoint_limit` i Zigbee2MQTT.\n- Termostaten er i en tilstand eller forudindstilling, hvor den ignorerer måltemperaturer, f.eks. en tidsplantilstand.\n- Termostaten har mistet radioforbindelsen, eller batteriet er svagt.\n\nBetter Thermostat bliver ved med at skrive måltemperaturen, højst én gang i timen. Dette problem forsvinder af sig selv, når termostaten melder måltemperaturen."
+    },
+    "calibration_offset_at_limit": {
+      "title": "BT: {name} - kalibreringsforskydningen for {entity} bliver ved sin grænse",
+      "description": "Den kalibreringsforskydning, som Better Thermostat skriver til {entity}, har ligget ved grænsen af det område, termostaten accepterer, i {minutes} minutter. Kalibrering af typen Baseret på forskydning lægger forskellen mellem rumtemperaturen og termostatens egen måling til forskydningen, så en forskydning, der bliver ved grænsen, har ingen korrektion tilbage.\n\nAlmindelige årsager:\n- Termostaten accepterer forskydningen, men anvender den ikke, så dens måling flytter sig aldrig. Nogle Matter-termostater opfører sig sådan.\n- Termostaten anvender kun forskydninger inden for et snævrere område end det, den offentliggør.\n- Termostatens egen måling ligger længere fra rumtemperaturen, end dens forskydningsområde rækker, for eksempel fordi den sidder lige over radiatoren.\n\nSkift denne termostat til kalibreringstypen **Baseret på måltemperatur** (Indstillinger → Enheder og tjenester → Better Thermostat → Konfigurer); den afhænger ikke af forskydningen. Dette problem forsvinder af sig selv, når forskydningen forlader grænsen, eller når termostaten ikke længere bruger kalibreringstypen Baseret på forskydning."
     }
   },
   "services": {

@@ -33,7 +33,17 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     step as control_mode_step,
     step_ladder as control_mode_step_ladder,
 )
+from custom_components.better_thermostat.core.offset_limit import (
+    CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS,
+    OffsetAtLimit,
+    advance_offset_at_limit,
+    compute_offset_correction,
+    is_correction_past_limit,
+    is_offset_stuck_at_limit,
+    limit_held_by,
+)
 from custom_components.better_thermostat.model_fixes.model_quirks import (
+    local_calibration_shifts_setpoint,
     trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.helpers import (
@@ -759,6 +769,163 @@ def clear_unapplied_setpoint(self: BetterThermostat, entity_id: str) -> None:
         entry_issue_id(self._config_entry_id, "setpoint_not_applied", entity_id),
     )
     self.async_write_ha_state()
+
+
+def follow_calibration_offset_at_limit(
+    self: BetterThermostat,
+    entity_id: str,
+    calibration_offset: float | None,
+    reported_offset: float | None,
+    offset_bounds: tuple[float, float],
+    room_temperature: float | None,
+    run: OffsetAtLimit | None,
+) -> None:
+    """Follow a TRV's offset at the limit of its range through one control cycle.
+
+    A cycle counts towards the run when the offset it asks for and the offset
+    the TRV reports sit at the same limit of the range, and the correction
+    the gap between room and TRV reading asks for lies past that limit. A run
+    of such cycles that has lasted ``CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS``
+    is reported. A cycle that finds any of the three off the limit ends the
+    run and takes a raised report back. A cycle that lacks one of its inputs
+    observes nothing: the run ends, since it has to be unbroken, and a raised
+    report stands. The run is kept on the TRV between cycles; the caller takes
+    it off at the start of each cycle and hands it in here, so a cycle that
+    never gets this far ends it as well.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity id of the TRV
+    calibration_offset : float | None
+        The offset in Kelvin the cycle asks for, after the safety hull;
+        ``None`` when the cycle follows no offset
+    reported_offset : float | None
+        The offset in Kelvin the TRV reports; ``None`` when it is unreadable
+    offset_bounds : tuple[float, float]
+        The lowest and the highest offset in Kelvin the safety hull lets
+        through to the TRV
+    room_temperature : float | None
+        The room temperature in °C the calibration works from; ``None`` when
+        there is none
+    run : OffsetAtLimit | None
+        The run before this cycle, ``None`` when there is none
+    """
+    trv = self.real_trvs[entity_id]
+    trv_reading = trv.current_temperature
+    if (
+        calibration_offset is None
+        or reported_offset is None
+        or room_temperature is None
+        or trv_reading is None
+    ):
+        return
+    lower, upper = offset_bounds
+    step = trv.local_calibration_step
+    limit = limit_held_by(calibration_offset, lower, upper, step)
+    correction = compute_offset_correction(
+        room_temperature,
+        trv_reading,
+        reported_offset,
+        shifts_setpoint=local_calibration_shifts_setpoint(self, entity_id),
+    )
+    if (
+        limit is None
+        or limit_held_by(reported_offset, lower, upper, step) != limit
+        or not is_correction_past_limit(correction, limit, step)
+    ):
+        clear_calibration_offset_at_limit(self, entity_id)
+        return
+    now_monotonic = self.clock.monotonic()
+    run = advance_offset_at_limit(run, limit, now_monotonic)
+    trv.calibration_offset_at_limit = run
+    if is_offset_stuck_at_limit(run, now_monotonic):
+        report_calibration_offset_at_limit(self, entity_id, limit)
+
+
+def report_calibration_offset_at_limit(
+    self: BetterThermostat, entity_id: str, limit: float
+) -> None:
+    """Report a TRV whose offset has stayed at a limit of its range.
+
+    The TRV gets a repair issue and the log a warning, once per run;
+    ``clear_calibration_offset_at_limit`` takes the issue back.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity id of the TRV
+    limit : float
+        The limit in Kelvin the offset stays at
+    """
+    trv = self.real_trvs[entity_id]
+    if trv.calibration_offset_at_limit_reported:
+        return
+    trv.calibration_offset_at_limit_reported = True
+    minutes = round(CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS / 60.0)
+    _LOGGER.warning(
+        "better_thermostat %s: the calibration offset of TRV %s has stayed at "
+        "the limit of its range (%s K) for %d minutes; the TRV does not seem to "
+        "apply the offset, or its reading is further from the room temperature "
+        "than the range reaches. Target Temperature Based calibration does not "
+        "depend on the offset",
+        self.device_name,
+        entity_id,
+        limit,
+        minutes,
+    )
+    ir.async_create_issue(
+        hass=self.hass,
+        domain=DOMAIN,
+        issue_id=entry_issue_id(
+            self._config_entry_id, "calibration_offset_at_limit", entity_id
+        ),
+        is_fixable=False,
+        is_persistent=False,
+        learn_more_url="https://better-thermostat.org/faq/calibration-offset-at-limit",
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="calibration_offset_at_limit",
+        translation_placeholders={
+            "name": self.device_name,
+            "entity": entity_id,
+            "minutes": str(minutes),
+        },
+    )
+
+
+def clear_calibration_offset_at_limit(self: BetterThermostat, entity_id: str) -> None:
+    """Take back the report of a TRV whose offset stayed at a limit.
+
+    Called when a control cycle finds the offset off the limit. A change of
+    the calibration type or mode reloads the entry, and the unload deletes
+    every issue the entry raised.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity id of the TRV
+    """
+    trv = self.real_trvs[entity_id]
+    if not trv.calibration_offset_at_limit_reported:
+        return
+    trv.calibration_offset_at_limit_reported = False
+    _LOGGER.info(
+        "better_thermostat %s: the calibration offset of TRV %s has left the "
+        "limit of its range",
+        self.device_name,
+        entity_id,
+    )
+    ir.async_delete_issue(
+        self.hass,
+        DOMAIN,
+        entry_issue_id(self._config_entry_id, "calibration_offset_at_limit", entity_id),
+    )
 
 
 # Default delays for the optional-sensor startup retry loop.
