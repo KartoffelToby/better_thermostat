@@ -448,7 +448,7 @@ dev = [
     { name = "pytest", specifier = ">=9" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
-    { name = "pytest-homeassistant", specifier = "==2026.11.1" },
+    { name = "pytest-homeassistant", specifier = ">=2026.11.1" },
     { name = "pytest-timeout", specifier = ">=2.4" },
     { name = "ruff", specifier = ">=0.17.5" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20261113" },
