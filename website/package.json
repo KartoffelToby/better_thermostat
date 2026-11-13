@@ -17,8 +17,7 @@
     "gsap": "^3.15.1",
     "lit": "^3.3.3",
     "mermaid": "^12.3.0",
-    "node-gyp": "^13.1.0",
-    "sharp": "^0.35.5",
+    "starlight-links-validator": "^0.27.0",
     "starlight-theme-flexoki": "^0.3.0"
   }
 }
