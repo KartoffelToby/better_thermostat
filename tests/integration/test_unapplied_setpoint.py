@@ -17,7 +17,7 @@ from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from custom_components.better_thermostat.utils.controlling import (
     MIN_WRITE_INTERVAL_S,
@@ -90,9 +90,9 @@ class _Head:
         self.device.set_temperature_calls.append(temperature)
         ceiling = self.device.profile.setpoint_ceiling
         if self.takes_writes:
-            self.device._attr_target_temperature = temperature
+            self.device._attr_native_target_temperature = temperature
         elif ceiling is not None:
-            self.device._attr_target_temperature = min(temperature, ceiling)
+            self.device._attr_native_target_temperature = min(temperature, ceiling)
         else:
             return
         self.device.async_write_ha_state()
@@ -196,10 +196,10 @@ async def test_a_lost_write_is_sent_again_and_the_head_converges(hass, fake_trv)
             hass, lambda: len(fake_trv.set_temperature_calls) > baseline
         )
         lost = fake_trv.set_temperature_calls[-1]
-        assert fake_trv.target_temperature != lost
+        assert fake_trv.native_target_temperature != lost
 
         await ticks.fire()
-        assert await wait_for(hass, lambda: fake_trv.target_temperature == lost)
+        assert await wait_for(hass, lambda: fake_trv.native_target_temperature == lost)
 
     assert fake_trv.set_temperature_calls[baseline:] == [lost, lost]
     assert await wait_for(hass, lambda: trv.unapplied_setpoint_writes == 0)
@@ -261,7 +261,7 @@ async def test_a_head_that_ignores_the_setpoint_is_reported_until_it_takes_it(
     head.takes_writes = True
     writes = len(head.writes)
     await _write_until(hass, head, ticks, writes + 1)
-    assert head.device.target_temperature == head.writes[-1][1]
+    assert head.device.native_target_temperature == head.writes[-1][1]
 
     assert await wait_for(hass, lambda: not trv.setpoint_unapplied_reported)
     assert _errors(hass) == []
@@ -340,7 +340,7 @@ async def test_a_head_capped_below_its_published_maximum_is_reported(hass, fake_
     """
     ceiling = fake_trv.profile.setpoint_ceiling
     assert ceiling is not None
-    fake_trv._attr_current_temperature = 30.0
+    fake_trv._attr_native_current_temperature = 30.0
     fake_trv.async_write_ha_state()
     set_room_sensor(hass, 21.5)
     async with _virtual_room(hass, fake_trv) as (bt, entry, head):
@@ -355,7 +355,7 @@ async def test_a_head_capped_below_its_published_maximum_is_reported(hass, fake_
 
         assert trv.setpoint_unapplied_reported, head.writes
         assert all(value > ceiling for _, value in head.writes)
-        assert fake_trv.target_temperature == ceiling
+        assert fake_trv.native_target_temperature == ceiling
         assert _errors(hass) == [fake_trv.entity_id]
         assert _issue(hass, entry, fake_trv.entity_id) is not None
 

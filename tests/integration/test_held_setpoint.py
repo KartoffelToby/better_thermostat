@@ -51,7 +51,7 @@ async def test_a_turn_the_room_wants_anyway_is_not_read_as_a_press_later(
         {"entity_id": BT_ENTITY, "temperature": 22.0},
         blocking=True,
     )
-    fake_trv._attr_target_temperature = 20.0
+    fake_trv._attr_native_target_temperature = 20.0
     _report(fake_trv)
     await hass.async_block_till_done()
     assert bt.heat_target_temperature == 22.0
@@ -65,9 +65,9 @@ async def test_a_turn_the_room_wants_anyway_is_not_read_as_a_press_later(
             and not bt.ignore_states
         ),
     )
-    assert fake_trv.target_temperature == 20.0
+    assert fake_trv.native_target_temperature == 20.0
 
-    fake_trv._attr_current_temperature = 19.4
+    fake_trv._attr_native_current_temperature = 19.4
     _report(fake_trv)
     await hass.async_block_till_done()
     assert (

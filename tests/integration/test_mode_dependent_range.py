@@ -147,7 +147,9 @@ async def test_the_range_published_while_heating_replaces_the_one_read_while_off
 
     assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.HEAT)
     assert await wait_for(hass, lambda: (trv.min_temp, trv.max_temp) == HEAT_RANGE)
-    assert await wait_for(hass, lambda: fake_trv.target_temperature == HEAT_RANGE[1])
+    assert await wait_for(
+        hass, lambda: fake_trv.native_target_temperature == HEAT_RANGE[1]
+    )
     assert all(
         call <= HEAT_RANGE[1]
         for call in fake_trv.set_temperature_calls
@@ -178,10 +180,14 @@ async def test_a_range_published_after_the_setpoint_brings_the_setpoint_into_it(
     trv = bt.real_trvs[TRV_ID]
 
     await _heat_at(hass, 30.0)
-    assert await wait_for(hass, lambda: fake_trv.target_temperature > HEAT_RANGE[1])
+    assert await wait_for(
+        hass, lambda: fake_trv.native_target_temperature > HEAT_RANGE[1]
+    )
 
     assert await wait_for(hass, lambda: (trv.min_temp, trv.max_temp) == HEAT_RANGE)
-    assert await wait_for(hass, lambda: fake_trv.target_temperature == HEAT_RANGE[1])
+    assert await wait_for(
+        hass, lambda: fake_trv.native_target_temperature == HEAT_RANGE[1]
+    )
 
 
 @pytest.mark.parametrize("fake_trv", [HOMEKIT_TRV], indirect=True)
@@ -223,7 +229,9 @@ async def test_a_report_that_only_narrows_the_range_brings_the_setpoint_into_it(
     bt = await _start(hass, fake_trv)
     trv = bt.real_trvs[TRV_ID]
     await _heat_at(hass, 30.0)
-    assert await wait_for(hass, lambda: fake_trv.target_temperature > HEAT_RANGE[1])
+    assert await wait_for(
+        hass, lambda: fake_trv.native_target_temperature > HEAT_RANGE[1]
+    )
     assert await wait_for(hass, lambda: bt.ignore_states is during_cycle)
 
     _report_from_the_device(fake_trv, HVACMode.HEAT, *HEAT_RANGE)
@@ -232,7 +240,7 @@ async def test_a_report_that_only_narrows_the_range_brings_the_setpoint_into_it(
     # the report asked for.
     assert await wait_for(
         hass,
-        lambda: fake_trv.target_temperature == HEAT_RANGE[1],
+        lambda: fake_trv.native_target_temperature == HEAT_RANGE[1],
         timeout_seconds=PROMPT_WRITE_SECONDS,
     )
     assert (trv.min_temp, trv.max_temp) == HEAT_RANGE

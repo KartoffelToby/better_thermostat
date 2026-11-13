@@ -9,7 +9,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from .conftest import DOMAIN, make_entry, set_room_sensor, setup_entry, wait_for_startup
 from .device_profiles import GENERIC_HEAT_TRV

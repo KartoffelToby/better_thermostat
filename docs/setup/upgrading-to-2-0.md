@@ -14,8 +14,8 @@ changes reach you with this upgrade as well.
 
 ## Before you upgrade
 
-- **Home Assistant 2026.9.0 or newer is required**, the same as for
-  1.9.3. 1.9.2 and older ran on 2026.7.2; update Home Assistant first.
+- **Home Assistant 2026.11.0 or newer is required.** 1.9.3 runs on
+  2026.9.0, 1.9.2 and older on 2026.7.2; update Home Assistant first.
 - **Take a Home Assistant backup.** You can go back to 1.9.3 without one
   (see [Going back to 1.9](#going-back-to-19)), but a backup is the
   safer option.

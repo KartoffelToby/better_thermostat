@@ -79,7 +79,7 @@ def _settled(bt) -> bool:
 def _publish(device, **attributes) -> None:
     """Let the head publish its state, with ``attributes`` changed at the head."""
     for name, value in attributes.items():
-        setattr(device, f"_attr_{name}", value)
+        setattr(device, f"_attr_native_{name}", value)
     device.async_set_context(Context())
     device.async_write_ha_state()
 
@@ -89,7 +89,7 @@ async def test_a_head_parked_for_warm_weather_does_not_switch_the_room_off(hass)
     bt, device = await _room(hass, outdoor_celsius=25.0, room_celsius=19.0)
     assert await wait_for(
         hass,
-        lambda: bt.call_for_heat is False and device.target_temperature == 5.0,
+        lambda: bt.call_for_heat is False and device.native_target_temperature == 5.0,
         timeout_seconds=3.0,
     ), (
         f"warm weather should park the head at its minimum, it holds "
@@ -113,7 +113,8 @@ async def test_a_head_parked_for_warm_weather_does_not_switch_the_room_off(hass)
         assert await wait_for(
             hass,
             lambda: (
-                bt.call_for_heat is True and (device.target_temperature or 0.0) > 5.0
+                bt.call_for_heat is True
+                and (device.native_target_temperature or 0.0) > 5.0
             ),
             timeout_seconds=3.0,
         ), (
@@ -129,7 +130,7 @@ async def test_turning_the_head_to_its_minimum_and_back_switches_the_room(hass):
         hass,
         lambda: (
             not bt.ignore_states
-            and (device.target_temperature or 0.0) > 5.0
+            and (device.native_target_temperature or 0.0) > 5.0
             and all(
                 trv.system_mode_received and trv.target_temperature_received
                 for trv in bt.real_trvs.values()
@@ -161,7 +162,7 @@ async def _off_room_with_the_window_open(hass):
         hass, outdoor_celsius=0.0, room_celsius=19.0, with_window=True
     )
     assert await wait_for(
-        hass, lambda: _settled(bt) and (device.target_temperature or 0.0) > 5.0
+        hass, lambda: _settled(bt) and (device.native_target_temperature or 0.0) > 5.0
     )
     _publish(device, target_temperature=5.0)
     assert await wait_for(hass, lambda: bt.bt_hvac_mode == HVACMode.OFF)
@@ -184,11 +185,11 @@ async def _heating_room_with_the_window_open(hass):
         hass, outdoor_celsius=0.0, room_celsius=19.0, with_window=True
     )
     assert await wait_for(
-        hass, lambda: _settled(bt) and (device.target_temperature or 0.0) > 5.0
+        hass, lambda: _settled(bt) and (device.native_target_temperature or 0.0) > 5.0
     )
     hass.states.async_set(WINDOW_ID, "on")
     assert await wait_for(
-        hass, lambda: device.target_temperature == 5.0 and _settled(bt)
+        hass, lambda: device.native_target_temperature == 5.0 and _settled(bt)
     )
     return bt, device
 
@@ -214,7 +215,7 @@ async def test_a_turn_up_with_the_window_open_heats_once_the_window_closes(hass)
         f"it holds {device.target_temperature} after the writes "
         f"{device.set_temperature_calls[writes_before_turn:]}"
     )
-    assert device.target_temperature == 5.0
+    assert device.native_target_temperature == 5.0
     assert bt.bt_hvac_mode == HVACMode.HEAT, (
         f"the turn with the window open left the room in {bt.bt_hvac_mode}"
     )
@@ -223,7 +224,9 @@ async def test_a_turn_up_with_the_window_open_heats_once_the_window_closes(hass)
     hass.states.async_set(WINDOW_ID, "off")
     assert await wait_for(
         hass,
-        lambda: bt.window_open is False and (device.target_temperature or 0.0) > 5.0,
+        lambda: (
+            bt.window_open is False and (device.native_target_temperature or 0.0) > 5.0
+        ),
         timeout_seconds=3.0,
     ), (
         f"the closed window left the head at {device.target_temperature}, "
@@ -256,7 +259,7 @@ async def test_a_turn_to_the_minimum_with_the_window_open_switches_the_room_off(
     assert bt.bt_hvac_mode == HVACMode.OFF, (
         f"the closed window put the room in {bt.bt_hvac_mode}"
     )
-    assert device.target_temperature == 5.0
+    assert device.native_target_temperature == 5.0
 
 
 async def test_the_minimum_written_for_the_open_window_is_no_turn(hass):
@@ -276,7 +279,9 @@ async def test_the_minimum_written_for_the_open_window_is_no_turn(hass):
     hass.states.async_set(WINDOW_ID, "off")
     assert await wait_for(
         hass,
-        lambda: bt.window_open is False and (device.target_temperature or 0.0) > 5.0,
+        lambda: (
+            bt.window_open is False and (device.native_target_temperature or 0.0) > 5.0
+        ),
         timeout_seconds=3.0,
     ), f"the closed window left the head at {device.target_temperature}"
     assert bt.bt_hvac_mode == HVACMode.HEAT
@@ -294,11 +299,11 @@ async def _room_whose_window_just_closed(hass, *, watchdog_gives_up: bool):
         hass, outdoor_celsius=0.0, room_celsius=19.0, with_window=True
     )
     assert await wait_for(
-        hass, lambda: _settled(bt) and (device.target_temperature or 0.0) > 5.0
+        hass, lambda: _settled(bt) and (device.native_target_temperature or 0.0) > 5.0
     )
     hass.states.async_set(WINDOW_ID, "on")
     assert await wait_for(
-        hass, lambda: device.target_temperature == 5.0 and _settled(bt)
+        hass, lambda: device.native_target_temperature == 5.0 and _settled(bt)
     )
     writes_before_close = len(device.set_temperature_calls)
 
@@ -313,7 +318,7 @@ async def _room_whose_window_just_closed(hass, *, watchdog_gives_up: bool):
     )
     restore_write = device.set_temperature_calls[writes_before_close]
     assert isinstance(restore_write, float) and restore_write > 5.0
-    assert device.target_temperature == 5.0
+    assert device.native_target_temperature == 5.0
     if watchdog_gives_up:
         assert await wait_for(hass, lambda: _settled(bt), timeout_seconds=30.0)
     return bt, device
@@ -339,11 +344,13 @@ async def test_a_report_after_the_restore_write_timed_out_keeps_the_room_heating
     Thermostat writes a heating setpoint to the head once more.
     """
     bt, device = await _room_whose_window_just_closed(hass, watchdog_gives_up=True)
-    assert device.target_temperature == 5.0
+    assert device.native_target_temperature == 5.0
     writes_before_report = len(device.set_temperature_calls)
 
     _publish(device, current_temperature=18.6)
-    assert await wait_for(hass, lambda: (device.target_temperature or 0.0) > 5.0), (
+    assert await wait_for(
+        hass, lambda: (device.native_target_temperature or 0.0) > 5.0
+    ), (
         f"the head was left at {device.target_temperature} after the writes "
         f"{device.set_temperature_calls[writes_before_report:]}, "
         f"room mode {bt.bt_hvac_mode}"

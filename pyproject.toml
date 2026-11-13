@@ -2,16 +2,18 @@
 name = "better-thermostat"
 version = "2.0.0-Beta-2"  # keep in sync with manifest.json
 description = "Better Thermostat — Home Assistant custom integration for smart TRV control"
-requires-python = ">=3.14.2"  # floor inherited from Home Assistant 2026.9.x
-dependencies = ["homeassistant>=2026.9.0"]
+requires-python = ">=3.14.2"  # floor inherited from Home Assistant 2026.11.x
+dependencies = ["homeassistant>=2026.11.0"]
 
 [dependency-groups]
 dev = [
+    "numpy>=2",  # the integration requirement in manifest.json, for the MPC v2 code
+    "pytest-timeout>=2.4",  # serves the timeout setting under [tool.pytest.ini_options]
     "daqp>=0.10.3",  # speeds up the MPC v2 QP; a NumPy solver runs without it
     "pytest>=9",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",  # the per-module coverage floors in CI depend on it
-    "pytest-homeassistant-custom-component>=0.13.375",
+    "pytest-homeassistant==2026.11.1",
     "pre-commit>=4.7.0",
     "pyrefly>=1.4.0",
     "ruff>=0.17.3",

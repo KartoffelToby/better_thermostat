@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from homeassistant.core import Context, State
 from homeassistant.helpers import device_registry as dr
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.better_thermostat import DOMAIN, BetterThermostatData
 from custom_components.better_thermostat.core.decide import decide, running_kernel_state

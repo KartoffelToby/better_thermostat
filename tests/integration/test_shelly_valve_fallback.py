@@ -8,10 +8,7 @@ from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    mock_restore_cache,
-)
+from pytest_homeassistant.common import MockConfigEntry, mock_restore_cache
 
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.fsm.control_mode import (
@@ -150,7 +147,7 @@ async def test_invalid_stored_controller_closes_and_reports_until_reconfigured(
     # A configuration error still requires closure if all temperatures are lost.
     clock = FakeClock(monotonic_value=bt.clock.monotonic())
     bt.clock = clock
-    fake_trv._attr_current_temperature = None
+    fake_trv._attr_native_current_temperature = None
     fake_trv.async_write_ha_state()
     hass.states.async_set(SENSOR_ID, "unavailable")
     await hass.async_block_till_done()
@@ -162,7 +159,7 @@ async def test_invalid_stored_controller_closes_and_reports_until_reconfigured(
     assert valve.native_value == 0
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
     set_room_sensor(hass, 18.0)
-    fake_trv._attr_current_temperature = 19.5
+    fake_trv._attr_native_current_temperature = 19.5
     fake_trv.async_write_ha_state()
     await hass.async_block_till_done()
     await check_and_update_degraded_mode(bt)
@@ -231,7 +228,7 @@ async def test_hold_limits_the_exclusive_valve_and_recovery_resumes_control(
         opening = valve.native_value
         clock = FakeClock(monotonic_value=bt.clock.monotonic())
         bt.clock = clock
-        fake_trv._attr_current_temperature = None
+        fake_trv._attr_native_current_temperature = None
         fake_trv.async_write_ha_state()
         hass.states.async_set(SENSOR_ID, "unavailable")
         await hass.async_block_till_done()
@@ -247,7 +244,7 @@ async def test_hold_limits_the_exclusive_valve_and_recovery_resumes_control(
             assert fake_trv.set_temperature_calls == []
             assert fake_trv.set_hvac_mode_calls == []
         set_room_sensor(hass, 18.0)
-        fake_trv._attr_current_temperature = 19.5
+        fake_trv._attr_native_current_temperature = 19.5
         fake_trv.async_write_ha_state()
         await hass.async_block_till_done()
         await check_and_update_degraded_mode(bt)

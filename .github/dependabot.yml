@@ -36,17 +36,17 @@ updates:
     cooldown:
       default-days: 7
     groups:
-      # pytest-homeassistant-custom-component pins an exact Home Assistant
-      # release, so the two only move together.
+      # pytest-homeassistant pins an exact Home Assistant release, so the
+      # two only move together.
       home-assistant:
         patterns:
           - "homeassistant"
-          - "pytest-homeassistant-custom-component"
+          - "pytest-homeassistant"
       dev-dependencies:
         patterns:
           - "*"
         exclude-patterns:
           - "homeassistant"
-          - "pytest-homeassistant-custom-component"
+          - "pytest-homeassistant"
     commit-message:
       prefix: "chore"

@@ -111,14 +111,14 @@ async def test_the_devices_follow_the_room_off(hass, scenario):
 async def test_a_radiator_without_off_mode_drops_to_its_minimum(hass):
     """A radiator without an OFF mode receives its minimum setpoint."""
     _, (trv,) = await _start(hass, HEAT_ONLY_WITHOUT_OFF_MODE)
-    assert trv.target_temperature != pytest.approx(
+    assert trv.native_target_temperature != pytest.approx(
         HEAT_ONLY_WITHOUT_OFF_MODE.trv.min_temp
     )
 
     await _set_temperature_and_mode(hass, 23.0, HVACMode.OFF)
 
     assert hass.states.get(BT_ENTITY).state == HVACMode.OFF
-    assert trv.target_temperature == pytest.approx(
+    assert trv.native_target_temperature == pytest.approx(
         HEAT_ONLY_WITHOUT_OFF_MODE.trv.min_temp
     )
 

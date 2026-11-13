@@ -10,7 +10,7 @@ from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import CoreState, State
 from homeassistant.helpers import restore_state
-from pytest_homeassistant_custom_component.common import mock_restore_cache
+from pytest_homeassistant.common import mock_restore_cache
 
 from .conftest import BT_ENTITY, SENSOR_ID, make_entry, wait_for_startup
 
@@ -27,9 +27,6 @@ async def test_the_saved_target_survives_the_restore_write_at_start(hass, fake_t
 
     restore_cache = restore_state.async_get(hass)
     await restore_cache.async_dump_states()
-    # Home Assistant drops the saved state in that write from 2026.10 on;
-    # dropping it here holds earlier versions to the same boot.
-    restore_cache.last_states.pop(BT_ENTITY, None)
     hass.set_state(CoreState.running)
     hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
     await hass.async_block_till_done()

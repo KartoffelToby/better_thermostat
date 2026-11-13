@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.better_thermostat.utils.helpers import get_device_model
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry

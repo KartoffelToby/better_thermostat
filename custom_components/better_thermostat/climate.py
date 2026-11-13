@@ -4597,13 +4597,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def temperature_unit(self) -> str:
+    def native_temperature_unit(self) -> str:
         """Return the unit of measurement."""
         return UnitOfTemperature.CELSIUS
 
     @property
     @override
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         """Return the current temperature."""
         return self.runtime.room_temperature
 
@@ -4720,7 +4720,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def target_temperature(self) -> float:
+    def native_target_temperature(self) -> float:
         """Return the temperature we try to reach.
 
         Returns
@@ -4740,7 +4740,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def target_temperature_low(self) -> float | None:
+    def native_target_temperature_low(self) -> float | None:
         """Return the low target temperature."""
         if self.cooler_entity_id is None:
             return None
@@ -4748,7 +4748,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     @property
     @override
-    def target_temperature_high(self) -> float | None:
+    def native_target_temperature_high(self) -> float | None:
         """Return the high target temperature."""
         if self.cooler_entity_id is None:
             return None

@@ -12,7 +12,7 @@ Home Assistant stores it, with a frozen expectation.
 import json
 
 from homeassistant.data_entry_flow import FlowResultType
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from .conftest import (
     DOMAIN,

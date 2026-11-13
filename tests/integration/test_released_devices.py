@@ -32,7 +32,7 @@ from homeassistant.core import Context, CoreState, Event, State
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     async_capture_events,
     async_fire_time_changed,
     mock_restore_cache,
@@ -146,7 +146,7 @@ def _at_the_device(device, *, hvac_mode=None, setpoint=None):
     if hvac_mode is not None:
         device._attr_hvac_mode = hvac_mode
     if setpoint is not None:
-        device._attr_target_temperature = setpoint
+        device._attr_native_target_temperature = setpoint
     device.async_write_ha_state()
 
 

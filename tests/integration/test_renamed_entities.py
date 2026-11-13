@@ -16,7 +16,7 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.helpers.storage import Store
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.better_thermostat.utils.calibration.pid import (
     PIDState,

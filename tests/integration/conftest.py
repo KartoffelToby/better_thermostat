@@ -20,7 +20,7 @@ from unittest.mock import PropertyMock, patch
 
 import probatio as vol
 import pytest
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     MockModule,
     mock_config_flow,
@@ -213,17 +213,17 @@ class SimulatedClimate(ClimateEntity):
         self.valve_number: SimulatedValveNumber | None = None
         self.sensor_selector: SimulatedSensorSelector | None = None
         self._attr_name = profile.entity_name
-        self._attr_temperature_unit = profile.temperature_unit
+        self._attr_native_temperature_unit = profile.temperature_unit
         self._attr_hvac_modes = list(profile.hvac_modes)
         self._attr_supported_features = profile.supported_features
         self._attr_min_temp = profile.min_temp
         self._attr_max_temp = profile.max_temp
         self._attr_target_temperature_step = profile.target_temperature_step
         self._attr_hvac_mode = profile.hvac_mode
-        self._attr_current_temperature = profile.current_temperature
-        self._attr_target_temperature = profile.target_temperature
-        self._attr_target_temperature_low = profile.target_temperature_low
-        self._attr_target_temperature_high = profile.target_temperature_high
+        self._attr_native_current_temperature = profile.current_temperature
+        self._attr_native_target_temperature = profile.target_temperature
+        self._attr_native_target_temperature_low = profile.target_temperature_low
+        self._attr_native_target_temperature_high = profile.target_temperature_high
         if profile.precision is not None:
             self._attr_precision = profile.precision
         if profile.has_device_registry_entry:
@@ -241,7 +241,7 @@ class SimulatedClimate(ClimateEntity):
 
     @property
     @override
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return the setpoint the device publishes.
 
         A device whose profile names an ``off_target_temperature`` publishes
@@ -253,7 +253,7 @@ class SimulatedClimate(ClimateEntity):
             and self.hvac_mode == HVACMode.OFF
         ):
             return self.profile.off_target_temperature
-        return self._attr_target_temperature
+        return self._attr_native_target_temperature
 
     def set_available(self, available: bool) -> None:
         """Take the device off the air, or put it back on.
@@ -288,8 +288,8 @@ class SimulatedClimate(ClimateEntity):
             if self.drop_next_setpoint_write:
                 self.drop_next_setpoint_write = False
                 return
-            self._attr_target_temperature_low = low
-            self._attr_target_temperature_high = high
+            self._attr_native_target_temperature_low = low
+            self._attr_native_target_temperature_high = high
             self.async_write_ha_state()
             return
         assert isinstance(temperature, float)
@@ -298,7 +298,7 @@ class SimulatedClimate(ClimateEntity):
             self.drop_next_setpoint_write = False
             return
         ceiling = self.profile.setpoint_ceiling
-        self._attr_target_temperature = (
+        self._attr_native_target_temperature = (
             temperature if ceiling is None else min(temperature, ceiling)
         )
         self.async_write_ha_state()
@@ -315,7 +315,7 @@ class SimulatedClimate(ClimateEntity):
             raise NotImplementedError
         self._attr_hvac_mode = hvac_mode
         if self.profile.mode_write_setpoint is not None:
-            self._attr_target_temperature = self.profile.mode_write_setpoint
+            self._attr_native_target_temperature = self.profile.mode_write_setpoint
         self.async_write_ha_state()
 
 
@@ -644,7 +644,6 @@ async def _add_devices_from_config_entry(hass, entities, numbers, selects) -> No
 
     async def async_setup_entry(hass, entry):
         await hass.config_entries.async_forward_entry_setups(entry, platforms)
-        return True
 
     mock_integration(
         hass, MockModule(DEVICE_INTEGRATION, async_setup_entry=async_setup_entry)

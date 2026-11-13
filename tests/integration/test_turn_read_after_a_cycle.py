@@ -54,7 +54,7 @@ async def test_a_head_turned_to_the_rooms_target_during_a_cycle_is_corrected(has
 
         await _set_on_entity(hass, 20.0)
         assert await wait_for(
-            hass, lambda: all(head.target_temperature == 17.0 for head in heads)
+            hass, lambda: all(head.native_target_temperature == 17.0 for head in heads)
         )
 
         async with holding_next_write(last, "async_set_temperature") as hold:
@@ -63,15 +63,16 @@ async def test_a_head_turned_to_the_rooms_target_during_a_cycle_is_corrected(has
             assert await poll_until(
                 hass,
                 lambda: (
-                    first.target_temperature == 20.0 and trv.target_temperature_received
+                    first.native_target_temperature == 20.0
+                    and trv.target_temperature_received
                 ),
             )
-            first._attr_target_temperature = 23.0
+            first._attr_native_target_temperature = 23.0
             first.async_set_context(Context())
             first.async_write_ha_state()
             hold.release()
 
-        assert await wait_for(hass, lambda: first.target_temperature == 20.0, 3.0), (
-            f"the head stayed at {first.target_temperature}"
-        )
+        assert await wait_for(
+            hass, lambda: first.native_target_temperature == 20.0, 3.0
+        ), f"the head stayed at {first.target_temperature}"
         assert bt.heat_target_temperature == 23.0
