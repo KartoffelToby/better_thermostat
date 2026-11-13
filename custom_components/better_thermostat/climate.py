@@ -11,8 +11,9 @@ from functools import partial
 import json
 import logging
 import math
+from operator import attrgetter
 from random import randint
-from typing import TYPE_CHECKING, Any, override
+from typing import TYPE_CHECKING, Any, Final, override
 
 # Home Assistant imports
 from homeassistant.components.climate import ClimateEntity
@@ -1111,7 +1112,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         """Return the room temperature the thermostat regulates on.
 
         Startup sets it before it starts anything that reads it. Home
-        Assistant's own reads go through ``current_temperature``, which
+        Assistant's own reads go through ``native_current_temperature``, which
         answers ``None`` until then.
 
         Raises
@@ -4596,14 +4597,17 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         return PRECISION_TENTHS
 
     @property
-    @override
-    def temperature_unit(self) -> str:
-        """Return the unit of measurement."""
+    def native_temperature_unit(self) -> str:
+        """Return the unit the temperature properties report in.
+
+        The five ``native_`` temperature properties are the names Home
+        Assistant reads from 2026.11 on; ``serve_pre_native_temperature_names``
+        serves them under the names earlier releases read.
+        """
         return UnitOfTemperature.CELSIUS
 
     @property
-    @override
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         """Return the current temperature."""
         return self.runtime.room_temperature
 
@@ -4719,8 +4723,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self._hysteresis.hold_active = result.new_hold_active
 
     @property
-    @override
-    def target_temperature(self) -> float:
+    def native_target_temperature(self) -> float:
         """Return the temperature we try to reach.
 
         Returns
@@ -4739,16 +4742,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         return self.heat_target_temperature
 
     @property
-    @override
-    def target_temperature_low(self) -> float | None:
+    def native_target_temperature_low(self) -> float | None:
         """Return the low target temperature."""
         if self.cooler_entity_id is None:
             return None
         return self.heat_target_temperature
 
     @property
-    @override
-    def target_temperature_high(self) -> float | None:
+    def native_target_temperature_high(self) -> float | None:
         """Return the high target temperature."""
         if self.cooler_entity_id is None:
             return None
@@ -4954,7 +4955,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         below would move the cooling target the wrong way and leave the pair it
         is meant to order inverted.
 
-        The cooling target is reported as ``target_temperature_high`` and written
+        The cooling target is reported as ``native_target_temperature_high`` and written
         to the cooler, so the bump is capped at the cooling range's maximum. Where
         the heating target leaves the range no room, the two invariants collide
         and one of them decides:
@@ -5079,7 +5080,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         check the value they replace went through: a preset pair written while
         a cooler was unavailable, or a manual cooling target stashed under a
         different range, is re-injected verbatim. Both targets are published as
-        ``target_temperature_low`` / ``target_temperature_high`` and written to
+        ``native_target_temperature_low`` / ``native_target_temperature_high`` and written to
         the devices, so a value outside its channel's range is not a setpoint BT
         can hold.
 
@@ -6117,6 +6118,40 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if final_flush is not None and not final_flush.done():
             await asyncio.wait({final_flush})
 
+
+# The unprefixed name and the ``native_`` name of each temperature property of
+# a climate entity. Home Assistant before 2026.11 reads only the unprefixed
+# names; 2026.11 reads the ``native_`` names, serves the unprefixed ones from
+# them and reports every entity class that provides an unprefixed one itself.
+PRE_NATIVE_TEMPERATURE_NAMES: Final = (
+    ("temperature_unit", "native_temperature_unit"),
+    ("current_temperature", "native_current_temperature"),
+    ("target_temperature", "native_target_temperature"),
+    ("target_temperature_low", "native_target_temperature_low"),
+    ("target_temperature_high", "native_target_temperature_high"),
+)
+
+
+def serve_pre_native_temperature_names(
+    entity_class: type[object], base: type[object]
+) -> None:
+    """Serve the ``native_`` temperature properties under the unprefixed names.
+
+    Only where ``base`` still reads the unprefixed names: a base that has the
+    ``native_`` names serves the unprefixed ones itself, so ``entity_class``
+    is left as it is.
+    """
+    if hasattr(base, "native_temperature_unit"):
+        return
+    for name, native_name in PRE_NATIVE_TEMPERATURE_NAMES:
+        setattr(
+            entity_class,
+            name,
+            property(attrgetter(native_name), doc=f"Return {native_name}."),
+        )
+
+
+serve_pre_native_temperature_names(BetterThermostat, ClimateEntity)
 
 if TYPE_CHECKING:
     from . import BetterThermostatConfigEntry

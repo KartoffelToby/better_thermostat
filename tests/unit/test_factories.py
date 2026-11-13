@@ -123,13 +123,15 @@ def test_the_unique_id_answers_from_the_private_id():
 
 
 def test_the_current_temperature_answers_from_the_room_temperature():
-    """``current_temperature`` publishes the room temperature, as the property does."""
+    """``native_current_temperature`` publishes the room temperature, as the property does."""
     thermostat = BetterThermostat.__new__(BetterThermostat)
     thermostat.runtime = BtRuntime(heat_target_temperature=21.0, room_temperature=20.5)
     bt = ThermostatStandIn()
     bt.room_temperature = 20.5
 
-    assert bt.current_temperature == thermostat.current_temperature == 20.5
+    assert (
+        bt.native_current_temperature == thermostat.native_current_temperature == 20.5
+    )
 
 
 @pytest.mark.parametrize("given", [True, False])

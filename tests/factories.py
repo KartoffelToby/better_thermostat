@@ -26,7 +26,10 @@ from unittest.mock import AsyncMock, MagicMock
 from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.helpers import entity_registry as er
 
-from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.climate import (
+    PRE_NATIVE_TEMPERATURE_NAMES,
+    BetterThermostat,
+)
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import (
     KernelState,
@@ -184,9 +187,11 @@ def _thermostat_state_names() -> frozenset[str]:
 
     That is every attribute the class assigns on ``self`` without a class
     default, every name its body declares without a value, and every
-    property it defines. Each property derives from the entity's state,
-    so a mock cannot answer one any more truthfully than the state itself.
-    Methods and what Home Assistant's base classes define are left out.
+    property it defines, the unprefixed temperature names included that
+    ``serve_pre_native_temperature_names`` adds after the class body. Each
+    property derives from the entity's state, so a mock cannot answer one
+    any more truthfully than the state itself. Methods and what Home
+    Assistant's base classes define are left out.
     """
     source = Path(inspect.getfile(BetterThermostat)).read_text(encoding="utf-8")
     cls = next(
@@ -218,6 +223,7 @@ def _thermostat_state_names() -> frozenset[str]:
             and target.value.id == "self"
             and not hasattr(BetterThermostat, target.attr)
         )
+    names.update(name for name, _ in PRE_NATIVE_TEMPERATURE_NAMES)
     return frozenset(names)
 
 
@@ -305,11 +311,11 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
 
 # Names that only repeat another attribute, answered from it: the property
 # ``unique_id`` and the config entry id the constructor copies from it, and
-# ``current_temperature``, which publishes the room temperature.
+# ``native_current_temperature``, which publishes the room temperature.
 _PROPERTY_SOURCES = {
     "unique_id": "_unique_id",
     "_config_entry_id": "_unique_id",
-    "current_temperature": "room_temperature",
+    "native_current_temperature": "room_temperature",
 }
 
 

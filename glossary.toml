@@ -29,7 +29,7 @@
 #
 # The word is `temperature`, never `temp`. Naming each target after its channel
 # is what makes that possible: `heat_target_temperature` clears the entity's
-# `target_temperature` property, so the long form costs no `bt_` prefix.
+# `native_target_temperature` property, so the long form costs no `bt_` prefix.
 # ---------------------------------------------------------------------------
 
 [[term]]
@@ -113,7 +113,7 @@ name = "trv.current_temperature"
 zone = "A"
 definition = "Room temperature as one TRV reports it."
 rejected = ["current_temp"]
-note = "The owner prefix carries the distinction from `ClimateEntity.current_temperature`, which BT implements on the entity."
+note = "The owner prefix carries the distinction from `ClimateEntity.native_current_temperature`, which BT implements on the entity."
 
 [[term]]
 name = "outdoor_temperature"
