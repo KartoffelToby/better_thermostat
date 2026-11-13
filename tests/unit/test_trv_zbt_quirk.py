@@ -1,9 +1,9 @@
 """Tests for the Sonoff TRV-ZBT (TRV Gen2) quirk.
 
 The TRV-ZBT reports model_id ``TRV-ZBT``. It takes the room temperature
-through the same external input and sensor selector as the TRVZB, but its
-valve numbers (heating_valve_position, idle_valve_position) configure the
-device's own controller, so Better Thermostat must never write one of them.
+through the same external input and sensor selector as the TRVZB. Its
+valve takes the opening the device holds while heating and the one it holds
+while idle; Better Thermostat writes its position into both.
 """
 
 import importlib
@@ -146,54 +146,111 @@ class TestExternalTemperature:
         ]
 
 
-class TestNoValveWrite:
-    """No Better Thermostat position reaches heating or idle valve position."""
+ZHA_OPENING = "number.trv1_valve_opening_degree"
+ZHA_CLOSING = "number.trv1_valve_closing_degree"
 
-    def test_the_module_offers_no_valve_channel(self):
-        """Without an override the quirk is no valve channel of its own."""
-        assert not hasattr(trv_zbt, "override_set_valve")
-        assert not hasattr(trv_zbt, "has_valve_channel")
-        assert quirks.quirk_writes_valve(trv_zbt) is False
+
+def _zha_entries():
+    """The TRV-ZBT as ZHA registers it: the TRVZB names on both numbers."""
+    return [
+        _entry(ENTITY),
+        make_registry_entry(
+            ZHA_OPENING, device_id=DEVICE, translation_key="valve_opening_degree"
+        ),
+        make_registry_entry(
+            ZHA_CLOSING, device_id=DEVICE, translation_key="valve_closing_degree"
+        ),
+    ]
+
+
+def _number_writes(mock_self):
+    """Every number value the quirk wrote, as (entity_id, value), in order."""
+    return [
+        (data["entity_id"], data["value"])
+        for domain, service, data in _service_payloads(mock_self)
+        if (domain, service) == ("number", "set_value")
+    ]
+
+
+class TestValveWrite:
+    """The position reaches the heating and the idle opening alike."""
+
+    def test_the_module_is_a_valve_channel(self):
+        """The quirk drives the valve, so the adapter offers direct control."""
+        assert quirks.quirk_writes_valve(trv_zbt) is True
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("model", ["TRV-ZBT", "SONOFF TRV-ZBT"])
-    async def test_the_trvzb_valve_write_skips_the_trv_zbt(self, monkeypatch, model):
-        """Called anyway, the TRVZB valve write declines without a service call.
-
-        A model string that also names the vendor passes the TRVZB's Sonoff
-        match, so it is the explicit TRV-ZBT check that turns it down.
-        """
+    async def test_zigbee2mqtt_numbers_both_take_the_position(self, monkeypatch):
+        """heating_valve_position and idle_valve_position both get 40."""
         mock_self = _make_self()
-        mock_self.real_trvs[ENTITY].model = model
         monkeypatch.setattr(trvzb.er, "async_get", lambda hass: mock_self._registry)
 
-        assert (
-            await trvzb.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 40) is False
-        )
-        assert trvzb.has_valve_channel(mock_self, ENTITY) is False
-        mock_self.hass.services.async_call.assert_not_awaited()
+        assert trv_zbt.has_valve_channel(mock_self, ENTITY) is True
+        assert await trv_zbt.override_set_valve(mock_self, ENTITY, 40) is True
+
+        assert _number_writes(mock_self) == [(HEATING_VALVE, 40), (IDLE_VALVE, 40)]
+
+    @pytest.mark.asyncio
+    async def test_zha_closing_degree_takes_the_position_not_its_complement(
+        self, monkeypatch
+    ):
+        """On the TRV-ZBT the attribute ZHA names closing degree is an opening."""
+        mock_self = _make_self()
+        mock_self._registry = make_entity_registry(*_zha_entries())
+        monkeypatch.setattr(trvzb.er, "async_get", lambda hass: mock_self._registry)
+
+        assert await trv_zbt.override_set_valve(mock_self, ENTITY, 40) is True
+
+        assert _number_writes(mock_self) == [(ZHA_OPENING, 40), (ZHA_CLOSING, 40)]
+
+    @pytest.mark.asyncio
+    async def test_the_trvzb_keeps_the_complement_on_its_closing_degree(
+        self, monkeypatch
+    ):
+        """The same ZHA numbers on a TRVZB still take 40 and 60."""
+        mock_self = _make_self()
+        mock_self.real_trvs[ENTITY].model = "TRVZB"
+        mock_self._registry = make_entity_registry(*_zha_entries())
+        monkeypatch.setattr(trvzb.er, "async_get", lambda hass: mock_self._registry)
+
+        assert await trvzb.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 40)
+
+        assert _number_writes(mock_self) == [(ZHA_OPENING, 40), (ZHA_CLOSING, 60)]
+
+    @pytest.mark.asyncio
+    async def test_a_close_goes_out_without_the_trvzb_bump(self, monkeypatch):
+        """Closing from 60 to 20 writes 20 once, with no opening step before it."""
+        mock_self = _make_self()
+        mock_self.real_trvs[ENTITY].last_valve_percent = 60
+        monkeypatch.setattr(trvzb.er, "async_get", lambda hass: mock_self._registry)
+
+        assert await trv_zbt.override_set_valve(mock_self, ENTITY, 20) is True
+
+        assert _number_writes(mock_self) == [(HEATING_VALVE, 20), (IDLE_VALVE, 20)]
+
+    def test_the_readings_name_both_numbers(self, monkeypatch):
+        """Both numbers are compared against the position that was written."""
+        mock_self = _make_self()
+        monkeypatch.setattr(trvzb.er, "async_get", lambda hass: mock_self._registry)
+
+        readings = trv_zbt.valve_readings(mock_self, ENTITY, 35)
+
+        assert [r.expected_value for r in readings] == [35.0, 35.0]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("model_id", "model", "found"),
+        ("model_id", "model"),
         [
-            ("TRV-ZBT", None, None),
-            ("trv-zbt", None, None),
-            ("OTHER-TRV", None, HEATING_VALVE),
-            (None, "TRV-ZBT", None),
-            (None, "TRV-ZBT (Thermostatic radiator valve)", None),
-            (None, "OTHER-TRV", HEATING_VALVE),
+            ("TRV-ZBT", None),
+            (None, "TRV-ZBT (Thermostatic radiator valve)"),
+            ("OTHER-TRV", None),
         ],
     )
-    async def test_the_valve_lookup_turns_down_only_the_trv_zbt(
-        self, model_id, model, found
-    ):
-        """The adapter finds no valve entity on a TRV-ZBT, in any letter case.
+    async def test_the_valve_lookup_finds_the_heating_opening(self, model_id, model):
+        """Direct valve control reads the valve back from the heating opening.
 
-        Zigbee2MQTT registers the model as model_id, ZHA as model, so either
-        field names the TRV-ZBT. The same entities on a device of another
-        model are still found, so the exclusion follows the model and not
-        the entity names.
+        The idle number is listed first, so a lookup that ranked both as a
+        valve position would take it.
         """
         bt = ThermostatStandIn()
         device = dr.DeviceEntry(
@@ -202,7 +259,9 @@ class TestNoValveWrite:
             model=model,
             identifiers={("mqtt", DEVICE)},
         )
-        registry = make_entity_registry(*_trv_zbt_entries())
+        registry = make_entity_registry(
+            _entry(ENTITY), _entry(IDLE_VALVE), _entry(HEATING_VALVE)
+        )
 
         with (
             patch(
@@ -216,4 +275,6 @@ class TestNoValveWrite:
             dev_reg.return_value.async_get.return_value = device
             result = await find_valve_entity(bt, ENTITY)
 
-        assert (result or {}).get("entity_id") == found
+        assert result is not None
+        assert result["entity_id"] == HEATING_VALVE
+        assert result["writable"] is True

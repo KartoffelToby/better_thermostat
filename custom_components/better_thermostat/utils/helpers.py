@@ -2921,14 +2921,11 @@ _VALVE_TRANSLATION_KEYS: dict[str, str] = {
 _VALVE_CLOSING_TRANSLATION_KEY = "valve_closing_degree"
 _VALVE_CLOSING_DESCRIPTORS = ("valve_closing_degree", "valve closing degree")
 
-# Device models whose valve-related numbers configure the device's own
-# controller rather than position the valve. The Sonoff TRV-ZBT publishes
-# heating_valve_position and idle_valve_position: the opening the device uses
-# while it heats and while it idles by its own decision. Writing a Better
-# Thermostat position into either one bends that controller instead of moving
-# the valve, so these models offer no valve entity at all. The names are
-# lower case and compared without regard to case, as the quirk modules match.
-_MODELS_WITHOUT_VALVE_ENTITY = frozenset({"trv-zbt"})
+# The Sonoff TRV-ZBT's idle_valve_position is the opening the device holds
+# while it does not heat. Better Thermostat writes it alongside
+# heating_valve_position and reads the valve back from the latter, so the
+# idle opening is never the valve entity.
+_VALVE_IDLE_DESCRIPTORS = ("idle_valve_position",)
 
 
 async def find_valve_entity(
@@ -2966,27 +2963,6 @@ async def find_valve_entity(
     base_identifiers: set[tuple[str, str]] = set(
         base_device.identifiers if base_device is not None else set()
     )
-
-    # Only a main device carries a model; a child device has none. Zigbee2MQTT
-    # names the model in model_id, ZHA in model, which may carry a
-    # description in parentheses after it.
-    base_model = (
-        base_device.model_id or base_device.model
-        if isinstance(base_device, dr.DeviceEntry)
-        else None
-    )
-    if (
-        isinstance(base_model, str)
-        and re.sub(r"\s*\(.*\)\s*$", "", base_model).strip().lower()
-        in _MODELS_WITHOUT_VALVE_ENTITY
-    ):
-        _LOGGER.debug(
-            "better thermostat: %s is a %s, whose valve numbers configure the "
-            "device's own controller; no valve entity is offered",
-            entity_id,
-            base_model,
-        )
-        return None
 
     config_entry_id = reg_entity.config_entry_id
     if config_entry_id is None:
@@ -3047,7 +3023,10 @@ async def find_valve_entity(
             f"{entity.unique_id or ''} {entity.entity_id or ''} "
             f"{entity.original_name or ''}"
         ).lower()
-        return any(marker in descriptor for marker in _VALVE_CLOSING_DESCRIPTORS)
+        return any(
+            marker in descriptor
+            for marker in (*_VALVE_CLOSING_DESCRIPTORS, *_VALVE_IDLE_DESCRIPTORS)
+        )
 
     def _score(reason: str, writable: bool, domain: str) -> tuple[int, int, int]:
         # Higher is better. A writable entity is a valve channel and a
