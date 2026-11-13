@@ -8,6 +8,7 @@ _restore_state, _validate_hvac_mode.
 import asyncio
 import contextlib
 from datetime import timedelta
+import importlib
 import json
 import logging
 from unittest.mock import DEFAULT, AsyncMock, MagicMock, patch
@@ -43,6 +44,7 @@ from custom_components.better_thermostat.events.temperature import (
     PLATEAU_ACCEPT_WINDOW,
     trigger_temperature_change,
 )
+from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_HEAT_LOSS,
@@ -67,6 +69,10 @@ from custom_components.better_thermostat.utils.state_manager import (
 )
 from custom_components.better_thermostat.utils.watcher import BatteryReading
 from tests.factories import ThermostatStandIn, make_trv, trv_record
+
+IGNORED_OFFSET_QUIRK = importlib.import_module(
+    "custom_components.better_thermostat.model_fixes.20480"
+)
 
 SENSOR_ID = "sensor.room_temp"
 TRV_ID = "climate.test_trv"
@@ -2149,6 +2155,27 @@ class TestInitializeTrvCalibrationFallback:
         assert trv.last_calibration == 1.5
         assert trv.min_local_calibration == -6.0
         assert trv.max_local_calibration == 6.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("quirks", "warned"),
+        [(IGNORED_OFFSET_QUIRK, True), (default_quirk, False)],
+        ids=["offset_ignored", "offset_applied"],
+    )
+    async def test_an_offset_calibration_on_a_head_that_ignores_it_is_reported(
+        self, bt, caplog, quirks, warned
+    ):
+        """An entry calibrating by offset a head that ignores it names the fix."""
+        bt = self._offset_trv_bt(bt)
+        bt.real_trvs[TRV_ID].model = "20480"
+        bt.real_trvs[TRV_ID].model_quirks = quirks
+        caplog.set_level(logging.WARNING)
+
+        await self._run_complete_read(bt, 0.0, -12.7, 12.7, 0.1)
+
+        assert (
+            f"TRV {TRV_ID} (model 20480) ignores its calibration offset" in caplog.text
+        ) is warned
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

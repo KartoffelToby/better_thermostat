@@ -20,6 +20,7 @@ from homeassistant.core import State
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.model_fixes.model_quirks import (
+    quirk_ignores_calibration_offset,
     quirk_writes_valve,
 )
 from custom_components.better_thermostat.model_fixes.types import (
@@ -284,6 +285,10 @@ class Trv:
     calibration_write_generation: int = 0
     last_valve_percent: float | None = None
     last_valve_method: ValveMethod | None = None
+    # Monotonic time at which a channel last took a valve position a control
+    # cycle wrote; None before the first one did. A refused write leaves it
+    # alone.
+    last_valve_written_monotonic: float | None = None
     # Whether a close was written since the device last reported its valve
     # position. A report of an open valve is answered with one close; the
     # next close waits for the next report.
@@ -468,8 +473,11 @@ class Trv:
         valve_entity = bool(self.valve_position_entity and self.valve_position_writable)
 
         declared = self.adapter.CAPABILITIES
-        offset_write = declared.offset_write and (
-            offset_entity or not declared.offset_needs_entity
+        # An offset the device ignores is no channel to calibrate through.
+        offset_write = (
+            declared.offset_write
+            and (offset_entity or not declared.offset_needs_entity)
+            and not quirk_ignores_calibration_offset(self.model_quirks)
         )
         valve_write = declared.valve_write and (
             valve_entity or not declared.valve_needs_entity
