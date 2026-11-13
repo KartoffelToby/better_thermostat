@@ -1,7 +1,13 @@
 ---
-title: Schedule and night mode
-description: Migrate temporary target schedules from the removed Better Thermostat save/restore actions to climate.set_preset_mode.
+title: Migrating legacy schedule actions
+description: Migrate pre-1.8 temporary target automations from the removed save/restore actions to climate.set_preset_mode—or set up a new schedule with blueprints.
 ---
+
+:::tip[Looking to set up a daily or weekly heating schedule on a fresh installation?]
+You do not need anything on this page! Import the one-click **Weekly Heating Schedule** or **Night Mode** blueprint in **[Automation Blueprints & schedules](/setup/automation-blueprints/)**, and configure your temperatures in **[Presets](/setup/presets/)**.
+
+*This page is only for longtime users migrating custom YAML automations written for Better Thermostat ≤ 1.7.*
+:::
 
 Better Thermostat has no save, set-temporary or restore actions of its own. Temporary target
 schedules run on the standard Home Assistant action `climate.set_preset_mode`: entering a preset

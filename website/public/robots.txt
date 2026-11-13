@@ -1,0 +1,11 @@
+# Everything here is public documentation: search engines and AI crawlers
+# are welcome to read all of it.
+User-agent: *
+Allow: /
+
+Sitemap: https://better-thermostat.org/sitemap-index.xml
+
+# For language models: an index of the documentation in Markdown, and the
+# whole documentation in one file.
+# https://better-thermostat.org/llms.txt
+# https://better-thermostat.org/llms-full.txt

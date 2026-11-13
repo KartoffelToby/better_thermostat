@@ -1,0 +1,677 @@
+---
+/**
+ * "Why Better Thermostat exists" diagram for the docs landing page.
+ *
+ * Part 1 visualises the problem (TRV reads the heat pocket, not the room),
+ * part 2 shows how Better Thermostat sits between you, your sensors and
+ * your radiator valves. Built from plain HTML/CSS with Starlight / Flexoki
+ * color tokens so it follows light and dark mode and stays readable on
+ * small screens (it stacks vertically below 50rem).
+ */
+import { Image } from 'astro:assets';
+import logo from '../assets/logo.png';
+
+const icons = {
+  radiator:
+    '<rect x="3" y="5" width="4" height="14" rx="2"/><rect x="10" y="5" width="4" height="14" rx="2"/><rect x="17" y="5" width="4" height="14" rx="2"/><path d="M1 17h2M21 17h2"/>',
+  thermometer: '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/>',
+  sofa:
+    '<path d="M20 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v3"/><path d="M2 16a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v1.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5V11a2 2 0 0 0-4 0z"/><path d="M4 18v2M20 18v2"/>',
+  window:
+    '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M3 12h18"/>',
+  weather:
+    '<path d="M12 2v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="M20 12h2"/><path d="m19.07 4.93-1.41 1.41"/><path d="M15.947 12.65a4 4 0 0 0-5.925-4.128"/><path d="M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z"/>',
+  snowflake:
+    '<path d="M12 2v20M4.93 7l14.14 10M19.07 7 4.93 17"/><path d="m9 4 3 2 3-2M9 20l3-2 3 2"/>',
+  dashboard:
+    '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+  calendar:
+    '<path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"/><path d="M16 2v4M8 2v4M3 10h5"/><circle cx="16" cy="16" r="6"/><path d="M16 14v2l1 1"/>',
+  mic:
+    '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+};
+
+const controls = [
+  { icon: 'dashboard', label: 'Dashboard & BT UI card' },
+  { icon: 'calendar', label: 'Schedules & blueprints' },
+  { icon: 'mic', label: 'Voice assistants', hint: 'Google · Alexa · Assist' },
+];
+
+const devices = [
+  { icon: 'radiator', label: 'One or more radiator TRVs' },
+  { icon: 'snowflake', label: 'Cooling / AC device', optional: true },
+];
+
+const sensors = [
+  { icon: 'thermometer', label: 'Room temperature sensor', required: true },
+  { icon: 'window', label: 'Window & door sensors' },
+  { icon: 'weather', label: 'Outdoor sensor / weather' },
+];
+---
+
+<figure class="why not-content" aria-labelledby="why-caption">
+  <!-- ① The problem -->
+  <section class="panel problem">
+    <header class="step">
+      <span class="step-no">1</span>
+      <span class="step-title">The problem: your TRV measures the wrong spot</span>
+    </header>
+
+    <div class="readings">
+      <div class="reading hot">
+        <span class="reading-icon" set:html={`<svg viewBox="0 0 24 24">${icons.radiator}</svg>`} />
+        <span class="reading-label">TRV on the radiator reads</span>
+        <span class="reading-value">23&nbsp;°C</span>
+        <span class="reading-note">millimeters from a 55–70&nbsp;°C pipe</span>
+      </div>
+
+      <div class="gap" aria-hidden="true">
+        <span class="gap-bar"></span>
+        <span class="gap-text">heat pocket<br />−4&nbsp;°C</span>
+      </div>
+
+      <div class="reading cold">
+        <span class="reading-icon" set:html={`<svg viewBox="0 0 24 24">${icons.sofa}</svg>`} />
+        <span class="reading-label">Where you sit, it is really</span>
+        <span class="reading-value">19&nbsp;°C</span>
+        <span class="reading-note">target 21&nbsp;°C — still too cold</span>
+      </div>
+    </div>
+
+    <p class="verdict bad">
+      <span class="verdict-icon" set:html={`<svg viewBox="0 0 24 24">${icons.x}</svg>`} />
+      <span>The TRV thinks the room is warm, <strong>closes the valve</strong>, and the room never reaches your target.</span>
+    </p>
+  </section>
+
+  <!-- ② The fix -->
+  <section class="panel fix">
+    <header class="step">
+      <span class="step-no">2</span>
+      <span class="step-title">The fix: one virtual thermostat that listens to the room</span>
+    </header>
+
+    <div class="flow">
+      <div class="group ctrl">
+        <span class="group-title">You control</span>
+        <ul>
+          {controls.map((c) => (
+            <li class="chip">
+              <span class="chip-icon" set:html={`<svg viewBox="0 0 24 24">${icons[c.icon]}</svg>`} />
+              <span class="chip-text">
+                {c.label}
+                {c.hint && <small>{c.hint}</small>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div class="link link-ctrl" aria-hidden="true">
+        <span class="link-label"><span class="wide-only">set target</span><span class="narrow-only">set target · room readings</span></span>
+        <span class="wire"></span>
+      </div>
+
+      <div class="hub">
+        <Image src={logo} alt="" width={56} height={56} class="hub-logo" />
+        <span class="hub-name">Better Thermostat</span>
+        <code class="hub-entity">climate.living_room</code>
+        <ol class="hub-steps">
+          <li>Reads the <strong>real room temperature</strong></li>
+          <li>Calculates what the valves need</li>
+          <li>Corrects every TRV continuously</li>
+        </ol>
+      </div>
+
+      <div class="link link-dev both" aria-hidden="true">
+        <span class="link-label">offset · setpoint · valve&nbsp;%</span>
+        <span class="wire"></span>
+        <span class="link-label sub">reports state</span>
+      </div>
+
+      <div class="group dev">
+        <span class="group-title">Your hardware</span>
+        <ul>
+          {devices.map((d) => (
+            <li class="chip">
+              <span class="chip-icon" set:html={`<svg viewBox="0 0 24 24">${icons[d.icon]}</svg>`} />
+              <span class="chip-text">{d.label}</span>
+              {d.optional && <span class="badge">optional</span>}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div class="link link-sens up" aria-hidden="true">
+        <span class="wire"></span>
+        <span class="link-label">measure</span>
+      </div>
+
+      <div class="group sens">
+        <span class="group-title">Your sensors</span>
+        <ul>
+          {sensors.map((s) => (
+            <li class="chip">
+              <span class="chip-icon" set:html={`<svg viewBox="0 0 24 24">${icons[s.icon]}</svg>`} />
+              <span class="chip-text">{s.label}</span>
+              <span class:list={['badge', { required: s.required }]}>
+                {s.required ? 'required' : 'optional'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+
+    <p class="verdict good">
+      <span class="verdict-icon" set:html={`<svg viewBox="0 0 24 24">${icons.check}</svg>`} />
+      <span>The radiator keeps heating until the <strong>sofa</strong> reaches 21&nbsp;°C — not the valve.</span>
+    </p>
+  </section>
+
+  <figcaption id="why-caption" class="sr-only">
+    Diagram: a TRV on the radiator reads 23 °C while the room is 19 °C, so it
+    closes too early. Better Thermostat combines a separate room sensor,
+    optional window, door and outdoor sensors with your TRVs and AC into one
+    virtual climate entity that your dashboards, schedules and voice
+    assistants control.
+  </figcaption>
+</figure>
+
+<style>
+  .why {
+    --hot: var(--sl-color-red);
+    --hot-low: var(--sl-color-red-low);
+    --cold: var(--sl-color-blue);
+    --cold-low: var(--sl-color-blue-low);
+    --ok: var(--sl-color-green);
+    --ok-low: var(--sl-color-green-low);
+    --line: var(--sl-color-gray-5);
+    --card: var(--sl-color-bg-nav);
+    --muted: var(--sl-color-gray-3);
+    --strong: var(--sl-color-white);
+
+    display: grid;
+    gap: 1.25rem;
+    margin: 2rem 0;
+    font-size: var(--sl-text-sm);
+    line-height: 1.4;
+  }
+
+  .why :global(svg) {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    background: color-mix(in srgb, var(--sl-color-gray-6) 45%, transparent);
+    box-shadow: var(--sl-flexoki-emboss-shadow, none);
+  }
+
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1.1rem;
+  }
+  .step-no {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    background: var(--sl-color-accent);
+    color: var(--sl-color-text-invert);
+    font-weight: 700;
+    font-size: var(--sl-text-xs);
+  }
+  .step-title {
+    color: var(--strong);
+    font-weight: 600;
+    font-size: var(--sl-text-base);
+  }
+
+  /* ---------- ① problem ---------- */
+  .readings {
+    display: grid;
+    grid-template-columns: 1fr minmax(5rem, 9rem) 1fr;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+  .reading {
+    --tone: var(--hot);
+    --tone-low: var(--hot-low);
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    gap: 0.2rem;
+    padding: 1rem 0.75rem;
+    border-radius: 0.6rem;
+    border: 1px solid color-mix(in srgb, var(--tone) 45%, transparent);
+    background: radial-gradient(
+        circle at 50% 0%,
+        color-mix(in srgb, var(--tone) 22%, transparent),
+        transparent 70%
+      ),
+      var(--card);
+  }
+  .reading.cold {
+    --tone: var(--cold);
+    --tone-low: var(--cold-low);
+  }
+  .reading-icon {
+    width: 2rem;
+    height: 2rem;
+    color: var(--tone);
+  }
+  .reading-label {
+    color: var(--muted);
+  }
+  .reading-value {
+    color: var(--tone);
+    font-size: 2.25rem;
+    font-weight: 800;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .reading-note {
+    color: var(--sl-color-text);
+    font-size: var(--sl-text-xs);
+  }
+
+  .gap {
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 0.5rem;
+  }
+  .gap-bar {
+    width: 100%;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--hot), var(--sl-color-orange), var(--cold));
+    position: relative;
+  }
+  .gap-bar::after {
+    content: '';
+    position: absolute;
+    right: -0.35rem;
+    top: 50%;
+    translate: 0 -50%;
+    border: 0.45rem solid transparent;
+    border-left-color: var(--cold);
+    border-right-width: 0;
+  }
+  .gap-text {
+    color: var(--muted);
+    font-size: var(--sl-text-xs);
+    text-align: center;
+  }
+
+  .verdict {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin: 1rem 0 0;
+    padding: 0.7rem 0.9rem;
+    border-radius: 0.5rem;
+    color: var(--sl-color-text);
+    border-left: 3px solid var(--tone);
+    background: color-mix(in srgb, var(--tone) 10%, transparent);
+  }
+  .verdict.bad {
+    --tone: var(--hot);
+  }
+  .verdict.good {
+    --tone: var(--ok);
+  }
+  .verdict strong {
+    color: var(--strong);
+  }
+  .verdict-icon {
+    flex: none;
+    width: 1.15rem;
+    height: 1.15rem;
+    margin-top: 0.05rem;
+    color: var(--tone);
+  }
+
+  /* ---------- ② fix ---------- */
+  .flow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 5.5rem minmax(0, 1.15fr) 5.5rem minmax(0, 1fr);
+    grid-template-areas:
+      'ctrl l1   hub  l2   dev'
+      '.    .    l3   .    .'
+      'sens sens sens sens sens';
+    align-items: center;
+  }
+  .ctrl { grid-area: ctrl; }
+  .link-ctrl { grid-area: l1; }
+  .hub { grid-area: hub; }
+  .link-dev { grid-area: l2; }
+  .dev { grid-area: dev; }
+  .link-sens { grid-area: l3; }
+  .sens { grid-area: sens; }
+
+  .group {
+    display: grid;
+    gap: 0.5rem;
+  }
+  .group-title {
+    color: var(--muted);
+    font-size: var(--sl-text-xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .group ul {
+    display: grid;
+    gap: 0.45rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .sens {
+    justify-items: center;
+  }
+  .sens ul {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--line);
+    border-radius: 0.5rem;
+    background: var(--card);
+    color: var(--sl-color-text);
+  }
+  .chip-icon {
+    flex: none;
+    width: 1.1rem;
+    height: 1.1rem;
+    color: var(--sl-color-accent-high);
+  }
+  .chip-text {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+  }
+  .chip-text small {
+    color: var(--muted);
+    font-size: var(--sl-text-xs);
+  }
+  .badge {
+    flex: none;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--muted);
+    border: 1px solid var(--line);
+  }
+  .badge.required {
+    color: var(--sl-color-text-invert);
+    background: var(--sl-color-accent);
+    border-color: var(--sl-color-accent);
+  }
+
+  .hub {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    gap: 0.35rem;
+    padding: 1.25rem 1rem;
+    border: 2px solid var(--sl-color-accent);
+    border-radius: 0.9rem;
+    background: radial-gradient(
+        circle at 50% 0%,
+        color-mix(in srgb, var(--sl-color-accent) 22%, transparent),
+        transparent 75%
+      ),
+      var(--card);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--sl-color-accent) 12%, transparent);
+  }
+  .hub :global(.hub-logo) {
+    width: 3.5rem;
+    height: 3.5rem;
+    object-fit: contain;
+  }
+  .hub-name {
+    color: var(--strong);
+    font-weight: 700;
+    font-size: var(--sl-text-lg);
+  }
+  .hub-entity {
+    font-size: var(--sl-text-xs);
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.3rem;
+    background: var(--sl-color-bg-inline-code);
+    color: var(--sl-color-text);
+  }
+  .hub-steps {
+    margin: 0.5rem 0 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: hub;
+    display: grid;
+    gap: 0.3rem;
+    text-align: left;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-text);
+  }
+  .hub-steps li {
+    counter-increment: hub;
+    display: flex;
+    gap: 0.45rem;
+    align-items: baseline;
+  }
+  .hub-steps li::before {
+    content: counter(hub);
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 50%;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--sl-color-accent-high);
+    border: 1px solid var(--sl-color-accent);
+  }
+  .hub-steps strong {
+    color: var(--strong);
+  }
+
+  /* connectors: animated dashed wires with arrow heads */
+  .link {
+    display: grid;
+    justify-items: center;
+    gap: 0.25rem;
+    padding: 0 0.35rem;
+  }
+  .link-label {
+    color: var(--muted);
+    font-size: 0.68rem;
+    text-align: center;
+    line-height: 1.2;
+  }
+  .wire {
+    --dash: color-mix(in srgb, var(--sl-color-accent) 85%, transparent);
+    position: relative;
+    width: 100%;
+    height: 2px;
+    background: repeating-linear-gradient(90deg, var(--dash) 0 6px, transparent 6px 11px);
+    background-size: 11px 2px;
+    animation: why-flow 0.9s linear infinite;
+  }
+  .wire::after,
+  .both .wire::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    translate: 0 -50%;
+    border: 0.35rem solid transparent;
+  }
+  .wire::after {
+    right: -0.3rem;
+    border-left-color: var(--sl-color-accent);
+    border-right-width: 0;
+  }
+  .both .wire::before {
+    left: -0.3rem;
+    border-right-color: var(--sl-color-accent);
+    border-left-width: 0;
+  }
+
+  .up {
+    grid-auto-flow: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0 0.6rem;
+  }
+  .up .wire {
+    width: 2px;
+    height: 2.25rem;
+    background: repeating-linear-gradient(0deg, var(--dash) 0 6px, transparent 6px 11px);
+    background-size: 2px 11px;
+    animation-name: why-flow-up;
+  }
+  .up .wire::after {
+    right: auto;
+    left: 50%;
+    top: -0.3rem;
+    translate: -50% 0;
+    border: 0.35rem solid transparent;
+    border-bottom-color: var(--sl-color-accent);
+    border-top-width: 0;
+  }
+
+  @keyframes why-flow {
+    to { background-position: 11px 0; }
+  }
+  @keyframes why-flow-up {
+    to { background-position: 0 -11px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wire { animation: none; }
+  }
+
+  .narrow-only {
+    display: none;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* ---------- narrow screens: stack vertically ---------- */
+  @media (max-width: 50rem) {
+    .readings {
+      grid-template-columns: 1fr;
+    }
+    .gap {
+      grid-auto-flow: column;
+      justify-content: center;
+    }
+    .gap-bar {
+      width: 0.5rem;
+      height: 2.5rem;
+      background: linear-gradient(180deg, var(--hot), var(--sl-color-orange), var(--cold));
+    }
+    .gap-bar::after {
+      right: auto;
+      top: auto;
+      bottom: -0.35rem;
+      left: 50%;
+      translate: -50% 0;
+      border: 0.45rem solid transparent;
+      border-top-color: var(--cold);
+      border-bottom-width: 0;
+    }
+
+    .flow {
+      grid-template-columns: 1fr;
+      grid-template-areas: 'ctrl' 'sens' 'l1' 'hub' 'l2' 'dev';
+      gap: 0.75rem 0;
+      align-items: stretch;
+    }
+    .link,
+    .up {
+      grid-auto-flow: column;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0;
+    }
+    .link .wire {
+      width: 2px;
+      height: 2rem;
+      background: repeating-linear-gradient(180deg, var(--dash) 0 6px, transparent 6px 11px);
+      background-size: 2px 11px;
+      animation-name: why-flow-down;
+    }
+    .link .wire::after {
+      right: auto;
+      top: auto;
+      bottom: -0.3rem;
+      left: 50%;
+      translate: -50% 0;
+      border: 0.35rem solid transparent;
+      border-top-color: var(--sl-color-accent);
+      border-bottom-width: 0;
+    }
+    .both .wire::before {
+      left: 50%;
+      top: -0.3rem;
+      translate: -50% 0;
+      border: 0.35rem solid transparent;
+      border-bottom-color: var(--sl-color-accent);
+      border-top-width: 0;
+    }
+    /* both inputs sit above the hub on mobile, so one wire is enough */
+    .link-sens {
+      display: none;
+    }
+    .wide-only {
+      display: none;
+    }
+    .narrow-only {
+      display: inline;
+    }
+    .sens ul {
+      grid-template-columns: 1fr;
+    }
+    .sens {
+      justify-items: stretch;
+    }
+  }
+
+  @keyframes why-flow-down {
+    to { background-position: 0 11px; }
+  }
+</style>

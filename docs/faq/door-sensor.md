@@ -28,14 +28,13 @@ If the sensor reports anything else, Better Thermostat raises an
 ## How to fix it
 
 1. Check the sensor's actual state under **Developer tools → States**.
-2. Use a `binary_sensor` (device class `door`/`opening`), or a group of
-   binary sensors:
+2. Use a `binary_sensor` (device class `door`/`opening`), or combine several door contacts into a **Binary sensor group** helper under **Settings → Devices & Services → Helpers → + Create Helper → Group → Binary sensor group** *(leave "All entities" Off)*. If you prefer YAML:
 
    ```yaml
-   group:
-     hallway_doors:
-       name: Hallway Doors
-       icon: mdi:door-open
+   binary_sensor:
+     - platform: group
+       name: "Hallway Doors"
+       device_class: door
        all: false
        entities:
          - binary_sensor.frontdoor_contact
