@@ -32,7 +32,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.file import WriteError
 from homeassistant.util.json import json_loads
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from custom_components.better_thermostat.utils.calibration.mpc import TrvProfile
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (

@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 from homeassistant.const import CONF_NAME
 from homeassistant.helpers import issue_registry as ir
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.better_thermostat import (
     DOMAIN,

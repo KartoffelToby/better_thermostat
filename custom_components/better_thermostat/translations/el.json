@@ -244,6 +244,9 @@
     "valve_leak_detected": {
       "title": "BT: {name} - leaking or stuck-open valve on {entity}",
       "description": "The room {name} continues to warm above target temperature even though {entity} has been commanded closed and residual radiator heat has already dissipated.\n\nInspect the thermostat head mounting, adapter ring, and valve pin on {entity} to ensure the valve can close completely. This issue clears itself once the unexpected warming stops."
+    "calibration_offset_at_limit": {
+      "title": "BT: {name} - η μετατόπιση βαθμονόμησης του {entity} παραμένει στο όριό της",
+      "description": "Η μετατόπιση βαθμονόμησης που γράφει το Better Thermostat στο {entity} παραμένει για {minutes} λεπτά στο όριο του εύρους που δέχεται ο θερμοστάτης. Η βαθμονόμηση βάσει μετατόπισης προσθέτει στη μετατόπιση τη διαφορά μεταξύ της θερμοκρασίας δωματίου και της μέτρησης του ίδιου του θερμοστάτη, οπότε μια μετατόπιση που μένει στο όριο δεν έχει πλέον περιθώριο διόρθωσης.\n\nΣυνήθεις αιτίες:\n- Ο θερμοστάτης δέχεται τη μετατόπιση αλλά δεν την εφαρμόζει, οπότε η μέτρησή του δεν αλλάζει ποτέ. Ορισμένοι θερμοστάτες Matter συμπεριφέρονται έτσι.\n- Ο θερμοστάτης εφαρμόζει μετατοπίσεις μόνο σε στενότερο εύρος από αυτό που δημοσιεύει.\n- Η μέτρηση του θερμοστάτη απέχει από τη θερμοκρασία δωματίου περισσότερο απ' όσο φτάνει το εύρος μετατόπισής του, για παράδειγμα επειδή βρίσκεται ακριβώς πάνω από το καλοριφέρ.\n\nΑλλάξτε τον τύπο βαθμονόμησης αυτού του θερμοστάτη σε **Βάσει επιθυμητής θερμοκρασίας** (Ρυθμίσεις → Συσκευές & υπηρεσίες → Better Thermostat → Διαμόρφωση)· δεν εξαρτάται από τη μετατόπιση. Αυτό το ζήτημα εξαφανίζεται από μόνο του μόλις η μετατόπιση φύγει από το όριο ή μόλις ο θερμοστάτης δεν χρησιμοποιεί πλέον βαθμονόμηση βάσει μετατόπισης."
     }
   },
   "services": {

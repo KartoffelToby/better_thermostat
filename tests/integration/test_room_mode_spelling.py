@@ -272,11 +272,17 @@ async def test_a_dual_role_device_cools_and_heats_whichever_way_the_room_is_on(
             await _settle(hass)
 
         await _room_at(hass, bt, 27.0)
-        assert (device.hvac_mode, device.target_temperature) == (HVACMode.COOL, 24.0)
+        assert (device.hvac_mode, device.native_target_temperature) == (
+            HVACMode.COOL,
+            24.0,
+        )
 
         await _room_at(hass, bt, 22.0)
         assert device.hvac_mode == HVACMode.HEAT
 
         await _room_at(hass, bt, 27.0)
-        assert (device.hvac_mode, device.target_temperature) == (HVACMode.COOL, 24.0)
+        assert (device.hvac_mode, device.native_target_temperature) == (
+            HVACMode.COOL,
+            24.0,
+        )
         assert HVACMode.HEAT_COOL not in device.set_hvac_mode_calls

@@ -16,7 +16,7 @@ from homeassistant.components.climate import (
 from homeassistant.const import ATTR_ENTITY_ID, EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import CoreState, State
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import mock_restore_cache
+from pytest_homeassistant.common import mock_restore_cache
 
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_ACTIVE_OVERRIDES,

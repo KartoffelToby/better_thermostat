@@ -244,6 +244,9 @@
     "valve_leak_detected": {
       "title": "BT: {name} - leaking or stuck-open valve on {entity}",
       "description": "The room {name} continues to warm above target temperature even though {entity} has been commanded closed and residual radiator heat has already dissipated.\n\nInspect the thermostat head mounting, adapter ring, and valve pin on {entity} to ensure the valve can close completely. This issue clears itself once the unexpected warming stops."
+    "calibration_offset_at_limit": {
+      "title": "BT: {name} - l'offset di calibrazione di {entity} resta al suo limite",
+      "description": "L'offset di calibrazione che Better Thermostat scrive su {entity} è rimasto al limite dell'intervallo accettato dal termostato per {minutes} minuti. La calibrazione basata sull'offset aggiunge all'offset la differenza tra la temperatura della stanza e la lettura del termostato stesso, quindi un offset che resta al limite non ha più margine di correzione.\n\nCause comuni:\n- Il termostato accetta l'offset ma non lo applica, quindi la sua lettura non cambia mai. Alcuni termostati Matter si comportano così.\n- Il termostato applica gli offset solo entro un intervallo più ristretto di quello che pubblica.\n- La lettura del termostato è più lontana dalla temperatura della stanza di quanto il suo intervallo di offset possa coprire, per esempio perché si trova proprio sopra il radiatore.\n\nPassa questo termostato al tipo di calibrazione **Basato sulla temperatura obiettivo** (Impostazioni → Dispositivi e servizi → Better Thermostat → Configura); non dipende dall'offset. Questo problema si risolve da solo non appena l'offset lascia il limite, o quando il termostato non usa più la calibrazione basata sull'offset."
     }
   },
   "services": {

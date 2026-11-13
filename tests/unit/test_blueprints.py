@@ -37,7 +37,7 @@ from homeassistant.util.yaml import loader as yaml_loader
 import jinja2
 import probatio as vol
 import pytest
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     async_fire_time_changed,
     async_mock_service,

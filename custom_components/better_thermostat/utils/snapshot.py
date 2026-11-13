@@ -178,9 +178,9 @@ def build_snapshot(self: BetterThermostat) -> WorldSnapshot:
         # A snapshot can be asked for before startup has measured the room
         # (the devices can be released while Home Assistant starts), so it
         # reads the value that is still None then.
-        room_temperature=room_temperature,
-        room_temperature_filtered=room_temperature_filtered,
-        temperature_slope=temperature_slope,
+        room_temperature=_as_float(self, self.native_current_temperature),
+        room_temperature_filtered=_as_float(self, self.room_temperature_filtered),
+        temperature_slope=_as_float(self, self.temperature_slope),
         call_for_heat=self.call_for_heat,
         window_open=window_open,
         preset_mode=parse_preset(self.preset_mode),

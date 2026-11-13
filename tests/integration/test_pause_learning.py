@@ -8,7 +8,7 @@ the pause outlives a reload and a restart.
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import mock_restore_cache
+from pytest_homeassistant.common import mock_restore_cache
 
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_DEVICES_RELEASED,

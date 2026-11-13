@@ -10,7 +10,7 @@ was in when the heating target moved.
 from homeassistant.components.climate import HVACMode
 from homeassistant.const import ATTR_ENTITY_ID
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from .conftest import (
     BT_ENTITY,

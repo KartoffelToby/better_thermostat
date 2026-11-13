@@ -10,6 +10,7 @@ import pytest
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
 from custom_components.better_thermostat.core.desired import DesiredState, HeatingBlock
+from custom_components.better_thermostat.core.offset_limit import OffsetAtLimit
 from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import WorldSnapshot
 from custom_components.better_thermostat.trv import Trv
@@ -123,6 +124,31 @@ class TestControlQueue:
             await _stop(queue_task)
 
         mock_self.calculate_heating_power.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "hold", ["in_maintenance", "ignore_states", "startup_running"]
+    )
+    async def test_a_held_loop_ends_the_run_of_cycles_at_the_offset_limit(self, hold):
+        """A hold runs no control cycle, so no run at the offset limit spans it.
+
+        The run counts unbroken cycles, and its window is measured from its
+        first one; a run carried over an hour-long hold would be reported by
+        the first cycle after it.
+        """
+        mock_self = _idle_room()
+        trv = trv_record(entity_id="climate.trv")
+        trv.calibration_offset_at_limit = OffsetAtLimit(5.0, 0.0)
+        mock_self.real_trvs = {"climate.trv": trv}
+        setattr(mock_self, hold, True)
+        mock_self.control_queue_task = asyncio.Queue()
+
+        with _HeldPolls() as polls:
+            queue_task = asyncio.create_task(control_queue(mock_self))
+            await _wait_until(lambda: polls.count >= 1)
+            await _stop(queue_task)
+
+        assert trv.calibration_offset_at_limit is None
 
     @pytest.mark.asyncio
     async def test_processes_task_from_queue(self):
@@ -875,6 +901,28 @@ class TestControlQueueWithATrvReleasedOnItsOwn:
         cooler.assert_awaited_once()
         assert [call.args[1] for call in trv.await_args_list] == [self.CONTROLLED]
         refresh_modes.assert_called_once_with(mock_self)
+
+    @pytest.mark.asyncio
+    async def test_a_cycle_ends_the_run_at_the_offset_limit_of_a_released_trv(self):
+        """A TRV the cycle passes over has no unbroken run of cycles to continue.
+
+        The run of the controlled TRV is control_trv's to follow, which this
+        cycle stands in for.
+        """
+        mock_self = self._make_self({self.RELEASED})
+        for entity_id in (self.RELEASED, self.CONTROLLED):
+            mock_self.real_trvs[entity_id].calibration_offset_at_limit = OffsetAtLimit(
+                5.0, 0.0
+            )
+
+        await TestControlQueueWithReleasedDevices._run_one_cycle(
+            mock_self, (Mock(), DesiredState(call_for_heat=True))
+        )
+
+        assert mock_self.real_trvs[self.RELEASED].calibration_offset_at_limit is None
+        assert mock_self.real_trvs[
+            self.CONTROLLED
+        ].calibration_offset_at_limit == OffsetAtLimit(5.0, 0.0)
 
     @pytest.mark.asyncio
     async def test_every_trv_released_keeps_the_cooler_and_counts_as_a_cycle(self):

@@ -202,12 +202,12 @@ def _hold_whole_degrees(hass, cooler: SimulatedClimate, answer: str) -> None:
             return
         cooler.set_temperature_calls.append(written)
         if answer == "in_call":
-            cooler._attr_target_temperature = float(int(written))
+            cooler._attr_native_target_temperature = float(int(written))
             cooler.async_write_ha_state()
             return
 
         def poll() -> None:
-            cooler._attr_target_temperature = float(int(written))
+            cooler._attr_native_target_temperature = float(int(written))
             _report(hass, cooler)
 
         hass.loop.call_soon(poll)
@@ -248,7 +248,7 @@ async def test_a_whole_degree_answer_to_a_half_degree_write_is_not_a_press(
         assert bt.cool_target_temperature == 22.5
         assert hass.states.get(BT_ENTITY).attributes["target_temp_high"] == 22.5
 
-        cooler._attr_target_temperature = 23.0
+        cooler._attr_native_target_temperature = 23.0
         _report(hass, cooler)
         await _settle(hass)
 
@@ -277,7 +277,7 @@ async def test_a_press_right_after_a_write_is_adopted(hass, device_role):
         assert 23.0 in cooler.set_temperature_calls
         assert hass.states.get(cooler.entity_id).attributes[ATTR_TEMPERATURE] == 23.0
 
-        cooler._attr_target_temperature = 23.5
+        cooler._attr_native_target_temperature = 23.5
         _report(hass, cooler)
         await _settle(hass)
 
@@ -311,14 +311,14 @@ async def test_a_press_back_to_the_answer_of_an_earlier_write_is_adopted(
         await _room(hass, bt, 27.2)
         assert bt.cool_target_temperature == 22.5
 
-        cooler._attr_target_temperature = 23.0
+        cooler._attr_native_target_temperature = 23.0
         _report(hass, cooler)
         await _settle(hass)
         assert bt.cool_target_temperature == 23.0
         await _room(hass, bt, 27.4)
 
         cooler.set_temperature_calls.clear()
-        cooler._attr_target_temperature = 22.0
+        cooler._attr_native_target_temperature = 22.0
         _report(hass, cooler)
         await _settle(hass)
         await _room(hass, bt, 27.1)

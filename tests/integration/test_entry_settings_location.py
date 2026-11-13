@@ -7,7 +7,7 @@ data and empties the options without changing the version. Such an entry is
 moved again when it is set up here, and runs on the values saved in 1.9.3.
 """
 
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.better_thermostat.utils.const import CONF_TOLERANCE
 

@@ -23,7 +23,7 @@ from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityPlatformState
 import pytest
-from pytest_homeassistant_custom_component.common import mock_restore_cache
+from pytest_homeassistant.common import mock_restore_cache
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils.const import CalibrationMode
@@ -523,7 +523,7 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
     healing tick is therefore one that fires after that wait ends.
     """
     from homeassistant.util import dt as dt_util
-    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+    from pytest_homeassistant.common import async_fire_time_changed
 
     set_room_sensor(hass, 18.0)
     entry = make_entry(fake_trv.profile)
@@ -560,7 +560,7 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
             hass, lambda: len(fake_trv.set_temperature_calls) > baseline_calls
         )
         lost = fake_trv.set_temperature_calls[-1]
-        assert lost != fake_trv._attr_target_temperature  # really lost
+        assert lost != fake_trv._attr_native_target_temperature  # really lost
         assert_on_device_grid(lost, fake_trv.profile)
 
         # The entity waits out the confirmation the device never sends;
@@ -574,7 +574,7 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
         )
 
     assert fake_trv.set_temperature_calls[-1] == lost
-    assert fake_trv._attr_target_temperature == lost
+    assert fake_trv._attr_native_target_temperature == lost
 
 
 @pytest.mark.parametrize(
@@ -600,7 +600,7 @@ async def test_a_quiet_room_does_not_trip_the_control_watchdog(hass, fake_trv, c
     and no cycle to force, whichever calibration mode the room runs.
     """
     from homeassistant.util import dt as dt_util
-    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+    from pytest_homeassistant.common import async_fire_time_changed
 
     from custom_components.better_thermostat.core.clock import FakeClock
 

@@ -82,6 +82,8 @@ class DeviceProfile:
     device that reports none. It is what selects the quirk module a device is
     driven by, so a profile whose behaviour rides on a quirk names it here;
     it needs ``has_device_registry_entry`` to be readable at all.
+    ``model_id`` is the model id the entry reports beside it, which Zigbee2MQTT
+    fills with the model string and which takes precedence over ``model``.
 
     ``system_unit`` is the unit system of the Home Assistant instance, and
     ``None`` puts the instance on the device's own unit. A device on a system
@@ -144,6 +146,7 @@ class DeviceProfile:
     calibration: str
     has_device_registry_entry: bool
     model: str | None = None
+    model_id: str | None = None
     entity_id: str = TRV_ID
     entity_name: str = "fake trv"
     hvac_modes: tuple[HVACMode, ...] = (HVACMode.HEAT, HVACMode.OFF)
@@ -473,6 +476,25 @@ The parameter counts tenths of a degree Celsius from -128 to 50 in whole
 steps, and -128 stands for "use the external sensor" rather than an offset.
 """
 
+MATTER_NARROW_OFFSET_TRV = DeviceProfile(
+    name="matter_narrow_offset_trv",
+    integration="matter",
+    calibration="local_calibration_based",
+    has_device_registry_entry=True,
+    model="18437",
+    current_temperature=19.0,
+    offset_channel=OffsetChannel.NUMBER_ENTITY,
+    offset_translation_key="temperature_offset",
+    offset_device_class=NumberDeviceClass.TEMPERATURE_DELTA,
+    offset_unit=UnitOfTemperature.CELSIUS,
+    offset_range=(-12.7, 12.7, 0.1),
+)
+"""An Aqara W600 under Matter, registered with its Matter product id as model.
+
+Its offset number takes the -12.7 to 12.7 °C Matter allows, while the head
+applies only -5.0 to 5.0 °C; the model's quirk declares that narrower range.
+"""
+
 TADO_OFFSET_TRV = DeviceProfile(
     name="tado_offset_trv",
     integration="tado",
@@ -497,6 +519,25 @@ VALVE_TRV = DeviceProfile(
 The valve number sits on the same device as the climate entity, which is
 what makes it discoverable and writable; direct valve control is the one
 calibration strategy that puts a percentage on the wire at all.
+"""
+
+BOSCH_BTH_RA_VALVE_TRV = DeviceProfile(
+    name="bosch_bth_ra_valve_trv",
+    integration="mqtt",
+    calibration="direct_valve_based",
+    calibration_mode="heating_power_calibration",
+    has_device_registry_entry=True,
+    model="Radiator thermostat II",
+    model_id="BTH-RA",
+    current_temperature=19.0,
+    valve_channel=ValveChannel.NUMBER_ENTITY,
+)
+"""A Bosch BTH-RA under Zigbee2MQTT, driven through its heating demand number.
+
+The head keeps a demand only for as long as it keeps being written: after a
+quarter of an hour without a write it hands the valve back to its own
+controller. The model id selects the quirk module that keeps the demand
+written; the model is the device name Zigbee2MQTT publishes beside it.
 """
 
 SHELLY_BLU_VALVE_TRV = DeviceProfile(
@@ -784,8 +825,10 @@ SINGLE_ROLE_PROFILES = (
     TUYA_OFFSET_TRV,
     ZWAVE_CAPPED_TRV,
     ZWAVE_SPIRIT_OFFSET_TRV,
+    MATTER_NARROW_OFFSET_TRV,
     TADO_OFFSET_TRV,
     VALVE_TRV,
+    BOSCH_BTH_RA_VALVE_TRV,
     SHELLY_BLU_VALVE_TRV,
     SHELLY_BLU_THERMOSTAT_TRV,
     RANGE_ONLY_HEAT_TRV,
@@ -800,6 +843,9 @@ GROUP_SCENARIOS = (GROUP_OF_THREE, MIXED_GRID_GROUP, VALVE_GROUP)
 
 SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario | GroupScenario] = {
     "a BLU TRV controlled only through its valve number": SHELLY_BLU_VALVE_TRV,
+    "a head that drops a valve demand it is not written again": (
+        BOSCH_BTH_RA_VALVE_TRV
+    ),
     "a BLU TRV that regulates on the room temperature it is given": (
         SHELLY_BLU_THERMOSTAT_TRV
     ),
@@ -814,6 +860,9 @@ SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario | GroupScenario] = {
     ),
     "a head whose offset counts tenths of a degree and reserves a value": (
         ZWAVE_SPIRIT_OFFSET_TRV
+    ),
+    "a head that applies less of its offset than its number entity takes": (
+        MATTER_NARROW_OFFSET_TRV
     ),
 }
 """The device shapes users have reported a bug against, by what they are.

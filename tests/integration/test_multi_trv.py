@@ -37,7 +37,7 @@ from homeassistant.helpers import (
 )
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     async_capture_events,
     async_fire_time_changed,
@@ -805,7 +805,7 @@ def _report_on_its_own(device: SimulatedClimate) -> None:
 
 async def _present_head_reports(room: OutageRoom) -> None:
     head = room.present[-1]
-    head._attr_current_temperature = 16.5
+    head._attr_native_current_temperature = 16.5
     _report_on_its_own(head)
 
 
@@ -817,7 +817,7 @@ async def _cooler_reports(room: OutageRoom) -> None:
     """
     room.cooler._attr_hvac_mode = HVACMode.COOL
     _report_on_its_own(room.cooler)
-    room.cooler._attr_target_temperature = 26.0
+    room.cooler._attr_native_target_temperature = 26.0
     _report_on_its_own(room.cooler)
 
 

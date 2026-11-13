@@ -62,10 +62,10 @@ def _report_off_at_the_minimum(trv) -> None:
     async def _set_hvac_mode(hvac_mode) -> None:
         await apply_mode(hvac_mode)
         if hvac_mode == HVACMode.OFF:
-            last_setpoint[0] = trv._attr_target_temperature
-            trv._attr_target_temperature = minimum
+            last_setpoint[0] = trv._attr_native_target_temperature
+            trv._attr_native_target_temperature = minimum
         else:
-            trv._attr_target_temperature = last_setpoint[0]
+            trv._attr_native_target_temperature = last_setpoint[0]
         trv.async_write_ha_state()
 
     trv.async_set_temperature = _set_temperature
@@ -129,7 +129,7 @@ async def test_switching_the_room_off_still_switches_the_trv_off(hass, fake_trv)
         assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.OFF)
         await hass.async_block_till_done()
 
-        assert fake_trv.target_temperature == pytest.approx(4.0)
+        assert fake_trv.native_target_temperature == pytest.approx(4.0)
         assert bt.hvac_mode == HVACMode.OFF
         assert hass.states.get(BT_ENTITY).state == HVACMode.OFF
 
@@ -143,4 +143,4 @@ async def test_switching_the_room_off_still_switches_the_trv_off(hass, fake_trv)
         await hass.async_block_till_done()
 
     assert bt.hvac_mode == HVACMode.HEAT
-    assert fake_trv.target_temperature >= 4.5
+    assert fake_trv.native_target_temperature >= 4.5

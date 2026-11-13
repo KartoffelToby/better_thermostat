@@ -244,6 +244,9 @@
     "valve_leak_detected": {
       "title": "BT: {name} - leaking or stuck-open valve on {entity}",
       "description": "The room {name} continues to warm above target temperature even though {entity} has been commanded closed and residual radiator heat has already dissipated.\n\nInspect the thermostat head mounting, adapter ring, and valve pin on {entity} to ensure the valve can close completely. This issue clears itself once the unexpected warming stops."
+    "calibration_offset_at_limit": {
+      "title": "BT: {name} - przesunięcie kalibracji {entity} pozostaje na swojej granicy",
+      "description": "Przesunięcie kalibracji, które Better Thermostat zapisuje w {entity}, od {minutes} minut pozostaje na granicy zakresu akceptowanego przez termostat. Kalibracja na podstawie przesunięcia dodaje do przesunięcia różnicę między temperaturą pomieszczenia a własnym odczytem termostatu, więc przesunięcie, które pozostaje na granicy, nie ma już zapasu korekty.\n\nCzęste przyczyny:\n- Termostat przyjmuje przesunięcie, ale go nie stosuje, więc jego odczyt nigdy się nie zmienia. Niektóre termostaty Matter zachowują się w ten sposób.\n- Termostat stosuje przesunięcia tylko w węższym zakresie niż ten, który publikuje.\n- Własny odczyt termostatu jest dalej od temperatury pomieszczenia, niż sięga jego zakres przesunięcia, na przykład dlatego, że znajduje się tuż nad grzejnikiem.\n\nZmień typ kalibracji tego termostatu na **Na podstawie temperatury docelowej** (Ustawienia → Urządzenia oraz usługi → Better Thermostat → Konfiguruj); nie zależy on od przesunięcia. Ten problem zniknie sam, gdy przesunięcie opuści granicę lub gdy termostat przestanie używać kalibracji na podstawie przesunięcia."
     }
   },
   "services": {
