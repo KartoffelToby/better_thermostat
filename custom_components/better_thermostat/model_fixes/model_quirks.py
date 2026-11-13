@@ -42,7 +42,9 @@ _LOGGER = logging.getLogger(__name__)
 # definition of the Danfoss Ally 014G2461, under their own model names. Home
 # Assistant's Shelly integration registers the Shelly BLU TRV with the model
 # id SBTR-001AEU and the model name Shelly BLU TRV; a device entry that
-# carries only the name resolves onto the module of the id.
+# carries only the name resolves onto the module of the id. Zigbee2MQTT names
+# the Bosch BTH-RA Radiator thermostat II; a release that publishes no model
+# id leaves only that name, and it resolves onto the module of the id too.
 _QUIRK_MODULE_ALIASES = {
     "Spirit": "ZWA021",
     "Z-TRV-V01": "ZWA021",
@@ -50,6 +52,7 @@ _QUIRK_MODULE_ALIASES = {
     "701721": "014G2461",
     "UK7004240": "014G2461",
     "Shelly BLU TRV": "SBTR-001AEU",
+    "Radiator thermostat II": "BTH-RA",
 }
 
 

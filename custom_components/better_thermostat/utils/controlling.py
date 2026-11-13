@@ -73,7 +73,10 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_state_unknown_as_available,
     valve_readings,
 )
-from custom_components.better_thermostat.model_fixes.types import ValveReading
+from custom_components.better_thermostat.model_fixes.types import (
+    ValveKeepaliveQuirk,
+    ValveReading,
+)
 from custom_components.better_thermostat.trv import BudgetRetry, WithdrawnHvacMode
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
@@ -864,6 +867,46 @@ def _valve_repeat_readback(
     return _valve_readback(self, trv, last_percent)
 
 
+def _valve_keepalive_due(self: BetterThermostat, trv: Trv) -> bool:
+    """Whether a valve opening has to be written again before the device forgets it.
+
+    Only a TRV whose quirk declares a keepalive interval is written again,
+    and only while it is driven by its valve and the last opening written
+    is open; a closed valve is left as it is. The interval counts from the
+    last valve write a channel took, so any such write in between, a changed
+    opening or a repeat the readback asked for, starts it afresh, and a
+    refused write leaves the keepalive due for the retry that follows it.
+    """
+    quirks: object = trv.model_quirks
+    if not isinstance(quirks, ValveKeepaliveQuirk):
+        return False
+    if (
+        configured_calibration_output(trv.advanced)
+        != CalibrationOutput.DIRECT_VALVE_BASED
+    ):
+        return False
+    if trv.last_valve_percent is None or round(trv.last_valve_percent) <= 0:
+        return False
+    last_write = trv.last_valve_written_monotonic
+    if last_write is None:
+        return False
+    return (
+        self.clock.monotonic() - last_write >= quirks.VALVE_KEEPALIVE_INTERVAL_SECONDS
+    )
+
+
+def _valve_keepalive_pending(self: BetterThermostat, desired: DesiredState) -> bool:
+    """Whether a TRV the intent commands is due a valve keepalive.
+
+    The intent leaves out a TRV that is unreachable or released, so neither
+    queues a cycle that would write nothing to it.
+    """
+    return any(
+        trv is not None and _valve_keepalive_due(self, trv)
+        for trv in (self.real_trvs.get(entity_id) for entity_id in desired.trvs)
+    )
+
+
 def desired_diverges(
     self: BetterThermostat, snapshot: WorldSnapshot, desired: DesiredState
 ) -> bool:
@@ -962,7 +1005,9 @@ async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) ->
 
     Builds a snapshot, asks the kernel for the desired state, and
     enqueues one control cycle when any device diverges — the general
-    mechanism that heals lost writes without per-case keepalives.
+    mechanism that heals lost writes. A device that holds the intent gets
+    a cycle too when its valve keepalive is due, since it would otherwise
+    drop the opening it holds.
 
     The control watchdog is read here too. A divergence behind a loop that
     has not completed a cycle for ``WATCHDOG_MAX_AGE_S`` is the silent hang
@@ -986,6 +1031,13 @@ async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) ->
             return
         desired = safety_clamp(desired, snapshot)
         if not desired_diverges(self, snapshot, desired):
+            if _valve_keepalive_pending(self, desired):
+                _LOGGER.debug(
+                    "better_thermostat %s: reconcile: valve keepalive due, "
+                    "queueing a control cycle",
+                    self.device_name,
+                )
+                request_control_cycle(self)
             return
         if control_loop_stalled(
             self.kernel_state.last_control_monotonic, self.clock.monotonic()
@@ -2711,8 +2763,17 @@ async def control_trv(
                     # for the next slot and converges via the next cycle. A
                     # repeat that only an assumed state leaves unconfirmed
                     # gains no safety from going out early, so it waits too.
+                    # A device that forgets an opening it is not written
+                    # again takes the repeat once its keepalive is due.
                     _repeat = _valve_repeat_readback(self, entity_id, target_percent)
-                    if _repeat in (ValveReadback.HOLDS, ValveReadback.UNREADABLE):
+                    _keepalive = _repeat in (
+                        ValveReadback.HOLDS,
+                        ValveReadback.UNREADABLE,
+                    ) and _valve_keepalive_due(self, self.real_trvs[entity_id])
+                    if (
+                        _repeat in (ValveReadback.HOLDS, ValveReadback.UNREADABLE)
+                        and not _keepalive
+                    ):
                         _LOGGER.debug(
                             "better_thermostat %s: valve of %s already at %s%%, "
                             "skipping write",
@@ -2728,14 +2789,20 @@ async def control_trv(
                         and _repeat is not ValveReadback.UNCONFIRMED,
                     ):
                         _LOGGER.debug(
-                            "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
+                            "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s%s)",
                             self.device_name,
                             entity_id,
                             target_percent,
                             _source,
+                            ", keepalive" if _keepalive else "",
                         )
                         ok = await set_valve(self, entity_id, target_percent)
-                        if not ok:
+                        if ok:
+                            _written = self.real_trvs[entity_id]
+                            _written.last_valve_written_monotonic = (
+                                self.clock.monotonic()
+                            )
+                        else:
                             _LOGGER.debug(
                                 "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
                                 self.device_name,
