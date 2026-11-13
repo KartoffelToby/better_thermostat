@@ -35,7 +35,7 @@ Because Better Thermostat talks through Home Assistant entities rather than dire
 Direct valve control requires one of:
 
 1. Adapter support in Better Thermostat together with a controllable valve position entity exposed by your TRV/integration
-2. A valve control built into Better Thermostat for your model, as for the Sonoff TRVZB and the Eurotronic Spirit Z / Aeotec ZWA021 (see [Direct valve control](/calibration_algorithms/#devices-that-support-it))
+2. A valve control built into Better Thermostat for your model, as for the Sonoff TRVZB and TRV-ZBT and the Eurotronic Spirit Z / Aeotec ZWA021 (see [Direct valve control](/calibration_algorithms/#devices-that-support-it))
 
 Devices that expose a controllable valve position work best with the advanced control modes (`(AI) MPC v2`, `TPI Controller`, `PID Controller`, and `(AI) Time Based`), because Better Thermostat can set the valve opening directly. Select the **`Direct Valve Based`** calibration type to use it.
 
@@ -48,7 +48,7 @@ Better Thermostat automatically detects the device model in Home Assistant's Dev
 | Model ID / Family | Brand & Device | What Better Thermostat handles automatically |
 |---|---|---|
 | **`TRVZB`** | **Sonoff Zigbee TRV (Z2M & ZHA)** | Supports **`Direct Valve Based`** (`0–100 %` via opening and closing degree numbers), **`Offset Based`** (note `-12.7 °C` firmware lower bound), and automatically **mirrors your external room sensor reading** into the TRV's external temperature input and selects external sensor mode (unless `Keep the TRV's sensor selection` is enabled). |
-| **`TRV-ZBT`** | **Sonoff Zigbee TRV Gen2** | Automatically mirrors your external room sensor reading into the TRV's external sensor input. *(Does **not** use `Direct Valve Based`: its `heating_valve_position` / `idle_valve_position` numbers only set internal limits rather than positioning the motor directly.)* |
+| **`TRV-ZBT`** | **Sonoff Zigbee TRV Gen2** | Automatically mirrors your external room sensor reading into the TRV's external sensor input. Supports `Direct Valve Based`: Better Thermostat writes the valve position into both `heating_valve_position` and `idle_valve_position` ([Direct valve control](/calibration_algorithms/#devices-that-support-it)). |
 | **`SRTS-A01`** | **Aqara Smart Radiator Thermostat E1** | Automatically mirrors your external room sensor reading into `external_temperature_input` and switches `sensor` between `external` (during normal `optimal` control) and `internal` (during `sensor_fallback` / `hold`), unless `Keep the TRV's sensor selection` is enabled. |
 | **`014G2461`** | **Danfoss Ally (`014G2461` / `014G2463`), Popp `701721`, Hive `UK7004240`** | In **`No Calibration`** mode, automatically writes your room sensor reading (in hundredths of a `°C`, refreshed every 30 min) to `external_measured_room_sensor` so the Danfoss firmware regulates on your room thermometer natively. |
 | **`SBTR-001AEU` (`Shelly BLU TRV`)** | **Shelly BLU TRV (via BLU Gateway)** | Dedicated **`Direct Valve Based`** adapter (`0–100 %` valve actuator, `25 %` emergency opening on total sensor loss), or writes your room temperature to `external_temperature` when used in **`No Calibration`** mode with Shelly's own thermostat enabled. See dedicated setup rules below. |

@@ -18,7 +18,7 @@ Hardware quality and how your Home Assistant integration exposes a device make a
 ### 1. Sonoff `TRVZB` *(Best overall Zigbee value — supports Direct Valve!)*
 - **Why we recommend it:** Fast Zigbee2MQTT support, quiet motor, exposes **Direct Valve Control (`0–100 %`)**, wide **`Offset Based`** calibration (down to `-12.7 °C`), *and* a dedicated external temperature register that Better Thermostat automatically mirrors your room sensor into.
 - **Recommended Screen 2 setup:** `Direct Valve Based` + **`(AI) MPC v2 (QP + Kalman, experimental)`** or **`TPI Controller`** (or `(AI) Time Based (Default)`).
-- *(Note on the newer **Sonoff `TRV-ZBT` Gen2**: Better Thermostat automatically mirrors your external room sensor into it too, so `Offset Based` / external-sensor regulation works great, though Gen2 does not expose direct `0–100 %` motor positioning.)*
+- *(Note on the newer **Sonoff `TRV-ZBT` Gen2**: Better Thermostat automatically mirrors your external room sensor into it too, so `Offset Based` / external-sensor regulation works great, and it supports `Direct Valve Based` as well.)*
 
 ### 2. Shelly BLU TRV *(Best non-Zigbee Direct-Valve choice)*
 - **Why we recommend it:** Uses Bluetooth Low Energy via a **Shelly BLU Gateway Gen3** with Home Assistant's native Shelly integration. Once Shelly's internal auto-temperature mode is disabled, Better Thermostat drives the `0–100 %` valve motor directly with dedicated safety handling ([Shelly BLU setup rules](/working-devices/compatibility/#shelly-blu-trv-direct-valve-control--repair-warning)).
