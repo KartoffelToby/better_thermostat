@@ -27,7 +27,7 @@ Currently, integrations with local calibration support include:
 Direct valve control requires one of:
 
 1. Adapter support in Better Thermostat together with a controllable valve position entity exposed by your TRV/integration
-2. A valve control built into Better Thermostat for your model, as for the Sonoff TRVZB and the Eurotronic Spirit Z / Aeotec ZWA021 (see [Direct valve control](/calibration_algorithms/#devices-that-support-it))
+2. A valve control built into Better Thermostat for your model, as for the Sonoff TRVZB and TRV-ZBT and the Eurotronic Spirit Z / Aeotec ZWA021 (see [Direct valve control](/calibration_algorithms/#devices-that-support-it))
 
 Devices that expose a controllable valve position work best with the advanced control modes (MPC/PID), because BT can set the valve opening directly. Select the **Direct Valve Based** calibration type to use it.
 

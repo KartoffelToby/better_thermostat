@@ -41,8 +41,11 @@ _LOGGER = logging.getLogger(__name__)
 VALVE_MAINTENANCE_INTERVAL_HOURS = 84
 
 # The Sonoff TRV Gen2 reports model_id "TRV-ZBT", which neither Sonoff match
-# below takes in. It shares the external temperature input and the sensor
-# selector with the TRVZB, but not the valve numbers.
+# below takes in. It shares the external temperature input, the sensor
+# selector and the two valve attributes with the TRVZB, but its firmware
+# reads the second attribute as the opening while idle, not as the closing
+# degree. Zigbee2MQTT names the pair heating_valve_position and
+# idle_valve_position; ZHA keeps the TRVZB names for both.
 _TRV_ZBT_MODEL = "trv-zbt"
 
 # Some users report that the TRVZB motor can occasionally lose its calibration and
@@ -160,6 +163,11 @@ _TK_OPENING = frozenset(
 )
 _TK_CLOSING = frozenset({"valve_closing_degree"})
 
+# Zigbee2MQTT entity names of the TRV-ZBT valve pair. MQTT discovery sets no
+# translation key, so the ids name them.
+_TRV_ZBT_HEATING = "heating_valve_position"
+_TRV_ZBT_IDLE = "idle_valve_position"
+
 
 class _ValveNumberCandidates(NamedTuple):
     """The enabled number entities a TRVZB's valve can be written to."""
@@ -168,6 +176,8 @@ class _ValveNumberCandidates(NamedTuple):
     """Numbers that take the opening degree, in registry order."""
     closing: list[str]
     """Numbers that take the closing degree, in registry order."""
+    idle: list[str]
+    """Numbers that take the opening while the device idles, in registry order."""
     generic: list[str]
     """Other valve-like numbers, in registry order."""
 
@@ -177,21 +187,12 @@ def _valve_number_candidates(
 ) -> _ValveNumberCandidates | None:
     """Collect the enabled valve number entities on the TRV's device.
 
-    Returns the opening, closing and generic candidates, or ``None`` when
-    the TRV is no Sonoff model or has no registry entry.
+    Returns the opening, closing, idle and generic candidates, or ``None``
+    when the TRV is no Sonoff model or has no registry entry.
     """
     model = self.real_trvs[entity_id].model
-    # The TRV-ZBT's valve numbers configure its own controller and position
-    # nothing, so it is ruled out before the Sonoff match below takes it in.
-    if _TRV_ZBT_MODEL in model.lower():
-        _LOGGER.debug(
-            "better_thermostat %s: TRVZB valve lookup skipped for the TRV-ZBT (model=%s)",
-            self.device_name,
-            model,
-        )
-        return None
-    # Only attempt for Sonoff TRVZB
-    if not ("sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"):
+    is_trv_zbt = _TRV_ZBT_MODEL in model.lower()
+    if not (is_trv_zbt or "sonoff" in model.lower() or "trvzb" in model.lower()):
         _LOGGER.debug(
             "better_thermostat %s: TRVZB valve lookup skipped (model=%s)",
             self.device_name,
@@ -210,7 +211,11 @@ def _valve_number_candidates(
     device_id = reg_entity.device_id
     opening_candidates: list[str] = []
     closing_candidates: list[str] = []
+    idle_candidates: list[str] = []
     generic_candidates: list[str] = []
+    # On the TRV-ZBT the attribute ZHA calls the closing degree holds the
+    # opening while idle.
+    second_degree = idle_candidates if is_trv_zbt else closing_candidates
 
     for ent in entity_registry.entities.values():
         if not is_sibling_entry(ent, device_id) or ent.domain != "number":
@@ -219,7 +224,7 @@ def _valve_number_candidates(
         tk = ent.translation_key
         if tk:
             if tk in _TK_CLOSING:
-                closing_candidates.append(ent.entity_id)
+                second_degree.append(ent.entity_id)
                 continue
             if tk in _TK_OPENING:
                 opening_candidates.append(ent.entity_id)
@@ -228,6 +233,12 @@ def _valve_number_candidates(
         en = (ent.entity_id or "").lower()
         uid = (ent.unique_id or "").lower()
         name = (ent.original_name or "").lower()
+        if _TRV_ZBT_HEATING in en or _TRV_ZBT_HEATING in uid:
+            opening_candidates.append(ent.entity_id)
+            continue
+        if _TRV_ZBT_IDLE in en or _TRV_ZBT_IDLE in uid:
+            idle_candidates.append(ent.entity_id)
+            continue
         if (
             "valve_opening_degree" in en
             or "valve_opening_degree" in uid
@@ -240,7 +251,7 @@ def _valve_number_candidates(
             or "valve_closing_degree" in uid
             or "valve closing degree" in name
         ):
-            closing_candidates.append(ent.entity_id)
+            second_degree.append(ent.entity_id)
             continue
         # Generic fallbacks
         if (
@@ -258,8 +269,18 @@ def _valve_number_candidates(
             or "degree" in name
         ):
             generic_candidates.append(ent.entity_id)
+    # The TRV-ZBT holds a position only once both openings carry it; with
+    # one of them missing or disabled, the other would keep its old value.
+    if is_trv_zbt and not (opening_candidates and idle_candidates):
+        _LOGGER.debug(
+            "better_thermostat %s: TRV-ZBT valve needs both its heating and its idle opening (heating=%s, idle=%s)",
+            self.device_name,
+            opening_candidates,
+            idle_candidates,
+        )
+        return _ValveNumberCandidates([], [], [], [])
     return _ValveNumberCandidates(
-        opening_candidates, closing_candidates, generic_candidates
+        opening_candidates, closing_candidates, idle_candidates, generic_candidates
     )
 
 
@@ -280,8 +301,10 @@ def _valve_writes(
     """Return the numbers a valve position goes to, with the value of each.
 
     The opening degree takes the position and the closing degree its
-    complement; a device with neither takes the position on the generic
-    number that names a valve or a position most plainly.
+    complement. The opening while idle takes the position as well, so the
+    valve holds it whether or not the device decides to heat. A device with
+    none of them takes the position on the generic number that names a
+    valve or a position most plainly.
     """
     writes: list[_ValveWrite] = []
     if candidates.opening:
@@ -292,6 +315,8 @@ def _valve_writes(
         writes.append(
             _ValveWrite(candidates.closing[0], 100 - percent, "valve_closing_degree")
         )
+    if candidates.idle:
+        writes.append(_ValveWrite(candidates.idle[0], percent, "idle_valve_position"))
     if not writes and candidates.generic:
         generic = sorted(
             candidates.generic, key=lambda x: ("valve" not in x, "position" not in x)
@@ -321,6 +346,7 @@ async def maybe_set_sonoff_valve_percent(
     percentage. Prefers explicit Sonoff entities:
       - ``number.*.valve_opening_degree`` = percent
       - ``number.*.valve_closing_degree`` = 100 - percent
+      - ``number.*.idle_valve_position`` = percent (TRV-ZBT)
 
     Parameters
     ----------
