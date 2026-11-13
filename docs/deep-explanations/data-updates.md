@@ -66,7 +66,7 @@ After a restart, Better Thermostat waits for slow integrations before it reports
 
 ## Writes to the TRVs
 
-Writes go out as soon as a cycle decides them, with one limit: each TRV gets at most one write every 30 seconds per channel (target temperature, offset and valve). With the HomematicIP option the spacing is ten minutes. Safety-relevant writes, such as frost protection, turning a TRV off or closing a valve, are sent at once. See [Why does my TRV pick up a change with a delay?](/faq/common-questions/#why-does-my-trv-pick-up-a-change-with-a-delay)
+Writes go out as soon as a cycle decides them, with one limit: each TRV gets at most one write every 30 seconds per channel (target temperature, offset and valve). With the HomematicIP option the spacing is ten minutes. Safety-relevant writes, such as frost protection, turning a TRV off or closing a valve, are sent at once. See [Why does my TRV pick up a change with a delay?](/faq/common-questions/#why-does-my-trv-pick-up-a-change-with-a-30-second-or-10-minute-delay)
 
 ## Better Thermostat's own entities
 
