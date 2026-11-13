@@ -130,6 +130,6 @@ def test_schedule_page_is_absent_and_redirected():
         f"{_rel(SCHEDULE_DOC)} must not exist; {_rel(MIGRATION_DOC)} covers this topic"
     )
     config = ASTRO_CONFIG.read_text(encoding="utf-8")
-    assert '"/schedule": "/deep-explanations/schedule-and-night-mode"' in config, (
+    assert '"/schedule": "/deep-explanations/schedule-and-night-mode/"' in config, (
         f"{_rel(ASTRO_CONFIG)} must redirect the retired /schedule URL"
     )

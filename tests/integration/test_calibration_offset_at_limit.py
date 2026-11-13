@@ -66,13 +66,17 @@ _MAX_TICKS = 40
 
 
 class _VirtualTime:
-    """A clock the test moves on, together with Home Assistant's timers."""
+    """A clock the test moves on, together with Home Assistant's timers.
+
+    The origin is the real monotonic time rounded up to a whole second, so
+    every reading is the origin plus whole ticks and sums of them are exact.
+    With a fractional origin, the sum that reaches the end of the window can
+    round to a hair below it in the test and onto it in the integration.
+    """
 
     def __init__(self, real_clock) -> None:
         self.t = 0.0
         self._real = real_clock
-        # A whole number of seconds, so the ticks add to it without rounding
-        # and a run is exactly as old as the ticks since it began.
         self.origin = float(math.ceil(real_clock.monotonic()))
 
     def monotonic(self) -> float:

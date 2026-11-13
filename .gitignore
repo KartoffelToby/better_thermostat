@@ -72,6 +72,7 @@ home-assistant_v2.db
 # Project specific
 x_*
 dashboard/*
+RELEASE.md
 
 # Logs
 *.log
