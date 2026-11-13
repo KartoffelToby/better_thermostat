@@ -15,7 +15,7 @@ from homeassistant.core import Context
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from custom_components.better_thermostat.utils.const import CalibrationMode
 
@@ -47,7 +47,7 @@ async def _settle(hass, rounds=50):
 
 def _plain_report(fake_trv, temperature):
     """The TRV publishes a new temperature reading and nothing else."""
-    fake_trv._attr_current_temperature = temperature
+    fake_trv._attr_native_current_temperature = temperature
     fake_trv.async_set_context(Context())
     fake_trv.async_write_ha_state()
 

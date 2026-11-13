@@ -14,10 +14,7 @@ from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.core import State
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    mock_restore_cache,
-)
+from pytest_homeassistant.common import MockConfigEntry, mock_restore_cache
 
 from custom_components.better_thermostat.utils.const import DEFAULT_TARGET_TEMP
 

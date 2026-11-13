@@ -26,10 +26,7 @@ from homeassistant.core import Context, HomeAssistant, SupportsResponse
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-)
+from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
 
 from custom_components.better_thermostat.calibration import effective_room_temperature
 from custom_components.better_thermostat.climate import (
@@ -478,7 +475,7 @@ async def test_a_returning_room_sensor_restarts_the_filtered_temperature(
         clock.monotonic,
     ):
         hass.states.async_set(SENSOR_ID, "unavailable")
-        fake_trv._attr_current_temperature = 22.0
+        fake_trv._attr_native_current_temperature = 22.0
         fake_trv.async_set_context(Context())
         fake_trv.async_write_ha_state()
         await hass.async_block_till_done()
@@ -819,7 +816,7 @@ async def test_a_room_sensor_with_an_implausible_reading_at_boot_hands_the_room_
     await hass.async_block_till_done()
     assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
 
-    fake_trv._attr_current_temperature = trv_temperature + 2.0
+    fake_trv._attr_native_current_temperature = trv_temperature + 2.0
     fake_trv.async_set_context(Context())
     fake_trv.async_write_ha_state()
     assert await wait_for(

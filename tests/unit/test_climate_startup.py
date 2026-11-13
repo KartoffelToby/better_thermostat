@@ -29,7 +29,7 @@ from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from custom_components.better_thermostat.adapters.delegate import (
     set_temperature as delegate_set_temperature,

@@ -57,7 +57,7 @@ async def test_a_turn_at_a_head_switched_off_for_the_window_keeps_the_room_targe
             {"entity_id": BT_ENTITY, "temperature": target},
             blocking=True,
         )
-        assert await wait_for(hass, lambda: head.target_temperature == target)
+        assert await wait_for(hass, lambda: head.native_target_temperature == target)
 
         hass.states.async_set(WINDOW_ID, "on")
         assert await wait_for(
@@ -69,7 +69,7 @@ async def test_a_turn_at_a_head_switched_off_for_the_window_keeps_the_room_targe
             ),
         )
 
-        head._attr_target_temperature = 23.0
+        head._attr_native_target_temperature = 23.0
         _report(head)
         await hass.async_block_till_done()
         assert bt.heat_target_temperature == target
@@ -80,6 +80,6 @@ async def test_a_turn_at_a_head_switched_off_for_the_window_keeps_the_room_targe
             f"the closed window left the head in {head.hvac_mode}"
         )
         assert bt.heat_target_temperature == target
-        assert await wait_for(hass, lambda: head.target_temperature == target, 3.0), (
-            f"the head kept {head.target_temperature} after the window closed"
-        )
+        assert await wait_for(
+            hass, lambda: head.native_target_temperature == target, 3.0
+        ), f"the head kept {head.target_temperature} after the window closed"

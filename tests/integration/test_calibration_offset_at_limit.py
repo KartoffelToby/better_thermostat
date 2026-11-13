@@ -21,7 +21,7 @@ from homeassistant.components.climate import (
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from custom_components.better_thermostat.core.offset_limit import (
     CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS,
@@ -146,7 +146,7 @@ def _head_applying_its_offset(fake_trv, raw_reading: float):
 
     async def apply(number, value: float) -> None:
         await write(number, value)
-        fake_trv._attr_current_temperature = raw_reading + value
+        fake_trv._attr_native_current_temperature = raw_reading + value
         fake_trv.async_write_ha_state()
 
     with patch.object(type(offset_number), "async_set_native_value", apply):
@@ -231,7 +231,7 @@ async def test_an_offset_the_head_ignores_is_reported_after_the_window(hass, fak
             "https://better-thermostat.org/faq/calibration-offset-at-limit"
         )
 
-        fake_trv._attr_current_temperature = _HEAD_READING + _OFFSET_LIMIT
+        fake_trv._attr_native_current_temperature = _HEAD_READING + _OFFSET_LIMIT
         fake_trv.async_write_ha_state()
         set_room_sensor(hass, 23.0)
         await hass.async_block_till_done()
@@ -337,7 +337,7 @@ async def test_an_offset_overheating_protection_holds_at_the_limit_is_not_report
     """
     offset_number = fake_trv.offset_number
     assert offset_number is not None
-    fake_trv._attr_current_temperature = _ROOM_TEMPERATURE
+    fake_trv._attr_native_current_temperature = _ROOM_TEMPERATURE
     with _head_applying_its_offset(fake_trv, _ROOM_TEMPERATURE):
         async with _room_with_an_ignoring_head(
             hass, fake_trv, protect_overheating=True, calibration_mode="fix_calibration"
@@ -347,7 +347,7 @@ async def test_an_offset_overheating_protection_holds_at_the_limit_is_not_report
             while ticks.clock.t < 2 * CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS:
                 await ticks.fire()
             assert offset_number.set_value_calls[-1] == pytest.approx(_OFFSET_LIMIT)
-            assert fake_trv.current_temperature == pytest.approx(
+            assert fake_trv.native_current_temperature == pytest.approx(
                 _ROOM_TEMPERATURE + _OFFSET_LIMIT
             )
             assert bt.real_trvs[TRV_ID].calibration_offset_at_limit is None
@@ -392,7 +392,7 @@ async def test_a_head_heating_power_holds_at_the_limit_is_not_reported(hass, fak
     """
     offset_number = fake_trv.offset_number
     assert offset_number is not None
-    fake_trv._attr_current_temperature = _COLD_ROOM_TEMPERATURE
+    fake_trv._attr_native_current_temperature = _COLD_ROOM_TEMPERATURE
     with _head_applying_its_offset(fake_trv, _COLD_ROOM_TEMPERATURE):
         async with _room_with_an_ignoring_head(
             hass, fake_trv, calibration_mode="heating_power_calibration"

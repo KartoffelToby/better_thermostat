@@ -8,7 +8,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.better_thermostat.utils.calibration.plant_preset import (
     DEFAULT_FLOW_TEMPERATURE,

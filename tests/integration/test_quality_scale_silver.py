@@ -15,7 +15,7 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
-from pytest_homeassistant_custom_component.common import flush_store
+from pytest_homeassistant.common import flush_store
 
 from custom_components.better_thermostat.utils.const import (
     SERVICE_RUN_VALVE_MAINTENANCE,

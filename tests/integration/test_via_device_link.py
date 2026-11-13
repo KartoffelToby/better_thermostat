@@ -11,7 +11,7 @@ import logging
 
 from homeassistant.helpers import device_registry as dr
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from .conftest import DOMAIN, make_entry, set_room_sensor, wait_for_startup
 from .device_profiles import GROUP_OF_THREE

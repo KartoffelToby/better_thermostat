@@ -33,7 +33,7 @@ from homeassistant.components.climate import (
 from homeassistant.core import Context
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from custom_components.better_thermostat.utils import controlling
 from custom_components.better_thermostat.utils.controlling import (
@@ -188,7 +188,7 @@ def _operate(
     if hvac_mode is not None:
         device._attr_hvac_mode = hvac_mode
     if temperature is not None:
-        device._attr_target_temperature = temperature
+        device._attr_native_target_temperature = temperature
     _publish(device)
 
 
@@ -209,7 +209,7 @@ def _operate_within_own_context(
     if hvac_mode is not None:
         device._attr_hvac_mode = hvac_mode
     if temperature is not None:
-        device._attr_target_temperature = temperature
+        device._attr_native_target_temperature = temperature
     device.async_write_ha_state()
 
 
@@ -220,7 +220,9 @@ def _report(device: SimulatedClimate) -> None:
     Better Thermostat receives; everything else it carries is what the device
     already held.
     """
-    device._attr_current_temperature = (device.current_temperature or 0.0) + 0.1
+    device._attr_native_current_temperature = (
+        device.native_current_temperature or 0.0
+    ) + 0.1
     _publish(device)
 
 
@@ -256,7 +258,7 @@ async def _start_off_room(hass):
         await _command(hass, hvac_mode=HVACMode.OFF)
         assert await wait_for(hass, lambda: switchable.hvac_mode == HVACMode.OFF)
         assert await wait_for(
-            hass, lambda: always_on.target_temperature == ALWAYS_ON_HEAD.min_temp
+            hass, lambda: always_on.native_target_temperature == ALWAYS_ON_HEAD.min_temp
         )
         await _settle(hass, bt)
     assert bt.bt_hvac_mode == HVACMode.OFF
@@ -281,7 +283,10 @@ async def test_a_held_write_keeps_the_cycle_that_sent_it_running(hass):
         async with holding_next_write(fake_trv, "async_set_temperature") as held:
             await _command(hass, temperature=23.0)
             await held.wait_reached(hass)
-            assert fake_trv.target_temperature == held.keyword_arguments["temperature"]
+            assert (
+                fake_trv.native_target_temperature
+                == held.keyword_arguments["temperature"]
+            )
 
             assert not await poll_until(hass, lambda: not bt.ignore_states, SETTLE_S)
 
@@ -632,8 +637,8 @@ async def test_a_knob_turned_right_after_a_write_is_adopted(hass):
         await _settle(hass, bt)
 
     assert bt.heat_target_temperature == pytest.approx(25.0)
-    assert fake_trv.target_temperature is not None
-    assert fake_trv.target_temperature >= 25.0
+    assert fake_trv.native_target_temperature is not None
+    assert fake_trv.native_target_temperature >= 25.0
 
 
 async def test_a_knob_turned_during_a_cycle_right_after_a_write_is_adopted(hass):
@@ -692,7 +697,9 @@ async def test_a_head_turned_while_a_window_opens_is_parked_all_the_same(hass):
             assert await poll_until(hass, lambda: not bt.ignore_states)
         await _handled(hass, bt)
 
-    assert parked.target_temperature == pytest.approx(TWO_HEADS.profiles[1].min_temp)
+    assert parked.native_target_temperature == pytest.approx(
+        TWO_HEADS.profiles[1].min_temp
+    )
 
 
 async def test_a_head_switched_on_by_the_cycle_gets_the_room_setpoint_in_that_cycle(
@@ -719,7 +726,7 @@ async def test_a_head_switched_on_by_the_cycle_gets_the_room_setpoint_in_that_cy
 
     async def switch_on_to_own_setpoint(hvac_mode) -> None:
         if hvac_mode != HVACMode.OFF:
-            fake_trv._attr_target_temperature = own_setpoint
+            fake_trv._attr_native_target_temperature = own_setpoint
         await switch_mode(hvac_mode)
 
     real_control_trv = controlling.control_trv
@@ -727,7 +734,7 @@ async def test_a_head_switched_on_by_the_cycle_gets_the_room_setpoint_in_that_cy
 
     async def recorded(self, entity_id, cycle=None):
         result = await real_control_trv(self, entity_id, cycle=cycle)
-        held_after_each_cycle.append(fake_trv.target_temperature)
+        held_after_each_cycle.append(fake_trv.native_target_temperature)
         return result
 
     with (
@@ -741,7 +748,7 @@ async def test_a_head_switched_on_by_the_cycle_gets_the_room_setpoint_in_that_cy
 
     assert held_after_each_cycle
     assert held_after_each_cycle[0] != pytest.approx(own_setpoint)
-    assert fake_trv.target_temperature != pytest.approx(own_setpoint)
+    assert fake_trv.native_target_temperature != pytest.approx(own_setpoint)
 
 
 async def _start_room_without_off_modes(hass, *, carries_room_mode: bool):
@@ -759,7 +766,7 @@ async def _start_room_without_off_modes(hass, *, carries_room_mode: bool):
             assert await wait_for(
                 hass,
                 lambda device=device: (
-                    device.target_temperature == ALWAYS_ON_HEAD.min_temp
+                    device.native_target_temperature == ALWAYS_ON_HEAD.min_temp
                 ),
             )
         await _settle(hass, bt)
@@ -795,7 +802,7 @@ async def test_a_head_turned_while_the_room_is_off_is_parked_all_the_same(hass):
 
     await _turn_during_an_off_cycle(hass, bt, held_head, turned)
 
-    assert turned.target_temperature == pytest.approx(ALWAYS_ON_HEAD.min_temp)
+    assert turned.native_target_temperature == pytest.approx(ALWAYS_ON_HEAD.min_temp)
     assert bt.bt_hvac_mode == HVACMode.OFF
 
 
@@ -1102,7 +1109,7 @@ async def test_the_setpoint_watchdog_waits_while_the_device_reports_its_previous
     """
     bt, (fake_trv,) = await _start(hass, GENERIC_HEAT_TRV)
     trv = bt.real_trvs[TRV_ID]
-    previous = fake_trv.target_temperature
+    previous = fake_trv.native_target_temperature
 
     with patch(WRITE_BUDGET, 0.0), patch(CONFIRM_TIMEOUT, 10**9):
         async with deferring_next_write(fake_trv, "async_set_temperature") as deferred:
@@ -1111,7 +1118,7 @@ async def test_the_setpoint_watchdog_waits_while_the_device_reports_its_previous
             written = deferred.keyword_arguments["temperature"]
             assert written != previous
             await poll_until(hass, lambda: trv.target_temperature_received, SETTLE_S)
-            assert fake_trv.target_temperature == previous
+            assert fake_trv.native_target_temperature == previous
             assert trv.target_temperature_received is False
 
             await deferred.land()
@@ -1143,7 +1150,7 @@ async def test_the_setpoint_watchdog_ends_once_the_device_confirms_a_newer_write
                 hass, lambda: fake_trv.set_temperature_calls[-1] != first
             )
             second = fake_trv.set_temperature_calls[-1]
-            assert fake_trv.target_temperature == second
+            assert fake_trv.native_target_temperature == second
 
             assert await poll_until(
                 hass, lambda: trv.target_temperature_received, PROMPTLY_S
@@ -1233,7 +1240,7 @@ async def test_a_setpoint_is_an_echo_only_when_it_is_what_was_written(hass, turn
             hass, lambda: len(fake_trv.set_temperature_calls) > written_before
         )
         await _settle(hass, bt)
-    written = fake_trv.target_temperature
+    written = fake_trv.native_target_temperature
     assert written is not None
     step = INTEGER_GRID_TRV.target_temperature_step
     assert bt.heat_target_temperature == pytest.approx(target)
@@ -1254,7 +1261,7 @@ async def test_a_setpoint_is_an_echo_only_when_it_is_what_was_written(hass, turn
     else:
         _operate(fake_trv, temperature=reported)
     await _handled(hass, bt)
-    assert fake_trv.target_temperature == pytest.approx(reported)
+    assert fake_trv.native_target_temperature == pytest.approx(reported)
 
     expected = target if turn == "none" else reported
     assert bt.heat_target_temperature == pytest.approx(expected)

@@ -96,7 +96,7 @@ async def test_a_failing_cycle_still_reads_what_the_trvs_reported(hass, fake_trv
         if not failures:
             # A turn at the device while the cycle holds the handler off.
             turned_inside_the_cycle.append(bt.ignore_states)
-            fake_trv._attr_target_temperature = 25.0
+            fake_trv._attr_native_target_temperature = 25.0
             fake_trv.async_set_context(Context())
             fake_trv.async_write_ha_state()
         failures.append(1)

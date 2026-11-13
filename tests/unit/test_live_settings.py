@@ -14,7 +14,7 @@ from homeassistant.components.climate import HVACMode
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import UnitOfTemperature
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.better_thermostat import (
     BetterThermostatData,

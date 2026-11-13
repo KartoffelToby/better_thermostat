@@ -47,25 +47,25 @@ def test_target_temperature_without_bounds(bt):
     bt.bt_min_temp = None
     bt.bt_max_temp = None
     bt.heat_target_temperature = 99.0
-    assert _prop("target_temperature", bt) == 99.0
+    assert _prop("native_target_temperature", bt) == 99.0
 
 
 def test_target_temperature_clamped_below_minimum(bt):
     """A target below min reads as min."""
     bt.heat_target_temperature = 2.0
-    assert _prop("target_temperature", bt) == 5.0
+    assert _prop("native_target_temperature", bt) == 5.0
 
 
 def test_target_temperature_clamped_above_maximum(bt):
     """A target above max reads as max."""
     bt.heat_target_temperature = 99.0
-    assert _prop("target_temperature", bt) == 30.0
+    assert _prop("native_target_temperature", bt) == 30.0
 
 
 def test_target_temperature_in_range(bt):
     """An in-range target is returned unchanged."""
     bt.heat_target_temperature = 21.0
-    assert _prop("target_temperature", bt) == 21.0
+    assert _prop("native_target_temperature", bt) == 21.0
 
 
 # --- target_temperature_low / _high (cooler gated) -------------------------
@@ -74,25 +74,25 @@ def test_target_temperature_in_range(bt):
 def test_target_low_none_without_cooler(bt):
     """Without a cooler the low target is None."""
     bt.cooler_entity_id = None
-    assert _prop("target_temperature_low", bt) is None
+    assert _prop("native_target_temperature_low", bt) is None
 
 
 def test_target_low_is_heat_target_with_cooler(bt):
     """With a cooler the low target is the heat target."""
     bt.cooler_entity_id = "climate.cooler"
-    assert _prop("target_temperature_low", bt) == 21.0
+    assert _prop("native_target_temperature_low", bt) == 21.0
 
 
 def test_target_high_none_without_cooler(bt):
     """Without a cooler the high target is None."""
     bt.cooler_entity_id = None
-    assert _prop("target_temperature_high", bt) is None
+    assert _prop("native_target_temperature_high", bt) is None
 
 
 def test_target_high_is_cool_target_with_cooler(bt):
     """With a cooler the high target is the cool target."""
     bt.cooler_entity_id = "climate.cooler"
-    assert _prop("target_temperature_high", bt) == 25.0
+    assert _prop("native_target_temperature_high", bt) == 25.0
 
 
 # --- min_temp / max_temp (configured bounds) -------------------------------
