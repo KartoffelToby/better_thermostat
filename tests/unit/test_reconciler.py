@@ -1146,6 +1146,24 @@ class TestValveKeepalive:
         assert (before, due) == ((False, []), (True, [0]))
 
     @pytest.mark.asyncio
+    async def test_a_refused_closed_keepalive_waits_for_the_write_spacing(self):
+        """A closure the valve still holds gains nothing from going out early.
+
+        A refused 0 % keepalive stays due, but the next cycle inside the
+        write spacing does not repeat it; the one after the spacing does.
+        """
+        bt = self._bt(last_percent=0)
+        bt.clock.monotonic_value = self.WRITTEN_AT + self.INTERVAL
+        bt.real_trvs["climate.trv"].last_write_monotonic["valve"] = (
+            bt.clock.monotonic_value
+        )
+        early = await self._cycle_writes(bt, 0, taken=False)
+        bt.clock.monotonic_value += MIN_WRITE_INTERVAL_S
+        spaced = await self._cycle_writes(bt, 0)
+
+        assert (early, spaced) == ([], [0])
+
+    @pytest.mark.asyncio
     async def test_a_closed_valve_is_left_alone_while_the_intent_is_off(self):
         """A head Better Thermostat holds off is not written its 0 % again.
 

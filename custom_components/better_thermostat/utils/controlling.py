@@ -2771,9 +2771,11 @@ async def control_trv(
                     # and bypasses the write budget; everything else waits
                     # for the next slot and converges via the next cycle. A
                     # repeat that only an assumed state leaves unconfirmed
-                    # gains no safety from going out early, so it waits too.
-                    # A device that forgets a valve demand it is not written
-                    # again takes the repeat once its keepalive is due.
+                    # gains no safety from going out early, so it waits too,
+                    # and so does a keepalive, which repeats a closure the
+                    # valve still holds. A device that forgets a valve demand
+                    # it is not written again takes the repeat once its
+                    # keepalive is due.
                     _repeat = _valve_repeat_readback(self, entity_id, target_percent)
                     _keepalive = _repeat in (
                         ValveReadback.HOLDS,
@@ -2797,7 +2799,8 @@ async def control_trv(
                         entity_id,
                         "valve",
                         bypass=target_percent == 0
-                        and _repeat is not ValveReadback.UNCONFIRMED,
+                        and _repeat is not ValveReadback.UNCONFIRMED
+                        and not _keepalive,
                     ):
                         _LOGGER.debug(
                             "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s%s)",
