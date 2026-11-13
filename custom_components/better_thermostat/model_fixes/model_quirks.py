@@ -16,12 +16,14 @@ from homeassistant.core import State
 from homeassistant.helpers.importlib import async_import_module
 
 from custom_components.better_thermostat.model_fixes.types import (
+    IgnoredOffsetQuirk,
     InitialTweakQuirk,
     InvertedOffsetQuirk,
     LowestSetpointQuirk,
     ModelFixHost,
     ModelQuirks,
     OffsetConventionHost,
+    OffsetRangeQuirk,
     QuirkLoaderHost,
     SetpointOffsetQuirk,
     UnknownStateQuirk,
@@ -180,6 +182,77 @@ def quirk_writes_valve(model_quirks: object) -> bool:
         True when the module carries ``override_set_valve``.
     """
     return isinstance(model_quirks, ValveQuirk)
+
+
+def quirk_ignores_calibration_offset(model_quirks: object) -> bool:
+    """Answer whether a model's quirk declares that its device ignores the offset.
+
+    A device that takes the offset into its entity and leaves it out of
+    the temperature it reports and regulates on cannot be calibrated by
+    offset: every correction written to it stays without effect.
+
+    Parameters
+    ----------
+    model_quirks : object
+        Quirk module loaded for a TRV.
+
+    Returns
+    -------
+    bool
+        True when the module declares ``CALIBRATION_OFFSET_IGNORED``.
+    """
+    return (
+        isinstance(model_quirks, IgnoredOffsetQuirk)
+        and model_quirks.CALIBRATION_OFFSET_IGNORED
+    )
+
+
+def lowest_applied_calibration_offset(
+    model_quirks: object, published_lowest: float
+) -> float:
+    """Return the lowest offset a device applies, given the lowest its entity takes.
+
+    Parameters
+    ----------
+    model_quirks : object
+        Quirk module loaded for the TRV.
+    published_lowest : float
+        Lowest offset the calibration entity accepts, in the device's
+        convention.
+
+    Returns
+    -------
+    float
+        ``published_lowest``, raised to the lowest offset the model's
+        quirk declares the device applies.
+    """
+    if not isinstance(model_quirks, OffsetRangeQuirk):
+        return published_lowest
+    return max(published_lowest, model_quirks.MIN_CALIBRATION_OFFSET)
+
+
+def highest_applied_calibration_offset(
+    model_quirks: object, published_highest: float
+) -> float:
+    """Return the highest offset a device applies, given the highest its entity takes.
+
+    Parameters
+    ----------
+    model_quirks : object
+        Quirk module loaded for the TRV.
+    published_highest : float
+        Highest offset the calibration entity accepts, in the device's
+        convention.
+
+    Returns
+    -------
+    float
+        ``published_highest``, lowered to the highest offset the model's
+        quirk declares the device applies.
+    """
+    if not isinstance(model_quirks, OffsetRangeQuirk):
+        return published_highest
+    return min(published_highest, model_quirks.MAX_CALIBRATION_OFFSET)
 
 
 def valve_readings(

@@ -40,7 +40,11 @@ from . import (
 from .adapters.base import DeviceChannels
 from .adapters.delegate import load_adapter
 from .adapters.types import TrvAdapter
-from .model_fixes.model_quirks import load_model_quirks, quirk_writes_valve
+from .model_fixes.model_quirks import (
+    load_model_quirks,
+    quirk_ignores_calibration_offset,
+    quirk_writes_valve,
+)
 from .utils.advanced_flags import as_bool as _as_bool
 from .utils.const import (
     CONF_AVAILABILITY_GUARD,
@@ -540,6 +544,37 @@ async def _quirk_valve_support(
     return quirk_writes_valve(quirks)
 
 
+async def _quirk_ignores_offset(
+    flow: ConfigFlow | OptionsFlowHandler, entity_id: str
+) -> bool:
+    """Answer whether this TRV's model quirk declares its offset ignored.
+
+    The quirk is probed the way ``_quirk_valve_support`` probes it.
+
+    Parameters
+    ----------
+    flow : ConfigFlow | OptionsFlowHandler
+        The flow the probe runs in, supplying Home Assistant access and the
+        instance name the model lookup logs against.
+    entity_id : str
+        Entity ID of the TRV to probe.
+
+    Returns
+    -------
+    bool
+        True when the TRV's model has a quirk of its own declaring that the
+        device ignores its calibration offset, False when it has none and
+        when the model cannot be read.
+    """
+    try:
+        model = await get_device_model(flow, entity_id)
+        quirks = await load_model_quirks(flow, model, entity_id)
+    except RuntimeError, ValueError, TypeError, AttributeError, ImportError:
+        _LOGGER.debug("model quirk probe failed", exc_info=True)
+        return False
+    return quirk_ignores_calibration_offset(quirks)
+
+
 async def _load_adapter_info(
     flow: ConfigFlow | OptionsFlowHandler,
     integration: str | None,
@@ -572,6 +607,15 @@ async def _load_adapter_info(
         and await _quirk_valve_support(flow, entity_id)
     ):
         channels = replace(channels, valve_write=True)
+
+    # An offset entity the device ignores is no channel to calibrate through,
+    # so the offset calibration is neither offered nor the default.
+    if (
+        entity_id
+        and channels.offset_write
+        and await _quirk_ignores_offset(flow, entity_id)
+    ):
+        channels = replace(channels, offset_write=False)
 
     return adapter, channels
 

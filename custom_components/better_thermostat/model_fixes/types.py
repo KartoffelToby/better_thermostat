@@ -323,6 +323,30 @@ class InvertedOffsetQuirk(Protocol):
 
 
 @runtime_checkable
+class OffsetRangeQuirk(Protocol):
+    """A quirk that knows its device applies only part of the offset range it publishes.
+
+    The bounds are in the device's own convention, as its calibration entity
+    holds them. An offset beyond them is accepted by the entity and left
+    unapplied by the device.
+    """
+
+    MIN_CALIBRATION_OFFSET: Final[float]
+    """Lowest offset the device applies, in Kelvin."""
+
+    MAX_CALIBRATION_OFFSET: Final[float]
+    """Highest offset the device applies, in Kelvin."""
+
+
+@runtime_checkable
+class IgnoredOffsetQuirk(Protocol):
+    """A quirk that knows its device ignores its calibration offset."""
+
+    CALIBRATION_OFFSET_IGNORED: Final[bool]
+    """Whether the device leaves every offset written to it unapplied."""
+
+
+@runtime_checkable
 class ValveQuirk(Protocol):
     """A quirk that drives its device's valve itself."""
 
@@ -398,6 +422,7 @@ class MaintenanceIntervalQuirk(Protocol):
 __all__ = [
     "DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS",
     "ExternalTemperatureQuirk",
+    "IgnoredOffsetQuirk",
     "InitialTweakQuirk",
     "InvertedOffsetQuirk",
     "LowestSetpointQuirk",
@@ -406,6 +431,7 @@ __all__ = [
     "ModelFixTrv",
     "ModelQuirks",
     "OffsetConventionHost",
+    "OffsetRangeQuirk",
     "QuirkLoaderHost",
     "QuirkScratchpad",
     "SetpointOffsetQuirk",

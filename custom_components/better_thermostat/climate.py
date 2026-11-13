@@ -123,7 +123,12 @@ from .events.temperature import (
 )
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import initial_tweak, load_model_quirks, lowest_setpoint
+from .model_fixes.model_quirks import (
+    initial_tweak,
+    load_model_quirks,
+    lowest_setpoint,
+    quirk_ignores_calibration_offset,
+)
 from .model_fixes.types import ExternalTemperatureQuirk
 from .switch import restored_child_lock, restored_window_detection
 from .trv import Trv
@@ -3111,6 +3116,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # Only a TRV calibrated through its offset has one BT reads or
             # writes; every other TRV keeps the neutral defaults.
             if trv.calibration is CalibrationOutput.LOCAL_BASED:
+                if quirk_ignores_calibration_offset(trv.model_quirks):
+                    _LOGGER.warning(
+                        "better_thermostat %s: TRV %s (model %s) ignores its "
+                        "calibration offset, so no offset is written to it and "
+                        "the room is not calibrated; choose target temperature "
+                        "based calibration for it in the options",
+                        self.device_name,
+                        entity_id,
+                        trv.model,
+                    )
                 _LOGGER.debug(
                     "better_thermostat %s: getting offsets for TRV %s",
                     self.device_name,
