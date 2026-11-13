@@ -7,17 +7,17 @@ dependencies = ["homeassistant>=2026.9.0"]
 
 [dependency-groups]
 dev = [
-    "daqp>=0.10.3",  # speeds up the MPC v2 QP; a NumPy solver runs without it
+    "daqp>=0.11.2",  # speeds up the MPC v2 QP; a NumPy solver runs without it
     "pytest>=9",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",  # the per-module coverage floors in CI depend on it
     "pytest-homeassistant-custom-component>=0.13.375",
     "pre-commit>=4.7.0",
-    "pyrefly>=1.4.0",
-    "ruff>=0.17.3",
+    "pyrefly>=1.4.1",
+    "ruff>=0.17.5",
     "yamllint>=1.38.0",
-    "hypothesis>=6.170.14",
-    "types-pyyaml>=6.0.12.20261030",  # lets pyrefly check the YAML-reading tests
+    "hypothesis>=6.170.15",
+    "types-pyyaml>=6.0.12.20261113",  # lets pyrefly check the YAML-reading tests
 ]
 
 [tool.uv]
