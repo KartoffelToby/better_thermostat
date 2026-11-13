@@ -229,7 +229,9 @@ class SimulatedClimate(ClimateEntity):
         if profile.has_device_registry_entry:
             self._attr_unique_id = f"{_object_id(profile.entity_id)}_climate"
             self._attr_device_info = DeviceInfo(
-                identifiers=_device_identifiers(profile), model=profile.model
+                identifiers=_device_identifiers(profile),
+                model=profile.model,
+                model_id=profile.model_id,
             )
         if profile.offset_channel is OffsetChannel.ECOSYSTEM_SERVICE:
             # The ecosystem adapter reads the current offset off the climate
@@ -339,7 +341,9 @@ class _SimulatedNumber(NumberEntity):
         """Attach the entity to the profile's device."""
         self._attr_unique_id = f"{_object_id(profile.entity_id)}_{suffix}"
         self._attr_device_info = DeviceInfo(
-            identifiers=_device_identifiers(profile), model=profile.model
+            identifiers=_device_identifiers(profile),
+            model=profile.model,
+            model_id=profile.model_id,
         )
         self.set_value_calls: list[float] = []
         self.drop_next_write = False
@@ -466,7 +470,9 @@ class SimulatedSensorSelector(SelectEntity):
             f"{_object_id(profile.entity_id)}_temperature_sensor_select"
         )
         self._attr_device_info = DeviceInfo(
-            identifiers=_device_identifiers(profile), model=profile.model
+            identifiers=_device_identifiers(profile),
+            model=profile.model,
+            model_id=profile.model_id,
         )
         self._attr_current_option = profile.external_sensor_selection
         self.select_option_calls: list[str] = []

@@ -284,6 +284,10 @@ class Trv:
     calibration_write_generation: int = 0
     last_valve_percent: float | None = None
     last_valve_method: ValveMethod | None = None
+    # Monotonic time at which a channel last took a valve position a control
+    # cycle wrote; None before the first one did. A refused write leaves it
+    # alone.
+    last_valve_written_monotonic: float | None = None
     # Whether a close was written since the device last reported its valve
     # position. A report of an open valve is answered with one close; the
     # next close waits for the next report.

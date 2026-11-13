@@ -34,6 +34,7 @@ from custom_components.better_thermostat.model_fixes.types import (
     SetpointOffsetQuirk,
     UnknownStateQuirk,
     ValveChannelQuirk,
+    ValveKeepaliveQuirk,
     ValveQuirk,
     ValveReadingsQuirk,
 )
@@ -54,6 +55,7 @@ PROTOCOLS = (
     SetpointOffsetQuirk,
     UnknownStateQuirk,
     ValveChannelQuirk,
+    ValveKeepaliveQuirk,
     ValveQuirk,
     ValveReadingsQuirk,
 )

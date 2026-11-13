@@ -395,6 +395,14 @@ class MaintenanceIntervalQuirk(Protocol):
     """Hours between two valve maintenance runs."""
 
 
+@runtime_checkable
+class ValveKeepaliveQuirk(Protocol):
+    """A quirk whose device forgets a valve opening it is not written again."""
+
+    VALVE_KEEPALIVE_INTERVAL_SECONDS: Final[float]
+    """Seconds after a valve write at which the same opening is written again."""
+
+
 __all__ = [
     "DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS",
     "ExternalTemperatureQuirk",
@@ -411,6 +419,7 @@ __all__ = [
     "SetpointOffsetQuirk",
     "UnknownStateQuirk",
     "ValveChannelQuirk",
+    "ValveKeepaliveQuirk",
     "ValveQuirk",
     "ValveReading",
     "ValveReadingsQuirk",
