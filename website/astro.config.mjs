@@ -1,9 +1,12 @@
 // @ts-check
+import { existsSync, readFileSync } from "node:fs";
 import { defineConfig } from "astro/config";
+import sitemap from "@astrojs/sitemap";
 import starlight from "@astrojs/starlight";
 import mermaid from "astro-mermaid";
 import starlightThemeFlexoki from "starlight-theme-flexoki";
 import starlightLinksValidator from "starlight-links-validator";
+import { sidebar } from "./src/sidebar.mjs";
 
 // https://astro.build/config
 export default defineConfig({
@@ -18,20 +21,35 @@ export default defineConfig({
 
   // Old URLs that are linked from released integration versions and
   // external sites; keep them working after a page moves or is merged
-  // into another one.
+  // into another one. The targets end in a slash like the pages' canonical
+  // URLs, so a redirect lands on the page without a second hop.
   redirects: {
-    "/schedule": "/deep-explanations/schedule-and-night-mode",
-    "/qanda": "/faq/common-questions",
-    "/qanda/supported": "/working-devices/compatibility",
-    "/qanda/modes": "/faq/common-questions",
-    "/qanda/debugging": "/faq/debugging",
-    "/qanda/missing_entity": "/faq/missing-entity",
-    "/qanda/degraded_mode": "/faq/degraded-mode",
-    "/qanda/window_sensor": "/faq/window-sensor",
-    "/hydraulic": "/deep-explanations/hydraulic-balance",
+    "/schedule": "/deep-explanations/schedule-and-night-mode/",
+    "/qanda": "/faq/common-questions/",
+    "/qanda/supported": "/working-devices/compatibility/",
+    "/qanda/modes": "/faq/common-questions/",
+    "/qanda/debugging": "/faq/debugging/",
+    "/qanda/missing_entity": "/faq/missing-entity/",
+    "/qanda/degraded_mode": "/faq/degraded-mode/",
+    "/qanda/window_sensor": "/faq/window-sensor/",
+    "/hydraulic": "/deep-explanations/hydraulic-balance/",
   },
 
   integrations: [
+    // Starlight adds the sitemap on its own, but without dates. Listing it
+    // here replaces that one. The sitemap is written after the pages, so
+    // each <lastmod> is read from the date src/routeData.ts put in the page.
+    sitemap({
+      serialize(item) {
+        const page = `dist${new URL(item.url).pathname}index.html`;
+        if (!existsSync(page)) return item;
+        const lastmod =
+          /property="article:modified_time" content="([^"]+)"/.exec(
+            readFileSync(page, "utf-8"),
+          )?.[1];
+        return lastmod ? { ...item, lastmod } : item;
+      },
+    }),
     mermaid({ theme: "neutral" }),
     starlight({
       title: "Better Thermostat",
@@ -43,6 +61,27 @@ export default defineConfig({
             property: "og:image",
             content: "https://better-thermostat.org/og.png",
           },
+        },
+        {
+          tag: "meta",
+          attrs: { property: "og:image:width", content: "1200" },
+        },
+        {
+          tag: "meta",
+          attrs: { property: "og:image:height", content: "630" },
+        },
+        {
+          tag: "meta",
+          attrs: {
+            property: "og:image:alt",
+            content:
+              "Better Thermostat logo: Smart TRV control for Home Assistant",
+          },
+        },
+        // Lets search results show the full-size preview image.
+        {
+          tag: "meta",
+          attrs: { name: "robots", content: "max-image-preview:large" },
         },
         {
           tag: "link",
@@ -62,143 +101,7 @@ export default defineConfig({
           href: "https://github.com/KartoffelToby/better_thermostat",
         },
       ],
-      sidebar: [
-        {
-          label: "Start Here",
-          items: [
-            { label: "5-minute quickstart", link: "/setup/getting-started/" },
-            { label: "How it works & use cases", link: "/setup/use-cases/" },
-            {
-              label: "Setup dialog walkthrough",
-              link: "/setup/configuration-walkthrough/",
-            },
-            { label: "Interactive Configurator", link: "/setup/configurator/" },
-            {
-              label: "Recommended settings",
-              link: "/optimal-settings/recommended-settings/",
-            },
-          ],
-        },
-        {
-          label: "Algorithms & Settings",
-          items: [
-            {
-              label: "Calibration types & algorithms",
-              link: "/calibration_algorithms/",
-            },
-            {
-              label: "Quick algorithm selector",
-              link: "/optimal-settings/algorithm-selection/",
-            },
-            { label: "All settings reference", link: "/configuration/" },
-            { label: "Presets", link: "/setup/presets/" },
-            { label: "Entities & attributes", link: "/setup/entities/" },
-          ],
-        },
-        {
-          label: "Schedules, Boiler & Automations",
-          items: [
-            {
-              label: "Blueprints & schedules",
-              link: "/setup/automation-blueprints/",
-            },
-            {
-              label: "Central heating & boiler control",
-              link: "/deep-explanations/central-heating-thermostat/",
-            },
-            { label: "Pausing learning", link: "/setup/pause-learning/" },
-            {
-              label: "Releasing devices (manual control)",
-              link: "/setup/releasing-devices/",
-            },
-            { label: "Automation recipes", link: "/setup/automation-recipes/" },
-            {
-              label: "Actions & conditions",
-              link: "/setup/actions-and-conditions/",
-            },
-          ],
-        },
-        {
-          label: "Hardware & Compatibility",
-          items: [
-            {
-              label: "Supported devices & compatibility",
-              link: "/working-devices/compatibility/",
-            },
-            {
-              label: "Recommended TRVs & Zigbee",
-              link: "/working-devices/recommended-devices/",
-            },
-          ],
-        },
-        {
-          label: "Troubleshooting & FAQ",
-          items: [
-            { label: "Troubleshooting & FAQ", link: "/faq/common-questions/" },
-            {
-              label: "Summer mode explained",
-              link: "/deep-explanations/summer-mode/",
-            },
-            {
-              label: "Degraded mode & sensor fallback",
-              link: "/faq/degraded-mode/",
-            },
-            { label: "Window sensor", link: "/faq/window-sensor/" },
-            { label: "Door sensor", link: "/faq/door-sensor/" },
-            {
-              label: "Missing entity & availability guard",
-              link: "/faq/missing-entity/",
-            },
-            {
-              label: "Target temperature not taken",
-              link: "/faq/setpoint-not-applied/",
-            },
-            {
-              label: "Thermostat in multiple rooms",
-              link: "/faq/shared-trv/",
-            },
-            {
-              label: "Invalid external temperature",
-              link: "/faq/invalid-external-temperature/",
-            },
-            { label: "Debugging & diagnostics", link: "/faq/debugging/" },
-          ],
-        },
-        {
-          label: "Upgrading & Deep Dives",
-          items: [
-            {
-              label: "Upgrading from 1.9 to 2.0",
-              link: "/setup/upgrading-to-2-0/",
-            },
-            {
-              label: "Migrating legacy schedule actions",
-              link: "/deep-explanations/schedule-and-night-mode/",
-            },
-            {
-              label: "Virtual hydraulic balancing",
-              link: "/deep-explanations/hydraulic-balance/",
-            },
-            {
-              label: "Data updates & radio limits",
-              link: "/deep-explanations/data-updates/",
-            },
-            {
-              label: "Removing Better Thermostat",
-              link: "/setup/removing/",
-            },
-          ],
-        },
-        {
-          label: "Internals (Developers)",
-          collapsed: true,
-          items: [{ autogenerate: { directory: "internals" } }],
-        },
-        {
-          label: "Support",
-          link: "/support/",
-        },
-      ],
+      sidebar,
       plugins: [starlightThemeFlexoki(), starlightLinksValidator()],
       components: {
         Head: "./src/components/starlight/Head.astro",
