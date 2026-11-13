@@ -63,7 +63,7 @@ async def _locked_room(hass, profile=GENERIC_HEAT_TRV, *, without_off_mode=False
             and device.hvac_mode == HVACMode.HEAT
             # The room asks for 21 °C against 19 °C, so the device is driven
             # well above its minimum once the command has gone out.
-            and (device.target_temperature or 0.0) >= 21.0
+            and (device.native_target_temperature or 0.0) >= 21.0
             and all(
                 trv.system_mode_received and trv.target_temperature_received
                 for trv in bt.real_trvs.values()
@@ -78,7 +78,7 @@ def _press(device, *, hvac_mode=None, temperature=None) -> None:
     if hvac_mode is not None:
         device._attr_hvac_mode = hvac_mode
     if temperature is not None:
-        device._attr_target_temperature = temperature
+        device._attr_native_target_temperature = temperature
     device.async_set_context(Context())
     device.async_write_ha_state()
 
@@ -87,12 +87,12 @@ def _press(device, *, hvac_mode=None, temperature=None) -> None:
 async def test_a_locked_knob_turn_is_turned_back_at_once(hass, turn):
     """A setpoint turned at a locked device returns to the commanded one."""
     bt, device = await _locked_room(hass)
-    commanded = device.target_temperature
+    commanded = device.native_target_temperature
 
     _press(device, temperature=commanded + turn)
 
     assert await wait_for(
-        hass, lambda: device.target_temperature == commanded, timeout_seconds=2.0
+        hass, lambda: device.native_target_temperature == commanded, timeout_seconds=2.0
     )
     assert bt.heat_target_temperature == 21.0
 
@@ -125,12 +125,12 @@ HEAD_WITHOUT_OFF = replace(GENERIC_HEAT_TRV, hvac_modes=(HVACMode.HEAT,))
 async def test_a_locked_head_turned_to_its_minimum_does_not_switch_the_room_off(hass):
     """A locked head without an off mode turned to its minimum is turned back."""
     bt, device = await _locked_room(hass, HEAD_WITHOUT_OFF, without_off_mode=True)
-    commanded = device.target_temperature
+    commanded = device.native_target_temperature
 
     _press(device, temperature=HEAD_WITHOUT_OFF.min_temp)
 
     assert await wait_for(
-        hass, lambda: device.target_temperature == commanded, timeout_seconds=2.0
+        hass, lambda: device.native_target_temperature == commanded, timeout_seconds=2.0
     )
     assert bt.bt_hvac_mode == HVACMode.HEAT
 
@@ -148,7 +148,7 @@ async def test_a_locked_head_turned_up_does_not_switch_the_room_on(hass):
         hass,
         lambda: (
             not bt.ignore_states
-            and device.target_temperature == HEAD_WITHOUT_OFF.min_temp
+            and device.native_target_temperature == HEAD_WITHOUT_OFF.min_temp
             and all(trv.target_temperature_received for trv in bt.real_trvs.values())
         ),
     )
@@ -157,7 +157,7 @@ async def test_a_locked_head_turned_up_does_not_switch_the_room_on(hass):
 
     assert await wait_for(
         hass,
-        lambda: device.target_temperature == HEAD_WITHOUT_OFF.min_temp,
+        lambda: device.native_target_temperature == HEAD_WITHOUT_OFF.min_temp,
         timeout_seconds=2.0,
     )
     assert bt.bt_hvac_mode == HVACMode.OFF

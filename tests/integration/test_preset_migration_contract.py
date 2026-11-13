@@ -11,10 +11,7 @@ from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import State
 from homeassistant.exceptions import ServiceValidationError
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    mock_restore_cache,
-)
+from pytest_homeassistant.common import MockConfigEntry, mock_restore_cache
 
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,

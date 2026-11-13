@@ -28,10 +28,7 @@ from homeassistant.components.climate import (
 from homeassistant.const import ATTR_ENTITY_ID, EVENT_CALL_SERVICE
 from homeassistant.core import Context
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
-    async_capture_events,
-    async_fire_time_changed,
-)
+from pytest_homeassistant.common import async_capture_events, async_fire_time_changed
 
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 

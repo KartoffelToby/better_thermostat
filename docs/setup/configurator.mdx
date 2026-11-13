@@ -5,13 +5,13 @@ sidebar:
 description: 6-step Better Thermostat 2.0 setup assistant generating exact Screen 1, Screen 2, and device-page recommendations backed by the thermal controller benchmark.
 ---
 
-import { BtConfigurator } from '../../website/src/components/Configurator.ts';
+import Configurator from '@components/Configurator.astro';
 
 A well-insulated bedroom with a direct-valve **Sonoff TRVZB** or **Shelly BLU TRV** needs completely different settings than a covered radiator behind curtains, an **868 MHz HomematicIP** valve, or an underfloor heating zone.
 
 Answer **six quick questions** below about your valve hardware, radiator layout, room sensor, and optional **Better Thermostat 2.0** features (separate door contacts, AC cooling, presets, or fireplace/boiler learning pauses). You will get exact **Screen 1** and **Screen 2** values matching Home Assistant's setup dialog—and you can click any summary tag afterward to compare "what-if" changes live.
 
-<BtConfigurator client:load></BtConfigurator>
+<Configurator />
 
 ## How to apply your profile in Home Assistant
 

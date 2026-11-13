@@ -10,16 +10,14 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/lit": "^4.3.0",
-    "@astrojs/starlight": "0.42.9",
-    "astro": "7.4.7",
+    "@astrojs/starlight": "^0.42.11",
+    "astro": "^7.4.11",
     "astro-mermaid": "^2.2.0",
-    "astro-vtbot": "^2.1.12",
+    "astro-vtbot": "^3.1.0",
     "gsap": "^3.15.1",
     "lit": "^3.3.3",
-    "mermaid": "^11.17.2",
-    "node-gyp": "^12.4.0",
-    "sharp": "^0.32.6",
-    "starlight-theme-flexoki": "^0.1.0"
+    "mermaid": "^12.3.0",
+    "starlight-links-validator": "^0.27.0",
+    "starlight-theme-flexoki": "^0.3.0"
   }
 }

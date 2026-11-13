@@ -228,6 +228,10 @@
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} neprijíma cieľovú teplotu",
       "description": "Better Thermostat opakovane zapisuje cieľovú teplotu {wanted} do {entity}, ale termostat stále hlási {held}. Miestnosť sa nevykuruje tak, ako Better Thermostat zamýšľa.\n\nČasté príčiny:\n- Termostat má vlastný limit nastavenej hodnoty nižší ako maximum, ktoré zverejňuje, napríklad `max_heat_setpoint_limit` v Zigbee2MQTT.\n- Termostat je v režime alebo predvoľbe, v ktorej ignoruje cieľové teploty, napríklad v režime rozvrhu.\n- Termostat stratil rádiové spojenie alebo má slabú batériu.\n\nBetter Thermostat cieľovú teplotu ďalej zapisuje, najviac raz za hodinu. Tento problém zmizne sám, keď termostat nahlási cieľovú teplotu."
+    },
+    "calibration_offset_at_limit": {
+      "title": "BT: {name} - posun kalibrácie {entity} zostáva na svojej hranici",
+      "description": "Posun kalibrácie, ktorý Better Thermostat zapisuje do {entity}, zostáva už {minutes} minút na hranici rozsahu, ktorý termostat prijíma. Kalibrácia podľa posunu pripočítava k posunu rozdiel medzi teplotou v miestnosti a vlastným meraním termostatu, takže posun, ktorý zostáva na hranici, už nemá žiadnu rezervu na korekciu.\n\nČasté príčiny:\n- Termostat posun prijme, ale nepoužije ho, takže sa jeho meranie nikdy nezmení. Niektoré termostaty Matter sa správajú takto.\n- Termostat používa posuny len v užšom rozsahu, než aký zverejňuje.\n- Vlastné meranie termostatu je od teploty v miestnosti ďalej, než siaha jeho rozsah posunu, napríklad preto, že je umiestnený priamo nad radiátorom.\n\nPrepnite tento termostat na typ kalibrácie **Podľa cieľovej teploty** (Nastavenia → Zariadenia a služby → Better Thermostat → Konfigurovať); nezávisí od posunu. Tento problém zmizne sám, keď posun opustí hranicu alebo keď termostat prestane používať kalibráciu podľa posunu."
     }
   },
   "services": {

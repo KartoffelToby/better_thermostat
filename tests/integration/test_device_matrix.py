@@ -17,7 +17,7 @@ from homeassistant.core import Context
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 import pytest
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     async_capture_events,
     async_fire_time_changed,
     async_mock_service,
@@ -424,7 +424,7 @@ async def test_an_offset_write_leaves_the_mode_and_the_target_alone(hass, fake_t
             {"entity_id": BT_ENTITY, "temperature": 21.0},
             blocking=True,
         )
-        assert await wait_for(hass, lambda: fake_trv.target_temperature == 21.0)
+        assert await wait_for(hass, lambda: fake_trv.native_target_temperature == 21.0)
         fake_trv.set_hvac_mode_calls.clear()
 
         baseline = len(offset_number.set_value_calls)
@@ -448,7 +448,7 @@ async def test_an_offset_write_leaves_the_mode_and_the_target_alone(hass, fake_t
     assert fake_trv.set_hvac_mode_calls == []
     assert bt.heat_target_temperature == 21.0
     assert fake_trv.hvac_mode == HVACMode.HEAT_COOL
-    assert fake_trv.target_temperature == 21.0
+    assert fake_trv.native_target_temperature == 21.0
 
 
 @pytest.mark.parametrize("fake_trv", [TADO_OFFSET_TRV], indirect=True, ids=profile_id)
@@ -532,7 +532,7 @@ async def test_a_valve_closes_while_the_device_reports_no_temperature(hass, fake
             ),
         )
 
-        fake_trv._attr_current_temperature = None
+        fake_trv._attr_native_current_temperature = None
         fake_trv.async_write_ha_state()
         assert await wait_for(
             hass, lambda: bt.real_trvs[TRV_ID].current_temperature is None

@@ -3,17 +3,24 @@ import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import mermaid from "astro-mermaid";
 import starlightThemeFlexoki from "starlight-theme-flexoki";
-import lit from "@astrojs/lit";
-import { fileURLToPath } from "node:url";
+import starlightLinksValidator from "starlight-links-validator";
 
 // https://astro.build/config
 export default defineConfig({
+  site: "https://better-thermostat.org",
+
+  // src/content/docs is a symlink to the repository's docs/ directory.
+  // Resolving imports from the link's path lets those pages import the
+  // packages installed here.
+  vite: {
+    resolve: { preserveSymlinks: true },
+  },
+
   // Old URLs that are linked from released integration versions and
   // external sites; keep them working after a page moves or is merged
   // into another one.
   redirects: {
     "/schedule": "/deep-explanations/schedule-and-night-mode",
-    "/calibration": "/calibration_algorithms",
     "/qanda": "/faq/common-questions",
     "/qanda/supported": "/working-devices/compatibility",
     "/qanda/modes": "/faq/common-questions",
@@ -26,12 +33,34 @@ export default defineConfig({
 
   integrations: [
     mermaid({ theme: "neutral" }),
-    lit(),
     starlight({
       title: "Better Thermostat",
       favicon: "/favicon.png",
+      head: [
+        {
+          tag: "meta",
+          attrs: {
+            property: "og:image",
+            content: "https://better-thermostat.org/og.png",
+          },
+        },
+        {
+          tag: "link",
+          attrs: { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+        },
+      ],
+      // Pull requests target develop, so edits start there.
+      editLink: {
+        baseUrl:
+          "https://github.com/KartoffelToby/better_thermostat/edit/develop/",
+      },
+      routeMiddleware: "./src/routeData.ts",
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/KartoffelToby/better_thermostat' },
+        {
+          icon: "github",
+          label: "GitHub",
+          href: "https://github.com/KartoffelToby/better_thermostat",
+        },
       ],
       sidebar: [
         {
@@ -170,24 +199,10 @@ export default defineConfig({
           link: "/support/",
         },
       ],
-      plugins: [starlightThemeFlexoki()],
+      plugins: [starlightThemeFlexoki(), starlightLinksValidator()],
       components: {
         Head: "./src/components/starlight/Head.astro",
       },
     }),
   ],
-  vite: {
-    resolve: {
-      // docs/ lives outside website/ (symlinked), so bare imports in MDX
-      // cannot find website/node_modules on their own.
-      alias: [
-        {
-          find: /^@astrojs\/starlight\/components$/,
-          replacement: fileURLToPath(
-            new URL("./node_modules/@astrojs/starlight/dist/components.ts", import.meta.url),
-          ),
-        },
-      ],
-    },
-  },
 });

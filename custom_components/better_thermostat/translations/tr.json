@@ -228,6 +228,10 @@
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} hedef sıcaklığı almıyor",
       "description": "Better Thermostat hedef sıcaklık {wanted} değerini {entity} cihazına tekrar tekrar yazıyor, ancak termostat hâlâ {held} bildiriyor. Oda, Better Thermostat'un amaçladığı şekilde ısıtılmıyor.\n\nYaygın nedenler:\n- Termostatın, yayımladığı maksimumun altında kendi ayar noktası sınırı vardır, örneğin Zigbee2MQTT'deki `max_heat_setpoint_limit`.\n- Termostat, hedef sıcaklıkları yok saydığı bir mod veya ön ayardadır, örneğin bir program modu.\n- Termostat radyo bağlantısını kaybetmiş veya pili zayıftır.\n\nBetter Thermostat hedef sıcaklığı yazmaya devam eder, en fazla saatte bir kez. Termostat hedef sıcaklığı bildirdiğinde bu sorun kendiliğinden kaybolur."
+    },
+    "calibration_offset_at_limit": {
+      "title": "BT: {name} - {entity} kalibrasyon ofseti sınırında kalıyor",
+      "description": "Better Thermostat'ın {entity} cihazına yazdığı kalibrasyon ofseti {minutes} dakikadır termostatın kabul ettiği aralığın sınırında duruyor. Ofsete dayalı kalibrasyon, oda sıcaklığı ile termostatın kendi ölçümü arasındaki farkı ofsete ekler; bu nedenle sınırda kalan bir ofsetin artık düzeltme payı yoktur.\n\nYaygın nedenler:\n- Termostat ofseti kabul eder ama uygulamaz, bu yüzden ölçümü hiç değişmez. Bazı Matter termostatları böyle davranır.\n- Termostat ofsetleri yalnızca yayınladığından daha dar bir aralıkta uygular.\n- Termostatın kendi ölçümü oda sıcaklığından, ofset aralığının yetişebileceğinden daha uzaktır; örneğin doğrudan radyatörün üzerinde durduğu için.\n\nBu termostatı **Hedef sıcaklığa dayalı** kalibrasyon türüne geçirin (Ayarlar → Cihazlar ve hizmetler → Better Thermostat → Yapılandır); bu tür ofsete bağlı değildir. Bu sorun, ofset sınırdan ayrıldığında veya termostat artık ofsete dayalı kalibrasyon kullanmadığında kendiliğinden kaybolur."
     }
   },
   "services": {

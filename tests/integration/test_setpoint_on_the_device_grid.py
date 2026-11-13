@@ -115,7 +115,7 @@ async def test_a_target_the_device_holds_rounded_is_written_once(hass, fake_trv)
     assert await wait_for(
         hass, lambda: bt.real_trvs[TRV_ID].target_temperature_received, 5.0
     )
-    assert fake_trv.target_temperature == pytest.approx(22.0)
+    assert fake_trv.native_target_temperature == pytest.approx(22.0)
 
     with patch(WRITE_BUDGET, 0.0):
         for _ in range(3):

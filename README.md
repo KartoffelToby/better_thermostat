@@ -17,7 +17,7 @@
 
 ## Requirements
 
-- Minimum required Home Assistant version: `2026.9.0`
+- Minimum required Home Assistant version: `2026.11.0`
   (_continuously tested against Home Assistant_ [![Tested Home Assistant version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FKartoffelToby%2Fbetter_thermostat%2Fdevelop%2Fpyproject.toml&search=homeassistant%3E%3D%28%5B0-9.%5D%2B%29&replace=%241&label=&color=009688)](pyproject.toml))
 - At least **1 radiator/wall thermostat (`climate.*`)** and **1 separate room temperature sensor (`sensor.*`)** per room.
 

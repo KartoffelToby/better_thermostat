@@ -15,6 +15,7 @@ Absorbed tests from:
 import asyncio
 from collections.abc import Coroutine
 from dataclasses import replace
+import importlib
 import inspect
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -71,6 +72,11 @@ from tests.factories import (
     make_registry_entry,
     release_device,
     trv_record,
+)
+
+# The quirk module of a model that ignores its calibration offset.
+IGNORED_OFFSET_QUIRK = importlib.import_module(
+    "custom_components.better_thermostat.model_fixes.20480"
 )
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
@@ -3160,6 +3166,47 @@ class TestGroupedTrvCalibration:
             )
             trv = mock_bt_grouped.real_trvs[entity_id]
             assert trv.calibration_received is False
+
+    async def test_no_offset_is_pursued_on_a_head_that_ignores_it(
+        self, mock_bt_grouped
+    ):
+        """A model that ignores its offset is neither read nor written one.
+
+        Pursuing the offset would take a write-budget slot every cycle for a
+        write the delegate refuses, and queue a catch-up cycle behind it.
+        """
+        entity_id = "climate.trv_1"
+        mock_bt_grouped.real_trvs[entity_id].model_quirks = IGNORED_OFFSET_QUIRK
+
+        mock_trv_state = MagicMock()
+        mock_trv_state.state = "heat"
+        mock_trv_state.attributes = {"temperature": 21.0}
+        mock_bt_grouped.hass.states.get.return_value = mock_trv_state
+
+        with (
+            patch(
+                _PATCHES["get_calibration_offset"], autospec=True, return_value=2.0
+            ) as mock_get_offset,
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["set_calibration_offset"], autospec=True, return_value=True
+            ) as mock_set_calibration_offset,
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_convert.return_value = {
+                "temperature": 21.0,
+                "local_temperature_calibration": 3.0,
+                "local_temperature": 20.0,
+                "system_mode": "heat",
+            }
+
+            await control_trv(mock_bt_grouped, entity_id)
+
+            mock_get_offset.assert_not_called()
+            mock_set_calibration_offset.assert_not_called()
 
     async def test_unreadable_device_offset_writes_against_the_stored_command(
         self, mock_bt_grouped

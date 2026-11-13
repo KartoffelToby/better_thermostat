@@ -81,9 +81,9 @@ class TestRuntimeAndLearnedBridges:
         """Home Assistant reads no room temperature before startup sets one."""
         entity = _bare_entity()
 
-        assert entity.current_temperature is None
+        assert entity.native_current_temperature is None
         entity.room_temperature = 20.5
-        assert entity.current_temperature == 20.5
+        assert entity.native_current_temperature == 20.5
 
     def test_reading_the_room_temperature_before_startup_is_an_error(self):
         """A room temperature read before startup measured one is refused."""

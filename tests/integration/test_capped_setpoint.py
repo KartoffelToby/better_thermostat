@@ -56,7 +56,7 @@ def _publish(device: SimulatedClimate) -> None:
 async def _capped_head(hass):
     """Return the entity and the head once the watchdog gave up on a capped write."""
     (head,) = await build_devices(hass, ZWAVE_CAPPED_TRV)
-    head._attr_current_temperature = HEAD_TEMPERATURE
+    head._attr_native_current_temperature = HEAD_TEMPERATURE
     _publish(head)
     set_room_sensor(hass, ROOM_TEMPERATURE)
     entry = make_entry(ZWAVE_CAPPED_TRV)
@@ -73,7 +73,7 @@ async def _capped_head(hass):
     assert await wait_for(
         hass, lambda: any(_above_ceiling(call) for call in head.set_temperature_calls)
     ), f"no write above the ceiling: {head.set_temperature_calls}"
-    assert head.target_temperature == CEILING
+    assert head.native_target_temperature == CEILING
     assert await wait_for(
         hass, lambda: trv.target_temperature_received and not bt.ignore_states
     )
@@ -98,7 +98,7 @@ async def test_the_ceiling_a_head_holds_is_not_read_as_a_turn(hass):
     """
     bt, head = await _capped_head(hass)
 
-    head._attr_current_temperature = HEAD_TEMPERATURE + 0.2
+    head._attr_native_current_temperature = HEAD_TEMPERATURE + 0.2
     _publish(head)
     await hass.async_block_till_done()
 
@@ -113,7 +113,7 @@ async def test_a_turn_away_from_the_ceiling_is_the_users_target(hass):
     """A knob turned at a head that holds its ceiling becomes the room's target."""
     bt, head = await _capped_head(hass)
 
-    head._attr_target_temperature = 23.0
+    head._attr_native_target_temperature = 23.0
     _publish(head)
 
     assert await wait_for(hass, lambda: bt.heat_target_temperature == 23.0), (

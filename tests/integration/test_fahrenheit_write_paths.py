@@ -32,10 +32,7 @@ from homeassistant.core import Context
 from homeassistant.util.unit_conversion import TemperatureConverter
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 import pytest
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_capture_events,
-)
+from pytest_homeassistant.common import MockConfigEntry, async_capture_events
 
 from custom_components.better_thermostat.utils.const import (
     CONF_OFF_TEMPERATURE,
@@ -271,7 +268,7 @@ for the target itself, 70.5 °F.
 
 def _publish_device_setpoint(fake_trv, celsius: float) -> None:
     """Publish the head holding ``celsius``, as a report of its own."""
-    fake_trv._attr_target_temperature = celsius
+    fake_trv._attr_native_target_temperature = celsius
     fake_trv.async_set_context(Context())
     fake_trv.async_write_ha_state()
 
@@ -337,7 +334,9 @@ async def test_a_setpoint_published_in_whole_degrees_is_confirmed_and_not_adopte
         )
 
         # The head's next routine report carries the setpoint again.
-        fake_trv._attr_current_temperature = fake_trv.current_temperature + 0.3
+        fake_trv._attr_native_current_temperature = (
+            fake_trv.native_current_temperature + 0.3
+        )
         fake_trv.async_set_context(Context())
         fake_trv.async_write_ha_state()
         for _ in range(20):
@@ -630,7 +629,9 @@ async def test_a_device_parked_at_its_minimum_keeps_the_room_off(hass, fake_trv)
     )
 
     # The head's next routine report carries the parked setpoint again.
-    fake_trv._attr_current_temperature = fake_trv.current_temperature + 0.5
+    fake_trv._attr_native_current_temperature = (
+        fake_trv.native_current_temperature + 0.5
+    )
     fake_trv.async_set_context(Context())
     fake_trv.async_write_ha_state()
     for _ in range(20):
@@ -663,7 +664,7 @@ async def test_a_device_turned_down_to_its_own_minimum_switches_the_room_off(
 
     # A turn at the device reaches Home Assistant as a state of its own,
     # outside the context of the thermostat's last write.
-    fake_trv._attr_target_temperature = fake_trv.profile.min_temp
+    fake_trv._attr_native_target_temperature = fake_trv.profile.min_temp
     fake_trv.async_set_context(Context())
     fake_trv.async_write_ha_state()
 

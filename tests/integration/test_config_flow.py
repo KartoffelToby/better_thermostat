@@ -23,7 +23,7 @@ from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.helpers import entity_registry as er
 import probatio as vol
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.better_thermostat import RELOAD_LOCKS
 from custom_components.better_thermostat.utils.const import (

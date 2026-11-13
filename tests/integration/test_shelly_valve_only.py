@@ -156,8 +156,8 @@ async def test_device_settings_do_not_replace_room_settings(hass, fake_trv):
     trv = bt.real_trvs[TRV_ID]
     trv.last_internal_sensor_change = None
     fake_trv._attr_hvac_mode = HVACMode.OFF
-    fake_trv._attr_target_temperature = 16.0
-    fake_trv._attr_current_temperature = 20.5
+    fake_trv._attr_native_target_temperature = 16.0
+    fake_trv._attr_native_current_temperature = 20.5
     fake_trv.async_set_context(Context())
     fake_trv.async_write_ha_state()
     assert await wait_for(hass, lambda: trv.current_temperature == 20.5)
@@ -218,7 +218,7 @@ async def test_blu_thermostat_control_keeps_commands_and_device_reports(hass, fa
         await hass.async_block_till_done()
         assert await wait_for(hass, lambda: not bt.ignore_states)
 
-    fake_trv._attr_target_temperature = 25.0
+    fake_trv._attr_native_target_temperature = 25.0
     fake_trv.async_set_context(Context())
     fake_trv.async_write_ha_state()
     assert await wait_for(hass, lambda: bt.heat_target_temperature == 25.0)

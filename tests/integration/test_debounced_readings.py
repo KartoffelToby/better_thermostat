@@ -6,7 +6,7 @@ from unittest.mock import patch
 from homeassistant.core import Context
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from .conftest import (
     make_entry,
@@ -61,10 +61,10 @@ async def test_a_head_reading_inside_the_debounce_is_taken_once_it_is_over(
     bt = await _started(hass, fake_trv)
     trv = bt.real_trvs[fake_trv.entity_id]
 
-    fake_trv._attr_current_temperature = 21.9
+    fake_trv._attr_native_current_temperature = 21.9
     report_on_its_own(fake_trv)
     assert await wait_for(hass, lambda: trv.current_temperature == pytest.approx(21.9))
-    fake_trv._attr_current_temperature = 23.9
+    fake_trv._attr_native_current_temperature = 23.9
     report_on_its_own(fake_trv)
     await hass.async_block_till_done()
     assert trv.current_temperature == pytest.approx(21.9)
