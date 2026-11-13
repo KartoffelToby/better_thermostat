@@ -9,17 +9,17 @@ dependencies = ["homeassistant>=2026.11.0"]
 dev = [
     "numpy>=2",  # the integration requirement in manifest.json, for the MPC v2 code
     "pytest-timeout>=2.4",  # serves the timeout setting under [tool.pytest.ini_options]
-    "daqp>=0.10.3",  # speeds up the MPC v2 QP; a NumPy solver runs without it
+    "daqp>=0.11.2",  # speeds up the MPC v2 QP; a NumPy solver runs without it
     "pytest>=9",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",  # the per-module coverage floors in CI depend on it
     "pytest-homeassistant==2026.11.1",
     "pre-commit>=4.7.0",
-    "pyrefly>=1.4.0",
-    "ruff>=0.17.3",
+    "pyrefly>=1.4.1",
+    "ruff>=0.17.5",
     "yamllint>=1.38.0",
-    "hypothesis>=6.170.14",
-    "types-pyyaml>=6.0.12.20261030",  # lets pyrefly check the YAML-reading tests
+    "hypothesis>=6.170.15",
+    "types-pyyaml>=6.0.12.20261113",  # lets pyrefly check the YAML-reading tests
 ]
 
 [tool.uv]

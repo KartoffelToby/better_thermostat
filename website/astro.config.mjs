@@ -3,10 +3,19 @@ import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import mermaid from "astro-mermaid";
 import starlightThemeFlexoki from "starlight-theme-flexoki";
-import lit from "@astrojs/lit";
+import starlightLinksValidator from "starlight-links-validator";
 
 // https://astro.build/config
 export default defineConfig({
+  site: "https://better-thermostat.org",
+
+  // src/content/docs is a symlink to the repository's docs/ directory.
+  // Resolving imports from the link's path lets those pages import the
+  // packages installed here.
+  vite: {
+    resolve: { preserveSymlinks: true },
+  },
+
   // Old URLs that are linked from released integration versions and
   // external sites; keep them working after a page moves or is merged
   // into another one.
@@ -24,17 +33,39 @@ export default defineConfig({
 
   integrations: [
     mermaid({ theme: "neutral" }),
-    lit(),
     starlight({
       title: "Better Thermostat",
       favicon: "/favicon.png",
-      social: {
-        github: "https://github.com/KartoffelToby/better_thermostat",
+      head: [
+        {
+          tag: "meta",
+          attrs: {
+            property: "og:image",
+            content: "https://better-thermostat.org/og.png",
+          },
+        },
+        {
+          tag: "link",
+          attrs: { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+        },
+      ],
+      // Pull requests target develop, so edits start there.
+      editLink: {
+        baseUrl:
+          "https://github.com/KartoffelToby/better_thermostat/edit/develop/",
       },
+      routeMiddleware: "./src/routeData.ts",
+      social: [
+        {
+          icon: "github",
+          label: "GitHub",
+          href: "https://github.com/KartoffelToby/better_thermostat",
+        },
+      ],
       sidebar: [
         {
           label: "Setup",
-          autogenerate: { directory: "setup" },
+          items: [{ autogenerate: { directory: "setup" } }],
         },
         {
           label: "Configuration",
@@ -45,30 +76,30 @@ export default defineConfig({
         },
         {
           label: "FAQ",
-          autogenerate: { directory: "faq" },
+          items: [{ autogenerate: { directory: "faq" } }],
         },
         {
           label: "Working devices",
-          autogenerate: { directory: "working-devices" },
+          items: [{ autogenerate: { directory: "working-devices" } }],
         },
         {
           label: "Optimal settings",
-          autogenerate: { directory: "optimal-settings" },
+          items: [{ autogenerate: { directory: "optimal-settings" } }],
         },
         {
           label: "Deep explanations",
-          autogenerate: { directory: "deep-explanations" },
+          items: [{ autogenerate: { directory: "deep-explanations" } }],
         },
         {
           label: "Internals",
-          autogenerate: { directory: "internals" },
+          items: [{ autogenerate: { directory: "internals" } }],
         },
         {
           label: "Support",
           link: "/support/",
         },
       ],
-      plugins: [starlightThemeFlexoki()],
+      plugins: [starlightThemeFlexoki(), starlightLinksValidator()],
       components: {
         Head: "./src/components/starlight/Head.astro",
       },
