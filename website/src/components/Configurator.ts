@@ -58,22 +58,22 @@ export class BtConfigurator extends LitElement {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
       --primary-color: #10b981; /* Emerald 500 */
       --primary-hover: #059669; /* Emerald 600 */
-      --bg-color: #111827; /* Gray 900 */
-      --card-bg: #1f2937; /* Gray 800 */
-      --card-hover: #374151; /* Gray 700 */
-      --text-main: #f9fafb; /* Gray 50 */
-      --text-muted: #9ca3af; /* Gray 400 */
-      --border-color: #374151; /* Gray 700 */
+      --bg-color: var(--sl-color-bg-nav);
+      --card-bg: var(--sl-color-gray-6);
+      --card-hover: var(--sl-color-gray-5);
+      --text-main: var(--sl-color-white);
+      --text-muted: var(--sl-color-gray-3);
+      --border-color: var(--sl-color-gray-5);
       --accent-glow: rgba(16, 185, 129, 0.15);
     }
 
     .container {
-      background: linear-gradient(145deg, var(--bg-color), #0f172a);
+      background: linear-gradient(145deg, var(--bg-color), var(--sl-color-bg));
       border: 1px solid var(--border-color);
       border-radius: 1.5rem;
       padding: 2.5rem;
       margin: 2rem 0;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px color-mix(in srgb, var(--sl-color-white) 5%, transparent) inset;
       position: relative;
       overflow: hidden;
       color: var(--text-main);
@@ -107,7 +107,7 @@ export class BtConfigurator extends LitElement {
     .progress-bar-bg {
       flex-grow: 1;
       height: 0.5rem;
-      background-color: rgba(255, 255, 255, 0.1);
+      background-color: color-mix(in srgb, var(--sl-color-white) 10%, transparent);
       border-radius: 1rem;
       overflow: hidden;
       position: relative;
@@ -153,7 +153,7 @@ export class BtConfigurator extends LitElement {
       font-size: 2rem;
       font-weight: 700;
       margin-bottom: 2rem;
-      background: linear-gradient(to right, #fff, #a7f3d0);
+      background: linear-gradient(to right, var(--text-main), var(--primary-color));
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       letter-spacing: -0.025em;
@@ -166,9 +166,9 @@ export class BtConfigurator extends LitElement {
     }
 
     .option-card {
-      background-color: rgba(31, 41, 55, 0.6);
+      background-color: color-mix(in srgb, var(--sl-color-gray-6) 60%, transparent);
       backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid color-mix(in srgb, var(--sl-color-white) 10%, transparent);
       border-radius: 1rem;
       padding: 1.5rem;
       cursor: pointer;
@@ -197,7 +197,7 @@ export class BtConfigurator extends LitElement {
 
     .option-card:hover {
       transform: translateY(-4px);
-      background-color: rgba(55, 65, 81, 0.8);
+      background-color: color-mix(in srgb, var(--sl-color-gray-5) 80%, transparent);
       box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
     }
 
@@ -220,7 +220,7 @@ export class BtConfigurator extends LitElement {
       font-weight: 600;
       font-size: 1.125rem;
       margin-bottom: 0.5rem;
-      color: #fff;
+      color: var(--text-main);
     }
 
     .option-desc {
@@ -235,7 +235,7 @@ export class BtConfigurator extends LitElement {
       align-items: center;
       margin-top: 3rem;
       padding-top: 1.5rem;
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      border-top: 1px solid color-mix(in srgb, var(--sl-color-white) 10%, transparent);
     }
 
     .btn {
@@ -269,13 +269,13 @@ export class BtConfigurator extends LitElement {
     }
 
     .btn-secondary {
-      background-color: rgba(255, 255, 255, 0.1);
-      color: white;
+      background-color: color-mix(in srgb, var(--sl-color-white) 10%, transparent);
+      color: var(--text-main);
       backdrop-filter: blur(10px);
     }
 
     .btn-secondary:hover:not(:disabled) {
-      background-color: rgba(255, 255, 255, 0.15);
+      background-color: color-mix(in srgb, var(--sl-color-white) 15%, transparent);
     }
 
     /* Results styling */
@@ -299,8 +299,8 @@ export class BtConfigurator extends LitElement {
     }
 
     .recommendation-card {
-      background: rgba(31, 41, 55, 0.5);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: color-mix(in srgb, var(--sl-color-gray-6) 50%, transparent);
+      border: 1px solid color-mix(in srgb, var(--sl-color-white) 10%, transparent);
       border-radius: 1rem;
       padding: 2rem;
       margin-bottom: 1.5rem;
@@ -310,7 +310,7 @@ export class BtConfigurator extends LitElement {
     .recommendation-card h3 {
       margin-top: 0;
       margin-bottom: 1.5rem;
-      color: #fff;
+      color: var(--text-main);
       display: flex;
       align-items: center;
       gap: 0.75rem;
@@ -322,7 +322,7 @@ export class BtConfigurator extends LitElement {
       justify-content: space-between;
       align-items: center;
       padding: 1rem 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid color-mix(in srgb, var(--sl-color-white) 5%, transparent);
     }
 
     .setting-item:last-child {
@@ -336,7 +336,7 @@ export class BtConfigurator extends LitElement {
     }
 
     .setting-value {
-      color: #fff;
+      color: var(--text-main);
       font-weight: 600;
       background: rgba(16, 185, 129, 0.1);
       padding: 0.25rem 0.75rem;
@@ -354,7 +354,7 @@ export class BtConfigurator extends LitElement {
 
     .note-box p {
       margin: 0 0 0.75rem 0;
-      color: #e2e8f0;
+      color: var(--text-main);
       line-height: 1.5;
     }
     .note-box p:last-child {
