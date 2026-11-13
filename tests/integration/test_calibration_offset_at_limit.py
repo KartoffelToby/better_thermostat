@@ -347,7 +347,7 @@ async def test_an_offset_overheating_protection_holds_at_the_limit_is_not_report
             while ticks.clock.t < 2 * CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS:
                 await ticks.fire()
             assert offset_number.set_value_calls[-1] == pytest.approx(_OFFSET_LIMIT)
-            assert fake_trv.current_temperature == pytest.approx(
+            assert fake_trv.native_current_temperature == pytest.approx(
                 _ROOM_TEMPERATURE + _OFFSET_LIMIT
             )
             assert bt.real_trvs[TRV_ID].calibration_offset_at_limit is None

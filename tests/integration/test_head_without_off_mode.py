@@ -93,7 +93,7 @@ async def test_a_head_parked_for_warm_weather_does_not_switch_the_room_off(hass)
         timeout_seconds=3.0,
     ), (
         f"warm weather should park the head at its minimum, it holds "
-        f"{device.target_temperature} with call_for_heat={bt.call_for_heat}"
+        f"{device.native_target_temperature} with call_for_heat={bt.call_for_heat}"
     )
 
     # The head reports on its own, carrying the minimum it was parked at.
@@ -119,7 +119,7 @@ async def test_a_head_parked_for_warm_weather_does_not_switch_the_room_off(hass)
             timeout_seconds=3.0,
         ), (
             f"the cold room is not heated: room mode {bt.bt_hvac_mode}, "
-            f"call_for_heat={bt.call_for_heat}, head at {device.target_temperature}"
+            f"call_for_heat={bt.call_for_heat}, head at {device.native_target_temperature}"
         )
 
 
@@ -212,7 +212,7 @@ async def test_a_turn_up_with_the_window_open_heats_once_the_window_closes(hass)
         timeout_seconds=2.0,
     ), (
         "the head turned up with the window open was not turned back, "
-        f"it holds {device.target_temperature} after the writes "
+        f"it holds {device.native_target_temperature} after the writes "
         f"{device.set_temperature_calls[writes_before_turn:]}"
     )
     assert device.native_target_temperature == 5.0
@@ -229,7 +229,7 @@ async def test_a_turn_up_with_the_window_open_heats_once_the_window_closes(hass)
         ),
         timeout_seconds=3.0,
     ), (
-        f"the closed window left the head at {device.target_temperature}, "
+        f"the closed window left the head at {device.native_target_temperature}, "
         f"room mode {bt.bt_hvac_mode}"
     )
     assert bt.bt_hvac_mode == HVACMode.HEAT
@@ -283,7 +283,7 @@ async def test_the_minimum_written_for_the_open_window_is_no_turn(hass):
             bt.window_open is False and (device.native_target_temperature or 0.0) > 5.0
         ),
         timeout_seconds=3.0,
-    ), f"the closed window left the head at {device.target_temperature}"
+    ), f"the closed window left the head at {device.native_target_temperature}"
     assert bt.bt_hvac_mode == HVACMode.HEAT
     assert bt.heat_target_temperature == target
 
@@ -351,7 +351,7 @@ async def test_a_report_after_the_restore_write_timed_out_keeps_the_room_heating
     assert await wait_for(
         hass, lambda: (device.native_target_temperature or 0.0) > 5.0
     ), (
-        f"the head was left at {device.target_temperature} after the writes "
+        f"the head was left at {device.native_target_temperature} after the writes "
         f"{device.set_temperature_calls[writes_before_report:]}, "
         f"room mode {bt.bt_hvac_mode}"
     )

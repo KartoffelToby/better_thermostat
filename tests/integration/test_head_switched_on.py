@@ -75,4 +75,4 @@ async def test_a_head_switched_on_does_not_bring_what_was_turned_while_it_was_of
     )
     assert await wait_for(
         hass, lambda: fake_trv.native_target_temperature == target, 3.0
-    ), f"the head stayed at {fake_trv.target_temperature}"
+    ), f"the head stayed at {fake_trv.native_target_temperature}"
