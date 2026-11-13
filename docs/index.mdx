@@ -1,11 +1,19 @@
 ---
-title: Welcome to Better Thermostat
-description: Turn your radiator valves and room sensors into one smart, accurate room thermostat for Home Assistant.
+title: Better Thermostat for Home Assistant
+description: Free, open-source Home Assistant integration that turns your radiator valves (TRVs) and a separate room sensor into one accurate room thermostat.
 template: splash
+head:
+  - tag: title
+    content: Better Thermostat – smart TRV control for Home Assistant
+  - tag: meta
+    attrs:
+      property: og:type
+      content: website
 hero:
   tagline: Turn your radiator valves and room sensors into one smart, accurate room thermostat for Home Assistant.
   image:
     file: ../../assets/logo.png
+    alt: Better Thermostat logo
   actions:
     - text: 5-Minute Quickstart
       link: /setup/getting-started/
@@ -29,6 +37,8 @@ import WhyDiagram from '@components/WhyDiagram.astro';
 [![GitHub stars](https://img.shields.io/github/stars/KartoffelToby/better_thermostat?logo=github)](https://github.com/KartoffelToby/better_thermostat)
 
 </div>
+
+**Better Thermostat** is a free, open-source custom integration for [Home Assistant](https://www.home-assistant.io/), installed through HACS. It wraps one or more smart radiator valves (TRVs) and a **separate room temperature sensor** into one virtual `climate` entity and keeps correcting the valves so that the room, not the radiator, reaches your target temperature.
 
 ## Why Better Thermostat exists
 
