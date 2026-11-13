@@ -19,9 +19,18 @@ import pytest
 
 from custom_components.better_thermostat.adapters import base, delegate, generic
 from custom_components.better_thermostat.model_fixes import SPZB0001, ZWA021
-from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.const import CalibrationType
+from custom_components.better_thermostat.utils.const import (
+    CONF_CALIBRATION_MODE,
+    CalibrationMode,
+    CalibrationOutput,
+)
 from custom_components.better_thermostat.utils.helpers import round_by_step
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_record,
+)
 
 ENTITY_ID = "climate.trv"
 CALIBRATION_ENTITY = "select.trv_local_temperature_calibration"
@@ -48,14 +57,14 @@ BOOSTED = {
 
 
 def _host(unit=UnitOfTemperature.CELSIUS, state=None, advanced=None):
-    host = MagicMock()
+    host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
     host.hass = MagicMock()
     host.hass.config.units.temperature_unit = unit
     host.hass.states.get = MagicMock(return_value=state)
     host.hass.services.async_call = AsyncMock(return_value=None)
-    trv = Trv.from_legacy_dict(ENTITY_ID, {})
+    trv = trv_record(entity_id=ENTITY_ID)
     trv.advanced = advanced or {}
     host.real_trvs = {ENTITY_ID: trv}
     return host
@@ -106,6 +115,40 @@ class TestTheSetpointBoostReadsTheTrvInCelsius:
 
         assert answer == pytest.approx(21.0)
 
+    @pytest.mark.parametrize("name", sorted(BOOSTING_QUIRKS))
+    @pytest.mark.parametrize(
+        "state",
+        [
+            None,
+            State(ENTITY_ID, "heat", {}),
+            State(ENTITY_ID, "heat", {"current_temperature": "n/a"}),
+        ],
+        ids=["no_state", "no_reading", "unreadable_reading"],
+    )
+    def test_without_a_trv_reading_the_setpoint_is_left_alone(self, name, state):
+        """No reading means no gap to measure, so the request goes out as is."""
+        host = _host(state=state)
+
+        answer = BOOSTING_QUIRKS[name].fix_target_temperature_calibration(
+            host, ENTITY_ID, 21.0
+        )
+
+        assert answer == 21.0
+
+    def test_the_sea801_leaves_the_setpoint_to_mpc(self):
+        """Under MPC calibration the controller's setpoint goes out as is."""
+        state = State(ENTITY_ID, "heat", {"current_temperature": 20.0})
+        host = _host(
+            state=state,
+            advanced={CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION},
+        )
+
+        answer = BOOSTING_QUIRKS[
+            "SEA801-Zigbee_SEA802-Zigbee"
+        ].fix_target_temperature_calibration(host, ENTITY_ID, 21.0)
+
+        assert answer == 21.0
+
 
 class TestTheEurotronicModeSelectIsFoundByAnyOfItsNames:
     """SPZB0001 finds the TRV mode select by entity id, unique id or name."""
@@ -122,25 +165,15 @@ class TestTheEurotronicModeSelectIsFoundByAnyOfItsNames:
     @pytest.mark.asyncio
     async def test_the_mode_is_written(self, select_id, unique_id, original_name):
         """A renamed select still carries the name the device gave it."""
-        climate_entry = MagicMock(
-            entity_id=ENTITY_ID,
-            domain="climate",
-            device_id="device1",
-            unique_id="0x1234",
-            original_name="TRV",
-            disabled_by=None,
+        registry = make_entity_registry(
+            make_registry_entry(ENTITY_ID, device_id="device1", unique_id="0x1234"),
+            make_registry_entry(
+                select_id,
+                device_id="device1",
+                unique_id=unique_id,
+                original_name=original_name,
+            ),
         )
-        select_entry = MagicMock(
-            entity_id=select_id,
-            domain="select",
-            device_id="device1",
-            unique_id=unique_id,
-            original_name=original_name,
-            disabled_by=None,
-        )
-        registry = MagicMock()
-        registry.async_get.return_value = climate_entry
-        registry.entities.values.return_value = [climate_entry, select_entry]
         host = _host(state=State(select_id, "2"))
 
         with patch.object(SPZB0001.er, "async_get", lambda hass: registry):
@@ -156,10 +189,104 @@ class TestTheEurotronicModeSelectIsFoundByAnyOfItsNames:
         )
 
 
+class TestTheEurotronicModeIsOnlyWrittenWhenItDiffers:
+    """SPZB0001 writes its TRV mode select once, and only that select."""
+
+    MODE_SELECT = "select.trv_trv_mode"
+
+    def _registry(self, *extra_selects):
+        return make_entity_registry(
+            make_registry_entry(ENTITY_ID, device_id="device1"),
+            make_registry_entry(self.MODE_SELECT, device_id="device1"),
+            *(
+                make_registry_entry(select_id, device_id="device1")
+                for select_id in extra_selects
+            ),
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_mode_already_on_the_goal_is_not_written(self):
+        """Each write is a radio message to a battery device."""
+        host = _host(state=State(self.MODE_SELECT, "1"))
+
+        with patch.object(SPZB0001.er, "async_get", lambda hass: self._registry()):
+            answered = await SPZB0001.check_operation_mode(host, ENTITY_ID, "1")
+
+        assert answered is True
+        host.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_mode_select_without_a_state_is_not_written(self):
+        """A select that publishes nothing has no mode to compare against."""
+        host = _host(state=None)
+
+        with patch.object(SPZB0001.er, "async_get", lambda hass: self._registry()):
+            answered = await SPZB0001.check_operation_mode(host, ENTITY_ID, "1")
+
+        assert answered is False
+        host.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_other_selects_on_the_device_are_passed_by(self):
+        """Only the select naming the TRV mode receives the option."""
+        host = _host(state=State(self.MODE_SELECT, "2"))
+        registry = self._registry("select.trv_display_orientation")
+
+        with patch.object(SPZB0001.er, "async_get", lambda hass: registry):
+            answered = await SPZB0001.check_operation_mode(host, ENTITY_ID, "1")
+
+        assert answered is True
+        host.hass.services.async_call.assert_awaited_once_with(
+            "select",
+            "select_option",
+            {"entity_id": self.MODE_SELECT, "option": "1"},
+            blocking=True,
+            context=None,
+        )
+
+
+class TestTheEurotronicStartsInTheModeOfItsCalibrationType:
+    """SPZB0001 starts in valve mode only for direct valve calibration."""
+
+    @pytest.mark.parametrize(
+        ("advanced", "goal"),
+        [
+            ({"calibration": CalibrationOutput.DIRECT_VALVE_BASED}, "1"),
+            ({"calibration": CalibrationOutput.TARGET_TEMP_BASED}, "2"),
+            ({"calibration": CalibrationOutput.LOCAL_BASED}, "2"),
+            ({}, "2"),
+        ],
+        ids=["direct-valve", "target-temp", "offset", "no-type"],
+    )
+    @pytest.mark.asyncio
+    async def test_the_start_mode_follows_the_type(self, advanced, goal):
+        """Only a valve-driven TRV is put into its valve mode at startup."""
+        host = _host(advanced=advanced)
+
+        with patch.object(
+            SPZB0001, "check_operation_mode", autospec=True, return_value=True
+        ) as check:
+            await SPZB0001.initial_tweak(host, ENTITY_ID)
+
+        check.assert_awaited_once_with(host, ENTITY_ID, goal=goal)
+
+    @pytest.mark.parametrize(
+        ("calibration_offset", "written"), [(7.0, 5), (-7.0, -5), (2.5, 2.5)]
+    )
+    def test_the_offset_stays_within_the_device_range(
+        self, calibration_offset, written
+    ):
+        """The device accepts offsets from -5 to 5 K."""
+        assert (
+            SPZB0001.fix_local_calibration(_host(), ENTITY_ID, calibration_offset)
+            == written
+        )
+
+
 def _spirit_host(state):
     return _host(
         state=State(ENTITY_ID, state),
-        advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED},
+        advanced={"calibration": CalibrationOutput.DIRECT_VALVE_BASED},
     )
 
 
@@ -243,7 +370,9 @@ class TestASelectCalibrationEntityPublishesItsOptionGrid:
         """Rounding the offset to 1.0 would drop what a finer grid offers."""
         host = _select_host(options)
 
-        assert await generic.get_offset_step(host, ENTITY_ID) == pytest.approx(step)
+        assert await generic.get_calibration_offset_step(
+            host, ENTITY_ID
+        ) == pytest.approx(step)
 
     @pytest.mark.parametrize("options", [[], ["0.0k"], ["on", "off"]])
     @pytest.mark.asyncio
@@ -251,19 +380,118 @@ class TestASelectCalibrationEntityPublishesItsOptionGrid:
         """Fewer than two numeric options carry no spacing."""
         host = _select_host(options)
 
-        assert await generic.get_offset_step(host, ENTITY_ID) == 1.0
+        assert await generic.get_calibration_offset_step(host, ENTITY_ID) == (
+            generic.DEFAULT_OFFSET_STEP
+        )
 
     @pytest.mark.asyncio
     async def test_a_half_kelvin_request_reaches_the_device(self):
         """1.5 K on a 0.5 K grid is written as 1.5 K, not rounded to 1.0 K."""
         host = _select_host(["-1.0k", "-0.5k", "0.0k", "0.5k", "1.0k", "1.5k"])
         host.real_trvs[ENTITY_ID].adapter = generic
-        step = await delegate.get_offset_step(host, ENTITY_ID)
+        step = await delegate.get_calibration_offset_step(host, ENTITY_ID)
 
-        await generic.set_offset(host, ENTITY_ID, round_by_step(1.5, step))
+        calibration_offset = round_by_step(1.5, step)
+        assert calibration_offset is not None
+        await generic.set_calibration_offset(host, ENTITY_ID, calibration_offset)
 
         host.hass.services.async_call.assert_awaited_once()
         assert host.hass.services.async_call.await_args.args[2]["option"] == "1.5k"
+
+
+NUMBER_CALIBRATION_ENTITY = "number.trv_local_temperature_calibration"
+
+
+def _number_host(value, attributes):
+    state = State(NUMBER_CALIBRATION_ENTITY, value, attributes)
+    host = _host(state=state)
+    host.real_trvs[
+        ENTITY_ID
+    ].local_temperature_calibration_entity = NUMBER_CALIBRATION_ENTITY
+    return host
+
+
+class TestANumberCalibrationEntityIsReadInItsOwnUnit:
+    """Offset, range and step of a number entity are read in Kelvin."""
+
+    @pytest.mark.asyncio
+    async def test_a_number_declaring_nothing_answers_the_defaults(self):
+        """No ``min``, ``max`` or ``step`` leaves the shared table in charge."""
+        host = _number_host("0.0", {})
+
+        assert await generic.get_min_calibration_offset(host, ENTITY_ID) == (
+            generic.DEFAULT_OFFSET_MIN
+        )
+        assert await generic.get_max_calibration_offset(host, ENTITY_ID) == (
+            generic.DEFAULT_OFFSET_MAX
+        )
+        assert await generic.get_calibration_offset_step(host, ENTITY_ID) == (
+            generic.DEFAULT_OFFSET_STEP
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_number_declaring_no_bounds_takes_the_offset_as_it_is(self):
+        """Without published bounds there is nothing to hold the value inside."""
+        host = _number_host("0.0", {})
+
+        await generic.set_calibration_offset(host, ENTITY_ID, 1.5)
+
+        assert host.hass.services.async_call.await_args.args[2]["value"] == 1.5
+
+    @pytest.mark.asyncio
+    async def test_a_difference_in_fahrenheit_is_read_and_written_in_kelvin(self):
+        """A number counting °F differences holds 1.8 of it per Kelvin."""
+        host = _number_host(
+            "3.6",
+            {
+                "unit_of_measurement": UnitOfTemperature.FAHRENHEIT,
+                "device_class": "temperature_delta",
+                "min": -9.0,
+                "max": 9.0,
+                "step": 0.9,
+            },
+        )
+
+        assert await generic.get_calibration_offset(host, ENTITY_ID) == pytest.approx(
+            2.0
+        )
+        assert await generic.get_min_calibration_offset(
+            host, ENTITY_ID
+        ) == pytest.approx(-5.0)
+        assert await generic.get_max_calibration_offset(
+            host, ENTITY_ID
+        ) == pytest.approx(5.0)
+        assert await generic.get_calibration_offset_step(
+            host, ENTITY_ID
+        ) == pytest.approx(0.5)
+
+        await generic.set_calibration_offset(host, ENTITY_ID, 1.5)
+
+        assert host.hass.services.async_call.await_args.args[2][
+            "value"
+        ] == pytest.approx(2.7)
+
+    @pytest.mark.asyncio
+    async def test_a_write_at_the_bound_stays_inside_the_published_range(self):
+        """The round trip through Kelvin cannot push a bound outside itself.
+
+        Home Assistant refuses a value past the ``min`` it publishes, so a
+        float error at the device's lowest offset would turn the write into
+        a refusal.
+        """
+        host = _number_host(
+            "32.0",
+            {
+                "unit_of_measurement": UnitOfTemperature.FAHRENHEIT,
+                "device_class": "temperature",
+                "min": 10.3,
+                "max": 53.7,
+            },
+        )
+
+        await generic.set_calibration_offset(host, ENTITY_ID, -20.0)
+
+        assert host.hass.services.async_call.await_args.args[2]["value"] == 10.3
 
 
 class TestTheForcedZeroCalibrationWaitsForItsAnswer:

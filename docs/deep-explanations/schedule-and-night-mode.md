@@ -1,7 +1,13 @@
 ---
-title: Schedule and night mode
-description: Migrate temporary target schedules from the removed Better Thermostat save/restore actions to climate.set_preset_mode.
+title: Migrating legacy schedule actions
+description: Migrate pre-1.8 temporary target automations from the removed save/restore actions to climate.set_preset_mode—or set up a new schedule with blueprints.
 ---
+
+:::tip[Looking to set up a daily or weekly heating schedule on a fresh installation?]
+You do not need anything on this page! Import the one-click **Weekly Heating Schedule** or **Night Mode** blueprint in **[Automation Blueprints & schedules](/setup/automation-blueprints/)**, and configure your temperatures in **[Presets](/setup/presets/)**.
+
+*This page is only for longtime users migrating custom YAML automations written for Better Thermostat ≤ 1.7.*
+:::
 
 Better Thermostat has no save, set-temporary or restore actions of its own. Temporary target
 schedules run on the standard Home Assistant action `climate.set_preset_mode`: entering a preset
@@ -143,7 +149,9 @@ scenes only when you need the extra state or have run out of preset slots.
   no-op.
 - **Changing the target manually while a preset is active cancels the preset.** Better Thermostat
   keeps the manual value, drops back to `none` and discards the stored restore point, so a later
-  `preset_mode: none` changes nothing. The removed restore action behaved differently here: it
+  `preset_mode: none` changes nothing. With a cooler this holds for either target: a heating or a
+  cooling target that differs from the preset's own cancels the preset, and both restore points
+  are discarded. The removed restore action behaved differently here: it
   overrode a manual change. Automations that relied on that need the manual value written back
   explicitly.
 - Writing a preset's number entity while that preset is active is not a manual change: the preset
@@ -153,6 +161,6 @@ scenes only when you need the extra state or have run out of preset slots.
 
 The bundled [automation blueprints](/setup/automation-blueprints/) already use presets. The night
 mode blueprint drives the `sleep` preset from a Home Assistant `schedule` helper and returns to
-`none` when the window closes:
+`none` when the schedule helper turns off:
 
 <a href="https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/night_mode.yaml" target="_blank"><img src="https://my.home-assistant.io/badges/blueprint_import.svg" alt="Import night mode blueprint" /></a>

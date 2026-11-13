@@ -13,10 +13,21 @@ a linearised (A, B, d) discrete-time system used by Kalman and the QP.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import numpy as np
 
+from ..plant_preset import DEFAULT_FLOW_TEMPERATURE
 from ._types import FloatArray
+
+# Plausible band for the two identifiable prior components, as
+# ``(lower, upper)`` and inclusive at both ends. ``tau_room_min`` divides the
+# room dynamics below and ``gain_heater`` scales the radiator drive, so a
+# value outside these bands drives the commanded valve to one rail. Every
+# producer and consumer of a prior — the offline fit, the heat-loss
+# derivation, the restore gate — refers to these two tuples.
+TAU_ROOM_BOUNDS_MIN = (60.0, 2000.0)
+GAIN_HEATER_BOUNDS = (0.5, 5.0)
 
 # The slowest mode of the RC2 dynamics never exceeds
 # ``tau_room + (1 + coupling)·tau_rad``. After this many of them any state has
@@ -36,7 +47,7 @@ class PlantParams:
     tau_rad_min: float = 15.0
     gain_heater: float = 2.0
     coupling_rad_room: float = 1.0
-    T_water_C: float = 65.0
+    T_water: float = DEFAULT_FLOW_TEMPERATURE
     valve_command_delay_s: float = 0.0
 
 
@@ -64,25 +75,39 @@ class PlantModelRC2:
         return 2
 
     def discrete_step(
-        self, x: FloatArray, u: float, T_outdoor_C: float, D_K_per_min: float = 0.0
+        self, x: FloatArray, u: float, T_outdoor: float, D_K_per_min: float = 0.0
     ) -> FloatArray:
         """Forward-Euler one-step propagator."""
-        return self._euler_step(x, u, T_outdoor_C, D_K_per_min, self.dt_min)
+        return self._euler_step(x, u, T_outdoor, D_K_per_min, self.dt_min)
 
     def propagate(
-        self, x: FloatArray, u: float, outdoor_temperature: float, dt_s: float
+        self,
+        x: FloatArray,
+        u: float,
+        outdoor_temperature: float,
+        dt_s: float,
+        disturbance_rate: float = 0.0,
     ) -> FloatArray:
         """Advance ``x`` over ``dt_s`` under a constant valve fraction.
 
-        Uses the sub-steps :meth:`linearised_AB` composes for the same interval
-        but re-evaluates the valve drive ``u·(T_water − T_rad)`` on each one,
-        so across a long interval the radiator settles below the supply water
-        instead of extrapolating the drive it had at the start.
+        Covers the interval with the sub-steps :meth:`linearised_system`
+        composes, each one an Euler step that re-evaluates the valve drive
+        ``u·(T_water − T_rad)``, so across a long interval the radiator settles
+        below the supply water instead of extrapolating the drive it had at
+        the start. Under a constant ``u`` every sub-step is the same affine
+        map, so the composition is one matrix power whose cost grows with the
+        logarithm of the sub-step count.
+
+        ``disturbance_rate`` (K/min) is a constant heat load on the room. It
+        passes through the room's own loss term, so over a long interval it
+        shifts the room by at most ``disturbance_rate·τ_room`` rather than
+        growing with the interval.
         """
         n_steps, dt_min = self._substeps(dt_s)
-        for _ in range(n_steps):
-            x = self._euler_step(x, u, outdoor_temperature, 0.0, dt_min)
-        return x
+        step = self._affine_step(u, outdoor_temperature, dt_min, disturbance_rate)
+        transition = np.linalg.matrix_power(step, n_steps)
+        n = self.state_dim
+        return transition[:n, :n] @ np.asarray(x, dtype=float)[:n] + transition[:n, n]
 
     def _euler_step(
         self,
@@ -97,13 +122,49 @@ class PlantModelRC2:
         u_clamped = max(0.0, min(1.0, u))
         T_room, T_rad = float(x[0]), float(x[1])
         dT_rad = (
-            p.gain_heater * u_clamped * (p.T_water_C - T_rad) - (T_rad - T_room)
+            p.gain_heater * u_clamped * (p.T_water - T_rad) - (T_rad - T_room)
         ) / p.tau_rad_min
         dT_room = (
             p.coupling_rad_room * (T_rad - T_room) - (T_room - outdoor_temperature)
         ) / p.tau_room_min
         return np.array(
             [T_room + (dT_room + disturbance_rate) * dt_min, T_rad + dT_rad * dt_min]
+        )
+
+    def _affine_step(
+        self,
+        u: float,
+        outdoor_temperature: float,
+        dt_min: float,
+        disturbance_rate: float = 0.0,
+    ) -> FloatArray:
+        """Return one Euler step of ``dt_min`` as an augmented affine matrix.
+
+        The 3×3 result ``[[A, c], [0, 1]]`` maps ``[T_room, T_rad, 1]`` the
+        way :meth:`_euler_step` does: under a fixed valve fraction the drive
+        ``u·(T_water − T_rad)`` is affine in the state, so one step is
+        ``x ↦ A·x + c``. The disturbance rate (K/min) adds to the room's
+        offset.
+        """
+        p = self.params
+        u_clamped = max(0.0, min(1.0, u))
+        rad_rate = dt_min / p.tau_rad_min
+        room_rate = dt_min / p.tau_room_min
+        drive = p.gain_heater * u_clamped
+        return np.array(
+            [
+                [
+                    1.0 - room_rate * (p.coupling_rad_room + 1.0),
+                    room_rate * p.coupling_rad_room,
+                    room_rate * outdoor_temperature + disturbance_rate * dt_min,
+                ],
+                [
+                    rad_rate,
+                    1.0 - rad_rate * (1.0 + drive),
+                    rad_rate * drive * p.T_water,
+                ],
+                [0.0, 0.0, 1.0],
+            ]
         )
 
     @property
@@ -123,53 +184,62 @@ class PlantModelRC2:
         n_steps = max(1, int(np.ceil(total_s / max(self.dt_s, 1e-9))))
         return n_steps, (total_s / n_steps) / 60.0
 
-    def linearised_AB(
-        self, T_outdoor_C: float, T_rad_op_C: float, dt_s: float | None = None
+    def linearised_system(
+        self, T_outdoor: float, T_rad_op: float, dt_s: float | None = None
     ) -> tuple[FloatArray, FloatArray, FloatArray]:
         """Return ``(A, B, d)`` for ``x_{k+1} = A·x + B·u + d``.
 
         The Jacobian is constant in ``x`` (the plant is linear) but ``B``
         depends on the radiator operating point because of the bilinear
-        ``u·(T_water − T_rad)`` term — we evaluate at ``T_rad_op_C``.
-
-        ``dt_s`` defaults to the plant step. A longer interval is composed from
-        nominal-sized sub-steps into one equivalent affine transition, since a
-        single Euler step over it destabilises the faster radiator state.
+        ``u·(T_water − T_rad)`` term — we evaluate at ``T_rad_op``.
         """
         p = self.params
+        # The MPC optimiser deliberately uses a fixed coarse grid, while the
+        # observer must advance by the *actual* elapsed time between sensor
+        # updates. A direct Euler step over a long sensor gap destabilises the
+        # faster radiator state, so compose nominal-sized substeps into one
+        # equivalent affine transition instead.
         n_steps, dt_min = self._substeps(dt_s)
         a_rad_room = dt_min / p.tau_rad_min
         a_rad_rad = 1.0 - dt_min / p.tau_rad_min
-        b_rad = dt_min * p.gain_heater * (p.T_water_C - T_rad_op_C) / p.tau_rad_min
+        b_rad = dt_min * p.gain_heater * (p.T_water - T_rad_op) / p.tau_rad_min
         a_room_room = 1.0 - dt_min * (p.coupling_rad_room + 1.0) / p.tau_room_min
         a_room_rad = dt_min * p.coupling_rad_room / p.tau_room_min
-        d_room = dt_min * T_outdoor_C / p.tau_room_min
-        A_step = np.array([[a_room_room, a_room_rad], [a_rad_room, a_rad_rad]])
-        B_step = np.array([[0.0], [b_rad]])
-        d_step = np.array([d_room, 0.0])
-        A = np.eye(self.state_dim)
-        B = np.zeros((self.state_dim, 1))
-        d = np.zeros(self.state_dim)
-        for _ in range(n_steps):
-            B = A_step @ B + B_step
-            d = A_step @ d + d_step
-            A = A_step @ A
+        d_room = dt_min * T_outdoor / p.tau_room_min
+        # One sub-step acts on ``[T_room, T_rad, u, 1]`` as the augmented
+        # matrix ``[[A, B, d], [0, 1, 0], [0, 0, 1]]``; its n-th power holds
+        # ``A^n`` and the accumulated ``Σ A^k·B`` and ``Σ A^k·d`` of the
+        # composed transition. Repeated squaring keeps a long sensor gap at
+        # a few matrix products instead of one product per sub-step.
+        step = np.array(
+            [
+                [a_room_room, a_room_rad, 0.0, d_room],
+                [a_rad_room, a_rad_rad, b_rad, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        transition = np.linalg.matrix_power(step, n_steps)
+        n = self.state_dim
+        A = transition[:n, :n].copy()
+        B = transition[:n, n : n + 1].copy()
+        d = transition[:n, n + 1].copy()
         return A, B, d
 
-    def steady_radiator_temp(
-        self, T_setpoint_C: float, T_outdoor_C: float, D_hat_K_per_min: float = 0.0
+    def steady_radiator_temperature(
+        self, T_setpoint: float, T_outdoor: float, D_hat_K_per_min: float = 0.0
     ) -> float:
-        """Return the radiator temperature that holds ``T_setpoint_C`` at steady state.
+        """Return the radiator temperature that holds ``T_setpoint`` at steady state.
 
         From the room heat-loss balance: the loss the radiator must cover is
         ``(T_setpoint − T_outdoor) − D̂·τ_room``, and dividing by the radiator↔room
         coupling gives the radiator overshoot above setpoint.
         """
         p = self.params
-        loss_K = (T_setpoint_C - T_outdoor_C) - D_hat_K_per_min * p.tau_room_min
-        return T_setpoint_C + loss_K / max(p.coupling_rad_room, 1e-6)
+        loss_K = (T_setpoint - T_outdoor) - D_hat_K_per_min * p.tau_room_min
+        return T_setpoint + loss_K / max(p.coupling_rad_room, 1e-6)
 
-    def hottest_radiator_temp(self, room_temperature: float) -> float:
+    def hottest_radiator_temperature(self, room_temperature: float) -> float:
         """Return the radiator temperature a fully open valve holds.
 
         The radiator balance at ``u = 1`` with the room at
@@ -177,22 +247,24 @@ class PlantModelRC2:
         """
         p = self.params
         g = p.gain_heater
-        return (g * p.T_water_C + room_temperature) / (g + 1.0)
+        return (g * p.T_water + room_temperature) / (g + 1.0)
 
     def steady_input(
-        self, T_setpoint_C: float, T_outdoor_C: float, D_hat_K_per_min: float = 0.0
+        self, T_setpoint: float, T_outdoor: float, D_hat_K_per_min: float = 0.0
     ) -> float:
-        """Return the valve fraction that holds ``T_setpoint_C`` at steady state.
+        """Return the valve fraction that holds ``T_setpoint`` at steady state.
 
         Solves the RC2 fixed point: the heat-loss balance fixes the radiator
         temperature, which fixes the valve fraction. The result is **not**
         clamped to ``[0, 1]`` — callers saturate it or test it for feasibility.
+        A setpoint that needs a radiator at or above the supply water is out of
+        reach at any valve opening and returns ``math.inf``.
 
         Parameters
         ----------
-        T_setpoint_C : float
+        T_setpoint : float
             Target room temperature.
-        T_outdoor_C : float
+        T_outdoor : float
             Outdoor temperature driving the loss term.
         D_hat_K_per_min : float, optional
             Estimated lumped disturbance (K/min); subtracted from the loss.
@@ -200,9 +272,17 @@ class PlantModelRC2:
         Returns
         -------
         float
-            Steady-state valve fraction (unclamped).
+            Steady-state valve fraction (unclamped); ``math.inf`` when no
+            valve fraction holds the setpoint.
         """
         p = self.params
-        T_rad_ss = self.steady_radiator_temp(T_setpoint_C, T_outdoor_C, D_hat_K_per_min)
-        denom = max(p.gain_heater * (p.T_water_C - T_rad_ss), 1e-6)
-        return (T_rad_ss - T_setpoint_C) / denom
+        T_rad_ss = self.steady_radiator_temperature(
+            T_setpoint, T_outdoor, D_hat_K_per_min
+        )
+        heat_demand_K = T_rad_ss - T_setpoint
+        valve_drive = p.gain_heater * (p.T_water - T_rad_ss)
+        if valve_drive <= 0.0:
+            # The radiator would have to reach the supply water: a heat demand
+            # is unreachable, no demand is held with the valve shut.
+            return math.inf if heat_demand_K > 0.0 else 0.0
+        return heat_demand_K / valve_drive

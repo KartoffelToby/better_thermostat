@@ -5,6 +5,8 @@ blueprint:
     no one is home, and restores the normal (None) preset when someone arrives.
     Uses any combination of person entities, device trackers, or a binary
     sensor (e.g. a group-based occupancy sensor) to determine presence.
+    Requires the Away preset, and the preset chosen for arrival if it is not
+    None, to be enabled in your Better Thermostat configuration.
   domain: automation
   source_url: https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/presence_away_preset.yaml
   input:

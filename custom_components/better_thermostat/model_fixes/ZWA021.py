@@ -14,7 +14,15 @@ from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNKNOWN
 from homeassistant.exceptions import HomeAssistantError
 
-from ..utils.const import CalibrationType
+from custom_components.better_thermostat.model_fixes.types import (
+    ModelFixHost,
+    ModelQuirks,
+    UnknownStateQuirk,
+    ValveQuirk,
+)
+
+from ..utils.const import CalibrationOutput
+from ..utils.helpers import configured_calibration_output
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,52 +52,55 @@ _VALVE_MAX = 99
 _VALVE_MODE_ENGAGED = "_zwa021_valve_mode_engaged"
 
 
-def _is_direct_valve(self, entity_id):
+def _is_direct_valve(self: ModelFixHost, entity_id: str) -> bool:
     """Return True when this TRV is configured for direct valve control."""
-    adv = self.real_trvs[entity_id].advanced or {}
-    return adv.get("calibration") == CalibrationType.DIRECT_VALVE_BASED
+    return (
+        configured_calibration_output(self.real_trvs[entity_id].advanced)
+        == CalibrationOutput.DIRECT_VALVE_BASED
+    )
 
 
-# When Thermostat Mode is set to command class (0x40) with the manufacturer-specific mode
-# TRV Climate entity state is reported as STATE_UNKNOWN, but the device is actually available and controllable.
-# This flag allows the Better Thermostat to treat STATE_UNKNOWN as available for this model.
-# This is a model-specific quirk, so it is set here in the model quirks
-def trv_state_unknown_as_available(self, entity_id):
-    """Return whether this TRV uses direct valve control.
+def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
+    """Answer whether the TRV is operating while its state reads ``unknown``.
+
+    The manufacturer-specific thermostat mode is not one the climate entity
+    describes, so the entity reports ``unknown`` for as long as the device
+    is in it. The device is reachable throughout and takes the valve
+    positions Better Thermostat writes.
 
     Parameters
     ----------
-    self : BetterThermostat
-        The Better Thermostat climate entity instance
+    self : ModelFixHost
+        Host providing Home Assistant access and the per-TRV records
     entity_id : str
-        Entity identifier of the TRV to check.
+        Entity ID of the TRV being judged
 
     Returns
     -------
     bool
-        ``True`` when this TRV uses direct valve-based calibration and should
-        be treated as available while its Climate entity state is unknown;
-        otherwise, ``False``.
+        True while this TRV is configured for direct valve control, the
+        only setting under which the quirk engages that mode.
     """
     return _is_direct_valve(self, entity_id)
 
 
-def fix_local_calibration(self, entity_id, offset):
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Return the given local calibration offset unchanged."""
-    return offset
+    return calibration_offset
 
 
-def fix_valve_calibration(self, entity_id, valve):
-    """Return the given valve calibration unchanged."""
-    return valve
-
-
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """Return the given target temperature unchanged."""
     return temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
     """Engage the manufacturer-specific mode for direct valve control.
 
     Only active when the TRV is configured for direct valve control and the
@@ -120,7 +131,7 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
     extra.pop(_VALVE_MODE_ENGAGED, None)
 
     _LOGGER.debug(
-        "better_thermostat %s: TRV %s Spirit/ZWA021 manufacturer-specific valve mode",
+        "better_thermostat %s: TRV %s ZWA021 manufacturer-specific valve mode",
         self.device_name,
         entity_id,
     )
@@ -143,7 +154,7 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
         # valve mode, so the standard climate service is the one that can
         # still make it heat.
         _LOGGER.warning(
-            "better_thermostat %s: Spirit/ZWA021 valve mode write for %s failed: %s",
+            "better_thermostat %s: ZWA021 valve mode write for %s failed: %s",
             self.device_name,
             entity_id,
             ex,
@@ -153,12 +164,14 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
     return True
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """Do not override set temperature."""
     return False
 
 
-async def override_set_valve(self, entity_id, percent):
+async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -> bool:
     """Drive the valve directly via the Multilevel Switch command class.
 
     Active only in direct valve control; otherwise, and when the device
@@ -170,12 +183,12 @@ async def override_set_valve(self, entity_id, percent):
     if not _is_direct_valve(self, entity_id):
         return False
     try:
-        value = int(round(min(max(float(percent), 0.0), 100.0) / 100.0 * _VALVE_MAX))
+        value = round(min(max(float(percent), 0.0), 100.0) / 100.0 * _VALVE_MAX)
     except TypeError, ValueError:
         return False
 
     _LOGGER.debug(
-        "better_thermostat %s: TRV %s Spirit/ZWA021 set valve %s%% -> %s/%s",
+        "better_thermostat %s: TRV %s ZWA021 set valve %s%% -> %s/%s",
         self.device_name,
         entity_id,
         percent,
@@ -200,10 +213,28 @@ async def override_set_valve(self, entity_id, percent):
         # recording a position the valve never reached, and leaves it free to
         # try the generic valve channel.
         _LOGGER.warning(
-            "better_thermostat %s: Spirit/ZWA021 valve write for %s failed: %s",
+            "better_thermostat %s: ZWA021 valve write for %s failed: %s",
             self.device_name,
             entity_id,
             ex,
         )
         return False
     return True
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+    override_set_valve = staticmethod(override_set_valve)
+    trv_state_unknown_as_available = staticmethod(trv_state_unknown_as_available)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()
+_UNKNOWN_STATE_QUIRK: UnknownStateQuirk = _Surface()
+_VALVE_QUIRK: ValveQuirk = _Surface()

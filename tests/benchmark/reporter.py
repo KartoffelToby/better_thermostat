@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 import statistics
 
@@ -36,13 +36,13 @@ class ScoreMatrixRow:
     scenario_count: int
 
 
-def format_metric(val: float, decimals: int = 2) -> str:
+def format_metric(value: float, decimals: int = 2) -> str:
     """Format a metric value for human-readable output."""
-    if math.isinf(val):
+    if math.isinf(value):
         return "  inf"
-    if math.isnan(val):
+    if math.isnan(value):
         return "  NaN"
-    return f"{val:.{decimals}f}"
+    return f"{value:.{decimals}f}"
 
 
 # -----------------------------------------------------------------------------
@@ -94,6 +94,53 @@ def score_results(
                 )
             )
     return out
+
+
+def average_over_seeds(
+    per_seed: list[list[ScoredResult]],
+) -> tuple[list[ScoredResult], list[ScoredResult]]:
+    """Average each (block, controller, scenario) cell over several noise seeds.
+
+    Parameters
+    ----------
+    per_seed : list of list of ScoredResult
+        One scored run per seed; the first one supplies each cell's
+        metrics and block label.
+
+    Returns
+    -------
+    tuple of list of ScoredResult
+        The cells with their scores averaged over the seeds, and the same
+        cells carrying each score's spread (max − min) instead.
+    """
+    cells: dict[tuple[str, str, str], list[ScoredResult]] = {}
+    for run in per_seed:
+        for sr in run:
+            key = (sr.block_label, sr.controller, sr.scenario)
+            cells.setdefault(key, []).append(sr)
+    means: list[ScoredResult] = []
+    spreads: list[ScoredResult] = []
+    for group in cells.values():
+        dims = {
+            d: [getattr(sr.scores, d) for sr in group]
+            for d in ("comfort", "actuator", "energy", "overall")
+        }
+        first = group[0]
+        means.append(
+            replace(
+                first,
+                scores=DimensionScores(
+                    **{d: statistics.mean(v) for d, v in dims.items()}
+                ),
+            )
+        )
+        spreads.append(
+            replace(
+                first,
+                scores=DimensionScores(**{d: max(v) - min(v) for d, v in dims.items()}),
+            )
+        )
+    return means, spreads
 
 
 def _mean(values: list[float]) -> float:
@@ -243,7 +290,9 @@ def render_plant_sweep(
     return "\n".join(lines)
 
 
-def render_per_scenario(scored: list[ScoredResult], profile: UserProfile) -> str:
+def render_per_scenario(
+    scored: list[ScoredResult], profile: UserProfile, title: str | None = None
+) -> str:
     """Render the controller × scenario matrix (one row per scenario, overall score per cell).
 
     When the results span more than one block label, rows are keyed by
@@ -264,7 +313,8 @@ def render_per_scenario(scored: list[ScoredResult], profile: UserProfile) -> str
 
     lines: list[str] = []
     lines.append("")
-    lines.append(f"Per-scenario overall scores — profile: {profile.name}")
+    heading = title if title is not None else "Per-scenario overall scores"
+    lines.append(f"{heading} — profile: {profile.name}")
     header = f"  {'scenario':<34}" + "".join(f"{c[:9]:>10}" for c in controllers)
     lines.append(header)
     lines.append("  " + "-" * (len(header) - 2))

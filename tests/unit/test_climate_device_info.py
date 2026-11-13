@@ -12,13 +12,15 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils.const import DOMAIN
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
+_CLIMATE = "custom_components.better_thermostat.climate"
 BT_UID = "bt_uid"
 
 
 def _bt(all_trvs):
     """Build the minimum a device_info read touches."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.unique_id = BT_UID
     bt.device_name = "Test BT"
     bt.model = "TRVZB"
@@ -29,10 +31,9 @@ def _bt(all_trvs):
 
 def _registries(trv_device, *, device_id="trv_device_id"):
     """Build the entity and device registries device_info reads."""
-    entity_entry = MagicMock()
-    entity_entry.device_id = device_id
-    er_reg = MagicMock()
-    er_reg.async_get.return_value = entity_entry
+    er_reg = make_entity_registry(
+        make_registry_entry("climate.trv", device_id=device_id)
+    )
 
     dr_reg = MagicMock()
     dr_reg.async_get.return_value = trv_device
@@ -54,17 +55,14 @@ def _device(device_id, identifiers, connections=frozenset()):
 
 
 def _read_device_info(bt, er_reg, dr_reg):
-    """Read the property off an instance the test assembled itself.
-
-    device_info imports the two registries inside the call, so the patch has
-    to land on the helper modules rather than on a name the climate module
-    holds.
-    """
+    """Read the property off an instance the test assembled itself."""
     with (
-        patch("homeassistant.helpers.entity_registry.async_get", return_value=er_reg),
-        patch("homeassistant.helpers.device_registry.async_get", return_value=dr_reg),
+        patch(f"{_CLIMATE}.er.async_get", return_value=er_reg),
+        patch(f"{_CLIMATE}.dr.async_get", return_value=dr_reg),
     ):
-        return BetterThermostat.device_info.fget(bt)
+        getter = BetterThermostat.device_info.fget
+        assert getter is not None
+        return getter(bt)
 
 
 def _non_real_device_registries(kind, *, device_id="trv_device_id"):
@@ -75,10 +73,9 @@ def _non_real_device_registries(kind, *, device_id="trv_device_id"):
     while ``include_composite_devices`` is set. Switching that flag off yields
     nothing, which is what the registry does for such an id.
     """
-    entity_entry = MagicMock()
-    entity_entry.device_id = device_id
-    er_reg = MagicMock()
-    er_reg.async_get.return_value = entity_entry
+    er_reg = make_entity_registry(
+        make_registry_entry("climate.trv", device_id=device_id)
+    )
 
     device = _device(device_id, {("mqtt", "0x1234")})
 
@@ -92,7 +89,8 @@ def _non_real_device_registries(kind, *, device_id="trv_device_id"):
 
 def test_device_info_names_the_trv_device_by_its_registry_id():
     """The via link carries the TRV's device id, not one of its identifiers."""
-    er_reg, dr_reg = _registries(_device("trv_device_id", {("mqtt", "0x1234")}))
+    trv_device = _device("trv_device_id", {("mqtt", "0x1234")})
+    er_reg, dr_reg = _registries(trv_device)
 
     info = _read_device_info(_bt([{"trv": "climate.trv"}]), er_reg, dr_reg)
 
@@ -118,9 +116,8 @@ def test_device_info_links_a_trv_device_that_carries_no_identifiers():
 
 def test_device_info_omits_the_link_for_a_trv_on_the_bt_device_itself():
     """A self-referencing via link is refused by the registry, so it is not written."""
-    er_reg, dr_reg = _registries(
-        _device("bt_device_id", {(DOMAIN, BT_UID)}), device_id="bt_device_id"
-    )
+    trv_device = _device("bt_device_id", {(DOMAIN, BT_UID)})
+    er_reg, dr_reg = _registries(trv_device, device_id="bt_device_id")
 
     info = _read_device_info(_bt([{"trv": "climate.trv"}]), er_reg, dr_reg)
 

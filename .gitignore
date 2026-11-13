@@ -30,7 +30,9 @@ env/
 .env
 
 # Testing
+tests/testing_config/
 .coverage
+coverage.json
 .pytest_cache/
 .tox/
 htmlcov/
@@ -70,6 +72,7 @@ home-assistant_v2.db
 # Project specific
 x_*
 dashboard/*
+RELEASE.md
 
 # Logs
 *.log
@@ -88,9 +91,10 @@ node_modules
 .mcp.json
 .memory/
 .opencode/
-AGENTS.md
+.playwright-mcp/
 CLAUDE.md
 STACK.md
 opencode.json
 .codebase-memory
 .serena
+RELEASE.md

@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import logging
+import math
 from statistics import mean
-from typing import Any
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_HIGH,
@@ -23,6 +23,7 @@ from homeassistant.core import State
 
 from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
 from .helpers import convert_to_float_celsius, state_temperature_unit
+from .stored_values import stored_float
 from .thermal_learning import clamp
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ def mean_trv_target(
     states: list[State],
     device_name: str,
     context: str = "restore(target)",
-    system_unit: str | None = None,
+    *,
+    system_unit: str,
 ) -> float | None:
     """Mean of the valid TRV target temperatures, each converted to Celsius.
 
@@ -55,7 +57,7 @@ def mean_trv_target(
     return mean(temps) if temps else None
 
 
-def saved_heating_target(attributes: Mapping[str, Any]) -> Any:
+def saved_heating_target(attributes: Mapping[str, object]) -> object:
     """Read the heating target out of the attributes a thermostat published.
 
     Which key carries it depends on what the entity advertised. Home Assistant
@@ -70,12 +72,12 @@ def saved_heating_target(attributes: Mapping[str, Any]) -> Any:
 
     Parameters
     ----------
-    attributes : Mapping[str, Any]
+    attributes : Mapping[str, object]
             the attributes of the state the thermostat saved
 
     Returns
     -------
-    Any
+    object
             the raw saved heating target, or ``None`` when neither key carries
             one
     """
@@ -85,7 +87,7 @@ def saved_heating_target(attributes: Mapping[str, Any]) -> Any:
     return attributes.get(ATTR_TARGET_TEMP_LOW)
 
 
-def saved_cooling_target(attributes: Mapping[str, Any]) -> Any:
+def saved_cooling_target(attributes: Mapping[str, object]) -> object:
     """Read the cooling target out of the attributes a thermostat published.
 
     Only an entity advertising a temperature range publishes one, and Home
@@ -93,25 +95,45 @@ def saved_cooling_target(attributes: Mapping[str, Any]) -> Any:
 
     Parameters
     ----------
-    attributes : Mapping[str, Any]
+    attributes : Mapping[str, object]
             the attributes of the state the thermostat saved
 
     Returns
     -------
-    Any
+    object
             the raw saved cooling target, or ``None`` when the attributes carry
             no such key
     """
     return attributes.get(ATTR_TARGET_TEMP_HIGH)
 
 
+def _saved_celsius(
+    saved: object, device_name: str, context: str, system_unit: str
+) -> float | None:
+    """Convert a saved temperature to Celsius, or ``None`` if it is no number.
+
+    A saved value is whatever JSON value the state held; only a string or a
+    number can carry a temperature.
+    """
+    if not isinstance(saved, str | int | float):
+        return None
+    return convert_to_float_celsius(saved, device_name, context, system_unit)
+
+
+def restore_cooling_target(
+    saved: object, device_name: str, system_unit: str
+) -> float | None:
+    """Return the saved cooling target in Celsius, or ``None`` if unusable."""
+    return _saved_celsius(saved, device_name, "startup()", system_unit)
+
+
 def restore_target_temperature(
-    saved: str | int | float | None,
+    saved: object,
     states: list[State],
     min_temp: float | None,
     max_temp: float | None,
     device_name: str,
-    system_unit: str | None = None,
+    system_unit: str,
 ) -> float | None:
     """Resolve the restored heating target.
 
@@ -123,7 +145,7 @@ def restore_target_temperature(
     if saved is None:
         return mean_trv_target(states, device_name, system_unit=system_unit)
 
-    value = convert_to_float_celsius(
+    value = _saved_celsius(
         saved, device_name, "restore_target_temperature", system_unit
     )
     if value is None:
@@ -158,14 +180,16 @@ def restore_target_temperature(
     return value
 
 
-def clamp_heating_power(raw: str | int | float | None, device_name: str) -> float:
+def clamp_heating_power(raw: object, device_name: str) -> float:
     """Parse and clamp a restored heating-power value to its valid range.
 
     A missing or non-numeric value falls back to ``0.01`` before clamping.
     """
     try:
-        value = 0.01 if raw is None else float(raw)
+        value = 0.01 if raw is None else stored_float(raw)
     except TypeError, ValueError:
+        value = 0.01
+    if not math.isfinite(value):
         value = 0.01
     bounded = clamp(value, MIN_HEATING_POWER, MAX_HEATING_POWER)
     if bounded != value:
@@ -181,12 +205,14 @@ def clamp_heating_power(raw: str | int | float | None, device_name: str) -> floa
     return bounded
 
 
-def clamp_heat_loss(raw: str | int | float | None) -> float | None:
+def clamp_heat_loss(raw: object) -> float | None:
     """Parse and clamp a restored heat-loss value, or ``None`` if not numeric."""
     if raw is None:
         return None
     try:
-        value = float(raw)
+        value = stored_float(raw)
     except TypeError, ValueError:
+        return None
+    if not math.isfinite(value):
         return None
     return clamp(value, MIN_HEAT_LOSS, MAX_HEAT_LOSS)

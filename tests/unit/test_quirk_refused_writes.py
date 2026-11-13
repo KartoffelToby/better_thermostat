@@ -6,15 +6,13 @@ device that is asleep, a node out of range, an integration reloading its
 config entry, a missing service, or an entity that does not carry the
 option or the attribute the payload names.
 
-The quirks sit deep inside one control cycle, and they hold the lock that
-serialises every TRV of the instance while they run. An error escaping one
-ends that cycle for the TRV before its calibration and its setpoint are
-written and before the confirmation watchdogs are armed, and the control
-queue re-queues the failed cycle immediately, with nothing between the
-attempts. A device that refuses one write on every cycle therefore turns the
-loop into a spin. The generic adapter, which is what drives a TRV without a
-quirk, does not behave that way: it reports a refusal and leaves the caller
-to decide.
+The quirks sit deep inside one control cycle. An error escaping one ends
+that cycle for the TRV before its calibration and its setpoint are written,
+before the confirmation watchdogs are armed, and before the loop stamps its
+heartbeat. A device that is merely asleep therefore costs the room its whole
+cycle, and a device that refuses one write on every cycle costs it every one.
+The generic adapter, which is what drives a TRV without a quirk, does not
+behave that way: it reports a refusal and leaves the caller to decide.
 
 So each of these functions reports a refused write through its return
 value. ``False`` says no command reached the device, which is what routes
@@ -35,12 +33,19 @@ from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
-from custom_components.better_thermostat.model_fixes import (
-    SPZB0001 as spzb0001_quirk,
-    ZWA021 as zwa021_quirk,
+from custom_components.better_thermostat.model_fixes import SPZB0001, ZWA021
+from custom_components.better_thermostat.utils.const import (
+    GENERIC_MODEL,
+    CalibrationOutput,
 )
-from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.const import CalibrationType
+from tests.factories import (
+    RELEASE_SCOPES,
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    release_device,
+    trv_record,
+)
 
 # The device name carries a hyphen, so the module is reached by name.
 TV02 = import_module("custom_components.better_thermostat.model_fixes.TV02-Zigbee")
@@ -63,16 +68,17 @@ REFUSALS = [
 REFUSAL_IDS = ["unreachable", "unsupported", "transport"]
 
 
-def _host(state=None, model=None, advanced=None):
+def _host(state=None, model=GENERIC_MODEL, advanced=None):
     """A Better Thermostat stand-in whose every service call is refused."""
-    host = MagicMock()
+    host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
+    host.in_maintenance = False
     host.hass = MagicMock()
     host.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     host.hass.states.get.return_value = state
     host.hass.services.async_call = AsyncMock()
-    trv = Trv(entity_id=ENTITY_ID)
+    trv = trv_record(entity_id=ENTITY_ID)
     trv.model = model
     if advanced is not None:
         trv.advanced = advanced
@@ -119,6 +125,17 @@ class TestTheBoschRoomThermostatsDeclineARefusedSetpoint:
         host.hass.services.async_call.assert_awaited_once()
 
 
+def _services_called(host):
+    """The service names the host was actually asked for.
+
+    A refusal mocked as an ``AsyncMock`` side effect raises only once the
+    service is awaited, so a quirk that returns ``False`` without writing
+    anything satisfies the return-value assertion on its own. Naming the
+    service closes that gap.
+    """
+    return [call.args[1] for call in host.hass.services.async_call.await_args_list]
+
+
 class TestTheTuyaValveDeclinesARefusedCommand:
     """TV02-Zigbee writes the mode and the setpoint itself.
 
@@ -135,6 +152,7 @@ class TestTheTuyaValveDeclinesARefusedCommand:
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
         assert await TV02.override_set_hvac_mode(host, ENTITY_ID, "heat") is False
+        assert "set_hvac_mode" in _services_called(host)
 
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
     @pytest.mark.asyncio
@@ -149,6 +167,7 @@ class TestTheTuyaValveDeclinesARefusedCommand:
         host.hass.services.async_call = AsyncMock(side_effect=_refuse_the_setpoint)
 
         assert await TV02.override_set_temperature(host, ENTITY_ID, 21.0) is False
+        assert "set_temperature" in _services_called(host)
 
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
     @pytest.mark.asyncio
@@ -200,7 +219,8 @@ class TestTheZWaveValveDeclinesARefusedCommand:
     def _direct_valve_host():
         """A ZWA021 configured for direct valve control."""
         return _host(
-            model="ZWA021", advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED}
+            model="ZWA021",
+            advanced={"calibration": CalibrationOutput.DIRECT_VALVE_BASED},
         )
 
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
@@ -210,18 +230,25 @@ class TestTheZWaveValveDeclinesARefusedCommand:
         host = self._direct_valve_host()
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
-        answered = await zwa021_quirk.override_set_hvac_mode(host, ENTITY_ID, "heat")
+        answered = await ZWA021.override_set_hvac_mode(host, ENTITY_ID, "heat")
 
         assert answered is False
+        assert "set_value" in _services_called(host)
 
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
     @pytest.mark.asyncio
     async def test_a_refused_valve_write_is_declined(self, refusal):
-        """A position that never reached the valve is not one to record."""
+        """A refused position must not be recorded as the valve's own.
+
+        The recorded position is what the next cycle compares against, so
+        storing one the device declined would make the difference look
+        settled and stop the retry.
+        """
         host = self._direct_valve_host()
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
-        assert await zwa021_quirk.override_set_valve(host, ENTITY_ID, 50) is False
+        assert await ZWA021.override_set_valve(host, ENTITY_ID, 50) is False
+        assert "set_value" in _services_called(host)
 
 
 class TestTheEurotronicModeSelectReportsARefusedOption:
@@ -235,25 +262,19 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
     @staticmethod
     def _registry_holding_a_mode_select():
         """An entity registry whose device carries a TRV mode select."""
-        climate_entry = MagicMock(
-            entity_id=ENTITY_ID,
-            domain="climate",
+        climate_entry = make_registry_entry(
+            ENTITY_ID,
             device_id="device1",
             unique_id="0x1234_climate",
             original_name="TRV",
         )
-        select_entry = MagicMock(
-            entity_id="select.trv_trv_mode",
-            domain="select",
+        select_entry = make_registry_entry(
+            "select.trv_trv_mode",
             device_id="device1",
             unique_id="0x1234_trv_mode",
             original_name="Trv mode",
-            disabled_by=None,
         )
-        registry = MagicMock()
-        registry.async_get.return_value = climate_entry
-        registry.entities.values.return_value = [climate_entry, select_entry]
-        return registry
+        return make_entity_registry(climate_entry, select_entry)
 
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
     @pytest.mark.asyncio
@@ -263,13 +284,14 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
         with patch.object(
-            spzb0001_quirk.er,
+            SPZB0001.er,
             "async_get",
             lambda hass: self._registry_holding_a_mode_select(),
         ):
-            answered = await spzb0001_quirk.check_operation_mode(host, ENTITY_ID, "1")
+            answered = await SPZB0001.check_operation_mode(host, ENTITY_ID, "1")
 
         assert answered is False
+        assert "select_option" in _services_called(host)
 
     @pytest.mark.asyncio
     async def test_the_option_is_written_and_waited_for(self):
@@ -284,11 +306,11 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
         host.hass.services.async_call = AsyncMock(return_value=None)
 
         with patch.object(
-            spzb0001_quirk.er,
+            SPZB0001.er,
             "async_get",
             lambda hass: self._registry_holding_a_mode_select(),
         ):
-            assert await spzb0001_quirk.check_operation_mode(host, ENTITY_ID, "1")
+            assert await SPZB0001.check_operation_mode(host, ENTITY_ID, "1")
 
         host.hass.services.async_call.assert_awaited_once_with(
             "select",
@@ -301,20 +323,29 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
     @pytest.mark.asyncio
     async def test_a_refused_option_does_not_end_the_startup_tweak(self, refusal):
-        """The startup path runs this write among others."""
+        """A refused mode option must not escape `initial_tweak`.
+
+        The mode select is written during startup, ahead of the rest of the
+        TRV's initialisation. A refusal that propagated would take the
+        calibration setup, the valve channel and the first setpoint down
+        with it, leaving the device on whatever it woke up with. The device
+        keeping its old mode is a smaller loss than the TRV never being set
+        up at all, so the tweak answers None and the startup carries on.
+        """
         host = _host(
             state=State("select.trv_trv_mode", "2"),
             model="SPZB0001",
-            advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED},
+            advanced={"calibration": CalibrationOutput.DIRECT_VALVE_BASED},
         )
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
         with patch.object(
-            spzb0001_quirk.er,
+            SPZB0001.er,
             "async_get",
             lambda hass: self._registry_holding_a_mode_select(),
         ):
-            assert await spzb0001_quirk.initial_tweak(host, ENTITY_ID) is None
+            assert await SPZB0001.initial_tweak(host, ENTITY_ID) is None
+        assert "select_option" in _services_called(host)
 
 
 # Everything a quirk module may define that puts a command on a device,
@@ -326,7 +357,7 @@ WRITING_SURFACE = {
     "initial_tweak": ((), type(None)),
 }
 QUIRK_PACKAGE = "custom_components.better_thermostat.model_fixes"
-QUIRKS_DIR = Path(spzb0001_quirk.__file__).parent
+QUIRKS_DIR = Path(SPZB0001.__file__).parent
 NOT_A_MODEL = {"__init__", "model_quirks", "types"}
 
 
@@ -372,7 +403,7 @@ class TestNoQuirkLetsARefusalEscape:
         host = _host(
             state=_climate_state(RANGE_BIT),
             model=model,
-            advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED},
+            advanced={"calibration": CalibrationOutput.DIRECT_VALVE_BASED},
         )
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
@@ -380,7 +411,45 @@ class TestNoQuirkLetsARefusalEscape:
         if inspect.iscoroutine(answer):
             answer = await answer
 
+        # `isinstance(answer, bool)` would take True as well, and a quirk
+        # that swallows the refusal and reports success is exactly what this
+        # sweep exists to catch. The refusal contract names one answer, so
+        # the assertion names it too.
         if expected is type(None):
             assert answer is None
         else:
-            assert isinstance(answer, expected)
+            assert answer is False
+
+
+class TestTheTuyaValveGetsNothingOnceReleased:
+    """TV02-Zigbee pairs each command with its manual preset.
+
+    The devices can be released while the first of the two writes is under
+    way, and the second does not go out then.
+    """
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.parametrize(
+        ("command", "first_service"),
+        [
+            pytest.param("mode", "set_hvac_mode", id="mode_then_preset"),
+            pytest.param("setpoint", "set_preset_mode", id="preset_then_setpoint"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_second_write_is_not_sent(self, command, first_service, scope):
+        """The write under way completes; the one that would follow it does not."""
+        host = _host(model="TV02-Zigbee")
+
+        async def released_during_the_first(_domain, _service, _data, **_kwargs):
+            release_device(host, ENTITY_ID, scope)
+
+        host.hass.services.async_call = AsyncMock(side_effect=released_during_the_first)
+
+        if command == "mode":
+            handled = await TV02.override_set_hvac_mode(host, ENTITY_ID, "heat")
+        else:
+            handled = await TV02.override_set_temperature(host, ENTITY_ID, 21.0)
+
+        assert handled is True
+        assert _services_called(host) == [first_service]

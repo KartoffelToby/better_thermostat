@@ -8,7 +8,9 @@ does take still reaches it.
 """
 
 import asyncio
+from datetime import timedelta
 import logging
+from typing import override
 from unittest.mock import patch
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
@@ -21,9 +23,14 @@ from custom_components.better_thermostat.utils.controlling import (
     FAILED_CYCLE_BACKOFF_S,
 )
 
-from .conftest import SENSOR_ID, make_entry, setup_entry, wait_for, wait_for_startup
-
-BT_ENTITY = "climate.bt_test"
+from .conftest import (
+    BT_ENTITY,
+    make_entry,
+    set_room_sensor,
+    setup_entry,
+    wait_for,
+    wait_for_startup,
+)
 
 # The TRV advertises a wider range than it takes: every setpoint above this is
 # refused. A room target of 23.5 °C reaches it above that line once the
@@ -37,11 +44,23 @@ class _VirtualTime:
     """A clock that advances by every pause the integration asks for.
 
     The pauses themselves return at once, so a run of retries that spans
-    hours of device time passes in a moment.
+    hours of device time passes in a moment, and the entity's write budget
+    reads the same clock.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, real_clock) -> None:
         self.t = 0.0
+        self._real = real_clock
+        self._base = real_clock.monotonic()
+
+    def monotonic(self) -> float:
+        return self._base + self.t
+
+    def now(self):
+        return self._real.now() + timedelta(seconds=self.t)
+
+    def utcnow(self):
+        return self._real.utcnow() + timedelta(seconds=self.t)
 
 
 class _RoundLog(logging.Handler):
@@ -52,6 +71,7 @@ class _RoundLog(logging.Handler):
         self.clock = clock
         self.rounds: list[tuple[float, logging.LogRecord]] = []
 
+    @override
     def emit(self, record: logging.LogRecord) -> None:
         if "controlling TRV" in record.getMessage():
             self.rounds.append((self.clock.t, record))
@@ -61,19 +81,19 @@ class _RoundLog(logging.Handler):
 async def refusing_room(hass, fake_trv, request):
     """A running room whose TRV refuses every setpoint above a line.
 
-    Parametrize indirectly with "numbered" for a refusal whose message
+    Parametrize indirectly with ``"numbered"`` for a refusal whose message
     carries a running sequence number, the way a radio stack reports a
     timeout.
     """
     numbered = getattr(request, "param", "fixed") == "numbered"
     refusals = [0]
-    hass.states.async_set(SENSOR_ID, "18.0", {"unit_of_measurement": "°C"})
-    entry = make_entry()
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(fake_trv.profile)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
     await hass.async_block_till_done()
 
-    clock = _VirtualTime()
+    clock = _VirtualTime(bt.clock)
     real_sleep = asyncio.sleep
 
     async def virtual_sleep(delay, result=None, **kwargs):
@@ -109,10 +129,11 @@ async def refusing_room(hass, fake_trv, request):
             patch.object(
                 type(fake_trv), "async_set_temperature", refuse_high_setpoints
             ),
-            # Without the retry decorator's jitter every run of attempts
-            # spans the same time.
+            # The retry decorator's jitter would move the budget window from
+            # run to run; without it every run of attempts spans the same time.
             patch.object(retry.random, "uniform", return_value=0.0),
         ):
+            bt.clock = clock
             yield bt, fake_trv, log
     finally:
         logger.removeHandler(log)
@@ -134,7 +155,7 @@ async def test_a_refused_setpoint_is_retried_at_a_growing_distance(hass, refusin
     _bt, _trv, log = refusing_room
     await _set_target(hass, _REFUSED_TARGET)
 
-    assert await wait_for(hass, lambda: len(log.rounds) >= 11, timeout_s=20.0)
+    assert await wait_for(hass, lambda: len(log.rounds) >= 11, timeout_seconds=20.0)
 
     times = [t for t, _ in log.rounds[:11]]
     gaps = [later - earlier for earlier, later in zip(times, times[1:], strict=False)]
@@ -152,7 +173,7 @@ async def test_a_refused_setpoint_logs_its_traceback_once(hass, refusing_room):
     _bt, _trv, log = refusing_room
     await _set_target(hass, _REFUSED_TARGET)
 
-    assert await wait_for(hass, lambda: len(log.rounds) >= 6, timeout_s=20.0)
+    assert await wait_for(hass, lambda: len(log.rounds) >= 6, timeout_seconds=20.0)
 
     records = [record for _, record in log.rounds]
     assert [bool(r.exc_info) for r in records[:6]] == [True] + [False] * 5
@@ -170,16 +191,16 @@ async def test_a_target_the_trv_takes_reaches_it_after_a_refused_one(
     """
     bt, trv, log = refusing_room
     await _set_target(hass, _REFUSED_TARGET)
-    assert await wait_for(hass, lambda: len(log.rounds) >= 8, timeout_s=20.0)
+    assert await wait_for(hass, lambda: len(log.rounds) >= 8, timeout_seconds=20.0)
 
     await _set_target(hass, _TAKEN_TARGET)
 
     assert await wait_for(
         hass,
-        lambda: (trv.target_temperature or 99.0) <= _DEVICE_TAKES_UP_TO,
-        timeout_s=20.0,
+        lambda: (trv.native_target_temperature or 99.0) <= _DEVICE_TAKES_UP_TO,
+        timeout_seconds=20.0,
     ), trv.set_temperature_calls[-5:]
-    assert bt.bt_target_temp == _TAKEN_TARGET
+    assert bt.heat_target_temperature == _TAKEN_TARGET
 
     # A retry that was already due may still run a refused cycle while the
     # new target is on its way, so the count is taken once the device holds
@@ -188,7 +209,7 @@ async def test_a_target_the_trv_takes_reaches_it_after_a_refused_one(
     settled_rounds = len(log.rounds)
     settled_writes = len(trv.set_temperature_calls)
     assert not await wait_for(
-        hass, lambda: len(log.rounds) > settled_rounds, timeout_s=0.5
+        hass, lambda: len(log.rounds) > settled_rounds, timeout_seconds=0.5
     ), [record.getMessage() for _, record in log.rounds[settled_rounds:]]
     assert all(
         temperature <= _DEVICE_TAKES_UP_TO

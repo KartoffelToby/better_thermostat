@@ -15,12 +15,14 @@ from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
     device_setpoint_step,
     normalize_step,
+    published_setpoint_grid,
     read_setpoint_celsius,
     reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
     setpoint_echo_window,
 )
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.device"
 HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
@@ -28,7 +30,7 @@ HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
 
 def _fake_self(unit=UnitOfTemperature.CELSIUS):
     """Create a minimal BetterThermostat mock for the inbound helpers."""
-    mock_self = Mock()
+    mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
     mock_self.hass.config.units.temperature_unit = unit
     mock_self.bt_min_temp = 5.0
@@ -180,7 +182,7 @@ class TestDeviceSetpointStep:
     def _self(self, unit=UnitOfTemperature.CELSIUS, bt_step=0.5):
         """Build a BetterThermostat mock with a known configured step."""
         mock_self = _fake_self(unit)
-        mock_self.bt_target_temp_step = bt_step
+        mock_self.bt_target_temperature_step = bt_step
         return mock_self
 
     def test_celsius_step_is_taken_as_reported(self):
@@ -228,6 +230,58 @@ class TestSetpointEchoWindow:
         assert setpoint_echo_window(0.005) == SETPOINT_MATCH_TOLERANCE
 
 
+# A Celsius head on a Fahrenheit system that states no precision: Home
+# Assistant publishes every temperature it carries in whole degrees.
+_WHOLE_FAHRENHEIT_ATTRIBUTES = {
+    "min_temp": 39,
+    "max_temp": 87,
+    "current_temperature": 68,
+    "temperature": 72,
+    "target_temp_step": 0.5,
+}
+_ONE_FAHRENHEIT_DEGREE = 5.0 / 9.0
+
+
+class TestPublishedSetpointGrid:
+    """The grid a setpoint is written on, so it comes back as written."""
+
+    def test_whole_fahrenheit_coarsens_a_finer_step_to_a_degree(self):
+        """Half a degree written would come back on a whole one."""
+        grid = published_setpoint_grid(
+            0.5 * 5.0 / 9.0,
+            _state(_WHOLE_FAHRENHEIT_ATTRIBUTES),
+            UnitOfTemperature.FAHRENHEIT,
+        )
+        assert grid == pytest.approx(_ONE_FAHRENHEIT_DEGREE)
+
+    def test_whole_fahrenheit_keeps_a_coarser_step(self):
+        """A step of two degrees is already coarser than the published grid."""
+        step = 2.0 * 5.0 / 9.0
+        grid = published_setpoint_grid(
+            step, _state(_WHOLE_FAHRENHEIT_ATTRIBUTES), UnitOfTemperature.FAHRENHEIT
+        )
+        assert grid == step
+
+    def test_a_celsius_system_keeps_the_step(self):
+        """Whole degrees Celsius are what the device holds, not a rounding."""
+        grid = published_setpoint_grid(
+            0.5, _state(_WHOLE_FAHRENHEIT_ATTRIBUTES), UnitOfTemperature.CELSIUS
+        )
+        assert grid == 0.5
+
+    @pytest.mark.parametrize(
+        "attribute", ["current_temperature", "temperature", "target_temp_high"]
+    )
+    def test_a_finer_published_temperature_keeps_the_step(self, attribute):
+        """One temperature off the whole degrees, the setpoints among them, is enough."""
+        attributes = {**_WHOLE_FAHRENHEIT_ATTRIBUTES, attribute: 70.5}
+        step = 0.5 * 5.0 / 9.0
+        grid = published_setpoint_grid(
+            step, _state(attributes), UnitOfTemperature.FAHRENHEIT
+        )
+        assert grid == step
+
+
 class TestResolveInboundSetpoint:
     """Clamping and echo detection on a reported setpoint."""
 
@@ -256,6 +310,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.raw, result.value, result.clamped) == (21.0, 21.0, False)
 
     def test_value_above_range_is_clamped_and_raw_kept(self):
@@ -268,6 +323,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.raw, result.value, result.clamped) == (35.0, 30.0, True)
 
     def test_value_below_range_is_clamped(self):
@@ -280,6 +336,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.raw, result.value, result.clamped) == (2.0, 5.0, True)
 
     def test_value_within_a_step_of_a_known_value_is_an_echo(self):
@@ -292,6 +349,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert result.is_echo is True
 
     def test_a_full_step_away_is_user_input(self):
@@ -304,6 +362,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert result.is_echo is False
 
     def test_a_full_step_off_a_non_dyadic_grid_is_user_input(self):
@@ -320,6 +379,7 @@ class TestResolveInboundSetpoint:
             step=1.1111,
             log_source="t",
         )
+        assert result is not None
         assert result.is_echo is False
 
     def test_every_fahrenheit_step_is_user_input(self):
@@ -354,6 +414,7 @@ class TestResolveInboundSetpoint:
                 step=step,
                 log_source="t",
             )
+            assert result is not None
             assert result.is_echo is False, f"{fahrenheit} °F -> {fahrenheit + 1} °F"
 
     def test_non_numeric_known_values_are_ignored(self):
@@ -362,10 +423,11 @@ class TestResolveInboundSetpoint:
             _fake_self(),
             _state({"temperature": 22.0}),
             keys=TRV_SETPOINT_KEYS,
-            known_values=(None, "unset"),
+            known_values=(None,),
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert result.is_echo is False
 
     def test_unknown_bounds_do_not_raise(self):
@@ -381,6 +443,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.value, result.clamped) == (21.0, False)
 
     def test_known_bound_is_still_enforced_alone(self):
@@ -395,6 +458,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.value, result.clamped) == (5.0, True)
 
     def test_inverted_range_never_yields_a_value_above_the_maximum(self):
@@ -415,6 +479,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.value, result.clamped) == (20.0, True)
 
     def test_report_outside_the_range_matching_a_known_value_is_an_echo(self):
@@ -431,6 +496,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.raw, result.value, result.is_echo) == (2.0, 5.0, True)
 
     def test_echo_is_judged_after_clamping(self):
@@ -443,6 +509,7 @@ class TestResolveInboundSetpoint:
             step=0.5,
             log_source="t",
         )
+        assert result is not None
         assert (result.value, result.is_echo) == (30.0, True)
 
 
@@ -507,3 +574,14 @@ class TestResolveStateChangeEvent:
             context=mock_self.context,
         )
         assert resolve_state_change_event(mock_self, event, "TRV") is None
+
+    def test_own_context_is_kept_for_a_caller_that_reads_the_values(self):
+        """A caller that tells BT's writes apart by value gets the event."""
+        mock_self = _fake_self()
+        old_state = _state({"temperature": 20.0})
+        new_state = _state({"temperature": 21.0})
+        event = self._event(mock_self, old_state, new_state, context=mock_self.context)
+        resolved = resolve_state_change_event(
+            mock_self, event, "TRV", skip_own_context=False
+        )
+        assert resolved == (old_state, new_state, ENTITY_ID)

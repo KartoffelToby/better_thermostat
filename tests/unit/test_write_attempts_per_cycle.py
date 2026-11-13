@@ -14,20 +14,30 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.const import UnitOfTemperature
-from homeassistant.core import State
+from homeassistant.core import Context, State
 from homeassistant.exceptions import HomeAssistantError
+import probatio as vol
 import pytest
-import voluptuous as vol
 
 from custom_components.better_thermostat.adapters import (
     deconz,
     delegate,
     generic,
     mqtt,
+    shelly,
     tado,
+    zha,
     zwave_js,
 )
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.adapters.base import AdapterCapabilities
+from tests.factories import (
+    RELEASE_SCOPES,
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    release_device,
+    trv_record,
+)
 
 ENTITY_ID = "climate.trv"
 VALVE_ENTITY = "number.trv_valve_position"
@@ -45,10 +55,11 @@ CHANNELS = ("temperature", "hvac_mode", "offset", "valve")
 
 
 @pytest.fixture(autouse=True)
-def _no_helper_entity_is_disabled():
-    """The entity registry marks none of the TRV's helper entities disabled."""
-    registry = MagicMock()
-    registry.async_get.return_value = None
+def _helper_entities_registered_and_enabled():
+    """The registry holds the TRV's helper entities as enabled entries."""
+    registry = make_entity_registry(
+        make_registry_entry(VALVE_ENTITY), make_registry_entry(CALIBRATION_ENTITY)
+    )
     with patch(
         "custom_components.better_thermostat.utils.helpers.er.async_get",
         return_value=registry,
@@ -58,10 +69,10 @@ def _no_helper_entity_is_disabled():
 
 def _thermostat(adapter, quirks=None):
     """A thermostat with one TRV whose four write channels are ready."""
-    thermostat = MagicMock()
+    thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
-    thermostat.bt_target_temp_step = 0.5
-    trv = Trv.from_legacy_dict(ENTITY_ID, {})
+    thermostat.bt_target_temperature_step = 0.5
+    trv = trv_record(entity_id=ENTITY_ID)
     trv.valve_position_entity = VALVE_ENTITY
     trv.valve_position_writable = True
     trv.adapter = adapter
@@ -73,9 +84,10 @@ def _thermostat(adapter, quirks=None):
 def _adapter(**writes):
     """An adapter whose writes are the given mocks, answering ok otherwise."""
     return SimpleNamespace(
+        CAPABILITIES=AdapterCapabilities(offset_write=True, valve_write=True),
         set_temperature=writes.get("temperature", AsyncMock(return_value=None)),
         set_hvac_mode=writes.get("hvac_mode", AsyncMock(return_value=None)),
-        set_offset=writes.get("offset", AsyncMock(return_value=True)),
+        set_calibration_offset=writes.get("offset", AsyncMock(return_value=True)),
         set_valve=writes.get("valve", AsyncMock(return_value=None)),
     )
 
@@ -88,7 +100,7 @@ async def _write(channel, thermostat):
         if channel == "hvac_mode":
             return await delegate.set_hvac_mode(thermostat, ENTITY_ID, "heat")
         if channel == "offset":
-            return await delegate.set_offset(thermostat, ENTITY_ID, 1.0)
+            return await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.0)
         return await delegate.set_valve(thermostat, ENTITY_ID, 50)
     except HomeAssistantError as exc:
         return exc
@@ -238,13 +250,16 @@ MODE_ADAPTERS = {
     "deconz": deconz,
     "generic": generic,
     "mqtt": mqtt,
+    "shelly": shelly,
     "tado": tado,
+    "zha": zha,
     "zwave_js": zwave_js,
 }
 
 
 def _thermostat_on(adapter_module, service_call):
     thermostat = _thermostat(adapter_module)
+    thermostat.context = Context()
     thermostat.hass = MagicMock()
     thermostat.hass.services.async_call = service_call
     return thermostat
@@ -308,7 +323,7 @@ class TestARefusedModeChange:
             patch("asyncio.sleep", new=AsyncMock()),
             patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()),
         ):
-            answer = await delegate.set_offset(thermostat, ENTITY_ID, 1.0)
+            answer = await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.0)
 
         assert answer is True
         assert calls.count(("number", "set_value")) == 1
@@ -513,7 +528,10 @@ class TestTheModeRestoredAfterAnOffset:
         )
 
         with patch("asyncio.sleep", new=AsyncMock()):
-            assert await delegate.set_offset(thermostat, ENTITY_ID, 1.0) is True
+            assert (
+                await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.0)
+                is True
+            )
 
         assert "hvac_mode" not in trv.unreachable_write_channels
 
@@ -532,9 +550,9 @@ class TestTheModeRestoredAfterAnOffset:
             patch("asyncio.sleep", new=AsyncMock()),
             patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()),
         ):
-            await delegate.set_offset(thermostat, ENTITY_ID, 1.0)
+            await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.0)
             caplog.clear()
-            answer = await delegate.set_offset(thermostat, ENTITY_ID, 1.5)
+            answer = await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.5)
 
         assert answer is True
         assert [
@@ -557,7 +575,83 @@ class TestTheModeRestoredAfterAnOffset:
             patch("asyncio.sleep", new=AsyncMock()),
             patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()),
         ):
-            answer = await delegate.set_offset(thermostat, ENTITY_ID, 1.0)
+            answer = await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.0)
 
         assert answer is True
         assert thermostat.real_trvs[ENTITY_ID].last_calibration_requested == 1.0
+
+
+class TestNothingIsSentOnceTheDevicesAreReleased:
+    """A write under way when the devices are released sends nothing further.
+
+    The write that is already out completes. A retry due after the release,
+    the next valve channel and the mode an offset write restores are writes
+    of their own, and none of them goes out.
+    """
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel", CHANNELS)
+    async def test_a_retry_due_after_the_release_is_not_sent(self, channel, scope):
+        """The backoff the release lands in is the last thing the write does."""
+        write = AsyncMock(side_effect=_unreachable())
+        thermostat = _thermostat(_adapter(**{channel: write}))
+
+        async def released_during_the_backoff(_seconds):
+            release_device(thermostat, ENTITY_ID, scope)
+
+        sleeps = AsyncMock(side_effect=released_during_the_backoff)
+        with patch(f"{_RETRY}.asyncio.sleep", new=sleeps):
+            answer = await _write(channel, thermostat)
+
+        assert write.await_count == 1
+        assert sleeps.await_count == 1
+        assert answer is (None if channel == "temperature" else False)
+        assert thermostat.real_trvs[ENTITY_ID].unreachable_write_channels == {}
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_the_adapter_valve_channel_is_not_tried_after_the_release(
+        self, scope
+    ):
+        """A quirk that declines the position leaves nothing to the adapter."""
+
+        async def declined_while_released(_thermostat, _entity_id, _percent):
+            release_device(thermostat, ENTITY_ID, scope)
+            return False
+
+        quirks = SimpleNamespace(
+            override_set_valve=AsyncMock(side_effect=declined_while_released)
+        )
+        adapter = _adapter(valve=AsyncMock(return_value=None))
+        thermostat = _thermostat(adapter, quirks=quirks)
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 40)
+
+        assert answer is False
+        quirks.override_set_valve.assert_awaited_once()
+        adapter.set_valve.assert_not_awaited()
+        assert thermostat.real_trvs[ENTITY_ID].last_valve_percent is None
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_the_mode_after_an_offset_is_not_restored_once_released(self, scope):
+        """The head that left its mode is the user's by the time it is told."""
+        calls: list[str] = []
+
+        async def service_call(domain, service, data, **kwargs):
+            calls.append(domain)
+            if domain == "number":
+                release_device(thermostat, ENTITY_ID, scope)
+
+        thermostat = _thermostat_on(generic, service_call)
+        thermostat.hass.states.get = MagicMock(return_value=None)
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.local_temperature_calibration_entity = CALIBRATION_ENTITY
+        trv.last_hvac_mode = "heat"
+
+        with patch("asyncio.sleep", new=AsyncMock()):
+            answer = await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.0)
+
+        assert answer is True
+        assert calls == ["number"]

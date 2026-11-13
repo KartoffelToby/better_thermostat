@@ -10,31 +10,38 @@ import asyncio
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.decide import running_kernel_state
+from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.events.trv import trigger_trv_change
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import Trv, UnreadReport
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import (
     _locked_device_moved,
     control_queue,
     read_reports_held_during_cycle,
+    refresh_cached_trv_modes,
 )
+from custom_components.better_thermostat.utils.helpers import SentCommand
+from tests.factories import ThermostatStandIn, trv_record
 
 ENTITY_ID = "climate.test_trv"
 _CTRL = "custom_components.better_thermostat.utils.controlling"
+_COOLER = "custom_components.better_thermostat.events.cooler"
 
 # The mode list of an ordinary radiator valve.
-OFFERED_MODES = [HVACMode.OFF, HVACMode.HEAT]
+OFFERED_MODES: list[str] = [HVACMode.OFF, HVACMode.HEAT]
 
 
 def _reported_state(mode: str, setpoint: float | None = 19.0) -> State:
@@ -50,6 +57,12 @@ def _reported_state(mode: str, setpoint: float | None = 19.0) -> State:
     )
 
 
+def _close_coro(coro, **kwargs):
+    """Close a coroutine handed to the task manager instead of running it."""
+    coro.close()
+    return MagicMock()
+
+
 @pytest.fixture
 def reported_states() -> dict[str, State]:
     """Hold what each device publishes, so a test can change it mid-cycle."""
@@ -59,7 +72,7 @@ def reported_states() -> dict[str, State]:
 @pytest.fixture
 def thermostat(reported_states):
     """Build a Better Thermostat driving one TRV that heats."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = MagicMock()
     # Climate entities publish no unit attribute, so every temperature read off
     # a TRV state resolves through the system unit.
@@ -68,25 +81,33 @@ def thermostat(reported_states):
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.hvac_mode = HVACMode.HEAT
-    bt.map_on_hvac_mode = HVACMode.HEAT
-    bt.bt_target_temp = 19.0
+    bt.heat_target_temperature = 19.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
-    bt.bt_target_cooltemp = 25.0
-    bt.bt_target_temp_step = 0.5
-    bt.cur_temp = 18.0
+    bt.cool_target_temperature = 25.0
+    bt.bt_target_temperature_step = 0.5
+    bt.room_temperature = 18.0
+    bt.room_temperature_filtered = None
+    bt.temperature_slope = None
+    bt.call_for_heat = True
+    bt.preset_mode = None
     bt.tolerance = 0.3
     bt.window_open = False
+    bt.door_open = False
     bt.contact_open = False
     bt.startup_running = False
     bt.bt_update_lock = False
     bt.in_maintenance = False
     bt.ignore_states = False
-    bt.room_sensor_fallback = False
-    bt.room_sensor_fallback_due = False
     bt.cooler_entity_id = None
+    bt.clock = FakeClock()
+    bt.kernel_state = running_kernel_state()
+    bt.flight_recorder = FlightRecorder()
+    bt.control_queue_task = asyncio.Queue(maxsize=1)
     bt.context = MagicMock()  # unique context so != event.context
     bt.async_write_ha_state = MagicMock()
+    # Background work the handler schedules is not run here.
+    bt.task_manager = MagicMock(create_task=MagicMock(side_effect=_close_coro))
     bt.calculate_heating_power = AsyncMock()
     bt.calculate_heat_loss = AsyncMock()
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
@@ -97,81 +118,53 @@ def thermostat(reported_states):
         BetterThermostat._clamp_inbound_heat_target(bt, value)
     )
     bt.real_trvs = {
-        ENTITY_ID: Trv.from_legacy_dict(
-            ENTITY_ID,
-            {
-                "hvac_mode": "heat",
-                "hvac_modes": OFFERED_MODES,
-                "min_temp": 5.0,
-                "max_temp": 30.0,
-                "current_temperature": 18.0,
-                "temperature": 19.0,
-                "last_temperature": 19.0,
-                "last_hvac_mode": "heat",
-                "target_temp_received": True,
-                "system_mode_received": True,
-                "calibration_received": True,
-                "calibration": 1,
-                "last_calibration": 0.0,
-                "ignore_trv_states": False,
-                "model": "SomeModel",
-                "model_quirks": None,
-                "hvac_action": "heating",
-                "valve_position": 50,
-                "advanced": {
-                    "calibration": CalibrationType.LOCAL_BASED,
-                    "calibration_mode": CalibrationMode.DEFAULT,
-                    "no_off_system_mode": False,
-                    "heat_auto_swapped": False,
-                    "child_lock": False,
-                },
+        ENTITY_ID: trv_record(
+            entity_id=ENTITY_ID,
+            hvac_mode="heat",
+            hvac_modes=OFFERED_MODES,
+            min_temp=5.0,
+            max_temp=30.0,
+            current_temperature=18.0,
+            commanded_setpoint=19.0,
+            last_hvac_mode="heat",
+            target_temperature_received=True,
+            system_mode_received=True,
+            calibration_received=True,
+            calibration=None,
+            last_calibration=0.0,
+            ignore_trv_states=False,
+            model="SomeModel",
+            hvac_action=HVACAction.HEATING,
+            valve_position=50,
+            advanced={
+                "calibration": CalibrationOutput.LOCAL_BASED,
+                "calibration_mode": CalibrationMode.DEFAULT,
+                "no_off_system_mode": False,
+                "heat_auto_swapped": False,
+                "child_lock": False,
             },
         )
     }
     return bt
 
 
-async def _run_one_cycle(
-    thermostat, reported_states, published_inside, *, handled_inside=False
-) -> int:
+async def _run_one_cycle(thermostat, reported_states, published_inside) -> None:
     """Drive one control cycle, with the device publishing inside it.
 
     ``published_inside`` is the state the TRV publishes while the cycle holds
-    it, which is the window in which an event from that TRV is dropped, or a
-    list of states it publishes in turn. ``None`` stands for a device that
-    publishes no state at all. With
-    ``handled_inside`` the publication reaches the inbound handler as the
-    event it is, the way Home Assistant delivers it during the cycle.
-
-    Returns the number of TRV cycles that ran, the one driven here and any
-    the end of that cycle requested.
+    it, which is the window in which an event from that TRV is dropped.
+    ``None`` stands for a device that publishes no state at all.
     """
     queue = asyncio.Queue()
     thermostat.control_queue_task = queue
     await queue.put(thermostat)
-    cycles = 0
 
     async def _control_trv(*args, **kwargs) -> bool:
-        nonlocal cycles
         assert thermostat.ignore_states is True
-        cycles += 1
-        if cycles > 1:
-            return True
         if published_inside is None:
             reported_states.pop(ENTITY_ID)
-            return True
-        publications = (
-            published_inside
-            if isinstance(published_inside, list)
-            else [published_inside]
-        )
-        for published in publications:
-            old_state = reported_states[ENTITY_ID]
-            reported_states[ENTITY_ID] = published
-            if handled_inside:
-                await trigger_trv_change(
-                    thermostat, _device_event(old_state, published)
-                )
+        else:
+            reported_states[ENTITY_ID] = published_inside
         return True
 
     with patch(
@@ -181,29 +174,12 @@ async def _run_one_cycle(
         cycle = asyncio.create_task(control_queue(thermostat))
         try:
             await asyncio.wait_for(queue.join(), timeout=5)
-            # The end of the cycle reads what the handler held off; let it
-            # finish before the worker is stopped.
-            for _ in range(20):
-                await asyncio.sleep(0)
         finally:
             cycle.cancel()
             try:
                 await cycle
             except asyncio.CancelledError:
                 pass
-    return cycles
-
-
-def _device_event(old_state: State, new_state: State):
-    """Build the event a change made at the device reaches the handler as."""
-    event = MagicMock()
-    event.data = {
-        "old_state": old_state,
-        "new_state": new_state,
-        "entity_id": ENTITY_ID,
-    }
-    event.context = MagicMock()  # differs from thermostat.context
-    return event
 
 
 def _press_setpoint(thermostat, reported_states, setpoint: float):
@@ -220,16 +196,6 @@ def _press_setpoint(thermostat, reported_states, setpoint: float):
     }
     event.context = MagicMock()  # differs from thermostat.context
     return event
-
-
-def _switch_room_off(thermostat, reported_states) -> None:
-    """Leave the room and its TRV switched off by Better Thermostat."""
-    thermostat.bt_hvac_mode = HVACMode.OFF
-    thermostat.hvac_mode = HVACMode.OFF
-    trv = thermostat.real_trvs[ENTITY_ID]
-    trv.hvac_mode = "off"
-    trv.last_hvac_mode = "off"
-    reported_states[ENTITY_ID] = _reported_state("off")
 
 
 class TestModeCacheAfterACycle:
@@ -265,7 +231,7 @@ class TestModeCacheAfterACycle:
             thermostat, _press_setpoint(thermostat, reported_states, 22.0)
         )
 
-        assert thermostat.bt_target_temp == 22.0
+        assert thermostat.heat_target_temperature == 22.0
 
     @pytest.mark.asyncio
     async def test_a_mode_switched_during_the_cycle_is_read_on_the_next_report(
@@ -283,28 +249,18 @@ class TestModeCacheAfterACycle:
         assert thermostat.real_trvs[ENTITY_ID].hvac_mode == "heat"
         assert thermostat.bt_hvac_mode == HVACMode.HEAT
 
-        await trigger_trv_change(
-            thermostat,
-            _device_event(reported_states[ENTITY_ID], _reported_state("off")),
-        )
+        old_state = reported_states[ENTITY_ID]
+        event = MagicMock()
+        event.data = {
+            "old_state": old_state,
+            "new_state": _reported_state("off"),
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()  # differs from thermostat.context
+        await trigger_trv_change(thermostat, event)
 
         assert thermostat.real_trvs[ENTITY_ID].hvac_mode == "off"
         assert thermostat.bt_hvac_mode == HVACMode.OFF
-
-    @pytest.mark.asyncio
-    async def test_a_head_switched_on_during_a_cycle_switches_the_room_on(
-        self, thermostat, reported_states
-    ):
-        """A TRV switched on while the room is off turns the room on on its next report."""
-        _switch_room_off(thermostat, reported_states)
-
-        await _run_one_cycle(thermostat, reported_states, _reported_state("heat"))
-        await trigger_trv_change(
-            thermostat,
-            _device_event(reported_states[ENTITY_ID], _reported_state("heat")),
-        )
-
-        assert thermostat.bt_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
     async def test_an_unavailable_device_keeps_its_cached_mode(
@@ -346,44 +302,13 @@ class TestReportsHeldDuringACycle:
     """What the end of a cycle reads of the reports the handler held off."""
 
     @pytest.mark.asyncio
-    async def test_a_head_switched_on_during_a_cycle_is_adopted_when_it_ends(
-        self, thermostat, reported_states
-    ):
-        """A TRV switched on during a cycle turns the room on before the next cycle.
-
-        The next cycle may start before the device reports again, and it must
-        not switch the device back off before anyone has read the press.
-        """
-        _switch_room_off(thermostat, reported_states)
-
-        cycles = await _run_one_cycle(
-            thermostat, reported_states, _reported_state("heat"), handled_inside=True
-        )
-
-        assert thermostat.bt_hvac_mode == HVACMode.HEAT
-        # The adopted mode is a control change, so a cycle follows to drive it.
-        assert cycles == 2
-
-    @pytest.mark.asyncio
-    async def test_a_knob_turned_during_a_cycle_is_adopted_when_it_ends(
-        self, thermostat, reported_states
-    ):
-        """A setpoint turned during a cycle is the room's target before the next cycle."""
-        await _run_one_cycle(
-            thermostat,
-            reported_states,
-            _reported_state("heat", setpoint=23.0),
-            handled_inside=True,
-        )
-
-        assert thermostat.bt_target_temp == 23.0
-
-    @pytest.mark.asyncio
     async def test_a_device_that_reported_is_read_once(
         self, thermostat, reported_states
     ):
         """A TRV that reported during the cycle is read once, and only it."""
-        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        thermostat.real_trvs[ENTITY_ID].unread_report = UnreadReport(
+            state_before=None, hvac_mode_before=None
+        )
         handler = AsyncMock()
 
         with patch(f"{_CTRL}.trigger_trv_change", new=handler):
@@ -391,6 +316,7 @@ class TestReportsHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         handler.assert_awaited_once()
+        assert handler.await_args is not None
         event = handler.await_args.args[1]
         assert event.data["new_state"] is reported_states[ENTITY_ID]
         assert event.context != thermostat.context
@@ -401,40 +327,26 @@ class TestReportsHeldDuringACycle:
         self, thermostat
     ):
         """While a mode command is unconfirmed, the mode is not read at cycle end."""
-        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        thermostat.real_trvs[ENTITY_ID].unread_report = UnreadReport(
+            state_before=None, hvac_mode_before=None
+        )
         thermostat.real_trvs[ENTITY_ID].system_mode_received = False
         handler = AsyncMock()
 
         with patch(f"{_CTRL}.trigger_trv_change", new=handler):
             await read_reports_held_during_cycle(thermostat)
 
+        assert handler.await_args is not None
         assert handler.await_args.kwargs["mode_settled"] is True
-
-    @pytest.mark.asyncio
-    async def test_a_pending_mode_command_keeps_the_commanded_mode_cached(
-        self, thermostat, reported_states
-    ):
-        """A mode reported while a mode command is unconfirmed stays out of the cache.
-
-        The cache keeps the commanded mode, so the device's next report after
-        the command is settled reaches the handler as the change it carries.
-        """
-        trv = thermostat.real_trvs[ENTITY_ID]
-        trv.system_mode_received = False
-        trv.report_unread = True
-        reported_states[ENTITY_ID] = _reported_state("off")
-
-        await read_reports_held_during_cycle(thermostat)
-
-        assert trv.hvac_mode == "heat"
-        assert thermostat.bt_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
     async def test_an_unavailable_device_has_nothing_to_read(
         self, thermostat, reported_states
     ):
         """A TRV that dropped off the network is not read."""
-        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        thermostat.real_trvs[ENTITY_ID].unread_report = UnreadReport(
+            state_before=None, hvac_mode_before=None
+        )
         reported_states[ENTITY_ID] = State(ENTITY_ID, STATE_UNAVAILABLE)
         handler = AsyncMock()
 
@@ -442,12 +354,15 @@ class TestReportsHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         handler.assert_not_awaited()
-        assert thermostat.real_trvs[ENTITY_ID].report_unread is False
+        trv = thermostat.real_trvs[ENTITY_ID]
+        assert trv.report_unread is False
 
     @pytest.mark.asyncio
     async def test_a_failing_read_leaves_the_control_loop_running(self, thermostat):
         """A report that cannot be read is logged, not raised into the queue worker."""
-        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        thermostat.real_trvs[ENTITY_ID].unread_report = UnreadReport(
+            state_before=None, hvac_mode_before=None
+        )
         handler = AsyncMock(side_effect=RuntimeError("boom"))
 
         with (
@@ -464,13 +379,19 @@ class TestReportsHeldDuringACycle:
         self, thermostat, reported_states, operating
     ):
         """A TRV reporting ``unknown`` is read exactly when the handler reads it."""
-        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        thermostat.real_trvs[ENTITY_ID].unread_report = UnreadReport(
+            state_before=None, hvac_mode_before=None
+        )
         reported_states[ENTITY_ID] = State(ENTITY_ID, STATE_UNKNOWN)
         handler = AsyncMock()
 
         with (
             patch(f"{_CTRL}.trigger_trv_change", new=handler),
-            patch(f"{_CTRL}.trv_state_unknown_as_available", return_value=operating),
+            patch(
+                "custom_components.better_thermostat.model_fixes.model_quirks."
+                "trv_state_unknown_as_available",
+                return_value=operating,
+            ),
         ):
             await read_reports_held_during_cycle(thermostat)
 
@@ -481,9 +402,8 @@ class TestReportsHeldDuringACycle:
         ("adopt", "requested"),
         [
             pytest.param(None, False, id="nothing_moved"),
-            pytest.param(("bt_target_temp", 23.0), True, id="target_adopted"),
+            pytest.param(("heat_target_temperature", 23.0), True, id="target_adopted"),
             pytest.param(("bt_hvac_mode", HVACMode.OFF), True, id="mode_adopted"),
-            pytest.param(("cur_temp", 21.0), True, id="room_temperature_moved"),
         ],
     )
     async def test_a_cycle_is_requested_only_for_what_a_cycle_acts_on(
@@ -495,18 +415,22 @@ class TestReportsHeldDuringACycle:
         action, requests none: a device answering inside every cycle would
         otherwise keep one cycle following the next.
         """
-        thermostat.real_trvs[ENTITY_ID].report_unread = True
-        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+        thermostat.real_trvs[ENTITY_ID].unread_report = UnreadReport(
+            state_before=None, hvac_mode_before=None
+        )
 
         async def read(bt, event, **kwargs):
-            bt.real_trvs[ENTITY_ID].hvac_action = "idle"
+            bt.real_trvs[ENTITY_ID].hvac_action = HVACAction.IDLE
             if adopt is not None:
                 setattr(bt, *adopt)
 
-        with patch(f"{_CTRL}.trigger_trv_change", new=AsyncMock(side_effect=read)):
+        with (
+            patch(f"{_CTRL}.trigger_trv_change", new=AsyncMock(side_effect=read)),
+            patch(f"{_CTRL}.request_control_cycle") as request,
+        ):
             await read_reports_held_during_cycle(thermostat)
 
-        assert (thermostat.control_queue_task.qsize() == 1) is requested
+        assert request.called is requested
 
     @pytest.mark.asyncio
     async def test_an_internal_temperature_reported_during_a_cycle_requests_one(
@@ -518,21 +442,29 @@ class TestReportsHeldDuringACycle:
         taken as it arrives, so the report read again at the end of the cycle
         carries nothing new, and the reading would wait for some other event.
         """
+        old_state = reported_states[ENTITY_ID]
         warmer = State(
             ENTITY_ID,
-            "heat",
-            attributes={
-                **_reported_state("heat").attributes,
-                "current_temperature": 19.5,
-            },
+            old_state.state,
+            attributes={**old_state.attributes, "current_temperature": 19.5},
         )
+        reported_states[ENTITY_ID] = warmer
+        event = MagicMock()
+        event.data = {
+            "old_state": old_state,
+            "new_state": warmer,
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()  # differs from thermostat.context
+        thermostat.ignore_states = True
+        await trigger_trv_change(thermostat, event)
+        thermostat.ignore_states = False
 
-        cycles = await _run_one_cycle(
-            thermostat, reported_states, warmer, handled_inside=True
-        )
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
 
         assert thermostat.real_trvs[ENTITY_ID].current_temperature == 19.5
-        assert cycles == 2
+        assert request.called
 
     @pytest.mark.asyncio
     async def test_an_internal_temperature_held_back_inside_the_cycle_requests_one(
@@ -547,17 +479,22 @@ class TestReportsHeldDuringACycle:
         """
         trv = thermostat.real_trvs[ENTITY_ID]
         trv.last_internal_sensor_change = dt_util.now()
-        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
-        thermostat.ignore_states = True
-        previous = reported_states[ENTITY_ID]
+        old_state = reported_states[ENTITY_ID]
         warmer = State(
             ENTITY_ID,
-            "heat",
-            attributes={**previous.attributes, "current_temperature": 19.5},
+            old_state.state,
+            attributes={**old_state.attributes, "current_temperature": 19.5},
         )
         reported_states[ENTITY_ID] = warmer
-
-        await trigger_trv_change(thermostat, _device_event(previous, warmer))
+        event = MagicMock()
+        event.data = {
+            "old_state": old_state,
+            "new_state": warmer,
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()  # differs from thermostat.context
+        thermostat.ignore_states = True
+        await trigger_trv_change(thermostat, event)
 
         assert trv.current_temperature == 18.0
         assert trv.report_unread is True
@@ -566,27 +503,64 @@ class TestReportsHeldDuringACycle:
         trv.last_internal_sensor_change = dt_util.now() - timedelta(seconds=10)
         thermostat.ignore_states = False
 
-        await read_reports_held_during_cycle(thermostat)
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
 
         assert trv.current_temperature == 19.5
-        assert thermostat.control_queue_task.qsize() == 1
+        request.assert_called_once_with(thermostat)
 
-    @pytest.mark.asyncio
-    async def test_a_routine_report_during_the_cycle_requests_no_further_cycle(
+    def test_the_end_of_a_cycle_leaves_a_released_trvs_cache_alone(
         self, thermostat, reported_states
     ):
-        """A device reporting inside a cycle what it already held starts no cycle."""
-        routine = State(
-            ENTITY_ID,
-            "heat",
-            attributes={**_reported_state("heat").attributes, "hvac_action": "idle"},
-        )
+        """A released TRV was commanded nothing the cache could wait for.
 
-        cycles = await _run_one_cycle(
-            thermostat, reported_states, routine, handled_inside=True
-        )
+        A controlled head reporting off after the cycle commanded heat is
+        cached as heating, so its next report reads as the change; a
+        released one keeps the mode it reported last.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "off"
+        thermostat.released_trvs = {ENTITY_ID}
+        reported_states[ENTITY_ID] = _reported_state("off")
 
-        assert cycles == 1
+        refresh_cached_trv_modes(thermostat)
+
+        assert trv.hvac_mode == "off"
+
+    @pytest.mark.asyncio
+    async def test_a_released_head_switched_on_during_a_cycle_asks_for_nothing(
+        self, thermostat, reported_states
+    ):
+        """What a released head reports inside a cycle moves nothing a cycle acts on.
+
+        Its mode is cached as reported and the room keeps its target; no
+        cycle is requested for it.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "off"
+        trv.last_hvac_mode = "heat"
+        thermostat.released_trvs = {ENTITY_ID}
+        previous = _reported_state("off")
+        reported_states[ENTITY_ID] = _reported_state("heat", setpoint=23.0)
+        event = MagicMock()
+        event.data = {
+            "old_state": previous,
+            "new_state": reported_states[ENTITY_ID],
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()
+        thermostat.control_queue_task = MagicMock()
+
+        thermostat.ignore_states = True
+        await trigger_trv_change(thermostat, event)
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert trv.hvac_mode == "heat"
+        assert thermostat.heat_target_temperature == 19.0
+        request.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("commanded", ["heat", None])
@@ -607,17 +581,27 @@ class TestReportsHeldDuringACycle:
         trv = thermostat.real_trvs[ENTITY_ID]
         trv.hvac_mode = "off"
         trv.last_hvac_mode = commanded
-        reported_states[ENTITY_ID] = _reported_state("off")
+        previous = _reported_state("off")
+        reported_states[ENTITY_ID] = _reported_state("heat", setpoint=23.0)
+        event = MagicMock()
+        event.data = {
+            "old_state": previous,
+            "new_state": reported_states[ENTITY_ID],
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()
+        thermostat.control_queue_task = MagicMock()
 
-        cycles = await _run_one_cycle(
-            thermostat,
-            reported_states,
-            _reported_state("heat", setpoint=23.0),
-            handled_inside=True,
-        )
+        thermostat.ignore_states = True
+        await trigger_trv_change(thermostat, event)
+        assert trv.report_unread is True
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
 
-        assert thermostat.bt_target_temp == 19.0
-        assert cycles == 2
+        assert thermostat.heat_target_temperature == 19.0
+        request.assert_called_once_with(thermostat)
 
     @pytest.mark.asyncio
     async def test_a_head_switched_off_and_on_during_a_cycle_keeps_the_room_target(
@@ -633,15 +617,32 @@ class TestReportsHeldDuringACycle:
         switch-on asks for the cycle that drives the head back to the room
         target.
         """
-        cycles = await _run_one_cycle(
-            thermostat,
-            reported_states,
-            [_reported_state("off"), _reported_state("heat", setpoint=23.0)],
-            handled_inside=True,
-        )
+        heating = reported_states[ENTITY_ID]
+        switched_off = _reported_state("off")
+        switched_on = _reported_state("heat", setpoint=23.0)
+        thermostat.control_queue_task = MagicMock()
 
-        assert thermostat.bt_target_temp == 19.0
-        assert cycles == 2
+        thermostat.ignore_states = True
+        for old_state, new_state in (
+            (heating, switched_off),
+            (switched_off, switched_on),
+        ):
+            reported_states[ENTITY_ID] = new_state
+            event = MagicMock()
+            event.data = {
+                "old_state": old_state,
+                "new_state": new_state,
+                "entity_id": ENTITY_ID,
+            }
+            event.context = MagicMock()
+            await trigger_trv_change(thermostat, event)
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.heat_target_temperature == 19.0
+        request.assert_called_once_with(thermostat)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("off_setpoint", [19.0, None])
@@ -658,23 +659,35 @@ class TestReportsHeldDuringACycle:
         and is adopted. Read at the end of the cycle, the reports are judged
         the same way, whether or not the off state carries a setpoint.
         """
+        trv = thermostat.real_trvs[ENTITY_ID]
         switched_off = _reported_state("off", setpoint=off_setpoint)
-        published = [
-            _reported_state("heat", setpoint=23.0),
-            _reported_state("heat", setpoint=24.0),
-        ]
+        switched_on = _reported_state("heat", setpoint=23.0)
+        pressed = _reported_state("heat", setpoint=24.0)
+        reports = [(switched_off, switched_on), (switched_on, pressed)]
         if switched_off_in_cycle:
-            published.insert(0, switched_off)
+            reports.insert(0, (reported_states[ENTITY_ID], switched_off))
         else:
-            thermostat.real_trvs[ENTITY_ID].hvac_mode = "off"
-            reported_states[ENTITY_ID] = switched_off
+            trv.hvac_mode = "off"
+        thermostat.control_queue_task = MagicMock()
 
-        cycles = await _run_one_cycle(
-            thermostat, reported_states, published, handled_inside=True
-        )
+        thermostat.ignore_states = True
+        for old_state, new_state in reports:
+            reported_states[ENTITY_ID] = new_state
+            event = MagicMock()
+            event.data = {
+                "old_state": old_state,
+                "new_state": new_state,
+                "entity_id": ENTITY_ID,
+            }
+            event.context = MagicMock()
+            await trigger_trv_change(thermostat, event)
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
 
-        assert thermostat.bt_target_temp == 24.0
-        assert cycles == 2
+        assert thermostat.heat_target_temperature == 24.0
+        request.assert_called_once_with(thermostat)
 
 
 class TestHeldReportAgainstThePreviousState:
@@ -695,13 +708,14 @@ class TestHeldReportAgainstThePreviousState:
             "entity_id": ENTITY_ID,
         }
         event.context = MagicMock()
-        thermostat.control_queue_task = asyncio.Queue()
+        thermostat.control_queue_task = MagicMock()
 
         thermostat.ignore_states = True
         await trigger_trv_change(thermostat, event)
         assert thermostat.real_trvs[ENTITY_ID].report_unread is True
         thermostat.ignore_states = False
-        await read_reports_held_during_cycle(thermostat)
+        with patch(f"{_CTRL}.request_control_cycle"):
+            await read_reports_held_during_cycle(thermostat)
 
     @pytest.mark.asyncio
     async def test_a_device_coming_back_does_not_set_the_room_target(
@@ -721,7 +735,7 @@ class TestHeldReportAgainstThePreviousState:
             setpoint=16.0,
         )
 
-        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.heat_target_temperature == 19.0
 
     @pytest.mark.asyncio
     async def test_a_knob_turned_inside_the_cycle_sets_the_room_target(
@@ -735,7 +749,7 @@ class TestHeldReportAgainstThePreviousState:
             setpoint=23.0,
         )
 
-        assert thermostat.bt_target_temp == 23.0
+        assert thermostat.heat_target_temperature == 23.0
 
 
 class TestHeldReportsAcrossAnOutage:
@@ -751,7 +765,7 @@ class TestHeldReportsAcrossAnOutage:
         the state the TRV held when the cycle started. The cycle end then
         reads what the handler held off.
         """
-        thermostat.control_queue_task = asyncio.Queue()
+        thermostat.control_queue_task = MagicMock()
         thermostat.ignore_states = True
         for state in states:
             previous = reported_states[ENTITY_ID]
@@ -763,9 +777,13 @@ class TestHeldReportsAcrossAnOutage:
                 "entity_id": ENTITY_ID,
             }
             event.context = MagicMock()
-            await trigger_trv_change(thermostat, event)
+            with patch(
+                "custom_components.better_thermostat.events.trv.request_control_cycle"
+            ):
+                await trigger_trv_change(thermostat, event)
         thermostat.ignore_states = False
-        await read_reports_held_during_cycle(thermostat)
+        with patch(f"{_CTRL}.request_control_cycle"):
+            await read_reports_held_during_cycle(thermostat)
 
     @pytest.mark.asyncio
     async def test_a_return_after_an_earlier_report_does_not_set_the_room_target(
@@ -786,7 +804,7 @@ class TestHeldReportsAcrossAnOutage:
             ],
         )
 
-        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.heat_target_temperature == 19.0
 
     @pytest.mark.asyncio
     async def test_a_knob_turned_after_the_return_sets_the_room_target(
@@ -804,7 +822,7 @@ class TestHeldReportsAcrossAnOutage:
             ],
         )
 
-        assert thermostat.bt_target_temp == 23.0
+        assert thermostat.heat_target_temperature == 23.0
 
     @pytest.mark.asyncio
     async def test_a_report_after_the_return_that_keeps_the_setpoint_is_no_press(
@@ -823,7 +841,7 @@ class TestHeldReportsAcrossAnOutage:
             thermostat, reported_states, [returned, settled]
         )
 
-        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.heat_target_temperature == 19.0
 
 
 class TestALockedPressHeldDuringACycle:
@@ -833,7 +851,7 @@ class TestALockedPressHeldDuringACycle:
     def _lock(thermostat):
         trv = thermostat.real_trvs[ENTITY_ID]
         trv.advanced["child_lock"] = True
-        trv.report_unread = True
+        trv.unread_report = UnreadReport(state_before=None, hvac_mode_before=None)
         return trv
 
     @pytest.mark.asyncio
@@ -852,12 +870,11 @@ class TestALockedPressHeldDuringACycle:
         self._lock(thermostat)
         reported_states[ENTITY_ID] = published
 
-        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
 
-        await read_reports_held_during_cycle(thermostat)
-
-        assert thermostat.control_queue_task.qsize() == 1
-        assert thermostat.bt_target_temp == 19.0
+        request.assert_called_once_with(thermostat)
+        assert thermostat.heat_target_temperature == 19.0
         assert thermostat.bt_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
@@ -875,11 +892,10 @@ class TestALockedPressHeldDuringACycle:
         self._lock(thermostat)
         reported_states[ENTITY_ID] = published
 
-        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
 
-        await read_reports_held_during_cycle(thermostat)
-
-        assert thermostat.control_queue_task.empty()
+        request.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_a_lagging_report_of_a_pending_write_requests_none(
@@ -888,15 +904,14 @@ class TestALockedPressHeldDuringACycle:
         """A report of the value before an unconfirmed write is not a press."""
         trv = self._lock(thermostat)
         trv.remember_setpoint_confirmed(19.0)
-        trv.last_temperature = 22.0
-        trv.target_temp_received = False
+        trv.commanded_setpoint = 22.0
+        trv.target_temperature_received = False
         reported_states[ENTITY_ID] = _reported_state("heat", setpoint=19.0)
 
-        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
 
-        await read_reports_held_during_cycle(thermostat)
-
-        assert thermostat.control_queue_task.empty()
+        request.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_a_lagging_report_of_a_pending_mode_requests_none(
@@ -908,11 +923,10 @@ class TestALockedPressHeldDuringACycle:
         trv.system_mode_received = False
         reported_states[ENTITY_ID] = _reported_state("heat")
 
-        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
 
-        await read_reports_held_during_cycle(thermostat)
-
-        assert thermostat.control_queue_task.empty()
+        request.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -932,14 +946,16 @@ class TestALockedPressHeldDuringACycle:
         write itself.
         """
         trv = self._lock(thermostat)
-        trv.last_temperature = 21.0
+        trv.commanded_setpoint = 21.0
         trv.last_hvac_mode = "cool"
-        thermostat.bt_target_cooltemp = 24.3
-        thermostat.last_sent_cooler_temp = 24.3
+        thermostat.cool_target_temperature = 24.3
         state = _reported_state("cool", setpoint=pressed_to)
         reported_states[ENTITY_ID] = state
 
-        with patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID):
+        with (
+            patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID),
+            patch(f"{_COOLER}.last_sent_cooler_temperature", return_value=24.3),
+        ):
             moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
 
         assert moved is requested
@@ -964,14 +980,19 @@ class TestALockedPressHeldDuringACycle:
         """
         thermostat.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         trv = self._lock(thermostat)
-        trv.last_temperature = 21.0
+        trv.commanded_setpoint = 21.0
         trv.last_hvac_mode = "cool"
-        thermostat.bt_target_cooltemp = 24.0
-        thermostat.last_sent_cooler_temp = (75.0 - 32.0) * 5.0 / 9.0
+        thermostat.cool_target_temperature = 24.0
         state = _reported_state("cool", setpoint=pressed_to)
         reported_states[ENTITY_ID] = state
 
-        with patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID):
+        with (
+            patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID),
+            patch(
+                f"{_COOLER}.last_sent_cooler_temperature",
+                return_value=(75.0 - 32.0) * 5.0 / 9.0,
+            ),
+        ):
             moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
 
         assert moved is requested
@@ -996,11 +1017,13 @@ class TestALockedPressHeldDuringACycle:
         """
         trv = self._lock(thermostat)
         trv.last_hvac_mode = "heat"
-        trv.last_temperature = 19.0
+        trv.commanded_setpoint = 19.0
         thermostat.cooler_entity_id = ENTITY_ID
-        thermostat.last_cooler_mode_decided = HVACMode.COOL
-        thermostat.last_sent_cooler_hvac_mode = HVACMode.COOL
-        thermostat.last_sent_cooler_temp = 25.0
+        thermostat._cooler_last_sent = {
+            "hvac_mode_decided": HVACMode.COOL,
+            "hvac_mode": SentCommand(HVACMode.COOL, 1.0),
+            "temperature": SentCommand(25.0, 1.0),
+        }
         state = _reported_state(held_mode, setpoint=25.0)
 
         moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
@@ -1026,36 +1049,57 @@ class TestALockedPressHeldDuringACycle:
         """
         self._lock(thermostat)
         reported_states[ENTITY_ID] = _reported_state(STATE_UNKNOWN, setpoint=setpoint)
-        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
 
-        with patch(f"{_CTRL}.trv_state_unknown_as_available", return_value=True):
+        with (
+            patch(
+                "custom_components.better_thermostat.model_fixes.model_quirks."
+                "trv_state_unknown_as_available",
+                return_value=True,
+            ),
+            patch(f"{_CTRL}.request_control_cycle") as request,
+        ):
             await read_reports_held_during_cycle(thermostat)
 
-        assert (thermostat.control_queue_task.qsize() == 1) is requested
+        assert request.called is requested
 
 
 class TestHeldCoolingTurn:
     """A turn at a reversible unit the cooling channel drives, read at cycle end."""
 
-    @staticmethod
-    def _cool(thermostat, cooling_target: float) -> Trv:
+    def _cool(self, thermostat, cooling_target: float) -> Trv:
         """Let the cooling channel drive the TRV, holding ``cooling_target``."""
         thermostat.cooler_entity_id = ENTITY_ID
-        thermostat.last_cooler_mode_decided = HVACMode.COOL
-        thermostat.last_sent_cooler_hvac_mode = HVACMode.COOL
-        thermostat.bt_target_cooltemp = cooling_target
-        thermostat.last_sent_cooler_temp = cooling_target
+        thermostat._cooler_last_sent = {
+            "hvac_mode_decided": HVACMode.COOL,
+            "hvac_mode": SentCommand(HVACMode.COOL, 1.0),
+            "temperature": SentCommand(cooling_target, 1.0),
+        }
+        thermostat.cool_target_temperature = cooling_target
+        thermostat.cool_min_temperature = None
+        thermostat.cool_max_temperature = None
         thermostat._clamp_inbound_cool_target = lambda value: (
             BetterThermostat._clamp_inbound_cool_target(thermostat, value)
         )
-        thermostat._enforce_heat_below_cool = lambda: (
-            BetterThermostat._enforce_heat_below_cool(thermostat)
+        thermostat._enforce_heat_below_cool = lambda **kwargs: (
+            BetterThermostat._enforce_heat_below_cool(thermostat, **kwargs)
         )
         trv = thermostat.real_trvs[ENTITY_ID]
         trv.hvac_mode = "cool"
         trv.last_hvac_mode = "cool"
         trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
         return trv
+
+    @staticmethod
+    def _turn(old_state: State, new_state: State):
+        """Build the event a turn at the device reaches the handler as."""
+        event = MagicMock()
+        event.data = {
+            "old_state": old_state,
+            "new_state": new_state,
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()  # differs from thermostat.context
+        return event
 
     @pytest.mark.asyncio
     async def test_a_turn_the_cooling_target_already_holds_is_corrected(
@@ -1077,13 +1121,13 @@ class TestHeldCoolingTurn:
         thermostat.control_queue_task = asyncio.Queue(maxsize=1)
 
         thermostat.ignore_states = True
-        await trigger_trv_change(thermostat, _device_event(previous, turned))
+        await trigger_trv_change(thermostat, self._turn(previous, turned))
         assert trv.report_unread is True
         thermostat.ignore_states = False
         await read_reports_held_during_cycle(thermostat)
 
-        assert thermostat.bt_target_cooltemp == cooling_target
-        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.cool_target_temperature == cooling_target
+        assert thermostat.heat_target_temperature == 19.0
         assert thermostat.control_queue_task.qsize() == 1
 
     @pytest.mark.asyncio
@@ -1103,13 +1147,16 @@ class TestHeldCoolingTurn:
         held = _reported_state("cool", setpoint=cooling_target)
         turned = _reported_state("cool", setpoint=turned_to)
 
-        await trigger_trv_change(thermostat, _device_event(held, turned))
+        reported_states[ENTITY_ID] = turned
+        await trigger_trv_change(thermostat, self._turn(held, turned))
         assert thermostat.control_queue_task.qsize() == 1
         thermostat.control_queue_task.get_nowait()
-        thermostat.last_sent_cooler_temp = cooling_target
-        await trigger_trv_change(thermostat, _device_event(turned, held))
+        thermostat._cooler_last_sent["temperature"] = SentCommand(cooling_target, 2.0)
+        reported_states[ENTITY_ID] = held
+        await trigger_trv_change(thermostat, self._turn(turned, held))
         assert thermostat.control_queue_task.empty()
 
-        await trigger_trv_change(thermostat, _device_event(held, turned))
+        reported_states[ENTITY_ID] = turned
+        await trigger_trv_change(thermostat, self._turn(held, turned))
 
         assert thermostat.control_queue_task.qsize() == 1

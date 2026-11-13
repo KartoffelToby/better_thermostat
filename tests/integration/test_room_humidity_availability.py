@@ -7,24 +7,20 @@ last reading is not a measurement of the room any more.
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from .conftest import (
-    DOMAIN,
-    SENSOR_ID,
+    BT_ENTITY,
+    HUMIDITY_ID,
     make_entry,
+    set_room_humidity,
+    set_room_sensor,
     setup_entry,
     wait_for,
     wait_for_startup,
 )
+from .device_profiles import GENERIC_HEAT_TRV
 
-BT_ENTITY = "climate.bt_test"
-HUMIDITY_ID = "sensor.room_humidity"
 SILENT_STATES = (STATE_UNAVAILABLE, STATE_UNKNOWN)
-
-
-def _set_humidity(hass, value) -> None:
-    hass.states.async_set(HUMIDITY_ID, str(value), {"unit_of_measurement": "%"})
 
 
 def _published_humidity(hass) -> float | None:
@@ -32,14 +28,7 @@ def _published_humidity(hass) -> float | None:
 
 
 async def _start(hass):
-    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
-    base = make_entry()
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        version=base.version,
-        data={**base.data, "humidity_sensor": HUMIDITY_ID},
-        title=base.title,
-    )
+    entry = make_entry(GENERIC_HEAT_TRV, with_humidity=True)
     await setup_entry(hass, entry)
     await wait_for_startup(hass, entry)
 
@@ -47,6 +36,7 @@ async def _start(hass):
 @pytest.mark.parametrize("silent", SILENT_STATES)
 async def test_a_sensor_silent_at_startup_publishes_no_humidity(hass, fake_trv, silent):
     """A sensor that is silent when the thermostat starts leaves it unknown."""
+    set_room_sensor(hass, 19.0)
     hass.states.async_set(HUMIDITY_ID, silent)
     await _start(hass)
 
@@ -58,43 +48,51 @@ async def test_a_sensor_falling_silent_clears_the_published_humidity(
     hass, fake_trv, silent
 ):
     """A sensor falling silent at runtime clears the humidity; a reading restores it."""
-    _set_humidity(hass, 42.5)
+    set_room_sensor(hass, 19.0)
+    set_room_humidity(hass, 42.5)
     await _start(hass)
     assert _published_humidity(hass) == 42.5
 
     hass.states.async_set(HUMIDITY_ID, silent)
     assert await wait_for(hass, lambda: _published_humidity(hass) is None)
 
-    _set_humidity(hass, 47.0)
+    set_room_humidity(hass, 47.0)
     assert await wait_for(hass, lambda: _published_humidity(hass) == 47.0)
 
 
 async def test_a_removed_sensor_clears_the_published_humidity(hass, fake_trv):
     """A sensor removed at runtime clears the humidity; a reading restores it."""
-    _set_humidity(hass, 42.5)
+    set_room_sensor(hass, 19.0)
+    set_room_humidity(hass, 42.5)
     await _start(hass)
     assert _published_humidity(hass) == 42.5
 
     hass.states.async_remove(HUMIDITY_ID)
     assert await wait_for(hass, lambda: _published_humidity(hass) is None)
 
-    _set_humidity(hass, 47.0)
+    set_room_humidity(hass, 47.0)
     assert await wait_for(hass, lambda: _published_humidity(hass) == 47.0)
 
 
 async def test_the_humidity_follows_its_sensor_while_a_head_is_unavailable(
-    hass, fake_trv
+    hass, trv_group
 ):
-    """With the head off the air, the humidity still clears and updates."""
-    _set_humidity(hass, 42.5)
-    await _start(hass)
+    """With one head off the air, the humidity still clears and updates.
+
+    The room keeps another head to control, so it stays available and keeps
+    publishing what its sensors report.
+    """
+    set_room_sensor(hass, 19.0)
+    set_room_humidity(hass, 42.5)
+    entry = make_entry(trv_group.scenario, with_humidity=True)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
     assert _published_humidity(hass) == 42.5
 
-    fake_trv._attr_available = False
-    fake_trv.async_write_ha_state()
+    trv_group.entities[0].set_available(False)
     await hass.async_block_till_done()
     hass.states.async_remove(HUMIDITY_ID)
     assert await wait_for(hass, lambda: _published_humidity(hass) is None)
 
-    _set_humidity(hass, 47.0)
+    set_room_humidity(hass, 47.0)
     assert await wait_for(hass, lambda: _published_humidity(hass) == 47.0)

@@ -12,24 +12,28 @@ the adapter serving the ecosystem it is paired through reports none.
 
 import contextlib
 import importlib
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import CONF_NAME
 from homeassistant.core import State
+from homeassistant.helpers import device_registry as dr
 import pytest
 
+from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.config_flow import (
     ConfigFlow,
     OptionsFlowHandler,
+    _AdvancedContext,
     _trv_supports_auto,
+    _TrvDraft,
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
-    CONF_HEATER,
-    CalibrationType,
+    CONF_THERMOSTAT,
+    CalibrationOutput,
 )
+from tests.factories import make_entity_registry, make_registry_entry
 
 
 def _flow_with_modes(modes):
@@ -70,8 +74,15 @@ def _advanced_flow(modes):
     state.attributes = {"hvac_modes": modes}
     flow.hass.states.get.return_value = state
     flow.i = 0
-    flow.trv_bundle = [{"trv": "climate.trv", "advanced": {}}]
-    flow._active_trv_config = flow.trv_bundle[0]
+    flow.trv_bundle = [
+        _TrvDraft(
+            entity_id="climate.trv",
+            integration=None,
+            adapter=None,
+            stored={"trv": "climate.trv", "advanced": {}},
+        )
+    ]
+    flow._active_trv = flow.trv_bundle[0]
     return flow
 
 
@@ -82,13 +93,13 @@ async def _run_advanced(flow):
         patch(
             "custom_components.better_thermostat.config_flow._prepare_advanced_context",
             new=AsyncMock(
-                return_value={
-                    "trv_id": "climate.trv",
-                    "default_calibration": "target_temp_based",
-                    "homematic": False,
-                    "has_auto": False,
-                    "info": {},
-                }
+                return_value=_AdvancedContext(
+                    entity_id="climate.trv",
+                    channels=DeviceChannels(),
+                    default_calibration=CalibrationOutput.TARGET_TEMP_BASED,
+                    homematic=False,
+                    has_auto=False,
+                )
             ),
         ),
         patch(
@@ -98,6 +109,7 @@ async def _run_advanced(flow):
         patch.object(ConfigFlow, "async_step_confirm", new=confirm),
     ):
         await flow.async_step_advanced({})
+    assert confirm.await_args is not None
     return confirm.await_args[0][1] if len(confirm.await_args[0]) > 1 else None
 
 
@@ -146,7 +158,7 @@ def _adapter_without_a_valve_channel():
     """
     adapter = MagicMock()
     adapter.get_info = AsyncMock(
-        return_value={"support_offset": True, "support_valve": False}
+        return_value=DeviceChannels(offset_write=True, valve_write=False)
     )
     return adapter
 
@@ -159,10 +171,12 @@ def _a_device_of_model(model):
     modules that ship with the package, and the TRV is served by an adapter
     that publishes no valve channel.
     """
-    entity_registry = MagicMock()
-    entity_registry.async_get.return_value = SimpleNamespace(device_id="device")
+    entity_registry = make_entity_registry(
+        make_registry_entry(TRV_ID, device_id="device")
+    )
     device_registry = MagicMock()
-    device_registry.async_get.return_value = SimpleNamespace(
+    device_registry.async_get.return_value = dr.DeviceEntry(
+        config_entry_id="entry",
         manufacturer="Vendor",
         model=model,
         model_id=model,
@@ -194,9 +208,19 @@ def _a_device_of_model(model):
         yield
 
 
-def _trv_bundle_entry(model):
+def _trv_bundle_entry(model) -> dict[str, object]:
     """Return the one device bundle a config entry carries for ``model``."""
     return {"trv": TRV_ID, "integration": "zha", "model": model, "advanced": {}}
+
+
+def _trv_draft(model):
+    """Return the draft a flow keeps for the device bundle of ``model``."""
+    return _TrvDraft(
+        entity_id=TRV_ID,
+        integration="zha",
+        adapter=None,
+        stored=_trv_bundle_entry(model),
+    )
 
 
 def _hass_holding_the_trv():
@@ -221,7 +245,7 @@ async def _create_flow_advanced_form(model):
     """Render the advanced step a new entry is configured through."""
     flow = ConfigFlow()
     flow.hass = _hass_holding_the_trv()
-    flow.trv_bundle = [_trv_bundle_entry(model)]
+    flow.trv_bundle = [_trv_draft(model)]
     flow.i = 0
     with _a_device_of_model(model):
         return await flow.async_step_advanced(None, flow.trv_bundle[0])
@@ -230,13 +254,13 @@ async def _create_flow_advanced_form(model):
 async def _options_flow_advanced_form(model):
     """Render the advanced step an existing entry is reconfigured through."""
     entry = MagicMock()
-    entry.data = {CONF_NAME: "Living Room", CONF_HEATER: [_trv_bundle_entry(model)]}
+    entry.data = {CONF_NAME: "Living Room", CONF_THERMOSTAT: [_trv_bundle_entry(model)]}
     flow = OptionsFlowHandler(entry)
     flow.hass = _hass_holding_the_trv()
-    flow.trv_bundle = [_trv_bundle_entry(model)]
+    flow.trv_bundle = [_trv_draft(model)]
     flow.updated_config = dict(entry.data)
     with _a_device_of_model(model):
-        return await flow.async_step_advanced(None, flow.trv_bundle[0], entry.data)
+        return await flow.async_step_advanced(None, flow.trv_bundle[0])
 
 
 ADVANCED_FORMS = {
@@ -260,7 +284,7 @@ class TestOfferedCalibrationStrategies:
         """
         form = await render(QUIRK_BACKED_MODEL)
 
-        assert CalibrationType.DIRECT_VALVE_BASED in _offered_calibrations(form)
+        assert CalibrationOutput.DIRECT_VALVE_BASED in _offered_calibrations(form)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("render", ADVANCED_FORMS.values(), ids=ADVANCED_FORMS)
@@ -273,4 +297,4 @@ class TestOfferedCalibrationStrategies:
         """
         form = await render(UNQUIRKED_MODEL)
 
-        assert CalibrationType.DIRECT_VALVE_BASED not in _offered_calibrations(form)
+        assert CalibrationOutput.DIRECT_VALVE_BASED not in _offered_calibrations(form)

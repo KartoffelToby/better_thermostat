@@ -3,7 +3,7 @@
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.template import Template
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.better_thermostat.utils.const import DOMAIN
 from tests.unit.test_blueprints import (
@@ -47,6 +47,7 @@ async def test_notifications_name_the_selected_thermostat(hass, path):
     inputs = _resolve_inputs(blueprint)
     inputs["thermostat_device"] = device.id
     variables = _substitute(blueprint.get("variables", {}), inputs)
+    assert isinstance(variables, dict)
     variables["trigger"] = {
         "platform": "device",
         "entity_id": "climate.living_room",

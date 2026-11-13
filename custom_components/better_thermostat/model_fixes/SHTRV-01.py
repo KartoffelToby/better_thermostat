@@ -20,7 +20,12 @@ from custom_components.better_thermostat.model_fixes.default import (
     override_set_hvac_mode,
     override_set_temperature,
 )
-from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+from custom_components.better_thermostat.model_fixes.types import (
+    InitialTweakQuirk,
+    LowestSetpointQuirk,
+    ModelFixHost,
+    ModelQuirks,
+)
 
 # The setpoint grid Home Assistant's Shelly integration publishes for the TRV.
 _SETPOINT_STEP = 0.5
@@ -53,3 +58,21 @@ def lowest_setpoint(self: ModelFixHost, entity_id: str, min_temp: float) -> floa
         One grid step above ``min_temp``
     """
     return min_temp + _SETPOINT_STEP
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+    initial_tweak = staticmethod(initial_tweak)
+    lowest_setpoint = staticmethod(lowest_setpoint)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()
+_INITIAL_TWEAK_QUIRK: InitialTweakQuirk = _Surface()
+_LOWEST_SETPOINT_QUIRK: LowestSetpointQuirk = _Surface()

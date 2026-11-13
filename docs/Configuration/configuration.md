@@ -1,124 +1,187 @@
 ---
-title: Configuration
-description: Create and configure a Better Thermostat device.
+title: All settings reference
+description: Complete field-by-field reference for Screen 1 and Screen 2 of Better Thermostat, with concrete examples of what every setting does and causes.
 slug: configuration
 ---
 
-## Create a new Better Thermostat device
-
-**Go to: `Settings` -> `Devices & Services` -> `Integrations` -> `+ Add Integration` -> `Better Thermostat`**
-
-or click on the button below:
+To add a new room, go to **Settings → Devices & Services → Integrations → + Add Integration → Better Thermostat**, or click:
 
 [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=better_thermostat)
 
-## Configuration
+To change settings on an existing room later, go to **Settings → Devices & Services → Better Thermostat** and click the gear icon (**Configure**) next to that room.
+
+:::tip[Just setting up your first room?]
+Start with the quick **[Setup dialog walkthrough](/setup/configuration-walkthrough/)** or **[Recommended settings](/optimal-settings/recommended-settings/)**, and come back to this page whenever you want the exact rules for a specific option.
+:::
+
+---
 
 ## First step
 
-![first step](../assets/setup_1.png)
+Screen 1 configures the room, its sensors, its comfort deadband (`Tolerance`), and its presets.
 
-**Name** This is a required field. It is the name of the virtual climate. It is used as an entity key name.
+### Core room & climate entities
 
-**The real thermostat** This is a required field. This is the real climate entity you want to control with BT, if you have more than one climate in your room you can select multiple climate entities, fill out the first field and a second one will appear.
+#### `Name` *(Required)*
+- **What it does:** Sets the display name and initial entity ID of your virtual thermostat (e.g. `Living Room` → `climate.living_room`).
 
-**Temperature sensor** This is a required field. This is the temperature sensor you want to use to control the real climate entity. It's used to get a more accurate temperature reading than the sensor in the real climate entity because you can place it in the middle of the room and not close to the radiator.
+#### `The real thermostat` *(Required)*
+- **What it does:** One or more physical radiator thermostats (`climate.*`) in this room.
+- **Multi-TRV rooms:** Select all TRVs of the room together here so Better Thermostat coordinates them as one group. Another Better Thermostat entity cannot be selected here, and `climate` entities without a writable target temperature are rejected.
 
-**Humidity sensor** This is an optional field. For now, the humidity is only used to display it in the UI. In the future, it will be used to make a better calculation of the temperature or set it up to a *feels-like* temperature.
+#### `Room temperature sensor` *(Required)*
+- **What it does:** The standalone thermometer (`sensor.*`) placed in the living area of the room (`1.2–1.5 m` high, away from radiators, sun, and drafts).
+- **If it goes offline or reports invalid values:** After 2 minutes without a valid reading between `-50 °C` and `60 °C` (up to 3 minutes when nothing else triggers an update, since the check runs once a minute), Better Thermostat steps down gracefully to the average of your TRVs' built-in thermometers (`sensor_fallback`), as long as at least one TRV reports a usable temperature; if none does when the delay expires, control steps down to `hold` instead. A self-clearing [Degraded mode](/faq/degraded-mode/) repair notice is raised only when the room sensor state is `unavailable` or `unknown` (out-of-range numeric readings trigger `sensor_fallback` without creating that repair notice).
 
-**If you have an outdoor sensor...** This field is optional. If you have an outdoor sensor you can use it to get the outdoor temperatures, this is used to set the thermostat on or off if the threshold (the last option in this screen) is reached. It compares the sensor's mean over the last two days, read from the recorder, with the threshold, and checks again whenever the sensor reports, every hour and at 5:00 AM.
+#### `The cooling device (optional)`
+- **What it does:** Adds an air conditioner or cooling `climate` entity alongside your radiators.
+- **What changes when enabled:**
+  - Better Thermostat coordinates heating and cooling from one card so the radiator and AC never run against each other.
+  - Enabled presets switch from a single temperature slider to a **`Min` (heating)** and **`Max` (cooling)** pair ([Presets](/setup/presets/)).
+  - Includes a built-in **4-minute (240 s) compressor anti-short-cycling guard** between cooling runs.
 
-**Window Sensor** This is an optional field. If you have a window sensor you can use it to turn off the thermostat if the window is open and turn it on again when the window is closed. If you have more than one window in a room, you can also select window groups (see the GitHub page for more info).
+#### `Humidity sensor` *(Optional)*
+- **What it does:** Shows current ambient humidity on the Better Thermostat entity and powers the `humidity_high` and `current_humidity_changed` device triggers (used by the [High Humidity Alert blueprint](/setup/automation-blueprints/)). It does not alter target temperatures.
 
-### Example window/door sensor config
+---
 
-```yaml
-group:
-  livingroom_windows:
-    name: Livingroom Windows
-    icon: mdi:window-open-variant
-    all: false
-    entities:
-      - binary_sensor.openclose_1
-      - binary_sensor.openclose_2
-      - binary_sensor.openclose_3
-```
+### Window & door pause settings
 
-**Your weather entity for outdoor temperature** This is an optional field. It should be empty if you have an outdoor sensor. This is the weather entity you want to use to get the outdoor temperature. It uses the forecast for roughly the next two days and checks it every hour.
+#### `Window sensor` *(Optional)*
+- **What it does:** A `binary_sensor` (or Binary Sensor Group Helper combining all windows in the room) that turns every TRV in the room off while airing, without altering your saved HVAC mode or target temperature.
+- **Offline safety:** If a contact sensor battery dies (`unavailable` or `unknown`), Better Thermostat 2.0 treats it as **closed** so the room never freezes ([Window sensor](/faq/window-sensor/)).
 
-**Window delay** This is an optional field. If you don't want to turn off the thermostat instantly when the window is open, you can set a delay. This goes in both directions, so if you want to turn it on again after the window is closed, you can set a delay here too.
+#### `Delay before the thermostat should turn off when the window is opened` *(Default: `0 s` — Recommended: `120–180 s`)*
+- **What happens when you change it:** At `0 s`, opening a patio window for 10 seconds immediately drives your valve motors closed. Setting `120 s` ignores brief openings and saves TRV battery life.
 
-**The outdoor temperature threshold** This is an optional field. If you have an outdoor sensor or a weather entity, you can set a threshold. If the outdoor temperature is higher than the threshold, the thermostat will be turned off. If the outdoor temperature is lower than the threshold, the thermostat will be turned on. If you don't have an outdoor sensor or a weather entity, this field will be ignored.
+#### `Delay before the thermostat should turn on when the window is closed` *(Default: `0 s` — Recommended: `120–300 s`)*
+- **What happens when you change it:** Right after closing a winter window, a pocket of cold air lingers around your room sensor. Waiting 2–5 minutes lets room air mix back toward its true temperature so Better Thermostat doesn't blast an unnecessary overshoot spike.
 
-**Tolerance** This is an optional field. It helps prevent the thermostat from turning on and off too often. Here is an example of how it works: If you set the target temperature to 20.0 and the tolerance to 0.3 for example. Then BT will heat to 20.0 and then go to idle until the temperature drops again to 19.7 and then it will heat again to 20.0. If you configured a cooler, the tolerance delays the switch-on instead of advancing it: with a cooling target of 24.0 and a tolerance of 0.3, BT starts cooling once the temperature reaches 24.3 and keeps cooling until it is back below 24.0. The cooling band is never narrower than 0.2, so with a tolerance of 0.1 cooling still starts at 24.1, but it keeps running until the temperature is back below 23.9.
+#### `Door sensor` *(Optional)*
+- **What it does:** Works just like `Window sensor`, with its own independent timers so interior hallway doors can tolerate normal foot traffic while still pausing heating if a door is propped open ([Door sensor](/faq/door-sensor/)). Heating resumes once **every** configured window *and* door reports closed.
+
+#### `Delay before the thermostat should turn off when the door is opened` *(Default: `0 s` — Recommended: `240–300 s`)*
+#### `Delay before the thermostat should turn on when the door is closed` *(Default: `0 s` — Recommended: `30–60 s`)*
+- **Tip:** Toggling the device's **`Window Detection`** switch Off temporarily bypasses **both** window and door sensors together ([Entities & attributes](/setup/entities/)).
+
+---
+
+### Summer Mode (automatic outdoor shutdown)
+
+For the full explanation of 24-hour exponential smoothing and hysteresis, read **[Summer mode explained](/deep-explanations/summer-mode/)**.
+
+#### `Outdoor temperature sensor` *(Optional)*
+- **What it does:** Feeds local outdoor temperature into Summer Mode (and into `TPI` / `MPC` heat-loss compensation).
+- **Important:** Better Thermostat smooths outdoor readings over a **24-hour time constant** (seeded from up to 3 days of Home Assistant Recorder history) so brief afternoon sunshine on a sensor wall doesn't prematurely kill heating. Mount the sensor in permanent north-side shade.
+
+#### `Weather entity to get the outdoor temperature` *(Optional)*
+- **What it does:** Alternative outdoor source if you don't own a physical outdoor sensor (must provide a forecast). If **both** an outdoor sensor and a weather entity are configured, the **`Outdoor temperature sensor` automatically takes priority**.
+- **How it decides:** Heating stays allowed while *either* the weather entity's 24h-damped current temperature *or* its ~2-day forecast mean (averaging daily highs and lows) stays below your threshold.
+
+#### `The outdoor temperature when the thermostat should turn off` *(Default: `20 °C` — Recommended: `15–17 °C`)*
+- **What happens when you change it:**
+  - Because readings are smoothed across **full 24-hour day-and-night cycles**, a warm `24 °C` spring afternoon followed by an `8 °C` night averages **`16 °C`**. Leaving this at `20 °C` keeps radiators active well into late spring; **`15–16 °C`** (well-insulated homes) or **`17–18 °C`** (older buildings) matches real heating-season cutoffs.
+  - **Built-in `1.0 °C` (`1.8 °F`) hysteresis:** Once Summer Mode turns heating off at e.g. `16.0 °C` (`heating_blocked_by: no_call_for_heat`), heating stays off until the 24h-smoothed outdoor temperature drops below **`15.0 °C`**, preventing oscillation.
+  - You can also adjust this threshold live without reloading via `number.<room>_outdoor_temperature_threshold`.
+
+---
+
+### Comfort band (`Tolerance`), presets & limits
+
+#### `Tolerance, to prevent the thermostat from turning on and off too often` *(Default: `0.0 °C` — Recommended: `0.3 °C` for radiators, `0.5 °C` for underfloor)*
+- **What happens when you change it:**
+  - **Heating example (`20.0 °C` target, `0.3 °C` tolerance):** Better Thermostat heats up to `20.0 °C`, switches to `idle`, and lets the room rest quietly until it cools to **`19.7 °C`** before starting the next heating phase. Leaving it at **`0.0 °C`** causes frequent valve movement on every `0.11 °C` dip.
+  - **Cooling example (`24.0 °C` cooling target, `0.3 °C` tolerance):** Better Thermostat waits until the room warms to **`24.3 °C`** before starting the AC, then cools back down to `24.0 °C` (the cooling band is always at least `0.2 °C` wide to protect AC compressors).
+  - *(Note: `External Sensor Offset Only` mode ignores the tolerance band and passes continuous sensor offset updates directly to the TRV.)*
+  - Live-adjustable anytime via `number.<room>_tolerance`.
+
+#### `Enabled Presets` *(Default: `Eco`)*
+- **What it does:** Chooses which preset modes (`Eco`, `Away`, `Boost`, `Comfort`, `Home`, `Sleep`, `Activity`) appear on this thermostat. Every enabled preset creates its own configurable temperature slider (`number.<room>_<preset>`) under the device's **Configuration** section ([Presets](/setup/presets/)).
+
+#### `Target minimum temperature`, `Target maximum temperature` & `Target temperature step`
+- **What they do:** Bound the range and `+`/`−` step size users and voice assistants can set on Better Thermostat. `Target temperature step` offers **`Auto`**, **`Auto (legacy)`** (which may be the default on new forms), **`0.1 °C`**, **`0.2 °C`**, **`0.25 °C`**, **`0.5 °C`**, and **`1.0 °C`** (labeled `1 °C` in the dropdown). Leave min, max, and step on **`Auto`** to inherit the limits and grid your physical TRVs support.
+
+#### `Availability guard` & `Grace period after the availability guard turns on` *(Default grace: `10 min`)*
+- **What they do:** Optional `binary_sensor`, `switch`, or `input_boolean` that is `on` when your thermostats have mains power and `off` when powered down (for example, wired floor/wall thermostats powered directly by a heat pump or boiler circuit). While the guard is `off`—and for `10 minutes` after power returns—offline TRVs suppress log warnings and [Missing entity](/faq/missing-entity/) repair alerts while booting up.
+
+#### `Split the valve opening by each TRV's own temperature` *(Default: `Off`)*
+- **What it does:** Only applies in rooms with **two or more TRVs** running **`MPC Predictive`** or **`(AI) MPC v2`**. Both modes run one room-wide controller on your room temperature sensor and, by default, send the same computed valve opening to every TRV in the room (each capped by its own **`Valve Max Opening`**). With this option turned on, any participating TRV whose own radiator thermometer reads colder than the warmest TRV in the room receives an extra **`+8 %` per `°C` (`4.4 %` per `°F`)** of valve opening. The warmest TRV receives the room's base opening unchanged, no TRV receives less than the room opening, each TRV's **`Valve Max Opening`** still caps the result afterwards, and a closed (`0 %`) command stays closed for every TRV.
+- **When it helps & which TRVs take part:**
+  - The option compares what each TRV measures at its radiator, so it helps when those readings differ for a physical reason (such as a second radiator in a cold corner of a large room). Note that a TRV reading warmer because its valve is already open wider, or colder because it sits below a drafty window, shifts the split as well.
+  - **Sonoff `TRVZB` / `TRV-ZBT`:** When regulating on the external room temperature that Better Thermostat writes to them, all TRVs report the same room temperature and therefore receive the same base opening. To compare their own radiator readings instead, select the TRV's internal sensor on the device and turn on **`Keep the TRV's sensor selection`** in the second step.
+  - **`Offset Based` TRVs:** Take no part in the split and receive the room's base opening, because the calibration offset written by Better Thermostat shifts their reported temperature reading along with the valve command.
+  - **Unavailable or [released](/setup/releasing-devices/) TRVs:** Take no part either.
+  - *(In Better Thermostat's single-temperature room benchmark, the even split scored as well or better; use this option specifically for multi-radiator rooms with a distinct warm and cold side.)*
+
+---
 
 ## Second step
 
-![second step](../assets/config_2.png)
+Screen 2 configures how Better Thermostat drives **each individual physical TRV** in the room.
 
-**Calibration Type** This is a required field. How the calibration should be applied on the TRV (Target temp or offset)
+#### `Calibration type` *(Required)*
+- **`Direct Valve Based`:** Writes `0–100 %` directly to the valve motor (offered when your TRV exposes a writable valve opening or built-in model control, e.g. Sonoff `TRVZB`, Shelly BLU TRV, Eurotronic Spirit). The valve opening comes from the calibration mode (`(AI) Time Based`, `MPC Predictive`, `MPC v2`, `TPI Controller`, and `PID Controller` compute one and close the valve to `0 %` while the TRV is off; the other modes fall back to sending a target temperature on standard TRVs).
+- **`Offset Based`:** Adjusts the TRV's local temperature calibration entity (`number.*` or `select.*`, such as HomematicIP steps). Keeps the TRV's physical screen showing your true room target, but can hit firmware limits (`±2.5–5 °C`) behind curtains or covers.
+- **`Target Temperature Based`:** Shifts the setpoint sent to the TRV. Works universally on every Home Assistant `climate` TRV that exposes a target temperature or range, and never hits narrow offset caps.
 
-- ***Target Temperature Based***: Apply the calibration to the target temperature.
+#### `Calibration mode` *(Required)*
+Chooses one of the **8 control algorithms**—see **[Calibration types & algorithms](/calibration_algorithms/)** for detailed numerical examples:
+- **`(AI) Time Based (Default)`** — Self-learning room heating-speed controller (recommended default).
+- **`TPI Controller`** — Zero-learning proportional controller; very gentle on batteries, minimal overshoot, great for bedrooms & multi-TRV rooms.
+- **`(AI) MPC v2 (QP + Kalman, experimental)`** — Predictive physics controller; writes the valve directly with `Direct Valve Based`, and otherwise steers through the target temperature or the offset depending on `Calibration type`.
+- **`PID Controller`** — Responsive P+I+D loop with Auto-Tune; great for sunny rooms/kitchens with `Direct Valve Based` and `0.1 °C` room sensors.
+- **`Aggressive`** — Adds an immediate `+2.5 °C` boost while heating for cold/drafty rooms (non-direct-valve).
+- **`External Sensor Offset Only`** — Pure 1:1 sensor correction with no tolerance band or extra controller math.
+- **`MPC Predictive (Beta)`** — Earlier 30-min predictive beta (higher valve wear; prefer `TPI` or `MPC v2`).
+- **`No Calibration`** — Sends target temperatures unchanged and writes no offset while keeping window pause, Summer Mode, presets, and grouping.
 
-- ***Offset Based***: Apply the calibration to the offset. This will not be an option if your TRV doesn't support offset mode.
+#### `MPC v2 room size` *(Default: `Auto`)*
+- **What it does:** Only used when `Calibration mode` is `(AI) MPC v2 (QP + Kalman, experimental)`. `Auto` adapts from learned thermal behavior, while `Small`, `Medium`, and `Large` fix a starting thermal envelope profile with approximate **3-hour**, **8-hour**, and **12-hour** room time constants (`tau_room_min = 180`, `480`, and `720` minutes), respectively.
 
-- ***Direct Valve Based***: Set the valve opening directly. This is only offered when Better Thermostat can write your TRV's valve, through a writable valve position entity or a valve control built into Better Thermostat for that model. The valve opening comes from the calibration mode: AI Time Based, MPC Predictive, MPC v2, TPI Controller and PID Controller produce one; the other modes send a target temperature, as with Target Temperature Based.
+#### `Overheating protection?` *(Default: `On`)*
+- **What happens when enabled:** Only active in **`(AI) Time Based (Default)`** (non-direct-valve) and **`Aggressive`** modes. If residual radiator heat pushes the room above `target + tolerance` while Better Thermostat is already `idle`, it multiplies the excess temperature by **`8×`** in the closing direction to help leaky or sluggish TRV pins close. *(TPI, PID, and MPC handle overshoot natively and ignore this checkbox.)*
 
-The preselected type is Offset Based if your TRV supports it, otherwise Direct Valve Based if it supports valve control, otherwise Target Temperature Based.
+#### `Use the minimum temperature instead of 'off'` *(Default: `Off`)*
+- **What happens when enabled:**
+  1. Whenever Better Thermostat wants to turn this TRV off (HVAC mode `off`, open window/door, or Summer Mode), it sends the TRV's own reported `min_temp` instead of `hvac_mode: off`—essential for TRVs whose firmware ignores or misbehaves on `off`. *(TRVs that don't advertise an `off` mode in Home Assistant already receive `min_temp` automatically, but only count a manual turn to `min_temp` as turning Better Thermostat off when this option is enabled.)*
+  2. Turning the physical radiator knob all the way down to `min_temp` by hand tells Better Thermostat you turned the radiator off (once every TRV in the room is turned to `min_temp`, Better Thermostat switches to `off`; turning a knob back up switches Better Thermostat back to `heat`—unless Child Lock is active). Turning the knob while a window or door is open is also recorded as the room's new setting: Better Thermostat returns the TRV to its minimum while the contact stays open and heats to the new target once every window and door is closed.
 
-**Enhanced Compatibility:**
+#### `If 'auto' means 'heat' for your TRV and you want to swap it` *(Default: `Off`)*
+- **What it does:** Some TRV integrations map `heat` to an uncontrolled full-open "boost" mode while `auto` represents normal temperature control. Enable this checkbox to swap the two so Better Thermostat sends `auto` during normal heating.
 
-- **NUMBER entities**: Traditional numeric offset controls (most TRVs)
-- **SELECT entities**: Dropdown-based offset selection (e.g., HomeMatic IP with predefined offset values like "1.5k", "2.0k")
-- **Automatic Detection**: Better Thermostat automatically detects and supports both entity types
+#### `If your thermostat has no own maintenance mode, you can use this one` *(Default: `Off`)*
+- **What it does:** Periodically exercises the valve pin fully open and closed so mineral scale does not jam the pin during long summer shutdowns. The next scheduled run appears on the `climate` entity's `next_valve_maintenance` attribute, and you can also trigger a run manually via `better_thermostat.run_valve_maintenance`.
 
-**HomeMatic IP/CCU Integration:**
+#### `Ignore all inputs on the TRV like a child lock` *(Default: `Off`)*
+- **What it does:** Reverts any manual knob turns (or direct HA service calls) made on the physical TRV so only changes on the Better Thermostat entity take effect. Also exposed live as a per-TRV **`Child Lock`** switch entity (which toggles the TRV's native hardware child-lock entity too when available!).
 
-When using HomeMatic IP or CCU thermostats, Better Thermostat automatically detects and uses SELECT entities for temperature offset calibration. These entities provide predefined offset values (like "1.5k", "2.0k", "2.5k") and are fully supported for offset-based calibration.
+#### `If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle` *(Auto-enabled for Homematic)*
+- **What happens when enabled:** Spaces routine background writes to this TRV to **at most once every 10 minutes** (instead of the standard **30 seconds**) so your HomematicIP Access Point / OpenCCU never hits its strict 868 MHz 1 % radio airtime limit. Your first manual target change on Better Thermostat still goes out immediately at the normal 30-second pace, and critical safety/off commands are never dropped.
 
-**⚠️ Important Setup Required:** For HomeMatic IP/CCU devices, the `temperature_offset` SELECT entity is hidden by default. You must explicitly enable it before it can be used with Better Thermostat:
+#### `Keep the TRV's sensor selection` *(Default: `Off`)*
+- **What it does:** Applies to TRVs that can regulate either on their own built-in sensor or on a room temperature written to them by Better Thermostat (**Sonoff `TRVZB` & `TRV-ZBT`** and **Aqara `SRTS-A01`**):
+  - **When `Off` (default):** Better Thermostat writes the room temperature to the TRV and automatically switches the TRV's sensor selection to `external` (and switches it back after a reset, re-pairing, or sensor fallback so the TRV keeps regulating on your room sensor).
+  - **When `On`:** Better Thermostat never changes the TRV's sensor selection—whichever sensor mode you chose on the device stays untouched. The room temperature is still written in the background so switching the TRV to external mode later starts from a current reading (except when the configured room sensor belongs to the TRV itself, in which case its reading is not written back).
+- **When to turn it on & what to keep in mind:**
+  - Turn it **On** (and set the TRV to its internal sensor) when you want **`Split the valve opening by each TRV's own temperature`** on Screen 1 to compare individual radiator temperatures on Sonoff `TRVZB` / `TRV-ZBT` valves.
+  - A **Sonoff `TRVZB`** reverts to its internal sensor if it receives no external temperature for ~2 hours or after a reset/re-pairing; with this option on, Better Thermostat will not switch it back to external.
+  - An **Aqara `SRTS-A01`** left on its external input keeps regulating on the last written temperature if the room sensor stops reporting; with this option off, Better Thermostat automatically switches it to its internal sensor during `sensor_fallback` / `hold`, whereas with this option on it leaves the selector untouched.
 
-1. Navigate to your HomeMatic integration settings
-2. Go to **"Advanced settings"**
-3. Click **"UN-IGNORE parameters"**
-4. Enable the temperature offset parameter for your device model. The exact parameter path varies by model, for example:
-   - **`TEMPERATURE_OFFSET:MASTER@HM-CC-RT-DN`** (HomeMatic Classic)
-   - **`TEMPERATURE_OFFSET:MASTER@HM-CC-RT-DN-BoM`** (HomeMatic Classic BoM variant)
-   - **`TEMPERATURE_OFFSET:MASTER@HmIP-eTRV`** (HomeMatic IP)
+---
 
-   Check your device manual or the HomeMatic integration's device parameter list for the correct parameter name.
+## HomematicIP / OpenCCU: Enabling `Offset Based` calibration
 
-Only after this activation, the `select.{room}_temperature_offset` entity becomes available for Better Thermostat to use. This setup is confirmed for the HACS integration "Homematic(IP) Local for OpenCCU" - it may differ slightly for other HomeMatic integrations.
+On **Homematic(IP) Local for OpenCCU**, Better Thermostat supports dropdown `select.*_temperature_offset` entities (`1.5K`, `2.0K`, etc.) automatically—but OpenCCU hides the `TEMPERATURE_OFFSET` parameter by default! To unlock `Offset Based` calibration:
 
-**Calibration Mode**  This is a required field. It determines how the calibration should be calculated
+1. Open **Settings → Devices & Services → Homematic(IP) Local** and click **Configure**.
+2. Open **Advanced settings → UN-IGNORE parameters**.
+3. Enable the `TEMPERATURE_OFFSET` master parameter for your radiator model, for example:
+   - `TEMPERATURE_OFFSET:MASTER@HmIP-eTRV` *(Homematic IP)*
+   - `TEMPERATURE_OFFSET:MASTER@HM-CC-RT-DN` or `TEMPERATURE_OFFSET:MASTER@HM-CC-RT-DN-BoM` *(Homematic Classic)*
+4. Reload the Homematic integration so `select.<room>_temperature_offset` appears in Home Assistant, then open Better Thermostat's configuration to select **`Offset Based`**.
 
-Better Thermostat offers several algorithms to control your heating:
+---
 
-- ***External Sensor Offset Only***: Simple and reliable - uses your external sensor to correct the TRV's internal sensor
-- ***Aggressive***: Pushes the TRV harder for faster heating (good for slow-heating rooms)
-- ***AI Time Based***: **[Recommended]** Learns your room's heating patterns and adapts automatically
-- ***MPC Predictive***: Advanced algorithm that predicts temperature changes for optimal efficiency
-- ***PID Controller***: Classic control method that responds well to varying heating conditions
-- ***TPI Controller***: Simple duty-cycle based control for consistent heating
-- ***(AI) MPC v2 (QP + Kalman, experimental)***: Experimental predictive controller; writes the valve directly with Direct Valve Based, otherwise works through the target temperature or the offset, depending on the calibration type
-- ***No Calibration***: BT passes your target temperature to the TRV unchanged and writes no offset
+## Renaming entities safely
 
-**→ [Learn more about each algorithm and which one to choose](algorithms)**
-
-**Quick guide:**
-
-- Start with AI Time Based, the default
-- Switch to Aggressive if the room heats slowly
-- Switch to MPC Predictive if the temperature overshoots
-- Switch to PID Controller if you want fine control
-- On HomeMatic IP/CCU, offset-based calibration handles SELECT entities automatically
-
-**Overheating protection** This should only be checked if you have any problems with strong overheating.
-
-**If your TRV can't handle the off mode, you can enable this to use target temp 5° instead** If your TRV model doesn't have an off mode, BT will use the min target temp of this device instead, this option is only needed if you have problems, known models that don't have an off mode are auto-detected by BT.
-
-**If auto means heat for your TRV and you want to swap it** Some climates in HA use the mode auto for default heating, and a boost when mode is heat. This isn't what we want, so if this is the case for you, check this option.
-
-**Ignore all inputs on the TRV like a child lock** If this option is enabled, all changes on the real TRV, even over HA, will be ignored or reverted, only input from the BT entity is accepted.
-
-**If you use HomematicIP you should enable this...** If your entity is a HomematicIP entity this option should be enabled, to prevent a duty cycle overload.
+If you rename any entity ID that Better Thermostat uses in Home Assistant (a TRV, cooler, room sensor, window/door sensor, or outdoor sensor), **Better Thermostat detects the registry rename automatically**, migrates all per-TRV options, helper entities, and learned thermal/PID/MPC data to the new entity ID, and reloads itself cleanly. Removing a TRV from a room purges its learned state so reusing that entity ID later starts fresh.

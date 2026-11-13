@@ -1,0 +1,773 @@
+"""Tests for the flight recorder: ring buffer, export, deterministic replay."""
+
+from dataclasses import FrozenInstanceError, replace
+from datetime import UTC, datetime
+import json
+import math
+
+import pytest
+
+from custom_components.better_thermostat.core.decide import decide, running_kernel_state
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    ControlMode,
+    ControlModeState,
+    PendingWindow,
+)
+from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
+from custom_components.better_thermostat.core.recorder import (
+    ExportedDecision,
+    FlightRecorder,
+    Json,
+    desired_from_dict,
+    replay,
+    snapshot_from_dict,
+    state_from_dict,
+)
+from custom_components.better_thermostat.core.snapshot import (
+    HvacMode,
+    Preset,
+    TrvReported,
+    WorldSnapshot,
+)
+
+
+def _snapshot(target=21.0) -> WorldSnapshot:
+    return WorldSnapshot(
+        now=datetime(2026, 1, 10, 7, 0, tzinfo=UTC),
+        now_monotonic=1000.0,
+        heat_target_temperature=target,
+        hvac_mode=HvacMode.HEAT,
+        room_temperature=19.0,
+        call_for_heat=True,
+        tolerance=0.3,
+        trvs={
+            "climate.trv": TrvReported(
+                entity_id="climate.trv",
+                available=True,
+                hvac_mode=HvacMode.HEAT,
+                current_temperature=20.0,
+                setpoint=21.0,
+                min_temp=5.0,
+                max_temp=30.0,
+                valve_max_opening=80.0,
+            )
+        },
+    )
+
+
+def _json_object(value: Json) -> dict[str, Json]:
+    """Narrow one exported value to the JSON object it is."""
+    assert isinstance(value, dict)
+    return value
+
+
+def _record_one(recorder: FlightRecorder, snapshot: WorldSnapshot) -> None:
+    state = replace(
+        running_kernel_state(), window=WindowState(phase=WindowPhase.CLOSED)
+    )
+    desired, _ = decide(snapshot, state)
+    recorder.record(snapshot, state, desired)
+
+
+class TestRingBuffer:
+    """The buffer is bounded and ordered oldest-first."""
+
+    def test_capacity_evicts_oldest(self):
+        """Overflow drops the oldest entries."""
+        recorder = FlightRecorder(capacity=3)
+        for target in (20.0, 21.0, 22.0, 23.0):
+            _record_one(recorder, _snapshot(target=target))
+        assert len(recorder) == 3
+        exported = recorder.export()
+        assert [
+            _json_object(e["snapshot"])["heat_target_temperature"] for e in exported
+        ] == [21.0, 22.0, 23.0]
+
+    def test_negative_capacity_is_rejected(self):
+        """A negative capacity is caught at construction, not on first record."""
+        with pytest.raises(ValueError):
+            FlightRecorder(capacity=-1)
+
+    def test_pre_decide_state_is_immutable(self):
+        """The recorded kernel state cannot drift under the record.
+
+        The aggregate is frozen, so later in-place mutation is
+        impossible and rebinding the live variable leaves the record
+        untouched.
+        """
+        recorder = FlightRecorder()
+        state = running_kernel_state()
+        snapshot = _snapshot()
+        desired, state = decide(snapshot, state)
+        recorder.record(snapshot, state, desired)
+        with pytest.raises(FrozenInstanceError):
+            setattr(state, "last_control_monotonic", 999.0)
+        state = replace(state, last_control_monotonic=999.0)
+        recorded_state = _json_object(recorder.export()[0]["state"])
+        assert recorded_state["last_control_monotonic"] is None
+
+
+class TestExport:
+    """The export is JSON-serializable and structurally complete."""
+
+    def test_export_survives_json(self):
+        """The exported buffer round-trips through json.dumps."""
+        recorder = FlightRecorder()
+        _record_one(recorder, _snapshot())
+        payload = json.loads(json.dumps(recorder.export()))
+        entry = payload[0]
+        assert entry["snapshot"]["trvs"]["climate.trv"]["current_temperature"] == 20.0
+        assert entry["desired"]["trvs"]["climate.trv"]["hvac_mode"] == "heat"
+        assert entry["state"]["window"]["phase"] == "closed"
+
+    def test_non_finite_floats_export_as_none(self):
+        """NaN/inf in a recorded snapshot never reach the JSON payload."""
+        recorder = FlightRecorder()
+        snapshot = replace(
+            _snapshot(), room_temperature=float("nan"), temperature_slope=float("inf")
+        )
+        _record_one(recorder, snapshot)
+        exported = recorder.export()
+        entry = _json_object(exported[0]["snapshot"])
+        assert entry["room_temperature"] is None
+        assert entry["temperature_slope"] is None
+        json.dumps(exported, allow_nan=False)
+
+
+class TestReplay:
+    """An exported tuple reproduces the decision deterministically."""
+
+    def test_replay_matches_the_recorded_decision(self):
+        """The kernel recomputes exactly what was recorded."""
+        recorder = FlightRecorder()
+        state = running_kernel_state()
+        snapshot = _snapshot()
+        desired, _ = decide(snapshot, running_kernel_state())
+        recorder.record(snapshot, state, desired)
+
+        entry = json.loads(json.dumps(recorder.export()))[0]
+        matches, recomputed = replay(entry)
+        assert matches is True
+        assert recomputed.trvs["climate.trv"].hvac_mode == HvacMode.HEAT
+
+    def test_replay_detects_a_diverging_record(self):
+        """A tampered desired no longer matches the recomputation."""
+        recorder = FlightRecorder()
+        desired, _ = decide(_snapshot(), running_kernel_state())
+        recorder.record(_snapshot(), running_kernel_state(), desired)
+        entry = json.loads(json.dumps(recorder.export()))[0]
+        entry["desired"]["call_for_heat"] = False
+        matches, _ = replay(entry)
+        assert matches is False
+
+    def test_a_non_finite_heating_target_replays_as_recorded(self):
+        """A decision on a NaN target matches its replay.
+
+        The export nulls the target and every setpoint decided on it, so
+        the replay decides on a NaN target again and compares its own
+        decision nulled the same way.
+        """
+        recorder = FlightRecorder()
+        state = running_kernel_state()
+        snapshot = replace(_snapshot(), heat_target_temperature=float("nan"))
+        desired, _ = decide(snapshot, state)
+        recorder.record(snapshot, state, desired)
+
+        entry = json.loads(json.dumps(recorder.export(), allow_nan=False))[0]
+        assert entry["desired"]["trvs"]["climate.trv"]["setpoint"] is None
+        matches, _ = replay(entry)
+        assert matches is True
+
+    def test_reconstruction_is_lossless_for_the_kernel(self):
+        """Snapshot and state reconstruct into equal kernel inputs."""
+        recorder = FlightRecorder()
+        snapshot = _snapshot()
+        desired, _ = decide(snapshot, running_kernel_state())
+        recorder.record(snapshot, running_kernel_state(), desired)
+        entry = json.loads(json.dumps(recorder.export()))[0]
+
+        assert snapshot_from_dict(entry["snapshot"]) == snapshot
+        rebuilt = state_from_dict(_json_object(entry["state"]))
+        assert rebuilt == running_kernel_state()
+
+
+class TestReplayValidation:
+    """Malformed exports fail loudly instead of replaying garbage."""
+
+    def _entry(self):
+        recorder = FlightRecorder()
+        desired, _ = decide(_snapshot(), running_kernel_state())
+        recorder.record(_snapshot(), running_kernel_state(), desired)
+        return json.loads(json.dumps(recorder.export()))[0]
+
+    def test_missing_now_is_rejected(self):
+        """A snapshot without a parseable 'now' raises."""
+        entry = self._entry()
+        entry["snapshot"]["now"] = None
+        with pytest.raises(ValueError, match="now"):
+            replay(entry)
+
+    def test_wrong_container_types_are_rejected(self):
+        """Non-mapping sections raise instead of replaying."""
+        entry = self._entry()
+        entry["state"]["window"] = "not-a-dict"
+        with pytest.raises(ValueError, match="mapping"):
+            replay(entry)
+
+    def test_wrong_scalar_types_are_rejected(self):
+        """Strings where numbers or bools belong raise."""
+        entry = self._entry()
+        entry["snapshot"]["call_for_heat"] = "yes"
+        with pytest.raises(ValueError, match="bool"):
+            replay(entry)
+
+        entry = self._entry()
+        entry["snapshot"]["tolerance"] = "warm"
+        with pytest.raises(ValueError, match="number"):
+            replay(entry)
+
+        entry = self._entry()
+        entry["state"]["window"]["phase"] = 7
+        with pytest.raises(ValueError, match="string"):
+            replay(entry)
+
+    def test_wrong_reachability_types_are_rejected(self):
+        """A non-integer retry count raises."""
+        entry = self._entry()
+        entry["state"]["reachability"] = {
+            "climate.trv": {
+                "online": True,
+                "offline_since": None,
+                "retry_count": "three",
+                "retry_at": None,
+            }
+        }
+        with pytest.raises(ValueError, match="integer"):
+            replay(entry)
+
+    def test_unavailable_sensors_must_be_a_list(self):
+        """A scalar where the sensor list belongs raises."""
+        entry = self._entry()
+        entry["state"]["control_mode"]["unavailable_sensors"] = "sensor.x"
+        with pytest.raises(ValueError, match="list"):
+            replay(entry)
+
+
+def test_non_finite_required_floats_roundtrip_to_their_defaults():
+    """An export nulled by the JSON path re-imports with per-field defaults.
+
+    The exporter writes None wherever a recorded float was non-finite;
+    the import path accepts those nulls on the required-float fields
+    and substitutes the documented defaults (now_monotonic 0.0, a NaN
+    heating target, tolerance 0.0, solar_intensity 0.0) instead of
+    rejecting the entry.
+    """
+    recorder = FlightRecorder()
+    state = replace(
+        running_kernel_state(), window=WindowState(phase=WindowPhase.CLOSED)
+    )
+    desired, _ = decide(_snapshot(), state)
+    snapshot = replace(
+        _snapshot(),
+        now_monotonic=float("inf"),
+        heat_target_temperature=float("nan"),
+        tolerance=float("nan"),
+        solar_intensity=float("nan"),
+    )
+    recorder.record(snapshot, state, desired)
+    entry = json.loads(json.dumps(recorder.export(), allow_nan=False))[0]
+    assert entry["snapshot"]["now_monotonic"] is None
+    assert entry["snapshot"]["heat_target_temperature"] is None
+    assert entry["snapshot"]["tolerance"] is None
+    assert entry["snapshot"]["solar_intensity"] is None
+    rebuilt = snapshot_from_dict(entry["snapshot"])
+    assert rebuilt.now_monotonic == 0.0
+    assert math.isnan(rebuilt.heat_target_temperature)
+    assert rebuilt.tolerance == 0.0
+    assert rebuilt.solar_intensity == 0.0
+
+
+def test_replay_roundtrips_reachability_and_null_window_state():
+    """Reachability entries survive the roundtrip."""
+    from custom_components.better_thermostat.core.snapshot import (
+        TrvReported as _TrvReported,
+    )
+
+    recorder = FlightRecorder()
+    snapshot = WorldSnapshot(
+        now=datetime(2026, 1, 10, 7, 0, tzinfo=UTC),
+        now_monotonic=1000.0,
+        heat_target_temperature=21.0,
+        hvac_mode=HvacMode.HEAT,
+        room_temperature=19.0,
+        call_for_heat=True,
+        trvs={"climate.t": _TrvReported(entity_id="climate.t", available=False)},
+    )
+    state = running_kernel_state()
+    desired, state = decide(snapshot, state)
+    recorder.record(snapshot, running_kernel_state(), desired)
+    # Record a second tuple whose pre-decide state carries reachability.
+    desired2, _ = decide(snapshot, state)
+    recorder.record(snapshot, state, desired2)
+
+    entry = json.loads(json.dumps(recorder.export()))[1]
+    matches, _ = replay(entry)
+    assert matches is True
+    rebuilt = state_from_dict(_json_object(entry["state"]))
+    assert rebuilt.reachability["climate.t"].online is False
+
+
+def test_exported_online_flag_is_ignored_on_import():
+    """Reachability exports carrying an "online" key load from offline_since."""
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["state"]["reachability"] = {
+        "climate.a": {
+            "online": True,
+            "offline_since": 700.0,
+            "retry_count": 1,
+            "retry_at": 760.0,
+        },
+        "climate.b": {
+            "online": False,
+            "offline_since": None,
+            "retry_count": 0,
+            "retry_at": None,
+        },
+    }
+    rebuilt = state_from_dict(_json_object(entry["state"]))
+    assert rebuilt.reachability["climate.a"].online is False
+    assert rebuilt.reachability["climate.b"].online is True
+
+
+def test_export_without_window_detection_loads_with_detection_on():
+    """A decision recorded before the switch existed ran with detection on."""
+    recorder = FlightRecorder()
+    state = replace(running_kernel_state(), window=WindowState(phase=WindowPhase.OPEN))
+    desired, _ = decide(_snapshot(), state)
+    recorder.record(_snapshot(), state, desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    del entry["state"]["window_detection"]
+
+    assert state_from_dict(_json_object(entry["state"])).window_detection is True
+    assert replay(entry)[0] is True
+
+
+def test_export_without_heating_block_still_replays():
+    """A decision recorded before the kernel named its block still matches."""
+    recorder = FlightRecorder()
+    state = replace(running_kernel_state(), window=WindowState(phase=WindowPhase.OPEN))
+    desired, _ = decide(_snapshot(), state)
+    recorder.record(_snapshot(), state, desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    assert entry["desired"]["heating_blocked_by"] == "window"
+    del entry["desired"]["heating_blocked_by"]
+
+    assert desired_from_dict(entry["desired"]).heating_blocked_by is None
+    assert replay(entry) == (True, desired)
+
+
+def test_replay_detects_a_diverging_heating_block():
+    """A recorded block the kernel does not reproduce fails the replay."""
+    recorder = FlightRecorder()
+    state = replace(running_kernel_state(), window=WindowState(phase=WindowPhase.OPEN))
+    desired, _ = decide(_snapshot(), state)
+    recorder.record(_snapshot(), state, desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["desired"]["heating_blocked_by"] = "door"
+
+    assert replay(entry) == (False, desired)
+
+
+def test_replay_reproduces_a_decision_with_window_detection_off():
+    """The switch is part of the recorded input, so the replay heats too."""
+    recorder = FlightRecorder()
+    state = replace(
+        running_kernel_state(),
+        window=WindowState(phase=WindowPhase.OPEN),
+        window_detection=False,
+    )
+    desired, _ = decide(_snapshot(), state)
+    recorder.record(_snapshot(), state, desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+
+    assert entry["state"]["window_detection"] is False
+    assert replay(entry) == (True, desired)
+
+
+def test_restored_running_maintenance_without_timestamp_never_blocks():
+    """A deserialized RUNNING phase lacking its timestamp cannot block.
+
+    state_from_dict loads running_since=None alongside phase "running"
+    as IDLE; the restored region must not pre-empt control forever.
+    """
+    from custom_components.better_thermostat.core.fsm.maintenance import (
+        DUE_AT_FIRST_TICK,
+        MaintenanceIdle,
+    )
+
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["state"]["maintenance"] = {
+        "phase": "running",
+        "next_due": None,
+        "running_since": None,
+    }
+    rebuilt = state_from_dict(_json_object(entry["state"]))
+    assert rebuilt.maintenance == MaintenanceIdle(next_due=DUE_AT_FIRST_TICK)
+    assert rebuilt.maintenance.is_blocking(now_monotonic=0.0) is False
+    assert rebuilt.maintenance.is_blocking(now_monotonic=99_999.0) is False
+    matches, _ = replay(entry)
+    assert matches is True
+
+
+def test_restored_start_timestamp_outside_running_is_dropped():
+    """A start timestamp next to a non-RUNNING phase loads without it."""
+    from custom_components.better_thermostat.core.fsm.maintenance import (
+        DUE_AT_FIRST_TICK,
+        MaintenanceDue,
+    )
+
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["state"]["maintenance"] = {
+        "phase": "due",
+        "next_due": None,
+        "running_since": 900.0,
+    }
+    rebuilt = state_from_dict(_json_object(entry["state"]))
+    assert rebuilt.maintenance == MaintenanceDue(next_due=DUE_AT_FIRST_TICK)
+
+
+def test_restored_idle_maintenance_without_schedule_is_due_at_the_first_tick():
+    """An exported IDLE region with ``next_due: null`` loads and replays.
+
+    It loads with the schedule of a region that has none of its own, so
+    the first scheduler tick arms it.
+    """
+    from custom_components.better_thermostat.core.fsm.maintenance import (
+        DUE_AT_FIRST_TICK,
+        MaintenanceDue,
+        MaintenanceIdle,
+        evaluate_tick,
+    )
+
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["state"]["maintenance"] = {
+        "phase": "idle",
+        "next_due": None,
+        "running_since": None,
+    }
+    rebuilt = state_from_dict(_json_object(entry["state"]))
+    assert rebuilt.maintenance == MaintenanceIdle(next_due=DUE_AT_FIRST_TICK)
+    armed = evaluate_tick(
+        rebuilt.maintenance,
+        datetime(2026, 1, 2, 8, 30, tzinfo=UTC),
+        window_open=False,
+        has_enabled_trvs=True,
+    )
+    assert isinstance(armed, MaintenanceDue)
+    matches, _ = replay(entry)
+    assert matches is True
+
+
+def test_restored_unknown_maintenance_phase_is_rejected():
+    """A phase tag outside idle/due/running does not load."""
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["state"]["maintenance"] = {
+        "phase": "paused",
+        "next_due": None,
+        "running_since": None,
+    }
+    with pytest.raises(ValueError, match="paused"):
+        state_from_dict(_json_object(entry["state"]))
+
+
+def _split_pending_entry(control_mode: dict[str, Json]) -> ExportedDecision:
+    """Export one decision, then swap in a ``control_mode`` of the split shape.
+
+    The split shape carries the ladder window as ``down_pending_since``,
+    ``up_pending_since`` and an optional ``pending_target`` instead of
+    one ``pending`` mapping.
+    """
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), running_kernel_state())
+    recorder.record(_snapshot(), running_kernel_state(), desired)
+    entry: ExportedDecision = json.loads(json.dumps(recorder.export()))[0]
+    _json_object(entry["state"])["control_mode"] = {
+        "mode": "optimal",
+        "unavailable_sensors": [],
+        "degraded_since": None,
+        **control_mode,
+    }
+    return entry
+
+
+@pytest.mark.parametrize(
+    ("control_mode", "expected"),
+    [
+        ({"down_pending_since": None, "up_pending_since": None}, None),
+        (
+            {
+                "down_pending_since": None,
+                "up_pending_since": None,
+                "pending_target": None,
+            },
+            None,
+        ),
+        (
+            {
+                "down_pending_since": 900.0,
+                "up_pending_since": None,
+                "pending_target": "sensor_fallback",
+            },
+            PendingWindow(deeper=True, since=900.0, target=ControlMode.SENSOR_FALLBACK),
+        ),
+        (
+            {
+                "down_pending_since": None,
+                "up_pending_since": 950.0,
+                "pending_target": "optimal",
+            },
+            PendingWindow(deeper=False, since=950.0, target=ControlMode.OPTIMAL),
+        ),
+        # A start time without a target never continued a window.
+        ({"down_pending_since": 900.0, "up_pending_since": None}, None),
+        # Nor does a target without a start time.
+        (
+            {
+                "down_pending_since": None,
+                "up_pending_since": None,
+                "pending_target": "hold",
+            },
+            None,
+        ),
+    ],
+)
+def test_split_pending_fields_load_as_one_window(control_mode, expected):
+    """An export carrying the window as three fields loads and replays."""
+    entry = _split_pending_entry(control_mode)
+    rebuilt = state_from_dict(_json_object(entry["state"]))
+    assert rebuilt.control_mode.pending == expected
+    matches, _ = replay(entry)
+    assert matches is True
+
+
+def test_split_pending_fields_in_both_directions_are_rejected():
+    """A window cannot run toward a deeper and a shallower rung at once."""
+    entry = _split_pending_entry(
+        {
+            "down_pending_since": 900.0,
+            "up_pending_since": 950.0,
+            "pending_target": "hold",
+        }
+    )
+    with pytest.raises(ValueError, match="both directions"):
+        state_from_dict(_json_object(entry["state"]))
+
+
+def test_pending_window_without_start_time_loads_as_no_window():
+    """A window whose start time the exporter nulled restarts on replay."""
+    entry = _split_pending_entry(
+        {"pending": {"deeper": True, "since": None, "target": "hold"}}
+    )
+    assert state_from_dict(_json_object(entry["state"])).control_mode.pending is None
+
+
+def test_pending_window_exports_as_one_mapping():
+    """A running ladder window exports as one ``pending`` mapping."""
+    window = PendingWindow(deeper=True, since=900.0, target=ControlMode.HOLD)
+    state = replace(
+        running_kernel_state(), control_mode=ControlModeState(pending=window)
+    )
+    recorder = FlightRecorder()
+    desired, _ = decide(_snapshot(), state)
+    recorder.record(_snapshot(), state, desired)
+    exported = json.loads(json.dumps(recorder.export()))[0]["state"]["control_mode"]
+    assert exported["pending"] == {"deeper": True, "since": 900.0, "target": "hold"}
+    assert state_from_dict(
+        json.loads(json.dumps(recorder.export()))[0]["state"]
+    ).control_mode == ControlModeState(pending=window)
+
+
+def test_snapshot_exported_as_temperature_slope_loads():
+    """Exports from before the slope's rename still reconstruct and replay."""
+    recorder = FlightRecorder()
+    snapshot = replace(_snapshot(), temperature_slope=0.02)
+    desired, _ = decide(snapshot, running_kernel_state())
+    recorder.record(snapshot, running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["snapshot"]["temp_slope"] = entry["snapshot"].pop("temperature_slope")
+
+    assert snapshot_from_dict(entry["snapshot"]).temperature_slope == 0.02
+    matches, _ = replay(entry)
+    assert matches is True
+
+
+def test_snapshot_exported_with_the_earlier_calibration_limit_keys_loads():
+    """Exports that name the TRV calibration limits the earlier way still load."""
+    recorder = FlightRecorder()
+    snapshot = _snapshot()
+    desired, _ = decide(snapshot, running_kernel_state())
+    recorder.record(snapshot, running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    for raw in entry["snapshot"]["trvs"].values():
+        raw["min_local_calibration"] = -5.0
+        raw["max_local_calibration"] = 5.0
+        raw["local_calibration_min"] = raw.pop("min_local_calibration")
+        raw["local_calibration_max"] = raw.pop("max_local_calibration")
+
+    rebuilt = snapshot_from_dict(entry["snapshot"])
+
+    assert rebuilt.trvs
+    for trv in rebuilt.trvs.values():
+        assert (trv.min_local_calibration, trv.max_local_calibration) == (-5.0, 5.0)
+
+
+class TestRoundtripCompleteness:
+    """Every field of every recorded type survives export and reconstruct.
+
+    The kwargs below deliberately set every field to a non-default value
+    and the field-set assertions force this test to grow with the
+    dataclasses — a field missing from the reconstructors cannot drift
+    past it silently.
+    """
+
+    def test_every_field_roundtrips(self):
+        """Fully populated decision tuples reconstruct exactly."""
+        from dataclasses import fields
+
+        from custom_components.better_thermostat.core.decide import KernelState
+        from custom_components.better_thermostat.core.desired import (
+            DesiredState,
+            HeatingBlock,
+            Suppression,
+            TrvDesired,
+        )
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+            ControlModeState,
+        )
+        from custom_components.better_thermostat.core.fsm.lifecycle import (
+            LifecyclePhase,
+            LifecycleState,
+        )
+        from custom_components.better_thermostat.core.fsm.maintenance import (
+            MaintenanceRunning,
+        )
+        from custom_components.better_thermostat.core.fsm.mode import ModeState
+        from custom_components.better_thermostat.core.fsm.reachability import (
+            ReachabilityState,
+        )
+
+        trv_reported_kwargs = {
+            "entity_id": "climate.trv",
+            "available": False,
+            "released": True,
+            "hvac_mode": HvacMode.HEAT,
+            "current_temperature": 20.5,
+            "setpoint": 21.5,
+            "min_temp": 6.0,
+            "max_temp": 29.0,
+            "valve_max_opening": 80.0,
+            "min_local_calibration": -4.0,
+            "max_local_calibration": 4.0,
+        }
+        assert set(trv_reported_kwargs) == {f.name for f in fields(TrvReported)}
+
+        snapshot_kwargs = {
+            "now": datetime(2026, 1, 10, 7, 0, tzinfo=UTC),
+            "now_monotonic": 1000.0,
+            "heat_target_temperature": 21.0,
+            "cool_target_temperature": 24.0,
+            "hvac_mode": HvacMode.HEAT,
+            "room_temperature": 19.0,
+            "room_temperature_filtered": 19.1,
+            "temperature_slope": 0.02,
+            "call_for_heat": True,
+            "window_open": True,
+            "preset_mode": Preset.ECO,
+            "devices_released": True,
+            "tolerance": 0.3,
+            "outdoor_temperature": 5.5,
+            "is_day": False,
+            "solar_intensity": 0.4,
+            "min_temp": 5.0,
+            "max_temp": 30.0,
+            "trvs": {"climate.trv": TrvReported(**trv_reported_kwargs)},
+        }
+        assert set(snapshot_kwargs) == {f.name for f in fields(WorldSnapshot)}
+        snapshot = WorldSnapshot(**snapshot_kwargs)
+
+        state_kwargs = {
+            "window": WindowState(phase=WindowPhase.OPENING, pending_since=900.0),
+            "door": WindowState(phase=WindowPhase.CLOSING, pending_since=920.0),
+            "maintenance": MaintenanceRunning(
+                next_due=datetime(2026, 2, 1, tzinfo=UTC), running_since=950.0
+            ),
+            "lifecycle": LifecycleState(
+                phase=LifecyclePhase.RUNNING,
+                grace_until=datetime(2026, 1, 10, 8, 0, tzinfo=UTC),
+            ),
+            "mode": ModeState(hvac_mode=HvacMode.HEAT, preset=Preset.ECO),
+            "control_mode": ControlModeState(
+                mode=ControlMode.SENSOR_FALLBACK,
+                unavailable_sensors=("sensor.room",),
+                degraded_since=800.0,
+                pending=PendingWindow(
+                    deeper=True, since=810.0, target=ControlMode.HOLD
+                ),
+            ),
+            "reachability": {
+                "climate.trv": ReachabilityState(
+                    offline_since=700.0, retry_count=2, retry_at=1100.0
+                )
+            },
+            "window_detection": False,
+            "last_control_monotonic": 990.0,
+        }
+        assert set(state_kwargs) == {f.name for f in fields(KernelState)}
+        state = KernelState(**state_kwargs)
+
+        trv_desired_kwargs = {
+            "entity_id": "climate.trv",
+            "hvac_mode": HvacMode.HEAT,
+            "setpoint": 21.5,
+            "valve_percent": 60.0,
+            "calibration_offset": -1.5,
+            "suppression": Suppression.WINDOW,
+        }
+        assert set(trv_desired_kwargs) == {f.name for f in fields(TrvDesired)}
+        desired_kwargs = {
+            "call_for_heat": True,
+            "trvs": {"climate.trv": TrvDesired(**trv_desired_kwargs)},
+            "devices_released": True,
+            "heating_blocked_by": HeatingBlock.DEVICES_RELEASED,
+        }
+        assert set(desired_kwargs) == {f.name for f in fields(DesiredState)}
+        desired = DesiredState(**desired_kwargs)
+
+        recorder = FlightRecorder()
+        recorder.record(snapshot, state, desired)
+        entry = json.loads(json.dumps(recorder.export()))[0]
+
+        assert snapshot_from_dict(entry["snapshot"]) == snapshot
+        assert state_from_dict(_json_object(entry["state"])) == state
+        assert desired_from_dict(entry["desired"]) == desired
+        assert entry["state"]["maintenance"] == {
+            "phase": "running",
+            "next_due": "2026-02-01T00:00:00+00:00",
+            "running_since": 950.0,
+        }

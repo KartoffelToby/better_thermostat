@@ -9,21 +9,24 @@ entry and the value in one warning and leaves the value as it is.
 
 import logging
 
+from homeassistant.const import UnitOfTemperature
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from .conftest import (
     DOMAIN,
-    SENSOR_ID,
+    OUTDOOR_ID,
+    build_devices,
     make_entry,
+    set_room_sensor,
     setup_entry,
     wait_for,
     wait_for_startup,
 )
+from .device_profiles import FAHRENHEIT_TRV, GENERIC_HEAT_TRV
 
 ENTRY_NAME = "BT Test"
-OUTDOOR_ID = "sensor.outdoor_temperature"
 WEATHER_ID = "weather.home"
 
 
@@ -45,36 +48,38 @@ def _threshold_warnings(caplog) -> list[str]:
     ]
 
 
-async def _start(hass, trv, unit_system, off_temperature, source):
+async def _start(hass, unit_system, off_temperature, source):
     """Set up an entry with ``off_temperature`` and the outdoor ``source``."""
     hass.config.units = unit_system
-    # The device published its state under the previous unit system; it
-    # republishes so its temperatures are read in the one set here.
-    trv.async_write_ha_state()
     unit = unit_system.temperature_unit
-    hass.states.async_set(
-        SENSOR_ID, "66.0" if unit == "°F" else "19.0", {"unit_of_measurement": unit}
+    profile = (
+        FAHRENHEIT_TRV if unit == UnitOfTemperature.FAHRENHEIT else GENERIC_HEAT_TRV
     )
+    await build_devices(hass, profile)
+    set_room_sensor(hass, 66.0 if unit == UnitOfTemperature.FAHRENHEIT else 19.0, unit)
     hass.states.async_set(OUTDOOR_ID, "50", {"unit_of_measurement": unit})
     hass.states.async_set(WEATHER_ID, "cloudy", {"temperature": 50})
-    base = make_entry()
-    data = {**base.data, "off_temperature": off_temperature}
-    if source == "outdoor_sensor":
-        data["outdoor_sensor"] = OUTDOOR_ID
-    elif source == "weather":
-        data["weather"] = WEATHER_ID
-    entry = MockConfigEntry(
-        domain=DOMAIN, version=base.version, data=data, title=base.title
+    entry = make_entry(
+        profile,
+        with_outdoor_sensor=source == "outdoor_sensor",
+        off_temperature=off_temperature,
     )
+    if source == "weather":
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            version=entry.version,
+            data={**entry.data, "weather": WEATHER_ID},
+            title=entry.title,
+        )
     await setup_entry(hass, entry)
     return await wait_for_startup(hass, entry)
 
 
 @pytest.mark.parametrize("source", ["outdoor_sensor", "weather"])
-async def test_a_threshold_below_freezing_is_named_once(hass, fake_trv, caplog, source):
+async def test_a_threshold_below_freezing_is_named_once(hass, caplog, source):
     """20 °F on a Fahrenheit system yields one warning naming entry and value."""
     caplog.set_level(logging.INFO)
-    bt = await _start(hass, fake_trv, US_CUSTOMARY_SYSTEM, 20, source)
+    bt = await _start(hass, US_CUSTOMARY_SYSTEM, 20, source)
 
     # Further outdoor readings run the threshold check again.
     for reading in ("51", "52"):
@@ -89,7 +94,7 @@ async def test_a_threshold_below_freezing_is_named_once(hass, fake_trv, caplog, 
     assert "-6.7" in warnings[0]
     # The stored value is left for the user to change.
     (entry,) = hass.config_entries.async_entries(DOMAIN)
-    assert entry.data["off_temperature"] == 20
+    assert entry.options["off_temperature"] == 20
     assert _refused_writes(caplog) == []
 
 
@@ -103,11 +108,23 @@ async def test_a_threshold_below_freezing_is_named_once(hass, fake_trv, caplog, 
     ],
 )
 async def test_a_threshold_that_acts_as_meant_stays_quiet(
-    hass, fake_trv, caplog, unit_system, off_temperature, source
+    hass, caplog, unit_system, off_temperature, source
 ):
     """Thresholds at or above freezing, or without an outdoor source, warn nothing."""
     caplog.set_level(logging.INFO)
-    await _start(hass, fake_trv, unit_system, off_temperature, source)
+    await _start(hass, unit_system, off_temperature, source)
 
     assert _threshold_warnings(caplog) == []
     assert _refused_writes(caplog) == []
+
+
+async def test_an_unreadable_threshold_is_not_taken_for_one_below_freezing(
+    hass, caplog
+):
+    """A stored threshold that is no number is reported as invalid, not as cold."""
+    caplog.set_level(logging.INFO)
+    await _start(hass, US_CUSTOMARY_SYSTEM, "unset", "outdoor_sensor")
+
+    warnings = _threshold_warnings(caplog)
+    assert any("invalid off_temperature 'unset'" in w for w in warnings), warnings
+    assert not any("warmer than that outside" in w for w in warnings), warnings

@@ -50,29 +50,27 @@ class ScalarReferenceGovernor:
         """
         self.plant = plant
         self.params = params
-        self._v_C: float | None = None
+        self._v: float | None = None
 
     def reset(self) -> None:
         """Clear the governed reference so the next update re-seeds it."""
-        self._v_C = None
+        self._v = None
 
     def state(self) -> float | None:
         """Return the current governed reference, or ``None`` if unset."""
-        return self._v_C
+        return self._v
 
-    def restore(self, v_C: float | None) -> None:
+    def restore(self, v: float | None) -> None:
         """Restore a previously persisted governed reference."""
-        self._v_C = v_C
+        self._v = v
 
     def _u_steady_for(
-        self, v_C: float, T_outdoor_C: float, D_hat_K_per_min: float
+        self, v: float, T_outdoor: float, D_hat_K_per_min: float
     ) -> float:
-        return self.plant.steady_input(v_C, T_outdoor_C, D_hat_K_per_min)
+        return self.plant.steady_input(v, T_outdoor, D_hat_K_per_min)
 
-    def _is_holdable(
-        self, v_C: float, T_outdoor_C: float, D_hat_K_per_min: float
-    ) -> bool:
-        """Return whether the valve can hold ``v_C`` without saturating open.
+    def _is_holdable(self, v: float, T_outdoor: float, D_hat_K_per_min: float) -> bool:
+        """Return whether the valve can hold ``v`` without saturating open.
 
         Only the upper bound decides whether a reference is attainable at all.
         A reference below the tightened lower bound asks for less flow than the
@@ -80,26 +78,24 @@ class ScalarReferenceGovernor:
         governed reference above such a setpoint would keep heating a room the
         user asked to cool down.
         """
-        u_ss = self._u_steady_for(v_C, T_outdoor_C, D_hat_K_per_min)
+        u_ss = self._u_steady_for(v, T_outdoor, D_hat_K_per_min)
         return u_ss <= self.params.u_max - self.params.safety_margin
 
-    def _is_feasible(
-        self, v_C: float, T_outdoor_C: float, D_hat_K_per_min: float
-    ) -> bool:
-        """Return whether ``v_C`` keeps the steady-state input strictly interior.
+    def _is_feasible(self, v: float, T_outdoor: float, D_hat_K_per_min: float) -> bool:
+        """Return whether ``v`` keeps the steady-state input strictly interior.
 
         Applied to the intermediate references the bisection walks over, which
         keep margin on both rails so the optimiser retains authority in either
         direction while the reference travels.
         """
-        u_ss = self._u_steady_for(v_C, T_outdoor_C, D_hat_K_per_min)
+        u_ss = self._u_steady_for(v, T_outdoor, D_hat_K_per_min)
         delta = self.params.safety_margin
         return self.params.u_min + delta <= u_ss <= self.params.u_max - delta
 
     def update(
         self,
         T_sp: float,
-        T_outdoor_C: float,
+        T_outdoor: float,
         T_room_now: float,
         D_hat_K_per_min: float = 0.0,
     ) -> float:
@@ -114,7 +110,7 @@ class ScalarReferenceGovernor:
         ----------
         T_sp : float
             User setpoint the reference travels toward.
-        T_outdoor_C : float
+        T_outdoor : float
             Outdoor temperature driving the steady-state loss term.
         T_room_now : float
             Current room temperature; seeds the reference on the first call.
@@ -125,19 +121,19 @@ class ScalarReferenceGovernor:
         """
         if not self.params.enabled:
             return T_sp
-        if self._v_C is None:
-            self._v_C = T_room_now
-        if self._is_holdable(T_sp, T_outdoor_C, D_hat_K_per_min):
-            self._v_C = T_sp
-            return self._v_C
-        v_prev = self._v_C
+        if self._v is None:
+            self._v = T_room_now
+        if self._is_holdable(T_sp, T_outdoor, D_hat_K_per_min):
+            self._v = T_sp
+            return self._v
+        v_prev = self._v
         lo, hi = 0.0, 1.0
         for _ in range(self.params.bisection_iters):
             mid = 0.5 * (lo + hi)
             v_trial = v_prev + mid * (T_sp - v_prev)
-            if self._is_feasible(v_trial, T_outdoor_C, D_hat_K_per_min):
+            if self._is_feasible(v_trial, T_outdoor, D_hat_K_per_min):
                 lo = mid
             else:
                 hi = mid
-        self._v_C = v_prev + lo * (T_sp - v_prev)
-        return self._v_C
+        self._v = v_prev + lo * (T_sp - v_prev)
+        return self._v

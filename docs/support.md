@@ -3,11 +3,11 @@ title: Support
 description: Support Better Thermostat development.
 ---
 
-# ☕ Support
-
-If you want to support this project, you can ☕ [**buy a coffee here**](https://www.buymeacoffee.com/kartoffeltoby).
+If Better Thermostat saves you energy or improves comfort in your home, you can ☕ [**buy a coffee here**](https://www.buymeacoffee.com/kartoffeltoby).
 
 [![Buy me a coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=kartoffeltoby&button_colour=0ac982&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff)](https://www.buymeacoffee.com/kartoffeltoby)
+
+Looking for specific tested TRV models, room sensors, and Zigbee coordinators? Check **[Recommended TRVs, sensors & Zigbee](/working-devices/recommended-devices/)**.
 
 ## 🛒 Useful products for Better Thermostat
 

@@ -1,0 +1,92 @@
+name: Smoke test against upcoming Home Assistant
+
+# The tests run against the Home Assistant the lock file pins. This boots the
+# integration in the Home Assistant images of the coming releases instead, so
+# a removal Better Thermostat depends on shows up before users install it.
+# It never blocks a pull request except one that changes the smoke test.
+
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/ha_smoke.py
+      - .github/workflows/ha-smoke.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ${{ matrix.line }} on Home Assistant ${{ matrix.tag }}
+    runs-on: ubuntu-latest
+    # Room for a run plus one docker call that hangs until its limit: the
+    # script then fails on its own and the issue step still runs.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.9 is the line users run until 2.0 is released.
+        line: [develop, "1.9"]
+        tag: [stable, beta, dev]
+
+    steps:
+      - name: Check out the smoke test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check out the line under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          # A pull request tests its own integration on the develop row.
+          ref: >-
+            ${{ (github.event_name == 'pull_request' && matrix.line == 'develop')
+            && github.sha || matrix.line }}
+          path: under-test
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          python-version: "3.14"
+
+      - name: Boot Home Assistant twice
+        # bash sets pipefail, so a failed boot is not hidden behind tee.
+        shell: bash
+        run: >-
+          uv run --no-project python scripts/ha_smoke.py
+          --tag "$TAG"
+          --integration under-test/custom_components/better_thermostat
+          | tee smoke.log
+        env:
+          TAG: ${{ matrix.tag }}
+
+      - name: Open an issue
+        if: >-
+          failure() && github.event_name == 'schedule'
+          && github.repository == 'KartoffelToby/better_thermostat'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: "Smoke test: ${{ matrix.line }} fails on Home Assistant ${{ matrix.tag }}"
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          # One open issue per line and tag; a failure that is already
+          # reported adds nothing until that issue is closed.
+          open_titles=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"$TITLE\" in:title" --json title --jq '.[].title')
+          if grep -qxF "$TITLE" <<< "$open_titles"; then
+            exit 0
+          fi
+          {
+            echo "The nightly smoke test failed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
+            echo
+            echo '```'
+            cat smoke.log
+            echo '```'
+          } > body.md
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file body.md

@@ -11,19 +11,24 @@ counted as failed. Only a cancellation of the task itself still ends it.
 
 import asyncio
 import contextlib
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 import pytest
 
-from custom_components.better_thermostat.adapters.delegate import set_offset
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.adapters.delegate import set_calibration_offset
+from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.decide import running_kernel_state
+from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.utils.controlling import control_queue
 from custom_components.better_thermostat.utils.retry import (
     CommandCancelledError,
     command_cancellation_as_disconnect,
 )
+from tests.factories import ThermostatStandIn, trv_record
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 ENTITY_ID = "climate.trv"
@@ -75,40 +80,62 @@ class TestTheConversion:
 @pytest.mark.asyncio
 async def test_a_trv_write_the_library_cancelled_is_retried_and_fails_cleanly():
     """The delegate retries the cancelled write and answers False once spent."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.hass = MagicMock()
-    trv = Trv(entity_id=ENTITY_ID)
+    trv = trv_record(entity_id=ENTITY_ID)
     trv.adapter = MagicMock()
-    trv.adapter.set_offset = AsyncMock(side_effect=_cancelled_by_the_library)
+    trv.adapter.set_calibration_offset = AsyncMock(
+        side_effect=_cancelled_by_the_library
+    )
     bt.real_trvs = {ENTITY_ID: trv}
 
     async def _skip_delay(_seconds):
         return None
 
-    with patch("asyncio.sleep", new=_skip_delay):
-        result = await set_offset(bt, ENTITY_ID, 1.0)
+    with (
+        patch("asyncio.sleep", new=_skip_delay),
+        patch(
+            "custom_components.better_thermostat.adapters.delegate."
+            "calibration_entity_disabled",
+            return_value=False,
+        ),
+    ):
+        result = await set_calibration_offset(bt, ENTITY_ID, 1.0)
 
     assert result is False
-    assert trv.adapter.set_offset.await_count > 1
+    assert trv.adapter.set_calibration_offset.await_count > 1
     assert "offset" in trv.unreachable_write_channels
 
 
-def _room() -> Mock:
+def _room() -> ThermostatStandIn:
     """Build a heating room at rest whose loop is free to take a request."""
-    bt = Mock()
+    bt = ThermostatStandIn()
+    bt.attr_hvac_action = None
+    bt.clock = FakeClock()
+    bt.kernel_state = running_kernel_state()
+    bt.flight_recorder = FlightRecorder()
+    bt.bt_hvac_mode = HVACMode.HEAT
+    bt.heat_target_temperature = 21.0
+    bt.cool_target_temperature = None
+    bt.bt_min_temp = 5.0
+    bt.bt_max_temp = 30.0
+    bt.room_temperature = 20.0
+    bt.room_temperature_filtered = None
+    bt.temperature_slope = None
+    bt.call_for_heat = True
+    bt.preset_mode = None
+    bt.tolerance = 0.3
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
+    bt.calculate_heat_loss = AsyncMock()
     bt.device_name = "test_thermostat"
     bt.in_maintenance = False
     bt.ignore_states = False
     bt.startup_running = False
     bt.calculate_heating_power = AsyncMock()
-    bt.calculate_heat_loss = AsyncMock()
     bt.cooler_entity_id = None
-    bt.real_trvs = {ENTITY_ID: Trv.from_legacy_dict(ENTITY_ID, {})}
-    bt.bt_target_temp = 21.0
-    bt.bt_target_cooltemp = None
-    bt.bt_hvac_mode = HVACMode.HEAT
-    bt.hass.states.get.return_value = State(ENTITY_ID, "heat")
+    bt.real_trvs = {ENTITY_ID: trv_record(entity_id=ENTITY_ID)}
     return bt
 
 
@@ -138,8 +165,7 @@ async def test_a_trv_pass_that_ended_cancelled_is_counted_as_failed():
     ):
         loop = asyncio.create_task(control_queue(bt))
         await queue.put(bt)
-        with contextlib.suppress(TimeoutError):
-            await _wait_until(lambda: control_trv.await_count > 1, timeout=1.0)
+        await _wait_until(lambda: control_trv.await_count > 1)
         loop.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await loop
@@ -168,3 +194,44 @@ async def test_cancelling_the_loop_still_ends_it():
             await asyncio.wait_for(loop, timeout=1)
 
     assert loop.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_a_tweak_the_library_cancelled_fails_that_trv_not_the_startup():
+    """A cancelled initial tweak marks the TRV failed and startup goes on.
+
+    The tweaks write straight to the device's helper entities, outside the
+    delegate, and a Z-Wave JS connection that is still settling while Home
+    Assistant boots is the likeliest moment for a cancelled command.
+    """
+    bt = ThermostatStandIn()
+    bt.device_name = "Test BT"
+    bt.hass = MagicMock()
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    bt.hass.states.get.return_value = State(
+        ENTITY_ID, "heat", {"min_temp": 5.0, "max_temp": 30.0, "temperature": 21.0}
+    )
+    bt.all_entities = dict[str, None]()
+    bt.cooler_entity_id = None
+    bt.bt_target_temperature_step = None
+    bt._configured_temperature_step = None
+    bt.heat_target_temperature = 21.0
+    bt.bt_hvac_mode = HVACMode.HEAT
+    bt.context = MagicMock()
+    bt.real_trvs = {ENTITY_ID: trv_record(entity_id=ENTITY_ID, calibration=None)}
+
+    with (
+        patch("custom_components.better_thermostat.climate.init", autospec=True),
+        patch(
+            "custom_components.better_thermostat.climate.initial_tweak",
+            autospec=True,
+            side_effect=_cancelled_by_the_library,
+        ),
+        patch(
+            "custom_components.better_thermostat.climate.control_trv",
+            AsyncMock(return_value=True),
+        ),
+    ):
+        failed = await BetterThermostat._initialize_trvs(bt, [ENTITY_ID])
+
+    assert failed == {ENTITY_ID}
