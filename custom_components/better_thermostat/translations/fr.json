@@ -54,7 +54,8 @@
         }
       },
       "advanced": {
-        "description": "Configuration avancée {trv}\n\n**Infos détaillées :** {docs_url}",
+        "description": "Configuration avancée {trv}{external_temperature_hint}\n\n**Infos détaillées :** {docs_url}",
+        "external_temperature_hint": "Pour Spirit/ZWA021 : activez l'entité de décalage dans Home Assistant et réglez-la sur -128 avant d'ajouter la TRV. Cela présélectionne Aucune calibration. Si la TRV est déjà configurée, choisissez Aucune calibration dans ses paramètres. Better Thermostat envoie la température de la pièce uniquement tant que ces conditions sont réunies et ne modifie jamais le décalage.",
         "data": {
           "protect_overheating": "Protection contre la surchauffe ?",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
@@ -160,7 +161,8 @@
         }
       },
       "advanced": {
-        "description": "Configuration avancée {trv}\n\n**Infos détaillées :** {docs_url}",
+        "description": "Configuration avancée {trv}{external_temperature_hint}\n\n**Infos détaillées :** {docs_url}",
+        "external_temperature_hint": "Pour Spirit/ZWA021 : activez l'entité de décalage dans Home Assistant et réglez-la sur -128 avant d'ajouter la TRV. Cela présélectionne Aucune calibration. Si la TRV est déjà configurée, choisissez Aucune calibration dans ses paramètres. Better Thermostat envoie la température de la pièce uniquement tant que ces conditions sont réunies et ne modifie jamais le décalage.",
         "data": {
           "protect_overheating": "Protection contre la surchauffe ?",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",

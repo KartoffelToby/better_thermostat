@@ -54,7 +54,8 @@
         }
       },
       "advanced": {
-        "description": "Einstellungen für {trv}\n\n**Detaillierte Infos:** {docs_url}",
+        "description": "Einstellungen für {trv}{external_temperature_hint}\n\n**Detaillierte Infos:** {docs_url}",
+        "external_temperature_hint": "Für Spirit/ZWA021: Aktiviere die Offset-Entität in Home Assistant und setze sie auf -128, bevor du das TRV hinzufügst. Dadurch wird „Keine Kalibrierung“ vorausgewählt. Wenn das TRV bereits eingerichtet ist, wähle „Keine Kalibrierung“ in seinen Einstellungen. Better Thermostat sendet die Raumtemperatur nur, solange die Bedingungen erfüllt sind, und verändert den Offset nie.",
         "data": {
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",
@@ -160,7 +161,8 @@
         }
       },
       "advanced": {
-        "description": "Aktualisiere die Einstellungen für {trv}\n\n**Detaillierte Infos:** {docs_url}",
+        "description": "Aktualisiere die Einstellungen für {trv}{external_temperature_hint}\n\n**Detaillierte Infos:** {docs_url}",
+        "external_temperature_hint": "Für Spirit/ZWA021: Aktiviere die Offset-Entität in Home Assistant und setze sie auf -128, bevor du das TRV hinzufügst. Dadurch wird „Keine Kalibrierung“ vorausgewählt. Wenn das TRV bereits eingerichtet ist, wähle „Keine Kalibrierung“ in seinen Einstellungen. Better Thermostat sendet die Raumtemperatur nur, solange die Bedingungen erfüllt sind, und verändert den Offset nie.",
         "data": {
           "protect_overheating": "Überhitzung verhindern?",
           "heat_auto_swapped": "Tauscht die Modi auto und heat, falls diese bei dem realen Thermostat vertauscht sind.",

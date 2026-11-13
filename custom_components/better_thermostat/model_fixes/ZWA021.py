@@ -2,27 +2,35 @@
 
 These Z-Wave TRVs can be driven by externally supplied valve positions, but
 only after being switched into a hidden "Manufacturer Specific" thermostat
-mode. The quirk below engages that mode when — and only when — Better
-Thermostat is configured for direct valve control. In every other calibration
-mode the module is inert and the device is driven through the standard
-``climate`` services, exactly like an unquirked TRV.
+mode. The quirk engages that mode only for direct valve control. Separately,
+it can send the room temperature as a CC 49 report when the device's offset
+number already holds its reserved ``-128`` external-temperature value and
+Better Thermostat is configured for ``no_calibration``.
 """
 
 import logging
+import math
+from time import monotonic
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNKNOWN
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.better_thermostat.model_fixes.types import (
+    ExternalTemperatureQuirk,
     ModelFixHost,
     ModelQuirks,
     UnknownStateQuirk,
     ValveQuirk,
 )
 
-from ..utils.const import CalibrationOutput
-from ..utils.helpers import configured_calibration_output
+from ..adapters.base import reserved_published_values
+from ..utils.const import CalibrationMode, CalibrationOutput
+from ..utils.helpers import (
+    configured_calibration_mode,
+    configured_calibration_output,
+    find_local_calibration_entity,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,6 +58,10 @@ _VALVE_MAX = 99
 # Key in the TRV record's ``extra`` mapping: set once the valve mode was
 # written and went through.
 _VALVE_MODE_ENGAGED = "_zwa021_valve_mode_engaged"
+_EXTERNAL_TEMPERATURE_LAST_SENT = "_zwa021_external_temperature_last_sent"
+_EXTERNAL_TEMPERATURE_SENT_AT = "_zwa021_external_temperature_sent_at"
+_EXTERNAL_TEMPERATURE_MODE = -128.0
+_EXTERNAL_TEMPERATURE_REFRESH_SECONDS = 15 * 60.0
 
 
 def _is_direct_valve(self: ModelFixHost, entity_id: str) -> bool:
@@ -96,6 +108,92 @@ def fix_target_temperature_calibration(
 ) -> float:
     """Return the given target temperature unchanged."""
     return temperature
+
+
+async def _local_offset_entity(self: ModelFixHost, entity_id: str) -> str | None:
+    """Find and cache the local offset entity used to select external input."""
+    trv = self.real_trvs[entity_id]
+    calibration_entity = trv.local_temperature_calibration_entity
+    if calibration_entity is None:
+        calibration_entity = await find_local_calibration_entity(self, entity_id)
+        trv.local_temperature_calibration_entity = calibration_entity
+    return calibration_entity
+
+
+async def maybe_set_external_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
+    """Send the room reading as Z-Wave Sensor Multilevel Air Temperature.
+
+    The Spirit/ZWA021 keeps its own thermostat and valve regulation. This
+    quirk only supplies the air-temperature report; it does not set or restore
+    the reserved offset and never writes a valve.
+    """
+    trv = self.real_trvs[entity_id]
+    if trv.integration != "zwave_js" or _is_direct_valve(self, entity_id):
+        return False
+    if (
+        configured_calibration_mode(trv.advanced) is not CalibrationMode.NO_CALIBRATION
+    ):
+        return False
+    calibration_entity = await _local_offset_entity(self, entity_id)
+    state = self.hass.states.get(calibration_entity) if calibration_entity else None
+    if state is None:
+        return False
+    try:
+        offset = float(state.state)
+        report_temperature = float(temperature)
+    except (TypeError, ValueError):
+        return False
+    if (
+        not math.isfinite(report_temperature)
+        or not math.isclose(offset, _EXTERNAL_TEMPERATURE_MODE, abs_tol=1e-6)
+        or _EXTERNAL_TEMPERATURE_MODE not in reserved_published_values(state)
+    ):
+        return False
+    report_temperature = round(report_temperature, 2)
+    previous = trv.extra.get(_EXTERNAL_TEMPERATURE_LAST_SENT)
+    sent_at = trv.extra.get(_EXTERNAL_TEMPERATURE_SENT_AT)
+    now = monotonic()
+    if isinstance(previous, int | float) and math.isclose(
+        report_temperature, float(previous), abs_tol=0.005
+    ):
+        if (
+            isinstance(sent_at, int | float)
+            and now - float(sent_at) < _EXTERNAL_TEMPERATURE_REFRESH_SECONDS
+        ):
+            return True
+    try:
+        await self.hass.services.async_call(
+            "zwave_js",
+            "invoke_cc_api",
+            {
+                "entity_id": entity_id,
+                "command_class": 49,
+                "endpoint": 0,
+                "method_name": "sendReport",
+                "parameters": [1, 0, report_temperature],
+            },
+            blocking=True,
+            context=self.context,
+        )
+    except (HomeAssistantError, OSError, RuntimeError, TypeError, ValueError) as ex:
+        _LOGGER.warning(
+            "better_thermostat %s: ZWA021 external temperature report for %s failed: %s",
+            self.device_name,
+            entity_id,
+            ex,
+        )
+        return False
+    trv.extra[_EXTERNAL_TEMPERATURE_LAST_SENT] = report_temperature
+    trv.extra[_EXTERNAL_TEMPERATURE_SENT_AT] = monotonic()
+    _LOGGER.debug(
+        "better_thermostat %s: sent ZWA021 external air temperature %.2f °C to %s",
+        self.device_name,
+        report_temperature,
+        entity_id,
+    )
+    return True
 
 
 async def override_set_hvac_mode(
@@ -233,8 +331,10 @@ class _Surface:
     override_set_temperature = staticmethod(override_set_temperature)
     override_set_valve = staticmethod(override_set_valve)
     trv_state_unknown_as_available = staticmethod(trv_state_unknown_as_available)
+    maybe_set_external_temperature = staticmethod(maybe_set_external_temperature)
 
 
 _MODEL_QUIRKS: ModelQuirks = _Surface()
 _UNKNOWN_STATE_QUIRK: UnknownStateQuirk = _Surface()
 _VALVE_QUIRK: ValveQuirk = _Surface()
+_EXTERNAL_TEMPERATURE_QUIRK: ExternalTemperatureQuirk = _Surface()

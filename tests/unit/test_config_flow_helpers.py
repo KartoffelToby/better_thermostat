@@ -11,12 +11,14 @@ from collections.abc import Mapping
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.const import CONF_NAME, UnitOfTemperature
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.adapters.types import TrvAdapter
 from custom_components.better_thermostat.config_flow import (
     _USER_FIELD_DEFAULTS,
+    _AdvancedContext,
     ConfigFlow,
     OptionsFlowHandler,
     _as_bool,
@@ -26,8 +28,11 @@ from custom_components.better_thermostat.config_flow import (
     _load_adapter_info,
     _normalize_advanced_submission,
     _normalize_user_submission,
+    _needs_spirit_external_temperature_guide,
+    _prepare_advanced_context,
     _quirk_valve_support,
     _seconds_to_duration_dict,
+    _external_temperature_setup_hint,
     _stored_thermostats,
     _trv_supports_auto,
     _TrvDraft,
@@ -51,6 +56,46 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 
 _MODULE = "custom_components.better_thermostat.config_flow"
+
+
+@pytest.mark.parametrize(
+    ("integration", "model", "expected"),
+    [
+        ("zwave_js", "Eurotronic Spirit Z", True),
+        ("zwave_js", "ZWA021", True),
+        ("zwave_js", "Other thermostat", False),
+        ("mqtt", "Eurotronic Spirit Z", False),
+        ("zwave_js", None, False),
+    ],
+)
+def test_spirit_external_temperature_guide_is_limited_to_supported_zwave_models(
+    integration, model, expected
+):
+    assert _needs_spirit_external_temperature_guide(integration, model) is expected
+
+
+async def test_spirit_external_temperature_hint_uses_the_flow_translation():
+    context = _AdvancedContext(
+        entity_id="climate.trv",
+        channels=DeviceChannels(),
+        default_calibration=CalibrationOutput.TARGET_TEMP_BASED,
+        homematic=False,
+        has_auto=False,
+        external_temperature_guide=True,
+    )
+    translated = "For Spirit/ZWA021, set the offset to -128 and choose No Calibration."
+    translation_key = (
+        "component.better_thermostat.config.step.advanced.external_temperature_hint"
+    )
+    with patch(
+        f"{_MODULE}.translation.async_get_translations",
+        AsyncMock(return_value={translation_key: translated}),
+    ):
+        hint = await _external_temperature_setup_hint(
+            MagicMock(config=MagicMock(language="en")), context, "config"
+        )
+
+    assert hint == f"\n\n{translated}"
 
 
 @pytest.mark.parametrize(
@@ -187,8 +232,133 @@ async def test_an_adapter_whose_capability_query_fails_reports_no_channels():
     assert info == DeviceChannels()
 
 
+@pytest.mark.parametrize(
+    ("integration", "model", "expected"),
+    [
+        ("zwave_js", "Eurotronic Spirit Z", True),
+        ("mqtt", "Eurotronic Spirit Z", False),
+        ("zwave_js", "Generic TRV", False),
+    ],
+)
+async def test_advanced_context_carries_the_model_specific_setup_hint(
+    integration, model, expected
+):
+    flow = ConfigFlow()
+    flow.hass = MagicMock()
+    trv = _TrvDraft(
+        entity_id="climate.trv",
+        integration=integration,
+        adapter=None,
+        stored={"model": model},
+    )
+    with (
+        patch(
+            f"{_MODULE}._load_adapter_info",
+            AsyncMock(return_value=(None, DeviceChannels())),
+        ),
+        patch(f"{_MODULE}.regulates_on_bound_sensor", return_value=False),
+        patch(f"{_MODULE}._trv_supports_auto", return_value=False),
+    ):
+        context = await _prepare_advanced_context(flow, trv)
+
+    assert context.external_temperature_guide is expected
+
+
+@pytest.mark.parametrize(
+    ("offset", "reserved", "new_entry", "expected"),
+    [
+        ("-128", True, True, CalibrationMode.NO_CALIBRATION),
+        ("0", True, True, DEFAULT_CALIBRATION_MODE),
+        ("-128", False, True, DEFAULT_CALIBRATION_MODE),
+        ("-128", True, False, DEFAULT_CALIBRATION_MODE),
+    ],
+)
+async def test_new_spirit_entry_defaults_to_no_calibration_only_for_reserved_offset(
+    offset, reserved, new_entry, expected
+):
+    flow = ConfigFlow()
+    flow.hass = MagicMock()
+    flow.hass.states.get = MagicMock(
+        return_value=State(
+            "number.trv_offset",
+            offset,
+            {"reserved_values": {"-128": "External temperature"}}
+            if reserved
+            else {},
+        )
+    )
+    trv = _TrvDraft(
+        entity_id="climate.trv",
+        integration="zwave_js",
+        adapter=None,
+        stored={"model": "Eurotronic Spirit Z"},
+    )
+    with (
+        patch(
+            f"{_MODULE}._load_adapter_info",
+            AsyncMock(return_value=(None, DeviceChannels(offset_write=True))),
+        ),
+        patch(f"{_MODULE}.regulates_on_bound_sensor", return_value=False),
+        patch(f"{_MODULE}._trv_supports_auto", return_value=False),
+        patch(
+            f"{_MODULE}.find_local_calibration_entity",
+            AsyncMock(return_value="number.trv_offset"),
+        ),
+    ):
+        context = await _prepare_advanced_context(flow, trv, new_entry=new_entry)
+
+    assert context.default_calibration_mode is expected
+
+
+@pytest.mark.parametrize(
+    ("submitted_mode", "expected"),
+    [
+        (None, CalibrationMode.NO_CALIBRATION.value),
+        (CalibrationMode.DEFAULT.value, CalibrationMode.DEFAULT.value),
+    ],
+)
+def test_new_spirit_default_is_persisted_without_overriding_a_user_choice(
+    submitted_mode, expected
+):
+    submitted = (
+        {} if submitted_mode is None else {CONF_CALIBRATION_MODE: submitted_mode}
+    )
+    advanced = _normalize_advanced_submission(
+        submitted,
+        default_calibration=CalibrationOutput.LOCAL_BASED,
+        default_calibration_mode=CalibrationMode.NO_CALIBRATION,
+        homematic=False,
+        has_auto=False,
+    )
+
+    assert advanced[CONF_CALIBRATION_MODE] == expected
+
+
 def _default_of(fields, key):
     return next(marker.default() for marker in fields if marker == key)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (None, CalibrationMode.NO_CALIBRATION.value),
+        ("default", "default"),
+    ],
+)
+def test_no_calibration_default_does_not_override_a_saved_or_submitted_mode(
+    source, expected
+):
+    fields = _build_advanced_fields(
+        sources=({"calibration_mode": source} if source is not None else {},),
+        default_calibration=CalibrationOutput.LOCAL_BASED,
+        default_calibration_mode=CalibrationMode.NO_CALIBRATION,
+        homematic=False,
+        has_auto=False,
+        channels=DeviceChannels(offset_write=True),
+        system_unit=UnitOfTemperature.CELSIUS,
+    )
+
+    assert _default_of(fields, CONF_CALIBRATION_MODE) == expected
 
 
 def test_a_stored_value_the_form_cannot_show_is_offered_as_its_default():

@@ -54,7 +54,8 @@
         }
       },
       "advanced": {
-        "description": "Configurazione avanzata {trv}\n\n**Informazioni dettagliate:** {docs_url}",
+        "description": "Configurazione avanzata {trv}{external_temperature_hint}\n\n**Informazioni dettagliate:** {docs_url}",
+        "external_temperature_hint": "Per Spirit/ZWA021: abilita l'entità offset in Home Assistant e impostala su -128 prima di aggiungere la TRV. In questo modo viene preselezionata Nessuna calibrazione. Se la TRV è già configurata, scegli Nessuna calibrazione nelle sue impostazioni. Better Thermostat invia la temperatura della stanza solo finché queste condizioni sono rispettate e non modifica mai l'offset.",
         "data": {
           "protect_overheating": "Protezione dal surriscaldamento?",
           "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",
@@ -160,7 +161,8 @@
         }
       },
       "advanced": {
-        "description": "Configurazione avanzata {trv}\n\n**Informazioni dettagliate:** {docs_url}",
+        "description": "Configurazione avanzata {trv}{external_temperature_hint}\n\n**Informazioni dettagliate:** {docs_url}",
+        "external_temperature_hint": "Per Spirit/ZWA021: abilita l'entità offset in Home Assistant e impostala su -128 prima di aggiungere la TRV. In questo modo viene preselezionata Nessuna calibrazione. Se la TRV è già configurata, scegli Nessuna calibrazione nelle sue impostazioni. Better Thermostat invia la temperatura della stanza solo finché queste condizioni sono rispettate e non modifica mai l'offset.",
         "data": {
           "protect_overheating": "Protezione dal surriscaldamento?",
           "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",

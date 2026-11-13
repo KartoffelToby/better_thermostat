@@ -54,7 +54,8 @@
         }
       },
       "advanced": {
-        "description": "Rozšírená konfigurácia {trv}\n\n**Podrobné informácie:** {docs_url}",
+        "description": "Rozšírená konfigurácia {trv}{external_temperature_hint}\n\n**Podrobné informácie:** {docs_url}",
+        "external_temperature_hint": "Pre Spirit/ZWA021: povoľte entitu offsetu v Home Assistant a nastavte ju na -128 pred pridaním TRV. Predvolene sa tak vyberie Bez kalibrácie. Ak je TRV už nastavená, vyberte Bez kalibrácie v jej nastaveniach. Better Thermostat odosiela izbovú teplotu len pri splnení týchto podmienok a offset nikdy nemení.",
         "data": {
           "protect_overheating": "Ochrana proti prehriatiu?",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
@@ -160,7 +161,8 @@
         }
       },
       "advanced": {
-        "description": "Rozšírená konfigurácia {trv}\n\n**Podrobné informácie:** {docs_url}",
+        "description": "Rozšírená konfigurácia {trv}{external_temperature_hint}\n\n**Podrobné informácie:** {docs_url}",
+        "external_temperature_hint": "Pre Spirit/ZWA021: povoľte entitu offsetu v Home Assistant a nastavte ju na -128 pred pridaním TRV. Predvolene sa tak vyberie Bez kalibrácie. Ak je TRV už nastavená, vyberte Bez kalibrácie v jej nastaveniach. Better Thermostat odosiela izbovú teplotu len pri splnení týchto podmienok a offset nikdy nemení.",
         "data": {
           "protect_overheating": "Ochrana proti prehriatiu?",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",

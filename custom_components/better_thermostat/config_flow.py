@@ -7,6 +7,7 @@ from collections.abc import Collection, Iterable, Mapping
 import copy
 from dataclasses import dataclass, replace
 import logging
+import math
 from typing import Final, Literal, NotRequired, TypedDict, override
 
 from homeassistant import config_entries
@@ -26,6 +27,7 @@ from homeassistant.helpers import (
     config_validation as cv,
     entity_registry as er,
     selector,
+    translation,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util.unit_conversion import TemperatureConverter
@@ -37,7 +39,7 @@ from . import (
     other_entries_controlling,
     trv_entity_ids,
 )
-from .adapters.base import DeviceChannels
+from .adapters.base import DeviceChannels, reserved_published_values
 from .adapters.delegate import load_adapter
 from .adapters.types import TrvAdapter
 from .model_fixes.model_quirks import (
@@ -95,6 +97,7 @@ from .utils.helpers import (
     device_offers_mode,
     entry_name,
     entry_settings,
+    find_local_calibration_entity,
     get_device_model,
     get_trv_intigration,
     is_bt_climate_entity,
@@ -360,8 +363,35 @@ class _AdvancedContext:
     default_calibration: CalibrationOutput
     homematic: bool
     has_auto: bool
+    default_calibration_mode: CalibrationMode = DEFAULT_CALIBRATION_MODE
     valve_only: bool = False
     bound_sensor: bool = False
+    external_temperature_guide: bool = False
+
+
+def _needs_spirit_external_temperature_guide(
+    integration: str | None, model: object
+) -> bool:
+    """Show setup instructions for supported Z-Wave Spirit/ZWA021 devices."""
+    return integration == "zwave_js" and isinstance(model, str) and any(
+        name in model.casefold() for name in ("spirit", "zwa021")
+    )
+
+
+async def _external_temperature_setup_hint(
+    hass: HomeAssistant,
+    context: _AdvancedContext,
+    category: Literal["config", "options"],
+) -> str:
+    """Load the localized Spirit/ZWA021 note for a config or options step."""
+    if not context.external_temperature_guide:
+        return ""
+    translations = await translation.async_get_translations(
+        hass, hass.config.language, category, integrations=[DOMAIN]
+    )
+    key = f"component.{DOMAIN}.{category}.step.advanced.external_temperature_hint"
+    hint = translations.get(key, "")
+    return f"\n\n{hint}" if hint else ""
 
 
 def _bound_sensor_errors(
@@ -679,6 +709,7 @@ def _build_advanced_fields(
     *,
     sources: Iterable[Mapping[str, object] | None],
     default_calibration: CalibrationOutput,
+    default_calibration_mode: CalibrationMode = DEFAULT_CALIBRATION_MODE,
     homematic: bool,
     has_auto: bool,
     channels: DeviceChannels | None = None,
@@ -736,7 +767,9 @@ def _build_advanced_fields(
         CalibrationMode.NO_CALIBRATION.value
         if bound_sensor
         else get_choice(
-            CONF_CALIBRATION_MODE, _CALIBRATION_MODE_CHOICES, DEFAULT_CALIBRATION_MODE
+            CONF_CALIBRATION_MODE,
+            _CALIBRATION_MODE_CHOICES,
+            default_calibration_mode,
         )
     )
     ordered[vol.Required(CONF_CALIBRATION_MODE, default=calibration_mode_default)] = (
@@ -794,6 +827,7 @@ def _normalize_advanced_submission(
     data: Mapping[str, object],
     *,
     default_calibration: CalibrationOutput,
+    default_calibration_mode: CalibrationMode = DEFAULT_CALIBRATION_MODE,
     homematic: bool,
     has_auto: bool,
 ) -> _AdvancedDraft:
@@ -802,8 +836,8 @@ def _normalize_advanced_submission(
             data.get(CONF_CALIBRATION, default_calibration), default_calibration
         ),
         CONF_CALIBRATION_MODE: _submitted_choice(
-            data.get(CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE),
-            DEFAULT_CALIBRATION_MODE,
+            data.get(CONF_CALIBRATION_MODE, default_calibration_mode),
+            default_calibration_mode,
         ),
         CONF_PROTECT_OVERHEATING: _as_bool(data.get(CONF_PROTECT_OVERHEATING), False),
         CONF_NO_OFF_SYSTEM_MODE: _as_bool(data.get(CONF_NO_OFF_SYSTEM_MODE), False),
@@ -1239,7 +1273,10 @@ def _normalize_user_submission(
 
 
 async def _prepare_advanced_context(
-    flow: ConfigFlow | OptionsFlowHandler, trv: _TrvDraft
+    flow: ConfigFlow | OptionsFlowHandler,
+    trv: _TrvDraft,
+    *,
+    new_entry: bool = False,
 ) -> _AdvancedContext:
     stored_model = trv.stored.get("model")
     _adapter, channels = await _load_adapter_info(
@@ -1250,6 +1287,25 @@ async def _prepare_advanced_context(
         configured_model=stored_model if isinstance(stored_model, str) else None,
     )
     bound_sensor = regulates_on_bound_sensor(flow.hass, trv.entity_id) is True
+    model = trv.stored.get("model")
+    if not isinstance(model, str):
+        model = await get_device_model(flow, trv.entity_id)
+    external_temperature_guide = _needs_spirit_external_temperature_guide(
+        trv.integration, model
+    )
+    default_calibration_mode = DEFAULT_CALIBRATION_MODE
+    if new_entry and external_temperature_guide:
+        offset_entity = await find_local_calibration_entity(flow, trv.entity_id)
+        offset_state = flow.hass.states.get(offset_entity) if offset_entity else None
+        if offset_state is not None:
+            try:
+                offset = float(offset_state.state)
+            except (TypeError, ValueError):
+                offset = math.nan
+            if math.isclose(offset, -128.0, abs_tol=1e-6) and (
+                -128.0 in reserved_published_values(offset_state)
+            ):
+                default_calibration_mode = CalibrationMode.NO_CALIBRATION
     return _AdvancedContext(
         entity_id=trv.entity_id,
         channels=channels,
@@ -1260,6 +1316,7 @@ async def _prepare_advanced_context(
             if bound_sensor
             else _default_calibration_for(channels)
         ),
+        default_calibration_mode=default_calibration_mode,
         homematic=bool(trv.integration and "homematic" in trv.integration.lower()),
         has_auto=_trv_supports_auto(flow, trv.entity_id),
         valve_only=(
@@ -1268,6 +1325,7 @@ async def _prepare_advanced_context(
             and channels.valve_write
         ),
         bound_sensor=bound_sensor,
+        external_temperature_guide=external_temperature_guide,
     )
 
 
@@ -1525,7 +1583,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         assert trv is not None
 
         self._active_trv = trv
-        ctx = await _prepare_advanced_context(self, trv)
+        ctx = await _prepare_advanced_context(self, trv, new_entry=True)
         existing_adv = trv.stored_advanced()
         _LOGGER.debug(
             "ConfigFlow advanced step called (index=%s, trv=%s) with user_input=%s",
@@ -1539,6 +1597,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             advanced_data = _normalize_advanced_submission(
                 user_input,
                 default_calibration=ctx.default_calibration,
+                default_calibration_mode=ctx.default_calibration_mode,
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
@@ -1579,6 +1638,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         fields = _build_advanced_fields(
             sources=(user_input, existing_adv),
             default_calibration=ctx.default_calibration,
+            default_calibration_mode=ctx.default_calibration_mode,
             homematic=ctx.homematic,
             has_auto=ctx.has_auto,
             channels=ctx.channels,
@@ -1590,6 +1650,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ctx.entity_id,
             existing_adv,
         )
+        external_temperature_hint = await _external_temperature_setup_hint(
+            self.hass, ctx, "config"
+        )
 
         return self.async_show_form(
             step_id="advanced",
@@ -1599,6 +1662,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "trv": ctx.entity_id or "-",
                 "docs_url": CONFIG_WALKTHROUGH_URL,
+                "external_temperature_hint": external_temperature_hint,
             },
         )
 
@@ -1730,6 +1794,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             advanced_data = _normalize_advanced_submission(
                 user_input,
                 default_calibration=ctx.default_calibration,
+                default_calibration_mode=ctx.default_calibration_mode,
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
@@ -1811,6 +1876,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         fields = _build_advanced_fields(
             sources=(user_input, existing_adv),
             default_calibration=ctx.default_calibration,
+            default_calibration_mode=ctx.default_calibration_mode,
             homematic=ctx.homematic,
             has_auto=ctx.has_auto,
             channels=ctx.channels,
@@ -1824,6 +1890,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
         self.device_name = "-"
         self._last_step = self.i == len(self.trv_bundle) - 1
+        external_temperature_hint = await _external_temperature_setup_hint(
+            self.hass, ctx, "options"
+        )
 
         return self.async_show_form(
             step_id="advanced",
@@ -1833,6 +1902,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             description_placeholders={
                 "trv": ctx.entity_id or "-",
                 "docs_url": CONFIG_WALKTHROUGH_URL,
+                "external_temperature_hint": external_temperature_hint,
             },
         )
 

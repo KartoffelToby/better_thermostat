@@ -54,7 +54,8 @@
         }
       },
       "advanced": {
-        "description": "Advanced configuration {trv}\n\n**Detailed information:** {docs_url}",
+        "description": "Advanced configuration {trv}{external_temperature_hint}\n\n**Detailed information:** {docs_url}",
+        "external_temperature_hint": "For Spirit/ZWA021: enable the offset entity in Home Assistant and set it to -128 before adding the TRV. This preselects No Calibration. If the TRV is already set up, choose No Calibration in its settings. Better Thermostat sends room temperature only while the conditions hold and never changes the offset.",
         "data": {
           "protect_overheating": "Overheating protection?",
           "heat_auto_swapped": "If 'auto' means 'heat' for your TRV and you want to swap it",
@@ -161,7 +162,8 @@
         }
       },
       "advanced": {
-        "description": "Advanced configuration {trv}\n\n**Detailed information:** {docs_url}",
+        "description": "Advanced configuration {trv}{external_temperature_hint}\n\n**Detailed information:** {docs_url}",
+        "external_temperature_hint": "For Spirit/ZWA021: enable the offset entity in Home Assistant and set it to -128 before adding the TRV. This preselects No Calibration. If the TRV is already set up, choose No Calibration in its settings. Better Thermostat sends room temperature only while the conditions hold and never changes the offset.",
         "data": {
           "protect_overheating": "Overheating protection?",
           "heat_auto_swapped": "If 'auto' means 'heat' for your TRV and you want to swap it",

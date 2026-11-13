@@ -54,7 +54,8 @@
         }
       },
       "advanced": {
-        "description": "Gelişmiş yapılandırma {trv}\n\n**Detaylı Bilgiler:** {docs_url}",
+        "description": "Gelişmiş yapılandırma {trv}{external_temperature_hint}\n\n**Detaylı Bilgiler:** {docs_url}",
+        "external_temperature_hint": "Spirit/ZWA021 için: TRV'yi eklemeden önce Home Assistant'ta offset varlığını etkinleştirip -128 olarak ayarlayın. Böylece Kalibrasyon Yok önceden seçilir. TRV zaten kuruluysa ayarlarından Kalibrasyon Yok'u seçin. Better Thermostat oda sıcaklığını yalnızca bu koşullar sağlandığında gönderir ve offset değerini asla değiştirmez.",
         "data": {
           "protect_overheating": "Aşırı ısınma koruması?",
           "heat_auto_swapped": "TRV'nizde otomatik mod ısıtma anlamına geliyorsa ve değiştirmek istiyorsanız",
@@ -160,7 +161,8 @@
         }
       },
       "advanced": {
-        "description": "Gelişmiş yapılandırma {trv}\n\n**Detaylı Bilgiler:** {docs_url}",
+        "description": "Gelişmiş yapılandırma {trv}{external_temperature_hint}\n\n**Detaylı Bilgiler:** {docs_url}",
+        "external_temperature_hint": "Spirit/ZWA021 için: TRV'yi eklemeden önce Home Assistant'ta offset varlığını etkinleştirip -128 olarak ayarlayın. Böylece Kalibrasyon Yok önceden seçilir. TRV zaten kuruluysa ayarlarından Kalibrasyon Yok'u seçin. Better Thermostat oda sıcaklığını yalnızca bu koşullar sağlandığında gönderir ve offset değerini asla değiştirmez.",
         "data": {
           "protect_overheating": "Aşırı ısınma koruması?",
           "heat_auto_swapped": "TRV'nizde otomatik mod ısıtma anlamına geliyorsa ve değiştirmek istiyorsanız",
