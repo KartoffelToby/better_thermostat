@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine, Sequence
+from collections.abc import Coroutine, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
@@ -1593,6 +1593,21 @@ def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[objec
     )
 
 
+def _end_offset_at_limit_runs(
+    self: BetterThermostat, entity_ids: Iterable[str]
+) -> None:
+    """End the run of cycles with the offset at its limit for these TRVs.
+
+    The run has to be unbroken, so a TRV that a paused queue or a cycle
+    leaves out starts it afresh with its next control cycle. A report the
+    run raised stands until a cycle takes it back.
+    """
+    for entity_id in entity_ids:
+        trv = self.real_trvs.get(entity_id)
+        if trv is not None:
+            trv.calibration_offset_at_limit = None
+
+
 async def control_queue(self: BetterThermostat) -> None:
     """Process control commands from the queue and coordinate TRV control.
 
@@ -1617,10 +1632,12 @@ async def control_queue(self: BetterThermostat) -> None:
     try:
         while True:
             if self.in_maintenance:
+                _end_offset_at_limit_runs(self, self.real_trvs)
                 await asyncio.sleep(1)
                 continue
 
             if self.ignore_states or self.startup_running:
+                _end_offset_at_limit_runs(self, self.real_trvs)
                 await asyncio.sleep(1)
                 continue
             else:
@@ -1734,6 +1751,11 @@ async def control_queue(self: BetterThermostat) -> None:
                             continue
                         controlled_trvs.append(trv)
                         tasks.append(control_trv(self, trv, cycle=cycle))
+
+                    _end_offset_at_limit_runs(
+                        self,
+                        [trv for trv in self.real_trvs if trv not in controlled_trvs],
+                    )
 
                     if not tasks and not _released:
                         # The heating action and its hysteresis are advanced
