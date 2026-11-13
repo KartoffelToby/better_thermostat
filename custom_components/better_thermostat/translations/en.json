@@ -234,6 +234,10 @@
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} does not take the target temperature",
       "description": "Better Thermostat keeps writing the target temperature {wanted} to {entity}, but the thermostat still reports {held}. The room is not heated the way Better Thermostat intends.\n\nCommon causes:\n- The thermostat has a setpoint limit of its own below the maximum it publishes, for example `max_heat_setpoint_limit` in Zigbee2MQTT.\n- The thermostat is in a mode or preset in which it ignores target temperatures, such as a schedule mode.\n- The thermostat lost its radio connection or its battery is low.\n\nBetter Thermostat keeps writing the target temperature, at most once an hour. This issue clears itself once the thermostat reports the target temperature."
+    },
+    "calibration_offset_at_limit": {
+      "title": "BT: {name} - the calibration offset of {entity} stays at its limit",
+      "description": "The calibration offset Better Thermostat writes to {entity} has stayed at the limit of the range the thermostat accepts for {minutes} minutes. Offset Based calibration adds the gap between the room temperature and the thermostat's own reading to the offset, so an offset that stays at the limit has no correction left.\n\nCommon causes:\n- The thermostat accepts the offset but does not apply it, so its reading never moves. Some Matter thermostats behave like this.\n- The thermostat applies offsets only within a narrower range than the one it publishes.\n- The thermostat's own reading is further from the room temperature than its offset range reaches, for example because it sits right above the radiator.\n\nSwitch this thermostat to the calibration type **Target Temperature Based** (Settings → Devices & services → Better Thermostat → Configure); it does not depend on the offset. This issue clears itself once the offset leaves the limit, or once the thermostat no longer uses Offset Based calibration."
     }
   },
   "services": {

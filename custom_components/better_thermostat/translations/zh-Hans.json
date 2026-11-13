@@ -234,6 +234,10 @@
     "setpoint_not_applied": {
       "title": "BT：{name} - {entity} 未接受目标温度",
       "description": "Better Thermostat 一直向 {entity} 写入目标温度 {wanted}，但温控器仍报告 {held}。房间没有按 Better Thermostat 的意图被加热。\n\n常见原因：\n- 温控器自身有一个低于其公布最大值的设定点限制，例如 Zigbee2MQTT 中的 `max_heat_setpoint_limit`。\n- 温控器处于忽略目标温度的模式或预设中，例如日程模式。\n- 温控器失去无线连接或电池电量低。\n\nBetter Thermostat 会继续写入目标温度，最多每小时一次。此问题会在温控器报告目标温度后自动清除。"
+    },
+    "calibration_offset_at_limit": {
+      "title": "BT：{name} - {entity} 的校准偏移停留在其极限",
+      "description": "Better Thermostat 写入 {entity} 的校准偏移已在温控器接受范围的极限处停留了 {minutes} 分钟。基于偏移的校准会把室温与温控器自身读数之间的差值加到偏移上，因此停留在极限处的偏移已经没有校正余量。\n\n常见原因：\n- 温控器接受了偏移但并未应用，因此其读数从不变化。部分 Matter 温控器就是这样。\n- 温控器只在比其公布范围更窄的范围内应用偏移。\n- 温控器自身读数与室温的差距超出了其偏移范围所能覆盖的程度，例如因为它就装在散热器正上方。\n\n请将此温控器的校准类型切换为 **基于目标温度**（设置 → 设备与服务 → Better Thermostat → 配置）；它不依赖偏移。一旦偏移离开极限，或温控器不再使用基于偏移的校准，此问题会自动消失。"
     }
   },
   "services": {
