@@ -41,7 +41,7 @@ Hardware quality and how your Home Assistant integration exposes a device make a
 
 ## External room temperature sensors *(Mandatory!)*
 
-Better Thermostat **requires** a separate room temperature sensor—setup cannot complete without one.
+Better Thermostat **requires** a room temperature sensor entity—setup cannot complete without one. A separate sensor placed away from the radiator gives the most accurate control.
 
 ### What to look for
 - **`0.1 °C`–`0.2 °C` reporting resolution** with prompt updates (every 1–5 minutes on change). Avoid cheap sensors that wait for a `0.5 °C` or `1.0 °C` jump before transmitting, especially if you want to run `PID Controller`.

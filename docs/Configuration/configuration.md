@@ -31,7 +31,7 @@ Screen 1 configures the room, its sensors, its comfort deadband (`Tolerance`), a
 
 #### `Room temperature sensor` *(Required)*
 - **What it does:** The standalone thermometer (`sensor.*`) placed in the living area of the room (`1.2–1.5 m` high, away from radiators, sun, and drafts).
-- **If it goes offline or reports invalid values:** After 2 minutes without a valid reading between `-50 °C` and `60 °C`, Better Thermostat steps down gracefully to the average of your TRVs' built-in thermometers (`sensor_fallback`), as long as at least one TRV reports a usable temperature; if none does when the delay expires, control steps down to `hold` instead. A self-clearing [Degraded mode](/faq/degraded-mode/) repair notice is raised only when the room sensor state is `unavailable` or `unknown` (out-of-range numeric readings trigger `sensor_fallback` without creating that repair notice).
+- **If it goes offline or reports invalid values:** After 2 minutes without a valid reading between `-50 °C` and `60 °C` (up to 3 minutes when nothing else triggers an update, since the check runs once a minute), Better Thermostat steps down gracefully to the average of your TRVs' built-in thermometers (`sensor_fallback`), as long as at least one TRV reports a usable temperature; if none does when the delay expires, control steps down to `hold` instead. A self-clearing [Degraded mode](/faq/degraded-mode/) repair notice is raised only when the room sensor state is `unavailable` or `unknown` (out-of-range numeric readings trigger `sensor_fallback` without creating that repair notice).
 
 #### `The cooling device (optional)`
 - **What it does:** Adds an air conditioner or cooling `climate` entity alongside your radiators.

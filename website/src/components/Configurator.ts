@@ -1185,7 +1185,7 @@ export class BtConfigurator extends LitElement {
       comfort: 74,
       actuator: 65,
       energy: 98,
-      summary: 'Event-driven (no 5-minute timer polling), low radio traffic, learns room heat-up rate over 2–3 cycles.'
+      summary: 'Event-driven (no 5-minute timer polling), low radio traffic, learns room heat-up rate from each heating cycle.'
     };
 
     const pickMpcPreset = (): string => {
@@ -1367,7 +1367,7 @@ export class BtConfigurator extends LitElement {
       calMode = '(AI) Time Based (Default)';
       altMode = 'TPI Controller';
       whySummary =
-        'Measures your room’s actual warming and cooling rate over 2–3 heating cycles and scales heating demand automatically—giving reliable, hands-off everyday comfort with low battery wear.';
+        'Measures your room’s actual warming and cooling rate in every heating cycle and scales heating demand automatically—giving reliable, hands-off everyday comfort with low battery wear.';
     }
 
     // 3. Tolerance (Screen 1 — entered in Home Assistant's system unit: °C or °F)
@@ -1686,9 +1686,9 @@ export class BtConfigurator extends LitElement {
 
     if (checklist.length === 0) {
       checklist.push(
-        html`<strong>Give learning 2–3 cycles:</strong> Place your external room sensor at chest height away from direct radiator draft or sunlight, and avoid manual tweaks during the first 2–3 heating cycles.`
+        html`<strong>Give learning a few cycles:</strong> Place your external room sensor at chest height away from direct radiator draft or sunlight, and avoid manual tweaks during the first few heating cycles.`
       );
-      textBullets.push('Place room sensor away from radiator draft/sunlight and allow 2–3 heating cycles to settle.');
+      textBullets.push('Place room sensor away from radiator draft/sunlight and allow a few heating cycles to settle.');
     }
 
     const plainLines = [

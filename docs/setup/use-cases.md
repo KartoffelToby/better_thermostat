@@ -91,7 +91,7 @@ Normally Better Thermostat reconciles its devices back to its calculated state w
 
 ### 11. Preventing stuck valve pins over summer & HomematicIP duty-cycle errors
 - **Valve pin exercise:** Enable **`If your thermostat has no own maintenance mode, you can use this one`** (or call `better_thermostat.run_valve_maintenance`) so pins never seize from mineral scale.
-- **868 MHz airtime protection:** Enable the **HomematicIP** option so background writes are spaced to **10 minutes**, keeping your Access Point / OpenCCU well below its 1 % radio limit.
+- **868 MHz airtime protection:** Enable the **HomematicIP** option so background writes are spaced to **10 minutes**. That keeps Better Thermostat's share of the Access Point / OpenCCU's 1 % radio budget small, but every other HomematicIP device draws on the same budget.
 
 ### 12. Firing a central gas boiler or heat pump only when at least one room needs heat
 - **Solution:** Watch your Better Thermostat entities for both `hvac_action == 'heating'` and `heating_blocked_by` being `none` (triggering on state changes to both attributes) in a single Home Assistant automation to switch your central wall thermostat or boiler relay ([Central heating & boiler control](/deep-explanations/central-heating-thermostat/)).

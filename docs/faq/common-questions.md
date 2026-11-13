@@ -49,7 +49,7 @@ See side-by-side numerical examples in **[Calibration types & algorithms](/calib
 ### Which algorithm should I start with?
 
 Start with **`(AI) Time Based (Default)`** or **`TPI Controller`**.
-- `(AI) Time Based` learns your room's warming speed automatically over 2–3 heating cycles.
+- `(AI) Time Based` learns your room's warming speed automatically and refines it after every completed heating cycle.
 - `TPI Controller` needs zero learning wait, moves the valve motor far less than `PID` or `MPC Predictive` in the single-TRV `balanced` benchmark profile (`uv run python -m tests.benchmark.runner`), and usually reduces overshoot in steady rooms such as bedrooms, well-insulated rooms, and multi-radiator rooms.
 - On **`Direct Valve Based`** TRVs, **`(AI) MPC v2 (QP + Kalman, experimental)`** adds physics-based predictive braking.
 

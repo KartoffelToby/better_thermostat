@@ -21,7 +21,7 @@ Not sure which options to pick on **Screen 2** of Better Thermostat's setup? Use
 
 | Room / Heating system | Recommended `Calibration mode` | Recommended `Tolerance` | Notes |
 |---|---|---|---|
-| **Everyday living room or office** (1 radiator) | **`(AI) Time Based (Default)`** or **`TPI Controller`** | **`0.3 °C`** | Set-and-forget comfort; learns room speed in 2–3 cycles (or works immediately with `TPI`). |
+| **Everyday living room or office** (1 radiator) | **`(AI) Time Based (Default)`** or **`TPI Controller`** | **`0.3 °C`** | Set-and-forget comfort; learns room speed from each heating cycle (or works immediately with `TPI`). |
 | **Bedroom or nursery** (quiet, little overshoot) | **`TPI Controller`** | **`0.3 °C`** | Holds a calm proportional opening without motor hunting; zero learning wait. |
 | **Large room with 2 or more radiators** | **`TPI Controller`** | **`0.3 °C`** | Keeps grouped TRVs steady without over-reacting against each other. *(On `Direct Valve Based` TRVs, cap any oversized radiator with `Valve Max Opening`.)* |
 | **Direct-valve TRV room** (Sonoff TRVZB, Shelly BLU, Spirit) | **`(AI) MPC v2 (QP + Kalman, experimental)`** or **`TPI Controller`** | **`0.2–0.3 °C`** | MPC v2 predicts thermal momentum to land softly on target with minimal overshoot. |

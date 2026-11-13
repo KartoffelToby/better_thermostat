@@ -87,7 +87,7 @@ Qualitative ratings below reflect the single-TRV `balanced` profile of Better Th
 
 | Exact UI name (`Calibration mode`) | Needs learning? | Overshoot protection | Warm-up speed | Valve & battery wear | Works with `Direct Valve`? | Uses `Overheating protection?` toggle? | Best for |
 |---|---|---|---|---|---|---|---|
-| **`(AI) Time Based (Default)`** | Yes (~2–3 cycles) | Good | Medium–Fast | Low | **Yes** | **Yes** (non-valve) | Everyday rooms; set-and-forget default |
+| **`(AI) Time Based (Default)`** | Yes (every heating cycle) | Good | Medium–Fast | Low | **Yes** | **Yes** (non-valve) | Everyday rooms; set-and-forget default |
 | **`TPI Controller`** | **No** (instant) | **Very high** *(in steady rooms)* | Steady / Gentle | **Very low** *(steady proportional)* | **Yes** | No (built-in) | Bedrooms, well-insulated rooms, multi-TRV rooms, overshoot issues |
 | **`(AI) MPC v2 (QP + Kalman, experimental)`** | Optional (`Auto` adapts) | **Very high** *(on direct valve)* | Fast & smooth *(direct valve)* | Low–Medium *(direct valve)* | **Yes (designed for it)** | No (built-in) | **Direct-valve TRVs** (Sonoff TRVZB, Shelly BLU, Spirit) |
 | **`PID Controller`** *(Beta)* | Auto-Tune or manual | High *(once tuned, `≤0.2 °C` sensor)* | Fast *(direct valve)* | Medium–High *(higher on `0.5 °C` sensors)* | **Yes (best)** | No (built-in) | Sunny rooms, kitchens, hallways with sudden heat/cold swings (`0.1 °C` sensor) |
