@@ -17,7 +17,7 @@ from unittest.mock import patch
 from homeassistant.components.climate import HVACMode
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from custom_components.better_thermostat.core.clock import FakeClock
 
