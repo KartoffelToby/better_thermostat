@@ -139,7 +139,7 @@ Chooses one of the **8 control algorithms**—see **[Calibration types & algorit
 - **What it does:** Only used when `Calibration mode` is `(AI) MPC v2 (QP + Kalman, experimental)`. `Auto` adapts from learned thermal behavior, while `Small`, `Medium`, and `Large` fix a starting thermal envelope profile with approximate **3-hour**, **8-hour**, and **12-hour** room time constants (`tau_room_min = 180`, `480`, and `720` minutes), respectively.
 
 #### `Overheating protection?` *(Default: `On`)*
-- **What happens when enabled:** Only active in **`(AI) Time Based (Default)`** (non-direct-valve) and **`Aggressive`** modes. If residual radiator heat pushes the room above `target + tolerance` while Better Thermostat is already `idle`, it multiplies the excess temperature by **`8×`** in the closing direction to force leaky or sluggish TRV pins completely shut. *(TPI, PID, and MPC handle overshoot natively and ignore this checkbox.)*
+- **What happens when enabled:** Only active in **`(AI) Time Based (Default)`** (non-direct-valve) and **`Aggressive`** modes. If residual radiator heat pushes the room above `target + tolerance` while Better Thermostat is already `idle`, it multiplies the excess temperature by **`8×`** in the closing direction to help leaky or sluggish TRV pins close. *(TPI, PID, and MPC handle overshoot natively and ignore this checkbox.)*
 
 #### `Use the minimum temperature instead of 'off'` *(Default: `Off`)*
 - **What happens when enabled:**

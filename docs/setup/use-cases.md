@@ -76,7 +76,7 @@ Running separate radiator and AC cards risks heating to `22 °C` while the AC tr
 - **Solution:** Enable the **[Presets](/setup/presets/)** you use (`Comfort`, `Eco`, `Sleep`, `Away`, `Home`, `Activity`, `Boost`). Each gets its own `number` slider on the device, and switching back to `none` restores your baseline manual target. Automate them with our **[Automation Blueprints](/setup/automation-blueprints/)**.
 
 ### 7. Taming rooms that overshoot—or waking up rooms that heat too slowly
-- **Solution:** Match the algorithm to the room ([Quick algorithm selector](/optimal-settings/algorithm-selection/)): **`TPI Controller`** (or **`(AI) MPC v2`** on direct-valve TRVs) eliminates overshoot quietly; **`Aggressive`** adds an immediate `+2.5 °C` push for cold, leaky rooms; **`Overheating protection?`** gives `(AI) Time Based` and `Aggressive` an `8×` closing push past `target + tolerance`.
+- **Solution:** Match the algorithm to the room ([Quick algorithm selector](/optimal-settings/algorithm-selection/)): **`TPI Controller`** (or **`(AI) MPC v2`** on direct-valve TRVs) usually reduces overshoot quietly; **`Aggressive`** adds a `+2.5 °C` push while heating for cold, leaky rooms; **`Overheating protection?`** gives `(AI) Time Based` and `Aggressive` an `8×` closing push past `target + tolerance`.
 
 ### 8. Throttling one oversized radiator
 One small study or bathroom radiator heats twice as fast as the rest of the apartment.

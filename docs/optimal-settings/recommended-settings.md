@@ -41,7 +41,7 @@ Home Assistant's config form starts three sliders at conservative neutral values
 - **`Calibration type`:** `Direct Valve Based` (if supported) or `Target Temperature Based` / `Offset Based`
 - **`Calibration mode`:** **`TPI Controller`** *(steadiest multi-radiator behavior; avoids two valves chasing each other)*
 - **`Tolerance`:** **`0.3 °C`**
-- **Tip:** If one radiator sits right next to the dining table and gets uncomfortably hot faster than the second radiator across the room, cap that radiator's **`Valve Max Opening`** slider (e.g. `70 %`) ([Virtual hydraulic balancing](/deep-explanations/hydraulic-balance/)).
+- **Tip:** If one radiator sits right next to the dining table and gets uncomfortably hot faster than the second radiator across the room, cap that radiator's **`Valve Max Opening`** slider (e.g. `70 %`, `Direct Valve Based` only) ([Virtual hydraulic balancing](/deep-explanations/hydraulic-balance/)).
 
 ### Profile D — Underfloor heating or heavy cast-iron radiators
 
@@ -54,5 +54,5 @@ Home Assistant's config form starts three sliders at conservative neutral values
 ## Golden habits for clean control
 
 1. **Sensor placement beats every algorithm tweak:** Mount your room thermometer `1.2–1.5 m` high on an interior wall or shelf—away from direct sun, drafts, TVs, and radiators ([5-minute quickstart](/setup/getting-started/)).
-2. **Give changes 24–48 hours:** Room thermodynamics move slowly, and `(AI) Time Based`, `PID Auto Tune`, and `MPC v2` refine behavior across full heating and cooling cycles. Although learned parameters remain stored when you switch modes, changing algorithms interrupts the active control loop while the newly selected controller still needs a 24–48 hour settling period.
+2. **Give changes 24–48 hours:** Room thermodynamics move slowly, and `(AI) Time Based` and `MPC v2` refine behavior across full heating and cooling cycles, while `PID Auto Tune` adjusts its gains at most every 5 minutes until the room settles. Although learned parameters remain stored when you switch modes, changing algorithms interrupts the active control loop while the newly selected controller still needs a 24–48 hour settling period.
 3. **Protect learned values from unusual heat events:** If you light a wood stove/fireplace or your heat pump pauses radiator heating for hot tap water, flip on the **`Pause Learning`** switch automatically via our ready-made [Automation Blueprints](/setup/automation-blueprints/).

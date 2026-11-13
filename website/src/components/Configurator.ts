@@ -1287,7 +1287,7 @@ export class BtConfigurator extends LitElement {
     } else if (isDirectValve) {
       if (priority === 'longevity_first' || roomProfile === 'bedroom_quiet') {
         setTpi(
-          'Even on a Direct Valve TRV, you prioritized quiet motor behavior and maximum battery longevity. TPI Controller leads the benchmark in actuator longevity (0.603) with calm proportional steps and zero overshoot.',
+          'Even on a Direct Valve TRV, you prioritized quiet motor behavior and maximum battery longevity. TPI Controller leads the benchmark in actuator longevity (0.603) with calm proportional steps and little overshoot.',
           '(AI) MPC v2 (QP + Kalman, experimental)'
         );
       } else if (roomProfile === 'disturbance' && sensorQuality === 'fine' && priority === 'comfort_first') {
@@ -1627,7 +1627,7 @@ export class BtConfigurator extends LitElement {
       );
     }
 
-    if (isOversized) {
+    if (isOversized && isDirectValve) {
       checklist.push(
         html`<strong>Cap oversized radiator power:</strong> Open the Better Thermostat device page in Home Assistant and lower <code>Valve Max Opening</code> to <strong>60–75 %</strong> for virtual hydraulic balancing. (<a href="/deep-explanations/hydraulic-balance/">Hydraulic balancing guide</a>)`
       );
@@ -1636,7 +1636,7 @@ export class BtConfigurator extends LitElement {
 
     if (isMultiTrv) {
       checklist.push(
-        html`<strong>Multi-TRV room tip:</strong> On Screen 1, select all radiators of this room in <code>The real thermostat</code>. Screen 2 will appear once per TRV—apply the same <code>Calibration mode</code> to each valve, and cap any oversized radiator via its per-TRV <code>Valve Max Opening</code> slider.`
+        html`<strong>Multi-TRV room tip:</strong> On Screen 1, select all radiators of this room in <code>The real thermostat</code>. Screen 2 will appear once per TRV—apply the same <code>Calibration mode</code> to each valve${isDirectValve ? html`, and cap any oversized radiator via its per-TRV <code>Valve Max Opening</code> slider` : ''}.`
       );
       textBullets.push(
         'Multi-TRV Room: Select all TRVs in "The real thermostat" on Screen 1; Screen 2 repeats once per TRV.'

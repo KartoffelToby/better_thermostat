@@ -125,7 +125,7 @@ Still unsure? Run the **[Interactive Configurator](/setup/configurator/)** for a
   | Average room (initial default) | `0.01 °C/min` | **~47 %** | Balanced mid-opening |
   | Slow, heavy, or cold room | `0.005 °C/min` | **~91 %** | Pushes hard so the room doesn't stall |
 
-- **What `Overheating protection?` adds here (non-valve channels only):** On `Offset Based` and `Target Temperature Based` channels, once the room reaches target and goes `idle`, if residual radiator heat pushes the room past `target + tolerance`, Better Thermostat multiplies that excess by **`8×`** in the closing direction (e.g. `0.2 °C` past the band pushes the offset/setpoint by `1.6 °C` toward closed) so stubborn valves seal completely. *(When `(AI) Time Based` runs on `Direct Valve Based`, or when using direct controller modes like `TPI`, `PID`, or `MPC v2`, the `8×` post-adjustment does not apply because the valve closes to `0 %` directly.)*
+- **What `Overheating protection?` adds here (non-valve channels only):** On `Offset Based` and `Target Temperature Based` channels, once the room reaches target and goes `idle`, if residual radiator heat pushes the room past `target + tolerance`, Better Thermostat multiplies that excess by **`8×`** in the closing direction (e.g. `0.2 °C` past the band pushes the offset/setpoint by `1.6 °C` toward closed) to help stubborn valves close. *(When `(AI) Time Based` runs on `Direct Valve Based`, or when using direct controller modes like `TPI`, `PID`, or `MPC v2`, the `8×` post-adjustment does not apply because the valve closes to `0 %` directly.)*
 - **Tips & maintenance:**
   - Turn on the **`Pause Learning`** switch while a wood stove/fireplace burns or while your boiler stops radiator flow for domestic hot water ([Pausing learning](/setup/pause-learning/)).
   - If you relocate your room sensor, bleed a previously air-locked radiator, or change your boiler's flow temperature, reset the learned speed via **Developer Tools → Actions → `better_thermostat.reset_heating_power`**.
@@ -228,10 +228,10 @@ The *PID Auto Tune* switch and the values you set apply to the TRV at every targ
 ### 5. `Aggressive`
 
 - **In plain English:**
-  Aggressive works like External Sensor Offset Only but pushes the TRV harder: while the thermostat is heating, it shifts the offset or setpoint a further 2.5 °C in the heating direction, unless the correction already reaches that far, so the TRV opens wider than it otherwise would. It also skips the tolerance delay before heating starts.
+  Aggressive works like External Sensor Offset Only but pushes the TRV harder: while the thermostat is heating, it shifts the offset or setpoint a further 2.5 °C in the heating direction, unless the correction already reaches that far, so the TRV opens wider than it otherwise would. It also skips the tolerance delay: while the thermostat is idle, it does not shift the offset or setpoint toward closed by twice the tolerance. Heating itself still starts only once the room drops below `target - tolerance`.
 - **What you'll notice:** Radiators get hot very fast, which feels great in cold, drafty, or rarely used rooms—but heavy cast-iron radiators or small well-insulated rooms will **overshoot** past the target once the valve shuts.
 - **Important notes:**
-  - Always keep **`Overheating protection?` turned On** with `Aggressive` so Better Thermostat forces the valve shut (`8×` closing push) if residual heat carries the room past `target + tolerance`.
+  - Always keep **`Overheating protection?` turned On** with `Aggressive` so Better Thermostat pushes the offset or setpoint toward closed by `8×` the excess if residual heat carries the room past `target + tolerance`.
   - `Aggressive` does **not** calculate a `0–100 %` valve percentage; do not pair it with `Direct Valve Based`.
 
 ---

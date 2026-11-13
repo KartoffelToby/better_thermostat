@@ -151,7 +151,7 @@ Use Home Assistant's native **Shelly** integration with a compatible Shelly BLU 
 Better Thermostat has no Zigbee, Z-Wave, or Bluetooth radio of its own:
 - **`Offset Based`** requires a writable `number` or `select` offset entity on the TRV device (on Z-Wave JS, configuration parameters in `°C`, `0.1 °C`, or `0.01 °C`—such as parameter 8 in tenths of a degree on Eurotronic Spirit Z / Aeotec `ZWA021`—are supported once you enable that disabled-by-default entity in Home Assistant and reload Better Thermostat).
 - **`Direct Valve Based`** requires a writable valve-opening entity (or dedicated model quirk).
-- **`Target Temperature Based`** works on every `climate` TRV.
+- **`Target Temperature Based`** works on every `climate` TRV that exposes a target temperature or range.
 - Better Thermostat cannot force a sleepy battery TRV to wake up faster, and it spaces routine writes at least **30 seconds** apart (**10 minutes** with the HomematicIP option) to protect batteries and radio airtime.
 
 ### 2. Frozen sensors require integration availability tracking
@@ -182,4 +182,4 @@ When using a `weather.*` entity for [Summer mode](/deep-explanations/summer-mode
 
 ### 8. Learning algorithms improve over days, not minutes
 
-`(AI) Time Based`, `PID Auto Tune`, and `(AI) MPC v2` (`Auto`) learn across complete heating and cooling cycles. `PID Controller` and `MPC Predictive` are in Beta (`MPC Predictive` causes higher valve wear and can over-react in multi-TRV rooms), and `(AI) MPC v2` is experimental for direct-valve TRVs ([Calibration types & algorithms](/calibration_algorithms/)).
+`(AI) Time Based` and `(AI) MPC v2` (`Auto`) learn across complete heating and cooling cycles. `PID Auto Tune` adjusts the gains at most every 5 minutes, and only when one of its tuning conditions holds. `PID Controller` and `MPC Predictive` are in Beta (`MPC Predictive` causes higher valve wear and can over-react in multi-TRV rooms), and `(AI) MPC v2` is experimental for direct-valve TRVs ([Calibration types & algorithms](/calibration_algorithms/)).
