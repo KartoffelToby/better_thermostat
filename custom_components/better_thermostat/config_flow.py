@@ -513,7 +513,9 @@ def _off_temperature_default(system_unit: str) -> int:
 
 
 async def _quirk_valve_support(
-    flow: ConfigFlow | OptionsFlowHandler, entity_id: str
+    flow: ConfigFlow | OptionsFlowHandler,
+    entity_id: str,
+    configured_model: str | None = None,
 ) -> bool:
     """Answer whether this TRV's model quirk drives its valve.
 
@@ -528,6 +530,9 @@ async def _quirk_valve_support(
         instance name the model lookup logs against.
     entity_id : str
         Entity ID of the TRV to probe.
+    configured_model : str | None
+        Model stored for the TRV, which the lookup falls back to when the
+        device registry has none, as it does for the running thermostat.
 
     Returns
     -------
@@ -536,7 +541,9 @@ async def _quirk_valve_support(
         valve, False when it has none and when the model cannot be read.
     """
     try:
-        model = await get_device_model(flow, entity_id)
+        model = await get_device_model(
+            flow, entity_id, configured_model=configured_model
+        )
         quirks = await load_model_quirks(flow, model, entity_id)
     except RuntimeError, ValueError, TypeError, AttributeError, ImportError:
         _LOGGER.debug("model quirk probe failed", exc_info=True)
@@ -545,7 +552,9 @@ async def _quirk_valve_support(
 
 
 async def _quirk_ignores_offset(
-    flow: ConfigFlow | OptionsFlowHandler, entity_id: str
+    flow: ConfigFlow | OptionsFlowHandler,
+    entity_id: str,
+    configured_model: str | None = None,
 ) -> bool:
     """Answer whether this TRV's model quirk declares its offset ignored.
 
@@ -558,6 +567,9 @@ async def _quirk_ignores_offset(
         instance name the model lookup logs against.
     entity_id : str
         Entity ID of the TRV to probe.
+    configured_model : str | None
+        Model stored for the TRV, which the lookup falls back to when the
+        device registry has none.
 
     Returns
     -------
@@ -567,7 +579,9 @@ async def _quirk_ignores_offset(
         when the model cannot be read.
     """
     try:
-        model = await get_device_model(flow, entity_id)
+        model = await get_device_model(
+            flow, entity_id, configured_model=configured_model
+        )
         quirks = await load_model_quirks(flow, model, entity_id)
     except RuntimeError, ValueError, TypeError, AttributeError, ImportError:
         _LOGGER.debug("model quirk probe failed", exc_info=True)
@@ -581,6 +595,7 @@ async def _load_adapter_info(
     entity_id: str | None,
     *,
     existing_adapter: TrvAdapter | None = None,
+    configured_model: str | None = None,
 ) -> tuple[TrvAdapter | None, DeviceChannels]:
     adapter = existing_adapter
     channels = DeviceChannels()
@@ -604,7 +619,7 @@ async def _load_adapter_info(
     if (
         entity_id
         and not channels.valve_write
-        and await _quirk_valve_support(flow, entity_id)
+        and await _quirk_valve_support(flow, entity_id, configured_model)
     ):
         channels = replace(channels, valve_write=True)
 
@@ -613,7 +628,7 @@ async def _load_adapter_info(
     if (
         entity_id
         and channels.offset_write
-        and await _quirk_ignores_offset(flow, entity_id)
+        and await _quirk_ignores_offset(flow, entity_id, configured_model)
     ):
         channels = replace(channels, offset_write=False)
 
@@ -1226,8 +1241,13 @@ def _normalize_user_submission(
 async def _prepare_advanced_context(
     flow: ConfigFlow | OptionsFlowHandler, trv: _TrvDraft
 ) -> _AdvancedContext:
+    stored_model = trv.stored.get("model")
     _adapter, channels = await _load_adapter_info(
-        flow, trv.integration, trv.entity_id, existing_adapter=trv.adapter
+        flow,
+        trv.integration,
+        trv.entity_id,
+        existing_adapter=trv.adapter,
+        configured_model=stored_model if isinstance(stored_model, str) else None,
     )
     bound_sensor = regulates_on_bound_sensor(flow.hass, trv.entity_id) is True
     return _AdvancedContext(

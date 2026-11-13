@@ -124,9 +124,13 @@ from .events.temperature import (
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import (
+    highest_applied_calibration_offset,
     initial_tweak,
     load_model_quirks,
+    local_calibration_inverted,
+    lowest_applied_calibration_offset,
     lowest_setpoint,
+    offset_from_device,
     quirk_ignores_calibration_offset,
 )
 from .model_fixes.types import ExternalTemperatureQuirk
@@ -2213,13 +2217,32 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         )
 
     def _set_trv_calibration_defaults(self, trv: str) -> None:
-        """Set default calibration values for TRV."""
+        """Set default calibration values for TRV.
+
+        The offset range a read left in place is narrowed to the range the
+        model's quirk declares the device applies, taken into Better
+        Thermostat's convention, so a range the bound readers did not
+        deliver holds no offset the device ignores. A range they did deliver
+        is narrowed already and stays as it is.
+        """
         if self.real_trvs[trv].min_local_calibration is None:
             self.real_trvs[trv].min_local_calibration = -7
         if self.real_trvs[trv].max_local_calibration is None:
             self.real_trvs[trv].max_local_calibration = 7
         if self.real_trvs[trv].local_calibration_step is None:
             self.real_trvs[trv].local_calibration_step = 0.5
+        trv_record = self.real_trvs[trv]
+        lowest = lowest_applied_calibration_offset(trv_record.model_quirks, -math.inf)
+        highest = highest_applied_calibration_offset(trv_record.model_quirks, math.inf)
+        if local_calibration_inverted(self, trv):
+            lowest, highest = (
+                offset_from_device(self, trv, highest),
+                offset_from_device(self, trv, lowest),
+            )
+        trv_record.min_local_calibration = max(trv_record.min_local_calibration, lowest)
+        trv_record.max_local_calibration = min(
+            trv_record.max_local_calibration, highest
+        )
 
     async def startup(self) -> None:
         """Orchestrate entity startup."""

@@ -28,9 +28,13 @@ import pytest
 
 from custom_components.better_thermostat import config_flow
 from custom_components.better_thermostat.adapters import delegate, generic
-from custom_components.better_thermostat.adapters.base import DeviceChannels
+from custom_components.better_thermostat.adapters.base import (
+    AdapterCapabilities,
+    DeviceChannels,
+)
 from custom_components.better_thermostat.adapters.types import TrvAdapter
 from custom_components.better_thermostat.calibration import calculate_calibration_local
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
 from custom_components.better_thermostat.core.safety import clamp
 from custom_components.better_thermostat.core.snapshot import TrvReported
@@ -366,6 +370,42 @@ class TestTheW600IsCalibratedInsideTheRangeItApplies:
         assert await delegate.get_min_calibration_offset(bt, ENTITY_ID) == -4.0
         assert await delegate.get_max_calibration_offset(bt, ENTITY_ID) == 2.0
 
+    @pytest.mark.parametrize(
+        ("quirks", "left_in_place", "bounds"),
+        [
+            (W600, (-7.0, 7.0), (-5.0, 5.0)),
+            (W600, (-3.0, 4.0), (-3.0, 4.0)),
+            (default, (-7.0, 7.0), (-7.0, 7.0)),
+            (_InvertedNarrowRangeQuirks(), (-7.0, 7.0), (-4.0, 2.0)),
+        ],
+        ids=["w600_unread", "w600_read", "default", "inverted_narrow"],
+    )
+    def test_the_startup_fallback_keeps_the_bounds_inside_the_range_the_head_applies(
+        self, monkeypatch, quirks, left_in_place, bounds
+    ):
+        """A failed bound read leaves no bound the head ignores.
+
+        Startup falls back when the offset or its bounds cannot be read, and
+        the TRV then still holds the generic range it was created with.
+        """
+        bt = _host(monkeypatch, _w600(), quirks)
+        trv = bt.real_trvs[ENTITY_ID]
+        trv.min_local_calibration, trv.max_local_calibration = left_in_place
+
+        BetterThermostat._set_trv_calibration_defaults(bt, ENTITY_ID)
+
+        assert (trv.min_local_calibration, trv.max_local_calibration) == bounds
+
+    def test_the_safety_hull_holds_a_w600_on_fallback_bounds_inside_its_range(
+        self, monkeypatch
+    ):
+        bt = _host(monkeypatch, _w600(), W600)
+
+        BetterThermostat._set_trv_calibration_defaults(bt, ENTITY_ID)
+
+        assert _through_the_safety_hull(bt, 6.0) == 5.0
+        assert _through_the_safety_hull(bt, -6.0) == -5.0
+
 
 class TestTheLiljebaggeIsNotCalibratedByOffset:
     def test_the_quirk_declares_the_offset_ignored(self):
@@ -459,3 +499,88 @@ class TestTheLiljebaggeIsNotCalibratedByOffset:
             config_flow._default_calibration_for(channels)
             is CalibrationOutput.LOCAL_BASED
         ) is offered
+
+    @pytest.mark.asyncio
+    async def test_the_options_form_reads_the_stored_model_when_the_registry_has_none(
+        self,
+    ):
+        """The form probes the model the running thermostat loads its quirk for."""
+        adapter = MagicMock(spec=TrvAdapter)
+        adapter.get_info = AsyncMock(
+            return_value=DeviceChannels(offset_write=True, valve_write=False)
+        )
+        adapter.CAPABILITIES = AdapterCapabilities(offset_write=True)
+        draft = config_flow._TrvDraft(
+            entity_id=ENTITY_ID,
+            integration="matter",
+            adapter=adapter,
+            stored={
+                "trv": ENTITY_ID,
+                "integration": "matter",
+                "model": "20480",
+                "adapter": None,
+            },
+        )
+        flow = config_flow.ConfigFlow()
+        flow.hass = MagicMock()
+        flow.hass.states.get.return_value = None
+
+        async def _registry_without_model(
+            _flow: object, _entity_id: str, *, configured_model: str | None = None
+        ) -> str:
+            return configured_model or "generic"
+
+        async def _quirks_of(_flow: object, model: str, _entity_id: str) -> ModelQuirks:
+            return LILJEBAGGE if model == "20480" else default
+
+        with (
+            patch.object(
+                config_flow, "get_device_model", side_effect=_registry_without_model
+            ),
+            patch.object(config_flow, "load_model_quirks", side_effect=_quirks_of),
+            patch.object(config_flow, "regulates_on_bound_sensor", return_value=False),
+        ):
+            context = await config_flow._prepare_advanced_context(flow, draft)
+
+        assert context.channels.offset_write is False
+        assert context.default_calibration is CalibrationOutput.TARGET_TEMP_BASED
+
+    @pytest.mark.asyncio
+    async def test_the_valve_probe_reads_the_stored_model_when_the_registry_has_none(
+        self,
+    ):
+        """The valve channel a quirk adds is found under the stored model too."""
+        valve_quirks = object()
+        adapter = MagicMock(spec=TrvAdapter)
+        adapter.get_info = AsyncMock(
+            return_value=DeviceChannels(offset_write=False, valve_write=False)
+        )
+
+        async def _registry_without_model(
+            _flow: object, _entity_id: str, *, configured_model: str | None = None
+        ) -> str:
+            return configured_model or "generic"
+
+        async def _quirks_of(_flow: object, model: str, _entity_id: str) -> object:
+            return valve_quirks if model == "valve_head" else default
+
+        with (
+            patch.object(
+                config_flow, "get_device_model", side_effect=_registry_without_model
+            ),
+            patch.object(config_flow, "load_model_quirks", side_effect=_quirks_of),
+            patch.object(
+                config_flow,
+                "quirk_writes_valve",
+                side_effect=lambda quirks: quirks is valve_quirks,
+            ),
+        ):
+            _adapter, channels = await config_flow._load_adapter_info(
+                config_flow.ConfigFlow(),
+                "mqtt",
+                ENTITY_ID,
+                existing_adapter=adapter,
+                configured_model="valve_head",
+            )
+
+        assert channels.valve_write is True
