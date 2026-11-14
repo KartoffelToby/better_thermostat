@@ -128,6 +128,11 @@ class DeviceProfile:
     ``external_measured_room_sensor``, Celsius from -80 to 35 with no device
     class, and -80 standing for no value until one is written.
 
+    ``copies_setpoint_of`` is the entity id of another head in the same group
+    whose setpoint this one takes on each time that head's setpoint changes,
+    the way Tado holds the TRVs of one Tado room on one setpoint. ``None``
+    holds only what is written to this head.
+
     ``off_target_temperature`` is the setpoint the device publishes while it
     is off, in place of the one it holds: a Tado unit shows its 5 °C minimum
     there. ``None`` publishes the held setpoint in every mode.
@@ -187,6 +192,7 @@ class DeviceProfile:
     valve_unique_id: str | None = None
     blu_trv_external_temperature: bool = False
     danfoss_ally_external_sensor: bool = False
+    copies_setpoint_of: str | None = None
     rejects_hvac_mode_writes: bool = False
 
 
@@ -781,6 +787,42 @@ Neither profile configures a setpoint step, because a configured step is
 entry-wide and would flatten the very axis this scenario exists for.
 """
 
+SHARED_SETPOINT_LEADER = DeviceProfile(
+    name="shared_setpoint_leader",
+    integration="generic_thermostat",
+    calibration="target_temp_based",
+    has_device_registry_entry=False,
+    entity_id="climate.shared_setpoint_leader_trv",
+    entity_name="shared setpoint leader trv",
+)
+"""The head of a Tado room whose setpoint the room's other head copies."""
+
+SHARED_SETPOINT_FOLLOWER = DeviceProfile(
+    name="shared_setpoint_follower",
+    integration="generic_thermostat",
+    calibration="target_temp_based",
+    has_device_registry_entry=False,
+    entity_id="climate.shared_setpoint_follower_trv",
+    entity_name="shared setpoint follower trv",
+    copies_setpoint_of="climate.shared_setpoint_leader_trv",
+)
+"""The head of a Tado room that takes on the other head's setpoint.
+
+It holds a setpoint written to it until the leader's setpoint changes. Where
+the two heads read alike the copy changes nothing; a head that reads warmer
+is written a setpoint of its own, which the copy then replaces.
+"""
+
+SHARED_SETPOINT_GROUP = GroupScenario(
+    name="shared_setpoint_group",
+    profiles=(SHARED_SETPOINT_FOLLOWER, SHARED_SETPOINT_LEADER),
+)
+"""Two heads that the system they belong to keeps on one setpoint.
+
+The follower is listed first, so Better Thermostat writes it before the
+leader, and the leader's write then reaches the follower as well.
+"""
+
 VALVE_GROUP_WARM = DeviceProfile(
     name="valve_group_warm",
     integration="mqtt",
@@ -869,7 +911,7 @@ SINGLE_ROLE_PROFILES = (
 ROLE_SCENARIOS = (HEAT_ONLY, SEPARATE_COOLER, RANGED_COOLER, DUAL_ROLE)
 """Every wiring of a room a test can drive."""
 
-GROUP_SCENARIOS = (GROUP_OF_THREE, MIXED_GRID_GROUP, VALVE_GROUP)
+GROUP_SCENARIOS = (GROUP_OF_THREE, MIXED_GRID_GROUP, VALVE_GROUP, SHARED_SETPOINT_GROUP)
 """Every group of heads a test can drive as one room."""
 
 SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario | GroupScenario] = {
@@ -888,6 +930,9 @@ SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario | GroupScenario] = {
     "one entity wired as thermostat and as cooler": DUAL_ROLE,
     "a thermostat entity with no device registry entry": GENERIC_HEAT_TRV,
     "a room with several heads that can disagree": GROUP_OF_THREE,
+    "a room whose heads the system they belong to keeps on one setpoint": (
+        SHARED_SETPOINT_GROUP
+    ),
     "a head that resets its setpoint whenever it is told a mode": TUYA_OFFSET_TRV,
     "a head that holds no setpoint as high as the maximum it publishes": (
         ZWAVE_CAPPED_TRV

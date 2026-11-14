@@ -395,6 +395,14 @@ class TestReportsWrittenSetpoint:
         state = _make_state(attributes={"temperature": reported})
         assert reports_written_setpoint(mock_bt, ENTITY_ID, trv, state) is expected
 
+    def test_a_write_to_another_trv_of_the_room_counts(self, mock_bt):
+        """A setpoint BT wrote to the room's other TRV is one of BT's writes."""
+        _add_homematicip_peer(mock_bt)
+        mock_bt.real_trvs[PEER_ID].commanded_setpoint = 25.0
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        state = _make_state(attributes={"temperature": 25.0})
+        assert reports_written_setpoint(mock_bt, ENTITY_ID, trv, state) is True
+
     def test_a_state_without_a_setpoint_answers_nothing(self, mock_bt):
         """A state that carries no setpoint is neither a write nor a turn."""
         trv = mock_bt.real_trvs[ENTITY_ID]
@@ -2063,6 +2071,84 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.heat_target_temperature == 22.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("reported", "peer_released", "expected_target"),
+        [
+            pytest.param(25.0, False, 19.0, id="the_peers_write_is_no_press"),
+            pytest.param(25.0, True, 25.0, id="a_released_peer_wrote_nothing"),
+            pytest.param(23.0, False, 23.0, id="a_value_nobody_wrote_is_a_press"),
+        ],
+    )
+    async def test_a_setpoint_written_to_another_trv_of_the_room(
+        self, mock_bt, reported, peer_released, expected_target
+    ):
+        """A TRV reporting what BT wrote to its neighbour has not been turned.
+
+        Tado copies the setpoint of one TRV in a Tado room onto the others.
+        BT writes 25.0 to the peer and 22.0 to this TRV, which confirms
+        22.0 and then reports the peer's 25.0. The room target stays 19.0.
+        """
+        _add_homematicip_peer(mock_bt)
+        mock_bt.real_trvs[PEER_ID].commanded_setpoint = 25.0
+        if peer_released:
+            mock_bt.released_trvs = {PEER_ID}
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.commanded_setpoint = 22.0
+        trv.remember_setpoint_confirmed(22.0, trv.remember_setpoint_written(22.0))
+        old_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": reported, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.side_effect = None
+        mock_bt.hass.states.get.return_value = new_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == expected_target
+
+    @pytest.mark.asyncio
+    async def test_a_turn_beyond_the_range_onto_the_peers_write_is_a_press(
+        self, mock_bt
+    ):
+        """A turn the clamp brings onto the peer's write is still a turn.
+
+        BT holds the peer at its 25.0 maximum. A turn to 27.0 on this TRV
+        clamps to 25.0 as well, and the room adopts 25.0.
+        """
+        _add_homematicip_peer(mock_bt)
+        mock_bt.bt_max_temp = 25.0
+        mock_bt.real_trvs[PEER_ID].commanded_setpoint = 25.0
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.commanded_setpoint = 22.0
+        trv.remember_setpoint_confirmed(22.0, trv.remember_setpoint_written(22.0))
+        old_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 27.0, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.side_effect = None
+        mock_bt.hass.states.get.return_value = new_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == 25.0
 
     @pytest.mark.asyncio
     async def test_same_setpoint_not_adopted(self, mock_bt):
