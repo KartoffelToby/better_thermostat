@@ -199,6 +199,46 @@ def _hold_report(
     trv.unread_report = unread
 
 
+def sibling_setpoint_writes(self: BetterThermostat, entity_id: str) -> list[float]:
+    """Return the setpoints Better Thermostat wants the room's other TRVs to hold.
+
+    Some systems keep the TRVs of one room on a shared setpoint: Tado copies
+    the setpoint of one TRV in a Tado room onto the others. A calibration that
+    gives each TRV its own setpoint then sees a TRV report the value Better
+    Thermostat wrote to its neighbour. That value is Better Thermostat's own
+    write arriving at the wrong device, not a turn at the device, so it counts
+    among the values Better Thermostat wrote. A TRV released to the user is
+    not Better Thermostat's to write, so its values do not count.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The thermostat whose TRVs are compared.
+    entity_id : str
+        The TRV that reported; its own writes are not included.
+
+    Returns
+    -------
+    list[float]
+        The last command, the confirmed setpoint and the writes still on the
+        wire of every other TRV the room controls, in °C.
+    """
+    values: list[float] = []
+    for sibling_id, sibling in self.real_trvs.items():
+        if sibling_id == entity_id or device_released(self, sibling_id):
+            continue
+        values += [
+            value
+            for value in (
+                sibling.commanded_setpoint,
+                sibling.confirmed_setpoint,
+                *sibling.echo_setpoint_values(),
+            )
+            if value is not None
+        ]
+    return values
+
+
 def reports_written_setpoint(
     self: BetterThermostat, entity_id: str, trv: Trv, state: State | None
 ) -> bool | None:
@@ -206,8 +246,9 @@ def reports_written_setpoint(
 
     The setpoint counts as written when it lies within the echo window of the
     last command, the setpoint the device last confirmed, or a write since,
-    and on the device that also serves as the cooler, of the cooling
-    channel's writes as the device holds them.
+    of the same values of the room's other TRVs, and on the device that also
+    serves as the cooler, of the cooling channel's writes as the device holds
+    them.
 
     Parameters
     ----------
@@ -234,6 +275,7 @@ def reports_written_setpoint(
         trv.commanded_setpoint,
         trv.confirmed_setpoint,
         *trv.echo_setpoint_values(),
+        *sibling_setpoint_writes(self, entity_id),
     ]
     if state is not None and entity_id == dual_role_entity_id(self):
         known += cooling_writes_as_held(self, state)
@@ -772,9 +814,11 @@ async def trigger_trv_change(
     _old_heating_setpoint = read_setpoint_celsius(
         self, old_state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
     )
-    # Compare only against values BT itself wrote to this device: the last
+    # Compare only against values BT itself wrote: to this device the last
     # command, the setpoint the device last confirmed, and the writes since,
-    # which a device may still hold against a later write it did not take.
+    # which a device may still hold against a later write it did not take;
+    # and the same values of the room's other TRVs, which a system that keeps
+    # one setpoint per room copies onto this one.
     # The room target is not one of them: the device holds it rounded onto
     # its own grid, and a knob turned one step toward an off-grid target
     # lands closer to the target than a step.
@@ -792,6 +836,7 @@ async def trigger_trv_change(
             trv.commanded_setpoint,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
+            *sibling_setpoint_writes(self, entity_id),
             *cooling_writes_as_held(self, _org_trv_state),
         )
     else:
@@ -799,6 +844,7 @@ async def trigger_trv_change(
             trv.commanded_setpoint,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
+            *sibling_setpoint_writes(self, entity_id),
         )
     _setpoint = resolve_inbound_setpoint(
         self,
