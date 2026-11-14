@@ -57,6 +57,7 @@ async def test_a_setpoint_copied_from_the_other_head_leaves_the_room_target(
     entry = make_entry(trv_group.scenario)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
+    copies_before = len(follower.copied_setpoints)
 
     await hass.services.async_call(
         CLIMATE_DOMAIN,
@@ -68,7 +69,7 @@ async def test_a_setpoint_copied_from_the_other_head_leaves_the_room_target(
         hass,
         lambda: any(
             copied != follower.set_temperature_calls[-1]
-            for copied in follower.copied_setpoints
+            for copied in follower.copied_setpoints[copies_before:]
         ),
     )
     await hass.async_block_till_done()
