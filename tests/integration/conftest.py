@@ -53,6 +53,7 @@ from homeassistant.components.number import (
 from homeassistant.components.select import DOMAIN as SELECT_DOMAIN, SelectEntity
 from homeassistant.config_entries import ConfigFlow
 from homeassistant.const import ATTR_TEMPERATURE, EVENT_CALL_SERVICE, UnitOfTemperature
+from homeassistant.core import Context
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.setup import async_setup_component
@@ -103,6 +104,14 @@ class ServiceCallData(TypedDict):
 # ``EVENT_CALL_SERVICE`` typed with its payload, so captured calls carry it.
 CALL_SERVICE: EventType[ServiceCallData] = EventType(EVENT_CALL_SERVICE)
 
+
+# Seconds after a head's setpoint changes until a head that copies it takes
+# the copy on: the system syncs its heads after Better Thermostat's writes,
+# not inside them.
+SETPOINT_COPY_DELAY_S = 0.2
+
+# Copies scheduled and not yet taken on; a test that ends first cancels them.
+_PENDING_SETPOINT_COPIES: set[asyncio.TimerHandle] = set()
 
 # The entity every test drives, derived from the default entry title.
 BT_ENTITY = "climate.bt_test"
@@ -161,6 +170,15 @@ def _enable_custom_integrations(_recorder, enable_custom_integrations):
 
 
 @pytest.fixture(autouse=True)
+def _cancel_pending_setpoint_copies():
+    """Cancel the setpoint copies a test ended before."""
+    yield
+    for handle in _PENDING_SETPOINT_COPIES:
+        handle.cancel()
+    _PENDING_SETPOINT_COPIES.clear()
+
+
+@pytest.fixture(autouse=True)
 def _compressed_sleeps():
     """Compress asyncio sleeps so the entity runs in test time.
 
@@ -212,6 +230,9 @@ class SimulatedClimate(ClimateEntity):
         )
         self.valve_number: SimulatedValveNumber | None = None
         self.sensor_selector: SimulatedSensorSelector | None = None
+        # The heads that take on this head's setpoint whenever it changes.
+        self.setpoint_followers: list[SimulatedClimate] = []
+        self.copied_setpoints: list[float | None] = []
         self._attr_name = profile.entity_name
         self._attr_native_temperature_unit = profile.temperature_unit
         self._attr_hvac_modes = list(profile.hvac_modes)
@@ -300,9 +321,29 @@ class SimulatedClimate(ClimateEntity):
             self.drop_next_setpoint_write = False
             return
         ceiling = self.profile.setpoint_ceiling
+        previous = self._attr_native_target_temperature
         self._attr_native_target_temperature = (
             temperature if ceiling is None else min(temperature, ceiling)
         )
+        self.async_write_ha_state()
+        if self._attr_native_target_temperature != previous:
+            for follower in self.setpoint_followers:
+                _PENDING_SETPOINT_COPIES.add(
+                    self.hass.loop.call_later(
+                        SETPOINT_COPY_DELAY_S, follower.copy_setpoint_of, self
+                    )
+                )
+
+    def copy_setpoint_of(self, leader: SimulatedClimate) -> None:
+        """Take on the setpoint another head holds, as the system syncs them.
+
+        The copy reaches Home Assistant as a report of the device's own, under
+        a context of its own rather than the one of the write it copies.
+        """
+        temperature = leader.target_temperature
+        self.copied_setpoints.append(temperature)
+        self._attr_native_target_temperature = temperature
+        self.async_set_context(Context())
         self.async_write_ha_state()
 
     @override
@@ -611,6 +652,12 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
             entity.sensor_selector = selector
             selects.append(selector)
         entities.append(entity)
+
+    by_entity_id = {entity.entity_id: entity for entity in entities}
+    for entity in entities:
+        leader_id = entity.profile.copies_setpoint_of
+        if leader_id is not None:
+            by_entity_id[leader_id].setpoint_followers.append(entity)
 
     if with_device:
         await _add_devices_from_config_entry(hass, entities, numbers, selects)

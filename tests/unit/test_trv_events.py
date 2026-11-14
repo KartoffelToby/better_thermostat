@@ -2117,6 +2117,40 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == expected_target
 
     @pytest.mark.asyncio
+    async def test_a_turn_beyond_the_range_onto_the_peers_write_is_a_press(
+        self, mock_bt
+    ):
+        """A turn the clamp brings onto the peer's write is still a turn.
+
+        BT holds the peer at its 25.0 maximum. A turn to 27.0 on this TRV
+        clamps to 25.0 as well, and the room adopts 25.0.
+        """
+        _add_homematicip_peer(mock_bt)
+        mock_bt.bt_max_temp = 25.0
+        mock_bt.real_trvs[PEER_ID].commanded_setpoint = 25.0
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.commanded_setpoint = 22.0
+        trv.remember_setpoint_confirmed(22.0, trv.remember_setpoint_written(22.0))
+        old_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 27.0, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.side_effect = None
+        mock_bt.hass.states.get.return_value = new_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == 25.0
+
+    @pytest.mark.asyncio
     async def test_same_setpoint_not_adopted(self, mock_bt):
         """Setpoint == heat_target_temperature should not trigger adoption."""
         old_state = _make_state(

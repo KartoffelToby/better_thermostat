@@ -814,11 +814,9 @@ async def trigger_trv_change(
     _old_heating_setpoint = read_setpoint_celsius(
         self, old_state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
     )
-    # Compare only against values BT itself wrote: to this device the last
+    # Compare only against values BT itself wrote to this device: the last
     # command, the setpoint the device last confirmed, and the writes since,
-    # which a device may still hold against a later write it did not take;
-    # and the same values of the room's other TRVs, which a system that keeps
-    # one setpoint per room copies onto this one.
+    # which a device may still hold against a later write it did not take.
     # The room target is not one of them: the device holds it rounded onto
     # its own grid, and a knob turned one step toward an off-grid target
     # lands closer to the target than a step.
@@ -836,7 +834,6 @@ async def trigger_trv_change(
             trv.commanded_setpoint,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
-            *sibling_setpoint_writes(self, entity_id),
             *cooling_writes_as_held(self, _org_trv_state),
         )
     else:
@@ -844,7 +841,6 @@ async def trigger_trv_change(
             trv.commanded_setpoint,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
-            *sibling_setpoint_writes(self, entity_id),
         )
     _setpoint = resolve_inbound_setpoint(
         self,
@@ -856,6 +852,19 @@ async def trigger_trv_change(
         # A report the cooling channel owns is bounded by the cooling range.
         cooling=_cooling_owns,
     )
+    # A system that keeps one setpoint per room copies a value BT wrote to
+    # one of the room's other TRVs onto this one, and the device reports it
+    # as it got it. Only the reported value counts here: a turn beyond BT's
+    # range that the clamp brings onto a neighbour's write is still a turn.
+    if (
+        _setpoint is not None
+        and not _setpoint.is_echo
+        and any(
+            abs(_setpoint.raw - value) < setpoint_echo_window(_step)
+            for value in sibling_setpoint_writes(self, entity_id)
+        )
+    ):
+        _setpoint = _setpoint._replace(is_echo=True)
     _is_no_off_device = advanced_flag(advanced, CONF_NO_OFF_SYSTEM_MODE)
     # An AUTO the mode decoding ignores says nothing about the room, so the
     # setpoint it carries, typically the device's own schedule, is not adopted
