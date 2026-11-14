@@ -14,13 +14,16 @@ from pathlib import Path
 import re
 import tomllib
 
+import pytest
+
 ROOT = Path(__file__).parents[2]
 MANIFEST = ROOT / "custom_components" / "better_thermostat" / "manifest.json"
 PYPROJECT = ROOT / "pyproject.toml"
 HACS = ROOT / "hacs.json"
 DOCS = ROOT / "docs"
+# Whitespace includes line breaks: the Markdown sources wrap their prose.
 REQUIREMENT_IN_DOCS = re.compile(
-    r"Home Assistant[ `*]*(\d{4}\.\d+(?:\.\d+)?)[ `*]*or (?:newer|later)"
+    r"Home\s+Assistant[\s`*]*(\d{4}\.\d+(?:\.\d+)?)[\s`*]*or\s+(?:newer|later)"
 )
 
 
@@ -102,3 +105,28 @@ def test_docs_state_the_declared_home_assistant_floor() -> None:
         "the docs state a Home Assistant requirement other than the floor in "
         "pyproject.toml:\n" + "\n".join(stale)
     )
+
+
+@pytest.mark.parametrize(
+    ("text", "version"),
+    [
+        ("requires **Home Assistant `2026.10.0` or newer**.", "2026.10.0"),
+        ("requires Home Assistant 2026.10 or later.", "2026.10"),
+        ("- **Home Assistant\n  2026.10.0 or newer is required.**", "2026.10.0"),
+        ("requires **Home Assistant `2026.10.0`\nor\nnewer**.", "2026.10.0"),
+    ],
+    ids=["code-span", "or-later", "wrapped-before-version", "wrapped-inside-phrase"],
+)
+def test_a_requirement_is_found_however_the_source_wraps_it(
+    text: str, version: str
+) -> None:
+    match = REQUIREMENT_IN_DOCS.search(text)
+
+    assert match is not None
+    assert match.group(1) == version
+
+
+def test_a_version_that_is_not_a_requirement_is_not_matched() -> None:
+    text = "1.9.3 runs on\n  2026.9.0, 1.9.2 and older on 2026.7.2."
+
+    assert REQUIREMENT_IN_DOCS.search(text) is None
