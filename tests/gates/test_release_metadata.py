@@ -21,10 +21,17 @@ MANIFEST = ROOT / "custom_components" / "better_thermostat" / "manifest.json"
 PYPROJECT = ROOT / "pyproject.toml"
 HACS = ROOT / "hacs.json"
 DOCS = ROOT / "docs"
-# Whitespace includes line breaks: the Markdown sources wrap their prose.
+# Matched against prose with its Markdown emphasis and code markers removed;
+# whitespace includes line breaks, because the Markdown sources wrap.
 REQUIREMENT_IN_DOCS = re.compile(
-    r"Home\s+Assistant[\s`*_]*(\d{4}\.\d+(?:\.\d+)?)[\s`*_]*or\s+(?:newer|later)"
+    r"Home\s+Assistant\s+(\d{4}\.\d+(?:\.\d+)?)\s+or\s+(?:newer|later)"
 )
+MARKDOWN_MARKUP = re.compile(r"[`*_]")
+
+
+def _requirements(markdown: str) -> list[re.Match[str]]:
+    """Return every "Home Assistant X or newer" the Markdown text states."""
+    return list(REQUIREMENT_IN_DOCS.finditer(MARKDOWN_MARKUP.sub("", markdown)))
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:
@@ -97,7 +104,7 @@ def test_docs_state_the_declared_home_assistant_floor() -> None:
     stale = [
         f"{page.relative_to(ROOT)}: {match.group(0)}"
         for page in sorted(DOCS.rglob("*.md"))
-        for match in REQUIREMENT_IN_DOCS.finditer(page.read_text())
+        for match in _requirements(page.read_text())
         if _version_tuple(match.group(1)) != declared_floor
     ]
 
@@ -113,6 +120,8 @@ def test_docs_state_the_declared_home_assistant_floor() -> None:
         ("requires **Home Assistant `2026.10.0` or newer**.", "2026.10.0"),
         ("requires Home Assistant 2026.10 or later.", "2026.10"),
         ("requires Home Assistant _2026.10.0_ or newer.", "2026.10.0"),
+        ("requires Home Assistant 2026.10.0 or **newer**.", "2026.10.0"),
+        ("requires **Home** Assistant 2026.10.0 or newer.", "2026.10.0"),
         ("- **Home Assistant\n  2026.10.0 or newer is required.**", "2026.10.0"),
         ("requires **Home Assistant `2026.10.0`\nor\nnewer**.", "2026.10.0"),
     ],
@@ -120,20 +129,19 @@ def test_docs_state_the_declared_home_assistant_floor() -> None:
         "code-span",
         "or-later",
         "underscore-emphasis",
+        "emphasis-after-or",
+        "emphasis-inside-name",
         "wrapped-before-version",
         "wrapped-inside-phrase",
     ],
 )
-def test_a_requirement_is_found_however_the_source_wraps_it(
+def test_a_requirement_is_found_however_the_source_formats_it(
     text: str, version: str
 ) -> None:
-    match = REQUIREMENT_IN_DOCS.search(text)
-
-    assert match is not None
-    assert match.group(1) == version
+    assert [match.group(1) for match in _requirements(text)] == [version]
 
 
 def test_a_version_that_is_not_a_requirement_is_not_matched() -> None:
     text = "1.9.3 runs on\n  2026.9.0, 1.9.2 and older on 2026.7.2."
 
-    assert REQUIREMENT_IN_DOCS.search(text) is None
+    assert _requirements(text) == []
