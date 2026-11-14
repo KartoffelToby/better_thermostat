@@ -231,6 +231,10 @@
       "title": "BT：{trv} 被多个 Better Thermostat 控制",
       "description": "温控器 {trv} 同时被以下多个 Better Thermostat 使用：{entries}。这些实例会向它写入相互冲突的目标温度和模式。请在设置中只保留一个 Better Thermostat 使用该温控器，把其余的移除；移除后此问题会自动消失。"
     },
+    "unsupported_home_assistant": {
+      "title": "BT：Home Assistant {running} 版本过旧，无法运行 Better Thermostat",
+      "description": "此版本的 Better Thermostat 需要 Home Assistant {required} 或更高版本，但当前运行的是 Home Assistant {running}。在更新 Home Assistant 之前，不会设置任何 Better Thermostat。请更新 Home Assistant，或在此之前重新安装支持您 Home Assistant 版本的最后一个 Better Thermostat 版本。"
+    },
     "setpoint_not_applied": {
       "title": "BT：{name} - {entity} 未接受目标温度",
       "description": "Better Thermostat 一直向 {entity} 写入目标温度 {wanted}，但温控器仍报告 {held}。房间没有按 Better Thermostat 的意图被加热。\n\n常见原因：\n- 温控器自身有一个低于其公布最大值的设定点限制，例如 Zigbee2MQTT 中的 `max_heat_setpoint_limit`。\n- 温控器处于忽略目标温度的模式或预设中，例如日程模式。\n- 温控器失去无线连接或电池电量低。\n\nBetter Thermostat 会继续写入目标温度，最多每小时一次。此问题会在温控器报告目标温度后自动清除。"

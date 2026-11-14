@@ -24,6 +24,10 @@ _LOGGER = logging.getLogger(__name__)
 
 DOMAIN: Final = "better_thermostat"
 
+# The oldest Home Assistant release the integration runs on. ``hacs.json``,
+# the README and the docs state the same release.
+MIN_HOME_ASSISTANT_VERSION: Final = "2026.11.0"
+
 DEFAULT_NAME: Final = "Better Thermostat"
 
 # How long a TRV may stay unavailable after the availability guard turns on
