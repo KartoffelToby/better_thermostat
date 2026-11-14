@@ -376,10 +376,13 @@ async def _offset_selects_external_temperature(
     """Tell whether a Z-Wave Spirit/ZWA021 offset holds its external-sensor value."""
     if trv.integration != "zwave_js":
         return False
-    model = trv.stored.get("model")
-    if not isinstance(model, str):
-        model = await get_device_model(flow, trv.entity_id)
-    if not isinstance(model, str) or get_model_quirks_name(model) != "ZWA021":
+    stored_model = trv.stored.get("model")
+    model = await get_device_model(
+        flow,
+        trv.entity_id,
+        configured_model=stored_model if isinstance(stored_model, str) else None,
+    )
+    if get_model_quirks_name(model) != "ZWA021":
         return False
     offset_entity = await find_local_calibration_entity(flow, trv.entity_id)
     state = flow.hass.states.get(offset_entity) if offset_entity else None

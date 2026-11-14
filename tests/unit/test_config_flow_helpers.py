@@ -202,6 +202,15 @@ _RESERVED_OFFSET = State(
 )
 
 
+def _device_model(registry_model=None):
+    """Resolve a model the way get_device_model does, from a stubbed registry."""
+
+    async def resolve(_flow, _entity_id, *, configured_model=None):
+        return registry_model or configured_model or "generic"
+
+    return AsyncMock(side_effect=resolve)
+
+
 @pytest.mark.parametrize(
     ("integration", "model", "expected"),
     [
@@ -221,27 +230,8 @@ async def test_only_a_zwave_spirit_offset_selects_the_external_temperature(
         adapter=None,
         stored={"model": model},
     )
-    with patch(
-        f"{_MODULE}.find_local_calibration_entity",
-        AsyncMock(return_value="number.trv_offset"),
-    ):
-        assert await _offset_selects_external_temperature(flow, trv) is expected
-
-
-@pytest.mark.parametrize(
-    ("device_model", "expected"), [("ZWA021", True), (None, False)]
-)
-async def test_a_new_trv_without_a_stored_model_reads_the_device_model(
-    device_model, expected
-):
-    flow = _spirit_offset_flow(_RESERVED_OFFSET)
-    trv = _TrvDraft(
-        entity_id="climate.trv", integration="zwave_js", adapter=None, stored={}
-    )
     with (
-        patch(
-            f"{_MODULE}.get_device_model", AsyncMock(return_value=device_model)
-        ) as get_model,
+        patch(f"{_MODULE}.get_device_model", _device_model()),
         patch(
             f"{_MODULE}.find_local_calibration_entity",
             AsyncMock(return_value="number.trv_offset"),
@@ -249,7 +239,34 @@ async def test_a_new_trv_without_a_stored_model_reads_the_device_model(
     ):
         assert await _offset_selects_external_temperature(flow, trv) is expected
 
-    get_model.assert_awaited_once_with(flow, "climate.trv")
+
+@pytest.mark.parametrize(
+    ("stored", "registry_model", "expected"),
+    [
+        ({"model": "generic"}, "Spirit", True),
+        ({"model": "Spirit"}, None, True),
+        ({}, None, False),
+    ],
+)
+async def test_the_registry_model_wins_and_the_stored_model_is_the_fallback(
+    stored, registry_model, expected
+):
+    flow = _spirit_offset_flow(_RESERVED_OFFSET)
+    trv = _TrvDraft(
+        entity_id="climate.trv", integration="zwave_js", adapter=None, stored=stored
+    )
+    with (
+        patch(f"{_MODULE}.get_device_model", _device_model(registry_model)) as model,
+        patch(
+            f"{_MODULE}.find_local_calibration_entity",
+            AsyncMock(return_value="number.trv_offset"),
+        ),
+    ):
+        assert await _offset_selects_external_temperature(flow, trv) is expected
+
+    model.assert_awaited_once_with(
+        flow, "climate.trv", configured_model=stored.get("model")
+    )
 
 
 @pytest.mark.parametrize(
@@ -277,9 +294,12 @@ async def test_a_spirit_offset_that_cannot_be_read_selects_nothing(
         adapter=None,
         stored={"model": "Spirit"},
     )
-    with patch(
-        f"{_MODULE}.find_local_calibration_entity",
-        AsyncMock(return_value=offset_entity),
+    with (
+        patch(f"{_MODULE}.get_device_model", _device_model()),
+        patch(
+            f"{_MODULE}.find_local_calibration_entity",
+            AsyncMock(return_value=offset_entity),
+        ),
     ):
         assert await _offset_selects_external_temperature(flow, trv) is False
 
@@ -318,6 +338,7 @@ async def test_new_spirit_entry_defaults_to_no_calibration_only_for_reserved_off
         ),
         patch(f"{_MODULE}.regulates_on_bound_sensor", return_value=False),
         patch(f"{_MODULE}._trv_supports_auto", return_value=False),
+        patch(f"{_MODULE}.get_device_model", _device_model()),
         patch(
             f"{_MODULE}.find_local_calibration_entity",
             AsyncMock(return_value="number.trv_offset"),
