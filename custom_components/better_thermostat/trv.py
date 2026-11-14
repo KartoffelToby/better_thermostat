@@ -151,6 +151,8 @@ class Trv:
     adapter: TrvAdapter
     # The model-quirk module ``load_model_quirks`` imported for the model.
     model_quirks: ModelQuirks
+    # Integration that owns the physical thermostat entity.
+    integration: str = "unknown"
     # What BT writes to calibrate the TRV; None when the configuration
     # selects no calibration type.
     calibration: CalibrationOutput | None = None

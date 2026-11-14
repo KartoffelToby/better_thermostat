@@ -1,6 +1,6 @@
 """Tests for the Z-Wave JS adapter and the ZWA021 model quirks.
 
-These tests assert two safety properties that hold without access to real
+These tests assert safety properties that hold without access to real
 hardware:
 
 1. The ZWA021 quirk only engages its manufacturer-specific valve mode when the
@@ -8,12 +8,15 @@ hardware:
    and the standard climate path is used.
 2. The adapter reports valve support only for a writable valve helper and
    degrades to generic offset/plain behaviour otherwise.
+3. Spirit/ZWA021 external-temperature reports require the reserved offset,
+   no calibration and no direct valve control.
 """
 
 import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 import pytest
 
@@ -22,7 +25,10 @@ from custom_components.better_thermostat.adapters import valve_entity
 from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.adapters.conformance import ECOSYSTEM_ADAPTERS
 from custom_components.better_thermostat.utils import helpers
-from custom_components.better_thermostat.utils.const import CalibrationOutput
+from custom_components.better_thermostat.utils.const import (
+    CalibrationMode,
+    CalibrationOutput,
+)
 from tests.factories import (
     ThermostatStandIn,
     make_entity_registry,
@@ -39,6 +45,180 @@ adapter = importlib.import_module(
 quirks = importlib.import_module(
     "custom_components.better_thermostat.model_fixes.model_quirks"
 )
+
+
+def _make_external_temperature_self(
+    *, mode=CalibrationMode.NO_CALIBRATION, reserved=True, calibration_value=-128
+):
+    """Build a Z-Wave TRV whose offset entity can advertise the -128 sentinel."""
+    mock_self = _make_self(calibration=CalibrationOutput.LOCAL_BASED)
+    trv = mock_self.real_trvs["climate.trv1"]
+    trv.integration = "zwave_js"
+    trv.local_temperature_calibration_entity = "number.trv1_offset"
+    trv.advanced["calibration_mode"] = mode.value
+    attributes = (
+        {"reserved_values": {"-128": "External temperature"}} if reserved else {}
+    )
+    mock_self.hass.states.get = MagicMock(
+        return_value=State("number.trv1_offset", str(calibration_value), attributes)
+    )
+    return mock_self
+
+
+class TestZWA021ExternalTemperature:
+    """CC 49 reports require no calibration and the device's reserved mode."""
+
+    @pytest.mark.asyncio
+    async def test_sends_report_for_reserved_offset_and_suppresses_duplicate(self):
+        mock_self = _make_external_temperature_self()
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.236
+        )
+        assert not await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.236
+        )
+
+        mock_self.hass.services.async_call.assert_awaited_once()
+        args, _ = mock_self.hass.services.async_call.call_args
+        assert args[0] == "zwave_js"
+        assert args[1] == "invoke_cc_api"
+        assert args[2]["command_class"] == 49
+        assert args[2]["parameters"] == [1, 0, 21.24]
+
+    @pytest.mark.asyncio
+    async def test_resends_a_changed_value_and_an_unchanged_one_after_the_refresh(
+        self, monkeypatch
+    ):
+        clock = MagicMock(return_value=1000.0)
+        monkeypatch.setattr(quirk, "monotonic", clock)
+        mock_self = _make_external_temperature_self()
+        send = mock_self.hass.services.async_call
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.1
+        )
+        clock.return_value = 1000.0 + 15 * 60 - 1
+        assert not await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.1
+        )
+        clock.return_value = 1000.0 + 15 * 60
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.1
+        )
+
+        assert [call.args[2]["parameters"] for call in send.await_args_list] == [
+            [1, 0, 21.0],
+            [1, 0, 21.1],
+            [1, 0, 21.1],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_failed_report_is_sent_again_on_the_next_reading(self):
+        mock_self = _make_external_temperature_self()
+        send = mock_self.hass.services.async_call
+        send.side_effect = [HomeAssistantError("node dead"), None]
+
+        assert not await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        assert send.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_does_not_send_outside_zwave_js(self):
+        mock_self = _make_external_temperature_self()
+        mock_self.real_trvs["climate.trv1"].integration = "mqtt"
+
+        assert not await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("temperature", [float("nan"), float("inf"), "warm"])
+    async def test_does_not_send_a_value_that_is_no_finite_number(self, temperature):
+        mock_self = _make_external_temperature_self()
+
+        assert not await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", temperature
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_finds_the_offset_entity_once_and_keeps_it(self):
+        mock_self = _make_external_temperature_self()
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.local_temperature_calibration_entity = None
+
+        with patch.object(
+            quirk,
+            "find_local_calibration_entity",
+            AsyncMock(return_value="number.trv1_offset"),
+        ) as find:
+            assert await quirk.maybe_set_external_temperature(
+                mock_self, "climate.trv1", 21.0
+            )
+            assert await quirk.maybe_set_external_temperature(
+                mock_self, "climate.trv1", 22.0
+            )
+
+        find.assert_awaited_once_with(mock_self, "climate.trv1")
+        assert trv.local_temperature_calibration_entity == "number.trv1_offset"
+
+    @pytest.mark.asyncio
+    async def test_does_not_send_without_an_offset_state(self):
+        mock_self = _make_external_temperature_self()
+        mock_self.hass.states.get = MagicMock(return_value=None)
+
+        assert not await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_does_not_send_when_calibration_is_enabled(self):
+        mock_self = _make_external_temperature_self(mode=CalibrationMode.DEFAULT)
+
+        assert not await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_does_not_send_without_reserved_minus_128_value(self):
+        mock_self = _make_external_temperature_self(reserved=False)
+
+        assert not await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_does_not_send_when_offset_is_not_on_reserved_value(self):
+        mock_self = _make_external_temperature_self(calibration_value=0)
+
+        assert not await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_does_not_send_for_direct_valve_control(self):
+        mock_self = _make_external_temperature_self()
+        mock_self.real_trvs["climate.trv1"].advanced["calibration"] = (
+            CalibrationOutput.DIRECT_VALVE_BASED
+        )
+
+        assert not await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
 
 
 def _make_self(calibration=None):

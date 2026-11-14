@@ -53,6 +53,12 @@ class QuirkScratchpad(TypedDict, total=False):
     _zwa021_valve_mode_engaged: bool
     """Whether the ZWA021 manufacturer-specific valve mode went through."""
 
+    _zwa021_external_temperature_last_sent: float
+    """Last room temperature reported to the ZWA021, in °C."""
+
+    _zwa021_external_temperature_sent_at: float
+    """Monotonic time of the last report, for the periodic refresh."""
+
     _danfoss_external_sensor_celsius: float
     """Room temperature the Danfoss Ally external room sensor input was last
     written, in degrees Celsius, as the input holds it."""
@@ -78,6 +84,21 @@ class ModelFixTrv(Protocol):
     @property
     def advanced(self) -> Mapping[str, object]:
         """Per-TRV advanced options, keyed by option name."""
+        ...
+
+    @property
+    def integration(self) -> str:
+        """Integration that owns the physical TRV."""
+        ...
+
+    @property
+    def local_temperature_calibration_entity(self) -> str | None:
+        """Discovered entity that publishes this TRV's local offset."""
+        ...
+
+    @local_temperature_calibration_entity.setter
+    def local_temperature_calibration_entity(self, value: str | None) -> None:
+        """Cache the discovered local offset entity."""
         ...
 
     @property
