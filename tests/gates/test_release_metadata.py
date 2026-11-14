@@ -23,7 +23,7 @@ HACS = ROOT / "hacs.json"
 DOCS = ROOT / "docs"
 # Whitespace includes line breaks: the Markdown sources wrap their prose.
 REQUIREMENT_IN_DOCS = re.compile(
-    r"Home\s+Assistant[\s`*]*(\d{4}\.\d+(?:\.\d+)?)[\s`*]*or\s+(?:newer|later)"
+    r"Home\s+Assistant[\s`*_]*(\d{4}\.\d+(?:\.\d+)?)[\s`*_]*or\s+(?:newer|later)"
 )
 
 
@@ -66,7 +66,7 @@ def test_hacs_gate_is_the_declared_home_assistant_floor() -> None:
     hacs_gate = json.loads(HACS.read_text())["homeassistant"]
     declared_floor = _declared_homeassistant_floor()
 
-    assert _version_tuple(hacs_gate) == _version_tuple(declared_floor), (
+    assert hacs_gate == declared_floor, (
         f"hacs.json gates on Home Assistant {hacs_gate} but the project "
         f"requires >={declared_floor}"
     )
@@ -112,10 +112,17 @@ def test_docs_state_the_declared_home_assistant_floor() -> None:
     [
         ("requires **Home Assistant `2026.10.0` or newer**.", "2026.10.0"),
         ("requires Home Assistant 2026.10 or later.", "2026.10"),
+        ("requires Home Assistant _2026.10.0_ or newer.", "2026.10.0"),
         ("- **Home Assistant\n  2026.10.0 or newer is required.**", "2026.10.0"),
         ("requires **Home Assistant `2026.10.0`\nor\nnewer**.", "2026.10.0"),
     ],
-    ids=["code-span", "or-later", "wrapped-before-version", "wrapped-inside-phrase"],
+    ids=[
+        "code-span",
+        "or-later",
+        "underscore-emphasis",
+        "wrapped-before-version",
+        "wrapped-inside-phrase",
+    ],
 )
 def test_a_requirement_is_found_however_the_source_wraps_it(
     text: str, version: str
