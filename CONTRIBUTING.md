@@ -31,8 +31,10 @@ document in a pull request.
 ## Home Assistant version
 
 The minimum Home Assistant release is the `homeassistant>=` floor in
-`pyproject.toml`. `hacs.json`, the requirement line in `README.md` and every
-"Home Assistant X or newer" in `docs/` name the same release, and
+`pyproject.toml`. `MIN_HOME_ASSISTANT_VERSION` in
+`custom_components/better_thermostat/utils/const.py`, `hacs.json`, the
+requirement line in `README.md` and every "Home Assistant X or newer" in
+`docs/` name the same release, and
 `tests/gates/test_release_metadata.py` fails while one of them differs. Raising
 the floor means editing all of them in the same pull request.
 

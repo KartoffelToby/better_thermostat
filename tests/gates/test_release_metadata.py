@@ -20,6 +20,7 @@ ROOT = Path(__file__).parents[2]
 MANIFEST = ROOT / "custom_components" / "better_thermostat" / "manifest.json"
 PYPROJECT = ROOT / "pyproject.toml"
 HACS = ROOT / "hacs.json"
+CONST = ROOT / "custom_components" / "better_thermostat" / "utils" / "const.py"
 DOCS = ROOT / "docs"
 # Matched against prose with its Markdown links reduced to their text and its
 # emphasis and code markers removed; whitespace includes line breaks, because
@@ -97,6 +98,20 @@ def test_readme_states_the_declared_home_assistant_floor() -> None:
     assert match.group(1) == declared_floor, (
         f"README.md advertises {match.group(1)} but the project requires "
         f">={declared_floor}"
+    )
+
+
+def test_runtime_check_uses_the_declared_home_assistant_floor() -> None:
+    """Setup refuses exactly the cores the project does not support."""
+    declared_floor = _declared_homeassistant_floor()
+
+    match = re.search(
+        r'^MIN_HOME_ASSISTANT_VERSION: Final = "([0-9.]+)"$', CONST.read_text(), re.M
+    )
+    assert match, "utils/const.py no longer declares MIN_HOME_ASSISTANT_VERSION"
+    assert match.group(1) == declared_floor, (
+        f"setup checks for Home Assistant {match.group(1)} but the project "
+        f"requires >={declared_floor}"
     )
 
 
