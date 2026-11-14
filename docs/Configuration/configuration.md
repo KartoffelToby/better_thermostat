@@ -167,6 +167,10 @@ Chooses one of the **8 control algorithms**—see **[Calibration types & algorit
   - A **Sonoff `TRVZB`** reverts to its internal sensor if it receives no external temperature for ~2 hours or after a reset/re-pairing; with this option on, Better Thermostat will not switch it back to external.
   - An **Aqara `SRTS-A01`** left on its external input keeps regulating on the last written temperature if the room sensor stops reporting; with this option off, Better Thermostat automatically switches it to its internal sensor during `sensor_fallback` / `hold`, whereas with this option on it leaves the selector untouched.
 
+#### `Predictive disturbance learning` *(Default: `Off`)*
+- **What it does:** Offered for every TRV, whatever its make, but only acts while its `Calibration mode` is `(AI) MPC v2 (QP + Kalman, experimental)`; the other modes ignore it. MPC v2 otherwise plans with the current disturbance estimate only. With this option on, Better Thermostat learns recurring heat gains (occupancy, cooking, the sun) in half-hour buckets and gives the expected gain of the next two hours to the plan, so it can hold the valve back before a known gain arrives.
+- **What to keep in mind:** It needs the weather entity's hourly forecast for the solar part and a few days of clean MPC v2 cycles before it helps. Leave it off until your room shows a recurring daily gain. The *MPC v2 Predicted Disturbance* sensor shows what the profile expects for the current step.
+
 ---
 
 ## HomematicIP / OpenCCU: Enabling `Offset Based` calibration
@@ -182,9 +186,6 @@ On **Homematic(IP) Local for OpenCCU**, Better Thermostat supports dropdown `sel
 
 ---
 
-**Predictive disturbance learning** Off by default. MPC v2 otherwise plans with the current disturbance estimate only. With this option on, Better Thermostat learns recurring heat gains (occupancy, cooking, the sun) in half-hour buckets and gives the expected gain of the next two hours to the plan, so it can hold the valve back before a known gain arrives. It needs the weather entity's hourly forecast for the solar part and a few days of clean MPC v2 cycles before it helps. Leave it off until your room shows a recurring daily gain. The *MPC v2 Predicted Disturbance* sensor shows what the profile expects for the current step.
-
-Turn it on when a TRV should regulate on its own sensor, for example so that **Split the valve opening by each TRV's own temperature** (first step) can compare the TRVs' readings. Keep in mind:
 ## Renaming entities safely
 
 If you rename any entity ID that Better Thermostat uses in Home Assistant (a TRV, cooler, room sensor, window/door sensor, or outdoor sensor), **Better Thermostat detects the registry rename automatically**, migrates all per-TRV options, helper entities, and learned thermal/PID/MPC data to the new entity ID, and reloads itself cleanly. Removing a TRV from a room purges its learned state so reusing that entity ID later starts fresh.
