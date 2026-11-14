@@ -410,15 +410,13 @@ def _trv_has_high_demand(trv: TrvReported, params: AnomalyParams) -> bool:
         and trv.valve_percent >= params.no_heat_min_valve_percent
     ):
         return True
-    trv_temperature = (
-        trv.raw_temperature
-        if trv.raw_temperature is not None
-        else trv.current_temperature
-    )
+    # The setpoint is the one the TRV regulates on, so it is compared with
+    # the TRV's own reading: an offset shifts both alike.
     return (
         trv.setpoint is not None
-        and trv_temperature is not None
-        and (trv.setpoint - trv_temperature) >= params.no_heat_min_setpoint_lead_kelvin
+        and trv.current_temperature is not None
+        and (trv.setpoint - trv.current_temperature)
+        >= params.no_heat_min_setpoint_lead_kelvin
     )
 
 

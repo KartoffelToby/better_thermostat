@@ -455,6 +455,75 @@ def _drive_adapter(
         if control_tick:
             next_tick_t += CONTROL_TICK_S
 
+        # The anomaly region decides before the controller runs, as the
+        # kernel does: a finding holds learning on the cycle it begins.
+        if anomaly_tracker is not None and (control_event or control_tick):
+            thermal_evidence, trv_slopes = anomaly_tracker.observe_snapshot(
+                now_monotonic=t,
+                room_temperature=T_measured,
+                room_temperature_filtered=room_input.room_temperature_filtered,
+                outdoor_temperature=T_outdoor,
+                temperature_slope_kelvin_per_min=room_input.temperature_slope_K_per_min,
+                heat_loss_rate_kelvin_per_hour_per_kelvin=(
+                    60.0 / scenario.plant.tau_room_min
+                ),
+                trv_raw_temperatures={"bench_trv": trv_report},
+                contact_open=controller_window_open,
+            )
+            snap = WorldSnapshot(
+                now=datetime.fromtimestamp(t, tz=UTC),
+                now_monotonic=t,
+                heat_target_temperature=target,
+                hvac_mode=HvacMode.HEAT,
+                room_temperature=T_measured,
+                room_temperature_filtered=room_input.room_temperature_filtered,
+                temperature_slope=room_input.temperature_slope_K_per_min,
+                outdoor_temperature=T_outdoor,
+                window_open=controller_window_open,
+                is_day=controller_solar > 0.0,
+                solar_intensity=controller_solar,
+                trvs={
+                    "bench_trv": TrvReported(
+                        entity_id="bench_trv",
+                        hvac_mode=HvacMode.HEAT,
+                        current_temperature=trv_report,
+                        setpoint=target,
+                        raw_temperature=trv_report,
+                        raw_temperature_slope_kelvin_per_min=trv_slopes.get(
+                            "bench_trv"
+                        ),
+                        valve_percent=last_valve_percent,
+                    )
+                },
+                thermal_evidence=thermal_evidence,
+            )
+            heating_blocked_by = HeatingBlock.WINDOW if controller_window_open else None
+            anomaly_state = anomaly_step(
+                anomaly_state,
+                snap,
+                control_mode=ControlMode.OPTIMAL,
+                heating_blocked_by=heating_blocked_by,
+                contact_open=controller_window_open,
+                addressed_trvs=("bench_trv",),
+            )
+            gating = anomaly_gating_codes(anomaly_state, t)
+            learning_held = bool(gating)
+            anomaly_tracker.commit_cycle(
+                snap,
+                anomaly_state,
+                anomaly_detection=True,
+                control_mode=ControlMode.OPTIMAL,
+                learning_held=learning_held,
+                heating_blocked_by=heating_blocked_by,
+                contact_open=controller_window_open,
+            )
+            followup_due_t = anomaly_next_evaluation_monotonic(
+                anomaly_state,
+                room_time_constant_minutes=anomaly_tracker.room_time_constant_minutes(
+                    t
+                ),
+            )
+
         suspected_window_active = (
             scenario.anomaly_suppression
             and anomaly_state.rapid_loss.is_gating(t, 3600.0)
@@ -508,10 +577,10 @@ def _drive_adapter(
             raw_valve_percent = float(round(raw_valve_percent))
 
         if anomaly_tracker is not None and (control_event or control_tick):
+            # The observer's step is recorded after the plan, for the
+            # next cycle's evidence.
             if "normalised_innovation" in out.diagnostics:
-                prior_plant = getattr(
-                    getattr(adapter, "_params", None), "plant", scenario.plant
-                )
+                tau_room_min = max(float(out.diagnostics["tau_room_min"]), 1.0)
                 anomaly_tracker.record_mpc_v2_diagnostics(
                     now_monotonic=t,
                     room_temperature_hat=float(out.diagnostics["T_room_hat"]),
@@ -524,80 +593,13 @@ def _drive_adapter(
                         out.diagnostics["normalised_innovation"]
                     ),
                     room_time_constant_minutes=float(out.diagnostics["tau_room_min"]),
-                    k_rad_room_per_min=float(out.diagnostics["coupling_rad_room"]),
-                    k_loss_per_min=1.0 / float(prior_plant.tau_room_min),
+                    k_rad_room_per_min=float(out.diagnostics["coupling_rad_room"])
+                    / tau_room_min,
+                    k_loss_per_min=1.0 / tau_room_min,
                     learning_held=learning_held,
                     room_temperature=T_measured,
                     contact_open=controller_window_open,
                 )
-            thermal_evidence, trv_slopes = anomaly_tracker.observe_snapshot(
-                now_monotonic=t,
-                room_temperature=T_measured,
-                room_temperature_filtered=room_input.room_temperature_filtered,
-                outdoor_temperature=T_outdoor,
-                temperature_slope_kelvin_per_min=room_input.temperature_slope_K_per_min,
-                heat_loss_rate_kelvin_per_hour_per_kelvin=(
-                    60.0 / scenario.plant.tau_room_min
-                ),
-                trv_raw_temperatures={"bench_trv": trv_report},
-                contact_open=controller_window_open,
-            )
-            snap = WorldSnapshot(
-                now=datetime.fromtimestamp(t, tz=UTC),
-                now_monotonic=t,
-                heat_target_temperature=target,
-                hvac_mode=HvacMode.HEAT,
-                room_temperature=T_measured,
-                room_temperature_filtered=room_input.room_temperature_filtered,
-                temperature_slope=room_input.temperature_slope_K_per_min,
-                outdoor_temperature=T_outdoor,
-                window_open=controller_window_open,
-                is_day=controller_solar > 0.0,
-                solar_intensity=controller_solar,
-                trvs={
-                    "bench_trv": TrvReported(
-                        entity_id="bench_trv",
-                        hvac_mode=HvacMode.HEAT,
-                        current_temperature=trv_report,
-                        setpoint=target,
-                        raw_temperature=trv_report,
-                        raw_temperature_slope_kelvin_per_min=trv_slopes.get(
-                            "bench_trv"
-                        ),
-                        valve_percent=raw_valve_percent,
-                    )
-                },
-                thermal_evidence=thermal_evidence,
-            )
-            heating_blocked_by = HeatingBlock.WINDOW if controller_window_open else None
-            anomaly_state = anomaly_step(
-                anomaly_state,
-                snap,
-                control_mode=ControlMode.OPTIMAL,
-                heating_blocked_by=heating_blocked_by,
-                contact_open=controller_window_open,
-                addressed_trvs=("bench_trv",),
-            )
-            gating = anomaly_gating_codes(anomaly_state, t)
-            learning_held = bool(gating)
-            anomaly_tracker.commit_cycle(
-                snap,
-                anomaly_state,
-                anomaly_detection=True,
-                control_mode=ControlMode.OPTIMAL,
-                learning_held=learning_held,
-                heating_blocked_by=heating_blocked_by,
-                contact_open=controller_window_open,
-            )
-            followup_due_t = anomaly_next_evaluation_monotonic(
-                anomaly_state,
-                room_time_constant_minutes=anomaly_tracker.room_time_constant_minutes,
-            )
-
-        suspected_window_active = (
-            scenario.anomaly_suppression
-            and anomaly_state.rapid_loss.is_gating(t, 3600.0)
-        )
         valve_percent = 0.0 if suspected_window_active else raw_valve_percent
         last_valve_percent = valve_percent
 

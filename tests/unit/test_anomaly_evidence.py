@@ -13,6 +13,7 @@ import pytest
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.desired import AnomalyCode, HeatingBlock
 from custom_components.better_thermostat.core.fsm.anomaly import (
+    DEFAULT_ANOMALY_PARAMS,
     AnomalyState,
     FaultPhase,
     FaultSlot,
@@ -200,6 +201,28 @@ class TestAnomalyEvidenceTracker:
         tracker.commit_cycle(extreme_snap, suspect_state, learning_held=False)
         assert tracker.residual_samples == DEFAULT_ARM_SAMPLES
         assert tracker.residual_sigma_kelvin_per_min == pytest.approx(armed_sigma)
+
+    def test_the_room_time_constant_is_read_only_while_the_observer_is_fresh(self):
+        """A stale time constant is no input the anomaly region would use."""
+        tracker = AnomalyEvidenceTracker()
+        assert tracker.room_time_constant_minutes(1000.0) is None
+        tracker.record_mpc_v2_diagnostics(
+            now_monotonic=1000.0,
+            room_temperature_hat=20.0,
+            radiator_temperature_hat=25.0,
+            disturbance_kelvin_per_min=0.0,
+            disturbance_at_bound=False,
+            normalised_innovation=0.0,
+            room_time_constant_minutes=80.0,
+            k_rad_room_per_min=0.005,
+            k_loss_per_min=0.001,
+            learning_held=False,
+        )
+        max_age = DEFAULT_ANOMALY_PARAMS.max_observer_age_seconds
+
+        assert tracker.room_time_constant_minutes(1000.0 + max_age) == 80.0
+        assert tracker.room_time_constant_minutes(1000.0 + max_age + 1.0) is None
+        assert tracker.room_time_constant_minutes(999.0) is None
 
     def test_observer_innovation_hold_and_baseline_ema_freeze(self):
         """Observer innovation holds across quantized sensor plateaus and resets on contact_open."""
@@ -758,3 +781,16 @@ class TestC5RawTrvTemperatureSignRecovery:
             bt_chan.real_trvs["climate.trv"].current_temperature = 24.5
             snap_chan = build_snapshot(bt_chan)
             assert snap_chan.trvs["climate.trv"].raw_temperature == pytest.approx(24.5)
+
+    def test_an_unconfirmed_offset_write_leaves_the_raw_temperature_unknown(self):
+        """Reading and offset can stand in different frames until the TRV confirms."""
+        bt = self._bt_with_trv(CalibrationOutput.LOCAL_BASED)
+        bt.real_trvs["climate.trv"].calibration_received = False
+
+        assert build_snapshot(bt).trvs["climate.trv"].raw_temperature is None
+
+        bt.real_trvs["climate.trv"].calibration_received = True
+
+        assert build_snapshot(bt).trvs["climate.trv"].raw_temperature == pytest.approx(
+            24.5
+        )

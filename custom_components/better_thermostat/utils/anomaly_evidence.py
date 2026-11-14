@@ -377,12 +377,21 @@ class AnomalyEvidenceTracker:
             The disturbance in ``K/min``, or ``None`` when there is no
             reading or the last one is too old to stand for the room now.
         """
+        observer = self._fresh_observer(now_monotonic)
+        return None if observer is None else observer.disturbance_kelvin_per_min
+
+    def _fresh_observer(self, now_monotonic: float) -> _ObserverCache | None:
+        """Return the last observer reading while it stands for the room now.
+
+        A reading older than ``max_observer_age_seconds``, or one from ahead
+        of the clock, is ``None``: the age the anomaly region reads it at.
+        """
         if self._observer is None:
             return None
         age = now_monotonic - self._observer.monotonic
         if not 0.0 <= age <= DEFAULT_ANOMALY_PARAMS.max_observer_age_seconds:
             return None
-        return self._observer.disturbance_kelvin_per_min
+        return self._observer
 
     @property
     def residual_samples(self) -> int:
@@ -398,12 +407,14 @@ class AnomalyEvidenceTracker:
             self.min_sigma_kelvin_per_min, math.sqrt(max(0.0, self._residual_variance))
         )
 
-    @property
-    def room_time_constant_minutes(self) -> float | None:
-        """Return the latest observer room time constant in minutes, if known."""
-        if self._observer is None:
-            return None
-        return self._observer.room_time_constant_minutes
+    def room_time_constant_minutes(self, now_monotonic: float) -> float | None:
+        """Return the observer's room time constant while the reading is fresh.
+
+        A follow-up is then scheduled on the time constant the next
+        evaluation uses.
+        """
+        observer = self._fresh_observer(now_monotonic)
+        return None if observer is None else observer.room_time_constant_minutes
 
     def record_mpc_v2_diagnostics(
         self,
@@ -885,7 +896,10 @@ class AnomalyEvidenceTracker:
         )
         due = (
             next_evaluation_monotonic(
-                state, room_time_constant_minutes=self.room_time_constant_minutes
+                state,
+                room_time_constant_minutes=self.room_time_constant_minutes(
+                    now_monotonic
+                ),
             )
             if self._last_anomaly_detection
             else None

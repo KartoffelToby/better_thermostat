@@ -36,6 +36,7 @@ from .const import CONF_PREDICTIVE_DISTURBANCE
 from .helpers import (
     async_fire_logbook_entry,
     convert_to_float_celsius,
+    room_option_source,
     state_says_nothing,
 )
 
@@ -399,13 +400,14 @@ def _weather_reading(
 def _wants_hourly_forecast(self: BetterThermostat) -> bool:
     """Return whether the room plans with predicted gains and has a forecast.
 
-    The option is a TRV's; the room reads the hourly forecast as soon as one
-    of its TRVs has it on.
+    The option is a TRV's. A room with several TRVs plans on one shared
+    controller, which reads it from the TRV whose entity ID sorts first;
+    the forecast follows the same TRV.
     """
-    return self.weather_entity_id is not None and any(
-        advanced_flag(trv.advanced, CONF_PREDICTIVE_DISTURBANCE, False)
-        for trv in self.real_trvs.values()
-    )
+    if self.weather_entity_id is None or not self.real_trvs:
+        return False
+    source = self.real_trvs[room_option_source(self.real_trvs)]
+    return advanced_flag(source.advanced, CONF_PREDICTIVE_DISTURBANCE, False)
 
 
 def _cache_hourly_forecast(

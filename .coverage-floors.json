@@ -15,7 +15,7 @@
   "custom_components/better_thermostat/adapters/zwave_js.py": 100.0,
   "custom_components/better_thermostat/binary_sensor.py": 100.0,
   "custom_components/better_thermostat/calibration.py": 98.3,
-  "custom_components/better_thermostat/climate.py": 95.4,
+  "custom_components/better_thermostat/climate.py": 96.5,
   "custom_components/better_thermostat/config_flow.py": 100.0,
   "custom_components/better_thermostat/core/__init__.py": 100.0,
   "custom_components/better_thermostat/core/calibrator.py": 100.0,
@@ -77,7 +77,7 @@
   "custom_components/better_thermostat/model_fixes/types.py": 100.0,
   "custom_components/better_thermostat/number.py": 99.3,
   "custom_components/better_thermostat/sensor.py": 97.9,
-  "custom_components/better_thermostat/switch.py": 98.3,
+  "custom_components/better_thermostat/switch.py": 100.0,
   "custom_components/better_thermostat/tracked_entities.py": 100.0,
   "custom_components/better_thermostat/trv.py": 100.0,
   "custom_components/better_thermostat/utils/__init__.py": 100.0,
@@ -122,12 +122,12 @@
   "custom_components/better_thermostat/utils/retry.py": 100.0,
   "custom_components/better_thermostat/utils/scheduler.py": 100.0,
   "custom_components/better_thermostat/utils/snapshot.py": 100.0,
-  "custom_components/better_thermostat/utils/state_manager.py": 97.5,
+  "custom_components/better_thermostat/utils/state_manager.py": 97.6,
   "custom_components/better_thermostat/utils/stored_state.py": 100.0,
   "custom_components/better_thermostat/utils/stored_values.py": 100.0,
   "custom_components/better_thermostat/utils/telemetry.py": 97.1,
   "custom_components/better_thermostat/utils/thermal_learning.py": 98.4,
   "custom_components/better_thermostat/utils/valve_maintenance.py": 98.7,
   "custom_components/better_thermostat/utils/watcher.py": 99.1,
-  "custom_components/better_thermostat/utils/weather.py": 97.8
+  "custom_components/better_thermostat/utils/weather.py": 100.0
 }

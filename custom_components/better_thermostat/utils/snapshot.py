@@ -54,6 +54,10 @@ def _raw_trv_temperature(
         return current_temperature
     if local_calibration_shifts_setpoint(self, entity_id):
         return current_temperature
+    # While an offset write is unconfirmed the reading and the offset can
+    # stand in different frames, so the unshifted reading is unknown.
+    if trv.calibration_received is False:
+        return None
     calibration_offset = _as_float(self, trv.last_calibration)
     if calibration_offset is None:
         return None

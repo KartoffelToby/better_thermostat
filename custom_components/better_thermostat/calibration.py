@@ -100,6 +100,7 @@ from custom_components.better_thermostat.utils.helpers import (
     heating_power_valve_position,
     normalize_step,
     published_setpoint_grid,
+    room_option_source,
     round_by_step,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidData
@@ -923,7 +924,7 @@ def _compute_mpc_v2_balance(
     # TRV by entity_id) rather than whichever TRV is currently being
     # dispatched, otherwise mixed per-TRV settings re-parameterize the shared
     # controller.
-    preset_source_id = min(self.real_trvs) if is_multi_trv else entity_id
+    preset_source_id = room_option_source(self.real_trvs) if is_multi_trv else entity_id
     advanced = self.real_trvs[preset_source_id].advanced
     predictive_disturbance = advanced_flag(advanced, CONF_PREDICTIVE_DISTURBANCE, False)
     preset_raw = advanced.get(CONF_MPC_V2_PLANT_PRESET, MpcV2PlantPreset.AUTO)
@@ -1041,8 +1042,12 @@ def _compute_mpc_v2_balance(
                     disturbance_at_bound=diag.disturbance_at_bound,
                     normalised_innovation=diag.normalised_innovation,
                     room_time_constant_minutes=diag.tau_room_min,
-                    k_rad_room_per_min=diag.coupling_rad_room,
-                    k_loss_per_min=1.0 / plant_prior.tau_room_min,
+                    # The coupling is the dimensionless ratio of the two
+                    # resistances; the tracker reads rates per minute, both
+                    # on the room time constant the controller plans with.
+                    k_rad_room_per_min=diag.coupling_rad_room
+                    / max(diag.tau_room_min, 1.0),
+                    k_loss_per_min=1.0 / max(diag.tau_room_min, 1.0),
                     learning_held=self.learning_held,
                     room_temperature=self.room_temperature,
                     contact_open=self.contact_open,

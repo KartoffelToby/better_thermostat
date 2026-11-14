@@ -218,10 +218,10 @@ class DisturbanceProfile:
             solar = _stored_buckets(
                 raw.get("solar_gain_kelvin_per_min"), SOLAR_BUCKETS, key, "solar"
             )
-            routine_samples = _stored_buckets(
+            routine_samples = _stored_counts(
                 raw.get("routine_samples"), ROUTINE_BUCKETS, key, "routine samples"
             )
-            solar_samples = _stored_buckets(
+            solar_samples = _stored_counts(
                 raw.get("solar_samples"), SOLAR_BUCKETS, key, "solar samples"
             )
             last_raw = raw.get("last_learned_ts")
@@ -273,3 +273,13 @@ def _stored_buckets(
             number = 0.0
         result.append(number)
     return tuple(result)
+
+
+def _stored_counts(
+    value: object, size: int, key: str | None, name: str
+) -> tuple[float, ...]:
+    """Return one list of sample counts, a count below zero read as zero.
+
+    A negative count would move a bucket further than its sample.
+    """
+    return tuple(max(0.0, count) for count in _stored_buckets(value, size, key, name))

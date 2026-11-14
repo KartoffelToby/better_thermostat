@@ -606,6 +606,22 @@ class TestNoHeatDelivery:
         assert an.visible_codes(s2) == ((AnomalyCode.NO_HEAT_DELIVERY,), {})
         assert AnomalyCode.NO_HEAT_DELIVERY in an.gating_codes(s2, 2890.0)
 
+    def test_demand_compares_the_setpoint_with_the_trvs_own_reading(self):
+        """An offset shifts the TRV's reading, not its unshifted sensor."""
+        # The TRV regulates 21.0 against a shifted reading of 20.5: half a
+        # Kelvin of lead. Its unshifted sensor sits at 18.0 behind an offset.
+        trv = TrvReported(
+            entity_id="climate.trv",
+            setpoint=21.0,
+            current_temperature=20.5,
+            raw_temperature=18.0,
+        )
+
+        assert not an._trv_has_high_demand(trv, an.DEFAULT_ANOMALY_PARAMS)
+        assert an._trv_has_high_demand(
+            replace(trv, current_temperature=18.5), an.DEFAULT_ANOMALY_PARAMS
+        )
+
     def test_sibling_warming_isolates_per_trv_no_heat(self):
         """A warming or hot sibling isolates NO_HEAT_DELIVERY to the cold demanding TRV."""
         snap = make_snapshot(
@@ -617,6 +633,7 @@ class TestNoHeatDelivery:
                 "climate.cold": TrvReported(
                     entity_id="climate.cold",
                     setpoint=23.0,
+                    current_temperature=19.2,
                     raw_temperature=19.2,
                     raw_temperature_slope_kelvin_per_min=0.0,
                 ),

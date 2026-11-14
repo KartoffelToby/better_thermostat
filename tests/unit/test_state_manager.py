@@ -1993,6 +1993,17 @@ class TestResetPidStates:
         assert mgr.dirty is False
 
 
+def test_a_stored_disturbance_profile_is_read_back_and_a_new_key_starts_empty():
+    mgr = _make_manager()
+    profile = DisturbanceProfile(last_learned_ts=42.0)
+
+    mgr.set_disturbance_profile("room", profile)
+
+    assert mgr.get_disturbance_profile("room") == profile
+    assert mgr.get_disturbance_profile("other") == DisturbanceProfile()
+    assert mgr.dirty is True
+
+
 def _manager_with_every_section(entity_id: str) -> StateManager:
     """Return a manager holding one entry for ``entity_id`` in every section."""
     mgr = _make_manager()

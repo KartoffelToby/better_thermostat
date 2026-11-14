@@ -668,3 +668,22 @@ def test_only_a_room_planning_with_predicted_gains_takes_the_longer_horizon(
     (state,) = bt.state_mgr._mpc_v2_live.values()
     assert state.controller is not None
     assert state.controller.optimiser.N == horizon_steps
+
+
+def test_the_tracker_reads_the_coupling_as_a_rate_per_minute() -> None:
+    """The plant's coupling is a ratio; the tracker's model wants 1/min."""
+    trv = _make_trv("climate.single", current_temperature=19.0, supports_valve=True)
+    bt = _make_bt(real_trvs={"climate.single": trv})
+    record = MagicMock()
+    bt.anomaly_evidence.record_mpc_v2_diagnostics = record
+
+    _compute_mpc_v2_balance(bt, "climate.single")
+
+    kwargs = record.call_args.kwargs
+    (state,) = bt.state_mgr._mpc_v2_live.values()
+    assert state.cycle_output is not None
+    diagnostics = state.cycle_output.diagnostics
+    assert kwargs["k_rad_room_per_min"] == pytest.approx(
+        diagnostics.coupling_rad_room / diagnostics.tau_room_min
+    )
+    assert kwargs["k_loss_per_min"] == pytest.approx(1.0 / diagnostics.tau_room_min)

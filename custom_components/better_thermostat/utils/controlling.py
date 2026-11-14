@@ -578,7 +578,7 @@ def _schedule_anomaly_followup(self: BetterThermostat, now_monotonic: float) -> 
         anomaly_next_evaluation_monotonic(
             self.kernel_state.anomaly,
             room_time_constant_minutes=(
-                self.anomaly_evidence.room_time_constant_minutes
+                self.anomaly_evidence.room_time_constant_minutes(now_monotonic)
             ),
         )
         if self.kernel_state.anomaly_detection

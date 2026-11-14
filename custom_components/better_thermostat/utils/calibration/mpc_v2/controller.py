@@ -466,17 +466,22 @@ class MpcV2Controller:
 
     def _bounded_disturbance(
         self, profile: tuple[float, ...]
-    ) -> tuple[float, ...] | None:
-        """Clamp a predicted-gain profile to the anti-setback safety hull."""
+    ) -> tuple[float | None, ...] | None:
+        """Clamp a predicted-gain profile to the anti-setback safety hull.
+
+        An entry that is not a finite number is ``None``: the forecast says
+        nothing for that step. ``None`` for the whole profile when it holds
+        no gain at all.
+        """
         if not profile:
             return None
         cap = PREDICTIVE_SETBACK_MARGIN_K / max(
             1.0, self.plant_fine.params.tau_room_min
         )
-        bounded: list[float] = []
+        bounded: list[float | None] = []
         for value in profile:
             if not isinstance(value, int | float) or not math.isfinite(value):
-                bounded.append(0.0)
+                bounded.append(None)
                 continue
             bounded.append(max(0.0, min(cap, float(value))))
         return tuple(bounded) if any(bounded) else None
@@ -488,17 +493,22 @@ class MpcV2Controller:
 
         The observer's estimate holds whatever gain the room has right now and
         every loss, which the profile knows nothing of. The plan therefore
-        keeps the estimate and adds how the predicted gain changes from its
-        first step on. A predicted gain that ends takes away no more than the
-        gain the observer measures: one the room does not have today cannot
-        end. ``None`` leaves the constant estimate in charge.
+        keeps the estimate and adds how the predicted gain changes from the
+        first step the forecast speaks for. A predicted gain that ends takes
+        away no more than the gain the observer measures: one the room does
+        not have today cannot end. A step the forecast says nothing for keeps
+        the estimate. ``None`` leaves the constant estimate in charge.
         """
         bounded = self._bounded_disturbance(gains)
         if bounded is None or not math.isfinite(measured_K_per_min):
             return None
+        reference = next(gain for gain in bounded if gain is not None)
         floor = -max(0.0, measured_K_per_min)
         return tuple(
-            measured_K_per_min + max(floor, gain - bounded[0]) for gain in bounded
+            measured_K_per_min
+            if gain is None
+            else measured_K_per_min + max(floor, gain - reference)
+            for gain in bounded
         )
 
     @property

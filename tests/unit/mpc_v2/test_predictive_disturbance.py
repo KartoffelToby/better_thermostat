@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 from custom_components.better_thermostat.calibration import _learn_disturbance_profile
-from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    ControlMode,
+    ControlModeState,
+)
 from custom_components.better_thermostat.utils.calibration.disturbance_forecast import (
     HourlyForecastPoint,
 )
@@ -30,6 +32,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2.controller imp
 from custom_components.better_thermostat.utils.calibration.mpc_v2.io import (
     MpcV2Diagnostics,
 )
+from tests.factories import make_bt, make_state
 
 MONDAY_NOON = datetime(2026, 1, 5, 12, 0, tzinfo=UTC)
 
@@ -67,7 +70,7 @@ def test_the_safety_hull_caps_the_predicted_gain_by_tau() -> None:
 
     bounded = controller._bounded_disturbance((0.1, -1.0, 0.001, float("nan")))
 
-    assert bounded == (cap, 0.0, 0.001, 0.0)
+    assert bounded == (cap, 0.0, 0.001, None)
 
 
 def test_an_empty_profile_leaves_the_constant_estimate_in_charge() -> None:
@@ -110,6 +113,16 @@ def test_a_predicted_gain_that_ends_takes_away_the_measured_gain_at_most() -> No
     assert controller._planned_disturbance((0.002, 0.0), 0.005) == pytest.approx(
         (0.005, 0.003)
     )
+
+
+def test_a_step_the_forecast_says_nothing_for_keeps_the_measured_rate() -> None:
+    controller = MpcV2Controller(MpcV2Params())
+
+    planned = controller._planned_disturbance(
+        (float("nan"), 0.002, float("inf"), 0.0), 0.004
+    )
+
+    assert planned == pytest.approx((0.004, 0.004, 0.004, 0.002))
 
 
 def test_the_plan_is_handed_the_profile_anchored_on_the_measured_rate(
@@ -210,15 +223,14 @@ class _FakeStateManager:
 
 
 def _fake_shell(*, mode: ControlMode = ControlMode.OPTIMAL) -> Any:
-    return SimpleNamespace(
-        learning_held=False,
-        heating_blocked_by=None,
-        kernel_state=SimpleNamespace(control_mode=SimpleNamespace(mode=mode)),
-        state_mgr=_FakeStateManager(),
-        hass=None,
-        weather_entity_id=None,
-        hourly_forecast=None,
-    )
+    bt = make_bt()
+    bt.learning_held = False
+    bt.heating_blocked_by = None
+    bt.kernel_state = make_state(control_mode=ControlModeState(mode=mode))
+    bt.state_mgr = _FakeStateManager()
+    bt.hass = None
+    bt.hourly_forecast = None
+    return bt
 
 
 def test_a_clean_plan_teaches_the_routine_bucket() -> None:

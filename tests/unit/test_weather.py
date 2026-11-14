@@ -39,7 +39,10 @@ from custom_components.better_thermostat.utils.weather import (
     OUTDOOR_HISTORY_RETRY,
     OUTDOOR_HISTORY_WINDOW,
     DampedSource,
+    _cache_hourly_forecast,
+    _forecast_entry_timestamp,
     _refresh_hourly_forecast,
+    _wants_hourly_forecast,
     check_ambient_air_temperature,
     check_weather,
     check_weather_prediction,
@@ -207,6 +210,64 @@ def owned_tasks(bt: BetterThermostat) -> list[asyncio.Task[Any]]:
 def forecast_types(hass) -> list[str]:
     """Return the forecast type of every get_forecasts call, in order."""
     return [call.args[2]["type"] for call in hass.services.async_call.await_args_list]
+
+
+def test_a_room_reads_the_forecast_on_the_trv_its_controller_reads() -> None:
+    """Several TRVs share one controller, which reads the first TRV's option."""
+    bt = make_bt(MagicMock(), weather_entity_id=WEATHER_ID)
+    bt.real_trvs = {
+        "climate.b": trv_record(
+            entity_id="climate.b", advanced={CONF_PREDICTIVE_DISTURBANCE: True}
+        ),
+        "climate.a": trv_record(
+            entity_id="climate.a", advanced={CONF_PREDICTIVE_DISTURBANCE: False}
+        ),
+    }
+
+    assert not _wants_hourly_forecast(bt)
+
+    bt.real_trvs["climate.a"].advanced[CONF_PREDICTIVE_DISTURBANCE] = True
+
+    assert _wants_hourly_forecast(bt)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("2025-01-01T12:00:00+00:00", 1735732800.0),
+        # A naive time is read as UTC.
+        ("2025-01-01T12:00:00", 1735732800.0),
+        (None, None),
+        (1735732800, None),
+        ("noon", None),
+    ],
+)
+def test_a_forecast_entry_is_timed_by_its_datetime(
+    raw: object, expected: float | None
+) -> None:
+    assert _forecast_entry_timestamp({"datetime": raw}) == expected
+
+
+def test_a_date_the_platform_cannot_time_has_no_timestamp() -> None:
+    moment = MagicMock()
+    moment.timestamp.side_effect = OverflowError
+    with patch(
+        "custom_components.better_thermostat.utils.weather.datetime"
+    ) as datetime_type:
+        datetime_type.fromisoformat.return_value = moment
+
+        assert _forecast_entry_timestamp({"datetime": "9999-12-31"}) is None
+
+
+def test_an_entry_that_is_no_mapping_is_left_out_of_the_cache() -> None:
+    bt = predictive_bt(make_hass(states={WEATHER_ID: hourly_weather_state()}))
+
+    _cache_hourly_forecast(
+        bt, ["sunny", {"datetime": "2025-01-01T12:00:00+00:00", "condition": "sunny"}]
+    )
+
+    assert bt.hourly_forecast is not None
+    assert [point.timestamp for point in bt.hourly_forecast] == [1735732800.0]
 
 
 class TestHourlyForecastCache:

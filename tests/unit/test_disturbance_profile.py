@@ -178,6 +178,18 @@ def test_a_non_finite_bucket_falls_back_to_zero() -> None:
     assert rebuilt.solar_gain_kelvin_per_min[5] == 0.0
 
 
+def test_a_negative_stored_sample_count_restores_as_zero() -> None:
+    """A count below zero would move a bucket further than its sample."""
+    stored: dict[str, Any] = DisturbanceProfile().to_mapping()
+    stored["routine_samples"][3] = -0.5
+    stored["solar_samples"][7] = -4.0
+
+    rebuilt = DisturbanceProfile.from_mapping(stored, key="room")
+
+    assert rebuilt.routine_samples[3] == 0.0
+    assert rebuilt.solar_samples[7] == 0.0
+
+
 @pytest.mark.parametrize("broken", [None, {}, {"routine_gain_kelvin_per_min": [1.0]}])
 def test_an_unusable_stored_profile_starts_from_zero(broken: object) -> None:
     """A stored section of the wrong shape restores the empty profile."""
