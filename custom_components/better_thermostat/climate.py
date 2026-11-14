@@ -1757,6 +1757,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             _model_quirks = await load_model_quirks(self, resolved_model, trv["trv"])
             self.real_trvs[trv["trv"]] = Trv(
                 entity_id=trv["trv"],
+                integration=trv["integration"],
                 calibration=configured_calibration_output(_advanced),
                 adapter=_adapter,
                 model_quirks=_model_quirks,

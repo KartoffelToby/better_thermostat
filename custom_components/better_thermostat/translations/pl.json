@@ -54,7 +54,8 @@
         }
       },
       "advanced": {
-        "description": "Zaawansowana konfiguracja {trv}\n\n**Szczegółowe informacje:** {docs_url}",
+        "description": "Zaawansowana konfiguracja {trv}{external_temperature_hint}\n\n**Szczegółowe informacje:** {docs_url}",
+        "external_temperature_hint": "Dla Spirit/ZWA021: włącz encję offsetu w Home Assistant i ustaw ją na -128 przed dodaniem TRV. Przy nowej konfiguracji wstępnie wybrana zostanie opcja Bez kalibracji. Zarówno dla nowych, jak i już skonfigurowanych TRV wybierz też typ kalibracji inny niż Bezpośrednie sterowanie zaworem i ustaw tryb kalibracji na Bez kalibracji. Better Thermostat wysyła temperaturę pomieszczenia tylko wtedy, gdy te warunki są spełnione, i nigdy nie zmienia offsetu.",
         "data": {
           "protect_overheating": "Zabezpieczenie przed przegrzaniem?",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
@@ -160,7 +161,8 @@
         }
       },
       "advanced": {
-        "description": "Zaawansowana konfiguracja {trv}\n\n**Szczegółowe informacje:** {docs_url}",
+        "description": "Zaawansowana konfiguracja {trv}{external_temperature_hint}\n\n**Szczegółowe informacje:** {docs_url}",
+        "external_temperature_hint": "Dla Spirit/ZWA021: włącz encję offsetu w Home Assistant i ustaw ją na -128 przed dodaniem TRV. Przy nowej konfiguracji wstępnie wybrana zostanie opcja Bez kalibracji. Zarówno dla nowych, jak i już skonfigurowanych TRV wybierz też typ kalibracji inny niż Bezpośrednie sterowanie zaworem i ustaw tryb kalibracji na Bez kalibracji. Better Thermostat wysyła temperaturę pomieszczenia tylko wtedy, gdy te warunki są spełnione, i nigdy nie zmienia offsetu.",
         "data": {
           "protect_overheating": "Zabezpieczenie przed przegrzaniem?",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
