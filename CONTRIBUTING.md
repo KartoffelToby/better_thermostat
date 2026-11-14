@@ -28,6 +28,14 @@ document in a pull request.
 - Test BT in a specific HA version -> Run "Install a specific version of Home Assistant" in Task Runner and the version you want to test in the terminal prompt.
 - Test BT with the latest HA version -> Run "upgrade Home Assistant to latest dev" in Task Runner
 
+## Home Assistant version
+
+The minimum Home Assistant release is the `homeassistant>=` floor in
+`pyproject.toml`. `hacs.json`, the requirement line in `README.md` and every
+"Home Assistant X or newer" in `docs/` name the same release, and
+`tests/gates/test_release_metadata.py` fails while one of them differs. Raising
+the floor means editing all of them in the same pull request.
+
 ## Python version
 
 The floor is Python 3.14.2, inherited from Home Assistant: `hacs.json` names the

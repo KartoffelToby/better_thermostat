@@ -18,6 +18,10 @@ ROOT = Path(__file__).parents[2]
 MANIFEST = ROOT / "custom_components" / "better_thermostat" / "manifest.json"
 PYPROJECT = ROOT / "pyproject.toml"
 HACS = ROOT / "hacs.json"
+DOCS = ROOT / "docs"
+REQUIREMENT_IN_DOCS = re.compile(
+    r"Home Assistant[ `*]*(\d{4}\.\d+(?:\.\d+)?)[ `*]*or (?:newer|later)"
+)
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:
@@ -47,18 +51,19 @@ def test_manifest_and_pyproject_versions_match() -> None:
     )
 
 
-def test_hacs_gate_is_not_below_the_declared_home_assistant_floor() -> None:
-    """HACS must not offer the integration to installs that cannot run it.
+def test_hacs_gate_is_the_declared_home_assistant_floor() -> None:
+    """HACS must offer the integration to exactly the installs that can run it.
 
     ``hacs.json`` is the only gate on the minimum Home Assistant version.
     Set below the floor declared in ``pyproject.toml``, HACS happily installs
     the integration onto an older core — and because the code uses Python
-    3.14 syntax, that install fails at import rather than degrading.
+    3.14 syntax, that install fails at import rather than degrading. Set
+    above it, HACS refuses installs that the README and the docs invite.
     """
     hacs_gate = json.loads(HACS.read_text())["homeassistant"]
     declared_floor = _declared_homeassistant_floor()
 
-    assert _version_tuple(hacs_gate) >= _version_tuple(declared_floor), (
+    assert _version_tuple(hacs_gate) == _version_tuple(declared_floor), (
         f"hacs.json gates on Home Assistant {hacs_gate} but the project "
         f"requires >={declared_floor}"
     )
@@ -74,4 +79,26 @@ def test_readme_states_the_declared_home_assistant_floor() -> None:
     assert match.group(1) == declared_floor, (
         f"README.md advertises {match.group(1)} but the project requires "
         f">={declared_floor}"
+    )
+
+
+def test_docs_state_the_declared_home_assistant_floor() -> None:
+    """Every "Home Assistant X or newer" in the docs names the declared floor.
+
+    The docs are published as the website and restate the requirement where a
+    user installs or upgrades. A mention of an older version that is not
+    phrased as a requirement, such as the floor of an earlier release, is left
+    alone.
+    """
+    declared_floor = _version_tuple(_declared_homeassistant_floor())
+    stale = [
+        f"{page.relative_to(ROOT)}: {match.group(0)}"
+        for page in sorted(DOCS.rglob("*.md"))
+        for match in REQUIREMENT_IN_DOCS.finditer(page.read_text())
+        if _version_tuple(match.group(1)) != declared_floor
+    ]
+
+    assert not stale, (
+        "the docs state a Home Assistant requirement other than the floor in "
+        "pyproject.toml:\n" + "\n".join(stale)
     )
