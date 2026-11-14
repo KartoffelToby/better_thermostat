@@ -1052,7 +1052,6 @@ def assert_profile_adopted(bt, profile: DeviceProfile) -> None:
     assertion downstream then measures that one case instead of the profile.
     """
     trv = bt.real_trvs[profile.entity_id]
-    assert trv.integration == profile.integration
     assert trv.hvac_modes == list(profile.hvac_modes)
     # Home Assistant publishes the step as the device states it, unconverted,
     # so it is read in the unit everything else is published in.

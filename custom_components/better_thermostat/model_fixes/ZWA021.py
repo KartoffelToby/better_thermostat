@@ -141,13 +141,15 @@ async def maybe_set_external_temperature(
     if state is None:
         return False
     try:
-        offset = float(state.state)
+        calibration_value = float(state.state)
         report_temperature = float(temperature)
     except (TypeError, ValueError):
         return False
     if (
         not math.isfinite(report_temperature)
-        or not math.isclose(offset, _EXTERNAL_TEMPERATURE_MODE, abs_tol=1e-6)
+        or not math.isclose(
+            calibration_value, _EXTERNAL_TEMPERATURE_MODE, abs_tol=1e-6
+        )
         or _EXTERNAL_TEMPERATURE_MODE not in reserved_published_values(state)
     ):
         return False

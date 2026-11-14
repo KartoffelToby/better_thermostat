@@ -18,21 +18,21 @@ from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.adapters.types import TrvAdapter
 from custom_components.better_thermostat.config_flow import (
     _USER_FIELD_DEFAULTS,
-    _AdvancedContext,
     ConfigFlow,
     OptionsFlowHandler,
+    _AdvancedContext,
     _as_bool,
     _build_advanced_fields,
     _build_user_fields,
     _duration_dict_to_seconds,
+    _external_temperature_setup_hint,
     _load_adapter_info,
+    _needs_spirit_external_temperature_guide,
     _normalize_advanced_submission,
     _normalize_user_submission,
-    _needs_spirit_external_temperature_guide,
     _prepare_advanced_context,
     _quirk_valve_support,
     _seconds_to_duration_dict,
-    _external_temperature_setup_hint,
     _stored_thermostats,
     _trv_supports_auto,
     _TrvDraft,
@@ -265,7 +265,7 @@ async def test_advanced_context_carries_the_model_specific_setup_hint(
 
 
 @pytest.mark.parametrize(
-    ("offset", "reserved", "new_entry", "expected"),
+    ("calibration_value", "reserved", "new_entry", "expected"),
     [
         ("-128", True, True, CalibrationMode.NO_CALIBRATION),
         ("0", True, True, DEFAULT_CALIBRATION_MODE),
@@ -274,14 +274,14 @@ async def test_advanced_context_carries_the_model_specific_setup_hint(
     ],
 )
 async def test_new_spirit_entry_defaults_to_no_calibration_only_for_reserved_offset(
-    offset, reserved, new_entry, expected
+    calibration_value, reserved, new_entry, expected
 ):
     flow = ConfigFlow()
     flow.hass = MagicMock()
     flow.hass.states.get = MagicMock(
         return_value=State(
             "number.trv_offset",
-            offset,
+            calibration_value,
             {"reserved_values": {"-128": "External temperature"}}
             if reserved
             else {},

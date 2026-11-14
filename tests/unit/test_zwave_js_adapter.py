@@ -50,7 +50,7 @@ def _make_external_temperature_self(
     *,
     mode=CalibrationMode.NO_CALIBRATION,
     reserved=True,
-    offset=-128,
+    calibration_value=-128,
 ):
     """Build a Z-Wave TRV whose offset entity can advertise the -128 sentinel."""
     mock_self = _make_self(calibration=CalibrationOutput.LOCAL_BASED)
@@ -62,7 +62,7 @@ def _make_external_temperature_self(
         {"reserved_values": {"-128": "External temperature"}} if reserved else {}
     )
     mock_self.hass.states.get = MagicMock(
-        return_value=State("number.trv1_offset", str(offset), attributes)
+        return_value=State("number.trv1_offset", str(calibration_value), attributes)
     )
     return mock_self
 
@@ -108,7 +108,7 @@ class TestZWA021ExternalTemperature:
 
     @pytest.mark.asyncio
     async def test_does_not_send_when_offset_is_not_on_reserved_value(self):
-        mock_self = _make_external_temperature_self(offset=0)
+        mock_self = _make_external_temperature_self(calibration_value=0)
 
         assert not await quirk.maybe_set_external_temperature(
             mock_self, "climate.trv1", 21.0

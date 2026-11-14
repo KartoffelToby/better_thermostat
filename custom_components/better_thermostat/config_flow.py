@@ -1299,10 +1299,10 @@ async def _prepare_advanced_context(
         offset_state = flow.hass.states.get(offset_entity) if offset_entity else None
         if offset_state is not None:
             try:
-                offset = float(offset_state.state)
+                calibration_value = float(offset_state.state)
             except (TypeError, ValueError):
-                offset = math.nan
-            if math.isclose(offset, -128.0, abs_tol=1e-6) and (
+                calibration_value = math.nan
+            if math.isclose(calibration_value, -128.0, abs_tol=1e-6) and (
                 -128.0 in reserved_published_values(offset_state)
             ):
                 default_calibration_mode = CalibrationMode.NO_CALIBRATION
