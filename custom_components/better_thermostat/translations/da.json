@@ -55,7 +55,7 @@
       },
       "advanced": {
         "description": "Avanceret konfiguration {trv}{external_temperature_hint}\n\n**Detaljerede oplysninger:** {docs_url}",
-        "external_temperature_hint": "For Spirit/ZWA021: aktivér offset-entiteten i Home Assistant, og sæt den til -128, før du tilføjer TRV'en. Så vælges Ingen kalibrering automatisk. Hvis TRV'en allerede er tilføjet, skal du vælge Ingen kalibrering i indstillingerne. Better Thermostat sender kun rumtemperaturen, mens betingelserne er opfyldt, og ændrer aldrig offset-værdien.",
+        "external_temperature_hint": "For Spirit/ZWA021: aktivér offset-entiteten i Home Assistant, og sæt den til -128, før du tilføjer TRV'en. Så vælges Ingen kalibrering automatisk ved en ny opsætning. For både nye og allerede konfigurerede TRV'er skal du vælge en kalibreringstype andet end Direkte ventilstyring og indstille kalibreringstilstanden til Ingen kalibrering. Better Thermostat sender kun rumtemperaturen, mens betingelserne er opfyldt, og ændrer aldrig offset-værdien.",
         "data": {
           "protect_overheating": "Overophedningsbeskyttelse?",
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",
@@ -162,7 +162,7 @@
       },
       "advanced": {
         "description": "Avanceret konfiguration {trv}{external_temperature_hint}\n\n**Detaljerede oplysninger:** {docs_url}",
-        "external_temperature_hint": "For Spirit/ZWA021: aktivér offset-entiteten i Home Assistant, og sæt den til -128, før du tilføjer TRV'en. Så vælges Ingen kalibrering automatisk. Hvis TRV'en allerede er tilføjet, skal du vælge Ingen kalibrering i indstillingerne. Better Thermostat sender kun rumtemperaturen, mens betingelserne er opfyldt, og ændrer aldrig offset-værdien.",
+        "external_temperature_hint": "For Spirit/ZWA021: aktivér offset-entiteten i Home Assistant, og sæt den til -128, før du tilføjer TRV'en. Så vælges Ingen kalibrering automatisk ved en ny opsætning. For både nye og allerede konfigurerede TRV'er skal du vælge en kalibreringstype andet end Direkte ventilstyring og indstille kalibreringstilstanden til Ingen kalibrering. Better Thermostat sender kun rumtemperaturen, mens betingelserne er opfyldt, og ændrer aldrig offset-værdien.",
         "data": {
           "protect_overheating": "Overophedningsbeskyttelse?",
           "heat_auto_swapped": "Hvis auto betyder varme for din TRV og du vil bytte det",

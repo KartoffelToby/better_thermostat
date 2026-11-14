@@ -55,7 +55,7 @@
       },
       "advanced": {
         "description": "高级配置 {trv}{external_temperature_hint}\n\n**详细信息：** {docs_url}",
-        "external_temperature_hint": "对于 Spirit/ZWA021：请在 Home Assistant 中启用偏移量实体，并在添加 TRV 前将其设为 -128。这会预先选择“无校准”。如果 TRV 已经设置，请在其设置中选择“无校准”。只有在条件满足时，Better Thermostat 才会发送室温，并且不会更改偏移量。",
+        "external_temperature_hint": "对于 Spirit/ZWA021：请在 Home Assistant 中启用偏移量实体，并在添加 TRV 前将其设为 -128。新建配置时会预先选择“无校准”。对于新添加和已配置的 TRV，还需选择“基于阀门直接控制”以外的校准类型，并将校准模式设为“无校准”。只有在条件满足时，Better Thermostat 才会发送室温，并且不会更改偏移量。",
         "data": {
           "protect_overheating": "过热保护？",
           "heat_auto_swapped": "如果你的 TRV 的“自动”表示“制热”，而你想互换它",
@@ -163,7 +163,7 @@
       },
       "advanced": {
         "description": "高级配置 {trv}{external_temperature_hint}\n\n**详细信息：** {docs_url}",
-        "external_temperature_hint": "对于 Spirit/ZWA021：请在 Home Assistant 中启用偏移量实体，并在添加 TRV 前将其设为 -128。这会预先选择“无校准”。如果 TRV 已经设置，请在其设置中选择“无校准”。只有在条件满足时，Better Thermostat 才会发送室温，并且不会更改偏移量。",
+        "external_temperature_hint": "对于 Spirit/ZWA021：请在 Home Assistant 中启用偏移量实体，并在添加 TRV 前将其设为 -128。新建配置时会预先选择“无校准”。对于新添加和已配置的 TRV，还需选择“基于阀门直接控制”以外的校准类型，并将校准模式设为“无校准”。只有在条件满足时，Better Thermostat 才会发送室温，并且不会更改偏移量。",
         "data": {
           "protect_overheating": "过热保护？",
           "heat_auto_swapped": "如果你的 TRV 的“自动”表示“制热”，而你想互换它",

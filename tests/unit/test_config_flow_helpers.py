@@ -61,10 +61,10 @@ _MODULE = "custom_components.better_thermostat.config_flow"
 @pytest.mark.parametrize(
     ("integration", "model", "expected"),
     [
-        ("zwave_js", "Eurotronic Spirit Z", True),
+        ("zwave_js", "Spirit", True),
         ("zwave_js", "ZWA021", True),
         ("zwave_js", "Other thermostat", False),
-        ("mqtt", "Eurotronic Spirit Z", False),
+        ("mqtt", "Spirit", False),
         ("zwave_js", None, False),
     ],
 )
@@ -83,7 +83,10 @@ async def test_spirit_external_temperature_hint_uses_the_flow_translation():
         has_auto=False,
         external_temperature_guide=True,
     )
-    translated = "For Spirit/ZWA021, set the offset to -128 and choose No Calibration."
+    translated = (
+        "For Spirit/ZWA021, set the offset to -128, choose a non-direct-valve "
+        "calibration type, and choose No Calibration."
+    )
     translation_key = (
         "component.better_thermostat.config.step.advanced.external_temperature_hint"
     )
@@ -235,8 +238,8 @@ async def test_an_adapter_whose_capability_query_fails_reports_no_channels():
 @pytest.mark.parametrize(
     ("integration", "model", "expected"),
     [
-        ("zwave_js", "Eurotronic Spirit Z", True),
-        ("mqtt", "Eurotronic Spirit Z", False),
+        ("zwave_js", "Spirit", True),
+        ("mqtt", "Spirit", False),
         ("zwave_js", "Generic TRV", False),
     ],
 )
@@ -291,7 +294,7 @@ async def test_new_spirit_entry_defaults_to_no_calibration_only_for_reserved_off
         entity_id="climate.trv",
         integration="zwave_js",
         adapter=None,
-        stored={"model": "Eurotronic Spirit Z"},
+        stored={"model": "Spirit"},
     )
     with (
         patch(

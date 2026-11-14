@@ -43,6 +43,7 @@ from .adapters.base import DeviceChannels, reserved_published_values
 from .adapters.delegate import load_adapter
 from .adapters.types import TrvAdapter
 from .model_fixes.model_quirks import (
+    get_model_quirks_name,
     load_model_quirks,
     quirk_ignores_calibration_offset,
     quirk_writes_valve,
@@ -373,8 +374,10 @@ def _needs_spirit_external_temperature_guide(
     integration: str | None, model: object
 ) -> bool:
     """Show setup instructions for supported Z-Wave Spirit/ZWA021 devices."""
-    return integration == "zwave_js" and isinstance(model, str) and any(
-        name in model.casefold() for name in ("spirit", "zwa021")
+    return (
+        integration == "zwave_js"
+        and isinstance(model, str)
+        and get_model_quirks_name(model) == "ZWA021"
     )
 
 
