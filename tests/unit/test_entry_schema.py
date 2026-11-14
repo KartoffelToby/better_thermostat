@@ -310,6 +310,7 @@ def test_the_described_keys_are_the_ones_the_constants_hold():
         const.CONF_CHILD_LOCK,
         const.CONF_HOMEMATICIP,
         const.CONF_KEEP_SENSOR_SELECTION,
+        const.CONF_PREDICTIVE_DISTURBANCE,
         "balance_mode",
     }
 

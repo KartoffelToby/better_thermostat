@@ -167,6 +167,11 @@ Chooses one of the **8 control algorithms**—see **[Calibration types & algorit
   - A **Sonoff `TRVZB`** reverts to its internal sensor if it receives no external temperature for ~2 hours or after a reset/re-pairing; with this option on, Better Thermostat will not switch it back to external.
   - An **Aqara `SRTS-A01`** left on its external input keeps regulating on the last written temperature if the room sensor stops reporting; with this option off, Better Thermostat automatically switches it to its internal sensor during `sensor_fallback` / `hold`, whereas with this option on it leaves the selector untouched.
 
+#### `Predictive disturbance learning` *(Default: `Off`)*
+- **What it does:** Offered for every TRV, whatever its make, but only acts while its `Calibration mode` is `(AI) MPC v2 (QP + Kalman, experimental)`; the other modes ignore it. MPC v2 otherwise plans with the current disturbance estimate only. With this option on, Better Thermostat learns recurring heat gains (occupancy, cooking, the sun) in half-hour buckets and gives the plan the expected gain over its horizon, up to the next two hours, so it can hold the valve back before a known gain arrives.
+- **Rooms with several TRVs:** The TRVs share one room controller, which reads this setting from the TRV whose entity ID sorts first alphabetically (e.g. `climate.living_room_a` before `climate.living_room_b`). Turn it on for that TRV; the setting on the other TRVs of the room has no effect.
+- **What to keep in mind:** It needs the weather entity's hourly forecast for the solar part and a few days of clean MPC v2 cycles before it helps. Leave it off until your room shows a recurring daily gain. The *MPC v2 Predicted Disturbance* sensor shows what the profile expects for the current step.
+
 ---
 
 ## HomematicIP / OpenCCU: Enabling `Offset Based` calibration

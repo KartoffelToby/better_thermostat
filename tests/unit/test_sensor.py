@@ -28,6 +28,7 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatMpcLossSensor,
     BetterThermostatMpcV2CouplingSensor,
     BetterThermostatMpcV2DisturbanceSensor,
+    BetterThermostatMpcV2PredictedDisturbanceSensor,
     BetterThermostatMpcV2RoomTimeConstantSensor,
     BetterThermostatMpcV2VirtualTempSensor,
     BetterThermostatPidErrorSensor,
@@ -593,6 +594,11 @@ class TestMpcV2SensorState:
             (BetterThermostatMpcV2VirtualTempSensor, "T_room_hat", 20.75),
             (BetterThermostatMpcV2CouplingSensor, "coupling_rad_room", 0.42),
             (BetterThermostatMpcV2DisturbanceSensor, "D_hat_K_per_min", -0.012),
+            (
+                BetterThermostatMpcV2PredictedDisturbanceSensor,
+                "predicted_disturbance_kelvin_per_min",
+                0.018,
+            ),
             (BetterThermostatMpcV2RoomTimeConstantSensor, "tau_room_min", 185.0),
         ],
     )
@@ -951,7 +957,7 @@ class TestSetupAlgorithmSensors:
             sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
 
         unique_ids = [s.unique_id for s in sensors]
-        assert len(unique_ids) == 8
+        assert len(unique_ids) == 9
         assert len(set(unique_ids)) == len(unique_ids), unique_ids
 
     @pytest.mark.parametrize(

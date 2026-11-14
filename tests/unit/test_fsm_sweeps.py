@@ -15,6 +15,7 @@ import itertools
 import pytest
 
 from custom_components.better_thermostat.core.fsm import (
+    anomaly as an,
     control_mode as cm,
     lifecycle as lc,
     maintenance as mt,
@@ -394,3 +395,110 @@ class TestMaintenanceSweep:
         assert state.is_blocking(NOW) is False
         fresh = mt.MaintenanceRunning(running_since=NOW - 10.0, next_due=NOW_DT)
         assert fresh.is_blocking(NOW) is True
+
+
+def _anomaly_slots():
+    """Well-formed FaultSlot states across phases and boundary timestamps."""
+    yield an.FaultSlot()
+    for age in (1.0, 179.0, 180.0):
+        yield an.FaultSlot(phase=an.FaultPhase.SUSPECT, since=NOW - age)
+    for active_age in (10.0, 3599.0, 3600.0):
+        yield an.FaultSlot(phase=an.FaultPhase.ACTIVE, active_since=NOW - active_age)
+        for rec_age in (10.0, 299.0, 300.0):
+            yield an.FaultSlot(
+                phase=an.FaultPhase.RECOVERING,
+                since=NOW - rec_age,
+                active_since=NOW - active_age,
+            )
+    yield an.FaultSlot(phase=an.FaultPhase.EXPIRED, active_since=NOW - 4000.0)
+    for rec_age in (10.0, 300.0):
+        yield an.FaultSlot(
+            phase=an.FaultPhase.EXPIRED, since=NOW - rec_age, active_since=NOW - 4000.0
+        )
+
+
+class TestAnomalySlotSweep:
+    """Exhaustive structural and liveness sweep over FaultSlot."""
+
+    @pytest.mark.parametrize(
+        ("slot", "evidence", "liveness", "force_clear"),
+        list(
+            itertools.product(
+                _anomaly_slots(), (False, True), (None, 3600.0), (False, True)
+            )
+        ),
+    )
+    def test_slot_invariants_hold_across_product(
+        self, slot, evidence, liveness, force_clear
+    ):
+        """Each step preserves timestamp invariants, idempotence, and liveness."""
+        result = an.step_slot(
+            slot,
+            evidence,
+            NOW,
+            dwell_seconds=180.0,
+            recovery_seconds=300.0,
+            liveness_seconds=liveness,
+            force_clear=force_clear,
+        )
+
+        if force_clear:
+            assert result == an.FaultSlot()
+            return
+
+        if result.phase == an.FaultPhase.CLEAR:
+            assert result.since is None
+            assert result.active_since is None
+        elif result.phase == an.FaultPhase.SUSPECT:
+            assert result.since is not None
+            assert result.active_since is None
+        elif result.phase == an.FaultPhase.ACTIVE:
+            assert result.since is None
+            assert result.active_since is not None
+        elif result.phase == an.FaultPhase.RECOVERING:
+            assert result.since is not None
+            assert result.active_since is not None
+        else:
+            assert result.phase == an.FaultPhase.EXPIRED
+            assert result.active_since is not None
+            assert result.is_gating(NOW, liveness) is False
+
+        if (
+            liveness is not None
+            and slot.active_since is not None
+            and NOW - slot.active_since >= liveness
+        ):
+            assert result.is_gating(NOW, liveness) is False
+
+        # Stepping twice at the same timestamp produces no further transition.
+        second = an.step_slot(
+            result,
+            evidence,
+            NOW,
+            dwell_seconds=180.0,
+            recovery_seconds=300.0,
+            liveness_seconds=liveness,
+            force_clear=force_clear,
+        )
+        assert second == result
+
+    @pytest.mark.parametrize(
+        "pattern", list(itertools.product((False, True), repeat=6))
+    )
+    def test_liveness_caps_continuous_gating_span(self, pattern):
+        """Gating stops once the liveness window elapses from initial activation."""
+        slot = an.FaultSlot(phase=an.FaultPhase.ACTIVE, active_since=0.0)
+        liveness = 3600.0
+        now = 0.0
+        for step_index, evidence in enumerate(pattern):
+            now = float((step_index + 1) * 700)
+            slot = an.step_slot(
+                slot,
+                evidence,
+                now,
+                dwell_seconds=180.0,
+                recovery_seconds=900.0,
+                liveness_seconds=liveness,
+            )
+            if slot.active_since == 0.0 and now >= liveness:
+                assert slot.is_gating(now, liveness) is False

@@ -31,6 +31,7 @@ LANGUAGES = [language for language in ALL_LANGUAGES if language != "en"]
 
 ENTITY_TRANSLATION_KEYS = {
     "climate": {"better_thermostat"},
+    "binary_sensor": {"heat_source_detected", "heat_loss_detected"},
     "sensor": {
         "external_temp_ema",
         "external_temp_ema_1h",
@@ -44,6 +45,7 @@ ENTITY_TRANSLATION_KEYS = {
         "mpc_v2_virtual_temp",
         "mpc_v2_coupling",
         "mpc_v2_disturbance",
+        "mpc_v2_predicted_disturbance",
         "mpc_v2_room_time_constant",
         "pid_output",
         "pid_error",
@@ -81,6 +83,8 @@ ENTITY_TRANSLATION_KEYS = {
         "child_lock_no_trv",
         "pause_learning",
         "window_detection",
+        "anomaly_detection",
+        "anomaly_suppression",
     },
 }
 
@@ -246,7 +250,9 @@ def _is_attr_name_target(target: ast.expr) -> bool:
     )
 
 
-@pytest.mark.parametrize("platform", ["sensor.py", "number.py", "switch.py"])
+@pytest.mark.parametrize(
+    "platform", ["sensor.py", "binary_sensor.py", "number.py", "switch.py"]
+)
 def test_entity_platforms_do_not_hardcode_natural_language_names(platform: str):
     """Entity names must use translation keys instead of English Python text."""
     source_path = COMPONENT / platform
@@ -304,7 +310,7 @@ def test_icons_json_names_an_icon_for_every_sensor_and_switch():
     """Each sensor and switch key has an icon, and the catalog has no stray key."""
     icons = _section(_load_json(COMPONENT / "icons.json"), "entity")
 
-    assert set(icons) == {"sensor", "switch"}
+    assert set(icons) == {"sensor", "binary_sensor", "switch"}
     for platform in icons:
         keys = _section(icons, platform)
         assert set(keys) == ENTITY_TRANSLATION_KEYS[platform] - DEVICE_CLASS_ICON_KEYS

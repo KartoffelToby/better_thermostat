@@ -4,12 +4,14 @@ from datetime import UTC, datetime, timedelta
 
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.maintenance import (
+    ANOMALY_MAINTENANCE_COOLDOWN_SECONDS,
     DUE_AT_FIRST_TICK,
     MaintenanceDue,
     MaintenanceIdle,
     MaintenanceRunning,
     evaluate_tick,
     finish_run,
+    request_now,
     reschedule,
     start_run,
 )
@@ -146,4 +148,81 @@ def test_reschedule_keeps_the_phase_and_the_run_start():
     )
     assert reschedule(MaintenanceIdle(next_due=PAST_DUE), NOW) == MaintenanceIdle(
         next_due=NOW
+    )
+
+
+def test_request_now_arms_idle_and_respects_cooldown():
+    """request_now arms an idle region once per cooldown window."""
+    idle = MaintenanceIdle(next_due=NOW + timedelta(days=7))
+    armed = request_now(idle, NOW, now_monotonic=1000.0, window_open=False)
+    assert armed == MaintenanceDue(next_due=NOW, last_anomaly_run_monotonic=1000.0)
+
+    running = start_run(armed, now_monotonic=1005.0)
+    assert running.last_anomaly_run_monotonic == 1000.0
+    finished = finish_run(running, next_due=NOW + timedelta(days=7))
+    assert finished.last_anomaly_run_monotonic == 1000.0
+
+    # Within cooldown window: stays idle
+    in_cooldown = request_now(
+        finished,
+        NOW + timedelta(hours=1),
+        now_monotonic=1000.0 + ANOMALY_MAINTENANCE_COOLDOWN_SECONDS - 1.0,
+        window_open=False,
+    )
+    assert in_cooldown == finished
+
+    # After cooldown window: arms again
+    after_cooldown = request_now(
+        finished,
+        NOW + timedelta(days=1, minutes=1),
+        now_monotonic=1000.0 + ANOMALY_MAINTENANCE_COOLDOWN_SECONDS,
+        window_open=False,
+    )
+    assert isinstance(after_cooldown, MaintenanceDue)
+    assert (
+        after_cooldown.last_anomaly_run_monotonic
+        == 1000.0 + ANOMALY_MAINTENANCE_COOLDOWN_SECONDS
+    )
+
+
+def test_request_now_leaves_due_and_running_unchanged():
+    """request_now is a no-op when maintenance is already due or running."""
+    due = MaintenanceDue(next_due=NOW, last_anomaly_run_monotonic=500.0)
+    assert request_now(due, NOW, now_monotonic=90000.0, window_open=False) == due
+
+    running = MaintenanceRunning(
+        running_since=600.0, next_due=NOW, last_anomaly_run_monotonic=500.0
+    )
+    assert (
+        request_now(running, NOW, now_monotonic=90000.0, window_open=False) == running
+    )
+
+
+def test_request_now_under_an_open_window_leaves_the_run_to_the_schedule():
+    """The exercise drives the valve fully open, which an open window forbids.
+
+    The run becomes due on the schedule, which waits for the window and
+    arms it then. No run started, so the cooldown has not started either.
+    """
+    idle = MaintenanceIdle(next_due=NOW + timedelta(days=7))
+
+    handed_over = request_now(idle, NOW, now_monotonic=1000.0, window_open=True)
+
+    assert handed_over == MaintenanceIdle(next_due=NOW)
+    waiting = evaluate_tick(handed_over, NOW, window_open=True, has_enabled_trvs=True)
+    assert waiting == MaintenanceIdle(next_due=NOW + timedelta(hours=1))
+    armed = evaluate_tick(
+        waiting, NOW + timedelta(hours=1), window_open=False, has_enabled_trvs=True
+    )
+    assert isinstance(armed, MaintenanceDue)
+
+
+def test_request_now_under_an_open_window_keeps_a_cooldown_running():
+    in_cooldown = MaintenanceIdle(
+        next_due=NOW + timedelta(days=7), last_anomaly_run_monotonic=900.0
+    )
+
+    assert (
+        request_now(in_cooldown, NOW, now_monotonic=1000.0, window_open=True)
+        == in_cooldown
     )

@@ -8,6 +8,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from custom_components.better_thermostat.utils.calibration.mpc_v2.params import (
+    predictive_qp_params,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     PlantModelRC2,
     PlantParams,
@@ -469,8 +472,8 @@ def test_portable_solver_plans_feasibly_and_like_daqp_for_any_plant_and_weights(
     plans: list[tuple[np.ndarray, float, float, float, float]] = []
     real_portable = qp_optimiser.QpOptimiser._solve_portable
 
-    def _recording_portable(self, hessian, gradient, bounds):
-        plan = real_portable(self, hessian, gradient, bounds)
+    def _recording_portable(self, hessian, gradient, bounds, count):
+        plan = real_portable(self, hessian, gradient, bounds, count)
         plans.append(
             (
                 np.asarray(plan, dtype=float),
@@ -649,7 +652,7 @@ def test_portable_solver_is_exact_on_arbitrary_convex_plans(seed: int) -> None:
         first_hi = min(bounds.u_max, bounds.u_last + bounds.delta_u_max)
         if first_lo > first_hi:
             continue
-        plan = opt._solve_portable(hessian, gradient, bounds)
+        plan = opt._solve_portable(hessian, gradient, bounds, n)
 
         rise = np.eye(n) - np.eye(n, k=-1)
         previous_input = np.zeros(n)
@@ -753,7 +756,7 @@ def test_portable_solver_lands_on_a_vertex_held_by_huge_multipliers(
     bounds = _SolverBounds(u_last=u_last, u_min=0.0, u_max=1.0, delta_u_max=delta_u_max)
 
     plan = opt._solve_portable(
-        root @ root.T + 1e-10 * np.eye(opt.N), 1e4 * np.array(gradient), bounds
+        root @ root.T + 1e-10 * np.eye(opt.N), 1e4 * np.array(gradient), bounds, opt.N
     )
 
     np.testing.assert_allclose(plan, vertex, rtol=0.0, atol=1e-12)
@@ -936,3 +939,176 @@ def test_a_negative_rate_limit_returns_the_clamped_last_command() -> None:
     u = opt.solve(np.array([18.0, 18.0]), T_sp=22.0, T_outdoor=5.0, u_last=0.3)
 
     assert u == pytest.approx(0.3)
+
+
+def test_a_uniform_disturbance_profile_plans_like_the_constant_estimate() -> None:
+    """A constant per-step profile is the same disturbance the solver already had."""
+    opt = _make_optimiser()
+    x_pred = np.array([19.0, 25.0])
+
+    constant = opt.solve(x_pred, 21.0, 0.0, u_last=0.2, D_hat_K_per_min=0.02)
+    profiled = opt.solve(
+        x_pred,
+        21.0,
+        0.0,
+        u_last=0.2,
+        D_hat_K_per_min=0.0,
+        D_profile_K_per_min=(0.02,) * opt.N,
+    )
+
+    assert profiled == pytest.approx(constant)
+
+
+def test_a_non_finite_profile_entry_falls_back_to_the_constant_estimate() -> None:
+    """A poisoned forecast bucket cannot poison the plan."""
+    opt = _make_optimiser()
+    x_pred = np.array([19.0, 25.0])
+
+    constant = opt.solve(x_pred, 21.0, 0.0, u_last=0.2, D_hat_K_per_min=0.01)
+    poisoned = opt.solve(
+        x_pred,
+        21.0,
+        0.0,
+        u_last=0.2,
+        D_hat_K_per_min=0.01,
+        D_profile_K_per_min=(float("nan"), float("inf"), 0.01),
+    )
+
+    assert poisoned == pytest.approx(constant)
+
+
+def test_a_future_gain_tapers_the_plan_before_it_arrives() -> None:
+    """A gain forecast inside the horizon opens the valve less now."""
+    opt = _make_optimiser()
+    x_pred = np.array([21.5, 35.0])
+    profile = (0.0,) * 4 + (0.01,) * (opt.N - 4)
+
+    without_gain = opt.solve(x_pred, 22.0, 10.0, u_last=0.2)
+    with_gain = opt.solve(x_pred, 22.0, 10.0, u_last=0.2, D_profile_K_per_min=profile)
+
+    assert with_gain < without_gain
+
+
+def test_the_default_horizon_plans_one_decision_per_step() -> None:
+    """A room without the prediction keeps the one-hour, unblocked plan."""
+    opt = QpOptimiser(PlantModelRC2(PlantParams(), dt_s=300.0), QpParams())
+
+    assert (opt.N, opt.M) == (12, 12)
+    assert opt._expand.tolist() == np.eye(12).tolist()
+
+
+def test_the_predictive_horizon_condenses_into_twelve_decisions() -> None:
+    """The two-hour horizon holds each command over two fine steps."""
+    opt = QpOptimiser(PlantModelRC2(PlantParams(), dt_s=300.0), predictive_qp_params())
+
+    assert opt.N == 24
+    assert opt.M == 12
+    assert opt._expand.shape == (24, 12)
+    assert opt._expand.sum(axis=0).tolist() == [2] * 12
+
+
+def _captured_qp(
+    monkeypatch: pytest.MonkeyPatch,
+    opt: QpOptimiser,
+    x_pred: np.ndarray,
+    *,
+    T_sp: float,
+    T_outdoor: float,
+    u_last: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the Hessian and gradient one solve hands the portable solver."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    captured: list[tuple[np.ndarray, np.ndarray]] = []
+
+    def record(hessian, gradient, bounds, count):
+        captured.append((np.array(hessian), np.array(gradient)))
+        return np.full(count, bounds.u_last)
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+    monkeypatch.setattr(opt, "_solve_portable", record)
+    opt.solve(x_pred, T_sp=T_sp, T_outdoor=T_outdoor, u_last=u_last)
+    (qp,) = captured
+    return qp
+
+
+def _fine_step_cost(
+    opt: QpOptimiser,
+    decisions: np.ndarray,
+    x_pred: np.ndarray,
+    *,
+    T_sp: float,
+    T_outdoor: float,
+    u_last: float,
+) -> float:
+    """Simulate the plant over the fine steps and sum the documented cost.
+
+    Comfort counts the room at every step of the horizon, its end included.
+    Effort counts every fine step, the valve moves count where the command
+    changes, and the integral runs over the steps before the last.
+    """
+    params = opt.params
+    u = opt._expand @ decisions
+    radiator = min(
+        opt.plant.steady_radiator_temperature(T_sp, T_outdoor, 0.0),
+        opt.plant.hottest_radiator_temperature(T_sp),
+        opt.plant.params.T_water,
+    )
+    A, B, drift = opt.plant.linearised_system(T_outdoor, radiator)
+    u_ss = opt._steady_input_for(T_sp, T_outdoor, 0.0)
+    state = x_pred.astype(float)
+    errors = [state[0] - T_sp]
+    for command in u:
+        state = A @ state + B.flatten() * command + drift
+        errors.append(state[0] - T_sp)
+    moves = np.diff(np.concatenate([[u_last], u]))
+    integral = opt.e_integral_K_min + opt.plant.dt_min * np.cumsum(errors[:-1])
+    return float(
+        params.w_comfort * sum(error**2 for error in errors)
+        + params.w_effort * sum((command - u_ss) ** 2 for command in u)
+        + params.w_smooth * float(moves @ moves)
+        + params.w_integral * float(integral @ integral)
+    )
+
+
+@pytest.mark.parametrize(
+    "qp_params", [QpParams(), predictive_qp_params()], ids=["default", "predictive"]
+)
+def test_the_qp_is_the_cost_summed_over_the_fine_steps(
+    monkeypatch: pytest.MonkeyPatch, qp_params: QpParams
+) -> None:
+    """The Hessian and gradient describe one cost, the last step included.
+
+    A quadratic is fixed by its values, so the form the solver is handed
+    has to reproduce the difference in simulated cost between two plans.
+    """
+    opt = QpOptimiser(PlantModelRC2(PlantParams(), dt_s=300.0), qp_params)
+    opt.e_integral_K_min = 3.0
+    x_pred = np.array([19.5, 27.0])
+    room = {"T_sp": 21.0, "T_outdoor": 2.0, "u_last": 0.3}
+    hessian, gradient = _captured_qp(monkeypatch, opt, x_pred, **room)
+
+    def form(decisions: np.ndarray) -> float:
+        return float(0.5 * decisions @ hessian @ decisions + gradient @ decisions)
+
+    rng = np.random.default_rng(3)
+    reference = np.full(opt.M, 0.3)
+    for _ in range(5):
+        plan = rng.uniform(0.0, 1.0, opt.M)
+        simulated = _fine_step_cost(opt, plan, x_pred, **room) - _fine_step_cost(
+            opt, reference, x_pred, **room
+        )
+        assert form(plan) - form(reference) == pytest.approx(simulated, rel=1e-9)
+
+
+def test_move_blocking_survives_a_horizon_that_does_not_fill_its_last_block() -> None:
+    """A short final block still gets exactly one decision."""
+    opt = QpOptimiser(
+        PlantModelRC2(PlantParams(), dt_s=300.0),
+        QpParams(horizon_steps=25, move_block_steps=2),
+    )
+
+    assert opt.M == 13
+    assert opt._expand.sum(axis=0).tolist() == [2] * 12 + [1]

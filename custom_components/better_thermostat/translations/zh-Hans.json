@@ -65,7 +65,8 @@
           "calibration_mode": "校准模式",
           "no_off_system_mode": "使用最低温度代替“关闭”",
           "mpc_v2_plant_preset": "MPC v2 房间大小",
-          "keep_sensor_selection": "保留 TRV 的传感器选择"
+          "keep_sensor_selection": "保留 TRV 的传感器选择",
+          "predictive_disturbance": "预测性扰动学习"
         },
         "data_description": {
           "protect_overheating": "有些 TRV 在达到温度时不会完全关闭阀门，或者暖气片有较多余热。这可能导致过热。此选项可以防止这种情况。",
@@ -77,7 +78,8 @@
           "calibration_mode": "校准如何计算\n***(AI) 基于时间（默认）***：随时间学习房间的供暖功率，并据此推导校准。\n***仅外部传感器偏移***：用外部温度传感器校正 TRV 的内部传感器。其上不运行控制器。\n***MPC 预测（Beta）***：预测房间温度并据此计算阀门开度。会学习房间的热行为。\n***(AI) MPC v2（QP + Kalman，实验性）***：用 Kalman 滤波器估计房间状态，并用模型预测控制器计算阀门开度。MPC v2 房间大小设置决定房间模型：从房间学习（自动），或按房间大小固定（小、中、大）。\n***激进***：房间升温时对校准增加助推并跳过容差延迟，使 TRV 更早开始供暖。适合房间升温较慢的情况。\n***TPI 控制器***：根据温差计算供暖占空比。\n***PID 控制器***：根据温度误差，用比例、积分和微分项计算阀门开度。\n***无校准***：将目标温度原样发送给 TRV，不做任何校正。",
           "no_off_system_mode": "启用此选项后，Better Thermostat 会用最低温度代替“关闭”发送给 TRV。TRV 调到最低温度即视为关闭：房间所有 TRV 都关闭后，房间关闭；调高任一旋钮会重新开启。窗户或门打开时调高也算；此时供暖会等到所有窗户和门关闭。不提供“关闭”模式的 TRV 即使不启用此选项也会收到最低温度。对于“关闭”模式无效的 TRV，或没有“关闭”模式但希望用旋钮开关 Better Thermostat 的 TRV，请启用此项。",
           "mpc_v2_plant_preset": "仅由 MPC v2 校准模式使用。\n***自动***：根据 Better Thermostat 已学习到的房间信息（例如热损失率）推导房间模型。\n***小、中或大房间***：从该房间大小对应的固定房间模型开始。",
-          "keep_sensor_selection": "适用于可根据外部温度调节的 TRV（Sonoff TRVZB 和 TRV-ZBT、Aqara SRTS-A01）。关闭：Better Thermostat 会将 TRV 切换到它写入的外部温度，重置或重新配对后也会如此。开启：你在 TRV 上选择的传感器保持选中，室内温度仍会写入外部输入。此后回退到自身传感器的 TRV 不会被切回。"
+          "keep_sensor_selection": "适用于可根据外部温度调节的 TRV（Sonoff TRVZB 和 TRV-ZBT、Aqara SRTS-A01）。关闭：Better Thermostat 会将 TRV 切换到它写入的外部温度，重置或重新配对后也会如此。开启：你在 TRV 上选择的传感器保持选中，室内温度仍会写入外部输入。此后回退到自身传感器的 TRV 不会被切回。",
+          "predictive_disturbance": "关闭：MPC v2 预测时域仅使用当前的扰动估计进行规划。开启：Better Thermostat 以半小时为单位学习周期性的热增益（人员活动、烹饪、日照），并将未来两小时的预期增益纳入规划。日照部分需要天气实体的逐小时预报，且至少需要几天正常的 MPC v2 运行周期才能发挥作用。在预测效果得到验证之前默认关闭；当房间呈现可重复的白天热增益时再开启。"
         }
       },
       "confirm": {
@@ -172,7 +174,8 @@
           "calibration_mode": "校准模式",
           "no_off_system_mode": "使用最低温度代替“关闭”",
           "mpc_v2_plant_preset": "MPC v2 房间大小",
-          "keep_sensor_selection": "保留 TRV 的传感器选择"
+          "keep_sensor_selection": "保留 TRV 的传感器选择",
+          "predictive_disturbance": "预测性扰动学习"
         },
         "data_description": {
           "protect_overheating": "有些 TRV 在达到温度时不会完全关闭阀门，或者暖气片有较多余热。这可能导致过热。此选项可以防止这种情况。",
@@ -184,7 +187,8 @@
           "calibration_mode": "校准如何计算\n***(AI) 基于时间（默认）***：随时间学习房间的供暖功率，并据此推导校准。\n***仅外部传感器偏移***：用外部温度传感器校正 TRV 的内部传感器。其上不运行控制器。\n***MPC 预测（Beta）***：预测房间温度并据此计算阀门开度。会学习房间的热行为。\n***(AI) MPC v2（QP + Kalman，实验性）***：用 Kalman 滤波器估计房间状态，并用模型预测控制器计算阀门开度。MPC v2 房间大小设置决定房间模型：从房间学习（自动），或按房间大小固定（小、中、大）。\n***激进***：房间升温时对校准增加助推并跳过容差延迟，使 TRV 更早开始供暖。适合房间升温较慢的情况。\n***TPI 控制器***：根据温差计算供暖占空比。\n***PID 控制器***：根据温度误差，用比例、积分和微分项计算阀门开度。\n***无校准***：将目标温度原样发送给 TRV，不做任何校正。",
           "no_off_system_mode": "启用此选项后，Better Thermostat 会用最低温度代替“关闭”发送给 TRV。TRV 调到最低温度即视为关闭：房间所有 TRV 都关闭后，房间关闭；调高任一旋钮会重新开启。窗户或门打开时调高也算；此时供暖会等到所有窗户和门关闭。不提供“关闭”模式的 TRV 即使不启用此选项也会收到最低温度。对于“关闭”模式无效的 TRV，或没有“关闭”模式但希望用旋钮开关 Better Thermostat 的 TRV，请启用此项。",
           "mpc_v2_plant_preset": "仅由 MPC v2 校准模式使用。\n***自动***：根据 Better Thermostat 已学习到的房间信息（例如热损失率）推导房间模型。\n***小、中或大房间***：从该房间大小对应的固定房间模型开始。",
-          "keep_sensor_selection": "适用于可根据外部温度调节的 TRV（Sonoff TRVZB 和 TRV-ZBT、Aqara SRTS-A01）。关闭：Better Thermostat 会将 TRV 切换到它写入的外部温度，重置或重新配对后也会如此。开启：你在 TRV 上选择的传感器保持选中，室内温度仍会写入外部输入。此后回退到自身传感器的 TRV 不会被切回。"
+          "keep_sensor_selection": "适用于可根据外部温度调节的 TRV（Sonoff TRVZB 和 TRV-ZBT、Aqara SRTS-A01）。关闭：Better Thermostat 会将 TRV 切换到它写入的外部温度，重置或重新配对后也会如此。开启：你在 TRV 上选择的传感器保持选中，室内温度仍会写入外部输入。此后回退到自身传感器的 TRV 不会被切回。",
+          "predictive_disturbance": "关闭：MPC v2 预测时域仅使用当前的扰动估计进行规划。开启：Better Thermostat 以半小时为单位学习周期性的热增益（人员活动、烹饪、日照），并将未来两小时的预期增益纳入规划。日照部分需要天气实体的逐小时预报，且至少需要几天正常的 MPC v2 运行周期才能发挥作用。在预测效果得到验证之前默认关闭；当房间呈现可重复的白天热增益时再开启。"
         }
       }
     },
@@ -234,6 +238,18 @@
     "setpoint_not_applied": {
       "title": "BT：{name} - {entity} 未接受目标温度",
       "description": "Better Thermostat 一直向 {entity} 写入目标温度 {wanted}，但温控器仍报告 {held}。房间没有按 Better Thermostat 的意图被加热。\n\n常见原因：\n- 温控器自身有一个低于其公布最大值的设定点限制，例如 Zigbee2MQTT 中的 `max_heat_setpoint_limit`。\n- 温控器处于忽略目标温度的模式或预设中，例如日程模式。\n- 温控器失去无线连接或电池电量低。\n\nBetter Thermostat 会继续写入目标温度，最多每小时一次。此问题会在温控器报告目标温度后自动清除。"
+    },
+    "heating_supply_failure": {
+      "title": "BT: {name} - 检测到供暖供应故障",
+      "description": "{name} 的所有散热器温控器已长时间请求大量供热，但房间温度仍低于目标温度且没有升高。\n\n请检查锅炉、热泵或循环泵是否已开启并在供应热水，并确认系统水压是否充足。房间重新对供暖产生响应后，此问题会自动清除。"
+    },
+    "trv_no_heat_response": {
+      "title": "BT: {name} - {entity} 没有产生热量",
+      "description": "{name} 中的散热器温控器 {entity} 已长时间请求供热，但房间没有变暖。\n\n请检查散热器是否需要排气、{entity} 下方的机械阀针是否卡在关闭位置，以及温控头是否安装牢固。供暖响应恢复后，此问题会自动清除。"
+    },
+    "valve_leak_detected": {
+      "title": "BT: {name} - {entity} 的阀门泄漏或卡在打开位置",
+      "description": "尽管已命令 {entity} 关闭且散热器余热已经散去，房间 {name} 仍持续升温并超过目标温度。\n\n请检查 {entity} 的温控头安装、适配环和阀针，确保阀门能够完全关闭。异常升温停止后，此问题会自动清除。"
     },
     "calibration_offset_at_limit": {
       "title": "BT：{name} - {entity} 的校准偏移停留在其极限",
@@ -428,6 +444,7 @@
               "hvac_off": "温控器关闭",
               "window": "窗户打开",
               "door": "门打开",
+              "suspected_window": "疑似窗户打开",
               "no_call_for_heat": "无供暖请求"
             }
           },
@@ -441,6 +458,14 @@
             }
           }
         }
+      }
+    },
+    "binary_sensor": {
+      "heat_source_detected": {
+        "name": "检测到额外热源"
+      },
+      "heat_loss_detected": {
+        "name": "检测到异常热损失"
       }
     },
     "number": {
@@ -565,6 +590,12 @@
       },
       "window_detection": {
         "name": "窗户检测"
+      },
+      "anomaly_detection": {
+        "name": "异常检测"
+      },
+      "anomaly_suppression": {
+        "name": "疑似开窗抑制"
       }
     },
     "sensor": {
@@ -578,7 +609,17 @@
           "degraded_mode_entered": "因部分传感器不可用而进入降级模式",
           "degraded_mode_resolved": "因所有传感器可用而退出降级模式",
           "door_open": "因门打开而关闭",
-          "door_close": "因门关闭而恢复供暖"
+          "door_close": "因门关闭而恢复供暖",
+          "anomaly_heating_supply_failure": "检测到供暖供应故障",
+          "anomaly_heating_supply_failure_resolved": "供暖供应故障已解除",
+          "anomaly_trv_no_heat_response": "检测到散热器温控器无供暖响应",
+          "anomaly_trv_no_heat_response_resolved": "散热器温控器供暖响应已恢复",
+          "anomaly_valve_leak_detected": "检测到散热器阀门泄漏或卡在打开位置",
+          "anomaly_valve_leak_detected_resolved": "散热器阀门泄漏已解除",
+          "anomaly_rapid_heat_loss": "检测到快速热损失（疑似窗户打开）",
+          "anomaly_rapid_heat_loss_resolved": "快速热损失已结束",
+          "anomaly_sustained_parasitic_loss": "检测到持续偏高的热损失",
+          "anomaly_sustained_parasitic_loss_resolved": "持续偏高的热损失已结束"
         }
       },
       "external_temp_ema": {
@@ -616,6 +657,9 @@
       },
       "mpc_v2_disturbance": {
         "name": "MPC v2 扰动"
+      },
+      "mpc_v2_predicted_disturbance": {
+        "name": "MPC v2 预测扰动"
       },
       "mpc_v2_room_time_constant": {
         "name": "MPC v2 房间时间常数"

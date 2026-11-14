@@ -65,7 +65,8 @@
           "calibration_mode": "Calibration mode",
           "no_off_system_mode": "Use the minimum temperature instead of 'off'",
           "mpc_v2_plant_preset": "MPC v2 room size",
-          "keep_sensor_selection": "Keep the TRV's sensor selection"
+          "keep_sensor_selection": "Keep the TRV's sensor selection",
+          "predictive_disturbance": "Predictive disturbance learning"
         },
         "data_description": {
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
@@ -77,7 +78,8 @@
           "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
           "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV turned to its minimum temperature counts as switched off: once every TRV of the room is off, the room switches off, and turning a knob up switches it back on. A turn while a window or door is open counts too; the heating then waits until every window and door is closed. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
           "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
-          "keep_sensor_selection": "For TRVs that can regulate on an external temperature (Sonoff TRVZB and TRV-ZBT, Aqara SRTS-A01). Off: Better Thermostat switches the TRV to the external temperature it writes, also after a reset or re-pairing. On: the sensor you selected on the TRV stays selected, and the room temperature is still written to the external input. A TRV that falls back to its own sensor is then not switched back."
+          "keep_sensor_selection": "For TRVs that can regulate on an external temperature (Sonoff TRVZB and TRV-ZBT, Aqara SRTS-A01). Off: Better Thermostat switches the TRV to the external temperature it writes, also after a reset or re-pairing. On: the sensor you selected on the TRV stays selected, and the room temperature is still written to the external input. A TRV that falls back to its own sensor is then not switched back.",
+          "predictive_disturbance": "Off: the MPC v2 horizon plans with the current disturbance estimate only. On: Better Thermostat learns recurring gains (occupancy, cooking, solar) in half-hour buckets and feeds the expected gain over the next two hours into the plan. Needs the weather entity's hourly forecast for the solar part and at least a few days of clean MPC v2 cycles to become useful. Off by default while the forecast is unproven; switch it on once your room shows a repeatable daytime gain."
         }
       },
       "confirm": {
@@ -172,7 +174,8 @@
           "calibration_mode": "Calibration mode",
           "no_off_system_mode": "Use the minimum temperature instead of 'off'",
           "mpc_v2_plant_preset": "MPC v2 room size",
-          "keep_sensor_selection": "Keep the TRV's sensor selection"
+          "keep_sensor_selection": "Keep the TRV's sensor selection",
+          "predictive_disturbance": "Predictive disturbance learning"
         },
         "data_description": {
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
@@ -184,7 +187,8 @@
           "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
           "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV turned to its minimum temperature counts as switched off: once every TRV of the room is off, the room switches off, and turning a knob up switches it back on. A turn while a window or door is open counts too; the heating then waits until every window and door is closed. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
           "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
-          "keep_sensor_selection": "For TRVs that can regulate on an external temperature (Sonoff TRVZB and TRV-ZBT, Aqara SRTS-A01). Off: Better Thermostat switches the TRV to the external temperature it writes, also after a reset or re-pairing. On: the sensor you selected on the TRV stays selected, and the room temperature is still written to the external input. A TRV that falls back to its own sensor is then not switched back."
+          "keep_sensor_selection": "For TRVs that can regulate on an external temperature (Sonoff TRVZB and TRV-ZBT, Aqara SRTS-A01). Off: Better Thermostat switches the TRV to the external temperature it writes, also after a reset or re-pairing. On: the sensor you selected on the TRV stays selected, and the room temperature is still written to the external input. A TRV that falls back to its own sensor is then not switched back.",
+          "predictive_disturbance": "Off: the MPC v2 horizon plans with the current disturbance estimate only. On: Better Thermostat learns recurring gains (occupancy, cooking, solar) in half-hour buckets and feeds the expected gain over the next two hours into the plan. Needs the weather entity's hourly forecast for the solar part and at least a few days of clean MPC v2 cycles to become useful. Off by default while the forecast is unproven; switch it on once your room shows a repeatable daytime gain."
         }
       }
     },
@@ -234,6 +238,18 @@
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} does not take the target temperature",
       "description": "Better Thermostat keeps writing the target temperature {wanted} to {entity}, but the thermostat still reports {held}. The room is not heated the way Better Thermostat intends.\n\nCommon causes:\n- The thermostat has a setpoint limit of its own below the maximum it publishes, for example `max_heat_setpoint_limit` in Zigbee2MQTT.\n- The thermostat is in a mode or preset in which it ignores target temperatures, such as a schedule mode.\n- The thermostat lost its radio connection or its battery is low.\n\nBetter Thermostat keeps writing the target temperature, at most once an hour. This issue clears itself once the thermostat reports the target temperature."
+    },
+    "heating_supply_failure": {
+      "title": "BT: {name} - heating supply failure detected",
+      "description": "All radiator thermostats of {name} have been commanding significant heat for an extended period while the room remains below target temperature and fails to warm.\n\nCheck whether your boiler, heat pump, or circulation pump is switched on and supplying hot water, and verify that system water pressure is sufficient. This issue clears itself once the room responds to heating again."
+    },
+    "trv_no_heat_response": {
+      "title": "BT: {name} - {entity} is not producing heat",
+      "description": "The radiator thermostat {entity} in {name} has been commanding heat for an extended period without warming the room.\n\nCheck whether the radiator needs bleeding, whether the mechanical valve pin beneath {entity} is stuck closed, and whether the thermostat head is firmly mounted. This issue clears itself once heating response returns."
+    },
+    "valve_leak_detected": {
+      "title": "BT: {name} - leaking or stuck-open valve on {entity}",
+      "description": "The room {name} continues to warm above target temperature even though {entity} has been commanded closed and residual radiator heat has already dissipated.\n\nInspect the thermostat head mounting, adapter ring, and valve pin on {entity} to ensure the valve can close completely. This issue clears itself once the unexpected warming stops."
     },
     "calibration_offset_at_limit": {
       "title": "BT: {name} - the calibration offset of {entity} stays at its limit",
@@ -428,6 +444,7 @@
               "hvac_off": "Thermostat off",
               "window": "Window open",
               "door": "Door open",
+              "suspected_window": "Suspected open window",
               "no_call_for_heat": "No call for heat"
             }
           },
@@ -441,6 +458,14 @@
             }
           }
         }
+      }
+    },
+    "binary_sensor": {
+      "heat_source_detected": {
+        "name": "Additional heat source detected"
+      },
+      "heat_loss_detected": {
+        "name": "Unexpected heat loss detected"
       }
     },
     "number": {
@@ -565,6 +590,12 @@
       },
       "window_detection": {
         "name": "Window Detection"
+      },
+      "anomaly_detection": {
+        "name": "Anomaly Detection"
+      },
+      "anomaly_suppression": {
+        "name": "Suspected Window Suppression"
       }
     },
     "sensor": {
@@ -578,7 +609,17 @@
           "degraded_mode_entered": "entered degraded mode because some sensors are unavailable",
           "degraded_mode_resolved": "exited degraded mode because all sensors are available",
           "door_open": "turned off because a door was opened",
-          "door_close": "resumed heating because a door was closed"
+          "door_close": "resumed heating because a door was closed",
+          "anomaly_heating_supply_failure": "detected a heating supply failure",
+          "anomaly_heating_supply_failure_resolved": "heating supply failure resolved",
+          "anomaly_trv_no_heat_response": "detected no heating response from a radiator thermostat",
+          "anomaly_trv_no_heat_response_resolved": "radiator thermostat heating response restored",
+          "anomaly_valve_leak_detected": "detected a leaking or stuck-open radiator valve",
+          "anomaly_valve_leak_detected_resolved": "radiator valve leak resolved",
+          "anomaly_rapid_heat_loss": "detected rapid heat loss (suspected open window)",
+          "anomaly_rapid_heat_loss_resolved": "rapid heat loss ended",
+          "anomaly_sustained_parasitic_loss": "detected sustained elevated heat loss",
+          "anomaly_sustained_parasitic_loss_resolved": "sustained elevated heat loss ended"
         }
       },
       "external_temp_ema": {
@@ -616,6 +657,9 @@
       },
       "mpc_v2_disturbance": {
         "name": "MPC v2 Disturbance"
+      },
+      "mpc_v2_predicted_disturbance": {
+        "name": "MPC v2 Predicted Disturbance"
       },
       "mpc_v2_room_time_constant": {
         "name": "MPC v2 Room Time Constant"

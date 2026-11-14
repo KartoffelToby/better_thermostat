@@ -65,7 +65,8 @@
           "calibration_mode": "Režim kalibrácie",
           "no_off_system_mode": "Použiť minimálnu teplotu namiesto 'vypnuté'",
           "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti",
-          "keep_sensor_selection": "Zachovať výber snímača TRV"
+          "keep_sensor_selection": "Zachovať výber snímača TRV",
+          "predictive_disturbance": "Prediktívne učenie porúch"
         },
         "data_description": {
           "protect_overheating": "Niektoré termostatické ventily úplne neuzatvoria ventil po dosiahnutí požadovanej teploty. Alebo má radiátor veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
@@ -77,7 +78,8 @@
           "calibration_mode": "Ako sa kalibrácia vypočíta\n***AI podľa času (predvolené)***: Postupne sa učí vykurovací výkon miestnosti a odvodí z neho kalibráciu.\n***Iba posun externého snímača***: Opraví interný snímač TRV podľa vášho externého snímača teploty. Navyše nebeží žiadny regulátor.\n***Prediktívne MPC (beta)***: Predpovedá teplotu v miestnosti a vypočíta z nej otvorenie ventilu. Učí sa tepelné správanie miestnosti.\n***(AI) MPC v2 (QP + Kalman, experimentálne)***: Odhaduje stav miestnosti Kalmanovým filtrom a vypočíta otvorenie ventilu modelovým prediktívnym regulátorom. Nastavenie MPC v2 veľkosť miestnosti vyberá model miestnosti: naučený z miestnosti (Automaticky) alebo pevný pre veľkosť miestnosti (malá, stredná, veľká).\n***Agresívne***: Pridá ku kalibrácii navýšenie, kým sa miestnosť vykuruje, a preskočí oneskorenie tolerancie, aby TRV začal kúriť skôr. Užitočné, ak sa miestnosť ohrieva pomaly.\n***Regulátor TPI***: Vypočíta dobu zopnutia vykurovacích cyklov z rozdielu teplôt.\n***Regulátor PID***: Vypočíta otvorenie ventilu z odchýlky teploty pomocou proporcionálnej, integračnej a derivačnej zložky.\n***Bez kalibrácie***: Pošle cieľovú teplotu do TRV bez zmeny a nepoužije žiadnu korekciu.",
           "no_off_system_mode": "S touto možnosťou Better Thermostat posiela TRV jeho minimálnu teplotu namiesto 'vypnuté'. TRV, ktorý hlási svoju minimálnu teplotu, sa považuje za vypnutý: keď sú všetky TRV v miestnosti vypnuté, miestnosť sa vypne, a otočenie gombíka nahor ju znova zapne. Počíta sa aj otočenie pri otvorenom okne alebo dverách; kúrenie potom čaká, kým nie sú všetky okná a dvere zatvorené. TRV bez režimu vypnutia dostane svoju minimálnu teplotu aj bez tejto možnosti. Zapnite ju pre TRV, ktorého režim vypnutia nefunguje, alebo pre TRV bez režimu vypnutia, ktorého gombík má zapínať a vypínať Better Thermostat.",
           "mpc_v2_plant_preset": "Používa sa iba v režime kalibrácie MPC v2.\n***Automaticky***: Odvodí model miestnosti z toho, čo sa Better Thermostat o miestnosti naučil, napríklad z miery jej tepelných strát.\n***Malá, stredná alebo veľká miestnosť***: Začína s pevným modelom miestnosti pre túto veľkosť.",
-          "keep_sensor_selection": "Pre TRV, ktoré môžu regulovať podľa externej teploty (Sonoff TRVZB a TRV-ZBT, Aqara SRTS-A01). Vypnuté: Better Thermostat prepne TRV na externú teplotu, ktorú zapisuje, aj po resetovaní alebo opätovnom spárovaní. Zapnuté: snímač zvolený na TRV zostane zvolený a teplota miestnosti sa naďalej zapisuje do externého vstupu. TRV, ktorý sa vráti k vlastnému snímaču, sa potom neprepne späť."
+          "keep_sensor_selection": "Pre TRV, ktoré môžu regulovať podľa externej teploty (Sonoff TRVZB a TRV-ZBT, Aqara SRTS-A01). Vypnuté: Better Thermostat prepne TRV na externú teplotu, ktorú zapisuje, aj po resetovaní alebo opätovnom spárovaní. Zapnuté: snímač zvolený na TRV zostane zvolený a teplota miestnosti sa naďalej zapisuje do externého vstupu. TRV, ktorý sa vráti k vlastnému snímaču, sa potom neprepne späť.",
+          "predictive_disturbance": "Vypnuté: horizont MPC v2 plánuje len s aktuálnym odhadom poruchy. Zapnuté: Better Thermostat sa učí opakované tepelné zisky (prítomnosť, varenie, slnko) v polhodinových intervaloch a odovzdáva očakávaný zisk nasledujúcich dvoch hodín do plánu. Pre slnečnú časť potrebuje hodinovú predpoveď počasia a na užitočnosť niekoľko dní čistých cyklov MPC v2. Predvolene vypnuté, kým predpoveď nie je overená; zapnite, keď miestnosť vykazuje opakujúci sa denný zisk."
         }
       },
       "confirm": {
@@ -171,7 +173,8 @@
           "calibration_mode": "Režim kalibrácie",
           "no_off_system_mode": "Použiť minimálnu teplotu namiesto 'vypnuté'",
           "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti",
-          "keep_sensor_selection": "Zachovať výber snímača TRV"
+          "keep_sensor_selection": "Zachovať výber snímača TRV",
+          "predictive_disturbance": "Prediktívne učenie porúch"
         },
         "data_description": {
           "protect_overheating": "Niektoré TRV nezatvárajú ventil úplne, keď sa dosiahne požadovaná teplota. Alebo je v radiátore veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
@@ -183,7 +186,8 @@
           "calibration_mode": "Ako sa kalibrácia vypočíta\n***AI podľa času (predvolené)***: Postupne sa učí vykurovací výkon miestnosti a odvodí z neho kalibráciu.\n***Iba posun externého snímača***: Opraví interný snímač TRV podľa vášho externého snímača teploty. Navyše nebeží žiadny regulátor.\n***Prediktívne MPC (beta)***: Predpovedá teplotu v miestnosti a vypočíta z nej otvorenie ventilu. Učí sa tepelné správanie miestnosti.\n***(AI) MPC v2 (QP + Kalman, experimentálne)***: Odhaduje stav miestnosti Kalmanovým filtrom a vypočíta otvorenie ventilu modelovým prediktívnym regulátorom. Nastavenie MPC v2 veľkosť miestnosti vyberá model miestnosti: naučený z miestnosti (Automaticky) alebo pevný pre veľkosť miestnosti (malá, stredná, veľká).\n***Agresívne***: Pridá ku kalibrácii navýšenie, kým sa miestnosť vykuruje, a preskočí oneskorenie tolerancie, aby TRV začal kúriť skôr. Užitočné, ak sa miestnosť ohrieva pomaly.\n***Regulátor TPI***: Vypočíta dobu zopnutia vykurovacích cyklov z rozdielu teplôt.\n***Regulátor PID***: Vypočíta otvorenie ventilu z odchýlky teploty pomocou proporcionálnej, integračnej a derivačnej zložky.\n***Bez kalibrácie***: Pošle cieľovú teplotu do TRV bez zmeny a nepoužije žiadnu korekciu.",
           "no_off_system_mode": "S touto možnosťou Better Thermostat posiela TRV jeho minimálnu teplotu namiesto 'vypnuté'. TRV, ktorý hlási svoju minimálnu teplotu, sa považuje za vypnutý: keď sú všetky TRV v miestnosti vypnuté, miestnosť sa vypne, a otočenie gombíka nahor ju znova zapne. Počíta sa aj otočenie pri otvorenom okne alebo dverách; kúrenie potom čaká, kým nie sú všetky okná a dvere zatvorené. TRV bez režimu vypnutia dostane svoju minimálnu teplotu aj bez tejto možnosti. Zapnite ju pre TRV, ktorého režim vypnutia nefunguje, alebo pre TRV bez režimu vypnutia, ktorého gombík má zapínať a vypínať Better Thermostat.",
           "mpc_v2_plant_preset": "Používa sa iba v režime kalibrácie MPC v2.\n***Automaticky***: Odvodí model miestnosti z toho, čo sa Better Thermostat o miestnosti naučil, napríklad z miery jej tepelných strát.\n***Malá, stredná alebo veľká miestnosť***: Začína s pevným modelom miestnosti pre túto veľkosť.",
-          "keep_sensor_selection": "Pre TRV, ktoré môžu regulovať podľa externej teploty (Sonoff TRVZB a TRV-ZBT, Aqara SRTS-A01). Vypnuté: Better Thermostat prepne TRV na externú teplotu, ktorú zapisuje, aj po resetovaní alebo opätovnom spárovaní. Zapnuté: snímač zvolený na TRV zostane zvolený a teplota miestnosti sa naďalej zapisuje do externého vstupu. TRV, ktorý sa vráti k vlastnému snímaču, sa potom neprepne späť."
+          "keep_sensor_selection": "Pre TRV, ktoré môžu regulovať podľa externej teploty (Sonoff TRVZB a TRV-ZBT, Aqara SRTS-A01). Vypnuté: Better Thermostat prepne TRV na externú teplotu, ktorú zapisuje, aj po resetovaní alebo opätovnom spárovaní. Zapnuté: snímač zvolený na TRV zostane zvolený a teplota miestnosti sa naďalej zapisuje do externého vstupu. TRV, ktorý sa vráti k vlastnému snímaču, sa potom neprepne späť.",
+          "predictive_disturbance": "Vypnuté: horizont MPC v2 plánuje len s aktuálnym odhadom poruchy. Zapnuté: Better Thermostat sa učí opakované tepelné zisky (prítomnosť, varenie, slnko) v polhodinových intervaloch a odovzdáva očakávaný zisk nasledujúcich dvoch hodín do plánu. Pre slnečnú časť potrebuje hodinovú predpoveď počasia a na užitočnosť niekoľko dní čistých cyklov MPC v2. Predvolene vypnuté, kým predpoveď nie je overená; zapnite, keď miestnosť vykazuje opakujúci sa denný zisk."
         }
       }
     },
@@ -228,6 +232,18 @@
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} neprijíma cieľovú teplotu",
       "description": "Better Thermostat opakovane zapisuje cieľovú teplotu {wanted} do {entity}, ale termostat stále hlási {held}. Miestnosť sa nevykuruje tak, ako Better Thermostat zamýšľa.\n\nČasté príčiny:\n- Termostat má vlastný limit nastavenej hodnoty nižší ako maximum, ktoré zverejňuje, napríklad `max_heat_setpoint_limit` v Zigbee2MQTT.\n- Termostat je v režime alebo predvoľbe, v ktorej ignoruje cieľové teploty, napríklad v režime rozvrhu.\n- Termostat stratil rádiové spojenie alebo má slabú batériu.\n\nBetter Thermostat cieľovú teplotu ďalej zapisuje, najviac raz za hodinu. Tento problém zmizne sám, keď termostat nahlási cieľovú teplotu."
+    },
+    "heating_supply_failure": {
+      "title": "BT: {name} - heating supply failure detected",
+      "description": "All radiator thermostats of {name} have been commanding significant heat for an extended period while the room remains below target temperature and fails to warm.\n\nCheck whether your boiler, heat pump, or circulation pump is switched on and supplying hot water, and verify that system water pressure is sufficient. This issue clears itself once the room responds to heating again."
+    },
+    "trv_no_heat_response": {
+      "title": "BT: {name} - {entity} is not producing heat",
+      "description": "The radiator thermostat {entity} in {name} has been commanding heat for an extended period without warming the room.\n\nCheck whether the radiator needs bleeding, whether the mechanical valve pin beneath {entity} is stuck closed, and whether the thermostat head is firmly mounted. This issue clears itself once heating response returns."
+    },
+    "valve_leak_detected": {
+      "title": "BT: {name} - leaking or stuck-open valve on {entity}",
+      "description": "The room {name} continues to warm above target temperature even though {entity} has been commanded closed and residual radiator heat has already dissipated.\n\nInspect the thermostat head mounting, adapter ring, and valve pin on {entity} to ensure the valve can close completely. This issue clears itself once the unexpected warming stops."
     },
     "calibration_offset_at_limit": {
       "title": "BT: {name} - posun kalibrácie {entity} zostáva na svojej hranici",
@@ -422,6 +438,7 @@
               "hvac_off": "Termostat vypnutý",
               "window": "Okno otvorené",
               "door": "Dvere otvorené",
+              "suspected_window": "Podozrenie na otvorené okno",
               "no_call_for_heat": "Žiadna požiadavka na teplo"
             }
           },
@@ -435,6 +452,14 @@
             }
           }
         }
+      }
+    },
+    "binary_sensor": {
+      "heat_source_detected": {
+        "name": "Zistený ďalší zdroj tepla"
+      },
+      "heat_loss_detected": {
+        "name": "Zistená neočakávaná tepelná strata"
       }
     },
     "number": {
@@ -559,6 +584,12 @@
       },
       "window_detection": {
         "name": "Detekcia okna"
+      },
+      "anomaly_detection": {
+        "name": "Detekcia anomálií"
+      },
+      "anomaly_suppression": {
+        "name": "Pozastavenie kúrenia pri podozrení na otvorené okno"
       }
     },
     "sensor": {
@@ -572,7 +603,17 @@
           "degraded_mode_entered": "vstúpil do núdzového režimu, pretože niektoré senzory sú nedostupné",
           "degraded_mode_resolved": "ukončil núdzový režim, pretože všetky senzory sú dostupné",
           "door_open": "turned off because a door was opened",
-          "door_close": "resumed heating because a door was closed"
+          "door_close": "resumed heating because a door was closed",
+          "anomaly_heating_supply_failure": "detected a heating supply failure",
+          "anomaly_heating_supply_failure_resolved": "heating supply failure resolved",
+          "anomaly_trv_no_heat_response": "detected no heating response from a radiator thermostat",
+          "anomaly_trv_no_heat_response_resolved": "radiator thermostat heating response restored",
+          "anomaly_valve_leak_detected": "detected a leaking or stuck-open radiator valve",
+          "anomaly_valve_leak_detected_resolved": "radiator valve leak resolved",
+          "anomaly_rapid_heat_loss": "detected rapid heat loss (suspected open window)",
+          "anomaly_rapid_heat_loss_resolved": "rapid heat loss ended",
+          "anomaly_sustained_parasitic_loss": "detected sustained elevated heat loss",
+          "anomaly_sustained_parasitic_loss_resolved": "sustained elevated heat loss ended"
         }
       },
       "external_temp_ema": {
@@ -610,6 +651,9 @@
       },
       "mpc_v2_disturbance": {
         "name": "Porucha MPC v2"
+      },
+      "mpc_v2_predicted_disturbance": {
+        "name": "MPC v2 Predpovedané rušenie"
       },
       "mpc_v2_room_time_constant": {
         "name": "Časová konštanta miestnosti MPC v2"

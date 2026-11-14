@@ -65,7 +65,8 @@
           "calibration_mode": "Modalità di calibrazione",
           "no_off_system_mode": "Usa la temperatura minima invece di 'off'",
           "mpc_v2_plant_preset": "MPC v2 dimensione della stanza",
-          "keep_sensor_selection": "Mantieni la selezione del sensore del TRV"
+          "keep_sensor_selection": "Mantieni la selezione del sensore del TRV",
+          "predictive_disturbance": "Apprendimento predittivo dei disturbi"
         },
         "data_description": {
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
@@ -77,7 +78,8 @@
           "calibration_mode": "Come viene calcolata la calibrazione\n***IA basata sul tempo (predefinito)***: Impara nel tempo la potenza di riscaldamento della stanza e ne ricava la calibrazione.\n***Solo offset sensore esterno***: Corregge il sensore interno del TRV con il tuo sensore di temperatura esterno. Nessun regolatore lavora in aggiunta.\n***MPC predittivo (beta)***: Prevede la temperatura della stanza e ne calcola un'apertura della valvola. Impara il comportamento termico della stanza.\n***(IA) MPC v2 (QP + Kalman, sperimentale)***: Stima lo stato della stanza con un filtro di Kalman e calcola un'apertura della valvola con un regolatore predittivo basato su modello. L'impostazione MPC v2 dimensione della stanza sceglie il modello della stanza: appreso dalla stanza (Automatico) o fisso per una dimensione (piccola, media, grande).\n***Aggressivo***: Aggiunge una spinta alla calibrazione mentre la stanza si riscalda e salta il ritardo di tolleranza, così il TRV inizia a scaldare prima. Utile se la stanza si scalda lentamente.\n***Controller TPI***: Calcola la durata di accensione dei cicli di riscaldamento dalla differenza di temperatura.\n***Controller PID***: Calcola un'apertura della valvola dall'errore di temperatura con un termine proporzionale, integrale e derivativo.\n***Nessuna calibrazione***: Invia la temperatura obiettivo al TRV senza modificarla e non applica alcuna correzione.",
           "no_off_system_mode": "Con questa opzione, Better Thermostat invia al TRV la sua temperatura minima invece di 'off'. Un TRV che riporta la sua temperatura minima conta come spento: quando tutti i TRV della stanza sono spenti, la stanza si spegne, e ruotando una manopola verso l'alto si riaccende. Conta anche una rotazione mentre una finestra o una porta è aperta; il riscaldamento attende allora che tutte le finestre e le porte siano chiuse. Un TRV senza modalità 'off' riceve la sua temperatura minima anche senza questa opzione. Attivala per un TRV la cui modalità 'off' non funziona, o per un TRV senza modalità 'off' la cui manopola deve accendere e spegnere Better Thermostat.",
           "mpc_v2_plant_preset": "Usato solo dalla modalità di calibrazione MPC v2.\n***Automatico***: Ricava il modello della stanza da ciò che Better Thermostat ha appreso sulla stanza, ad esempio il suo tasso di dispersione termica.\n***Stanza piccola, media o grande***: Parte da un modello fisso per quella dimensione della stanza.",
-          "keep_sensor_selection": "Per i TRV che possono regolare su una temperatura esterna (Sonoff TRVZB e TRV-ZBT, Aqara SRTS-A01). Disattivato: Better Thermostat imposta il TRV sulla temperatura esterna che scrive, anche dopo un ripristino o un nuovo abbinamento. Attivato: il sensore selezionato sul TRV resta selezionato e la temperatura della stanza continua a essere scritta nell'ingresso esterno. Un TRV che torna al proprio sensore non viene quindi reimpostato."
+          "keep_sensor_selection": "Per i TRV che possono regolare su una temperatura esterna (Sonoff TRVZB e TRV-ZBT, Aqara SRTS-A01). Disattivato: Better Thermostat imposta il TRV sulla temperatura esterna che scrive, anche dopo un ripristino o un nuovo abbinamento. Attivato: il sensore selezionato sul TRV resta selezionato e la temperatura della stanza continua a essere scritta nell'ingresso esterno. Un TRV che torna al proprio sensore non viene quindi reimpostato.",
+          "predictive_disturbance": "Disattivato: l'orizzonte MPC v2 pianifica solo con la stima attuale del disturbo. Attivato: Better Thermostat apprende i guadagni ricorrenti (presenza, cottura, sole) in fasce di mezz'ora e inserisce nel piano il guadagno atteso per le due ore successive. Richiede le previsioni orarie dell'entità meteo per la parte solare e alcuni giorni di cicli MPC v2 puliti per diventare utile. Disattivato per impostazione predefinita finché la previsione non è collaudata; attivalo quando la stanza mostra un guadagno diurno ricorrente."
         }
       },
       "confirm": {
@@ -171,7 +173,8 @@
           "calibration_mode": "Modalità di calibrazione",
           "no_off_system_mode": "Usa la temperatura minima invece di 'off'",
           "mpc_v2_plant_preset": "MPC v2 dimensione della stanza",
-          "keep_sensor_selection": "Mantieni la selezione del sensore del TRV"
+          "keep_sensor_selection": "Mantieni la selezione del sensore del TRV",
+          "predictive_disturbance": "Apprendimento predittivo dei disturbi"
         },
         "data_description": {
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
@@ -183,7 +186,8 @@
           "calibration_mode": "Come viene calcolata la calibrazione\n***IA basata sul tempo (predefinito)***: Impara nel tempo la potenza di riscaldamento della stanza e ne ricava la calibrazione.\n***Solo offset sensore esterno***: Corregge il sensore interno del TRV con il tuo sensore di temperatura esterno. Nessun regolatore lavora in aggiunta.\n***MPC predittivo (beta)***: Prevede la temperatura della stanza e ne calcola un'apertura della valvola. Impara il comportamento termico della stanza.\n***(IA) MPC v2 (QP + Kalman, sperimentale)***: Stima lo stato della stanza con un filtro di Kalman e calcola un'apertura della valvola con un regolatore predittivo basato su modello. L'impostazione MPC v2 dimensione della stanza sceglie il modello della stanza: appreso dalla stanza (Automatico) o fisso per una dimensione (piccola, media, grande).\n***Aggressivo***: Aggiunge una spinta alla calibrazione mentre la stanza si riscalda e salta il ritardo di tolleranza, così il TRV inizia a scaldare prima. Utile se la stanza si scalda lentamente.\n***Controller TPI***: Calcola la durata di accensione dei cicli di riscaldamento dalla differenza di temperatura.\n***Controller PID***: Calcola un'apertura della valvola dall'errore di temperatura con un termine proporzionale, integrale e derivativo.\n***Nessuna calibrazione***: Invia la temperatura obiettivo al TRV senza modificarla e non applica alcuna correzione.",
           "no_off_system_mode": "Con questa opzione, Better Thermostat invia al TRV la sua temperatura minima invece di 'off'. Un TRV che riporta la sua temperatura minima conta come spento: quando tutti i TRV della stanza sono spenti, la stanza si spegne, e ruotando una manopola verso l'alto si riaccende. Conta anche una rotazione mentre una finestra o una porta è aperta; il riscaldamento attende allora che tutte le finestre e le porte siano chiuse. Un TRV senza modalità 'off' riceve la sua temperatura minima anche senza questa opzione. Attivala per un TRV la cui modalità 'off' non funziona, o per un TRV senza modalità 'off' la cui manopola deve accendere e spegnere Better Thermostat.",
           "mpc_v2_plant_preset": "Usato solo dalla modalità di calibrazione MPC v2.\n***Automatico***: Ricava il modello della stanza da ciò che Better Thermostat ha appreso sulla stanza, ad esempio il suo tasso di dispersione termica.\n***Stanza piccola, media o grande***: Parte da un modello fisso per quella dimensione della stanza.",
-          "keep_sensor_selection": "Per i TRV che possono regolare su una temperatura esterna (Sonoff TRVZB e TRV-ZBT, Aqara SRTS-A01). Disattivato: Better Thermostat imposta il TRV sulla temperatura esterna che scrive, anche dopo un ripristino o un nuovo abbinamento. Attivato: il sensore selezionato sul TRV resta selezionato e la temperatura della stanza continua a essere scritta nell'ingresso esterno. Un TRV che torna al proprio sensore non viene quindi reimpostato."
+          "keep_sensor_selection": "Per i TRV che possono regolare su una temperatura esterna (Sonoff TRVZB e TRV-ZBT, Aqara SRTS-A01). Disattivato: Better Thermostat imposta il TRV sulla temperatura esterna che scrive, anche dopo un ripristino o un nuovo abbinamento. Attivato: il sensore selezionato sul TRV resta selezionato e la temperatura della stanza continua a essere scritta nell'ingresso esterno. Un TRV che torna al proprio sensore non viene quindi reimpostato.",
+          "predictive_disturbance": "Disattivato: l'orizzonte MPC v2 pianifica solo con la stima attuale del disturbo. Attivato: Better Thermostat apprende i guadagni ricorrenti (presenza, cottura, sole) in fasce di mezz'ora e inserisce nel piano il guadagno atteso per le due ore successive. Richiede le previsioni orarie dell'entità meteo per la parte solare e alcuni giorni di cicli MPC v2 puliti per diventare utile. Disattivato per impostazione predefinita finché la previsione non è collaudata; attivalo quando la stanza mostra un guadagno diurno ricorrente."
         }
       }
     },
@@ -228,6 +232,18 @@
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} non accetta la temperatura obiettivo",
       "description": "Better Thermostat scrive ripetutamente la temperatura obiettivo {wanted} su {entity}, ma il termostato continua a riportare {held}. La stanza non viene riscaldata come previsto da Better Thermostat.\n\nCause comuni:\n- Il termostato ha un proprio limite del setpoint inferiore al massimo che pubblica, ad esempio `max_heat_setpoint_limit` in Zigbee2MQTT.\n- Il termostato è in una modalità o in un preset in cui ignora le temperature obiettivo, come una modalità programmata.\n- Il termostato ha perso la connessione radio o la batteria è scarica.\n\nBetter Thermostat continua a scrivere la temperatura obiettivo, al massimo una volta all'ora. Questo problema si risolve da solo non appena il termostato riporta la temperatura obiettivo."
+    },
+    "heating_supply_failure": {
+      "title": "BT: {name} - heating supply failure detected",
+      "description": "All radiator thermostats of {name} have been commanding significant heat for an extended period while the room remains below target temperature and fails to warm.\n\nCheck whether your boiler, heat pump, or circulation pump is switched on and supplying hot water, and verify that system water pressure is sufficient. This issue clears itself once the room responds to heating again."
+    },
+    "trv_no_heat_response": {
+      "title": "BT: {name} - {entity} is not producing heat",
+      "description": "The radiator thermostat {entity} in {name} has been commanding heat for an extended period without warming the room.\n\nCheck whether the radiator needs bleeding, whether the mechanical valve pin beneath {entity} is stuck closed, and whether the thermostat head is firmly mounted. This issue clears itself once heating response returns."
+    },
+    "valve_leak_detected": {
+      "title": "BT: {name} - leaking or stuck-open valve on {entity}",
+      "description": "The room {name} continues to warm above target temperature even though {entity} has been commanded closed and residual radiator heat has already dissipated.\n\nInspect the thermostat head mounting, adapter ring, and valve pin on {entity} to ensure the valve can close completely. This issue clears itself once the unexpected warming stops."
     },
     "calibration_offset_at_limit": {
       "title": "BT: {name} - l'offset di calibrazione di {entity} resta al suo limite",
@@ -422,6 +438,7 @@
               "hvac_off": "Termostato spento",
               "window": "Finestra aperta",
               "door": "Porta aperta",
+              "suspected_window": "Sospetta finestra aperta",
               "no_call_for_heat": "Nessuna richiesta di calore"
             }
           },
@@ -435,6 +452,14 @@
             }
           }
         }
+      }
+    },
+    "binary_sensor": {
+      "heat_source_detected": {
+        "name": "Fonte di calore aggiuntiva rilevata"
+      },
+      "heat_loss_detected": {
+        "name": "Perdita di calore inattesa rilevata"
       }
     },
     "number": {
@@ -559,6 +584,12 @@
       },
       "window_detection": {
         "name": "Rilevamento finestra"
+      },
+      "anomaly_detection": {
+        "name": "Rilevamento anomalie"
+      },
+      "anomaly_suppression": {
+        "name": "Sospensione per sospetta finestra aperta"
       }
     },
     "sensor": {
@@ -572,7 +603,17 @@
           "degraded_mode_entered": "è entrato in modalità degradata perché alcuni sensori non sono disponibili",
           "degraded_mode_resolved": "è uscito dalla modalità degradata perché tutti i sensori sono disponibili",
           "door_open": "turned off because a door was opened",
-          "door_close": "resumed heating because a door was closed"
+          "door_close": "resumed heating because a door was closed",
+          "anomaly_heating_supply_failure": "detected a heating supply failure",
+          "anomaly_heating_supply_failure_resolved": "heating supply failure resolved",
+          "anomaly_trv_no_heat_response": "detected no heating response from a radiator thermostat",
+          "anomaly_trv_no_heat_response_resolved": "radiator thermostat heating response restored",
+          "anomaly_valve_leak_detected": "detected a leaking or stuck-open radiator valve",
+          "anomaly_valve_leak_detected_resolved": "radiator valve leak resolved",
+          "anomaly_rapid_heat_loss": "detected rapid heat loss (suspected open window)",
+          "anomaly_rapid_heat_loss_resolved": "rapid heat loss ended",
+          "anomaly_sustained_parasitic_loss": "detected sustained elevated heat loss",
+          "anomaly_sustained_parasitic_loss_resolved": "sustained elevated heat loss ended"
         }
       },
       "external_temp_ema": {
@@ -610,6 +651,9 @@
       },
       "mpc_v2_disturbance": {
         "name": "Disturbo MPC v2"
+      },
+      "mpc_v2_predicted_disturbance": {
+        "name": "MPC v2 Disturbo previsto"
       },
       "mpc_v2_room_time_constant": {
         "name": "Costante di tempo del locale MPC v2"

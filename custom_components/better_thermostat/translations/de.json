@@ -65,7 +65,8 @@
           "calibration_mode": "Kalibrierungsmodus",
           "no_off_system_mode": "Mindesttemperatur statt „Aus“ verwenden",
           "mpc_v2_plant_preset": "MPC v2 Raumgröße",
-          "keep_sensor_selection": "Sensorauswahl des TRV beibehalten"
+          "keep_sensor_selection": "Sensorauswahl des TRV beibehalten",
+          "predictive_disturbance": "Vorausschauendes Störgrößenlernen"
         },
         "data_description": {
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso, falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
@@ -77,7 +78,8 @@
           "calibration_mode": "Wie die Kalibrierung berechnet wird\n***KI zeitbasiert (Standard)***: Lernt mit der Zeit die Heizleistung des Raums und leitet daraus die Kalibrierung ab.\n***Nur externer Sensorversatz***: Gleicht den internen Sensor des TRV mit dem externen Temperatursensor ab. Darüber läuft kein Regler.\n***MPC prädiktiv (Beta)***: Sagt die Raumtemperatur voraus und berechnet daraus eine Ventilöffnung. Lernt das thermische Verhalten des Raums.\n***(KI) MPC v2 (QP + Kalman, experimentell)***: Schätzt den Zustand des Raums mit einem Kalman-Filter und berechnet die Ventilöffnung mit einem modellprädiktiven Regler. Die Einstellung „MPC v2 Raumgröße“ wählt das Raummodell: aus dem Raum gelernt (Automatisch) oder fest für eine Raumgröße (klein, mittel, groß).\n***Aggressiv***: Erhöht die Kalibrierung, solange der Raum heizt, und überspringt die Toleranzverzögerung, damit das TRV früher zu heizen beginnt. Hilfreich, wenn der Raum langsam warm wird.\n***TPI-Regler***: Berechnet die Einschaltdauer der Heizzyklen aus der Temperaturdifferenz.\n***PID-Regler***: Berechnet eine Ventilöffnung aus der Temperaturabweichung mit einem Proportional-, Integral- und Differenzialanteil.\n***Keine Kalibrierung***: Sendet die Zieltemperatur unverändert an das TRV und korrigiert nichts.",
           "no_off_system_mode": "Mit dieser Option sendet Better Thermostat dem TRV seine Mindesttemperatur statt „Aus“. Ein TRV, das seine Mindesttemperatur meldet, gilt als ausgeschaltet: Sind alle TRVs des Raums aus, schaltet sich der Raum aus; wird ein Drehknopf hochgedreht, schaltet er sich wieder ein. Das gilt auch für eine Drehung bei offenem Fenster oder offener Tür; die Heizung wartet dann, bis alle Fenster und Türen geschlossen sind. Ein TRV ohne „Aus“-Modus bekommt seine Mindesttemperatur auch ohne diese Option. Aktiviere sie für ein TRV, dessen „Aus“-Modus nicht funktioniert, oder für ein TRV ohne „Aus“-Modus, dessen Drehknopf Better Thermostat ein- und ausschalten soll.",
           "mpc_v2_plant_preset": "Wird nur vom Kalibrierungsmodus MPC v2 verwendet.\n***Automatisch***: Leitet das Raummodell aus dem ab, was Better Thermostat über den Raum gelernt hat, etwa seine Wärmeverlustrate.\n***Kleiner, mittlerer oder großer Raum***: Startet mit einem festen Raummodell für diese Raumgröße.",
-          "keep_sensor_selection": "Für TRVs, die auf eine externe Temperatur regeln können (Sonoff TRVZB und TRV-ZBT, Aqara SRTS-A01). Aus: Better Thermostat stellt den TRV auf die externe Temperatur um, die es schreibt, auch nach einem Zurücksetzen oder neuen Anlernen. Ein: Der am TRV gewählte Sensor bleibt ausgewählt, und die Raumtemperatur wird weiter in den externen Eingang geschrieben. Ein TRV, der auf seinen eigenen Sensor zurückfällt, wird dann nicht zurückgestellt."
+          "keep_sensor_selection": "Für TRVs, die auf eine externe Temperatur regeln können (Sonoff TRVZB und TRV-ZBT, Aqara SRTS-A01). Aus: Better Thermostat stellt den TRV auf die externe Temperatur um, die es schreibt, auch nach einem Zurücksetzen oder neuen Anlernen. Ein: Der am TRV gewählte Sensor bleibt ausgewählt, und die Raumtemperatur wird weiter in den externen Eingang geschrieben. Ein TRV, der auf seinen eigenen Sensor zurückfällt, wird dann nicht zurückgestellt.",
+          "predictive_disturbance": "Aus: Der MPC-v2-Horizont plant nur mit der aktuellen Störgrößenschätzung. Ein: Better Thermostat lernt wiederkehrende Gewinne (Anwesenheit, Kochen, Sonne) in Halbstunden-Buckets und gibt den erwarteten Gewinn der nächsten zwei Stunden an den Plan weiter. Für den Sonnenanteil wird die stündliche Vorhersage der Wetter-Entität benötigt; sinnvoll wird es nach einigen Tagen sauberer MPC-v2-Zyklen. Standardmäßig aus, solange die Vorhersage unerprobt ist; einschalten, sobald der Raum einen wiederkehrenden Tagesgewinn zeigt."
         }
       },
       "confirm": {
@@ -171,7 +173,8 @@
           "calibration_mode": "Kalibrierungsmodus",
           "no_off_system_mode": "Mindesttemperatur statt „Aus“ verwenden",
           "mpc_v2_plant_preset": "MPC v2 Raumgröße",
-          "keep_sensor_selection": "Sensorauswahl des TRV beibehalten"
+          "keep_sensor_selection": "Sensorauswahl des TRV beibehalten",
+          "predictive_disturbance": "Vorausschauendes Störgrößenlernen"
         },
         "data_description": {
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
@@ -183,7 +186,8 @@
           "calibration_mode": "Wie die Kalibrierung berechnet wird\n***KI zeitbasiert (Standard)***: Lernt mit der Zeit die Heizleistung des Raums und leitet daraus die Kalibrierung ab.\n***Nur externer Sensorversatz***: Gleicht den internen Sensor des TRV mit dem externen Temperatursensor ab. Darüber läuft kein Regler.\n***MPC prädiktiv (Beta)***: Sagt die Raumtemperatur voraus und berechnet daraus eine Ventilöffnung. Lernt das thermische Verhalten des Raums.\n***(KI) MPC v2 (QP + Kalman, experimentell)***: Schätzt den Zustand des Raums mit einem Kalman-Filter und berechnet die Ventilöffnung mit einem modellprädiktiven Regler. Die Einstellung „MPC v2 Raumgröße“ wählt das Raummodell: aus dem Raum gelernt (Automatisch) oder fest für eine Raumgröße (klein, mittel, groß).\n***Aggressiv***: Erhöht die Kalibrierung, solange der Raum heizt, und überspringt die Toleranzverzögerung, damit das TRV früher zu heizen beginnt. Hilfreich, wenn der Raum langsam warm wird.\n***TPI-Regler***: Berechnet die Einschaltdauer der Heizzyklen aus der Temperaturdifferenz.\n***PID-Regler***: Berechnet eine Ventilöffnung aus der Temperaturabweichung mit einem Proportional-, Integral- und Differenzialanteil.\n***Keine Kalibrierung***: Sendet die Zieltemperatur unverändert an das TRV und korrigiert nichts.",
           "no_off_system_mode": "Mit dieser Option sendet Better Thermostat dem TRV seine Mindesttemperatur statt „Aus“. Ein TRV, das seine Mindesttemperatur meldet, gilt als ausgeschaltet: Sind alle TRVs des Raums aus, schaltet sich der Raum aus; wird ein Drehknopf hochgedreht, schaltet er sich wieder ein. Das gilt auch für eine Drehung bei offenem Fenster oder offener Tür; die Heizung wartet dann, bis alle Fenster und Türen geschlossen sind. Ein TRV ohne „Aus“-Modus bekommt seine Mindesttemperatur auch ohne diese Option. Aktiviere sie für ein TRV, dessen „Aus“-Modus nicht funktioniert, oder für ein TRV ohne „Aus“-Modus, dessen Drehknopf Better Thermostat ein- und ausschalten soll.",
           "mpc_v2_plant_preset": "Wird nur vom Kalibrierungsmodus MPC v2 verwendet.\n***Automatisch***: Leitet das Raummodell aus dem ab, was Better Thermostat über den Raum gelernt hat, etwa seine Wärmeverlustrate.\n***Kleiner, mittlerer oder großer Raum***: Startet mit einem festen Raummodell für diese Raumgröße.",
-          "keep_sensor_selection": "Für TRVs, die auf eine externe Temperatur regeln können (Sonoff TRVZB und TRV-ZBT, Aqara SRTS-A01). Aus: Better Thermostat stellt den TRV auf die externe Temperatur um, die es schreibt, auch nach einem Zurücksetzen oder neuen Anlernen. Ein: Der am TRV gewählte Sensor bleibt ausgewählt, und die Raumtemperatur wird weiter in den externen Eingang geschrieben. Ein TRV, der auf seinen eigenen Sensor zurückfällt, wird dann nicht zurückgestellt."
+          "keep_sensor_selection": "Für TRVs, die auf eine externe Temperatur regeln können (Sonoff TRVZB und TRV-ZBT, Aqara SRTS-A01). Aus: Better Thermostat stellt den TRV auf die externe Temperatur um, die es schreibt, auch nach einem Zurücksetzen oder neuen Anlernen. Ein: Der am TRV gewählte Sensor bleibt ausgewählt, und die Raumtemperatur wird weiter in den externen Eingang geschrieben. Ein TRV, der auf seinen eigenen Sensor zurückfällt, wird dann nicht zurückgestellt.",
+          "predictive_disturbance": "Aus: Der MPC-v2-Horizont plant nur mit der aktuellen Störgrößenschätzung. Ein: Better Thermostat lernt wiederkehrende Gewinne (Anwesenheit, Kochen, Sonne) in Halbstunden-Buckets und gibt den erwarteten Gewinn der nächsten zwei Stunden an den Plan weiter. Für den Sonnenanteil wird die stündliche Vorhersage der Wetter-Entität benötigt; sinnvoll wird es nach einigen Tagen sauberer MPC-v2-Zyklen. Standardmäßig aus, solange die Vorhersage unerprobt ist; einschalten, sobald der Raum einen wiederkehrenden Tagesgewinn zeigt."
         }
       }
     },
@@ -228,6 +232,18 @@
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} übernimmt die Solltemperatur nicht",
       "description": "Better Thermostat schreibt die Solltemperatur {wanted} wiederholt an {entity}, aber das Thermostat meldet weiterhin {held}. Der Raum wird nicht so geheizt, wie Better Thermostat es vorsieht.\n\nHäufige Ursachen:\n- Das Thermostat hat eine eigene Sollwertgrenze unterhalb des Maximums, das es veröffentlicht, zum Beispiel `max_heat_setpoint_limit` in Zigbee2MQTT.\n- Das Thermostat ist in einem Modus oder Preset, in dem es Solltemperaturen ignoriert, etwa einem Zeitplanmodus.\n- Das Thermostat hat die Funkverbindung verloren oder die Batterie ist schwach.\n\nBetter Thermostat schreibt die Solltemperatur weiter, höchstens einmal pro Stunde. Dieser Hinweis verschwindet von selbst, sobald das Thermostat die Solltemperatur meldet."
+    },
+    "heating_supply_failure": {
+      "title": "BT: {name} - Ausfall der Wärmeversorgung erkannt",
+      "description": "Alle Heizkörperthermostate von {name} fordern seit längerer Zeit stark Wärme an, während der Raum unter der Solltemperatur bleibt und sich nicht erwärmt.\n\nPrüfe, ob Heizkessel, Wärmepumpe oder Umwälzpumpe eingeschaltet sind und Warmwasser liefern, und ob der Wasserdruck der Anlage ausreicht. Dieser Hinweis verschwindet von selbst, sobald der Raum wieder auf das Heizen reagiert."
+    },
+    "trv_no_heat_response": {
+      "title": "BT: {name} - {entity} gibt keine Wärme ab",
+      "description": "Das Heizkörperthermostat {entity} in {name} fordert seit längerer Zeit Wärme an, ohne den Raum zu erwärmen.\n\nPrüfe, ob der Heizkörper entlüftet werden muss, ob der Ventilstift unter {entity} klemmt und ob der Thermostatkopf fest sitzt. Dieser Hinweis verschwindet von selbst, sobald wieder eine Heizwirkung eintritt."
+    },
+    "valve_leak_detected": {
+      "title": "BT: {name} - undichtes oder offen klemmendes Ventil an {entity}",
+      "description": "Der Raum {name} erwärmt sich weiter über die Solltemperatur hinaus, obwohl {entity} geschlossen wurde und die Restwärme des Heizkörpers bereits abgeklungen ist.\n\nPrüfe die Montage des Thermostatkopfs, den Adapterring und den Ventilstift an {entity}, damit das Ventil vollständig schließen kann. Dieser Hinweis verschwindet von selbst, sobald die unerwartete Erwärmung endet."
     },
     "calibration_offset_at_limit": {
       "title": "BT: {name} - der Kalibrierungsversatz von {entity} bleibt an seiner Grenze",
@@ -422,6 +438,7 @@
               "hvac_off": "Thermostat aus",
               "window": "Fenster offen",
               "door": "Tür offen",
+              "suspected_window": "Vermutetes offenes Fenster",
               "no_call_for_heat": "Kein Heizbedarf"
             }
           },
@@ -435,6 +452,14 @@
             }
           }
         }
+      }
+    },
+    "binary_sensor": {
+      "heat_source_detected": {
+        "name": "Zusätzliche Wärmequelle erkannt"
+      },
+      "heat_loss_detected": {
+        "name": "Unerwarteter Wärmeverlust erkannt"
       }
     },
     "number": {
@@ -559,6 +584,12 @@
       },
       "window_detection": {
         "name": "Fenstererkennung"
+      },
+      "anomaly_detection": {
+        "name": "Anomalie-Erkennung"
+      },
+      "anomaly_suppression": {
+        "name": "Heizstopp bei vermutetem offenen Fenster"
       }
     },
     "sensor": {
@@ -572,7 +603,17 @@
           "degraded_mode_entered": "ist in den Notbetrieb gewechselt, da einige Sensoren nicht erreichbar sind",
           "degraded_mode_resolved": "hat den Notbetrieb beendet, da alle Sensoren wieder erreichbar sind",
           "door_open": "abgeschaltet, weil eine Tür geöffnet wurde",
-          "door_close": "heizt wieder, weil eine Tür geschlossen wurde"
+          "door_close": "heizt wieder, weil eine Tür geschlossen wurde",
+          "anomaly_heating_supply_failure": "hat einen Ausfall der Wärmeversorgung erkannt",
+          "anomaly_heating_supply_failure_resolved": "Ausfall der Wärmeversorgung behoben",
+          "anomaly_trv_no_heat_response": "hat keine Heizwirkung eines Heizkörperthermostats erkannt",
+          "anomaly_trv_no_heat_response_resolved": "Heizwirkung des Heizkörperthermostats wiederhergestellt",
+          "anomaly_valve_leak_detected": "hat ein undichtes oder offen klemmendes Heizkörperventil erkannt",
+          "anomaly_valve_leak_detected_resolved": "Undichtigkeit des Heizkörperventils behoben",
+          "anomaly_rapid_heat_loss": "hat schnellen Wärmeverlust erkannt (vermutetes offenes Fenster)",
+          "anomaly_rapid_heat_loss_resolved": "schneller Wärmeverlust beendet",
+          "anomaly_sustained_parasitic_loss": "hat anhaltend erhöhten Wärmeverlust erkannt",
+          "anomaly_sustained_parasitic_loss_resolved": "anhaltend erhöhter Wärmeverlust beendet"
         }
       },
       "external_temp_ema": {
@@ -610,6 +651,9 @@
       },
       "mpc_v2_disturbance": {
         "name": "MPC v2 Störgröße"
+      },
+      "mpc_v2_predicted_disturbance": {
+        "name": "MPC v2 Vorhergesagte Störgröße"
       },
       "mpc_v2_room_time_constant": {
         "name": "MPC v2 Raumzeitkonstante"

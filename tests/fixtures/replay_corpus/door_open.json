@@ -1,8 +1,10 @@
 {
   "desired": {
+    "anomalies": [],
     "call_for_heat": true,
     "devices_released": false,
     "heating_blocked_by": "door",
+    "trv_anomalies": {},
     "trvs": {
       "climate.trv1": {
         "calibration_offset": null,
@@ -39,6 +41,7 @@
     "room_temperature_filtered": null,
     "solar_intensity": 0.0,
     "temperature_slope": null,
+    "thermal_evidence": null,
     "tolerance": 0.3,
     "trvs": {
       "climate.trv1": {
@@ -50,9 +53,12 @@
         "max_temp": null,
         "min_local_calibration": null,
         "min_temp": null,
+        "raw_temperature": null,
+        "raw_temperature_slope_kelvin_per_min": null,
         "released": false,
         "setpoint": null,
-        "valve_max_opening": null
+        "valve_max_opening": null,
+        "valve_percent": null
       },
       "climate.trv2": {
         "available": true,
@@ -63,14 +69,38 @@
         "max_temp": null,
         "min_local_calibration": null,
         "min_temp": null,
+        "raw_temperature": null,
+        "raw_temperature_slope_kelvin_per_min": null,
         "released": false,
         "setpoint": null,
-        "valve_max_opening": null
+        "valve_max_opening": null,
+        "valve_percent": null
       }
     },
     "window_open": null
   },
   "state": {
+    "anomaly": {
+      "last_rapid_loss_monotonic": null,
+      "no_heat_delivery": {
+        "active_since": null,
+        "phase": "clear",
+        "since": null
+      },
+      "parasitic_loss": {
+        "active_since": null,
+        "phase": "clear",
+        "since": null
+      },
+      "rapid_loss": {
+        "active_since": null,
+        "phase": "clear",
+        "since": null
+      },
+      "trvs": {}
+    },
+    "anomaly_detection": false,
+    "anomaly_suppression": false,
     "control_mode": {
       "degraded_since": null,
       "mode": "optimal",
@@ -87,6 +117,7 @@
       "phase": "running"
     },
     "maintenance": {
+      "last_anomaly_run_monotonic": null,
       "next_due": "0001-01-01T00:00:00+00:00",
       "phase": "idle",
       "running_since": null

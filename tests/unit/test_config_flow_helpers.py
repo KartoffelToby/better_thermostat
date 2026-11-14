@@ -430,3 +430,16 @@ def test_only_stored_thermostats_with_an_entity_id_are_found():
     assert _stored_thermostats([found, {"trv": ""}, {"trv": 5}, "climate.b"]) == {
         "climate.a": found
     }
+
+
+def test_no_advanced_field_carries_a_validation_message_of_its_own():
+    """A field's error is voluptuous' own, not another field's name."""
+    fields = _build_advanced_fields(
+        sources=[{}],
+        default_calibration=CalibrationOutput.TARGET_TEMP_BASED,
+        homematic=False,
+        has_auto=False,
+        system_unit=UnitOfTemperature.CELSIUS,
+    )
+
+    assert {str(marker): marker.msg for marker in fields if marker.msg} == {}

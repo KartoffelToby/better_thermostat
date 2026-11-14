@@ -36,6 +36,11 @@ from custom_components.better_thermostat.core.desired import (
     Suppression,
     TrvDesired,
 )
+from custom_components.better_thermostat.core.fsm.anomaly import (
+    AnomalyState,
+    FaultPhase,
+    FaultSlot,
+)
 from custom_components.better_thermostat.core.fsm.lifecycle import (
     LifecyclePhase,
     LifecycleState,
@@ -216,6 +221,25 @@ DECISION_TABLE = (
     Rule(False,    False,    False, "other", "off",    ANY,      ANY,      True,     ROOM_MODE,    TARGET,   None,                          True,          False,    None),
 )
 # fmt: on
+
+
+def _suspected_window_inputs() -> tuple[WorldSnapshot, KernelState]:
+    """Return the inputs of the anomaly-driven window suppression tier."""
+    snapshot = make_snapshot(
+        now_monotonic=NOW_MONOTONIC,
+        heat_target_temperature=TARGET,
+        trvs={REACHABLE: TrvReported(entity_id=REACHABLE, available=True)},
+    )
+    state = make_state(
+        anomaly_detection=True,
+        anomaly_suppression=True,
+        anomaly=AnomalyState(
+            rapid_loss=FaultSlot(
+                phase=FaultPhase.ACTIVE, active_since=NOW_MONOTONIC - 10.0
+            )
+        ),
+    )
+    return snapshot, state
 
 
 @dataclass(frozen=True)
@@ -446,6 +470,8 @@ def test_every_block_rules_some_cell():
     cell reaches would be a documented value the thermostat never shows.
     """
     named = {decide(*cell.inputs())[0].heating_blocked_by for cell in ALL_CELLS}
+    suspected, _ = decide(*_suspected_window_inputs())
+    named.add(suspected.heating_blocked_by)
     assert named == {*HeatingBlock, None}
 
 
@@ -459,6 +485,12 @@ def test_a_suppressed_intent_names_its_block():
                 named.setdefault(intent.suppression, set()).add(
                     desired.heating_blocked_by
                 )
+    suspected, _ = decide(*_suspected_window_inputs())
+    for intent in suspected.trvs.values():
+        if intent.suppression is not None:
+            named.setdefault(intent.suppression, set()).add(
+                suspected.heating_blocked_by
+            )
     assert named == {
         suppression: {HeatingBlock(suppression.value)} for suppression in Suppression
     }

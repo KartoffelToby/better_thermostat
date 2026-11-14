@@ -65,7 +65,8 @@
           "calibration_mode": "Kalibrasyon modu",
           "no_off_system_mode": "'Kapalı' yerine minimum sıcaklığı kullan",
           "mpc_v2_plant_preset": "MPC v2 oda boyutu",
-          "keep_sensor_selection": "TRV'nin sensör seçimini koru"
+          "keep_sensor_selection": "TRV'nin sensör seçimini koru",
+          "predictive_disturbance": "Öngörülü bozucu öğrenimi"
         },
         "data_description": {
           "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
@@ -77,7 +78,8 @@
           "calibration_mode": "Kalibrasyonun nasıl hesaplanacağı\n***Zamana dayalı yapay zekâ (varsayılan)***: Odanızın ısıtma gücünü zamanla öğrenir ve kalibrasyonu buradan türetir.\n***Yalnızca harici sensör ofseti***: TRV'nin dahili sensörünü harici sıcaklık sensörünüzle düzeltir. Üzerinde ek bir denetleyici çalışmaz.\n***MPC öngörülü (beta)***: Oda sıcaklığını tahmin eder ve buradan bir vana açıklığı hesaplar. Odanızın ısıl davranışını öğrenir.\n***(Yapay zekâ) MPC v2 (QP + Kalman, deneysel)***: Odanın durumunu bir Kalman filtresiyle tahmin eder ve model öngörülü bir denetleyiciyle vana açıklığını hesaplar. MPC v2 oda boyutu ayarı oda modelini seçer: odadan öğrenilen (Otomatik) veya bir oda boyutu için sabit (küçük, orta, büyük).\n***Agresif***: Oda ısınırken kalibrasyona bir artış ekler ve tolerans gecikmesini atlar, böylece TRV ısıtmaya daha erken başlar. Odanız yavaş ısınıyorsa kullanışlıdır.\n***TPI denetleyici***: Isıtma döngülerinin açık kalma süresini sıcaklık farkından hesaplar.\n***PID denetleyici***: Oransal, integral ve türev terimleriyle sıcaklık hatasından bir vana açıklığı hesaplar.\n***Kalibrasyon yok***: Hedef sıcaklığı TRV'ye değiştirmeden gönderir ve düzeltme uygulamaz.",
           "no_off_system_mode": "Bu seçenekle Better Thermostat, TRV'ye 'kapalı' yerine minimum sıcaklığını gönderir. Minimum sıcaklığını bildiren bir TRV kapalı sayılır: odadaki tüm TRV'ler kapalıysa oda kapanır, bir düğme yukarı çevrildiğinde yeniden açılır. Bir pencere veya kapı açıkken yapılan çevirme de sayılır; ısıtma bu durumda tüm pencereler ve kapılar kapanana kadar bekler. Kapalı modu olmayan bir TRV, bu seçenek olmadan da minimum sıcaklığını alır. Kapalı modu çalışmayan bir TRV için ya da düğmesi Better Thermostat'ı açıp kapatması gereken, kapalı modu olmayan bir TRV için etkinleştirin.",
           "mpc_v2_plant_preset": "Yalnızca MPC v2 kalibrasyon modu tarafından kullanılır.\n***Otomatik***: Oda modelini Better Thermostat'ın oda hakkında öğrendiklerinden, örneğin ısı kaybı oranından türetir.\n***Küçük, orta veya büyük oda***: O oda boyutu için sabit bir oda modelinden başlar.",
-          "keep_sensor_selection": "Harici bir sıcaklığa göre düzenleme yapabilen TRV'ler için (Sonoff TRVZB ve TRV-ZBT, Aqara SRTS-A01). Kapalı: Better Thermostat, TRV'yi yazdığı harici sıcaklığa geçirir; sıfırlama veya yeniden eşleştirmeden sonra da. Açık: TRV'de seçtiğiniz sensör seçili kalır ve oda sıcaklığı harici girişe yazılmaya devam eder. Kendi sensörüne geri dönen bir TRV bu durumda geri değiştirilmez."
+          "keep_sensor_selection": "Harici bir sıcaklığa göre düzenleme yapabilen TRV'ler için (Sonoff TRVZB ve TRV-ZBT, Aqara SRTS-A01). Kapalı: Better Thermostat, TRV'yi yazdığı harici sıcaklığa geçirir; sıfırlama veya yeniden eşleştirmeden sonra da. Açık: TRV'de seçtiğiniz sensör seçili kalır ve oda sıcaklığı harici girişe yazılmaya devam eder. Kendi sensörüne geri dönen bir TRV bu durumda geri değiştirilmez.",
+          "predictive_disturbance": "Kapalı: MPC v2 ufku yalnızca mevcut bozucu tahminiyle planlar. Açık: Better Thermostat yarım saatlik kovalarda tekrarlayan ısı kazançlarını (varlık, yemek pişirme, güneş) öğrenir ve önümüzdeki iki saatin beklenen kazancını plana verir. Güneş kısmı için hava durumu varlığının saatlik tahminini ve faydalı olması için birkaç gün temiz MPC v2 döngüsü gerekir. Tahmin kanıtlanana kadar varsayılan olarak kapalıdır; odanızda tekrarlayan gündüz kazancı görüldüğünde açın."
         }
       },
       "confirm": {
@@ -171,7 +173,8 @@
           "calibration_mode": "Kalibrasyon modu",
           "no_off_system_mode": "'Kapalı' yerine minimum sıcaklığı kullan",
           "mpc_v2_plant_preset": "MPC v2 oda boyutu",
-          "keep_sensor_selection": "TRV'nin sensör seçimini koru"
+          "keep_sensor_selection": "TRV'nin sensör seçimini koru",
+          "predictive_disturbance": "Öngörülü bozucu öğrenimi"
         },
         "data_description": {
           "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
@@ -183,7 +186,8 @@
           "calibration_mode": "Kalibrasyonun nasıl hesaplanacağı\n***Zamana dayalı yapay zekâ (varsayılan)***: Odanızın ısıtma gücünü zamanla öğrenir ve kalibrasyonu buradan türetir.\n***Yalnızca harici sensör ofseti***: TRV'nin dahili sensörünü harici sıcaklık sensörünüzle düzeltir. Üzerinde ek bir denetleyici çalışmaz.\n***MPC öngörülü (beta)***: Oda sıcaklığını tahmin eder ve buradan bir vana açıklığı hesaplar. Odanızın ısıl davranışını öğrenir.\n***(Yapay zekâ) MPC v2 (QP + Kalman, deneysel)***: Odanın durumunu bir Kalman filtresiyle tahmin eder ve model öngörülü bir denetleyiciyle vana açıklığını hesaplar. MPC v2 oda boyutu ayarı oda modelini seçer: odadan öğrenilen (Otomatik) veya bir oda boyutu için sabit (küçük, orta, büyük).\n***Agresif***: Oda ısınırken kalibrasyona bir artış ekler ve tolerans gecikmesini atlar, böylece TRV ısıtmaya daha erken başlar. Odanız yavaş ısınıyorsa kullanışlıdır.\n***TPI denetleyici***: Isıtma döngülerinin açık kalma süresini sıcaklık farkından hesaplar.\n***PID denetleyici***: Oransal, integral ve türev terimleriyle sıcaklık hatasından bir vana açıklığı hesaplar.\n***Kalibrasyon yok***: Hedef sıcaklığı TRV'ye değiştirmeden gönderir ve düzeltme uygulamaz.",
           "no_off_system_mode": "Bu seçenekle Better Thermostat, TRV'ye 'kapalı' yerine minimum sıcaklığını gönderir. Minimum sıcaklığını bildiren bir TRV kapalı sayılır: odadaki tüm TRV'ler kapalıysa oda kapanır, bir düğme yukarı çevrildiğinde yeniden açılır. Bir pencere veya kapı açıkken yapılan çevirme de sayılır; ısıtma bu durumda tüm pencereler ve kapılar kapanana kadar bekler. Kapalı modu olmayan bir TRV, bu seçenek olmadan da minimum sıcaklığını alır. Kapalı modu çalışmayan bir TRV için ya da düğmesi Better Thermostat'ı açıp kapatması gereken, kapalı modu olmayan bir TRV için etkinleştirin.",
           "mpc_v2_plant_preset": "Yalnızca MPC v2 kalibrasyon modu tarafından kullanılır.\n***Otomatik***: Oda modelini Better Thermostat'ın oda hakkında öğrendiklerinden, örneğin ısı kaybı oranından türetir.\n***Küçük, orta veya büyük oda***: O oda boyutu için sabit bir oda modelinden başlar.",
-          "keep_sensor_selection": "Harici bir sıcaklığa göre düzenleme yapabilen TRV'ler için (Sonoff TRVZB ve TRV-ZBT, Aqara SRTS-A01). Kapalı: Better Thermostat, TRV'yi yazdığı harici sıcaklığa geçirir; sıfırlama veya yeniden eşleştirmeden sonra da. Açık: TRV'de seçtiğiniz sensör seçili kalır ve oda sıcaklığı harici girişe yazılmaya devam eder. Kendi sensörüne geri dönen bir TRV bu durumda geri değiştirilmez."
+          "keep_sensor_selection": "Harici bir sıcaklığa göre düzenleme yapabilen TRV'ler için (Sonoff TRVZB ve TRV-ZBT, Aqara SRTS-A01). Kapalı: Better Thermostat, TRV'yi yazdığı harici sıcaklığa geçirir; sıfırlama veya yeniden eşleştirmeden sonra da. Açık: TRV'de seçtiğiniz sensör seçili kalır ve oda sıcaklığı harici girişe yazılmaya devam eder. Kendi sensörüne geri dönen bir TRV bu durumda geri değiştirilmez.",
+          "predictive_disturbance": "Kapalı: MPC v2 ufku yalnızca mevcut bozucu tahminiyle planlar. Açık: Better Thermostat yarım saatlik kovalarda tekrarlayan ısı kazançlarını (varlık, yemek pişirme, güneş) öğrenir ve önümüzdeki iki saatin beklenen kazancını plana verir. Güneş kısmı için hava durumu varlığının saatlik tahminini ve faydalı olması için birkaç gün temiz MPC v2 döngüsü gerekir. Tahmin kanıtlanana kadar varsayılan olarak kapalıdır; odanızda tekrarlayan gündüz kazancı görüldüğünde açın."
         }
       }
     },
@@ -228,6 +232,18 @@
     "setpoint_not_applied": {
       "title": "BT: {name} - {entity} hedef sıcaklığı almıyor",
       "description": "Better Thermostat hedef sıcaklık {wanted} değerini {entity} cihazına tekrar tekrar yazıyor, ancak termostat hâlâ {held} bildiriyor. Oda, Better Thermostat'un amaçladığı şekilde ısıtılmıyor.\n\nYaygın nedenler:\n- Termostatın, yayımladığı maksimumun altında kendi ayar noktası sınırı vardır, örneğin Zigbee2MQTT'deki `max_heat_setpoint_limit`.\n- Termostat, hedef sıcaklıkları yok saydığı bir mod veya ön ayardadır, örneğin bir program modu.\n- Termostat radyo bağlantısını kaybetmiş veya pili zayıftır.\n\nBetter Thermostat hedef sıcaklığı yazmaya devam eder, en fazla saatte bir kez. Termostat hedef sıcaklığı bildirdiğinde bu sorun kendiliğinden kaybolur."
+    },
+    "heating_supply_failure": {
+      "title": "BT: {name} - heating supply failure detected",
+      "description": "All radiator thermostats of {name} have been commanding significant heat for an extended period while the room remains below target temperature and fails to warm.\n\nCheck whether your boiler, heat pump, or circulation pump is switched on and supplying hot water, and verify that system water pressure is sufficient. This issue clears itself once the room responds to heating again."
+    },
+    "trv_no_heat_response": {
+      "title": "BT: {name} - {entity} is not producing heat",
+      "description": "The radiator thermostat {entity} in {name} has been commanding heat for an extended period without warming the room.\n\nCheck whether the radiator needs bleeding, whether the mechanical valve pin beneath {entity} is stuck closed, and whether the thermostat head is firmly mounted. This issue clears itself once heating response returns."
+    },
+    "valve_leak_detected": {
+      "title": "BT: {name} - leaking or stuck-open valve on {entity}",
+      "description": "The room {name} continues to warm above target temperature even though {entity} has been commanded closed and residual radiator heat has already dissipated.\n\nInspect the thermostat head mounting, adapter ring, and valve pin on {entity} to ensure the valve can close completely. This issue clears itself once the unexpected warming stops."
     },
     "calibration_offset_at_limit": {
       "title": "BT: {name} - {entity} kalibrasyon ofseti sınırında kalıyor",
@@ -422,6 +438,7 @@
               "hvac_off": "Termostat kapalı",
               "window": "Pencere açık",
               "door": "Kapı açık",
+              "suspected_window": "Açık olduğundan şüphelenilen pencere",
               "no_call_for_heat": "Isı talebi yok"
             }
           },
@@ -435,6 +452,14 @@
             }
           }
         }
+      }
+    },
+    "binary_sensor": {
+      "heat_source_detected": {
+        "name": "Ek bir ısı kaynağı algılandı"
+      },
+      "heat_loss_detected": {
+        "name": "Beklenmeyen ısı kaybı algılandı"
       }
     },
     "number": {
@@ -559,6 +584,12 @@
       },
       "window_detection": {
         "name": "Pencere algılama"
+      },
+      "anomaly_detection": {
+        "name": "Anomali algılama"
+      },
+      "anomaly_suppression": {
+        "name": "Şüpheli açık pencerede ısıtmayı durdurma"
       }
     },
     "sensor": {
@@ -572,7 +603,17 @@
           "degraded_mode_entered": "bazı sensörler kullanılamadığı için kısıtlı moda girildi",
           "degraded_mode_resolved": "tüm sensörler kullanılabilir olduğu için kısıtlı moddan çıkıldı",
           "door_open": "turned off because a door was opened",
-          "door_close": "resumed heating because a door was closed"
+          "door_close": "resumed heating because a door was closed",
+          "anomaly_heating_supply_failure": "detected a heating supply failure",
+          "anomaly_heating_supply_failure_resolved": "heating supply failure resolved",
+          "anomaly_trv_no_heat_response": "detected no heating response from a radiator thermostat",
+          "anomaly_trv_no_heat_response_resolved": "radiator thermostat heating response restored",
+          "anomaly_valve_leak_detected": "detected a leaking or stuck-open radiator valve",
+          "anomaly_valve_leak_detected_resolved": "radiator valve leak resolved",
+          "anomaly_rapid_heat_loss": "detected rapid heat loss (suspected open window)",
+          "anomaly_rapid_heat_loss_resolved": "rapid heat loss ended",
+          "anomaly_sustained_parasitic_loss": "detected sustained elevated heat loss",
+          "anomaly_sustained_parasitic_loss_resolved": "sustained elevated heat loss ended"
         }
       },
       "external_temp_ema": {
@@ -610,6 +651,9 @@
       },
       "mpc_v2_disturbance": {
         "name": "MPC v2 bozucu etki"
+      },
+      "mpc_v2_predicted_disturbance": {
+        "name": "MPC v2 Öngörülen bozucu etki"
       },
       "mpc_v2_room_time_constant": {
         "name": "MPC v2 oda zaman sabiti"

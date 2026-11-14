@@ -156,8 +156,13 @@ class KalmanObserver:
         # Room/radiator seed in °C — a neutral indoor guess; the first
         # measurement pulls the room state in immediately given the tight P0.
         self.x_hat = np.array([20.0, 20.0])
-        # Estimated disturbance rate on the room (K/min).
+        # Estimated disturbance rate on the room (K/min), and its unclipped value.
         self.disturbance_K_per_min: float = 0.0
+        self.unbounded_disturbance_K_per_min: float = 0.0
+        # Latest observation innovation, its variance S, and (y - y_hat) / sqrt(S).
+        self.last_innovation: float = 0.0
+        self.last_innovation_variance: float = 0.0
+        self.normalised_innovation: float = 0.0
         self.Q = np.diag([params.q_room, params.q_rad, params.q_disturbance])
         self.R = np.array([[params.r_sensor]])
 
@@ -170,6 +175,10 @@ class KalmanObserver:
         x = np.asarray(x0, dtype=float).copy()
         self.x_hat = x[:_PLANT_DIM]
         self.disturbance_K_per_min = 0.0
+        self.unbounded_disturbance_K_per_min = 0.0
+        self.last_innovation = 0.0
+        self.last_innovation_variance = 0.0
+        self.normalised_innovation = 0.0
         # Re-seed covariance (°C²): the room channel stays tight (0.01) since
         # ``x0`` carries a measured room temperature; the radiator channel gets
         # a moderate 0.5 prior because the seed there is only an estimate.
@@ -180,7 +189,9 @@ class KalmanObserver:
 
     def restore_disturbance(self, rate_K_per_min: float) -> None:
         """Adopt a persisted disturbance rate, bounded like every estimate."""
-        self.disturbance_K_per_min = self._bounded(rate_K_per_min)
+        bounded = self._bounded(rate_K_per_min)
+        self.disturbance_K_per_min = bounded
+        self.unbounded_disturbance_K_per_min = bounded
 
     def update(
         self,
@@ -250,6 +261,9 @@ class KalmanObserver:
         # cannot blow up.
         s = max(float(P_pred[0, 0] + self.R[0, 0]), 1e-12)
         shift, variance = self._reading_moments(y_meas, y_pred, s, band_K)
+        self.last_innovation = shift
+        self.last_innovation_variance = s
+        self.normalised_innovation = shift / math.sqrt(s)
         gain = P_pred[:, 0] / s
         x_new = x_pred + gain * shift
         # ``P_pred − P_pred·Cᵀ·C·P_pred·(S − v)/S²`` is symmetric in exact
@@ -261,7 +275,9 @@ class KalmanObserver:
             P_pred - np.outer(P_pred[:, 0], P_pred[:, 0]) * (s - variance) / (s * s)
         )
         self.x_hat = x_new[:_PLANT_DIM].copy()
-        self.disturbance_K_per_min = self._bounded(float(x_new[_DISTURBANCE]))
+        unbounded_disturbance = float(x_new[_DISTURBANCE])
+        self.unbounded_disturbance_K_per_min = unbounded_disturbance
+        self.disturbance_K_per_min = self._bounded(unbounded_disturbance)
         return self.x_hat.copy()
 
     @staticmethod

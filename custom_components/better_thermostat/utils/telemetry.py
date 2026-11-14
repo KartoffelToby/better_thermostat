@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 import json
 import logging
-from typing import Literal, Protocol, TypedDict
+from typing import Literal, NotRequired, Protocol, TypedDict
 
 from custom_components.better_thermostat.utils.calibration.mpc import MpcDebugInfo
 from custom_components.better_thermostat.utils.calibration.pid import PIDDebugInfo
@@ -77,6 +77,10 @@ MpcV2BalanceDebugInfo = TypedDict(  # noqa: UP013
         "D_hat_K_per_min": float,
         "tau_room_min": float,
         "coupling_rad_room": float,
+        "normalised_innovation": float,
+        "disturbance_at_bound": bool,
+        "unbounded_D_hat_K_per_min": float,
+        "predicted_disturbance_kelvin_per_min": NotRequired[float | None],
         "group_valve_pct": float,
         "distributed_valve_pct": float,
         "controller_version": Literal["v2"],

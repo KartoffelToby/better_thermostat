@@ -130,7 +130,7 @@ Still unsure? Run the **[Interactive Configurator](/setup/configurator/)** for a
   - Turn on the **`Pause Learning`** switch while a wood stove/fireplace burns or while your boiler stops radiator flow for domestic hot water ([Pausing learning](/setup/pause-learning/)).
   - If you relocate your room sensor, bleed a previously air-locked radiator, or change your boiler's flow temperature, reset the learned speed via **Developer Tools → Actions → `better_thermostat.reset_heating_power`**.
 
----
+Its estimates show up in the *MPC v2 Virtual Temperature*, *MPC v2 Coupling*, *MPC v2 Disturbance*, *MPC v2 Predicted Disturbance* and *MPC v2 Room Time Constant* sensors. They start disabled on new installations; see [Entities](/setup/entities/#mpc-v2).
 
 ### 2. `TPI Controller` *(Time-Proportional-Integral)*
 

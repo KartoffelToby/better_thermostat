@@ -107,6 +107,7 @@ class MpcV2Adapter(ControlCycleGate):
             window_open=ctx.window_open,
             heating_allowed=True,
             applied_valve_percent=ctx.last_valve_percent,
+            learning_paused=ctx.learning_paused,
             bt_name="benchmark",
             entity_id="bench_trv",
         )

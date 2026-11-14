@@ -7,6 +7,7 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.calibration import _compute_mpc_balance
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcState,
     build_mpc_group_key,
@@ -38,6 +39,7 @@ def _make_bt(state_mgr: _MpcStateStub) -> ThermostatStandIn:
     """Return a BetterThermostat mock wired for a single heating TRV."""
     bt = ThermostatStandIn()
     bt.kernel_state = make_state()
+    bt.clock = FakeClock()
     bt.device_name = "Test BT"
     bt.unique_id = "uid"
     bt.heat_target_temperature = 22.0

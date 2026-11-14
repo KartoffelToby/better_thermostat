@@ -34,6 +34,9 @@ from homeassistant.util.json import json_loads
 import pytest
 from pytest_homeassistant.common import async_fire_time_changed
 
+from custom_components.better_thermostat.utils.calibration.disturbance_profile import (
+    DisturbanceProfile,
+)
 from custom_components.better_thermostat.utils.calibration.mpc import TrvProfile
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Params,
@@ -1990,6 +1993,17 @@ class TestResetPidStates:
         assert mgr.dirty is False
 
 
+def test_a_stored_disturbance_profile_is_read_back_and_a_new_key_starts_empty():
+    mgr = _make_manager()
+    profile = DisturbanceProfile(last_learned_ts=42.0)
+
+    mgr.set_disturbance_profile("room", profile)
+
+    assert mgr.get_disturbance_profile("room") == profile
+    assert mgr.get_disturbance_profile("other") == DisturbanceProfile()
+    assert mgr.dirty is True
+
+
 def _manager_with_every_section(entity_id: str) -> StateManager:
     """Return a manager holding one entry for ``entity_id`` in every section."""
     mgr = _make_manager()
@@ -1999,6 +2013,7 @@ def _manager_with_every_section(entity_id: str) -> StateManager:
     mgr.state.mpc_v2_reid[key] = MpcV2ReidData(gain_heater=0.02)
     mgr.set_pid(key, PIDState(pid_kp=77.0))
     mgr.set_tpi(key, TpiState(last_percent=35.0))
+    mgr.set_disturbance_profile(key, DisturbanceProfile(last_learned_ts=1.0))
     mgr.set_mpc_v2_live(key, MpcV2State())
     mgr.get_mpc_v2_reid_runtime(key)
     return mgr
@@ -2011,6 +2026,7 @@ def _sections(mgr: StateManager) -> list[dict[str, object]]:
         dict(mgr.state.mpc_v2_reid),
         dict(mgr.state.pid),
         dict(mgr.state.tpi),
+        dict(mgr.state.disturbance_profile),
         dict(mgr._mpc_v2_live),
         dict(mgr._mpc_v2_reid_live),
     ]
@@ -2025,10 +2041,10 @@ class TestMoveThermostat:
 
         moved = mgr.move_thermostat("climate.old", "climate.new")
 
-        assert moved == 7
+        assert moved == 8
         assert [set(section) for section in _sections(mgr)] == [
             {"uid:climate.new:t21.0"}
-        ] * 7
+        ] * 8
         assert mgr.state.pid["uid:climate.new:t21.0"].pid_kp == 77.0
         assert mgr.dirty is True
 
@@ -2084,8 +2100,8 @@ class TestForgetThermostatsExcept:
 
         dropped = mgr.forget_thermostats_except(["climate.kept"])
 
-        assert dropped == 7
-        assert _sections(mgr) == [{}] * 7
+        assert dropped == 8
+        assert _sections(mgr) == [{}] * 8
         assert mgr.dirty is True
 
     def test_configured_thermostats_the_room_and_shared_keys_stay(self):

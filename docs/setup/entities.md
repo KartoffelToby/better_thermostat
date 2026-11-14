@@ -115,6 +115,17 @@ These sensors exist for every device.
 | Heating Power | K/min | How fast the room warms up while it heats, as learned from past heating cycles. |
 | Heat Loss | K/min | How fast the room cools down while it does not heat, as learned from past idle periods. |
 
+## Binary sensors
+
+These sensors exist for every device. They need the MPC v2 calibration mode: without it nothing measures the room's heat balance, and the sensors stay unavailable.
+
+| Sensor | What it shows |
+| --- | --- |
+| Additional heat source detected | On while the room gains heat that the radiator does not explain: the sun through the window, a lit fireplace, an open door to a warmer room. |
+| Unexpected heat loss detected | On while the room loses heat that the radiator does not explain: an open window, a draught, a cold wall. |
+
+The MPC v2 observer measures both against the room's own baseline, so a heat source that has been there for days is part of that baseline and no longer counts as a finding. One that appears now is reported until the baseline has caught up with it.
+
 ## Algorithm sensors
 
 These sensors show the internal values of a calibration algorithm. They exist only while at least one TRV of the device uses that algorithm, and switching the last TRV away from it removes them. There is one set per device; with several TRVs on the same algorithm, the sensor shows the value of the first TRV that reports one. While a window or door is open, the thermostat is off or Better Thermostat itself is unavailable, they are unavailable.
@@ -137,6 +148,7 @@ On new installations these sensors start disabled. Enable the ones you want to w
 | MPC v2 Virtual Temperature | system temperature unit | The room temperature the MPC v2 observer estimates from the sensor readings and its room model. |
 | MPC v2 Coupling | none | How strongly the radiator heats the room, relative to how strongly the room loses heat to the outside. The room model starts at 1. |
 | MPC v2 Disturbance | K/min | Heat the room model does not explain, such as sun, people or cooking. Positive values mean extra heat, negative values extra loss. |
+| MPC v2 Predicted Disturbance | K/min | The gain the learned disturbance profile expects for the current step, including the solar part from the weather forecast. Empty while *Predictive disturbance learning* is off. |
 | MPC v2 Room Time Constant | min | How slowly the room follows a change in heating. A larger room, or one that holds its heat better, has a longer time constant. The *MPC v2 room size* option sets where it starts. |
 
 ### PID Controller

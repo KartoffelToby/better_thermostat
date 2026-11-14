@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import replace
+from datetime import datetime
 import logging
 import math
 from types import MappingProxyType
@@ -13,6 +14,7 @@ from typing import TYPE_CHECKING, Final
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.core.decide import suspected_window_suppresses
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
@@ -20,6 +22,9 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     local_calibration_shifts_setpoint,
 )
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
+from custom_components.better_thermostat.utils.calibration.disturbance_forecast import (
+    clear_sky_at,
+)
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcOutput,
@@ -39,6 +44,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     ReidSample,
     compute_mpc_v2,
     make_plant_prior,
+    predictive_qp_params,
     run_reid_fit,
 )
 from custom_components.better_thermostat.utils.calibration.pid import (
@@ -77,6 +83,7 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_MPC_V2_PLANT_PRESET,
+    CONF_PREDICTIVE_DISTURBANCE,
     CONF_PROTECT_OVERHEATING,
     CalibrationMode,
     CalibrationOutput,
@@ -93,6 +100,7 @@ from custom_components.better_thermostat.utils.helpers import (
     heating_power_valve_position,
     normalize_step,
     published_setpoint_grid,
+    room_option_source,
     round_by_step,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidData
@@ -421,6 +429,13 @@ def _trv_share_percent(
     return min(share, _get_trv_max_opening(self, entity_id))
 
 
+def _window_suppresses_heating(self: BetterThermostat) -> bool:
+    """Return whether a physical or suspected open window suppresses heating."""
+    return self.contact_open or suspected_window_suppresses(
+        self.kernel_state, self.clock.monotonic()
+    )
+
+
 def _compute_mpc_balance(
     self: BetterThermostat, entity_id: str
 ) -> tuple[MpcOutput | None, bool]:
@@ -488,7 +503,7 @@ def _compute_mpc_balance(
                 trv_temperature=trv_state.current_temperature,
                 tolerance_K=self.tolerance,
                 temperature_slope_K_per_min=self.temperature_slope,
-                window_open=self.contact_open,
+                window_open=_window_suppresses_heating(self),
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
@@ -826,6 +841,51 @@ def _maybe_start_mpc_v2_reid_fit(
     future.add_done_callback(_on_fit_done)
 
 
+def _learn_disturbance_profile(
+    self: BetterThermostat, key: str, diagnostics: object, now_wall: object
+) -> None:
+    """Fold this plan's disturbance estimate into the room's learned profile.
+
+    Learning is gated on a plan that actually heated: an open window, a
+    released device or a paused learner makes the disturbance estimate
+    describe a room the controller was not driving. The observation also
+    teaches nothing when the estimate sits on its bound, where it is clipped
+    rather than measured. A profile learns at most once a minute, so a
+    multi-TRV group stepping the shared controller once does not count the
+    same reading once per TRV.
+    """
+    if self.learning_held or self.heating_blocked_by is not None:
+        return
+    if self.kernel_state.control_mode.mode != ControlMode.OPTIMAL:
+        return
+    disturbance = getattr(diagnostics, "D_hat_K_per_min", 0.0)
+    if getattr(diagnostics, "disturbance_at_bound", True) or not math.isfinite(
+        disturbance
+    ):
+        return
+    if not isinstance(now_wall, datetime):
+        return
+    now_ts = now_wall.timestamp()
+    profile = self.state_mgr.get_disturbance_profile(key)
+    if profile.last_learned_ts is not None and now_ts - profile.last_learned_ts < 60:
+        return
+    is_day, _ = _get_solar_context(self)
+    factor = clear_sky_at(getattr(self, "hourly_forecast", None) or (), now_ts)
+    self.state_mgr.set_disturbance_profile(
+        key,
+        profile.learn(
+            now_ts=now_ts,
+            weekday=now_wall.weekday(),
+            month=now_wall.month,
+            hour=now_wall.hour,
+            minute=now_wall.minute,
+            disturbance_kelvin_per_min=disturbance,
+            clear_sky_factor=factor,
+            is_day=is_day,
+        ),
+    )
+
+
 def _compute_mpc_v2_balance(
     self: BetterThermostat, entity_id: str
 ) -> tuple[MpcV2Output | None, bool]:
@@ -864,8 +924,9 @@ def _compute_mpc_v2_balance(
     # TRV by entity_id) rather than whichever TRV is currently being
     # dispatched, otherwise mixed per-TRV settings re-parameterize the shared
     # controller.
-    preset_source_id = min(self.real_trvs) if is_multi_trv else entity_id
+    preset_source_id = room_option_source(self.real_trvs) if is_multi_trv else entity_id
     advanced = self.real_trvs[preset_source_id].advanced
+    predictive_disturbance = advanced_flag(advanced, CONF_PREDICTIVE_DISTURBANCE, False)
     preset_raw = advanced.get(CONF_MPC_V2_PLANT_PRESET, MpcV2PlantPreset.AUTO)
     try:
         preset = MpcV2PlantPreset(preset_raw)
@@ -892,7 +953,14 @@ def _compute_mpc_v2_balance(
             heat_loss_rate=self.heat_loss_rate,
             preset=preset,
         )
-    v2_params = MpcV2Params(plant=plant_prior)
+    # Only a room that plans with its predicted gains takes the longer
+    # horizon they need; an options change reloads the entry, so the
+    # controller is built on the horizon its room has.
+    v2_params = (
+        MpcV2Params(plant=plant_prior, qp=predictive_qp_params())
+        if predictive_disturbance
+        else MpcV2Params(plant=plant_prior)
+    )
 
     outdoor_temperature = _get_current_outdoor_temperature(self)
     # The single-TRV path has one physical input.  A group controller's
@@ -931,7 +999,7 @@ def _compute_mpc_v2_balance(
                     target_temperature=self.heat_target_temperature,
                     room_temperature=mpc_room_temperature,
                     trv_temperature=trv_state.current_temperature,
-                    window_open=self.contact_open,
+                    window_open=_window_suppresses_heating(self),
                     heating_allowed=True,
                     bt_name=self.device_name,
                     entity_id=entity_id,
@@ -943,12 +1011,47 @@ def _compute_mpc_v2_balance(
                         self.kernel_state.control_mode.mode
                         == ControlMode.SENSOR_FALLBACK
                     ),
+                    disturbance_profile=(
+                        state_mgr.get_disturbance_profile(mpc_key)
+                        if predictive_disturbance
+                        else None
+                    ),
+                    hourly_forecast=(
+                        getattr(self, "hourly_forecast", None) or ()
+                        if predictive_disturbance
+                        else ()
+                    ),
+                    now_wall=self.clock.now() if predictive_disturbance else None,
                 ),
                 v2_params,
                 state=mpc_v2_state,
             )
             mpc_v2_state.stepped_cycle = cycle
             mpc_v2_state.cycle_output = mpc_output
+            if mpc_output is not None:
+                if predictive_disturbance:
+                    _learn_disturbance_profile(
+                        self, mpc_key, mpc_output.diagnostics, self.clock.now()
+                    )
+                diag = mpc_output.diagnostics
+                self.anomaly_evidence.record_mpc_v2_diagnostics(
+                    now_monotonic=self.clock.monotonic(),
+                    room_temperature_hat=diag.T_room_hat,
+                    radiator_temperature_hat=diag.T_rad_hat,
+                    disturbance_kelvin_per_min=diag.D_hat_K_per_min,
+                    disturbance_at_bound=diag.disturbance_at_bound,
+                    normalised_innovation=diag.normalised_innovation,
+                    room_time_constant_minutes=diag.tau_room_min,
+                    # The coupling is the dimensionless ratio of the two
+                    # resistances; the tracker reads rates per minute, both
+                    # on the room time constant the controller plans with.
+                    k_rad_room_per_min=diag.coupling_rad_room
+                    / max(diag.tau_room_min, 1.0),
+                    k_loss_per_min=1.0 / max(diag.tau_room_min, 1.0),
+                    learning_held=self.learning_held,
+                    room_temperature=self.room_temperature,
+                    contact_open=self.contact_open,
+                )
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: MPC v2 compute failed for %s: %s",
@@ -991,6 +1094,12 @@ def _compute_mpc_v2_balance(
             "D_hat_K_per_min": diagnostics.D_hat_K_per_min,
             "tau_room_min": diagnostics.tau_room_min,
             "coupling_rad_room": diagnostics.coupling_rad_room,
+            "normalised_innovation": diagnostics.normalised_innovation,
+            "disturbance_at_bound": diagnostics.disturbance_at_bound,
+            "unbounded_D_hat_K_per_min": diagnostics.unbounded_D_hat_K_per_min,
+            "predicted_disturbance_kelvin_per_min": (
+                diagnostics.predicted_disturbance_kelvin_per_min
+            ),
             "group_valve_pct": group_valve_percent,
             "distributed_valve_pct": this_trv_percent,
             "controller_version": "v2",
@@ -1039,7 +1148,7 @@ def _compute_tpi_balance(
                 room_temperature=_room_temperature,
                 target_temperature=self.heat_target_temperature,
                 outdoor_temperature=_get_current_outdoor_temperature(self),
-                window_open=self.contact_open,
+                window_open=_window_suppresses_heating(self),
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
@@ -1088,7 +1197,7 @@ def _compute_pid_balance(
 
     state_mgr = self.state_mgr
 
-    if self.contact_open is True or self.bt_hvac_mode == HVACMode.OFF:
+    if _window_suppresses_heating(self) or self.bt_hvac_mode == HVACMode.OFF:
         # Standby: no actuation, but the measurement chain keeps
         # following the room so control resumes bump-free (the first
         # post-standby cycle sees a fresh measurement and a small dt

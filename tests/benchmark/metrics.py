@@ -24,6 +24,7 @@ class TimeSeries:
     # (the radiator term of dT_room/dt), so energy follows the plant and
     # not the command.
     heat_to_room_K_per_min: Sequence[float]
+    anomalies: Sequence[tuple[str, ...]] = ()
 
     def __post_init__(self) -> None:
         """Validate the parallel-array invariants every metric relies on.

@@ -121,6 +121,7 @@ class MpcAdapter(ControlCycleGate):
                 window_open=ctx.window_open,
                 solar_intensity=ctx.solar_intensity,
                 heating_allowed=True,
+                learning_paused=ctx.learning_paused,
                 bt_name="benchmark",
                 entity_id="bench_trv",
             )

@@ -55,6 +55,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
+from .calibration.disturbance_profile import DisturbanceProfile
 from .calibration.mpc import MpcState, TrvProfile
 from .calibration.mpc_v2 import (
     MpcV2Params,
@@ -77,6 +78,7 @@ from .const import (
     MIN_HEATING_POWER,
 )
 from .stored_state import (
+    StoredDisturbanceProfile,
     StoredFilterState,
     StoredMpcState,
     StoredMpcV2Reid,
@@ -218,6 +220,7 @@ class RuntimeState:
     mpc: dict[str, MpcState] = field(default_factory=dict)
     mpc_v2: dict[str, MpcV2StateData] = field(default_factory=dict)
     mpc_v2_reid: dict[str, MpcV2ReidData] = field(default_factory=dict)
+    disturbance_profile: dict[str, DisturbanceProfile] = field(default_factory=dict)
     pid: dict[str, PIDState] = field(default_factory=dict)
     tpi: dict[str, TpiState] = field(default_factory=dict)
     thermal: ThermalStats = field(default_factory=ThermalStats)
@@ -230,7 +233,14 @@ class RuntimeState:
 # The sections of the store: one per controller, keyed by state key, and the
 # two unkeyed sections of entity-held values.
 type StoreSection = Literal[
-    "mpc", "mpc_v2", "mpc_v2_reid", "pid", "tpi", "thermal", "filters"
+    "mpc",
+    "mpc_v2",
+    "mpc_v2_reid",
+    "disturbance_profile",
+    "pid",
+    "tpi",
+    "thermal",
+    "filters",
 ]
 
 # Serialization helpers
@@ -367,6 +377,17 @@ def write_mpc_v2_reid(data: MpcV2ReidData) -> StoredMpcV2Reid:
     }
 
 
+def write_disturbance_profile(profile: DisturbanceProfile) -> StoredDisturbanceProfile:
+    """Return the stored form of one learned disturbance profile."""
+    return {
+        "routine_gain_kelvin_per_min": list(profile.routine_gain_kelvin_per_min),
+        "solar_gain_kelvin_per_min": list(profile.solar_gain_kelvin_per_min),
+        "routine_samples": list(profile.routine_samples),
+        "solar_samples": list(profile.solar_samples),
+        "last_learned_ts": profile.last_learned_ts,
+    }
+
+
 def write_pid_state(state: PIDState) -> StoredPidState:
     """Return the stored form of one PID state.
 
@@ -428,6 +449,10 @@ def _serialize(state: RuntimeState) -> StoredRuntimeState:
         "mpc_v2": {key: write_mpc_v2_state(data) for key, data in state.mpc_v2.items()},
         "mpc_v2_reid": {
             key: write_mpc_v2_reid(data) for key, data in state.mpc_v2_reid.items()
+        },
+        "disturbance_profile": {
+            key: write_disturbance_profile(profile)
+            for key, profile in state.disturbance_profile.items()
         },
         "pid": {key: write_pid_state(pid) for key, pid in state.pid.items()},
         "tpi": {key: write_tpi_state(tpi) for key, tpi in state.tpi.items()},
@@ -1242,6 +1267,9 @@ def _deserialize(
         if reid is not None:
             state.mpc_v2_reid[key] = reid
 
+    for key, entry in _stored_entries(raw, "disturbance_profile", poisoned):
+        state.disturbance_profile[key] = DisturbanceProfile.from_mapping(entry, key=key)
+
     for key, entry in _stored_entries(raw, "pid", poisoned):
         state.pid[key] = deserialize_pid(entry, key=key, poisoned=poisoned)
 
@@ -1524,6 +1552,15 @@ class StateManager:
             if persistable is not None:
                 self._state.mpc_v2[key] = persistable
 
+    def get_disturbance_profile(self, key: str) -> DisturbanceProfile:
+        """Return the learned disturbance profile of a key, zero when new."""
+        return self._state.disturbance_profile.get(key, DisturbanceProfile())
+
+    def set_disturbance_profile(self, key: str, profile: DisturbanceProfile) -> None:
+        """Store one learned disturbance profile and mark the state dirty."""
+        self._state.disturbance_profile[key] = profile
+        self._dirty = True
+
     def get_mpc_v2_reid(self, key: str) -> MpcV2ReidData | None:
         """Return the persisted re-identification result for a key, if any."""
         return self._state.mpc_v2_reid.get(key)
@@ -1646,6 +1683,7 @@ class StateManager:
             + move(self._state.mpc_v2_reid)
             + move(self._state.pid)
             + move(self._state.tpi)
+            + move(self._state.disturbance_profile)
             + move(self._mpc_v2_live)
             + move(self._mpc_v2_reid_live)
         )
@@ -1683,6 +1721,7 @@ class StateManager:
             + forget(self._state.mpc_v2_reid)
             + forget(self._state.pid)
             + forget(self._state.tpi)
+            + forget(self._state.disturbance_profile)
             + forget(self._mpc_v2_live)
             + forget(self._mpc_v2_reid_live)
         )

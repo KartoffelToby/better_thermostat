@@ -72,6 +72,33 @@ def parse_preset(value: str | None) -> Preset | None:
 
 
 @dataclass(frozen=True)
+class ObserverReading:
+    """Previous cycle's MPC v2 observer state carried into the snapshot."""
+
+    age_seconds: float
+    normalised_innovation: float
+    disturbance_kelvin_per_min: float
+    disturbance_at_bound: bool
+    room_time_constant_minutes: float
+    disturbance_baseline_kelvin_per_min: float
+
+
+@dataclass(frozen=True)
+class ThermalEvidence:
+    """Continuous shell-computed residual and observer evidence for anomaly gating."""
+
+    slope_residual_kelvin_per_min: float | None = None
+    slope_residual_sigma_kelvin_per_min: float | None = None
+    expected_passive_slope_kelvin_per_min: float | None = None
+    observer: ObserverReading | None = None
+    # False while the residual stands on a zero slope the tracker puts in
+    # for a room it does not read: under an open contact, while the room's
+    # devices are not under control, and for the flush after either. Such a
+    # residual keeps a loss from being suspected and proves nothing else.
+    slope_measured: bool = True
+
+
+@dataclass(frozen=True)
 class TrvReported:
     """Reported state of a single TRV at snapshot time."""
 
@@ -88,6 +115,9 @@ class TrvReported:
     valve_max_opening: float | None = None
     min_local_calibration: float | None = None
     max_local_calibration: float | None = None
+    raw_temperature: float | None = None
+    valve_percent: float | None = None
+    raw_temperature_slope_kelvin_per_min: float | None = None
 
 
 @dataclass(frozen=True)
@@ -118,3 +148,4 @@ class WorldSnapshot:
     min_temp: float | None = None
     max_temp: float | None = None
     trvs: Mapping[str, TrvReported] = field(default_factory=dict)
+    thermal_evidence: ThermalEvidence | None = None
