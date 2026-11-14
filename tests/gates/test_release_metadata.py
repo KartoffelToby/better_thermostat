@@ -21,22 +21,30 @@ MANIFEST = ROOT / "custom_components" / "better_thermostat" / "manifest.json"
 PYPROJECT = ROOT / "pyproject.toml"
 HACS = ROOT / "hacs.json"
 DOCS = ROOT / "docs"
-# Matched against prose with its Markdown emphasis and code markers removed;
-# whitespace includes line breaks, because the Markdown sources wrap.
+# Matched against prose with its Markdown links reduced to their text and its
+# emphasis and code markers removed; whitespace includes line breaks, because
+# the Markdown sources wrap.
 REQUIREMENT_IN_DOCS = re.compile(
     r"Home\s+Assistant\s+(\d{4}\.\d+(?:\.\d+)?)\s+or\s+(?:newer|later)"
 )
+MARKDOWN_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 MARKDOWN_MARKUP = re.compile(r"[`*_]")
 
 
 def _requirements(markdown: str) -> list[re.Match[str]]:
     """Return every "Home Assistant X or newer" the Markdown text states."""
-    return list(REQUIREMENT_IN_DOCS.finditer(MARKDOWN_MARKUP.sub("", markdown)))
+    prose = MARKDOWN_MARKUP.sub("", MARKDOWN_LINK.sub(r"\1", markdown))
+    return list(REQUIREMENT_IN_DOCS.finditer(prose))
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:
-    """Return the numeric release segment of a version as a comparable tuple."""
-    return tuple(int(part) for part in re.findall(r"\d+", version)[:3])
+    """Return year, month and patch of a version as a comparable tuple.
+
+    An omitted patch counts as 0, so ``2026.11`` names the same release as
+    ``2026.11.0``.
+    """
+    parts = [int(part) for part in re.findall(r"\d+", version)[:3]]
+    return tuple(parts + [0] * (3 - len(parts)))
 
 
 def _declared_homeassistant_floor() -> str:
@@ -122,6 +130,11 @@ def test_docs_state_the_declared_home_assistant_floor() -> None:
         ("requires Home Assistant _2026.10.0_ or newer.", "2026.10.0"),
         ("requires Home Assistant 2026.10.0 or **newer**.", "2026.10.0"),
         ("requires **Home** Assistant 2026.10.0 or newer.", "2026.10.0"),
+        (
+            "requires [Home Assistant](https://www.home-assistant.io/) "
+            "2026.10.0 or newer.",
+            "2026.10.0",
+        ),
         ("- **Home Assistant\n  2026.10.0 or newer is required.**", "2026.10.0"),
         ("requires **Home Assistant `2026.10.0`\nor\nnewer**.", "2026.10.0"),
     ],
@@ -131,6 +144,7 @@ def test_docs_state_the_declared_home_assistant_floor() -> None:
         "underscore-emphasis",
         "emphasis-after-or",
         "emphasis-inside-name",
+        "linked-name",
         "wrapped-before-version",
         "wrapped-inside-phrase",
     ],
@@ -145,3 +159,8 @@ def test_a_version_that_is_not_a_requirement_is_not_matched() -> None:
     text = "1.9.3 runs on\n  2026.9.0, 1.9.2 and older on 2026.7.2."
 
     assert _requirements(text) == []
+
+
+def test_a_requirement_without_a_patch_names_the_release_with_patch_0() -> None:
+    assert _version_tuple("2026.11") == _version_tuple("2026.11.0") == (2026, 11, 0)
+    assert _version_tuple("2026.11") != _version_tuple("2026.11.1")
