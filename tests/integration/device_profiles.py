@@ -121,6 +121,13 @@ class DeviceProfile:
     and unique id Home Assistant's Shelly integration gives it, with no value
     until one is written.
 
+    ``danfoss_ally_external_sensor`` puts the number a Danfoss Ally regulates
+    on when it is given the room temperature onto the device, as ZHA registers
+    it: an entity id after its translation key ``external_temperature_sensor``,
+    a unique id that ends with the attribute name
+    ``external_measured_room_sensor``, Celsius from -80 to 35 with no device
+    class, and -80 standing for no value until one is written.
+
     ``off_target_temperature`` is the setpoint the device publishes while it
     is off, in place of the one it holds: a Tado unit shows its 5 °C minimum
     there. ``None`` publishes the held setpoint in every mode.
@@ -179,6 +186,7 @@ class DeviceProfile:
     setpoint_ceiling: float | None = None
     valve_unique_id: str | None = None
     blu_trv_external_temperature: bool = False
+    danfoss_ally_external_sensor: bool = False
     rejects_hvac_mode_writes: bool = False
 
 
@@ -238,6 +246,11 @@ def external_temperature_input_id(profile: DeviceProfile) -> str:
 def blu_trv_external_temperature_id(profile: DeviceProfile) -> str:
     """Return the entity id of the BLU TRV external temperature on this device."""
     return f"number.{profile.entity_id.split('.', 1)[1]}_external_temperature"
+
+
+def danfoss_ally_external_sensor_id(profile: DeviceProfile) -> str:
+    """Return the entity id of the Danfoss Ally external sensor input on this device."""
+    return f"number.{profile.entity_id.split('.', 1)[1]}_external_temperature_sensor"
 
 
 def valve_number_id(profile: DeviceProfile) -> str:
@@ -614,6 +627,23 @@ points its control loop at that input instead of its own sensor. The model
 selects the TRVZB quirk, which is what writes the input and the selector.
 """
 
+ZHA_DANFOSS_ALLY_TRV = DeviceProfile(
+    name="zha_danfoss_ally_trv",
+    integration="zha",
+    calibration="target_temp_based",
+    calibration_mode="no_calibration",
+    has_device_registry_entry=True,
+    model="eTRV0103",
+    current_temperature=19.0,
+    danfoss_ally_external_sensor=True,
+)
+"""A Danfoss Ally under ZHA that regulates on the room temperature BT writes.
+
+ZHA names the device ``eTRV0103``, which selects the Danfoss Ally quirk.
+Better Thermostat passes its target through unchanged and keeps the
+device's external sensor input on the room temperature.
+"""
+
 RANGE_ONLY_HEAT_TRV = DeviceProfile(
     name="range_only_heat_trv",
     integration="generic_thermostat",
@@ -831,6 +861,7 @@ SINGLE_ROLE_PROFILES = (
     BOSCH_BTH_RA_VALVE_TRV,
     SHELLY_BLU_VALVE_TRV,
     SHELLY_BLU_THERMOSTAT_TRV,
+    ZHA_DANFOSS_ALLY_TRV,
     RANGE_ONLY_HEAT_TRV,
 )
 """Every profile a test can drive as the single controlled device."""
@@ -848,6 +879,9 @@ SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario | GroupScenario] = {
     ),
     "a BLU TRV that regulates on the room temperature it is given": (
         SHELLY_BLU_THERMOSTAT_TRV
+    ),
+    "a Danfoss Ally under ZHA that regulates on the room temperature it is given": (
+        ZHA_DANFOSS_ALLY_TRV
     ),
     "a head that offers no heating mode at all": AUTO_COOL_AC,
     "a head whose calibration is a number entity on its device": MQTT_OFFSET_TRV,

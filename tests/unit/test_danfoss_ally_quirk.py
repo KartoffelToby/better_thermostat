@@ -1,7 +1,8 @@
 """Tests for the Danfoss Ally quirk and the white-label devices it drives.
 
 Zigbee2MQTT exposes ``external_measured_room_sensor`` on the Danfoss Ally,
-the Popp 701721 and the Hive UK7004240. The device regulates on the room
+the Popp 701721 and the Hive UK7004240, and ZHA exposes it on the same
+devices under its own model names. The device regulates on the room
 temperature written there and forgets it after a timeout, so Better
 Thermostat keeps it current without writing more often than the device asks.
 """
@@ -45,6 +46,15 @@ WINDOW_OPEN_EXTERNAL = "switch.trv1_window_open_external"
 Z2M_INPUT_ATTRIBUTES = {"min": -8000, "max": 3500, "step": 1, "mode": "auto"}
 
 ALLY_MODELS = ["014G2461", "014G2463", "701721", "UK7004240"]
+ZHA_ALLY_MODELS = [
+    "eTRV0100",
+    "eTRV0101",
+    "eTRV0103",
+    "eT093WRO",
+    "eT093WRG",
+    "TRV001",
+    "TRV003",
+]
 
 
 def _entry(entity_id, device_id=DEVICE):
@@ -142,15 +152,15 @@ def _device_holds(mock_self, value):
 
 
 class TestModelDetection:
-    """Each model Zigbee2MQTT reports for the device family loads this module."""
+    """Each model Zigbee2MQTT or ZHA reports for the device family loads this module."""
 
-    @pytest.mark.parametrize("model", ALLY_MODELS)
+    @pytest.mark.parametrize("model", ALLY_MODELS + ZHA_ALLY_MODELS)
     def test_the_model_resolves_onto_the_danfoss_ally_module(self, model):
         """The white-label models have no module of their own."""
         assert quirks.get_model_quirks_name(model) == "014G2461"
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("model", ALLY_MODELS)
+    @pytest.mark.parametrize("model", ALLY_MODELS + ZHA_ALLY_MODELS)
     async def test_the_loader_imports_the_danfoss_ally_module(self, model):
         """The import is real, so a path the loader cannot reach lands on default."""
         mock_self = ThermostatStandIn()
@@ -195,6 +205,104 @@ class TestModelDetection:
         )
         assert await ally.override_set_temperature(mock_self, ENTITY, 21.0) is False
         assert await ally.override_set_hvac_mode(mock_self, ENTITY, "heat") is False
+
+
+# The input and the mode switch as ZHA registers them: the entity ids follow
+# the translation keys, the unique ids end with the attribute names, and the
+# input counts in degrees Celsius from -80, which stands for no value, to 35.
+ZHA_INPUT = "number.trv1_external_temperature_sensor"
+ZHA_RADIATOR_COVERED = "switch.trv1_prioritize_external_temperature_sensor"
+ZHA_UNIQUE_ID_PREFIX = "00:0b:57:ff:fe:12:34:56-1-513"
+ZHA_INPUT_ATTRIBUTES = {
+    "min": -80.0,
+    "max": 35.0,
+    "step": 0.01,
+    "mode": "box",
+    "unit_of_measurement": "°C",
+}
+
+
+def _make_zha_self(monkeypatch, *, radiator_covered=None):
+    """A BT stand-in whose only TRV is a Danfoss Ally on ZHA."""
+    mock_self = ThermostatStandIn()
+    mock_self.device_name = "test_thermostat"
+    mock_self.context = MagicMock()
+    mock_self.sensor_entity_id = ROOM_SENSOR
+    mock_self.hass.services.async_call = AsyncMock()
+    advanced: TrvAdvanced = {"calibration_mode": "no_calibration"}
+    mock_self.real_trvs = {
+        ENTITY: trv_record(entity_id=ENTITY, model="eTRV0103", advanced=advanced)
+    }
+    entries = [
+        make_registry_entry(ENTITY, platform="zha", device_id=DEVICE),
+        make_registry_entry(
+            ZHA_INPUT,
+            unique_id=f"{ZHA_UNIQUE_ID_PREFIX}-external_measured_room_sensor",
+            platform="zha",
+            device_id=DEVICE,
+            translation_key="external_temperature_sensor",
+        ),
+        make_registry_entry(ROOM_SENSOR, device_id="room_sensor_device"),
+    ]
+    states = {ZHA_INPUT: State(ZHA_INPUT, "-80.0", ZHA_INPUT_ATTRIBUTES)}
+    if radiator_covered is not None:
+        entries.append(
+            make_registry_entry(
+                ZHA_RADIATOR_COVERED,
+                unique_id=f"{ZHA_UNIQUE_ID_PREFIX}-radiator_covered",
+                platform="zha",
+                device_id=DEVICE,
+                translation_key="prioritize_external_temperature_sensor",
+            )
+        )
+        states[ZHA_RADIATOR_COVERED] = State(ZHA_RADIATOR_COVERED, radiator_covered)
+    registry = make_entity_registry(*entries)
+    monkeypatch.setattr(ally.er, "async_get", lambda hass: registry)
+    mock_self.hass.states.get.side_effect = states.get
+    mock_self._states = states
+    clock = _Clock()
+    monkeypatch.setattr(ally, "monotonic", clock)
+    mock_self._clock = clock
+    return mock_self
+
+
+class TestZhaInput:
+    """ZHA's input is found by its unique id and takes degrees Celsius."""
+
+    @pytest.mark.asyncio
+    async def test_the_room_temperature_reaches_the_zha_input(self, monkeypatch):
+        """The reading goes to the input in degrees, rounded to a tenth."""
+        mock_self = _make_zha_self(monkeypatch)
+
+        assert await ally.maybe_set_external_temperature(mock_self, ENTITY, 21.37)
+
+        mock_self.hass.services.async_call.assert_awaited_once_with(
+            "number",
+            "set_value",
+            {"entity_id": ZHA_INPUT, "value": 21.4},
+            blocking=True,
+            context=mock_self.context,
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("radiator_covered", "rewritten"),
+        [("on", True), ("off", False)],
+        ids=["room-sensor-mode", "auto-offset-mode"],
+    )
+    async def test_the_zha_mode_switch_sets_the_refresh(
+        self, monkeypatch, radiator_covered, rewritten
+    ):
+        """ZHA's radiator_covered switch selects the refresh interval."""
+        mock_self = _make_zha_self(monkeypatch, radiator_covered=radiator_covered)
+        assert await ally.maybe_set_external_temperature(mock_self, ENTITY, 20.1)
+        mock_self._states[ZHA_INPUT] = State(ZHA_INPUT, "20.1", ZHA_INPUT_ATTRIBUTES)
+        mock_self._clock.advance(5 * 60)
+
+        assert (
+            await ally.maybe_set_external_temperature(mock_self, ENTITY, 20.1)
+            is rewritten
+        )
 
 
 class TestTheRoomTemperatureReachesTheInput:
