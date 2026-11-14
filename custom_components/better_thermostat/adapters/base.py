@@ -297,6 +297,29 @@ def published_reading(state: State) -> float | None:
     return published_to_offset(offset_scale(state), value)
 
 
+def holds_reserved_value(state: State, value: float) -> bool:
+    """Tell whether a calibration entity holds one of its reserved values.
+
+    Parameters
+    ----------
+    state : State
+        State of the calibration entity.
+    value : float
+        The reserved value, as the entity publishes it.
+
+    Returns
+    -------
+    bool
+        True when the entity reserves ``value`` and its state carries it.
+    """
+    if value not in reserved_published_values(state):
+        return False
+    try:
+        return float(state.state.replace("k", "")) == value
+    except ValueError:
+        return False
+
+
 def published_step(state: State) -> float:
     """Return the step a calibration number publishes, in its own unit.
 

@@ -20,16 +20,14 @@ from custom_components.better_thermostat.config_flow import (
     _USER_FIELD_DEFAULTS,
     ConfigFlow,
     OptionsFlowHandler,
-    _AdvancedContext,
     _as_bool,
     _build_advanced_fields,
     _build_user_fields,
     _duration_dict_to_seconds,
-    _external_temperature_setup_hint,
     _load_adapter_info,
-    _needs_spirit_external_temperature_guide,
     _normalize_advanced_submission,
     _normalize_user_submission,
+    _offset_selects_external_temperature,
     _prepare_advanced_context,
     _quirk_valve_support,
     _seconds_to_duration_dict,
@@ -56,49 +54,6 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 
 _MODULE = "custom_components.better_thermostat.config_flow"
-
-
-@pytest.mark.parametrize(
-    ("integration", "model", "expected"),
-    [
-        ("zwave_js", "Spirit", True),
-        ("zwave_js", "ZWA021", True),
-        ("zwave_js", "Other thermostat", False),
-        ("mqtt", "Spirit", False),
-        ("zwave_js", None, False),
-    ],
-)
-def test_spirit_external_temperature_guide_is_limited_to_supported_zwave_models(
-    integration, model, expected
-):
-    assert _needs_spirit_external_temperature_guide(integration, model) is expected
-
-
-async def test_spirit_external_temperature_hint_uses_the_flow_translation():
-    context = _AdvancedContext(
-        entity_id="climate.trv",
-        channels=DeviceChannels(),
-        default_calibration=CalibrationOutput.TARGET_TEMP_BASED,
-        homematic=False,
-        has_auto=False,
-        external_temperature_guide=True,
-    )
-    translated = (
-        "For Spirit/ZWA021, set the offset to -128, choose a non-direct-valve "
-        "calibration type, and choose No Calibration."
-    )
-    translation_key = (
-        "component.better_thermostat.config.step.advanced.external_temperature_hint"
-    )
-    with patch(
-        f"{_MODULE}.translation.async_get_translations",
-        AsyncMock(return_value={translation_key: translated}),
-    ):
-        hint = await _external_temperature_setup_hint(
-            MagicMock(config=MagicMock(language="en")), context, "config"
-        )
-
-    assert hint == f"\n\n{translated}"
 
 
 @pytest.mark.parametrize(
@@ -235,36 +190,98 @@ async def test_an_adapter_whose_capability_query_fails_reports_no_channels():
     assert info == DeviceChannels()
 
 
+def _spirit_offset_flow(state):
+    flow = ConfigFlow()
+    flow.hass = MagicMock()
+    flow.hass.states.get = MagicMock(return_value=state)
+    return flow
+
+
+_RESERVED_OFFSET = State(
+    "number.trv_offset", "-128", {"reserved_values": {"-128": "External temperature"}}
+)
+
+
 @pytest.mark.parametrize(
     ("integration", "model", "expected"),
     [
         ("zwave_js", "Spirit", True),
-        ("mqtt", "Spirit", False),
+        ("zwave_js", "ZWA021", True),
         ("zwave_js", "Generic TRV", False),
+        ("mqtt", "Spirit", False),
     ],
 )
-async def test_advanced_context_carries_the_model_specific_setup_hint(
+async def test_only_a_zwave_spirit_offset_selects_the_external_temperature(
     integration, model, expected
 ):
-    flow = ConfigFlow()
-    flow.hass = MagicMock()
+    flow = _spirit_offset_flow(_RESERVED_OFFSET)
     trv = _TrvDraft(
         entity_id="climate.trv",
         integration=integration,
         adapter=None,
         stored={"model": model},
     )
+    with patch(
+        f"{_MODULE}.find_local_calibration_entity",
+        AsyncMock(return_value="number.trv_offset"),
+    ):
+        assert await _offset_selects_external_temperature(flow, trv) is expected
+
+
+@pytest.mark.parametrize(
+    ("device_model", "expected"), [("ZWA021", True), (None, False)]
+)
+async def test_a_new_trv_without_a_stored_model_reads_the_device_model(
+    device_model, expected
+):
+    flow = _spirit_offset_flow(_RESERVED_OFFSET)
+    trv = _TrvDraft(
+        entity_id="climate.trv", integration="zwave_js", adapter=None, stored={}
+    )
     with (
         patch(
-            f"{_MODULE}._load_adapter_info",
-            AsyncMock(return_value=(None, DeviceChannels())),
+            f"{_MODULE}.get_device_model", AsyncMock(return_value=device_model)
+        ) as get_model,
+        patch(
+            f"{_MODULE}.find_local_calibration_entity",
+            AsyncMock(return_value="number.trv_offset"),
         ),
-        patch(f"{_MODULE}.regulates_on_bound_sensor", return_value=False),
-        patch(f"{_MODULE}._trv_supports_auto", return_value=False),
     ):
-        context = await _prepare_advanced_context(flow, trv)
+        assert await _offset_selects_external_temperature(flow, trv) is expected
 
-    assert context.external_temperature_guide is expected
+    get_model.assert_awaited_once_with(flow, "climate.trv")
+
+
+@pytest.mark.parametrize(
+    ("offset_entity", "state"),
+    [
+        (None, _RESERVED_OFFSET),
+        ("number.trv_offset", None),
+        (
+            "number.trv_offset",
+            State(
+                "number.trv_offset",
+                "unavailable",
+                {"reserved_values": {"-128": "External temperature"}},
+            ),
+        ),
+    ],
+)
+async def test_a_spirit_offset_that_cannot_be_read_selects_nothing(
+    offset_entity, state
+):
+    flow = _spirit_offset_flow(state)
+    trv = _TrvDraft(
+        entity_id="climate.trv",
+        integration="zwave_js",
+        adapter=None,
+        stored={"model": "Spirit"},
+    )
+    with patch(
+        f"{_MODULE}.find_local_calibration_entity",
+        AsyncMock(return_value=offset_entity),
+    ):
+        assert await _offset_selects_external_temperature(flow, trv) is False
 
 
 @pytest.mark.parametrize(
@@ -285,9 +302,7 @@ async def test_new_spirit_entry_defaults_to_no_calibration_only_for_reserved_off
         return_value=State(
             "number.trv_offset",
             calibration_value,
-            {"reserved_values": {"-128": "External temperature"}}
-            if reserved
-            else {},
+            {"reserved_values": {"-128": "External temperature"}} if reserved else {},
         )
     )
     trv = _TrvDraft(
@@ -343,10 +358,7 @@ def _default_of(fields, key):
 
 @pytest.mark.parametrize(
     ("source", "expected"),
-    [
-        (None, CalibrationMode.NO_CALIBRATION.value),
-        ("default", "default"),
-    ],
+    [(None, CalibrationMode.NO_CALIBRATION.value), ("default", "default")],
 )
 def test_no_calibration_default_does_not_override_a_saved_or_submitted_mode(
     source, expected

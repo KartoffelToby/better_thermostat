@@ -24,7 +24,7 @@ from custom_components.better_thermostat.model_fixes.types import (
     ValveQuirk,
 )
 
-from ..adapters.base import reserved_published_values
+from ..adapters.base import holds_reserved_value
 from ..utils.const import CalibrationMode, CalibrationOutput
 from ..utils.helpers import (
     configured_calibration_mode,
@@ -60,7 +60,8 @@ _VALVE_MAX = 99
 _VALVE_MODE_ENGAGED = "_zwa021_valve_mode_engaged"
 _EXTERNAL_TEMPERATURE_LAST_SENT = "_zwa021_external_temperature_last_sent"
 _EXTERNAL_TEMPERATURE_SENT_AT = "_zwa021_external_temperature_sent_at"
-_EXTERNAL_TEMPERATURE_MODE = -128.0
+# Offset value with which the device regulates on a reported air temperature.
+EXTERNAL_TEMPERATURE_OFFSET = -128.0
 _EXTERNAL_TEMPERATURE_REFRESH_SECONDS = 15 * 60.0
 
 
@@ -128,30 +129,39 @@ async def maybe_set_external_temperature(
     The Spirit/ZWA021 keeps its own thermostat and valve regulation. This
     quirk only supplies the air-temperature report; it does not set or restore
     the reserved offset and never writes a valve.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        The Better Thermostat instance, supplying ``hass``, the TRV registry
+        and the context the service call is made under.
+    entity_id : str
+        The TRV the report goes to.
+    temperature : float
+        The room temperature to report, in degrees Celsius.
+
+    Returns
+    -------
+    bool
+        True when the report went out, False when it was not due, the TRV
+        is not on Z-Wave JS, runs a calibration or direct valve control, its
+        offset does not hold the reserved external-sensor value, the value is
+        not a finite number, or the report failed.
     """
     trv = self.real_trvs[entity_id]
-    if trv.integration != "zwave_js" or _is_direct_valve(self, entity_id):
+    if trv.integration != _ZWAVE_JS_DOMAIN or _is_direct_valve(self, entity_id):
         return False
-    if (
-        configured_calibration_mode(trv.advanced) is not CalibrationMode.NO_CALIBRATION
-    ):
+    if configured_calibration_mode(trv.advanced) is not CalibrationMode.NO_CALIBRATION:
         return False
     calibration_entity = await _local_offset_entity(self, entity_id)
     state = self.hass.states.get(calibration_entity) if calibration_entity else None
-    if state is None:
+    if state is None or not holds_reserved_value(state, EXTERNAL_TEMPERATURE_OFFSET):
         return False
     try:
-        calibration_value = float(state.state)
         report_temperature = float(temperature)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
-    if (
-        not math.isfinite(report_temperature)
-        or not math.isclose(
-            calibration_value, _EXTERNAL_TEMPERATURE_MODE, abs_tol=1e-6
-        )
-        or _EXTERNAL_TEMPERATURE_MODE not in reserved_published_values(state)
-    ):
+    if not math.isfinite(report_temperature):
         return False
     report_temperature = round(report_temperature, 2)
     previous = trv.extra.get(_EXTERNAL_TEMPERATURE_LAST_SENT)
@@ -164,10 +174,10 @@ async def maybe_set_external_temperature(
             isinstance(sent_at, int | float)
             and now - float(sent_at) < _EXTERNAL_TEMPERATURE_REFRESH_SECONDS
         ):
-            return True
+            return False
     try:
         await self.hass.services.async_call(
-            "zwave_js",
+            _ZWAVE_JS_DOMAIN,
             "invoke_cc_api",
             {
                 "entity_id": entity_id,
@@ -188,7 +198,7 @@ async def maybe_set_external_temperature(
         )
         return False
     trv.extra[_EXTERNAL_TEMPERATURE_LAST_SENT] = report_temperature
-    trv.extra[_EXTERNAL_TEMPERATURE_SENT_AT] = monotonic()
+    trv.extra[_EXTERNAL_TEMPERATURE_SENT_AT] = now
     _LOGGER.debug(
         "better_thermostat %s: sent ZWA021 external air temperature %.2f °C to %s",
         self.device_name,
