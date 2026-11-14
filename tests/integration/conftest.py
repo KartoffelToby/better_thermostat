@@ -77,6 +77,7 @@ from .device_profiles import (
     RoleScenario,
     ValveChannel,
     blu_trv_external_temperature_id,
+    danfoss_ally_external_sensor_id,
     external_temperature_input_id,
     offset_number_id,
     published_precision,
@@ -214,8 +215,9 @@ class SimulatedClimate(ClimateEntity):
 
     ``offset_number`` and ``valve_number`` are the calibration and valve
     entities of a device that exposes those channels, and ``None`` for a
-    device that does not; ``external_temperature_input`` and
-    ``blu_trv_external_temperature`` likewise.
+    device that does not; ``external_temperature_input``,
+    ``blu_trv_external_temperature`` and ``danfoss_ally_external_sensor``
+    likewise.
     """
 
     _attr_should_poll = False
@@ -226,6 +228,9 @@ class SimulatedClimate(ClimateEntity):
         self.offset_number: SimulatedOffsetNumber | None = None
         self.external_temperature_input: SimulatedExternalTemperatureInput | None = None
         self.blu_trv_external_temperature: SimulatedBluTrvExternalTemperature | None = (
+            None
+        )
+        self.danfoss_ally_external_sensor: SimulatedDanfossAllyExternalSensor | None = (
             None
         )
         self.valve_number: SimulatedValveNumber | None = None
@@ -477,6 +482,30 @@ class SimulatedBluTrvExternalTemperature(_SimulatedNumber):
         self._attr_native_value = None
 
 
+class SimulatedDanfossAllyExternalSensor(_SimulatedNumber):
+    """The external sensor input of a Danfoss Ally, as ZHA has it.
+
+    ZHA names it after its translation key and ends its unique id with the
+    attribute name. It counts in Celsius without a device class, so Home
+    Assistant publishes it as it is, and -80 stands for no value.
+    """
+
+    _attr_name = "external temperature sensor"
+    _attr_translation_key = "external_temperature_sensor"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_native_min_value = -80.0
+    _attr_native_max_value = 35.0
+    _attr_native_step = 0.01
+
+    def __init__(self, profile: DeviceProfile):
+        """Register the number under a unique id shaped like the ZHA one."""
+        super().__init__(profile, "external_temperature_sensor")
+        self._attr_unique_id = (
+            f"{_object_id(profile.entity_id)}-1-513-external_measured_room_sensor"
+        )
+        self._attr_native_value = -80.0
+
+
 class SimulatedValveNumber(_SimulatedNumber):
     """The valve position a device exposes next to its climate entity."""
 
@@ -601,6 +630,7 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
         or p.valve_channel is ValveChannel.NUMBER_ENTITY
         or p.external_temperature_input
         or p.blu_trv_external_temperature
+        or p.danfoss_ally_external_sensor
         for p in profiles
     ):
         raise ValueError("a number channel needs has_device_registry_entry=True")
@@ -641,6 +671,11 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
             blu_trv_input.entity_id = blu_trv_external_temperature_id(profile)
             entity.blu_trv_external_temperature = blu_trv_input
             numbers.append(blu_trv_input)
+        if profile.danfoss_ally_external_sensor:
+            ally_input = SimulatedDanfossAllyExternalSensor(profile)
+            ally_input.entity_id = danfoss_ally_external_sensor_id(profile)
+            entity.danfoss_ally_external_sensor = ally_input
+            numbers.append(ally_input)
         if profile.valve_channel is ValveChannel.NUMBER_ENTITY:
             valve = SimulatedValveNumber(profile)
             valve.entity_id = valve_number_id(profile)
