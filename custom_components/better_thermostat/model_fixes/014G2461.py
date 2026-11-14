@@ -1,7 +1,8 @@
 """Quirks for the Danfoss Ally TRV and its white-label versions.
 
 Zigbee2MQTT drives the Danfoss Ally (014G2461, 014G2463), the Popp 701721
-and the Hive UK7004240 through one definition. Each of them takes a room
+and the Hive UK7004240 through one definition, and ZHA drives the same
+devices through one quirk under its own model names. Each of them takes a room
 temperature from outside through ``external_measured_room_sensor``, which
 this module keeps current with the room temperature Better Thermostat
 regulates on.
@@ -74,7 +75,9 @@ __all__ = [
 ]
 
 # Names of the number that takes the room temperature and of the switch that
-# selects how the device uses it, as Zigbee2MQTT exposes them.
+# selects how the device uses it. Zigbee2MQTT uses them in the entity ids;
+# ZHA ends the unique ids with them and names the entities
+# ``external_temperature_sensor`` and ``prioritize_external_temperature_sensor``.
 _EXTERNAL_SENSOR_KEYWORDS: Final = (
     "external_measured_room_sensor",
     "external measured room sensor",

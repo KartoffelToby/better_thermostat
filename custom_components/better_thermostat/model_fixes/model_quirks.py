@@ -41,7 +41,9 @@ _LOGGER = logging.getLogger(__name__)
 # ZVIDAR Z-TRV-V01 is a clone of the same device and drives its valve the same
 # way, so it resolves onto that module too. Zigbee2MQTT drives the Danfoss
 # Ally 014G2463, the Popp 701721 and the Hive UK7004240 through the
-# definition of the Danfoss Ally 014G2461, under their own model names. Home
+# definition of the Danfoss Ally 014G2461, under their own model names. ZHA
+# names the same devices eTRV0100, eTRV0101 and eTRV0103 (Danfoss), eT093WRO
+# and eT093WRG (Popp), and TRV001 and TRV003 (Hive). Home
 # Assistant's Shelly integration registers the Shelly BLU TRV with the model
 # id SBTR-001AEU and the model name Shelly BLU TRV; a device entry that
 # carries only the name resolves onto the module of the id. Zigbee2MQTT names
@@ -53,6 +55,13 @@ _QUIRK_MODULE_ALIASES = {
     "014G2463": "014G2461",
     "701721": "014G2461",
     "UK7004240": "014G2461",
+    "eTRV0100": "014G2461",
+    "eTRV0101": "014G2461",
+    "eTRV0103": "014G2461",
+    "eT093WRO": "014G2461",
+    "eT093WRG": "014G2461",
+    "TRV001": "014G2461",
+    "TRV003": "014G2461",
     "Shelly BLU TRV": "SBTR-001AEU",
     "Radiator thermostat II": "BTH-RA",
 }
