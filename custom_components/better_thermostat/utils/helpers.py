@@ -84,6 +84,23 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+class _RegulationTargetHost(Protocol):
+    """The heating target read by regulation and device quirks."""
+
+    @property
+    def heat_target_temperature(self) -> float:
+        """Return the unshifted heating target."""
+        ...
+
+
+def regulation_target(self: _RegulationTargetHost) -> float:
+    """Return the heating target shifted by the internal temperature offset."""
+    target_offset = getattr(self, "target_offset", 0.0)
+    if not isinstance(target_offset, (int, float)) or not math.isfinite(target_offset):
+        target_offset = 0.0
+    return self.heat_target_temperature + target_offset
+
+
 class _CalibrationConfiguredTrv(Protocol):
     """The per-TRV record a calibration-mode question reads."""
 
@@ -1320,7 +1337,9 @@ def heating_power_valve_position(
     | 0.4       | 0.3232  | 0.6227  | 1.0000   |
     | 0.5       | 0.3992  | 0.7691  | 1.0000   |
     """
-    target_temperature = self.heat_target_temperature
+    target_temperature = (
+        regulation_target(self) if self.heat_target_temperature is not None else None
+    )
     if room_temperature is None or target_temperature is None:
         _LOGGER.debug(
             "better_thermostat %s: %s / heating_power_valve_position - no room "

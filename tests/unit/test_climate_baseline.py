@@ -2175,6 +2175,20 @@ class TestChannelRanges:
 
         assert cooled_bt.cool_target_temperature == 30.5
 
+    def test_cooling_is_ordered_above_the_effective_heating_target(self, cooled_bt):
+        """An offset heating target cannot overlap the cooling target."""
+        cooled_bt.hvac_mode = HVACMode.HEAT_COOL
+        cooled_bt.heat_target_temperature = 20.0
+        cooled_bt.target_offset = 2.0
+        cooled_bt.cool_target_temperature = 21.0
+        cooled_bt.bt_target_temperature_step = 0.5
+
+        BetterThermostat._enforce_cool_above_heat(cooled_bt)
+
+        assert cooled_bt.heat_target_temperature == 20.0
+        assert cooled_bt.cool_target_temperature == 22.5
+        assert BetterThermostat._clamp_inbound_cool_target(cooled_bt, 21.0) == 22.5
+
     def test_the_inbound_cooling_floor_is_capped_by_the_cooler_maximum(self, cooled_bt):
         """A cooler report is raised above the heating target up to the cooler's max."""
         cooled_bt.heat_target_temperature = 30.0

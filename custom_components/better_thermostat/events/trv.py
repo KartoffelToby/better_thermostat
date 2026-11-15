@@ -60,6 +60,7 @@ from custom_components.better_thermostat.utils.helpers import (
     published_in_whole_fahrenheit,
     read_bound_celsius,
     read_setpoint_celsius,
+    regulation_target,
     resolve_inbound_setpoint,
     resolve_state_change_event,
     room_mode_intent,
@@ -971,7 +972,12 @@ async def trigger_trv_change(
                 _adopted_heating_setpoint = self._clamp_inbound_heat_target(
                     _new_heating_setpoint
                 )
-                if _adopted_heating_setpoint != _new_heating_setpoint:
+                target_offset = regulation_target(self) - self.heat_target_temperature
+                if target_offset:
+                    _adopted_heating_setpoint = self._bound_target_to_range(
+                        _adopted_heating_setpoint - target_offset
+                    )
+                if _adopted_heating_setpoint + target_offset != _new_heating_setpoint:
                     # A user turning the knob up step by step would collect one
                     # warning per press, so yielding to the cooling target is an
                     # INFO: the range clamp above and the ordering fallback below
@@ -983,7 +989,7 @@ async def trigger_trv_change(
                         entity_id,
                         _new_heating_setpoint,
                         self.cool_target_temperature,
-                        _adopted_heating_setpoint,
+                        _adopted_heating_setpoint + target_offset,
                     )
                 _LOGGER.debug(
                     "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
@@ -1142,18 +1148,18 @@ def convert_outbound_states(
         if defers_to_bound_sensor(self.hass, entity_id):
             # The TRV controls the room on the sensor bound to it, so any
             # calibration would work against its own control.
-            _new_heating_setpoint = self.heat_target_temperature
+            _new_heating_setpoint = regulation_target(self)
 
         elif _calibration_output == CalibrationOutput.LOCAL_BASED:
             _new_local_calibration = calculate_calibration_local(self, entity_id)
-            _new_heating_setpoint = self.heat_target_temperature
+            _new_heating_setpoint = regulation_target(self)
 
         elif _calibration_output in (
             CalibrationOutput.TARGET_TEMP_BASED,
             CalibrationOutput.DIRECT_VALVE_BASED,
         ):
             if _calibration_mode == CalibrationMode.NO_CALIBRATION:
-                _new_heating_setpoint = self.heat_target_temperature
+                _new_heating_setpoint = regulation_target(self)
             else:
                 _new_heating_setpoint = calculate_calibration_setpoint(self, entity_id)
             _new_local_calibration = None
@@ -1167,7 +1173,7 @@ def convert_outbound_states(
                 self.device_name,
                 advanced.get(CONF_CALIBRATION),
             )
-            _new_heating_setpoint = self.heat_target_temperature
+            _new_heating_setpoint = regulation_target(self)
             _new_local_calibration = None
 
         # System mode handling - applies to ALL calibration modes including fallback

@@ -34,6 +34,7 @@ def _make_bt() -> MagicMock:
         monotonic_value=1234.5, now_value=datetime(2026, 1, 2, 8, 30, tzinfo=UTC)
     )
     bt.heat_target_temperature = 21.5
+    bt.target_offset = 0.0
     bt.cool_target_temperature = 24.0
     bt.bt_hvac_mode = "heat"
     bt.room_temperature = 20.1
@@ -86,6 +87,14 @@ COMPLETENESS_TABLE = [
 
 class TestSnapshotCompleteness:
     """Every control-path input is mapped onto a snapshot field."""
+
+    def test_target_offset_shifts_control_target_only(self):
+        """The snapshot uses the effective target, not the displayed target."""
+        bt = _make_bt()
+        bt.target_offset = 0.5
+
+        assert build_snapshot(bt).heat_target_temperature == 22.0
+        assert bt.heat_target_temperature == 21.5
 
     @pytest.mark.parametrize(
         ("entity_attr", "snapshot_field", "expected"), COMPLETENESS_TABLE

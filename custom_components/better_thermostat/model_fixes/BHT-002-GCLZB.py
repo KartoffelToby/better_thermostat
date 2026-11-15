@@ -13,6 +13,7 @@ from custom_components.better_thermostat.model_fixes.types import (
     ModelFixHost,
     ModelQuirks,
 )
+from custom_components.better_thermostat.utils.helpers import regulation_target
 
 
 def fix_local_calibration(
@@ -40,7 +41,7 @@ def fix_local_calibration(
         The normalized integer-valued calibration offset.
     """
     _room_temperature = self.room_temperature
-    _heat_target_temperature = self.heat_target_temperature
+    _heat_target_temperature = regulation_target(self)
 
     if _room_temperature is not None and _room_temperature < _heat_target_temperature:
         calibration_offset = float(math.ceil(calibration_offset))

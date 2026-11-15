@@ -2669,6 +2669,29 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == 22.0
 
     @pytest.mark.asyncio
+    async def test_knob_target_is_converted_back_from_the_offset(self, mock_bt):
+        """A physical target of 22 becomes 21.5 when the offset is 0.5."""
+        mock_bt.target_offset = 0.5
+        mock_bt._bound_target_to_range = lambda value: value
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 22.0, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == 21.5
+
+    @pytest.mark.asyncio
     async def test_cooler_sync_keeps_cooltemp_above_target(self, mock_bt):
         """A reported target that already clears the cool target is taken as is."""
         mock_bt.cooler_entity_id = "climate.cooler"
