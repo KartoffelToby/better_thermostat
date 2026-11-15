@@ -858,6 +858,11 @@ async def trigger_trv_change(
         log_source="trigger_trv_change()",
         # A report the cooling channel owns is bounded by the cooling range.
         cooling=_cooling_owns,
+        echo_offset=(
+            0.0
+            if _cooling_owns
+            else regulation_target(self) - self.heat_target_temperature
+        ),
     )
     # A system that keeps one setpoint per room copies a value BT wrote to
     # one of the room's other TRVs onto this one, and the device reports it

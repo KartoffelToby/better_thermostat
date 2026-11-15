@@ -2756,6 +2756,43 @@ class TestTargetTempAdoption:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
+        ("target_offset", "known", "reported", "expected"),
+        [
+            (2.0, 30.0, 31.0, 29.0),
+            (2.0, 31.0, 31.0, 19.0),
+            (2.0, 32.0, 33.0, 19.0),
+            (-2.0, 5.0, 4.0, 6.0),
+            (-2.0, 3.0, 2.0, 19.0),
+        ],
+    )
+    async def test_offset_echo_detection_uses_shifted_bounds(
+        self, mock_bt, target_offset, known, reported, expected
+    ):
+        """A turn above the room bound differs from a raw or bounded echo."""
+        mock_bt.target_offset = target_offset
+        mock_bt._bound_target_to_range = lambda value: (
+            BetterThermostat._bound_target_to_range(mock_bt, value)
+        )
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = known
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": reported, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
         ("reported", "target_offset", "cool_target", "expected", "range_warning"),
         [
             (31.0, 2.0, None, 29.0, False),

@@ -1981,6 +1981,7 @@ def resolve_inbound_setpoint(
     step: float,
     log_source: str,
     cooling: bool = False,
+    echo_offset: float = 0.0,
 ) -> InboundSetpoint | None:
     """Prepare a setpoint reported by a controlled device for adoption.
 
@@ -2021,6 +2022,9 @@ def resolve_inbound_setpoint(
     cooling : bool
             whether the setpoint is adopted into the cooling channel, which
             bounds it by the cooling range instead of the heating one
+    echo_offset : float
+            Offset between the reported setpoint and the displayed heating
+            target, used to compare bounded reports with device writes.
 
     Returns
     -------
@@ -2050,9 +2054,15 @@ def resolve_inbound_setpoint(
         clamped = True
 
     echo_window = setpoint_echo_window(step)
+    echo_value = raw - echo_offset
+    if lower is not None and echo_value < lower:
+        echo_value = lower
+    if upper is not None and upper < echo_value:
+        echo_value = upper
+    echo_value += echo_offset
     is_echo = any(
         isinstance(known, (int, float))
-        and (abs(raw - known) < echo_window or abs(value - known) < echo_window)
+        and (abs(raw - known) < echo_window or abs(echo_value - known) < echo_window)
         for known in known_values
     )
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
