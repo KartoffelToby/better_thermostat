@@ -1015,6 +1015,12 @@ async def trigger_trv_change(
 
             _main_change = True
         elif (
+            self.regulation_paused
+            and not _is_echo
+            and _raw_heating_setpoint != _old_heating_setpoint
+        ):
+            _main_change = True
+        elif (
             child_lock
             and not _is_echo
             and abs(_raw_heating_setpoint - _old_heating_setpoint)

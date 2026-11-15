@@ -2692,6 +2692,46 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == initial_target
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("is_echo", "request_cycle", "expected"),
+        [(False, True, True), (True, True, False), (False, False, False)],
+    )
+    async def test_paused_setpoint_report_requests_reconciliation(
+        self, mock_bt, is_echo, request_cycle, expected
+    ):
+        """A paused knob turn is reconciled, but echoes do not start a cycle."""
+        mock_bt.regulation_paused = True
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.hvac_modes = [HVACMode.HEAT]
+        trv.advanced["no_off_system_mode"] = True
+        trv.commanded_setpoint = 20.0 if is_echo else 5.0
+        old_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 20.0, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.request_control_cycle"
+            ) as request,
+        ):
+            await trigger_trv_change(mock_bt, event, request_cycle=request_cycle)
+
+        assert mock_bt.heat_target_temperature == 19.0
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+        assert request.called is expected
+        if expected:
+            request.assert_called_once_with(mock_bt)
+
+    @pytest.mark.asyncio
     async def test_knob_target_is_converted_back_from_the_offset(self, mock_bt):
         """A physical target of 22 becomes 21.5 when the offset is 0.5."""
         mock_bt.target_offset = 0.5
