@@ -1,29 +1,96 @@
-"""Model quirks for generic TS0601 Zigbee thermostats.
+"""Model quirks for Tuya devices that report the model TS0601.
 
-Contains model-specific handling for known quirks in TS0601-based devices.
+ZHA reports the model string a Tuya device sends, which is TS0601 for nearly
+every Tuya TRV, and leaves the manufacturer string (``_TZE200_…``) as the
+only name that tells them apart. Zigbee2MQTT tells them apart by that string
+and reports a model of their own, so a device reaches this module through
+ZHA, or as a TS0601 Zigbee2MQTT has no definition for.
+
+The Saswell SEA801/SEA802 and its white labels (Hama, HiHome, Nous and
+others) need their setpoint and offset lifted to open the valve, and are
+driven as ``SEA801-Zigbee_SEA802-Zigbee`` drives them under Zigbee2MQTT. The
+manufacturer strings are the ones Zigbee2MQTT recognises that device by.
+Every other TS0601 passes its calibration through unchanged, as the default
+quirks do.
 """
 
 from __future__ import annotations
+
+from importlib import import_module
+from typing import Final
+
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from custom_components.better_thermostat.model_fixes.types import (
     ModelFixHost,
     ModelQuirks,
 )
-from custom_components.better_thermostat.utils.helpers import (
-    convert_to_float_celsius,
-    state_temperature_unit,
+
+_SASWELL = import_module(
+    "custom_components.better_thermostat.model_fixes.SEA801-Zigbee_SEA802-Zigbee"
 )
+
+_SASWELL_MANUFACTURERS: Final = frozenset(
+    {
+        "_TZE200_c88teujp",
+        "_TZE200_yw7cahqs",
+        "_TZE200_azqp6ssj",
+        "_TZE200_zuhszj9s",
+        "_TZE200_9gvruqf5",
+        "_TZE200_zr9c0day",
+        "_TZE200_0dvm9mva",
+        "_TZE284_0dvm9mva",
+        "_TZE200_h4cgnbzg",
+        "_TZE200_gd4rvykv",
+        "_TZE200_exfrnlow",
+        "_TZE200_9m4kmbfu",
+        "_TZE284_9m4kmbfu",
+        "_TZE200_3yp57tby",
+        "_TZE204_3yp57tby",
+        "_TZE200_7p8ugv8d",
+        "_TZE284_3yp57tby",
+        "_TZE2841000000_3yp57tby",
+        "_TZE200_3ymoslep",
+        "_TZE204_3ymoslep",
+        "_TZE284_3ymoslep",
+        "_TZE2841000000_3ymoslep",
+    }
+)
+
+
+def _is_saswell(self: ModelFixHost, entity_id: str) -> bool:
+    """Answer whether the TRV is a Saswell SEA801/SEA802 or one of its white labels.
+
+    The manufacturer is read off the device the TRV's entity belongs to. An
+    entity without a device names no manufacturer and passes its calibration
+    through.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        Host providing Home Assistant access.
+    entity_id : str
+        Entity id of the TRV.
+
+    Returns
+    -------
+    bool
+        True when the device registry names a Saswell manufacturer string.
+    """
+    entry = er.async_get(self.hass).async_get(entity_id)
+    if entry is None or entry.device_id is None:
+        return False
+    device = dr.async_get(self.hass).async_get(entry.device_id)
+    return (
+        isinstance(device, dr.DeviceEntry)
+        and device.manufacturer in _SASWELL_MANUFACTURERS
+    )
 
 
 def fix_local_calibration(
     self: ModelFixHost, entity_id: str, calibration_offset: float
 ) -> float:
-    """Normalize local calibration offset for TS0601 devices.
-
-    This function performs model-specific rounding/adjustment to avoid
-    spurious values that would lead to incorrect behavior. The adjustment
-    compares the room temperature against the setpoint; without a room
-    temperature the offset is returned unchanged.
+    """Adjust the local calibration offset of a Saswell head, pass any other through.
 
     Parameters
     ----------
@@ -32,34 +99,22 @@ def fix_local_calibration(
     entity_id : str
         Entity id of the TRV the offset belongs to.
     calibration_offset : float
-        Local calibration offset reported by the device.
+        Local calibration offset to write.
 
     Returns
     -------
     float
-        The adjusted local calibration offset.
+        The offset the Saswell quirk answers, or the offset unchanged.
     """
-    _cur_external_temperature = self.room_temperature
-    _heat_target_temperature = self.heat_target_temperature
-
-    if _cur_external_temperature is None:
-        return calibration_offset
-
-    if (_cur_external_temperature + 0.1) >= _heat_target_temperature:
-        calibration_offset = round(calibration_offset + 0.5, 1)
-    elif (_cur_external_temperature + 0.5) >= _heat_target_temperature:
-        calibration_offset -= 2.5
-
+    if _is_saswell(self, entity_id):
+        return _SASWELL.fix_local_calibration(self, entity_id, calibration_offset)
     return calibration_offset
 
 
 def fix_target_temperature_calibration(
     self: ModelFixHost, entity_id: str, temperature: float
 ) -> float:
-    """Adjust target temperature calibration for TS0601 devices.
-
-    Ensures a minimum distance between the current TRV internal temperature
-    and the requested setpoint to avoid oscillation.
+    """Adjust the setpoint of a Saswell head, pass any other through.
 
     Parameters
     ----------
@@ -73,28 +128,10 @@ def fix_target_temperature_calibration(
     Returns
     -------
     float
-        The adjusted setpoint temperature.
+        The setpoint the Saswell quirk answers, or the setpoint unchanged.
     """
-    _state = self.hass.states.get(entity_id)
-    _cur_trv_temperature = None
-    if _state is not None and _state.attributes.get("current_temperature") is not None:
-        # A climate entity reports in the system unit; the setpoint is °C.
-        _cur_trv_temperature = convert_to_float_celsius(
-            _state.attributes.get("current_temperature"),
-            self.device_name,
-            "fix_target_temperature_calibration",
-            state_temperature_unit(
-                _state.attributes, self.hass.config.units.temperature_unit
-            ),
-        )
-    if _cur_trv_temperature is None:
-        return temperature
-    if (
-        round(temperature, 1) > round(_cur_trv_temperature, 1)
-        and temperature - _cur_trv_temperature < 1.5
-    ):
-        temperature += 1.5
-
+    if _is_saswell(self, entity_id):
+        return _SASWELL.fix_target_temperature_calibration(self, entity_id, temperature)
     return temperature
 
 
