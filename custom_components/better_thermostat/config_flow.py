@@ -70,6 +70,7 @@ from .utils.const import (
     CONF_NO_OFF_SYSTEM_MODE,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
+    CONF_PAUSE_SENSOR,
     CONF_PRESETS,
     CONF_PROTECT_OVERHEATING,
     CONF_TARGET_TEMP_MAX,
@@ -284,6 +285,7 @@ _UserDraft = TypedDict(  # noqa: UP013
         "temperature_sensor": str | None,
         "window_sensors": str | None,
         "door_sensors": str | None,
+        "pause_sensor": str | None,
         "humidity_sensor": str | None,
         "outdoor_sensor": str | None,
         "weather": str | None,
@@ -470,6 +472,7 @@ def _merged_settings(
     merged[CONF_TEMPERATURE_SENSOR] = draft[CONF_TEMPERATURE_SENSOR]
     merged[CONF_WINDOW_SENSORS] = draft[CONF_WINDOW_SENSORS]
     merged[CONF_DOOR_SENSORS] = draft[CONF_DOOR_SENSORS]
+    merged[CONF_PAUSE_SENSOR] = draft[CONF_PAUSE_SENSOR]
     merged[CONF_HUMIDITY_SENSOR] = draft[CONF_HUMIDITY_SENSOR]
     merged[CONF_OUTDOOR_SENSOR] = draft[CONF_OUTDOOR_SENSOR]
     merged[CONF_WEATHER] = draft[CONF_WEATHER]
@@ -1007,6 +1010,9 @@ def _build_user_fields(
     add_entity_selector(
         CONF_DOOR_SENSORS, domain=["group", "sensor", "input_boolean", "binary_sensor"]
     )
+    add_entity_selector(
+        CONF_PAUSE_SENSOR, domain=["group", "input_boolean", "binary_sensor"]
+    )
     add_entity_selector(CONF_WEATHER, domain="weather")
 
     for key in (
@@ -1176,6 +1182,7 @@ def _normalize_user_submission(
         ),
         CONF_WINDOW_SENSORS: _entity_or_none(user_input.get(CONF_WINDOW_SENSORS)),
         CONF_DOOR_SENSORS: _entity_or_none(user_input.get(CONF_DOOR_SENSORS)),
+        CONF_PAUSE_SENSOR: _entity_or_none(user_input.get(CONF_PAUSE_SENSOR)),
         CONF_HUMIDITY_SENSOR: _entity_or_none(user_input.get(CONF_HUMIDITY_SENSOR)),
         CONF_OUTDOOR_SENSOR: _entity_or_none(user_input.get(CONF_OUTDOOR_SENSOR)),
         CONF_WEATHER: _entity_or_none(user_input.get(CONF_WEATHER)),

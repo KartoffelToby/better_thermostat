@@ -26,7 +26,8 @@
           "target_temp_max": "Maksymalna temperatura docelowa",
           "target_temp_step": "Krok temperatury docelowej",
           "presets": "Włączone ustawienia predefiniowane",
-          "distribute_valve_by_trv_temperature": "Rozdzielaj otwarcie zaworu według własnej temperatury każdego TRV"
+          "distribute_valve_by_trv_temperature": "Rozdzielaj otwarcie zaworu według własnej temperatury każdego TRV",
+          "pause_sensor": "Czujnik wstrzymania regulacji"
         },
         "data_description": {
           "name": "Nazwa tego termostatu i jego urządzenia w Home Assistant.",
@@ -50,7 +51,8 @@
           "target_temp_max": "Najwyższy cel, jaki można ustawić. Auto przyjmuje zakres zgłaszany przez urządzenia.",
           "target_temp_step": "O ile zmienia się cel na krok. Auto przyjmuje najgrubszy krok zgłaszany przez termostaty.",
           "presets": "Wybierz ustawienia predefiniowane, które mają być dostępne dla tego termostatu.",
-          "distribute_valve_by_trv_temperature": "Tylko dla dwóch lub więcej TRV w trybie kalibracji MPC lub MPC v2. Wyłączone: każdy TRV otrzymuje to samo otwarcie zaworu. Włączone: TRV, który mierzy niższą temperaturę niż najcieplejszy TRV w pomieszczeniu, otwiera się bardziej, o 8 % na każdy °C (4,4 % na °F) różnicy. Porównywane są własne odczyty TRV, dlatego Sonoff TRVZB lub TRV-ZBT musi mieć wybrany własny czujnik i włączoną opcję „Zachowaj wybór czujnika TRV”. TRV kalibrowany przez offset otrzymuje otwarcie zaworu pomieszczenia."
+          "distribute_valve_by_trv_temperature": "Tylko dla dwóch lub więcej TRV w trybie kalibracji MPC lub MPC v2. Wyłączone: każdy TRV otrzymuje to samo otwarcie zaworu. Włączone: TRV, który mierzy niższą temperaturę niż najcieplejszy TRV w pomieszczeniu, otwiera się bardziej, o 8 % na każdy °C (4,4 % na °F) różnicy. Porównywane są własne odczyty TRV, dlatego Sonoff TRVZB lub TRV-ZBT musi mieć wybrany własny czujnik i włączoną opcję „Zachowaj wybór czujnika TRV”. TRV kalibrowany przez offset otrzymuje otwarcie zaworu pomieszczenia.",
+          "pause_sensor": "Opcjonalnie. Stan włączony wstrzymuje ogrzewanie i chłodzenie; wyłączony, brakujący, nieznany lub niedostępny wznawia regulację."
         }
       },
       "advanced": {
@@ -132,7 +134,8 @@
           "target_temp_step": "Krok temperatury docelowej",
           "presets": "Włączone ustawienia predefiniowane",
           "cooler": "Urządzenie chłodzące (opcjonalnie)",
-          "distribute_valve_by_trv_temperature": "Rozdzielaj otwarcie zaworu według własnej temperatury każdego TRV"
+          "distribute_valve_by_trv_temperature": "Rozdzielaj otwarcie zaworu według własnej temperatury każdego TRV",
+          "pause_sensor": "Czujnik wstrzymania regulacji"
         },
         "data_description": {
           "name": "Nazwa tego termostatu i jego urządzenia w Home Assistant.",
@@ -156,7 +159,8 @@
           "target_temp_step": "O ile zmienia się cel na krok. Auto przyjmuje najgrubszy krok zgłaszany przez termostaty.",
           "presets": "Wybierz ustawienia predefiniowane, które mają być dostępne dla tego termostatu.",
           "cooler": "Opcjonalne. Klimatyzator lub inna encja klimatu, która chłodzi to pomieszczenie razem z termostatami.",
-          "distribute_valve_by_trv_temperature": "Tylko dla dwóch lub więcej TRV w trybie kalibracji MPC lub MPC v2. Wyłączone: każdy TRV otrzymuje to samo otwarcie zaworu. Włączone: TRV, który mierzy niższą temperaturę niż najcieplejszy TRV w pomieszczeniu, otwiera się bardziej, o 8 % na każdy °C (4,4 % na °F) różnicy. Porównywane są własne odczyty TRV, dlatego Sonoff TRVZB lub TRV-ZBT musi mieć wybrany własny czujnik i włączoną opcję „Zachowaj wybór czujnika TRV”. TRV kalibrowany przez offset otrzymuje otwarcie zaworu pomieszczenia."
+          "distribute_valve_by_trv_temperature": "Tylko dla dwóch lub więcej TRV w trybie kalibracji MPC lub MPC v2. Wyłączone: każdy TRV otrzymuje to samo otwarcie zaworu. Włączone: TRV, który mierzy niższą temperaturę niż najcieplejszy TRV w pomieszczeniu, otwiera się bardziej, o 8 % na każdy °C (4,4 % na °F) różnicy. Porównywane są własne odczyty TRV, dlatego Sonoff TRVZB lub TRV-ZBT musi mieć wybrany własny czujnik i włączoną opcję „Zachowaj wybór czujnika TRV”. TRV kalibrowany przez offset otrzymuje otwarcie zaworu pomieszczenia.",
+          "pause_sensor": "Opcjonalnie. Stan włączony wstrzymuje ogrzewanie i chłodzenie; wyłączony, brakujący, nieznany lub niedostępny wznawia regulację."
         }
       },
       "advanced": {
@@ -426,7 +430,8 @@
               "hvac_off": "Termostat wyłączony",
               "window": "Okno otwarte",
               "door": "Drzwi otwarte",
-              "no_call_for_heat": "Brak zapotrzebowania na ciepło"
+              "no_call_for_heat": "Brak zapotrzebowania na ciepło",
+              "regulation_paused": "Regulacja wstrzymana"
             }
           },
           "active_overrides": {

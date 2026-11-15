@@ -23,6 +23,7 @@ The thermostat's `heating_blocked_by` attribute names what keeps Better Thermost
 | `startup` | Better Thermostat is starting. The thermostat is unavailable until the startup ends and shows no attributes meanwhile, so the value is listed for completeness. |
 | `valve_maintenance` | A valve maintenance run is exercising the valves. |
 | `hvac_off` | The thermostat's mode is off. |
+| `regulation_paused` | The optional pause regulation sensor is on. |
 | `window` | A window is open and window detection is on. With a window and a door open, the window is named. |
 | `door` | A door is open and window detection is on. |
 | `no_call_for_heat` | The outdoor temperature or the weather forecast is above the *outdoor temperature when the thermostat should turn off*. See [Summer mode](/deep-explanations/summer-mode/). |

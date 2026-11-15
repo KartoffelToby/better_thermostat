@@ -697,6 +697,7 @@ class TestRoundtripCompleteness:
             "room_temperature_filtered": 19.1,
             "temperature_slope": 0.02,
             "call_for_heat": True,
+            "regulation_paused": True,
             "window_open": True,
             "preset_mode": Preset.ECO,
             "devices_released": True,

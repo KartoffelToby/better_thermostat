@@ -26,7 +26,8 @@
           "target_temp_max": "Sollmaximumtemperatur",
           "target_temp_step": "Solltemperatur-Schritt",
           "presets": "Aktivierte Presets",
-          "distribute_valve_by_trv_temperature": "Ventilöffnung nach der eigenen Temperatur jedes TRV aufteilen"
+          "distribute_valve_by_trv_temperature": "Ventilöffnung nach der eigenen Temperatur jedes TRV aufteilen",
+          "pause_sensor": "Sensor zum Pausieren der Regelung"
         },
         "data_description": {
           "name": "Der Name dieses Thermostats und seines Geräts in Home Assistant.",
@@ -50,7 +51,8 @@
           "target_temp_max": "Das höchste Ziel, das du einstellen kannst. Auto übernimmt den Bereich, den deine Geräte melden.",
           "target_temp_step": "Um wie viel sich das Ziel pro Schritt ändert. Auto übernimmt den gröbsten Schritt, den deine Thermostate melden.",
           "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen.",
-          "distribute_valve_by_trv_temperature": "Nur für zwei oder mehr TRVs im Kalibriermodus MPC oder MPC v2. Aus: Jeder TRV erhält dieselbe Ventilöffnung. Ein: Ein TRV, der kälter misst als der wärmste TRV des Raums, öffnet weiter, um 8 % je °C (4,4 % je °F) Unterschied. Verglichen werden die eigenen Messwerte der TRVs, daher braucht ein Sonoff TRVZB oder TRV-ZBT seinen eigenen Sensor als Auswahl und die Option „Sensorauswahl des TRV beibehalten“. Ein über den Offset kalibrierter TRV erhält die Ventilöffnung des Raums."
+          "distribute_valve_by_trv_temperature": "Nur für zwei oder mehr TRVs im Kalibriermodus MPC oder MPC v2. Aus: Jeder TRV erhält dieselbe Ventilöffnung. Ein: Ein TRV, der kälter misst als der wärmste TRV des Raums, öffnet weiter, um 8 % je °C (4,4 % je °F) Unterschied. Verglichen werden die eigenen Messwerte der TRVs, daher braucht ein Sonoff TRVZB oder TRV-ZBT seinen eigenen Sensor als Auswahl und die Option „Sensorauswahl des TRV beibehalten“. Ein über den Offset kalibrierter TRV erhält die Ventilöffnung des Raums.",
+          "pause_sensor": "Optional. An pausiert Heizung und Kühlung; aus, fehlend, unbekannt oder nicht verfügbar setzt die Regelung fort."
         }
       },
       "advanced": {
@@ -132,7 +134,8 @@
           "target_temp_step": "Solltemperatur-Schritt",
           "presets": "Aktivierte Presets",
           "cooler": "Klimagerät AC (optional)",
-          "distribute_valve_by_trv_temperature": "Ventilöffnung nach der eigenen Temperatur jedes TRV aufteilen"
+          "distribute_valve_by_trv_temperature": "Ventilöffnung nach der eigenen Temperatur jedes TRV aufteilen",
+          "pause_sensor": "Sensor zum Pausieren der Regelung"
         },
         "data_description": {
           "name": "Der Name dieses Thermostats und seines Geräts in Home Assistant.",
@@ -156,7 +159,8 @@
           "target_temp_step": "Um wie viel sich das Ziel pro Schritt ändert. Auto übernimmt den gröbsten Schritt, den deine Thermostate melden.",
           "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen.",
           "cooler": "Optional. Eine Klimaanlage oder eine andere Klima-Entität, die diesen Raum zusätzlich zu den Thermostaten kühlt.",
-          "distribute_valve_by_trv_temperature": "Nur für zwei oder mehr TRVs im Kalibriermodus MPC oder MPC v2. Aus: Jeder TRV erhält dieselbe Ventilöffnung. Ein: Ein TRV, der kälter misst als der wärmste TRV des Raums, öffnet weiter, um 8 % je °C (4,4 % je °F) Unterschied. Verglichen werden die eigenen Messwerte der TRVs, daher braucht ein Sonoff TRVZB oder TRV-ZBT seinen eigenen Sensor als Auswahl und die Option „Sensorauswahl des TRV beibehalten“. Ein über den Offset kalibrierter TRV erhält die Ventilöffnung des Raums."
+          "distribute_valve_by_trv_temperature": "Nur für zwei oder mehr TRVs im Kalibriermodus MPC oder MPC v2. Aus: Jeder TRV erhält dieselbe Ventilöffnung. Ein: Ein TRV, der kälter misst als der wärmste TRV des Raums, öffnet weiter, um 8 % je °C (4,4 % je °F) Unterschied. Verglichen werden die eigenen Messwerte der TRVs, daher braucht ein Sonoff TRVZB oder TRV-ZBT seinen eigenen Sensor als Auswahl und die Option „Sensorauswahl des TRV beibehalten“. Ein über den Offset kalibrierter TRV erhält die Ventilöffnung des Raums.",
+          "pause_sensor": "Optional. An pausiert Heizung und Kühlung; aus, fehlend, unbekannt oder nicht verfügbar setzt die Regelung fort."
         }
       },
       "advanced": {
@@ -426,7 +430,8 @@
               "hvac_off": "Thermostat aus",
               "window": "Fenster offen",
               "door": "Tür offen",
-              "no_call_for_heat": "Kein Heizbedarf"
+              "no_call_for_heat": "Kein Heizbedarf",
+              "regulation_paused": "Regelung pausiert"
             }
           },
           "active_overrides": {

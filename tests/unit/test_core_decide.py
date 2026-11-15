@@ -35,6 +35,7 @@ class TestHeatingBlock:
             Suppression.WINDOW: HeatingBlock.WINDOW,
             Suppression.DOOR: HeatingBlock.DOOR,
             Suppression.NO_CALL_FOR_HEAT: HeatingBlock.NO_CALL_FOR_HEAT,
+            Suppression.REGULATION_PAUSED: HeatingBlock.REGULATION_PAUSED,
         }
         assert all(
             block.value == suppression.value
@@ -51,6 +52,7 @@ class TestHeatingBlock:
             "window",
             "door",
             "no_call_for_heat",
+            "regulation_paused",
         ]
 
     def test_the_heating_rung_names_no_block(self):

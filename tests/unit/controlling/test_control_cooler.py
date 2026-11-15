@@ -70,6 +70,82 @@ class TestControlCooler:
     """Test control_cooler function."""
 
     @pytest.mark.asyncio
+    async def test_regulation_pause_turns_cooler_off_without_setpoint(self):
+        """A paused cooling cycle sends only the OFF mode."""
+        mock_hass = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _mock_cooler_state(HVACMode.COOL)
+        bt = _mock_bt()
+        bt.hass = mock_hass
+        bt.clock = FakeClock()
+        bt.cooler_entity_id = "climate.cooler"
+        bt.context = None
+        bt.regulation_paused = True
+        snapshot = make_snapshot(
+            hvac_mode=CoreHvacMode.HEAT_COOL,
+            room_temperature=27.0,
+            cool_target_temperature=24.0,
+            regulation_paused=True,
+        )
+
+        await control_cooler(bt, snapshot)
+
+        calls = mock_hass.services.async_call.call_args_list
+        assert len(calls) == 1
+        assert calls[0].args[1] == "set_hvac_mode"
+        assert calls[0].args[2]["hvac_mode"] == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_stale_snapshot_does_not_restart_cooling_after_pause(self):
+        """A cycle decided before the pause cannot turn the cooler on."""
+        mock_hass = Mock()
+        mock_hass.services.async_call = AsyncMock()
+        mock_hass.states.get.return_value = _mock_cooler_state(HVACMode.OFF)
+        bt = _mock_bt()
+        bt.hass = mock_hass
+        bt.clock = FakeClock()
+        bt.cooler_entity_id = "climate.cooler"
+        bt.context = None
+        bt.regulation_paused = True
+        snapshot = make_snapshot(
+            hvac_mode=CoreHvacMode.HEAT_COOL,
+            room_temperature=27.0,
+            cool_target_temperature=24.0,
+        )
+
+        await control_cooler(bt, snapshot)
+
+        mock_hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_pause_during_mode_write_suppresses_cooler_setpoint(self):
+        """A pause arriving during the mode write blocks the following setpoint."""
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = _mock_cooler_state(HVACMode.OFF)
+        bt = _mock_bt()
+        bt.hass = mock_hass
+        bt.clock = FakeClock()
+        bt.cooler_entity_id = "climate.cooler"
+        bt.context = None
+        bt.regulation_paused = False
+
+        async def pause_during_call(*args, **kwargs):
+            bt.regulation_paused = True
+
+        mock_hass.services.async_call = AsyncMock(side_effect=pause_during_call)
+        snapshot = make_snapshot(
+            hvac_mode=CoreHvacMode.HEAT_COOL,
+            room_temperature=27.0,
+            cool_target_temperature=24.0,
+        )
+
+        await control_cooler(bt, snapshot)
+
+        calls = mock_hass.services.async_call.call_args_list
+        assert len(calls) == 1
+        assert calls[0].args[1] == "set_hvac_mode"
+
+    @pytest.mark.asyncio
     async def test_off_mode_turns_cooler_off(self):
         """Test that OFF mode turns the cooler off.
 

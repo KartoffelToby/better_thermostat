@@ -42,6 +42,7 @@ def _make_bt() -> MagicMock:
     bt.temperature_slope = 0.05
     bt.window_open = False
     bt.call_for_heat = True
+    bt.regulation_paused = False
     bt.devices_released = True
     bt.preset_mode = "eco"
     bt.tolerance = 0.3
@@ -77,6 +78,7 @@ COMPLETENESS_TABLE = [
     ("room_temperature_filtered", "room_temperature_filtered", 20.2),
     ("temperature_slope", "temperature_slope", 0.05),
     ("call_for_heat", "call_for_heat", True),
+    ("regulation_paused", "regulation_paused", False),
     ("devices_released", "devices_released", True),
     ("preset_mode", "preset_mode", "eco"),
     ("tolerance", "tolerance", 0.3),

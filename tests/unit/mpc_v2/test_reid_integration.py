@@ -170,6 +170,7 @@ def _make_bt(preset: StoredChoice = MpcV2PlantPreset.AUTO) -> Any:
         heat_target_temperature=21.0,
         room_temperature=19.5,
         learning_held=False,
+        learning_pause_changes=0,
         tolerance=0.0,
         window_open=False,
         contact_open=False,

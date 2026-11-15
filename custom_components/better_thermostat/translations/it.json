@@ -26,7 +26,8 @@
           "target_temp_max": "Temperatura target massima",
           "target_temp_step": "Passo della temperatura target",
           "presets": "Preset abilitati",
-          "distribute_valve_by_trv_temperature": "Ripartisci l'apertura della valvola in base alla temperatura propria di ogni TRV"
+          "distribute_valve_by_trv_temperature": "Ripartisci l'apertura della valvola in base alla temperatura propria di ogni TRV",
+          "pause_sensor": "Sensore di pausa della regolazione"
         },
         "data_description": {
           "name": "Il nome di questo termostato e del suo dispositivo in Home Assistant.",
@@ -50,7 +51,8 @@
           "target_temp_max": "L'obiettivo più alto impostabile. Auto usa l'intervallo indicato dai tuoi dispositivi.",
           "target_temp_step": "Di quanto cambia l'obiettivo a ogni passo. Auto usa il passo più grossolano dei tuoi termostati.",
           "presets": "Seleziona i preset che vuoi rendere disponibili per questo termostato.",
-          "distribute_valve_by_trv_temperature": "Solo per due o più TRV con la modalità di calibrazione MPC o MPC v2. Disattivato: ogni TRV riceve la stessa apertura della valvola. Attivato: un TRV che misura più freddo del TRV più caldo della stanza si apre di più, dell'8 % per °C (4,4 % per °F) di differenza. Vengono confrontate le letture proprie dei TRV, quindi un Sonoff TRVZB o TRV-ZBT deve avere selezionato il proprio sensore e l'opzione «Mantieni la selezione del sensore del TRV» attiva. Un TRV calibrato tramite offset riceve l'apertura della valvola della stanza."
+          "distribute_valve_by_trv_temperature": "Solo per due o più TRV con la modalità di calibrazione MPC o MPC v2. Disattivato: ogni TRV riceve la stessa apertura della valvola. Attivato: un TRV che misura più freddo del TRV più caldo della stanza si apre di più, dell'8 % per °C (4,4 % per °F) di differenza. Vengono confrontate le letture proprie dei TRV, quindi un Sonoff TRVZB o TRV-ZBT deve avere selezionato il proprio sensore e l'opzione «Mantieni la selezione del sensore del TRV» attiva. Un TRV calibrato tramite offset riceve l'apertura della valvola della stanza.",
+          "pause_sensor": "Facoltativo. Attivo sospende riscaldamento e raffreddamento; disattivo, assente, sconosciuto o non disponibile riprende la regolazione."
         }
       },
       "advanced": {
@@ -132,7 +134,8 @@
           "target_temp_step": "Passo della temperatura target",
           "presets": "Preset abilitati",
           "cooler": "Il dispositivo di raffreddamento (opzionale)",
-          "distribute_valve_by_trv_temperature": "Ripartisci l'apertura della valvola in base alla temperatura propria di ogni TRV"
+          "distribute_valve_by_trv_temperature": "Ripartisci l'apertura della valvola in base alla temperatura propria di ogni TRV",
+          "pause_sensor": "Sensore di pausa della regolazione"
         },
         "data_description": {
           "name": "Il nome di questo termostato e del suo dispositivo in Home Assistant.",
@@ -156,7 +159,8 @@
           "target_temp_step": "Di quanto cambia l'obiettivo a ogni passo. Auto usa il passo più grossolano dei tuoi termostati.",
           "presets": "Seleziona i preset che vuoi rendere disponibili per questo termostato.",
           "cooler": "Facoltativo. Un condizionatore o un'altra entità clima che raffredda questa stanza insieme ai termostati.",
-          "distribute_valve_by_trv_temperature": "Solo per due o più TRV con la modalità di calibrazione MPC o MPC v2. Disattivato: ogni TRV riceve la stessa apertura della valvola. Attivato: un TRV che misura più freddo del TRV più caldo della stanza si apre di più, dell'8 % per °C (4,4 % per °F) di differenza. Vengono confrontate le letture proprie dei TRV, quindi un Sonoff TRVZB o TRV-ZBT deve avere selezionato il proprio sensore e l'opzione «Mantieni la selezione del sensore del TRV» attiva. Un TRV calibrato tramite offset riceve l'apertura della valvola della stanza."
+          "distribute_valve_by_trv_temperature": "Solo per due o più TRV con la modalità di calibrazione MPC o MPC v2. Disattivato: ogni TRV riceve la stessa apertura della valvola. Attivato: un TRV che misura più freddo del TRV più caldo della stanza si apre di più, dell'8 % per °C (4,4 % per °F) di differenza. Vengono confrontate le letture proprie dei TRV, quindi un Sonoff TRVZB o TRV-ZBT deve avere selezionato il proprio sensore e l'opzione «Mantieni la selezione del sensore del TRV» attiva. Un TRV calibrato tramite offset riceve l'apertura della valvola della stanza.",
+          "pause_sensor": "Facoltativo. Attivo sospende riscaldamento e raffreddamento; disattivo, assente, sconosciuto o non disponibile riprende la regolazione."
         }
       },
       "advanced": {
@@ -426,7 +430,8 @@
               "hvac_off": "Termostato spento",
               "window": "Finestra aperta",
               "door": "Porta aperta",
-              "no_call_for_heat": "Nessuna richiesta di calore"
+              "no_call_for_heat": "Nessuna richiesta di calore",
+              "regulation_paused": "Regolazione in pausa"
             }
           },
           "active_overrides": {

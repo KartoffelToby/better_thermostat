@@ -446,6 +446,11 @@ def test_every_block_rules_some_cell():
     cell reaches would be a documented value the thermostat never shows.
     """
     named = {decide(*cell.inputs())[0].heating_blocked_by for cell in ALL_CELLS}
+    named.add(
+        decide(make_snapshot(regulation_paused=True), make_state())[
+            0
+        ].heating_blocked_by
+    )
     assert named == {*HeatingBlock, None}
 
 
@@ -459,6 +464,10 @@ def test_a_suppressed_intent_names_its_block():
                 named.setdefault(intent.suppression, set()).add(
                     desired.heating_blocked_by
                 )
+    desired, _ = decide(make_snapshot(regulation_paused=True), make_state())
+    for intent in desired.trvs.values():
+        if intent.suppression is not None:
+            named.setdefault(intent.suppression, set()).add(desired.heating_blocked_by)
     assert named == {
         suppression: {HeatingBlock(suppression.value)} for suppression in Suppression
     }

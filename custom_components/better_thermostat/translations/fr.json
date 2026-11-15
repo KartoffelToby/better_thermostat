@@ -26,7 +26,8 @@
           "target_temp_max": "Température cible maximale",
           "target_temp_step": "Pas de la température cible",
           "presets": "Préréglages activés",
-          "distribute_valve_by_trv_temperature": "Répartir l'ouverture de vanne selon la température propre de chaque TRV"
+          "distribute_valve_by_trv_temperature": "Répartir l'ouverture de vanne selon la température propre de chaque TRV",
+          "pause_sensor": "Capteur de pause de la régulation"
         },
         "data_description": {
           "name": "Le nom de ce thermostat et de son appareil dans Home Assistant.",
@@ -50,7 +51,8 @@
           "target_temp_max": "La consigne la plus haute que vous pouvez régler. Auto reprend la plage indiquée par vos appareils.",
           "target_temp_step": "De combien la consigne change à chaque pas. Auto reprend le pas le plus grossier de vos thermostats.",
           "presets": "Sélectionnez les préréglages qui doivent être disponibles pour ce thermostat.",
-          "distribute_valve_by_trv_temperature": "Uniquement pour deux TRV ou plus avec le mode de calibration MPC ou MPC v2. Désactivé : chaque TRV reçoit la même ouverture de vanne. Activé : un TRV qui mesure plus froid que le TRV le plus chaud de la pièce s'ouvre davantage, de 8 % par °C (4,4 % par °F) d'écart. Les mesures propres des TRV sont comparées ; un Sonoff TRVZB ou TRV-ZBT doit donc avoir son propre capteur sélectionné et l'option « Conserver la sélection du capteur du TRV » activée. Un TRV calibré par son décalage reçoit l'ouverture de vanne de la pièce."
+          "distribute_valve_by_trv_temperature": "Uniquement pour deux TRV ou plus avec le mode de calibration MPC ou MPC v2. Désactivé : chaque TRV reçoit la même ouverture de vanne. Activé : un TRV qui mesure plus froid que le TRV le plus chaud de la pièce s'ouvre davantage, de 8 % par °C (4,4 % par °F) d'écart. Les mesures propres des TRV sont comparées ; un Sonoff TRVZB ou TRV-ZBT doit donc avoir son propre capteur sélectionné et l'option « Conserver la sélection du capteur du TRV » activée. Un TRV calibré par son décalage reçoit l'ouverture de vanne de la pièce.",
+          "pause_sensor": "Facultatif. Activé suspend le chauffage et le refroidissement ; désactivé, absent, inconnu ou indisponible reprend la régulation."
         }
       },
       "advanced": {
@@ -132,7 +134,8 @@
           "target_temp_step": "Pas de la température cible",
           "presets": "Préréglages activés",
           "cooler": "Le dispositif de refroidissement (optionnel)",
-          "distribute_valve_by_trv_temperature": "Répartir l'ouverture de vanne selon la température propre de chaque TRV"
+          "distribute_valve_by_trv_temperature": "Répartir l'ouverture de vanne selon la température propre de chaque TRV",
+          "pause_sensor": "Capteur de pause de la régulation"
         },
         "data_description": {
           "name": "Le nom de ce thermostat et de son appareil dans Home Assistant.",
@@ -156,7 +159,8 @@
           "target_temp_step": "De combien la consigne change à chaque pas. Auto reprend le pas le plus grossier de vos thermostats.",
           "presets": "Sélectionnez les préréglages qui doivent être disponibles pour ce thermostat.",
           "cooler": "Facultatif. Un climatiseur ou une autre entité climatique qui refroidit cette pièce en plus des thermostats.",
-          "distribute_valve_by_trv_temperature": "Uniquement pour deux TRV ou plus avec le mode de calibration MPC ou MPC v2. Désactivé : chaque TRV reçoit la même ouverture de vanne. Activé : un TRV qui mesure plus froid que le TRV le plus chaud de la pièce s'ouvre davantage, de 8 % par °C (4,4 % par °F) d'écart. Les mesures propres des TRV sont comparées ; un Sonoff TRVZB ou TRV-ZBT doit donc avoir son propre capteur sélectionné et l'option « Conserver la sélection du capteur du TRV » activée. Un TRV calibré par son décalage reçoit l'ouverture de vanne de la pièce."
+          "distribute_valve_by_trv_temperature": "Uniquement pour deux TRV ou plus avec le mode de calibration MPC ou MPC v2. Désactivé : chaque TRV reçoit la même ouverture de vanne. Activé : un TRV qui mesure plus froid que le TRV le plus chaud de la pièce s'ouvre davantage, de 8 % par °C (4,4 % par °F) d'écart. Les mesures propres des TRV sont comparées ; un Sonoff TRVZB ou TRV-ZBT doit donc avoir son propre capteur sélectionné et l'option « Conserver la sélection du capteur du TRV » activée. Un TRV calibré par son décalage reçoit l'ouverture de vanne de la pièce.",
+          "pause_sensor": "Facultatif. Activé suspend le chauffage et le refroidissement ; désactivé, absent, inconnu ou indisponible reprend la régulation."
         }
       },
       "advanced": {
@@ -426,7 +430,8 @@
               "hvac_off": "Thermostat éteint",
               "window": "Fenêtre ouverte",
               "door": "Porte ouverte",
-              "no_call_for_heat": "Aucun besoin de chauffage"
+              "no_call_for_heat": "Aucun besoin de chauffage",
+              "regulation_paused": "Régulation en pause"
             }
           },
           "active_overrides": {

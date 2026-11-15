@@ -794,6 +794,7 @@ async def trigger_trv_change(
                     trv.withdrawn_hvac_mode = None
             if (
                 not child_lock
+                and not self.regulation_paused
                 and not _withdrawn_command_landed
                 and trv.system_mode_received is True
                 and trv.last_hvac_mode != _org_trv_state.state
@@ -907,8 +908,11 @@ async def trigger_trv_change(
         _raw_heating_setpoint = _setpoint.raw
         _new_heating_setpoint = _setpoint.value
         _is_echo = _setpoint.is_echo
-        _accept_user_setpoint = accepts_user_setpoint(
-            trv, is_echo=_is_echo, child_lock=child_lock, was_off=_was_off
+        _accept_user_setpoint = (
+            accepts_user_setpoint(
+                trv, is_echo=_is_echo, child_lock=child_lock, was_off=_was_off
+            )
+            and not self.regulation_paused
         )
         if _was_off and trv.hvac_mode != HVACMode.OFF and not _is_echo:
             # The report that switches the device on shows the setpoint it

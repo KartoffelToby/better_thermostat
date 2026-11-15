@@ -39,6 +39,7 @@ class BtConfig:
     window_open_delay_seconds: float = 0.0
     window_close_delay_seconds: float = 0.0
     door_sensor_entity_id: str | None = None
+    pause_sensor_entity_id: str | None = None
     door_open_delay_seconds: float = 0.0
     door_close_delay_seconds: float = 0.0
     weather_entity_id: str | None = None
