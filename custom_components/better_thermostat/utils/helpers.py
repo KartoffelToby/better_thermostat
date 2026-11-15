@@ -3420,12 +3420,56 @@ async def get_trv_intigration(self: _RegistryHost, entity_id: str) -> str:
         return "generic_thermostat"
 
 
+# The Eurotronic Comet Zigbee reports the model of its predecessor, the Spirit
+# Zigbee, SPZB0001. Zigbee2MQTT tells the two apart by date codes it lists,
+# which the device registry does not carry, and ZHA does not tell them apart
+# at all. Every Comet on record carries an IEEE address of Nordic
+# Semiconductor's block f4:ce:36, every Spirit one of 00:15:8d.
+_COMET_PREDECESSOR_MODEL: Final = "SPZB0001"
+_COMET_MODEL: Final = "COZB0001"
+_COMET_IEEE_PREFIX: Final = "f4ce36"
+_IEEE_ADDRESS: Final = re.compile(
+    r"(?<![0-9a-f])(?:0x)?((?:[0-9a-f]{2}:){7}[0-9a-f]{2}|[0-9a-f]{16})(?![0-9a-f])"
+)
+
+
+def _zigbee_ieee(device: dr.DeviceEntry) -> str | None:
+    """Return the device's IEEE address as 16 lowercase hex digits.
+
+    ZHA registers it as the device's Zigbee connection, Zigbee2MQTT inside
+    its identifier (``zigbee2mqtt_0x…``), and deCONZ at the start of its
+    identifier.
+
+    Parameters
+    ----------
+    device : dr.DeviceEntry
+        Device registry entry to read.
+
+    Returns
+    -------
+    str | None
+        The address, or None when the entry names none.
+    """
+    candidates = [
+        value for kind, value in device.connections if kind == dr.CONNECTION_ZIGBEE
+    ]
+    candidates += [value for _domain, value in device.identifiers]
+    for candidate in candidates:
+        match = _IEEE_ADDRESS.search(candidate.lower())
+        if match is not None:
+            return match.group(1).replace(":", "")
+    return None
+
+
 async def get_device_model(
     self: _DeviceModelHost, entity_id: str, *, configured_model: str | None = None
 ) -> str:
     """Determine the device model from the Device Registry entry.
 
     Priority: model_id > model (before parens) > model > config > "generic"
+
+    A device reporting SPZB0001 from an IEEE address of the Eurotronic
+    Comet's block is the Comet, and answers as COZB0001.
 
     Parameters
     ----------
@@ -3489,6 +3533,13 @@ async def get_device_model(
                 elif len(dev_model.strip()) >= 2:
                     selected = dev_model.strip()
                     source = "devreg.model"
+        if (
+            selected == _COMET_PREDECESSOR_MODEL
+            and isinstance(device, dr.DeviceEntry)
+            and (_zigbee_ieee(device) or "").startswith(_COMET_IEEE_PREFIX)
+        ):
+            selected = _COMET_MODEL
+            source = f"{source}+ieee_prefix"
     except Exception:
         # Registry access is best effort; the fallback chain below still
         # yields a model name.
