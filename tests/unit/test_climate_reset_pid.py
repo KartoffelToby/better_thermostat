@@ -121,6 +121,21 @@ async def test_seeds_current_and_neighbour_buckets(bt):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("target_offset", [-1.0, 1.0])
+async def test_defaults_follow_regulation_target(bt, target_offset):
+    """The active PID bucket and its neighbours follow the target offset."""
+    bt.target_offset = target_offset
+    await BetterThermostat.reset_pid_learnings_service(bt, apply_pid_defaults=True)
+    base = 21.0 + target_offset
+    assert set(bt.state_mgr.pid) == {
+        f"uid:climate.trv:t{base:.1f}",
+        f"uid:climate.trv:t{base + 0.5:.1f}",
+        f"uid:climate.trv:t{base - 0.5:.1f}",
+    }
+    assert bt.heat_target_temperature == 21.0
+
+
+@pytest.mark.asyncio
 async def test_defaults_use_pidparams_values(bt):
     """Without overrides, the PIDParams defaults are seeded."""
     defaults = PIDParams()

@@ -6010,7 +6010,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         Clears every cached PIDState entry of this entity (all TRVs and
         buckets) and schedules a save. With ``apply_pid_defaults`` it then
         seeds the given gains, or the PIDParams defaults, into the bucket of
-        the current target and its ±0.5 °C neighbours on every TRV.
+        the current regulation target and its ±0.5 °C neighbours on every TRV.
 
         Raises
         ------
@@ -6030,7 +6030,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             )
         buckets: list[str] = []
         if apply_pid_defaults:
-            target = self.heat_target_temperature
+            target = regulation_target(self)
             if not math.isfinite(target):
                 raise ServiceValidationError(
                     translation_domain=DOMAIN,
