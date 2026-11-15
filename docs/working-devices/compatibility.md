@@ -56,7 +56,7 @@ Better Thermostat automatically detects the device model in Home Assistant's Dev
 | **`SPZB0001`** | **Eurotronic Spirit Zigbee** | Supports **`Direct Valve Based`** (`0–100 %`) and safely clamps **`Offset Based`** writes to the hardware's `±5.0 °C` limit. |
 | **`ZWA021`** | **Eurotronic Spirit Z / Aeotec Z-Wave** | Automatically switches the TRV into its hidden Z-Wave *Manufacturer Specific* mode (`Multilevel Switch`) when **`Direct Valve Based`** is selected, and supports Z-Wave parameter 8 (`0.1 °C` tenths of a degree, skipping reserved `-128`) for **`Offset Based`** calibration once enabled in Home Assistant. When parameter 8 is set to `-128` and **`No Calibration`** is selected, reports your room temperature to the TRV (see [Room temperature written to the TRV](#room-temperature-written-to-the-trv)). |
 | **`COZB0001`** | **Eurotronic Comet Zigbee** | Compensates for firmware that applies `local_temperature_calibration` to the internal setpoint instead of the reported temperature reading. |
-| **`SEA801-Zigbee` / `SEA802-Zigbee`** | **Saswell / Tuya OEM Zigbee TRVs** | Normalizes offset rounding quirks. *(Hardware has a small local offset window—switch to **`Target Temperature Based`** if the radiator sits in a hot pocket!)* |
+| **`SEA801-Zigbee` / `SEA802-Zigbee`** | **Saswell / Tuya OEM Zigbee TRVs** (through ZHA they report `TS0601`; Better Thermostat recognizes them by their manufacturer string) | Normalizes offset rounding quirks. *(Hardware has a small local offset window—switch to **`Target Temperature Based`** if the radiator sits in a hot pocket!)* |
 | **`BTH-RM` / `BTH-RM230Z`** | **Bosch Smart Home Thermostats** | Adapts temperature ranges and dual-setpoint climate handling. |
 | **`ME167`** | **Avatto Zigbee TRV** | Verified offset passthrough and state synchronization. |
 | **`BHT-002-GCLZB`** | **Moes / Beca Wall Thermostat** | Sanitizes erroneous `±1e6` floating-point calibration values sometimes published via Zigbee2MQTT. |
@@ -88,7 +88,7 @@ Models with dedicated built-in handling in Better Thermostat:
 - `SRTS-A01` (Aqara Smart Radiator Thermostat E1)
 - `TRV-ZBT` (Sonoff TRV-ZBT)
 - `TRVZB` (Sonoff TRVZB)
-- `TS0601`
+- `TS0601` (through ZHA: a Saswell SEA801/SEA802 head gets its handling, every other Tuya TRV passes its calibration through unchanged)
 - `TS0601_thermostat`
 - `TV02-Zigbee`
 - `ZWA021` (Eurotronic Spirit Z / Aeotec ZWA021, Z-Wave)

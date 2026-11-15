@@ -23,8 +23,8 @@ from tests.factories import ThermostatStandIn, trv_record
 ENTITY_ID = "climate.trv"
 LOGGER = model_quirks.__name__
 
-TS0601 = importlib.import_module(
-    "custom_components.better_thermostat.model_fixes.TS0601"
+TS0601_THERMOSTAT = importlib.import_module(
+    "custom_components.better_thermostat.model_fixes.TS0601_thermostat"
 )
 SHTRV_01 = importlib.import_module(
     "custom_components.better_thermostat.model_fixes.SHTRV-01"
@@ -77,8 +77,8 @@ class TestTheSetpointShim:
     """The setpoint a model quirk adjusts is the one the shim returns."""
 
     def test_an_adjusted_setpoint_is_returned_and_logged(self, caplog):
-        """TS0601 lifts a setpoint within 1.5 K above its own reading."""
-        host = _host(TS0601, trv_reading=20.0)
+        """TS0601_thermostat lifts a setpoint within 1.5 K above its own reading."""
+        host = _host(TS0601_THERMOSTAT, trv_reading=20.0)
 
         with caplog.at_level(logging.DEBUG, logger=LOGGER):
             answer = model_quirks.fix_target_temperature_calibration(
@@ -90,7 +90,7 @@ class TestTheSetpointShim:
 
     def test_an_unchanged_setpoint_is_not_logged(self, caplog):
         """A quirk that leaves the request alone leaves no trace either."""
-        host = _host(TS0601, trv_reading=23.0)
+        host = _host(TS0601_THERMOSTAT, trv_reading=23.0)
 
         with caplog.at_level(logging.DEBUG, logger=LOGGER):
             answer = model_quirks.fix_target_temperature_calibration(
