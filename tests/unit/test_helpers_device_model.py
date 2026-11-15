@@ -101,3 +101,71 @@ async def test_successful_lookup_is_not_traced_as_a_failure(caplog):
         assert await get_device_model(_bt(), "climate.trv") == "TRVZB"
     assert "failed" not in caplog.text
     assert "identifiers=[('mqtt', '0x1234')]" in caplog.text
+
+
+# IEEE addresses as each integration registers them: ZHA as the Zigbee
+# connection and as its identifier, Zigbee2MQTT inside its identifier, deCONZ
+# at the start of its identifier.
+_COMET_REGISTRATIONS = {
+    "zha": {
+        "connections": {(dr.CONNECTION_ZIGBEE, "f4:ce:36:99:47:67:b8:a3")},
+        "identifiers": {("zha", "f4:ce:36:99:47:67:b8:a3")},
+    },
+    "zigbee2mqtt": {"identifiers": {("mqtt", "zigbee2mqtt_0xf4ce36994767b8a3")}},
+    "deconz": {"identifiers": {("deconz", "f4:ce:36:99:47:67:b8:a3-01-0201")}},
+}
+_SPIRIT_REGISTRATIONS = {
+    "zha": {
+        "connections": {(dr.CONNECTION_ZIGBEE, "00:15:8d:00:05:3d:2d:21")},
+        "identifiers": {("zha", "00:15:8d:00:05:3d:2d:21")},
+    },
+    "zigbee2mqtt": {"identifiers": {("mqtt", "zigbee2mqtt_0x00158d00053d2d21")}},
+}
+
+
+class TestTheCometIsToldApartFromTheSpirit:
+    """Both report SPZB0001; the IEEE address block tells them apart."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("integration", list(_COMET_REGISTRATIONS))
+    async def test_a_comet_address_answers_as_the_comet(self, integration):
+        """ZHA names the model, Zigbee2MQTT the model id; both resolve."""
+        registration = _COMET_REGISTRATIONS[integration]
+        field = "model_id" if integration == "zigbee2mqtt" else "model"
+        device = _device(
+            manufacturer="Eurotronic", **{field: "SPZB0001"}, **registration
+        )
+        er_patch, dr_patch = _registries(device)
+        with er_patch, dr_patch:
+            assert await get_device_model(_bt(), "climate.trv") == "COZB0001"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("integration", list(_SPIRIT_REGISTRATIONS))
+    async def test_a_spirit_address_stays_the_spirit(self, integration):
+        """The predecessor's block keeps its own model."""
+        device = _device(
+            manufacturer="Eurotronic",
+            model="SPZB0001",
+            **_SPIRIT_REGISTRATIONS[integration],
+        )
+        er_patch, dr_patch = _registries(device)
+        with er_patch, dr_patch:
+            assert await get_device_model(_bt(), "climate.trv") == "SPZB0001"
+
+    @pytest.mark.asyncio
+    async def test_a_spirit_without_an_address_stays_the_spirit(self):
+        """A registry entry naming no address leaves the reported model."""
+        device = _device(
+            manufacturer="Eurotronic", model="SPZB0001", identifiers={("x", "valve")}
+        )
+        er_patch, dr_patch = _registries(device)
+        with er_patch, dr_patch:
+            assert await get_device_model(_bt(), "climate.trv") == "SPZB0001"
+
+    @pytest.mark.asyncio
+    async def test_another_model_from_the_comet_block_keeps_its_model(self):
+        """The block belongs to Nordic, so only SPZB0001 is rewritten."""
+        device = _device(model="CoZB_dha", **_COMET_REGISTRATIONS["zha"])
+        er_patch, dr_patch = _registries(device)
+        with er_patch, dr_patch:
+            assert await get_device_model(_bt(), "climate.trv") == "CoZB_dha"
