@@ -55,7 +55,7 @@ Better Thermostat automatically detects the device model in Home Assistant's Dev
 | **`SHTRV-01`** | **Shelly TRV (Gen1 Wi-Fi)** | Prevents `4.0 °C` minimum-setpoint writes from unintentionally reporting back as the user turning the thermostat `off` (floors active closing writes one `0.5 °C` step above `4.0 °C`). |
 | **`SPZB0001`** | **Eurotronic Spirit Zigbee** | Supports **`Direct Valve Based`** (`0–100 %`) and safely clamps **`Offset Based`** writes to the hardware's `±5.0 °C` limit. |
 | **`ZWA021`** | **Eurotronic Spirit Z / Aeotec Z-Wave** | Automatically switches the TRV into its hidden Z-Wave *Manufacturer Specific* mode (`Multilevel Switch`) when **`Direct Valve Based`** is selected, and supports Z-Wave parameter 8 (`0.1 °C` tenths of a degree, skipping reserved `-128`) for **`Offset Based`** calibration once enabled in Home Assistant. When parameter 8 is set to `-128` and **`No Calibration`** is selected, reports your room temperature to the TRV (see [Room temperature written to the TRV](#room-temperature-written-to-the-trv)). |
-| **`COZB0001`** | **Eurotronic Comet Zigbee** | Compensates for firmware that applies `local_temperature_calibration` to the internal setpoint instead of the reported temperature reading. |
+| **`COZB0001`** | **Eurotronic Comet Zigbee** (also when it reports `SPZB0001`, as under ZHA: Better Thermostat recognizes it by its IEEE address) | Compensates for firmware that applies `local_temperature_calibration` to the internal setpoint instead of the reported temperature reading. |
 | **`SEA801-Zigbee` / `SEA802-Zigbee`** | **Saswell / Tuya OEM Zigbee TRVs** | Normalizes offset rounding quirks. *(Hardware has a small local offset window—switch to **`Target Temperature Based`** if the radiator sits in a hot pocket!)* |
 | **`BTH-RM` / `BTH-RM230Z`** | **Bosch Smart Home Thermostats** | Adapts temperature ranges and dual-setpoint climate handling. |
 | **`ME167`** | **Avatto Zigbee TRV** | Verified offset passthrough and state synchronization. |
@@ -78,7 +78,7 @@ Models with dedicated built-in handling in Better Thermostat:
 - `BHT-002-GCLZB`
 - `BTH-RM`
 - `BTH-RM230Z`
-- `COZB0001` (Eurotronic Comet Zigbee)
+- `COZB0001` (Eurotronic Comet Zigbee, also when it reports `SPZB0001`)
 - `Heater` (TermoWeb electric radiator, through the `ha-termoweb` integration)
 - `ME167` (Avatto)
 - `SEA801-Zigbee` / `SEA802-Zigbee`
