@@ -274,6 +274,77 @@ def test_an_offset_the_head_applies_at_its_limit_is_not_reported(bt, registry):
     registry.async_create_issue.assert_not_called()
 
 
+def _cycles_in_rooms(bt, rooms, seconds) -> None:
+    """Run a cycle at the upper limit every tick for ``seconds``, in turn in ``rooms``."""
+    elapsed = 0.0
+    tick = 0
+    while True:
+        _cycle(bt, 5.0, 5.0, room_temperature=rooms[tick % len(rooms)])
+        if elapsed >= seconds:
+            return
+        bt.clock.advance(_TICK_SECONDS)
+        elapsed += _TICK_SECONDS
+        tick += 1
+
+
+def test_a_cycle_asking_for_about_the_limit_keeps_the_run(bt, registry):
+    """A head that ignores its offset is reported though the gap comes and goes.
+
+    The head reads 21 °C. In a 25 °C room the correction lies past the
+    limit; in a 21 °C room it is the limit itself, and the offset stays where
+    it is. Every other cycle is past, so the window ends in a report.
+    """
+    trv = bt.real_trvs[DEFAULT_TRV_ID]
+    _cycles_in_rooms(bt, [25.0, 21.0], CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS)
+
+    assert trv.calibration_offset_at_limit is not None
+    assert trv.calibration_offset_at_limit_reported
+    registry.async_create_issue.assert_called_once()
+
+
+def test_a_run_with_fewer_than_half_of_its_cycles_past_is_not_reported(bt, registry):
+    """Two cycles at about the limit for each one past leave the window unreported."""
+    trv = bt.real_trvs[DEFAULT_TRV_ID]
+    _cycles_in_rooms(
+        bt, [25.0, 21.0, 21.0], 2 * CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS
+    )
+
+    assert trv.calibration_offset_at_limit is not None
+    assert not trv.calibration_offset_at_limit_reported
+    registry.async_create_issue.assert_not_called()
+
+
+def test_a_raised_report_stands_through_a_cycle_asking_for_about_the_limit(
+    bt, registry
+):
+    """A cycle whose correction is the limit itself does not take the report back."""
+    trv = bt.real_trvs[DEFAULT_TRV_ID]
+    _cycles_at(bt, 5.0, 5.0, CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS)
+    assert trv.calibration_offset_at_limit_reported
+    since = trv.calibration_offset_at_limit.since_monotonic
+
+    bt.clock.advance(_TICK_SECONDS)
+    _cycle(bt, 5.0, 5.0, room_temperature=21.0)
+
+    assert trv.calibration_offset_at_limit_reported
+    assert trv.calibration_offset_at_limit.since_monotonic == since
+    registry.async_delete_issue.assert_not_called()
+
+
+def test_a_head_that_applies_about_the_limit_is_not_reported(bt, registry):
+    """A head that needs the limit itself is not reported for the room's noise.
+
+    The head applies the offset and reads 26 °C at the upper limit, and the
+    room moves 0.3 K around that. The correction lies past the limit on the
+    warm cycles and inside the range on the cool ones, which end the run.
+    """
+    trv = bt.real_trvs[DEFAULT_TRV_ID]
+    trv.current_temperature = 21.0 + 5.0
+    _cycles_in_rooms(bt, [26.3, 25.7], 2 * CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS)
+
+    registry.async_create_issue.assert_not_called()
+
+
 def test_a_correction_back_inside_the_range_takes_the_report_back(bt, registry):
     """A head that starts applying its offset is no longer stuck at the limit."""
     trv = bt.real_trvs[DEFAULT_TRV_ID]

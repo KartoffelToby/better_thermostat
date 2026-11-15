@@ -56,11 +56,11 @@ Better Thermostat automatically detects the device model in Home Assistant's Dev
 | **`SPZB0001`** | **Eurotronic Spirit Zigbee** | Supports **`Direct Valve Based`** (`0–100 %`) and safely clamps **`Offset Based`** writes to the hardware's `±5.0 °C` limit. |
 | **`ZWA021`** | **Eurotronic Spirit Z / Aeotec Z-Wave** | Automatically switches the TRV into its hidden Z-Wave *Manufacturer Specific* mode (`Multilevel Switch`) when **`Direct Valve Based`** is selected, and supports Z-Wave parameter 8 (`0.1 °C` tenths of a degree, skipping reserved `-128`) for **`Offset Based`** calibration once enabled in Home Assistant. When parameter 8 is set to `-128` and **`No Calibration`** is selected, reports your room temperature to the TRV (see [Room temperature written to the TRV](#room-temperature-written-to-the-trv)). |
 | **`COZB0001`** | **Eurotronic Comet Zigbee** (also when it reports `SPZB0001`, as under ZHA: Better Thermostat recognizes it by its IEEE address) | Compensates for firmware that applies `local_temperature_calibration` to the internal setpoint instead of the reported temperature reading. |
-| **`SEA801-Zigbee` / `SEA802-Zigbee`** | **Saswell / Tuya OEM Zigbee TRVs** | Normalizes offset rounding quirks. *(Hardware has a small local offset window—switch to **`Target Temperature Based`** if the radiator sits in a hot pocket!)* |
-| **`BTH-RM` / `BTH-RM230Z`** | **Bosch Smart Home Thermostats** | Adapts temperature ranges and dual-setpoint climate handling. |
+| **`SEA801-Zigbee` / `SEA802-Zigbee`** | **Saswell / Tuya OEM Zigbee TRVs, Nous `H1Z`** | Normalizes offset rounding quirks. *(Hardware has a small local offset window—switch to **`Target Temperature Based`** if the radiator sits in a hot pocket!)* |
+| **`BTH-RM` / `BTH-RM230Z`** | **Bosch Smart Home Thermostats** (ZHA: `RBSH-RTH0-BAT-ZB-EU` / `RBSH-RTH0-ZB-EU`) | Adapts temperature ranges and dual-setpoint climate handling. |
 | **`ME167`** | **Avatto Zigbee TRV** | Verified offset passthrough and state synchronization. |
-| **`BHT-002-GCLZB`** | **Moes / Beca Wall Thermostat** | Sanitizes erroneous `±1e6` floating-point calibration values sometimes published via Zigbee2MQTT. |
-| **`TS0601` / `TS0601_thermostat` / `TV02-Zigbee`** | **Tuya / Moes / TuYa OEM Zigbee TRVs** | Direction-aware offset rounding and mode handling for quirky Tuya cluster implementations. |
+| **`BHT-002-GCLZB`** | **Moes / Beca Wall Thermostat** (Zigbee2MQTT: `BHT-002`, `BHT-002/BHT-006`) | Sanitizes erroneous `±1e6` floating-point calibration values sometimes published via Zigbee2MQTT. |
+| **`TS0601` / `TS0601_thermostat` / `TV02-Zigbee`** | **Tuya / Moes / TuYa OEM Zigbee TRVs**, with the Zigbee2MQTT white labels Immax `07732L`, Emos `P5630S`, THALEOS `HY368` (`TS0601_thermostat`) and Moes `ZTRV-ZX-TV01-MS` / `TV01-ZB` / `ZTRV-ZX-TV02`, AlecoAir `HA-08_THERMO`, GIEX `TV06`, EKF `ETT-8` (`TV02-Zigbee`) | Direction-aware offset rounding and mode handling for quirky Tuya cluster implementations. |
 | **`Heater` (TermoWeb)** | **TermoWeb Electric Radiators (`ha-termoweb`)** | Automatically inverts the temperature offset sign (`+1 K` offset lowers reported reading by `1 K` on TermoWeb hardware). |
 
 :::caution[Community notes on tricky budget TRV firmware]
@@ -75,13 +75,13 @@ Missing a quirk for your TRV model? [Open a GitHub issue](https://github.com/Kar
 Models with dedicated built-in handling in Better Thermostat:
 
 - `014G2461` (Danfoss Ally, also Danfoss `014G2463`, Popp `701721` and Hive `UK7004240`; through ZHA `eTRV0100`, `eTRV0101`, `eTRV0103`, `eT093WRO`, `eT093WRG`, `TRV001` and `TRV003`)
-- `BHT-002-GCLZB`
-- `BTH-RM`
-- `BTH-RM230Z`
+- `BHT-002-GCLZB` (Zigbee2MQTT names it `BHT-002`, or `BHT-002/BHT-006`)
+- `BTH-RM` (through ZHA `RBSH-RTH0-BAT-ZB-EU`)
+- `BTH-RM230Z` (through ZHA `RBSH-RTH0-ZB-EU`)
 - `COZB0001` (Eurotronic Comet Zigbee, also when it reports `SPZB0001`)
 - `Heater` (TermoWeb electric radiator, through the `ha-termoweb` integration)
 - `ME167` (Avatto)
-- `SEA801-Zigbee` / `SEA802-Zigbee`
+- `SEA801-Zigbee` / `SEA802-Zigbee` (also Nous `H1Z`)
 - `SBTR-001AEU` (Shelly BLU TRV)
 - `SHTRV-01` (Shelly TRV, Gen1)
 - `SPZB0001` (Eurotronic Spirit Zigbee)
@@ -89,8 +89,8 @@ Models with dedicated built-in handling in Better Thermostat:
 - `TRV-ZBT` (Sonoff TRV-ZBT)
 - `TRVZB` (Sonoff TRVZB)
 - `TS0601`
-- `TS0601_thermostat`
-- `TV02-Zigbee`
+- `TS0601_thermostat` (also Immax `07732L`, Emos `P5630S`, THALEOS `HY368`)
+- `TV02-Zigbee` (also Moes `ZTRV-ZX-TV01-MS`, `TV01-ZB` and `ZTRV-ZX-TV02`, AlecoAir `HA-08_THERMO`, GIEX `TV06`, EKF `ETT-8`)
 - `ZWA021` (Eurotronic Spirit Z / Aeotec ZWA021, Z-Wave)
 
 ---

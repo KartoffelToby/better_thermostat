@@ -9,6 +9,7 @@ from custom_components.better_thermostat.core.offset_limit import (
     OffsetAtLimit,
     advance_offset_at_limit,
     compute_offset_correction,
+    is_correction_inside_limit,
     is_correction_past_limit,
     is_offset_stuck_at_limit,
     limit_held_by,
@@ -137,22 +138,64 @@ class TestCorrection:
         assert is_correction_past_limit(5.005, 5.0, step) is False
 
 
+class TestCorrectionInsideLimit:
+    """A correction more than a step inside the limit lies inside the range."""
+
+    @pytest.mark.parametrize(
+        ("correction", "limit", "inside"),
+        [
+            pytest.param(4.4, 5.0, True, id="more than a step below the upper limit"),
+            pytest.param(4.5, 5.0, False, id="one step below the upper limit"),
+            pytest.param(5.0, 5.0, False, id="at the upper limit"),
+            pytest.param(6.0, 5.0, False, id="past the upper limit"),
+            pytest.param(-4.4, -5.0, True, id="more than a step above the lower limit"),
+            pytest.param(-4.5, -5.0, False, id="one step above the lower limit"),
+            pytest.param(-6.0, -5.0, False, id="past the lower limit"),
+            pytest.param(-5.0, 5.0, True, id="at the other limit"),
+        ],
+    )
+    def test_a_correction_more_than_a_step_inside_the_limit_is_inside(
+        self, correction, limit, inside
+    ):
+        assert is_correction_inside_limit(correction, limit, 0.5) is inside
+
+    def test_a_limit_of_zero_has_every_correction_inside(self):
+        assert is_correction_inside_limit(5.0, 0.0, 0.5) is True
+        assert is_correction_inside_limit(-5.0, 0.0, 0.5) is True
+
+    @pytest.mark.parametrize("step", [0.0, -1.0, math.nan])
+    def test_a_step_that_is_no_positive_number_counts_as_none(self, step):
+        assert is_correction_inside_limit(4.9, 5.0, step) is True
+        assert is_correction_inside_limit(4.995, 5.0, step) is False
+
+
 class TestRun:
-    """The run counts unbroken cycles at one limit."""
+    """The run counts unbroken cycles at one limit, and those past it."""
 
-    def test_the_first_cycle_at_a_limit_starts_a_run(self):
-        assert advance_offset_at_limit(None, 12.7, 100.0) == OffsetAtLimit(12.7, 100.0)
+    @pytest.mark.parametrize("past", [True, False])
+    def test_the_first_cycle_at_a_limit_starts_a_run(self, past):
+        assert advance_offset_at_limit(None, 12.7, 100.0, past=past) == OffsetAtLimit(
+            12.7, 100.0, cycles=1, cycles_past=int(past)
+        )
 
-    def test_a_cycle_at_the_same_limit_keeps_the_start(self):
-        run = OffsetAtLimit(12.7, 100.0)
-        assert advance_offset_at_limit(run, 12.7, 400.0) is run
+    def test_a_cycle_at_the_same_limit_keeps_the_start_and_counts_itself(self):
+        run = OffsetAtLimit(12.7, 100.0, cycles=3, cycles_past=2)
+        assert advance_offset_at_limit(run, 12.7, 400.0, past=True) == OffsetAtLimit(
+            12.7, 100.0, cycles=4, cycles_past=3
+        )
+        assert advance_offset_at_limit(run, 12.7, 400.0, past=False) == OffsetAtLimit(
+            12.7, 100.0, cycles=4, cycles_past=2
+        )
 
     def test_a_cycle_at_the_other_limit_starts_a_new_run(self):
-        run = OffsetAtLimit(12.7, 100.0)
-        assert advance_offset_at_limit(run, -12.7, 400.0) == OffsetAtLimit(-12.7, 400.0)
+        run = OffsetAtLimit(12.7, 100.0, cycles=3, cycles_past=3)
+        assert advance_offset_at_limit(run, -12.7, 400.0, past=True) == OffsetAtLimit(
+            -12.7, 400.0, cycles=1, cycles_past=1
+        )
 
     def test_a_cycle_at_neither_limit_ends_the_run(self):
-        assert advance_offset_at_limit(OffsetAtLimit(12.7, 100.0), None, 400.0) is None
+        run = OffsetAtLimit(12.7, 100.0)
+        assert advance_offset_at_limit(run, None, 400.0, past=True) is None
 
 
 class TestStuck:
@@ -173,6 +216,22 @@ class TestStuck:
         run = OffsetAtLimit(12.7, 100.0)
         now = 100.0 + CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS
         assert is_offset_stuck_at_limit(run, now) is True
+
+    @pytest.mark.parametrize(
+        ("cycles", "cycles_past", "stuck"),
+        [
+            pytest.param(12, 12, True, id="every cycle past"),
+            pytest.param(12, 6, True, id="half of the cycles past"),
+            pytest.param(12, 5, False, id="fewer than half past"),
+            pytest.param(12, 0, False, id="no cycle past"),
+        ],
+    )
+    def test_a_run_is_stuck_only_with_half_of_its_cycles_past(
+        self, cycles, cycles_past, stuck
+    ):
+        run = OffsetAtLimit(12.7, 100.0, cycles=cycles, cycles_past=cycles_past)
+        now = 100.0 + CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS
+        assert is_offset_stuck_at_limit(run, now) is stuck
 
     def test_the_window_can_be_given(self):
         run = OffsetAtLimit(12.7, 0.0)

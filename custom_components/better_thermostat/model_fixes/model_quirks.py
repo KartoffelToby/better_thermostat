@@ -49,6 +49,15 @@ _LOGGER = logging.getLogger(__name__)
 # carries only the name resolves onto the module of the id. Zigbee2MQTT names
 # the Bosch BTH-RA Radiator thermostat II; a release that publishes no model
 # id leaves only that name, and it resolves onto the module of the id too.
+#
+# Zigbee2MQTT replaces the model id of a white-label device it recognises by
+# fingerprint with the white-label model, so each of those resolves onto the
+# module of the definition that drives it. Zigbee2MQTT names the Moes
+# BHT-002-GCLZB BHT-002, and BHT-002/BHT-006 as a Moes white label of it.
+#
+# ZHA names a device with the model string it reports itself: the Bosch
+# BTH-RA RBSH-TRV0-ZB-EU or RBSH-TRV1-ZB-EU, the BTH-RM RBSH-RTH0-BAT-ZB-EU,
+# the BTH-RM230Z RBSH-RTH0-ZB-EU and the Aqara SRTS-A01 lumi.airrtc.agl001.
 _QUIRK_MODULE_ALIASES = {
     "Spirit": "ZWA021",
     "Z-TRV-V01": "ZWA021",
@@ -64,6 +73,23 @@ _QUIRK_MODULE_ALIASES = {
     "TRV003": "014G2461",
     "Shelly BLU TRV": "SBTR-001AEU",
     "Radiator thermostat II": "BTH-RA",
+    "BHT-002": "BHT-002-GCLZB",
+    "BHT-002/BHT-006": "BHT-002-GCLZB",
+    "07732L": "TS0601_thermostat",
+    "P5630S": "TS0601_thermostat",
+    "HY368": "TS0601_thermostat",
+    "ZTRV-ZX-TV01-MS": "TV02-Zigbee",
+    "TV01-ZB": "TV02-Zigbee",
+    "HA-08_THERMO": "TV02-Zigbee",
+    "TV06": "TV02-Zigbee",
+    "ZTRV-ZX-TV02": "TV02-Zigbee",
+    "ETT-8": "TV02-Zigbee",
+    "H1Z": "SEA801-Zigbee_SEA802-Zigbee",
+    "RBSH-TRV0-ZB-EU": "BTH-RA",
+    "RBSH-TRV1-ZB-EU": "BTH-RA",
+    "RBSH-RTH0-BAT-ZB-EU": "BTH-RM",
+    "RBSH-RTH0-ZB-EU": "BTH-RM230Z",
+    "lumi.airrtc.agl001": "SRTS-A01",
 }
 
 
