@@ -5368,7 +5368,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         applies one step above it.
         """
         applied = self._applied_target(stored, cooling=True)
-        heating = self.heat_target_temperature
+        heating = max(self.heat_target_temperature, regulation_target(self))
         if applied > heating:
             return applied
         return _cool_target_above(
