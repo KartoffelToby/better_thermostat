@@ -249,6 +249,33 @@ async def test_an_offset_the_head_ignores_is_reported_after_the_window(hass, fak
 
 
 @pytest.mark.parametrize("fake_trv", [NARROW_OFFSET_TRV], indirect=True)
+async def test_an_ignoring_head_in_a_room_about_as_warm_on_some_cycles_is_reported(
+    hass, fake_trv
+):
+    """A room that is now and then as warm as the head's reading hides nothing.
+
+    The room is a degree above the head's reading on every other tick and at
+    the reading on the ticks between. The offset stays at the limit either
+    way, and the issue comes once the window is over and stays.
+    """
+    offset_number = fake_trv.offset_number
+    assert offset_number is not None
+    async with _room_with_an_ignoring_head(hass, fake_trv) as (bt, entry, ticks):
+        trv = bt.real_trvs[TRV_ID]
+        run = await _until_the_offset_rests_at_the_limit(bt, ticks)
+        reported_from = run.since_monotonic + CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS
+        while bt.clock.monotonic() < reported_from + 2 * _TICK_MINUTES * 60.0:
+            set_room_sensor(hass, _HEAD_READING + 1.0 * (ticks.count % 2))
+            await hass.async_block_till_done()
+            await ticks.fire()
+
+        assert offset_number.set_value_calls[-1] == pytest.approx(_OFFSET_LIMIT)
+        assert trv.calibration_offset_at_limit is not None
+        assert trv.calibration_offset_at_limit.since_monotonic == run.since_monotonic
+        assert _issue(hass, entry) is not None
+
+
+@pytest.mark.parametrize("fake_trv", [NARROW_OFFSET_TRV], indirect=True)
 async def test_the_issue_goes_with_the_offset_based_calibration_type(hass, fake_trv):
     """Switching the TRV to Target Temperature Based takes the issue back."""
     async with _room_with_an_ignoring_head(hass, fake_trv) as (bt, entry, ticks):
@@ -350,6 +377,19 @@ async def test_an_offset_overheating_protection_holds_at_the_limit_is_not_report
             hass, fake_trv, protect_overheating=True, calibration_mode="fix_calibration"
         ) as (bt, entry, ticks):
             assert bt.heat_target_temperature + bt.tolerance < _ROOM_TEMPERATURE
+            # The startup wrote the limit, and the head's reading took it
+            # before Better Thermostat followed its reports; the head reports
+            # the reading again.
+            fake_trv._attr_native_current_temperature = _ROOM_TEMPERATURE
+            fake_trv.async_write_ha_state()
+            fake_trv._attr_native_current_temperature = (
+                _ROOM_TEMPERATURE + _OFFSET_LIMIT
+            )
+            fake_trv.async_write_ha_state()
+            await hass.async_block_till_done()
+            assert bt.real_trvs[TRV_ID].current_temperature == pytest.approx(
+                _ROOM_TEMPERATURE + _OFFSET_LIMIT
+            )
             ticks.room_temperature = _ROOM_TEMPERATURE
             while ticks.clock.t < 2 * CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS:
                 await ticks.fire()
