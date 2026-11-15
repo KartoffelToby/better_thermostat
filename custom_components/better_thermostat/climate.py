@@ -5295,6 +5295,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         ``no_off_system_mode`` reports its knob turn while ``bt_hvac_mode`` is
         still OFF, and the same event then resolves the mode to HEAT.
 
+        The input is on the displayed target's scale. A positive target offset
+        lowers the ceiling so the effective heating target clears cooling too.
+
         The one step of separation comes from :func:`normalize_step` for the
         same reason as in the counterpart: a step a child reports as negative or
         non-finite would either invert the pair or drop the bound.
@@ -5315,7 +5318,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if self.cooler_entity_id is None or self.cool_target_temperature is None:
             return value
         step = normalize_step(self.bt_target_temperature_step)
-        ceiling = self.cool_target_temperature - step
+        target_offset = max(0.0, regulation_target(self) - self.heat_target_temperature)
+        ceiling = self.cool_target_temperature - step - target_offset
         if self.bt_min_temp is not None:
             ceiling = max(ceiling, self.bt_min_temp)
         return min(value, ceiling)

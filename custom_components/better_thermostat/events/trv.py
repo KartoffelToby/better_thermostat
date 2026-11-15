@@ -923,7 +923,18 @@ async def trigger_trv_change(
                 _raw_heating_setpoint, trv.confirmed_write_id
             )
         if _accept_user_setpoint:
-            if _setpoint.clamped:
+            target_offset = regulation_target(self) - self.heat_target_temperature
+            _reported_display_target = _raw_heating_setpoint - target_offset
+            _bounded_heating_setpoint = (
+                self._bound_target_to_range(_reported_display_target)
+                if target_offset and not _cooling_owns
+                else _new_heating_setpoint
+            )
+            if (
+                _setpoint.clamped
+                if _cooling_owns or not target_offset
+                else _bounded_heating_setpoint != _reported_display_target
+            ):
                 _LOGGER.warning(
                     "better_thermostat %s: New TRV %s setpoint outside of range, overwriting it",
                     self.device_name,
@@ -974,14 +985,16 @@ async def trigger_trv_change(
                 # it, so a knob turn on a radiator valve cannot move the
                 # cooler's target.
                 _adopted_heating_setpoint = self._clamp_inbound_heat_target(
-                    _new_heating_setpoint
+                    _bounded_heating_setpoint
                 )
-                target_offset = regulation_target(self) - self.heat_target_temperature
-                if target_offset:
-                    _adopted_heating_setpoint = self._bound_target_to_range(
-                        _adopted_heating_setpoint - target_offset
+                if (
+                    abs(
+                        _adopted_heating_setpoint
+                        + target_offset
+                        - _raw_heating_setpoint
                     )
-                if _adopted_heating_setpoint + target_offset != _new_heating_setpoint:
+                    > 1e-9
+                ):
                     # A user turning the knob up step by step would collect one
                     # warning per press, so yielding to the cooling target is an
                     # INFO: the range clamp above and the ordering fallback below
@@ -991,7 +1004,7 @@ async def trigger_trv_change(
                         "clear the cooling target %.2f, keeping %.2f",
                         self.device_name,
                         entity_id,
-                        _new_heating_setpoint,
+                        _raw_heating_setpoint,
                         self.cool_target_temperature,
                         _adopted_heating_setpoint + target_offset,
                     )

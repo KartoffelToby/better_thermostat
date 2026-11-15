@@ -2755,6 +2755,57 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == 21.5
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("reported", "target_offset", "cool_target", "expected", "range_warning"),
+        [
+            (31.0, 2.0, None, 29.0, False),
+            (4.0, -2.0, None, 6.0, False),
+            (22.0, 0.5, None, 21.5, False),
+            (33.0, 2.0, None, 30.0, True),
+            (27.0, 2.0, 24.0, 21.5, False),
+            (24.0, -2.0, 24.0, 23.5, False),
+        ],
+    )
+    async def test_knob_offset_is_removed_before_bounds(
+        self,
+        mock_bt,
+        caplog,
+        reported,
+        target_offset,
+        cool_target,
+        expected,
+        range_warning,
+    ):
+        """An offset report is converted before range and cooling limits."""
+        mock_bt.target_offset = target_offset
+        mock_bt._bound_target_to_range = lambda value: (
+            BetterThermostat._bound_target_to_range(mock_bt, value)
+        )
+        if cool_target is not None:
+            mock_bt.cooler_entity_id = "climate.cooler"
+            mock_bt.cool_target_temperature = cool_target
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": reported, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == expected
+        assert ("setpoint outside of range" in caplog.text) is range_warning
+        if cool_target is not None:
+            assert mock_bt.cool_target_temperature == cool_target
+
+    @pytest.mark.asyncio
     async def test_cooler_sync_keeps_cooltemp_above_target(self, mock_bt):
         """A reported target that already clears the cool target is taken as is."""
         mock_bt.cooler_entity_id = "climate.cooler"
