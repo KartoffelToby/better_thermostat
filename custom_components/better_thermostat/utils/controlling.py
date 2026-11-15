@@ -3040,7 +3040,7 @@ async def control_trv(
                 and not calibration_entity_disabled(self, entity_id)
                 # Nor is the offset of a model that ignores it.
                 and not quirk_ignores_calibration_offset(
-                    self.real_trvs[entity_id].model_quirks
+                    self.real_trvs[entity_id].model_quirks, self, entity_id
                 )
             ):
                 _current_calibration_raw = await get_calibration_offset(self, entity_id)

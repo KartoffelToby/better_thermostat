@@ -12,6 +12,10 @@ offset. On either head the reading stays where it was, so without the quirks
 the offset runs to the end of the entity's range. With them Better
 Thermostat keeps the W600 inside the range it applies, and neither offers
 the offset calibration for the LILJEBAGGE nor writes an offset to it.
+
+The Kasa KE100 behind the Kasa hub is a bridged Matter device without a
+product id, registered by its model. Over Matter it applies no offset either;
+through the TP-Link integration it does, so its quirk answers by platform.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ from homeassistant.core import State
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
 
-from custom_components.better_thermostat import config_flow
+from custom_components.better_thermostat import climate, config_flow
 from custom_components.better_thermostat.adapters import delegate, generic
 from custom_components.better_thermostat.adapters.base import (
     AdapterCapabilities,
@@ -72,6 +76,7 @@ def _quirk_module(model: str) -> ModelQuirks:
 
 W600 = _quirk_module("18437")
 LILJEBAGGE = _quirk_module("20480")
+KE100 = _quirk_module("KE100")
 
 ENTITY_ID = "climate.radiator_thermostat"
 OFFSET_ENTITY_ID = "number.radiator_thermostat_temperature_offset"
@@ -170,12 +175,13 @@ def _host(
     *,
     model: str = "18437",
     room: float = COLD_ROOM,
+    platform: str = "matter",
 ) -> ThermostatStandIn:
     """A thermostat driving ``head`` through the generic adapter."""
     entity_registry = make_entity_registry(
-        make_registry_entry(ENTITY_ID, platform="matter"),
+        make_registry_entry(ENTITY_ID, platform=platform),
         make_registry_entry(
-            OFFSET_ENTITY_ID, platform="matter", translation_key="temperature_offset"
+            OFFSET_ENTITY_ID, platform=platform, translation_key="temperature_offset"
         ),
     )
     monkeypatch.setattr(er, "async_get", lambda _hass: entity_registry)
@@ -408,19 +414,44 @@ class TestTheW600IsCalibratedInsideTheRangeItApplies:
 
 
 class TestTheLiljebaggeIsNotCalibratedByOffset:
-    def test_the_quirk_declares_the_offset_ignored(self):
+    def test_the_quirk_declares_the_offset_ignored(self, monkeypatch):
         quirks: object = LILJEBAGGE
         assert isinstance(quirks, IgnoredOffsetQuirk)
-        assert model_quirks.quirk_ignores_calibration_offset(LILJEBAGGE) is True
+        bt = _host(monkeypatch, _w600(), LILJEBAGGE, model="20480")
+
+        assert (
+            model_quirks.quirk_ignores_calibration_offset(LILJEBAGGE, bt, ENTITY_ID)
+            is True
+        )
 
     @pytest.mark.parametrize("quirks", [default, W600])
-    def test_every_other_module_applies_the_offset(self, quirks):
-        assert model_quirks.quirk_ignores_calibration_offset(quirks) is False
+    def test_every_other_module_applies_the_offset(self, monkeypatch, quirks):
+        bt = _host(monkeypatch, _w600(), quirks)
 
-    def test_a_module_declaring_the_offset_applied_applies_it(self):
-        quirks = SimpleNamespace(CALIBRATION_OFFSET_IGNORED=False)
+        assert (
+            model_quirks.quirk_ignores_calibration_offset(quirks, bt, ENTITY_ID)
+            is False
+        )
 
-        assert model_quirks.quirk_ignores_calibration_offset(quirks) is False
+    def test_a_module_answering_the_offset_applied_applies_it(self, monkeypatch):
+        quirks = SimpleNamespace(
+            calibration_offset_ignored=lambda _host, _entity_id: False
+        )
+        bt = _host(monkeypatch, _w600(), default)
+
+        assert (
+            model_quirks.quirk_ignores_calibration_offset(quirks, bt, ENTITY_ID)
+            is False
+        )
+
+    def test_a_mock_that_makes_the_answer_up_applies_the_offset(self, monkeypatch):
+        """A truthy mock in place of the answer reads as an unquirked device."""
+        bt = _host(monkeypatch, _w600(), default)
+
+        assert (
+            model_quirks.quirk_ignores_calibration_offset(MagicMock(), bt, ENTITY_ID)
+            is False
+        )
 
     @pytest.mark.asyncio
     async def test_no_offset_is_written_to_it(self, monkeypatch):
@@ -449,6 +480,7 @@ class TestTheLiljebaggeIsNotCalibratedByOffset:
             entity_id=ENTITY_ID,
             adapter=generic,
             model_quirks=LILJEBAGGE,
+            calibration_offset_ignored=True,
             local_temperature_calibration_entity=OFFSET_ENTITY_ID,
         )
 
@@ -600,3 +632,121 @@ class TestTheLiljebaggeIsNotCalibratedByOffset:
             )
 
         assert channels.valve_write is True
+
+
+class TestTheKe100IsNotCalibratedByOffsetOverMatterOnly:
+    """The KE100 ignores its offset over Matter and applies it through TP-Link."""
+
+    @pytest.mark.parametrize(
+        ("platform", "ignored"), [("matter", True), ("tplink", False)]
+    )
+    def test_the_answer_follows_the_integration(self, monkeypatch, platform, ignored):
+        quirks: object = KE100
+        assert isinstance(quirks, IgnoredOffsetQuirk)
+        bt = _host(monkeypatch, _w600(), KE100, model="KE100", platform=platform)
+
+        assert (
+            model_quirks.quirk_ignores_calibration_offset(KE100, bt, ENTITY_ID)
+            is ignored
+        )
+
+    def test_an_entity_the_registry_does_not_know_applies_the_offset(self, monkeypatch):
+        bt = _host(monkeypatch, _w600(), KE100, model="KE100")
+
+        assert (
+            model_quirks.quirk_ignores_calibration_offset(
+                KE100, bt, "climate.not_registered"
+            )
+            is False
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_loader_imports_its_module(self):
+        bt = ThermostatStandIn()
+        bt.device_name = "Test BT"
+
+        async def _import(_hass: object, name: str) -> ModuleType:
+            return importlib.import_module(name)
+
+        with patch.object(model_quirks, "async_import_module", side_effect=_import):
+            loaded = await model_quirks.load_model_quirks(bt, "KE100", ENTITY_ID)
+
+        assert loaded is KE100
+
+    @pytest.mark.asyncio
+    async def test_no_offset_is_written_to_it_on_matter(self, monkeypatch):
+        head = SimulatedMatterHead(lowest_applied=1.0, highest_applied=-1.0)
+        bt = _host(monkeypatch, head, KE100, model="KE100", platform="matter")
+
+        assert await delegate.set_calibration_offset(bt, ENTITY_ID, 2.5) is False
+
+        assert head.written == []
+
+    @pytest.mark.asyncio
+    async def test_the_offset_is_written_to_it_through_tplink(self, monkeypatch):
+        head = SimulatedMatterHead(lowest_applied=-12.7, highest_applied=12.7)
+        bt = _host(monkeypatch, head, KE100, model="KE100", platform="tplink")
+
+        assert await delegate.set_calibration_offset(bt, ENTITY_ID, 2.0) is True
+
+        assert head.written == [2.0]
+
+    @pytest.mark.parametrize(
+        ("platform", "offered"), [("matter", False), ("tplink", True)]
+    )
+    @pytest.mark.asyncio
+    async def test_the_setup_form_offers_the_offset_calibration_off_matter_only(
+        self, platform, offered
+    ):
+        adapter = MagicMock(spec=TrvAdapter)
+        adapter.get_info = AsyncMock(
+            return_value=DeviceChannels(offset_write=True, valve_write=False)
+        )
+        entity_registry = make_entity_registry(
+            make_registry_entry(ENTITY_ID, platform=platform)
+        )
+        flow = config_flow.ConfigFlow()
+        flow.hass = MagicMock()
+
+        with (
+            patch.object(er, "async_get", return_value=entity_registry),
+            patch.object(
+                config_flow, "get_device_model", autospec=True, return_value="KE100"
+            ),
+            patch.object(
+                config_flow, "load_model_quirks", autospec=True, return_value=KE100
+            ),
+        ):
+            _adapter, channels = await config_flow._load_adapter_info(
+                flow, platform, ENTITY_ID, existing_adapter=adapter
+            )
+
+        assert channels.offset_write is offered
+        assert (
+            config_flow._default_calibration_for(channels)
+            is CalibrationOutput.LOCAL_BASED
+        ) is offered
+
+    @pytest.mark.parametrize(
+        ("platform", "offset_write"), [("matter", False), ("tplink", True)]
+    )
+    @pytest.mark.asyncio
+    async def test_a_model_found_late_takes_up_the_answer(
+        self, monkeypatch, platform, offset_write
+    ):
+        """The TRV record keeps the answer its capabilities read."""
+        bt = _host(monkeypatch, _w600(), default, model="generic", platform=platform)
+
+        with (
+            patch.object(
+                climate, "get_device_model", autospec=True, return_value="KE100"
+            ),
+            patch.object(
+                climate, "load_model_quirks", autospec=True, return_value=KE100
+            ),
+        ):
+            await climate._refresh_trv_model(bt, ENTITY_ID)
+
+        trv = bt.real_trvs[ENTITY_ID]
+        assert trv.calibration_offset_ignored is not offset_write
+        assert trv.capabilities().supports_offset_write is offset_write

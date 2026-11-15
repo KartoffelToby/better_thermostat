@@ -14,10 +14,12 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.better_thermostat.model_fixes.types import (
     DEFAULT_VALVE_MAINTENANCE_INTERVAL_HOURS,
+    IgnoredOffsetQuirk,
     InitialTweakQuirk,
     MaintenanceIntervalQuirk,
     ModelFixHost,
     ModelQuirks,
+    RegistryHost,
     UnknownStateQuirk,
 )
 
@@ -52,6 +54,24 @@ def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
     bool
         False: an entity that says nothing about its device leaves the
         device unaccounted for.
+    """
+    return False
+
+
+def calibration_offset_ignored(self: RegistryHost, entity_id: str) -> bool:
+    """Answer whether the TRV ignores the calibration offset written to it.
+
+    Parameters
+    ----------
+    self : RegistryHost
+        Caller providing Home Assistant access. Unused by the default policy.
+    entity_id : str
+        Entity ID of the TRV. Unused by the default policy.
+
+    Returns
+    -------
+    bool
+        False: a device publishing an offset entity applies the offset.
     """
     return False
 
@@ -276,9 +296,11 @@ class _Surface:
     VALVE_MAINTENANCE_INTERVAL_HOURS = VALVE_MAINTENANCE_INTERVAL_HOURS
     initial_tweak = staticmethod(initial_tweak)
     trv_state_unknown_as_available = staticmethod(trv_state_unknown_as_available)
+    calibration_offset_ignored = staticmethod(calibration_offset_ignored)
 
 
 _MODEL_QUIRKS: ModelQuirks = _Surface()
 _INITIAL_TWEAK_QUIRK: InitialTweakQuirk = _Surface()
 _MAINTENANCE_INTERVAL_QUIRK: MaintenanceIntervalQuirk = _Surface()
 _UNKNOWN_STATE_QUIRK: UnknownStateQuirk = _Surface()
+_IGNORED_OFFSET_QUIRK: IgnoredOffsetQuirk = _Surface()

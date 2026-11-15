@@ -25,6 +25,7 @@ from custom_components.better_thermostat.model_fixes.types import (
     OffsetConventionHost,
     OffsetRangeQuirk,
     QuirkLoaderHost,
+    RegistryHost,
     SetpointOffsetQuirk,
     UnknownStateQuirk,
     ValveQuirk,
@@ -222,27 +223,36 @@ def quirk_writes_valve(model_quirks: object) -> bool:
     return isinstance(model_quirks, ValveQuirk)
 
 
-def quirk_ignores_calibration_offset(model_quirks: object) -> bool:
-    """Answer whether a model's quirk declares that its device ignores the offset.
+def quirk_ignores_calibration_offset(
+    model_quirks: object, host: RegistryHost, entity_id: str
+) -> bool:
+    """Answer whether a model's quirk says that this TRV ignores its offset.
 
     A device that takes the offset into its entity and leaves it out of
     the temperature it reports and regulates on cannot be calibrated by
-    offset: every correction written to it stays without effect.
+    offset: every correction written to it stays without effect. Whether a
+    device does may depend on the integration it is paired through, so the
+    quirk is asked about the TRV itself.
 
     Parameters
     ----------
     model_quirks : object
-        Quirk module loaded for a TRV.
+        Quirk module loaded for the TRV.
+    host : RegistryHost
+        Caller providing Home Assistant access, a thermostat or a flow.
+    entity_id : str
+        Entity id of the TRV.
 
     Returns
     -------
     bool
-        True when the module declares ``CALIBRATION_OFFSET_IGNORED``.
+        True when the module defines ``calibration_offset_ignored`` and it
+        answers True for this TRV.
     """
-    return (
-        isinstance(model_quirks, IgnoredOffsetQuirk)
-        and model_quirks.CALIBRATION_OFFSET_IGNORED
-    )
+    if not isinstance(model_quirks, IgnoredOffsetQuirk):
+        return False
+    # A bare mock answers with a truthy mock; only a real True counts.
+    return model_quirks.calibration_offset_ignored(host, entity_id) is True
 
 
 def lowest_applied_calibration_offset(

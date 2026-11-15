@@ -634,7 +634,9 @@ async def set_calibration_offset(
     """
     if calibration_entity_disabled(self, entity_id):
         return False
-    if quirk_ignores_calibration_offset(self.real_trvs[entity_id].model_quirks):
+    if quirk_ignores_calibration_offset(
+        self.real_trvs[entity_id].model_quirks, self, entity_id
+    ):
         _LOGGER.debug(
             "better_thermostat %s: %s ignores its calibration offset, "
             "nothing was written",

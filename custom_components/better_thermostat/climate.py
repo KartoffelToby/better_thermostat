@@ -584,6 +584,9 @@ async def _refresh_trv_model(self: BetterThermostat, entity_id: str) -> None:
         trv.model,
     )
     trv.model_quirks = await load_model_quirks(self, resolved_model, entity_id)
+    trv.calibration_offset_ignored = quirk_ignores_calibration_offset(
+        trv.model_quirks, self, entity_id
+    )
     trv.model = resolved_model
 
 
@@ -1761,6 +1764,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 calibration=configured_calibration_output(_advanced),
                 adapter=_adapter,
                 model_quirks=_model_quirks,
+                calibration_offset_ignored=quirk_ignores_calibration_offset(
+                    _model_quirks, self, trv["trv"]
+                ),
                 model=resolved_model,
                 # A copy: settings changed at runtime, such as the child-lock
                 # switch, must not rewrite the settings the entry was set up
@@ -3140,7 +3146,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # Only a TRV calibrated through its offset has one BT reads or
             # writes; every other TRV keeps the neutral defaults.
             if trv.calibration is CalibrationOutput.LOCAL_BASED:
-                if quirk_ignores_calibration_offset(trv.model_quirks):
+                if quirk_ignores_calibration_offset(trv.model_quirks, self, entity_id):
                     _LOGGER.warning(
                         "better_thermostat %s: TRV %s (model %s) ignores its "
                         "calibration offset, so no offset is written to it and "

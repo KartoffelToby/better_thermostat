@@ -241,6 +241,19 @@ class OffsetConventionHost(Protocol):
         ...
 
 
+class RegistryHost(Protocol):
+    """Surface a quirk reads Home Assistant's registries through.
+
+    The config flow asks some quirks before any thermostat exists, so this
+    asks for no more than a flow provides.
+    """
+
+    @property
+    def hass(self) -> HomeAssistant:
+        """Home Assistant core the caller is attached to."""
+        ...
+
+
 class QuirkLoaderHost(Protocol):
     """Surface the quirk loader reads from its caller."""
 
@@ -361,10 +374,15 @@ class OffsetRangeQuirk(Protocol):
 
 @runtime_checkable
 class IgnoredOffsetQuirk(Protocol):
-    """A quirk that knows its device ignores its calibration offset."""
+    """A quirk that knows when its device ignores its calibration offset.
 
-    CALIBRATION_OFFSET_IGNORED: Final[bool]
-    """Whether the device leaves every offset written to it unapplied."""
+    The answer may depend on how the device is paired: the same model can
+    apply its offset through one integration and ignore it through another.
+    """
+
+    def calibration_offset_ignored(self, host: RegistryHost, entity_id: str, /) -> bool:
+        """Whether the device leaves every offset written to it unapplied."""
+        ...
 
 
 @runtime_checkable

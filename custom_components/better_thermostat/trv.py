@@ -21,7 +21,6 @@ from homeassistant.core import State
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.core.offset_limit import OffsetAtLimit
 from custom_components.better_thermostat.model_fixes.model_quirks import (
-    quirk_ignores_calibration_offset,
     quirk_writes_valve,
 )
 from custom_components.better_thermostat.model_fixes.types import (
@@ -151,6 +150,10 @@ class Trv:
     adapter: TrvAdapter
     # The model-quirk module ``load_model_quirks`` imported for the model.
     model_quirks: ModelQuirks
+    # Whether the model's quirk says this TRV ignores its calibration offset,
+    # answered where the quirks are loaded: the answer may read the entity
+    # registry, which this record has no access to.
+    calibration_offset_ignored: bool = False
     # Integration that owns the physical thermostat entity.
     integration: str = "unknown"
     # What BT writes to calibrate the TRV; None when the configuration
@@ -489,7 +492,7 @@ class Trv:
         offset_write = (
             declared.offset_write
             and (offset_entity or not declared.offset_needs_entity)
-            and not quirk_ignores_calibration_offset(self.model_quirks)
+            and not self.calibration_offset_ignored
         )
         valve_write = declared.valve_write and (
             valve_entity or not declared.valve_needs_entity
