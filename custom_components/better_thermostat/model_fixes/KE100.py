@@ -27,11 +27,13 @@ from homeassistant.helpers import entity_registry as er
 from custom_components.better_thermostat.model_fixes.default import (
     fix_local_calibration,
     fix_target_temperature_calibration,
+    initial_tweak,
     override_set_hvac_mode,
     override_set_temperature,
 )
 from custom_components.better_thermostat.model_fixes.types import (
     IgnoredOffsetQuirk,
+    InitialTweakQuirk,
     ModelQuirks,
     RegistryHost,
 )
@@ -40,6 +42,7 @@ __all__ = [
     "calibration_offset_ignored",
     "fix_local_calibration",
     "fix_target_temperature_calibration",
+    "initial_tweak",
     "override_set_hvac_mode",
     "override_set_temperature",
 ]
@@ -77,10 +80,12 @@ class _Surface:
     fix_target_temperature_calibration = staticmethod(
         fix_target_temperature_calibration
     )
+    initial_tweak = staticmethod(initial_tweak)
     override_set_hvac_mode = staticmethod(override_set_hvac_mode)
     override_set_temperature = staticmethod(override_set_temperature)
     calibration_offset_ignored = staticmethod(calibration_offset_ignored)
 
 
 _MODEL_QUIRKS: ModelQuirks = _Surface()
+_INITIAL_TWEAK_QUIRK: InitialTweakQuirk = _Surface()
 _IGNORED_OFFSET_QUIRK: IgnoredOffsetQuirk = _Surface()

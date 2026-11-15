@@ -45,6 +45,7 @@ from custom_components.better_thermostat.core.snapshot import TrvReported
 from custom_components.better_thermostat.model_fixes import default, model_quirks
 from custom_components.better_thermostat.model_fixes.types import (
     IgnoredOffsetQuirk,
+    InitialTweakQuirk,
     ModelQuirks,
     OffsetConventionHost,
     OffsetRangeQuirk,
@@ -750,3 +751,24 @@ class TestTheKe100IsNotCalibratedByOffsetOverMatterOnly:
         trv = bt.real_trvs[ENTITY_ID]
         assert trv.calibration_offset_ignored is not offset_write
         assert trv.capabilities().supports_offset_write is offset_write
+
+    @pytest.mark.asyncio
+    async def test_a_registry_entry_found_late_takes_up_the_answer(self, monkeypatch):
+        """The record made before Matter registered the TRV is corrected."""
+        bt = _host(monkeypatch, _w600(), KE100, model="KE100", platform="matter")
+        trv = bt.real_trvs[ENTITY_ID]
+        trv.calibration_offset_ignored = False
+
+        with patch.object(
+            climate, "get_device_model", autospec=True, return_value="KE100"
+        ):
+            await climate._refresh_trv_model(bt, ENTITY_ID)
+
+        assert trv.calibration_offset_ignored is True
+        assert trv.capabilities().supports_offset_write is False
+
+    def test_the_default_initialisation_still_runs(self):
+        """Child lock, window and away setup stay as the default has them."""
+        quirks: object = KE100
+        assert isinstance(quirks, InitialTweakQuirk)
+        assert KE100.initial_tweak is default.initial_tweak

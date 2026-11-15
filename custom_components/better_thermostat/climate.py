@@ -574,6 +574,11 @@ async def _refresh_trv_model(self: BetterThermostat, entity_id: str) -> None:
     trv = self.real_trvs[entity_id]
     resolved_model = await get_device_model(self, entity_id, configured_model=trv.model)
     if resolved_model == trv.model:
+        # The quirk may read the TRV's registry entry, which an integration
+        # can register after the TRV record was made, so ask it again.
+        trv.calibration_offset_ignored = quirk_ignores_calibration_offset(
+            trv.model_quirks, self, entity_id
+        )
         return
     _LOGGER.info(
         "better_thermostat %s: device registry now names model '%s' for %s "
