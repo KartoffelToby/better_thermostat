@@ -12,9 +12,18 @@ nothing left to correct with.
 An offset also reaches a limit on a TRV that applies it: while a cold room
 heats up, or because a calibration mode or overheating protection drives it
 there on purpose. The correction the gap asks for then lies inside the range,
-since the TRV's reading carries the offset. Only an offset whose correction
-has stayed past the same limit, through every control cycle of
-``CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS``, counts as stuck there.
+since the TRV's reading carries the offset.
+
+A TRV that ignores its offset keeps the offset at the limit as long as the
+room is not cooler than its reading, but the gap to the room varies, and on
+some cycles it is too small to carry the correction past the limit. Such a
+cycle neither breaks the run nor counts for it. A cycle whose correction lies
+inside the range ends the run, as one at the limit with an applying TRV
+does. An offset counts as stuck once its run has lasted
+``CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS`` and at least half of the
+run's cycles asked for a correction past the limit. A TRV that applies its
+offset and needs about the limit itself asks for one past it only on the
+cycles its noise lifts there.
 
 The module decides and holds nothing; the caller keeps the run between
 control cycles and reads the time.
@@ -22,7 +31,7 @@ control cycles and reads the time.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from typing import Final
 
@@ -50,10 +59,16 @@ class OffsetAtLimit:
         The limit of the TRV's offset range the offset sits at, in Kelvin.
     since_monotonic : float
         Monotonic time of the first cycle of the run, in seconds.
+    cycles : int
+        Control cycles the run has lasted, the first one included.
+    cycles_past : int
+        Those of the cycles that asked for a correction past the limit.
     """
 
     limit: float
     since_monotonic: float
+    cycles: int = 1
+    cycles_past: int = 1
 
 
 def _limit_band(lower: float, upper: float, step: float) -> float:
@@ -178,13 +193,43 @@ def is_correction_past_limit(correction: float, limit: float, step: float) -> bo
     return False
 
 
+def is_correction_inside_limit(correction: float, limit: float, step: float) -> bool:
+    """Return whether a correction lies more than one step inside ``limit``.
+
+    Parameters
+    ----------
+    correction : float
+        The offset in Kelvin the gap asks for, from
+        ``compute_offset_correction``.
+    limit : float
+        The limit of the range the offset sits at, in Kelvin.
+    step : float
+        The TRV's offset step in Kelvin; a step that is not a positive finite
+        number counts as none.
+
+    Returns
+    -------
+    bool
+        True when the correction lies on the side of the limit towards zero,
+        by more than one step. A limit of zero has every correction inside it.
+    """
+    margin = step if math.isfinite(step) and step > 0 else 0.0
+    margin += _LIMIT_MATCH_TOLERANCE_KELVIN
+    if limit > 0:
+        return correction < limit - margin
+    if limit < 0:
+        return correction > limit + margin
+    return True
+
+
 def advance_offset_at_limit(
-    run: OffsetAtLimit | None, limit: float | None, now_monotonic: float
+    run: OffsetAtLimit | None, limit: float | None, now_monotonic: float, *, past: bool
 ) -> OffsetAtLimit | None:
     """Return the run after one control cycle that found the offset at ``limit``.
 
     A cycle at the run's limit continues it; a cycle at the other limit
-    starts a new run, and a cycle at neither ends it.
+    starts a new run, and a cycle at neither ends it. Either way the cycle
+    is counted, and counted as past when ``past`` says so.
 
     Parameters
     ----------
@@ -194,6 +239,8 @@ def advance_offset_at_limit(
         The limit this cycle found the offset stuck at, ``None`` for neither.
     now_monotonic : float
         Monotonic time of this cycle, in seconds.
+    past : bool
+        Whether this cycle asked for a correction past ``limit``.
 
     Returns
     -------
@@ -203,8 +250,12 @@ def advance_offset_at_limit(
     if limit is None:
         return None
     if run is not None and run.limit == limit:
-        return run
-    return OffsetAtLimit(limit=limit, since_monotonic=now_monotonic)
+        return replace(
+            run, cycles=run.cycles + 1, cycles_past=run.cycles_past + int(past)
+        )
+    return OffsetAtLimit(
+        limit=limit, since_monotonic=now_monotonic, cycles=1, cycles_past=int(past)
+    )
 
 
 def is_offset_stuck_at_limit(
@@ -213,6 +264,9 @@ def is_offset_stuck_at_limit(
     window_seconds: float = CALIBRATION_OFFSET_AT_LIMIT_WINDOW_SECONDS,
 ) -> bool:
     """Return whether the offset has stayed at its limit for the whole window.
+
+    The run has to have lasted the window, and at least half of its cycles
+    have to have asked for a correction past the limit.
 
     Parameters
     ----------
@@ -226,8 +280,12 @@ def is_offset_stuck_at_limit(
     Returns
     -------
     bool
-        True once the run has lasted at least ``window_seconds``.
+        True once the run has lasted at least ``window_seconds`` with at
+        least half of its cycles past the limit.
     """
     if run is None:
         return False
-    return now_monotonic - run.since_monotonic >= window_seconds
+    return (
+        now_monotonic - run.since_monotonic >= window_seconds
+        and 2 * run.cycles_past >= run.cycles
+    )
