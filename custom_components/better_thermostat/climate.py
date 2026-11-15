@@ -4353,7 +4353,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.room_temperature,
             current_action,
             self.clock.utcnow(),
-            heat_target_temperature=self.heat_target_temperature,
+            heat_target_temperature=regulation_target(self),
             outdoor_temperature=outdoor_temperature,
             learning_paused=self.learning_held,
         )
