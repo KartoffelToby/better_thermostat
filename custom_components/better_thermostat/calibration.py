@@ -743,7 +743,6 @@ def _maybe_start_mpc_v2_reid_fit(
     prior = v2_params.plant
     device_name = self.device_name
     schedule_save = self.schedule_save_state
-    pause_changes = self.learning_pause_changes
 
     def _on_fit_done(future: asyncio.Future[ReidOutcome]) -> None:
         runtime.fit_inflight = False
@@ -764,7 +763,7 @@ def _maybe_start_mpc_v2_reid_fit(
         # store a write after that.
         if self.is_removed:
             return
-        if self.learning_held or self.learning_pause_changes != pause_changes:
+        if self.learning_held:
             _LOGGER.debug(
                 "better_thermostat %s: MPC v2 re-identification for %s finished "
                 "while learning is paused; result discarded",
