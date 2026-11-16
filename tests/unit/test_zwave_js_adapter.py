@@ -117,6 +117,21 @@ class TestZWA021ExternalTemperature:
         ]
 
     @pytest.mark.asyncio
+    async def test_an_unchanged_value_goes_out_again_after_the_trv_was_released(self):
+        """Another controller may have reported its own value meanwhile."""
+        mock_self = _make_external_temperature_self()
+        send = mock_self.hass.services.async_call
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        mock_self.real_trvs["climate.trv1"].forget_external_temperature_writes()
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        assert send.await_count == 2
+
+    @pytest.mark.asyncio
     async def test_a_failed_report_is_sent_again_on_the_next_reading(self):
         mock_self = _make_external_temperature_self()
         send = mock_self.hass.services.async_call

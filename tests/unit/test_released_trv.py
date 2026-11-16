@@ -129,6 +129,27 @@ class TestTheSetter:
         bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_releasing_forgets_the_room_temperature_sent_to_that_trv(self):
+        """The take-back sends the room temperature even where it did not move."""
+        bt = _room()
+        for trv in bt.real_trvs.values():
+            trv.extra["_zwa021_external_temperature_last_sent"] = 21.0
+            trv.extra["_zwa021_external_temperature_sent_at"] = 1000.0
+
+        await _set_released(bt, RELEASED, True)
+
+        assert "_zwa021_external_temperature_last_sent" not in (
+            bt.real_trvs[RELEASED].extra
+        )
+        assert "_zwa021_external_temperature_sent_at" not in (
+            bt.real_trvs[RELEASED].extra
+        )
+        assert bt.real_trvs[CONTROLLED].extra == {
+            "_zwa021_external_temperature_last_sent": 21.0,
+            "_zwa021_external_temperature_sent_at": 1000.0,
+        }
+
+    @pytest.mark.asyncio
     async def test_taking_it_back_resumes_with_one_cycle(self):
         """A setup left for it runs, the room temperature goes out, one cycle follows."""
         bt = _room()

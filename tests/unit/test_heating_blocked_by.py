@@ -213,6 +213,7 @@ def _releasable_room() -> ThermostatStandIn:
     bt._initialize_arrived_trvs = AsyncMock()
     bt._external_temperature_keepalive = AsyncMock()
     bt.control_queue_task = MagicMock()
+    bt.real_trvs = dict[str, Trv]()
     return bt
 
 
