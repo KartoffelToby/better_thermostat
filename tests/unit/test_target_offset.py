@@ -7,6 +7,7 @@ from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import UnitOfTemperature
 import pytest
 
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.number import (
     BetterThermostatTargetOffsetNumber,
 )
@@ -43,6 +44,49 @@ def test_regulation_target_clamps_offset_to_room_range(
     thermostat.target_offset = offset
 
     assert regulation_target(thermostat) == pytest.approx(expected)
+
+
+async def test_offset_reversal_restores_cooling_target(thermostat):
+    """Removing an offset undoes the cooling-target lift it caused."""
+    thermostat.cooler_entity_id = "climate.cooler"
+    thermostat.cool_target_temperature = 22.0
+    thermostat.heat_target_temperature = 21.0
+    thermostat.bt_target_temperature_step = 0.5
+    thermostat.cool_min_temperature = 16.0
+    thermostat.cool_max_temperature = 35.0
+    thermostat._offset_ordered_cool_target = None
+    thermostat.hvac_mode = HVACMode.HEAT_COOL
+    thermostat._enforce_cool_above_heat = lambda **kwargs: (
+        BetterThermostat._enforce_cool_above_heat(thermostat, **kwargs)
+    )
+    entity = BetterThermostatTargetOffsetNumber(thermostat, UnitOfTemperature.CELSIUS)
+    entity.async_write_ha_state = MagicMock()
+
+    await entity.async_set_native_value(2.0)
+    assert thermostat.cool_target_temperature == 23.5
+
+    await entity.async_set_native_value(0.0)
+
+    assert thermostat.cool_target_temperature == 22.0
+
+
+@pytest.mark.parametrize(
+    ("current", "saved", "expected"),
+    [
+        (23.5, [22.0, 23.5], (22.0, 23.5)),
+        (24.0, [22.0, 23.5], None),
+        (23.5, [float("nan"), 23.5], None),
+    ],
+)
+def test_restore_offset_cooling_target_pair(thermostat, current, saved, expected):
+    """Restore only a finite rollback pair that still matches the cool target."""
+    thermostat.cool_target_temperature = current
+    thermostat._offset_ordered_cool_target = None
+    state = MagicMock(attributes={"offset_ordered_cool_target": saved})
+
+    BetterThermostat._restore_offset_ordered_cool_target(thermostat, state)
+
+    assert thermostat._offset_ordered_cool_target == expected
 
 
 @pytest.mark.parametrize(

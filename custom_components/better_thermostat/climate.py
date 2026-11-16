@@ -1255,6 +1255,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     @cool_target_temperature.setter
     def cool_target_temperature(self, value: float | None) -> None:
         """Set the BT-internal cooling target temperature."""
+        self._offset_ordered_cool_target = None
         self.runtime.cool_target_temperature = value
 
     @property
@@ -1428,6 +1429,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.bt_max_temp: float | None = DEFAULT_MAX_TEMP
         self.cool_min_temperature: float | None = None
         self.cool_max_temperature: float | None = None
+        self._offset_ordered_cool_target: tuple[float, float] | None = None
         self.cool_target_temperature = None
         # Per-channel cooler send bookkeeping: the last successfully sent
         # command, the settled reading of each written channel, the mode the
@@ -2972,6 +2974,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 )
                 if _restored_loss is not None:
                     self.heat_loss_rate = _restored_loss
+            self._restore_offset_ordered_cool_target(old_state)
             _LOGGER.debug(
                 "better_thermostat %s: state restoration completed", self.device_name
             )
@@ -3055,6 +3058,24 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 cool_target_before_preset
             )
         self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
+
+    def _restore_offset_ordered_cool_target(self, state: State) -> None:
+        """Restore a valid offset-ordering rollback pair from saved attributes."""
+        saved = state.attributes.get("offset_ordered_cool_target")
+        if not isinstance(saved, (list, tuple)) or len(saved) != 2:
+            return
+        original, adjusted = saved
+        if (
+            isinstance(original, bool)
+            or not isinstance(original, (int, float))
+            or not math.isfinite(original)
+            or isinstance(adjusted, bool)
+            or not isinstance(adjusted, (int, float))
+            or not math.isfinite(adjusted)
+            or self.cool_target_temperature != adjusted
+        ):
+            return
+        self._offset_ordered_cool_target = (float(original), float(adjusted))
 
     def _validate_hvac_mode(self, states: list[State]) -> None:
         """Validate and fix HVAC mode after state restoration."""
@@ -4528,6 +4549,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         dev_specific: dict[str, object] = {
             "target_offset": getattr(self, "target_offset", 0.0),
             "regulation_target_temp": regulation_target(self),
+            "offset_ordered_cool_target": getattr(
+                self, "_offset_ordered_cool_target", None
+            ),
             "processing_paused": self.regulation_paused,
             "pause_valve_restore": {
                 entity_id: trv.pause_valve_restore_percent

@@ -62,6 +62,7 @@ from .utils.helpers import (
     convert_to_float_celsius,
     get_cool_temperature_range,
     get_heat_temperature_range,
+    regulation_target,
 )
 from .utils.scheduler import request_control_cycle
 
@@ -326,9 +327,40 @@ class BetterThermostatTargetOffsetNumber(
             return
         if self._bt_climate.target_offset == value:
             return
+        if self._bt_climate.cooler_entity_id is not None:
+            rollback = self._bt_climate._offset_ordered_cool_target
+            if rollback is not None:
+                original, adjusted = rollback
+                if self._bt_climate.cool_target_temperature == adjusted:
+                    self._bt_climate.cool_target_temperature = original
+                else:
+                    self._bt_climate._offset_ordered_cool_target = None
+        cool_target_before_ordering = (
+            self._bt_climate.cool_target_temperature
+            if self._bt_climate.cooler_entity_id is not None
+            else None
+        )
+        effective_target_before = (
+            regulation_target(self._bt_climate)
+            if self._bt_climate.cooler_entity_id is not None
+            else None
+        )
         self._bt_climate.target_offset = value
         if self._bt_climate.cooler_entity_id is not None:
             self._bt_climate._enforce_cool_above_heat(regardless_of_hvac_mode=True)
+            cool_target_after_ordering = self._bt_climate.cool_target_temperature
+            effective_target_after = regulation_target(self._bt_climate)
+            if (
+                cool_target_before_ordering is not None
+                and cool_target_after_ordering is not None
+                and cool_target_after_ordering > cool_target_before_ordering
+                and effective_target_before is not None
+                and effective_target_after > effective_target_before
+            ):
+                self._bt_climate._offset_ordered_cool_target = (
+                    cool_target_before_ordering,
+                    cool_target_after_ordering,
+                )
         if (
             not self._bt_climate.startup_running
             and self._bt_climate.bt_hvac_mode != HVACMode.OFF
