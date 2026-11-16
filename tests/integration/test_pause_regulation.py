@@ -297,7 +297,7 @@ async def test_pause_signal_and_resume(hass, resumed_state):
     assert bt.hvac_action == HVACAction.IDLE
     assert bt.bt_hvac_mode == mode
     assert bt.heat_target_temperature == target
-    assert hass.states.get(BT_ENTITY).attributes["processing_paused"] is True
+    assert hass.states.get(BT_ENTITY).attributes["regulation_paused"] is True
 
     if resumed_state is None:
         hass.states.async_remove(PAUSE_SENSOR)
@@ -307,7 +307,7 @@ async def test_pause_signal_and_resume(hass, resumed_state):
     assert not bt.regulation_paused
     assert bt.bt_hvac_mode == mode
     assert bt.heat_target_temperature == target
-    assert hass.states.get(BT_ENTITY).attributes["processing_paused"] is False
+    assert hass.states.get(BT_ENTITY).attributes["regulation_paused"] is False
 
 
 @pytest.mark.parametrize("initial_state", [None, "unknown", "unavailable"])

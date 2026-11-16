@@ -4542,13 +4542,15 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         dict
                 Attribute dictionary for the extra device specific state attributes.
         """
+        temperature_unit = self.hass.config.units.temperature_unit
         dev_specific: dict[str, object] = {
-            "target_offset": getattr(self, "target_offset", 0.0),
+            "target_offset": getattr(self, "target_offset", 0.0)
+            * (1.8 if temperature_unit == UnitOfTemperature.FAHRENHEIT else 1.0),
             "regulation_target_temp": regulation_target(self),
             "offset_ordered_cool_target": getattr(
                 self, "_offset_ordered_cool_target", None
             ),
-            "processing_paused": self.regulation_paused,
+            "regulation_paused": self.regulation_paused,
             "pause_valve_restore": {
                 entity_id: trv.pause_valve_restore_percent
                 for entity_id, trv in self.real_trvs.items()
