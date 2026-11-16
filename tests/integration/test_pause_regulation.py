@@ -29,6 +29,130 @@ NO_OFF_TRV = replace(GENERIC_HEAT_TRV, name="pause_no_off", hvac_modes=(HVACMode
 @pytest.mark.parametrize(
     "fake_trv",
     [
+        replace(
+            VALVE_TRV, name=f"pause_passive_{mode.value}", calibration_mode=mode.value
+        )
+        for mode in (
+            CalibrationMode.NO_CALIBRATION,
+            CalibrationMode.DEFAULT,
+            CalibrationMode.AGGRESSIVE_CALIBRATION,
+        )
+    ],
+    indirect=True,
+    ids=profile_id,
+)
+async def test_pause_restores_thermostat_controlled_valve(hass, fake_trv):
+    """A thermostat-driven valve closes on pause and resumes its previous position."""
+    set_room_sensor(hass, 17.0)
+    hass.states.async_set(PAUSE_SENSOR, "off")
+    entry = make_entry(fake_trv.profile, pause_sensor_entity_id=PAUSE_SENSOR)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    valve = fake_trv.valve_number
+    assert valve is not None
+    with patch(WRITE_BUDGET, 0.0):
+        await bt.async_set_hvac_mode(HVACMode.HEAT)
+        await bt.async_set_temperature(temperature=19.0)
+        assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.HEAT)
+        assert await wait_for(hass, lambda: not bt.ignore_states)
+        valve._attr_native_value = 60.0
+        valve.async_write_ha_state()
+        valve.set_value_calls.clear()
+        hass.states.async_set(PAUSE_SENSOR, "on")
+        assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.OFF)
+        assert await wait_for(hass, lambda: valve.native_value == 0.0)
+        assert await wait_for(hass, lambda: not bt.ignore_states)
+        hass.states.async_set(PAUSE_SENSOR, "off")
+        assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.HEAT)
+        assert await wait_for(hass, lambda: valve.native_value == 60.0)
+        assert await wait_for(hass, lambda: not bt.ignore_states)
+        assert valve.set_value_calls == [0.0, 60.0]
+        assert valve.native_value == 60.0
+
+
+@pytest.mark.parametrize(
+    "fake_trv",
+    [
+        replace(
+            VALVE_TRV, name="pause_passive_reload", calibration_mode="no_calibration"
+        )
+    ],
+    indirect=True,
+    ids=profile_id,
+)
+async def test_paused_thermostat_controlled_valve_restores_after_reload(hass, fake_trv):
+    """The pre-pause position survives a reload while the sensor stays on."""
+    set_room_sensor(hass, 17.0)
+    hass.states.async_set(PAUSE_SENSOR, "off")
+    entry = make_entry(fake_trv.profile, pause_sensor_entity_id=PAUSE_SENSOR)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    valve = fake_trv.valve_number
+    assert valve is not None
+    with patch(WRITE_BUDGET, 0.0):
+        await bt.async_set_hvac_mode(HVACMode.HEAT)
+        await bt.async_set_temperature(temperature=19.0)
+        assert await wait_for(hass, lambda: not bt.ignore_states)
+        valve._attr_native_value = 60.0
+        valve.async_write_ha_state()
+        hass.states.async_set(PAUSE_SENSOR, "on")
+        assert await wait_for(hass, lambda: valve.native_value == 0)
+        assert await wait_for(hass, lambda: not bt.ignore_states)
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        bt = await wait_for_startup(hass, entry)
+        assert bt.regulation_paused
+        assert valve.native_value == 0
+        hass.states.async_set(PAUSE_SENSOR, "off")
+        assert await wait_for(hass, lambda: valve.native_value == 60.0)
+
+
+@pytest.mark.parametrize(
+    "fake_trv",
+    [
+        replace(
+            VALVE_TRV, name="pause_unknown_reload", calibration_mode="no_calibration"
+        )
+    ],
+    indirect=True,
+    ids=profile_id,
+)
+async def test_unknown_pre_pause_valve_position_survives_reload(hass, fake_trv):
+    """A paused zero is not mistaken for an unknown original position after reload."""
+    set_room_sensor(hass, 17.0)
+    hass.states.async_set(PAUSE_SENSOR, "off")
+    entry = make_entry(fake_trv.profile, pause_sensor_entity_id=PAUSE_SENSOR)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    valve = fake_trv.valve_number
+    assert valve is not None
+    with patch(WRITE_BUDGET, 0.0):
+        await bt.async_set_hvac_mode(HVACMode.HEAT)
+        assert await wait_for(hass, lambda: not bt.ignore_states)
+        hass.states.async_set(valve.entity_id, "unknown")
+        hass.states.async_set(PAUSE_SENSOR, "on")
+        assert await wait_for(
+            hass, lambda: bt.real_trvs[fake_trv.entity_id].pause_valve_restore_captured
+        )
+        assert await wait_for(hass, lambda: valve.native_value == 0)
+        assert await wait_for(hass, lambda: not bt.ignore_states)
+        saved_valves = bt.extra_state_attributes["pause_valve_restore"]
+        assert isinstance(saved_valves, dict)
+        assert saved_valves[fake_trv.entity_id] is None
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        bt = await wait_for_startup(hass, entry)
+        trv = bt.real_trvs[fake_trv.entity_id]
+        assert trv.pause_valve_restore_captured
+        assert trv.pause_valve_restore_percent is None
+        valve.set_value_calls.clear()
+        hass.states.async_set(PAUSE_SENSOR, "off")
+        assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.HEAT)
+        assert await wait_for(hass, lambda: not bt.ignore_states)
+        assert valve.set_value_calls == []
+
+
+@pytest.mark.parametrize(
+    "fake_trv",
+    [
         replace(VALVE_TRV, name=f"pause_{mode.value}", calibration_mode=mode.value)
         for mode in (
             CalibrationMode.HEATING_POWER_CALIBRATION,

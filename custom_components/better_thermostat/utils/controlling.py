@@ -626,6 +626,24 @@ def _get_valve_control(
     return None, None
 
 
+def _valve_position_before_pause(self: BetterThermostat, trv: Trv) -> float | None:
+    """Return a valve's last known opening as a percentage before parking it."""
+    if trv.valve_position_entity and trv.valve_position_writable is True:
+        state = self.hass.states.get(trv.valve_position_entity)
+        if state_is_live(state):
+            valve_range = _usable_valve_range(state)
+            value = finite_or_none(state.state)
+            if valve_range is not None and value is not None:
+                return clamp_valve_percent(
+                    (value - valve_range.minimum)
+                    * 100.0
+                    / (valve_range.maximum - valve_range.minimum)
+                )
+    if trv.last_valve_percent is not None and math.isfinite(trv.last_valve_percent):
+        return clamp_valve_percent(trv.last_valve_percent)
+    return None
+
+
 def compute_control_cycle(
     self: BetterThermostat, *, record: bool = True, commit: bool = True
 ) -> tuple[WorldSnapshot, DesiredState]:
@@ -2859,6 +2877,43 @@ async def control_trv(
                         _calibration_output,
                         hvac_mode=trv_desired.hvac_mode,
                     )
+                trv = self.real_trvs[entity_id]
+                thermostat_driven = (
+                    _calibration_output == CalibrationOutput.DIRECT_VALVE_BASED
+                    and _calibration_mode not in VALVE_CALIBRATION_MODES
+                    and not trv.uses_valve_only_control
+                )
+                if snapshot.regulation_paused and thermostat_driven:
+                    if not trv.pause_valve_restore_captured:
+                        trv.pause_valve_restore_percent = _valve_position_before_pause(
+                            self, trv
+                        )
+                        trv.pause_valve_restore_captured = True
+                        self.async_write_ha_state()
+                        if trv.pause_valve_restore_percent is None:
+                            _LOGGER.warning(
+                                "better_thermostat %s: %s has no known valve position "
+                                "to restore after regulation resumes",
+                                self.device_name,
+                                entity_id,
+                            )
+                elif (
+                    not snapshot.regulation_paused and trv.pause_valve_restore_captured
+                ):
+                    if valve_settings is not None:
+                        trv.pause_valve_restore_percent = None
+                        trv.pause_valve_restore_captured = False
+                        self.async_write_ha_state()
+                    elif thermostat_driven and trv_desired.hvac_mode != HvacMode.OFF:
+                        if trv.pause_valve_restore_percent is not None:
+                            valve_settings = {
+                                "valve_percent": trv.pause_valve_restore_percent,
+                                "apply_valve": True,
+                            }
+                            _source = "pause_restore"
+                        else:
+                            trv.pause_valve_restore_captured = False
+                            self.async_write_ha_state()
                 # A valve with no channel to write through is not pursued,
                 # and no retry is scheduled for it, until one appears.
                 if valve_settings is not None and not valve_channel_available(
@@ -2908,6 +2963,10 @@ async def control_trv(
                             entity_id,
                             target_percent,
                         )
+                        if _source == "pause_restore":
+                            trv.pause_valve_restore_percent = None
+                            trv.pause_valve_restore_captured = False
+                            self.async_write_ha_state()
                     elif (
                         _refusal_wait := _valve_refusal_wait_remaining(
                             self, self.real_trvs[entity_id], safety_close=_safety_close
@@ -2930,6 +2989,11 @@ async def control_trv(
                         and _repeat is not ValveReadback.UNCONFIRMED
                         and not _keepalive,
                     ):
+                        if (
+                            self.regulation_paused != snapshot.regulation_paused
+                            or _released_during_cycle(self, entity_id)
+                        ):
+                            return True
                         _LOGGER.debug(
                             "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s%s)",
                             self.device_name,
@@ -2945,6 +3009,21 @@ async def control_trv(
                                 self.clock.monotonic()
                             )
                             _written.refused_valve_writes = 0
+                            if _source == "pause_restore":
+                                readback = _valve_readback(
+                                    self, _written, target_percent
+                                )
+                                if readback in (
+                                    ValveReadback.DIVERGED,
+                                    ValveReadback.UNCONFIRMED,
+                                ):
+                                    _schedule_budget_retry(
+                                        self, entity_id, MIN_WRITE_INTERVAL_S
+                                    )
+                                else:
+                                    _written.pause_valve_restore_percent = None
+                                    _written.pause_valve_restore_captured = False
+                                    self.async_write_ha_state()
                         else:
                             _written.refused_valve_writes += 1
                             _LOGGER.debug(

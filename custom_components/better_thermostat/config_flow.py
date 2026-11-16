@@ -208,7 +208,6 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
     )
 )
 
-
 _MPC_V2_PLANT_PRESET_CHOICES: tuple[MpcV2PlantPreset, ...] = (
     MpcV2PlantPreset.AUTO,
     MpcV2PlantPreset.SMALL_ROOM,
@@ -410,14 +409,12 @@ def _bound_sensor_errors(
     return {}
 
 
-def _valve_only_errors(
+def _direct_valve_errors(
     context: _AdvancedContext, advanced: _AdvancedDraft
 ) -> dict[str, str]:
-    """Reject controllers that cannot drive a device's sole actuator."""
+    """Reject a direct-valve output whose mode cannot calculate a position."""
     if (
-        context.valve_only
-        and configured_calibration_output(advanced)
-        == CalibrationOutput.DIRECT_VALVE_BASED
+        configured_calibration_output(advanced) == CalibrationOutput.DIRECT_VALVE_BASED
         and configured_calibration_mode(advanced) not in VALVE_CALIBRATION_MODES
     ):
         return {CONF_CALIBRATION_MODE: "valve_only_calibration_mode"}
@@ -741,7 +738,7 @@ def _build_advanced_fields(
 
     channels = channels or DeviceChannels()
     options = []
-    if channels.valve_write:
+    if channels.valve_write and not bound_sensor:
         options.append(CalibrationOutput.DIRECT_VALVE_BASED)
 
     options.append(CalibrationOutput.TARGET_TEMP_BASED)
@@ -749,7 +746,12 @@ def _build_advanced_fields(
     if channels.offset_write:
         options.append(CalibrationOutput.LOCAL_BASED)
 
-    calib_default = get_choice(CONF_CALIBRATION, options, default_calibration)
+    calibration_fallback = (
+        default_calibration
+        if default_calibration in options
+        else CalibrationOutput.TARGET_TEMP_BASED
+    )
+    calib_default = get_choice(CONF_CALIBRATION, options, calibration_fallback)
 
     calib_selector = selector.SelectSelector(
         selector.SelectSelectorConfig(
@@ -763,15 +765,34 @@ def _build_advanced_fields(
     # 1) Calibration + protection flags
     ordered[vol.Required(CONF_CALIBRATION, default=calib_default)] = calib_selector
     # A TRV that regulates on a bound sensor accepts no calibration only.
+    calibration_mode_options = (
+        tuple(
+            mode
+            for mode in _CALIBRATION_MODE_CHOICES
+            if mode in VALVE_CALIBRATION_MODES
+        )
+        if calib_default == CalibrationOutput.DIRECT_VALVE_BASED
+        else _CALIBRATION_MODE_CHOICES
+    )
+    mode_fallback = (
+        default_calibration_mode
+        if default_calibration_mode in calibration_mode_options
+        else DEFAULT_CALIBRATION_MODE
+    )
     calibration_mode_default = (
         CalibrationMode.NO_CALIBRATION.value
         if bound_sensor
-        else get_choice(
-            CONF_CALIBRATION_MODE, _CALIBRATION_MODE_CHOICES, default_calibration_mode
+        else get_choice(CONF_CALIBRATION_MODE, calibration_mode_options, mode_fallback)
+    )
+    calibration_mode_selector = selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=list(calibration_mode_options),
+            mode=selector.SelectSelectorMode.DROPDOWN,
+            translation_key="calibration_mode",
         )
     )
     ordered[vol.Required(CONF_CALIBRATION_MODE, default=calibration_mode_default)] = (
-        CALIBRATION_MODE_SELECTOR
+        calibration_mode_selector
     )
 
     ordered[
@@ -1588,7 +1609,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
-            errors = _bound_sensor_errors(ctx, advanced_data) | _valve_only_errors(
+            errors = _bound_sensor_errors(ctx, advanced_data) | _direct_valve_errors(
                 ctx, advanced_data
             )
             if not errors:
@@ -1781,7 +1802,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 homematic=ctx.homematic,
                 has_auto=ctx.has_auto,
             )
-            errors = _bound_sensor_errors(ctx, advanced_data) | _valve_only_errors(
+            errors = _bound_sensor_errors(ctx, advanced_data) | _direct_valve_errors(
                 ctx, advanced_data
             )
             if not errors:

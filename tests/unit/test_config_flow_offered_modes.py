@@ -25,12 +25,17 @@ from custom_components.better_thermostat.config_flow import (
     ConfigFlow,
     OptionsFlowHandler,
     _AdvancedContext,
+    _direct_valve_errors,
+    _normalize_advanced_submission,
     _trv_supports_auto,
     _TrvDraft,
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
+    CONF_CALIBRATION_MODE,
     CONF_THERMOSTAT,
+    VALVE_CALIBRATION_MODES,
+    CalibrationMode,
     CalibrationOutput,
 )
 from tests.factories import make_entity_registry, make_registry_entry
@@ -208,18 +213,23 @@ def _a_device_of_model(model):
         yield
 
 
-def _trv_bundle_entry(model) -> dict[str, object]:
+def _trv_bundle_entry(model, advanced=None) -> dict[str, object]:
     """Return the one device bundle a config entry carries for ``model``."""
-    return {"trv": TRV_ID, "integration": "zha", "model": model, "advanced": {}}
+    return {
+        "trv": TRV_ID,
+        "integration": "zha",
+        "model": model,
+        "advanced": advanced or {},
+    }
 
 
-def _trv_draft(model):
+def _trv_draft(model, advanced=None):
     """Return the draft a flow keeps for the device bundle of ``model``."""
     return _TrvDraft(
         entity_id=TRV_ID,
         integration="zha",
         adapter=None,
-        stored=_trv_bundle_entry(model),
+        stored=_trv_bundle_entry(model, advanced),
     )
 
 
@@ -241,23 +251,35 @@ def _offered_calibrations(form):
     raise AssertionError("the advanced step publishes no calibration field")
 
 
-async def _create_flow_advanced_form(model):
+def _offered_calibration_modes(form):
+    """Return the calibration algorithms an advanced form publishes."""
+    schema = form["data_schema"].schema
+    for marker in schema:
+        if marker == CONF_CALIBRATION_MODE:
+            return list(schema[marker].config["options"])
+    raise AssertionError("the advanced step publishes no calibration mode field")
+
+
+async def _create_flow_advanced_form(model, advanced=None):
     """Render the advanced step a new entry is configured through."""
     flow = ConfigFlow()
     flow.hass = _hass_holding_the_trv()
-    flow.trv_bundle = [_trv_draft(model)]
+    flow.trv_bundle = [_trv_draft(model, advanced)]
     flow.i = 0
     with _a_device_of_model(model):
         return await flow.async_step_advanced(None, flow.trv_bundle[0])
 
 
-async def _options_flow_advanced_form(model):
+async def _options_flow_advanced_form(model, advanced=None):
     """Render the advanced step an existing entry is reconfigured through."""
     entry = MagicMock()
-    entry.data = {CONF_NAME: "Living Room", CONF_THERMOSTAT: [_trv_bundle_entry(model)]}
+    entry.data = {
+        CONF_NAME: "Living Room",
+        CONF_THERMOSTAT: [_trv_bundle_entry(model, advanced)],
+    }
     flow = OptionsFlowHandler(entry)
     flow.hass = _hass_holding_the_trv()
-    flow.trv_bundle = [_trv_draft(model)]
+    flow.trv_bundle = [_trv_draft(model, advanced)]
     flow.updated_config = dict(entry.data)
     with _a_device_of_model(model):
         return await flow.async_step_advanced(None, flow.trv_bundle[0])
@@ -298,3 +320,58 @@ class TestOfferedCalibrationStrategies:
         form = await render(UNQUIRKED_MODEL)
 
         assert CalibrationOutput.DIRECT_VALVE_BASED not in _offered_calibrations(form)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("render", ADVANCED_FORMS.values(), ids=ADVANCED_FORMS)
+    async def test_direct_valve_output_only_offers_percent_controllers(self, render):
+        """Direct-valve output limits choices to algorithms that produce a percent."""
+        form = await render(
+            QUIRK_BACKED_MODEL,
+            {
+                "calibration": CalibrationOutput.DIRECT_VALVE_BASED.value,
+                "calibration_mode": CalibrationMode.NO_CALIBRATION.value,
+            },
+        )
+
+        assert set(_offered_calibration_modes(form)) == VALVE_CALIBRATION_MODES
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("render", ADVANCED_FORMS.values(), ids=ADVANCED_FORMS)
+    @pytest.mark.parametrize(
+        "output",
+        [CalibrationOutput.TARGET_TEMP_BASED, CalibrationOutput.LOCAL_BASED],
+        ids=["setpoint", "external-temperature-offset"],
+    )
+    async def test_non_valve_outputs_keep_non_valve_calibration_choices(
+        self, render, output
+    ):
+        """Setpoint and offset outputs retain their existing algorithm choices."""
+        form = await render(QUIRK_BACKED_MODEL, {"calibration": output.value})
+
+        offered_modes = _offered_calibration_modes(form)
+        assert CalibrationMode.NO_CALIBRATION in offered_modes
+        assert CalibrationMode.DEFAULT in offered_modes
+
+
+def test_direct_valve_submission_rejects_non_percentage_mode():
+    """A submitted value cannot bypass the filtered selector."""
+    context = _AdvancedContext(
+        entity_id=TRV_ID,
+        channels=DeviceChannels(valve_write=True),
+        default_calibration=CalibrationOutput.DIRECT_VALVE_BASED,
+        homematic=False,
+        has_auto=False,
+    )
+
+    advanced = _normalize_advanced_submission(
+        {
+            CONF_CALIBRATION: CalibrationOutput.DIRECT_VALVE_BASED,
+            CONF_CALIBRATION_MODE: CalibrationMode.NO_CALIBRATION.value,
+        },
+        default_calibration=CalibrationOutput.DIRECT_VALVE_BASED,
+        homematic=False,
+        has_auto=False,
+    )
+    errors = _direct_valve_errors(context, advanced)
+
+    assert errors == {CONF_CALIBRATION_MODE: "valve_only_calibration_mode"}

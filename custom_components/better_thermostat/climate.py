@@ -1794,6 +1794,31 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 # with.
                 advanced=_advanced.copy(),
             )
+            saved_valves = (
+                self._saved_state.attributes.get("pause_valve_restore", {})
+                if self._saved_state is not None
+                else {}
+            )
+            if (
+                self.pause_sensor_entity_id is not None
+                and not self.devices_released
+                and trv["trv"] not in self.released_trvs
+                and isinstance(saved_valves, dict)
+                and trv["trv"] in saved_valves
+            ):
+                saved_percent = saved_valves.get(trv["trv"])
+                if saved_percent is None:
+                    self.real_trvs[trv["trv"]].pause_valve_restore_captured = True
+                elif (
+                    isinstance(saved_percent, (int, float))
+                    and not isinstance(saved_percent, bool)
+                    and math.isfinite(saved_percent)
+                    and 0 <= saved_percent <= 100
+                ):
+                    self.real_trvs[trv["trv"]].pause_valve_restore_percent = float(
+                        saved_percent
+                    )
+                    self.real_trvs[trv["trv"]].pause_valve_restore_captured = True
             # The child lock the startup sends the TRV is the one its switch
             # restores to, so the device is not set to the option first.
             child_lock = restored_child_lock(
@@ -4504,6 +4529,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             "target_offset": getattr(self, "target_offset", 0.0),
             "regulation_target_temp": regulation_target(self),
             "processing_paused": self.regulation_paused,
+            "pause_valve_restore": {
+                entity_id: trv.pause_valve_restore_percent
+                for entity_id, trv in self.real_trvs.items()
+                if trv.pause_valve_restore_captured
+            },
             ATTR_STATE_WINDOW_OPEN: self.window_open,
             ATTR_STATE_DOOR_OPEN: self.door_open,
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
@@ -5634,6 +5664,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # cycle that takes them back.
         for trv in self.real_trvs.values():
             trv.last_hvac_mode_sent = None
+            if released:
+                trv.pause_valve_restore_percent = None
+                trv.pause_valve_restore_captured = False
         self.learning_pause_changes += 1
         _LOGGER.info(
             "better_thermostat %s: devices %s",
@@ -5689,6 +5722,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # What the TRV was sent before its release is no repeat for the
         # cycle that takes it back.
         self.real_trvs[entity_id].last_hvac_mode_sent = None
+        if released:
+            self.real_trvs[entity_id].pause_valve_restore_percent = None
+            self.real_trvs[entity_id].pause_valve_restore_captured = False
         self.learning_pause_changes += 1
         _LOGGER.info(
             "better_thermostat %s: TRV %s %s",
