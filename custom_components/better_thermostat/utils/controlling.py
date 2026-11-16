@@ -286,7 +286,8 @@ SETPOINT_UNAPPLIED_WRITES_LIMIT = 6
 # at the normal write interval. A refusing battery head woken for every
 # attempt congests its radio network. The close of an OFF or of an open
 # window or door is repeated at the normal write interval instead, and a
-# user change since the last attempt is not held at all.
+# write after a user change since the last attempt waits only for the
+# write budget.
 VALVE_REFUSAL_BACKOFF_FACTOR = 2.0
 # Ceiling of that wait, the period of the five-minute recompute tick that
 # re-derives the valve position anyway. A device that starts taking writes
