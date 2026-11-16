@@ -281,6 +281,53 @@ SETPOINT_RETRY_BACKOFF_MAX_RUN = 1 + math.ceil(
 # than a sleeping device takes to wake and answer.
 SETPOINT_UNAPPLIED_WRITES_LIMIT = 6
 
+# A valve write the device refused is attempted again, and each further
+# attempt of the run waits this factor longer than the one before, starting
+# at the normal write interval. A refusing battery head woken for every
+# attempt congests its radio network. The close of an OFF or of an open
+# window or door is repeated at the normal write interval instead, and a
+# user change since the last attempt is not held at all.
+VALVE_REFUSAL_BACKOFF_FACTOR = 2.0
+# Ceiling of that wait, the period of the five-minute recompute tick that
+# re-derives the valve position anyway. A device that starts taking writes
+# again is picked up within one tick.
+VALVE_REFUSAL_BACKOFF_MAX_S = 300.0
+# Longest run the backoff tells apart; past it the wait is pinned at the
+# ceiling, and the exponent stays finite on a device that refuses for weeks.
+VALVE_REFUSAL_BACKOFF_MAX_RUN = 1 + math.ceil(
+    math.log(
+        VALVE_REFUSAL_BACKOFF_MAX_S / MIN_WRITE_INTERVAL_S, VALVE_REFUSAL_BACKOFF_FACTOR
+    )
+)
+
+
+def _valve_refusal_wait_remaining(
+    self: BetterThermostat, trv: Trv, *, safety_close: bool
+) -> float:
+    """Seconds until a TRV that refused its last valve write is written again.
+
+    Zero when the last valve write went through, when the user changed the
+    room's target or mode since that attempt, or when the run's wait has
+    already passed. ``safety_close`` marks the close of an OFF or of an open
+    window or door, which waits only the normal write interval.
+    """
+    run = min(trv.refused_valve_writes, VALVE_REFUSAL_BACKOFF_MAX_RUN)
+    last_attempt = trv.last_write_monotonic.get("valve")
+    if run == 0 or last_attempt is None:
+        return 0.0
+    user_change = self.last_user_change_monotonic
+    if user_change is not None and user_change > last_attempt:
+        return 0.0
+    wait = (
+        MIN_WRITE_INTERVAL_S
+        if safety_close
+        else min(
+            MIN_WRITE_INTERVAL_S * VALVE_REFUSAL_BACKOFF_FACTOR ** (run - 1),
+            VALVE_REFUSAL_BACKOFF_MAX_S,
+        )
+    )
+    return max(wait - (self.clock.monotonic() - last_attempt), 0.0)
+
 
 def _user_changed_since_setpoint_write(self: BetterThermostat, trv: Trv) -> bool:
     """Whether the user changed the room's target or mode since the last setpoint write."""
@@ -2809,6 +2856,10 @@ async def control_trv(
                     # it is not written again takes the repeat once its
                     # keepalive is due.
                     _repeat = _valve_repeat_readback(self, entity_id, target_percent)
+                    _safety_close = target_percent == 0 and (
+                        trv_desired.hvac_mode == HvacMode.OFF
+                        or trv_desired.suppression is not None
+                    )
                     _keepalive = _repeat in (
                         ValveReadback.HOLDS,
                         ValveReadback.UNREADABLE,
@@ -2826,6 +2877,20 @@ async def control_trv(
                             entity_id,
                             target_percent,
                         )
+                    elif (
+                        _refusal_wait := _valve_refusal_wait_remaining(
+                            self, self.real_trvs[entity_id], safety_close=_safety_close
+                        )
+                    ) > 0:
+                        _LOGGER.debug(
+                            "better_thermostat %s: %s refused %d valve writes in "
+                            "a row, next attempt in %.0fs",
+                            self.device_name,
+                            entity_id,
+                            self.real_trvs[entity_id].refused_valve_writes,
+                            _refusal_wait,
+                        )
+                        _schedule_budget_retry(self, entity_id, _refusal_wait)
                     elif _consume_budget(
                         self,
                         entity_id,
@@ -2843,12 +2908,14 @@ async def control_trv(
                             ", keepalive" if _keepalive else "",
                         )
                         ok = await set_valve(self, entity_id, target_percent)
+                        _written = self.real_trvs[entity_id]
                         if ok:
-                            _written = self.real_trvs[entity_id]
                             _written.last_valve_written_monotonic = (
                                 self.clock.monotonic()
                             )
+                            _written.refused_valve_writes = 0
                         else:
+                            _written.refused_valve_writes += 1
                             _LOGGER.debug(
                                 "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
                                 self.device_name,
@@ -2859,14 +2926,20 @@ async def control_trv(
                             # The budget was already consumed but the valve never
                             # moved; re-derive on the catch-up cycle so the write
                             # is not dropped permanently. A close bypasses the
-                            # budget, so its retry keeps the normal spacing
-                            # instead of a HomematicIP head's interval.
+                            # budget, so its retry waits only the refusal
+                            # backoff instead of a HomematicIP head's interval.
+                            _refusal_wait = _valve_refusal_wait_remaining(
+                                self, _written, safety_close=_safety_close
+                            )
                             _schedule_budget_retry(
                                 self,
                                 entity_id,
-                                MIN_WRITE_INTERVAL_S
+                                _refusal_wait
                                 if target_percent == 0
-                                else _budget_remaining(self, entity_id, "valve"),
+                                else max(
+                                    _refusal_wait,
+                                    _budget_remaining(self, entity_id, "valve"),
+                                ),
                             )
                     else:
                         # A deferred valve write re-derives on the catch-up
