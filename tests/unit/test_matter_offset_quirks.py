@@ -208,6 +208,9 @@ def _host(
             model=model,
             adapter=generic,
             model_quirks=quirks,
+            calibration_offset_ignored=model_quirks.quirk_ignores_calibration_offset(
+                quirks, bt, ENTITY_ID
+            ),
             calibration=CalibrationOutput.LOCAL_BASED,
             calibration_received=True,
             advanced={"calibration_mode": CalibrationMode.DEFAULT},
@@ -442,15 +445,6 @@ class TestTheLiljebaggeIsNotCalibratedByOffset:
 
         assert (
             model_quirks.quirk_ignores_calibration_offset(quirks, bt, ENTITY_ID)
-            is False
-        )
-
-    def test_a_mock_that_makes_the_answer_up_applies_the_offset(self, monkeypatch):
-        """A truthy mock in place of the answer reads as an unquirked device."""
-        bt = _host(monkeypatch, _w600(), default)
-
-        assert (
-            model_quirks.quirk_ignores_calibration_offset(MagicMock(), bt, ENTITY_ID)
             is False
         )
 
@@ -753,8 +747,10 @@ class TestTheKe100IsNotCalibratedByOffsetOverMatterOnly:
         assert trv.capabilities().supports_offset_write is offset_write
 
     @pytest.mark.asyncio
-    async def test_a_registry_entry_found_late_takes_up_the_answer(self, monkeypatch):
-        """The record made before Matter registered the TRV is corrected."""
+    async def test_the_initialisation_settles_the_answer_on_an_unchanged_model(
+        self, monkeypatch
+    ):
+        """The answer is asked again even when the model stays the same."""
         bt = _host(monkeypatch, _w600(), KE100, model="KE100", platform="matter")
         trv = bt.real_trvs[ENTITY_ID]
         trv.calibration_offset_ignored = False
@@ -771,4 +767,4 @@ class TestTheKe100IsNotCalibratedByOffsetOverMatterOnly:
         """Child lock, window and away setup stay as the default has them."""
         quirks: object = KE100
         assert isinstance(quirks, InitialTweakQuirk)
-        assert KE100.initial_tweak is default.initial_tweak
+        assert quirks.initial_tweak is default.initial_tweak

@@ -28,6 +28,7 @@ from homeassistant.helpers import entity_registry as er
 import pytest
 
 from custom_components.better_thermostat.adapters import delegate, generic
+from custom_components.better_thermostat.climate import _refresh_trv_model
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
 from custom_components.better_thermostat.core.fsm.control_mode import (
@@ -77,6 +78,11 @@ from tests.factories import (
 # The quirk module of a model that ignores its calibration offset.
 IGNORED_OFFSET_QUIRK = importlib.import_module(
     "custom_components.better_thermostat.model_fixes.20480"
+)
+
+# The Kasa KE100, which ignores its offset over Matter only.
+KE100_QUIRK = importlib.import_module(
+    "custom_components.better_thermostat.model_fixes.KE100"
 )
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
@@ -3176,7 +3182,10 @@ class TestGroupedTrvCalibration:
         write the delegate refuses, and queue a catch-up cycle behind it.
         """
         entity_id = "climate.trv_1"
-        mock_bt_grouped.real_trvs[entity_id].model_quirks = IGNORED_OFFSET_QUIRK
+        trv = mock_bt_grouped.real_trvs[entity_id]
+        trv.model_quirks = IGNORED_OFFSET_QUIRK
+        # Set where the quirks are loaded, as for every TRV.
+        trv.calibration_offset_ignored = True
 
         mock_trv_state = MagicMock()
         mock_trv_state.state = "heat"
@@ -3205,6 +3214,71 @@ class TestGroupedTrvCalibration:
 
             await control_trv(mock_bt_grouped, entity_id)
 
+            mock_get_offset.assert_not_called()
+            mock_set_calibration_offset.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("platform", "pursued"), [("matter", False), ("tplink", True)]
+    )
+    async def test_the_offset_of_a_ke100_is_pursued_off_matter_only(
+        self, mock_bt_grouped, platform, pursued
+    ):
+        """A KE100 is read and written an offset through TP-Link, not over Matter.
+
+        The answer is settled the way initialisation settles it, from the
+        TRV's entity registry entry, and the cycle follows it.
+        """
+        entity_id = "climate.trv_1"
+        trv = mock_bt_grouped.real_trvs[entity_id]
+        trv.model = "KE100"
+        trv.model_quirks = KE100_QUIRK
+
+        mock_trv_state = MagicMock()
+        mock_trv_state.state = "heat"
+        mock_trv_state.attributes = {"temperature": 21.0}
+        mock_bt_grouped.hass.states.get.return_value = mock_trv_state
+
+        registry = make_entity_registry(
+            make_registry_entry(entity_id, platform=platform)
+        )
+        with (
+            patch.object(er, "async_get", return_value=registry),
+            patch(
+                "custom_components.better_thermostat.climate.get_device_model",
+                autospec=True,
+                return_value="KE100",
+            ),
+        ):
+            await _refresh_trv_model(mock_bt_grouped, entity_id)
+
+        with (
+            patch(
+                _PATCHES["get_calibration_offset"], autospec=True, return_value=2.0
+            ) as mock_get_offset,
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["set_calibration_offset"], autospec=True, return_value=True
+            ) as mock_set_calibration_offset,
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_convert.return_value = {
+                "temperature": 21.0,
+                "local_temperature_calibration": 3.0,
+                "local_temperature": 20.0,
+                "system_mode": "heat",
+            }
+
+            await control_trv(mock_bt_grouped, entity_id)
+
+        if pursued:
+            mock_get_offset.assert_awaited_once()
+            mock_set_calibration_offset.assert_awaited_once_with(
+                mock_bt_grouped, entity_id, 3.0
+            )
+        else:
             mock_get_offset.assert_not_called()
             mock_set_calibration_offset.assert_not_called()
 

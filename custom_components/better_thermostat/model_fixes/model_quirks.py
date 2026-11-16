@@ -251,8 +251,7 @@ def quirk_ignores_calibration_offset(
     """
     if not isinstance(model_quirks, IgnoredOffsetQuirk):
         return False
-    # A bare mock answers with a truthy mock; only a real True counts.
-    return model_quirks.calibration_offset_ignored(host, entity_id) is True
+    return model_quirks.calibration_offset_ignored(host, entity_id)
 
 
 def lowest_applied_calibration_offset(
