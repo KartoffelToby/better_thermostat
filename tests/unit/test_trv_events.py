@@ -1216,7 +1216,10 @@ class TestHvacActionAndValvePosition:
     ):
         """A device seen holding the mode last sent has taken that write."""
         trv_state = _make_state(reported)
-        mock_bt.hass.states.get.return_value = trv_state
+        # The registry has moved on to a later report than the event's.
+        mock_bt.hass.states.get.return_value = _make_state(
+            HVACMode.OFF if reported == HVACMode.HEAT else HVACMode.HEAT
+        )
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
         mock_bt.real_trvs[ENTITY_ID].last_hvac_mode_sent = HVACMode.HEAT
 
