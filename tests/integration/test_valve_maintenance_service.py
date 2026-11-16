@@ -96,3 +96,68 @@ async def test_a_run_started_by_the_service_ends_with_the_thermostat(hass, fake_
 
     assert stopped_with_the_unload
     assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+@pytest.mark.parametrize(
+    "fake_trv", [replace(GENERIC_HEAT_TRV, valve_maintenance=True)], indirect=True
+)
+async def test_service_exercises_valve_while_regulation_is_paused(hass, fake_trv):
+    """The maintenance service performs its writes even with regulation paused."""
+    set_room_sensor(hass, 18.0)
+    pause_sensor = "input_boolean.regulation_pause"
+    hass.states.async_set(pause_sensor, "on")
+    entry = make_entry(fake_trv.profile, pause_sensor_entity_id=pause_sensor)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    writes = []
+
+    async def exercise(
+        infos, *, set_valve_fn, set_temperature_fn, set_hvac_mode_fn, **kwargs
+    ):
+        assert infos
+        await set_valve_fn(fake_trv.entity_id, 100)
+        await set_temperature_fn(fake_trv.entity_id, 30.0)
+        await set_hvac_mode_fn(fake_trv.entity_id, "heat")
+
+    async def record_valve(_bt, entity_id, value):
+        writes.append(("valve", entity_id, value))
+        return True
+
+    async def record_temperature(_bt, entity_id, value):
+        writes.append(("temperature", entity_id, value))
+
+    async def record_mode(_bt, entity_id, value):
+        writes.append(("mode", entity_id, value))
+
+    with (
+        patch(MAINTENANCE_EXERCISE, side_effect=exercise),
+        patch(
+            "custom_components.better_thermostat.climate.adapter_set_valve",
+            record_valve,
+        ),
+        patch(
+            "custom_components.better_thermostat.climate.adapter_set_temperature",
+            record_temperature,
+        ),
+        patch(
+            "custom_components.better_thermostat.climate.adapter_set_hvac_mode",
+            record_mode,
+        ),
+        patch(
+            "custom_components.better_thermostat.climate.compute_next_maintenance",
+            return_value=bt.clock.now(),
+        ),
+    ):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RUN_VALVE_MAINTENANCE,
+            {"entity_id": bt.entity_id},
+            blocking=True,
+        )
+
+    assert bt.regulation_paused
+    assert writes == [
+        ("valve", fake_trv.entity_id, 100),
+        ("temperature", fake_trv.entity_id, 30.0),
+        ("mode", fake_trv.entity_id, "heat"),
+    ]

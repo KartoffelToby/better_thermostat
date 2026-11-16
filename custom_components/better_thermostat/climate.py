@@ -4100,8 +4100,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     async def _maintenance_tick(self, event: datetime | None = None) -> None:
         """Periodic maintenance tick: runs valve exercise when due and enabled."""
-        if self.regulation_paused:
-            return
         # quick availability check - only critical entities needed for maintenance
         try:
             # The ladder has to keep stepping and the repair issues have to
@@ -4159,8 +4157,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         logic in ``utils.valve_maintenance``.
         """
         region = self.kernel_state.maintenance
-        if self.regulation_paused:
-            return
         if region.is_blocking(self.clock.monotonic()):
             return
         if not isinstance(region, MaintenanceDue):
@@ -4209,7 +4205,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # them: from then on they are the user's, the restore at the end
             # included.
             async def _set_valve(entity_id: str, percent: int) -> bool:
-                if self.regulation_paused or device_released(self, entity_id):
+                if device_released(self, entity_id):
                     return False
                 try:
                     ok = await adapter_set_valve(self, entity_id, percent)
@@ -4229,12 +4225,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 # sent back from the TRV once its call returns. Taking the
                 # control lock keeps a maintenance setpoint out of that window.
                 async with self._temperature_lock:
-                    if self.regulation_paused or device_released(self, entity_id):
+                    if device_released(self, entity_id):
                         return
                     await adapter_set_temperature(self, entity_id, temperature)
 
             async def _set_mode(entity_id: str, mode: str) -> None:
-                if self.regulation_paused or device_released(self, entity_id):
+                if device_released(self, entity_id):
                     return
                 await adapter_set_hvac_mode(self, entity_id, mode)
 

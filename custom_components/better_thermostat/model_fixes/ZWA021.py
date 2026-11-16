@@ -333,7 +333,10 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
         return False
 
     if percent > 0 and (
-        getattr(self, "regulation_paused", False)
+        (
+            getattr(self, "regulation_paused", False)
+            and not getattr(self, "in_maintenance", False)
+        )
         or self.devices_released
         or entity_id in self.released_trvs
     ):

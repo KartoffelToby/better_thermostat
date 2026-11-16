@@ -153,6 +153,23 @@ async def test_hvac_off_still_runs_maintenance(bt, mode_attr):
 
 
 @pytest.mark.asyncio
+async def test_regulation_pause_does_not_skip_scheduled_maintenance(bt):
+    """A pause interlocks regulation, not due valve-maintenance exercise."""
+    bt.regulation_paused = True
+    with (
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(
+            f"{_CLIMATE}.collect_maintenance_trvs",
+            MagicMock(return_value=["climate.trv"]),
+        ),
+    ):
+        await BetterThermostat._maintenance_tick(bt)
+
+    bt._spawn_owned.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_window_open_still_postpones_while_off(bt):
     """An open contact keeps postponing even now that OFF no longer does."""
     bt.bt_hvac_mode = HVACMode.OFF

@@ -414,6 +414,22 @@ class TestZWA021SetValve:
         mock_self.hass.services.async_call.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_valve_maintenance_can_open_while_regulation_is_paused(self):
+        """The pause guard permits positive valve writes owned by maintenance."""
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        mock_self.regulation_paused = True
+        mock_self.in_maintenance = True
+        mock_self.hass.states.get.return_value = State("climate.trv1", "unknown")
+        mock_self.real_trvs["climate.trv1"].extra[quirk._VALVE_MODE_ENGAGED] = True
+
+        assert await quirk.override_set_valve(mock_self, "climate.trv1", 50)
+        mock_self.hass.services.async_call.assert_awaited_once()
+        assert (
+            mock_self.hass.services.async_call.await_args.args[2]["property"]
+            == "targetValue"
+        )
+
+    @pytest.mark.asyncio
     async def test_closing_while_off_does_not_enable_valve_mode(self):
         """A 0% command must not switch an off Spirit back on."""
         mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
