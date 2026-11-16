@@ -51,7 +51,11 @@ from custom_components.better_thermostat.adapters.valve_entity import (
 )
 from custom_components.better_thermostat.calibration import effective_room_temperature
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
-from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
+from custom_components.better_thermostat.core.desired import (
+    DesiredState,
+    Suppression,
+    TrvDesired,
+)
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.core.safety import (
     clamp as safety_clamp,
@@ -2858,8 +2862,12 @@ async def control_trv(
                     # keepalive is due.
                     _repeat = _valve_repeat_readback(self, entity_id, target_percent)
                     _safety_close = target_percent == 0 and (
-                        trv_desired.hvac_mode == HvacMode.OFF
-                        or trv_desired.suppression is not None
+                        trv_desired.suppression
+                        in (Suppression.WINDOW, Suppression.DOOR)
+                        or (
+                            trv_desired.suppression is None
+                            and trv_desired.hvac_mode == HvacMode.OFF
+                        )
                     )
                     _keepalive = _repeat in (
                         ValveReadback.HOLDS,

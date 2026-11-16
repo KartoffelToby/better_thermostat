@@ -2106,7 +2106,9 @@ class TestOffIntentClosesTheValve:
                 coro.close()
         assert delays == [pytest.approx(MIN_WRITE_INTERVAL_S)]
 
-    def _refusing_valve_room(self, *, window_open=False):
+    def _refusing_valve_room(
+        self, *, window_open=False, call_for_heat=True, bt_hvac_mode=HVACMode.HEAT
+    ):
         """A direct-valve room whose TRV refuses valve writes until told otherwise."""
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT,
@@ -2114,6 +2116,8 @@ class TestOffIntentClosesTheValve:
             room_temperature=18.0,
             heat_target_temperature=22.0,
             window_open=window_open,
+            call_for_heat=call_for_heat,
+            bt_hvac_mode=bt_hvac_mode,
             real_trvs={
                 "climate.trv1": _with_valve_channel(
                     _default_trv_config(
@@ -2221,12 +2225,18 @@ class TestOffIntentClosesTheValve:
         assert len(writes) == 8
 
     @pytest.mark.asyncio
-    async def test_a_refused_window_close_is_repeated_at_the_normal_pace(self):
-        """The close of an open window does not grow its wait.
+    @pytest.mark.parametrize(
+        "room",
+        [{"window_open": True}, {"bt_hvac_mode": HVACMode.OFF}],
+        ids=["open_window", "room_off"],
+    )
+    async def test_a_refused_safety_close_is_repeated_at_the_normal_pace(self, room):
+        """The close of an open window or of a room switched off keeps its wait.
 
-        The head would otherwise stay open into the window for minutes.
+        The head would otherwise stay open for minutes into an open window or
+        in a room the user switched off.
         """
-        mock_self, _trv = self._refusing_valve_room(window_open=True)
+        mock_self, _trv = self._refusing_valve_room(**room)
 
         async def valve(*args, **kwargs):
             return False
@@ -2236,6 +2246,27 @@ class TestOffIntentClosesTheValve:
             mock_self.clock.advance(retry_delays[-1][0])
             retry_delays.append(await self._valve_cycle(mock_self, valve, 0))
         assert retry_delays == [[pytest.approx(MIN_WRITE_INTERVAL_S)]] * 4
+
+    @pytest.mark.asyncio
+    async def test_a_refused_close_for_no_heat_demand_backs_off(self):
+        """A close because nothing calls for heat is no safety close.
+
+        It backs off like any other refused valve write.
+        """
+        mock_self, _trv = self._refusing_valve_room(call_for_heat=False)
+
+        async def valve(*args, **kwargs):
+            return False
+
+        retry_delays = [await self._valve_cycle(mock_self, valve, 0)]
+        for _ in range(2):
+            mock_self.clock.advance(retry_delays[-1][0])
+            retry_delays.append(await self._valve_cycle(mock_self, valve, 0))
+        assert retry_delays == [
+            [pytest.approx(30.0)],
+            [pytest.approx(60.0)],
+            [pytest.approx(120.0)],
+        ]
 
     @pytest.mark.asyncio
     async def test_a_user_change_is_not_held_by_a_refusal_run(self):
