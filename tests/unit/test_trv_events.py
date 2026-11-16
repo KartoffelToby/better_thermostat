@@ -2388,8 +2388,10 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == 5.0
 
     @pytest.mark.asyncio
-    async def test_setpoint_clamped_to_maximum(self, mock_bt):
-        """Setpoint above max should be clamped."""
+    async def test_setpoint_clamped_to_maximum_without_cooler(self, mock_bt, caplog):
+        """A heating-range clamp without a cooler must not log a cooling target."""
+        mock_bt.cool_target_temperature = None
+        caplog.set_level(logging.INFO)
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
         )
@@ -2412,6 +2414,7 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.heat_target_temperature == 30.0
+        assert "does not clear the cooling target" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_clamped_setpoint_that_is_adopted_is_reported(self, mock_bt, caplog):

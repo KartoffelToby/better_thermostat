@@ -993,7 +993,8 @@ async def trigger_trv_change(
                     _bounded_heating_setpoint
                 )
                 if (
-                    abs(
+                    self.cool_target_temperature is not None
+                    and abs(
                         _adopted_heating_setpoint
                         + target_offset
                         - _raw_heating_setpoint
