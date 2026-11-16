@@ -276,6 +276,7 @@ def reports_written_setpoint(
         trv.confirmed_setpoint,
         *trv.echo_setpoint_values(),
         *sibling_setpoint_writes(self, entity_id),
+        trv.copied_setpoint,
     ]
     if state is not None and entity_id == dual_role_entity_id(self):
         known += cooling_writes_as_held(self, state)
@@ -856,15 +857,20 @@ async def trigger_trv_change(
     # one of the room's other TRVs onto this one, and the device reports it
     # as it got it. Only the reported value counts here: a turn beyond BT's
     # range that the clamp brings onto a neighbour's write is still a turn.
-    if (
-        _setpoint is not None
-        and not _setpoint.is_echo
-        and any(
-            abs(_setpoint.raw - value) < setpoint_echo_window(_step)
-            for value in sibling_setpoint_writes(self, entity_id)
+    # The device holds the copy until it reports another setpoint, so a later
+    # report of it is BT's write even once the neighbour has moved on.
+    if _setpoint is not None:
+        _copied = any(
+            value is not None
+            and abs(_setpoint.raw - value) < setpoint_echo_window(_step)
+            for value in (
+                *sibling_setpoint_writes(self, entity_id),
+                trv.copied_setpoint,
+            )
         )
-    ):
-        _setpoint = _setpoint._replace(is_echo=True)
+        trv.copied_setpoint = _setpoint.raw if _copied else None
+        if _copied and not _setpoint.is_echo:
+            _setpoint = _setpoint._replace(is_echo=True)
     _is_no_off_device = advanced_flag(advanced, CONF_NO_OFF_SYSTEM_MODE)
     # An AUTO the mode decoding ignores says nothing about the room, so the
     # setpoint it carries, typically the device's own schedule, is not adopted

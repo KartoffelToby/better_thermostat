@@ -2117,6 +2117,57 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == expected_target
 
     @pytest.mark.asyncio
+    async def test_a_copy_the_trv_still_holds_is_no_press_once_the_peer_moved_on(
+        self, mock_bt
+    ):
+        """A TRV holding the peer's earlier write reports it again, unturned.
+
+        This TRV reports the peer's 25.0, and BT then writes the peer 26.0,
+        which the peer confirms. This TRV reports 25.0 again beside a new
+        temperature reading, and the room target stays 19.0. A turn to 23.0
+        afterwards replaces the copy and is adopted.
+        """
+        _add_homematicip_peer(mock_bt)
+        peer = mock_bt.real_trvs[PEER_ID]
+        peer.commanded_setpoint = 25.0
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.commanded_setpoint = 22.0
+        trv.remember_setpoint_confirmed(22.0, trv.remember_setpoint_written(22.0))
+        mock_bt.hass.states.get.side_effect = None
+
+        async def report(old: dict[str, float], new: dict[str, float]) -> None:
+            new_state = _make_state(attributes=new)
+            mock_bt.hass.states.get.return_value = new_state
+            event = _make_event(
+                mock_bt, new_state=new_state, old_state=_make_state(attributes=old)
+            )
+            with patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ):
+                await trigger_trv_change(mock_bt, event)
+
+        await report(
+            {"temperature": 22.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.0},
+        )
+        assert mock_bt.heat_target_temperature == 19.0
+
+        peer.commanded_setpoint = 26.0
+        peer.remember_setpoint_confirmed(26.0, peer.remember_setpoint_written(26.0))
+        await report(
+            {"temperature": 25.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.5},
+        )
+        assert mock_bt.heat_target_temperature == 19.0
+
+        await report(
+            {"temperature": 25.0, "current_temperature": 18.5},
+            {"temperature": 23.0, "current_temperature": 18.5},
+        )
+        assert mock_bt.heat_target_temperature == 23.0
+
+    @pytest.mark.asyncio
     async def test_a_turn_beyond_the_range_onto_the_peers_write_is_a_press(
         self, mock_bt
     ):
