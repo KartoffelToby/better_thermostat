@@ -2106,6 +2106,191 @@ class TestOffIntentClosesTheValve:
                 coro.close()
         assert delays == [pytest.approx(MIN_WRITE_INTERVAL_S)]
 
+    def _refusing_valve_room(
+        self, *, window_open=False, call_for_heat=True, bt_hvac_mode=HVACMode.HEAT
+    ):
+        """A direct-valve room whose TRV refuses valve writes until told otherwise."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            room_temperature=18.0,
+            heat_target_temperature=22.0,
+            window_open=window_open,
+            call_for_heat=call_for_heat,
+            bt_hvac_mode=bt_hvac_mode,
+            real_trvs={
+                "climate.trv1": _with_valve_channel(
+                    _default_trv_config(
+                        advanced={
+                            "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
+                            "no_off_system_mode": False,
+                        }
+                    )
+                )
+            },
+        )
+        mock_self.last_user_change_monotonic = None
+        return mock_self, mock_self.real_trvs["climate.trv1"]
+
+    async def _valve_cycle(self, mock_self, valve, percent):
+        """Run one control cycle commanding ``percent``; return the retry delays.
+
+        ``valve`` is the fake valve write; it records each attempt.
+        """
+        captured: list[tuple[Coroutine[object, object, object], str | None]] = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: captured.append((coro, name)) or Mock()
+        )
+        mock_self.real_trvs["climate.trv1"].budget_retry = None
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                f"{_CTRL}._get_valve_control",
+                return_value=({"valve_percent": percent}, "test"),
+            ),
+            patch(_PATCHES["set_valve"], autospec=True, side_effect=valve),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+        delays: list[float] = []
+
+        async def _sleep(seconds):
+            delays.append(seconds)
+
+        for coro, name in captured:
+            if "budget_retry" in (name or ""):
+                with patch("asyncio.sleep", new=AsyncMock(side_effect=_sleep)):
+                    await coro
+            else:
+                coro.close()
+        return delays
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("percent", [0, 40], ids=["close", "opening"])
+    async def test_refused_valve_writes_back_off_until_the_device_takes_one(
+        self, percent
+    ):
+        """Each refused valve write waits twice as long as the one before.
+
+        A cycle inside the wait writes nothing and queues its retry for when
+        the wait ends. The first write the device takes ends the run, and the
+        next refusal starts a new one at the normal write interval.
+        """
+        mock_self, trv = self._refusing_valve_room()
+        refusing = True
+        writes: list[float] = []
+
+        async def valve(*args, **kwargs):
+            writes.append(mock_self.clock.monotonic())
+            return not refusing
+
+        retry_delays = [await self._valve_cycle(mock_self, valve, percent)]
+        for _ in range(5):
+            mock_self.clock.advance(retry_delays[-1][0])
+            retry_delays.append(await self._valve_cycle(mock_self, valve, percent))
+        assert retry_delays == [
+            [pytest.approx(30.0)],
+            [pytest.approx(60.0)],
+            [pytest.approx(120.0)],
+            [pytest.approx(240.0)],
+            [pytest.approx(300.0)],
+            [pytest.approx(300.0)],
+        ]
+        assert len(writes) == 6
+
+        mock_self.clock.advance(100.0)
+        assert await self._valve_cycle(mock_self, valve, percent) == [
+            pytest.approx(200.0)
+        ]
+        assert len(writes) == 6
+
+        refusing = False
+        mock_self.clock.advance(200.0)
+        await self._valve_cycle(mock_self, valve, percent)
+        assert len(writes) == 7
+        assert trv.refused_valve_writes == 0
+
+        refusing = True
+        mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+        assert await self._valve_cycle(mock_self, valve, 70) == [pytest.approx(30.0)]
+        assert len(writes) == 8
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "room",
+        [{"window_open": True}, {"bt_hvac_mode": HVACMode.OFF}],
+        ids=["open_window", "room_off"],
+    )
+    async def test_a_refused_safety_close_is_repeated_at_the_normal_pace(self, room):
+        """The close of an open window or of a room switched off keeps its wait.
+
+        The head would otherwise stay open for minutes into an open window or
+        in a room the user switched off.
+        """
+        mock_self, _trv = self._refusing_valve_room(**room)
+
+        async def valve(*args, **kwargs):
+            return False
+
+        retry_delays = [await self._valve_cycle(mock_self, valve, 0)]
+        for _ in range(3):
+            mock_self.clock.advance(retry_delays[-1][0])
+            retry_delays.append(await self._valve_cycle(mock_self, valve, 0))
+        assert retry_delays == [[pytest.approx(MIN_WRITE_INTERVAL_S)]] * 4
+
+    @pytest.mark.asyncio
+    async def test_a_refused_close_for_no_heat_demand_backs_off(self):
+        """A close because nothing calls for heat is no safety close.
+
+        It backs off like any other refused valve write.
+        """
+        mock_self, _trv = self._refusing_valve_room(call_for_heat=False)
+
+        async def valve(*args, **kwargs):
+            return False
+
+        retry_delays = [await self._valve_cycle(mock_self, valve, 0)]
+        for _ in range(2):
+            mock_self.clock.advance(retry_delays[-1][0])
+            retry_delays.append(await self._valve_cycle(mock_self, valve, 0))
+        assert retry_delays == [
+            [pytest.approx(30.0)],
+            [pytest.approx(60.0)],
+            [pytest.approx(120.0)],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_user_change_is_not_held_by_a_refusal_run(self):
+        """A valve write after a user change waits only the normal write budget."""
+        mock_self, _trv = self._refusing_valve_room()
+        writes: list[float] = []
+
+        async def valve(*args, **kwargs):
+            writes.append(mock_self.clock.monotonic())
+            return False
+
+        for _ in range(2):
+            await self._valve_cycle(mock_self, valve, 40)
+            mock_self.clock.advance(MIN_WRITE_INTERVAL_S * 4)
+        assert await self._valve_cycle(mock_self, valve, 40) == [
+            pytest.approx(MIN_WRITE_INTERVAL_S * 4)
+        ]
+        assert len(writes) == 3
+        mock_self.clock.advance(1.0)
+        mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
+        mock_self.clock.advance(MIN_WRITE_INTERVAL_S)
+        await self._valve_cycle(mock_self, valve, 60)
+        assert len(writes) == 4
+
     @pytest.mark.asyncio
     async def test_no_heat_call_closes_valve_during_boost(self):
         """A missing call for heat during boost writes 0% to the valve, and nothing else."""

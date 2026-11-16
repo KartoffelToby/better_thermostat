@@ -301,6 +301,9 @@ class Trv:
     # cycle wrote; None before the first one did. A refused write leaves it
     # alone.
     last_valve_written_monotonic: float | None = None
+    # Valve writes the device refused in a row since a channel last took one.
+    # Each further attempt of such a run waits longer than the one before.
+    refused_valve_writes: int = 0
     # Whether a close was written since the device last reported its valve
     # position. A report of an open valve is answered with one close; the
     # next close waits for the next report.
