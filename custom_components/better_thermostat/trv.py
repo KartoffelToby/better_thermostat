@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
 
 # A TRV write channel with its own write budget.
-type WriteChannel = Literal["setpoint", "offset", "valve"]
+type WriteChannel = Literal["setpoint", "offset", "valve", "mode"]
 
 # How many unconfirmed writes one TRV keeps as values a report may echo. The
 # confirmed setpoint is held separately and is not counted against this bound,
@@ -244,6 +244,11 @@ class Trv:
     # errors and carries a repair issue.
     setpoint_unapplied_reported: bool = False
     last_hvac_mode: str | None = None
+    # The mode the last mode write sent, until the device is seen holding
+    # it. Writing that mode again waits for the mode channel's write budget;
+    # a different mode, or one the device took and left again, goes out at
+    # once.
+    last_hvac_mode_sent: str | None = None
     # A mode command still on the wire that the room took back before the
     # device confirmed it. The device already held the mode the room wanted
     # again, so no newer command went out to replace it, and a slow device

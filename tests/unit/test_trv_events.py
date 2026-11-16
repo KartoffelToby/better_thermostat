@@ -1204,6 +1204,34 @@ class TestHvacActionAndValvePosition:
         assert mock_bt.real_trvs[ENTITY_ID].valve_report_answered is False
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("reported", "still_sent"),
+        [
+            pytest.param(HVACMode.HEAT, None, id="holds_the_mode_sent"),
+            pytest.param(HVACMode.OFF, HVACMode.HEAT, id="holds_another_mode"),
+        ],
+    )
+    async def test_a_report_of_the_mode_sent_ends_its_repeat(
+        self, mock_bt, reported, still_sent
+    ):
+        """A device seen holding the mode last sent has taken that write."""
+        trv_state = _make_state(reported)
+        # The registry has moved on to a later report than the event's.
+        mock_bt.hass.states.get.return_value = _make_state(
+            HVACMode.OFF if reported == HVACMode.HEAT else HVACMode.HEAT
+        )
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+        mock_bt.real_trvs[ENTITY_ID].last_hvac_mode_sent = HVACMode.HEAT
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=reported,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].last_hvac_mode_sent == still_sent
+
+    @pytest.mark.asyncio
     async def test_hvac_action_updated_from_attribute(self, mock_bt):
         """Cache hvac_action from the TRV state attribute."""
         trv_state = _make_state(

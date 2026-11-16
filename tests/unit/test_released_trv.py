@@ -8,6 +8,7 @@ one control cycle.
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.components.climate import HVACMode
 from homeassistant.core import State
 import pytest
 
@@ -144,6 +145,21 @@ class TestTheSetter:
         bt._external_temperature_keepalive.assert_awaited_once_with()
         bt.control_queue_task.put_nowait.assert_called_once_with(bt)
         bt._heating_tracker.abort_cycle.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_taking_it_back_sends_its_mode_as_a_new_one(self):
+        """A mode sent before the release is no repeat for the take-back cycle.
+
+        A repeat waits for the mode channel's write budget, which on a
+        HomematicIP head lasts ten minutes.
+        """
+        bt = _room()
+        bt.released_trvs = {RELEASED}
+        bt.real_trvs[RELEASED].last_hvac_mode_sent = HVACMode.HEAT
+
+        await _set_released(bt, RELEASED, False)
+
+        assert bt.real_trvs[RELEASED].last_hvac_mode_sent is None
 
     @pytest.mark.parametrize(
         ("released", "entity_id"),

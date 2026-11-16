@@ -334,10 +334,12 @@ def _valve_refusal_wait_remaining(
     return max(wait - (self.clock.monotonic() - last_attempt), 0.0)
 
 
-def _user_changed_since_setpoint_write(self: BetterThermostat, trv: Trv) -> bool:
-    """Whether the user changed the room's target or mode since the last setpoint write."""
+def _user_changed_since_write(
+    self: BetterThermostat, trv: Trv, channel: WriteChannel
+) -> bool:
+    """Whether the user changed the room's target or mode since the last write on ``channel``."""
     user_change = self.last_user_change_monotonic
-    last_write = trv.last_write_monotonic.get("setpoint")
+    last_write = trv.last_write_monotonic.get(channel)
     return user_change is not None and (last_write is None or last_write < user_change)
 
 
@@ -346,8 +348,8 @@ def _write_interval_seconds(
 ) -> float:
     """Minimum spacing between non-safety writes to this TRV on ``channel``.
 
-    The first setpoint write after the user changed the room's target or
-    mode goes out at the normal pace on a HomematicIP head too: the user
+    The first setpoint or mode write after the user changed the room's
+    target or mode goes out at the normal pace on a HomematicIP head too: the user
     expects the head to follow within the normal interval, and a flurry of
     changes still coalesces on it. That write consumes the exemption.
 
@@ -358,12 +360,16 @@ def _write_interval_seconds(
     """
     homematicip = advanced_flag(trv.advanced, CONF_HOMEMATICIP)
     interval = HOMEMATICIP_MIN_WRITE_INTERVAL_S if homematicip else MIN_WRITE_INTERVAL_S
+    if channel == "mode":
+        if homematicip and _user_changed_since_write(self, trv, channel):
+            return MIN_WRITE_INTERVAL_S
+        return interval
     if channel != "setpoint":
         return interval
     run = min(trv.unapplied_setpoint_writes, SETPOINT_RETRY_BACKOFF_MAX_RUN)
     if run <= 1 and not homematicip:
         return interval
-    if _user_changed_since_setpoint_write(self, trv):
+    if _user_changed_since_write(self, trv, channel):
         return MIN_WRITE_INTERVAL_S
     if run <= 1:
         return interval
@@ -3030,6 +3036,14 @@ async def control_trv(
                         else None
                     )
                 _mode_trv.last_hvac_mode = _new_hvac_mode
+            # A device seen holding the mode last sent has taken it, also when
+            # its report did not reach the inbound handler.
+            if (
+                _new_hvac_mode is not None
+                and _new_hvac_mode == _reported_hvac_mode
+                and _mode_trv.last_hvac_mode_sent == _new_hvac_mode
+            ):
+                _mode_trv.last_hvac_mode_sent = None
             # An open window or door switches the device off whatever was
             # switched on it meanwhile.
             if (
@@ -3055,62 +3069,102 @@ async def control_trv(
                     or (_trv_has_no_off is False)
                 )
             ):
-                _LOGGER.debug(
-                    "better_thermostat %s: TO TRV set_hvac_mode: %s from: %s to: %s",
-                    self.device_name,
-                    entity_id,
-                    _reported_hvac_mode,
-                    _new_hvac_mode,
-                )
+                # Writing again a mode the device has not been seen taking
+                # waits for the channel's write budget, so a device that
+                # refuses it or stays off it is not written on every cycle. A
+                # different mode goes out at once, a switch to OFF included,
+                # and so does a mode the device took and left again. The OFF
+                # of an open window or door is repeated at the normal pace on a
+                # HomematicIP head too, so the head does not heat into the open
+                # window for the head's whole interval.
+                _mode_last_write = _mode_trv.last_write_monotonic.get("mode")
                 if _released_during_cycle(self, entity_id):
                     return True
-                _commanded_before = self.real_trvs[entity_id].last_hvac_mode
-                self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
-                self.real_trvs[entity_id].withdrawn_hvac_mode = None
-                _mode_refused = False
-                _mode_unanswered = False
-                try:
-                    _tvr_has_quirk = await override_set_hvac_mode(
-                        self, entity_id, _new_hvac_mode
-                    )
-                    if _tvr_has_quirk is False:
-                        _mode_refused = (
-                            await set_hvac_mode(self, entity_id, _new_hvac_mode)
-                            is False
+                if not _consume_budget(
+                    self,
+                    entity_id,
+                    "mode",
+                    bypass=_new_hvac_mode != _mode_trv.last_hvac_mode_sent
+                    or (
+                        trv_desired.suppression is not None
+                        and (
+                            _mode_last_write is None
+                            or _budget_open(
+                                _mode_last_write,
+                                self.clock.monotonic(),
+                                MIN_WRITE_INTERVAL_S,
+                            )
                         )
-                except DeviceCallTimeoutError:
-                    _mode_unanswered = True
-                # A refused mode is written again by the next cycle, which
-                # still finds the device in its old mode; there is nothing to
-                # wait for until then. Until it goes through, the device holds
-                # the mode it reports, and that is the mode last commanded as
-                # far as the mode cache and the inbound handler are concerned:
-                # the refused one would read the device's next plain report
-                # as a press back to its old mode. A write that did not answer
-                # is handled the same way, but the device may have queued it
-                # and apply it later, a sleeping node once it wakes, so it is
-                # remembered as withdrawn: landing late, it is not a press.
-                if _mode_refused or _mode_unanswered:
-                    self.real_trvs[entity_id].last_hvac_mode = (
-                        _commanded_before
-                        if _reported_hvac_mode in (STATE_UNAVAILABLE, STATE_UNKNOWN)
-                        else _reported_hvac_mode
-                    )
-                if _mode_unanswered:
-                    self.real_trvs[entity_id].withdrawn_hvac_mode = WithdrawnHvacMode(
-                        mode=_new_hvac_mode,
-                        until=self.clock.monotonic() + WRITE_CONFIRM_TIMEOUT_S,
-                    )
-                if (
-                    not _mode_refused
-                    and not _mode_unanswered
-                    and self.real_trvs[entity_id].system_mode_received is True
+                    ),
                 ):
-                    self.real_trvs[entity_id].system_mode_received = False
-                    self.task_manager.create_task(
-                        check_system_mode(self, entity_id),
-                        name=f"bt_check_system_mode_{entity_id}",
+                    _schedule_budget_retry(
+                        self,
+                        entity_id,
+                        MIN_WRITE_INTERVAL_S
+                        - (self.clock.monotonic() - _mode_last_write)
+                        if trv_desired.suppression is not None
+                        and _mode_last_write is not None
+                        else _budget_remaining(self, entity_id, "mode"),
                     )
+                else:
+                    _LOGGER.debug(
+                        "better_thermostat %s: TO TRV set_hvac_mode: %s from: %s to: %s",
+                        self.device_name,
+                        entity_id,
+                        _reported_hvac_mode,
+                        _new_hvac_mode,
+                    )
+                    _commanded_before = self.real_trvs[entity_id].last_hvac_mode
+                    self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
+                    self.real_trvs[entity_id].last_hvac_mode_sent = _new_hvac_mode
+                    self.real_trvs[entity_id].withdrawn_hvac_mode = None
+                    _mode_refused = False
+                    _mode_unanswered = False
+                    try:
+                        _tvr_has_quirk = await override_set_hvac_mode(
+                            self, entity_id, _new_hvac_mode
+                        )
+                        if _tvr_has_quirk is False:
+                            _mode_refused = (
+                                await set_hvac_mode(self, entity_id, _new_hvac_mode)
+                                is False
+                            )
+                    except DeviceCallTimeoutError:
+                        _mode_unanswered = True
+                    # A refused mode is written again by a later cycle that
+                    # still finds the device in its old mode, once the mode
+                    # channel's write budget lets it. Until it goes through, the
+                    # device holds
+                    # the mode it reports, and that is the mode last commanded as
+                    # far as the mode cache and the inbound handler are concerned:
+                    # the refused one would read the device's next plain report
+                    # as a press back to its old mode. A write that did not answer
+                    # is handled the same way, but the device may have queued it
+                    # and apply it later, a sleeping node once it wakes, so it is
+                    # remembered as withdrawn: landing late, it is not a press.
+                    if _mode_refused or _mode_unanswered:
+                        self.real_trvs[entity_id].last_hvac_mode = (
+                            _commanded_before
+                            if _reported_hvac_mode in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+                            else _reported_hvac_mode
+                        )
+                    if _mode_unanswered:
+                        self.real_trvs[
+                            entity_id
+                        ].withdrawn_hvac_mode = WithdrawnHvacMode(
+                            mode=_new_hvac_mode,
+                            until=self.clock.monotonic() + WRITE_CONFIRM_TIMEOUT_S,
+                        )
+                    if (
+                        not _mode_refused
+                        and not _mode_unanswered
+                        and self.real_trvs[entity_id].system_mode_received is True
+                    ):
+                        self.real_trvs[entity_id].system_mode_received = False
+                        self.task_manager.create_task(
+                            check_system_mode(self, entity_id),
+                            name=f"bt_check_system_mode_{entity_id}",
+                        )
 
             # set new calibration offset
             if (
