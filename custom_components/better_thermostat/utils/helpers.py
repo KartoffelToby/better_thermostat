@@ -94,11 +94,20 @@ class _RegulationTargetHost(Protocol):
 
 
 def regulation_target(self: _RegulationTargetHost) -> float:
-    """Return the heating target shifted by the internal temperature offset."""
+    """Return the offset heating target clamped to Better Thermostat's range."""
     target_offset = getattr(self, "target_offset", 0.0)
     if not isinstance(target_offset, (int, float)) or not math.isfinite(target_offset):
         target_offset = 0.0
-    return self.heat_target_temperature + target_offset
+    target = self.heat_target_temperature + target_offset
+    if not math.isfinite(target):
+        return target
+    lower = getattr(self, "bt_min_temp", None)
+    upper = getattr(self, "bt_max_temp", None)
+    if not isinstance(lower, (int, float)) or not math.isfinite(lower):
+        lower = CLIMATE_DEFAULT_MIN_TEMP
+    if not isinstance(upper, (int, float)) or not math.isfinite(upper):
+        upper = CLIMATE_DEFAULT_MAX_TEMP
+    return min(max(target, lower), upper)
 
 
 class _CalibrationConfiguredTrv(Protocol):

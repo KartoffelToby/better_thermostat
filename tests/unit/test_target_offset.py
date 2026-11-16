@@ -10,6 +10,7 @@ import pytest
 from custom_components.better_thermostat.number import (
     BetterThermostatTargetOffsetNumber,
 )
+from custom_components.better_thermostat.utils.helpers import regulation_target
 from tests.factories import ThermostatStandIn
 
 
@@ -21,11 +22,27 @@ def thermostat():
     bt.device_name = "Test"
     bt.target_offset = 0.0
     bt.heat_target_temperature = 19.0
+    bt.bt_min_temp = 5.0
+    bt.bt_max_temp = 24.0
     bt.cooler_entity_id = None
     bt.startup_running = False
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.control_queue_task = asyncio.Queue(maxsize=1)
     return bt
+
+
+@pytest.mark.parametrize(
+    ("target", "offset", "expected"),
+    [(5.0, -10.0, 5.0), (24.0, 10.0, 24.0), (20.0, -1.0, 19.0)],
+)
+def test_regulation_target_clamps_offset_to_room_range(
+    thermostat, target, offset, expected
+):
+    """An offset cannot move regulation outside the heating range."""
+    thermostat.heat_target_temperature = target
+    thermostat.target_offset = offset
+
+    assert regulation_target(thermostat) == pytest.approx(expected)
 
 
 @pytest.mark.parametrize(
