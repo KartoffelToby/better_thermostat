@@ -21,6 +21,7 @@ from custom_components.better_thermostat.core.desired import DesiredState, Heati
 from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
 from custom_components.better_thermostat.core.snapshot import HvacMode
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import (
     compute_control_cycle,
     publish_heating_blocked_by,
@@ -211,6 +212,7 @@ def _releasable_room() -> ThermostatStandIn:
     bt._initialize_arrived_trvs = AsyncMock()
     bt._external_temperature_keepalive = AsyncMock()
     bt.control_queue_task = MagicMock()
+    bt.real_trvs = dict[str, Trv]()
     return bt
 
 

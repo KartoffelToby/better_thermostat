@@ -5572,6 +5572,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.learning_held = True
             self._heating_tracker.abort_cycle()
             self._loss_tracker.abort_cycle()
+            for trv in self.real_trvs.values():
+                trv.forget_external_temperature_writes()
         await check_critical_entities(self)
         publish_kernel_verdict(self)
         self.async_write_ha_state()
@@ -5625,6 +5627,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.learning_held = True
             self._heating_tracker.abort_cycle()
             self._loss_tracker.abort_cycle()
+            self.real_trvs[entity_id].forget_external_temperature_writes()
         self._refresh_temperature_range()
         await check_critical_entities(self)
         publish_kernel_verdict(self)

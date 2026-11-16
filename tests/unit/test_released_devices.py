@@ -14,6 +14,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.switch import (
     BetterThermostatReleaseDevicesSwitch,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerTracker,
     HeatLossTracker,
@@ -46,6 +47,7 @@ def _releasable_room() -> ThermostatStandIn:
     bt._initialize_arrived_trvs = AsyncMock()
     bt._external_temperature_keepalive = AsyncMock()
     bt.control_queue_task = MagicMock()
+    bt.real_trvs = dict[str, Trv]()
     return bt
 
 
@@ -85,6 +87,24 @@ async def test_releasing_gives_up_the_stretches_the_learners_follow():
     bt.control_queue_task.put_nowait.assert_not_called()
     bt._initialize_arrived_trvs.assert_not_called()
     bt._external_temperature_keepalive.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_releasing_forgets_the_room_temperature_sent_to_every_trv():
+    """The take-back sends the room temperature even where it did not move."""
+    bt = _releasable_room()
+    bt.real_trvs = {
+        entity_id: trv_record(entity_id=entity_id)
+        for entity_id in ("climate.one", "climate.two")
+    }
+    for trv in bt.real_trvs.values():
+        trv.extra["_danfoss_external_sensor_celsius"] = 21.0
+        trv.extra["_danfoss_external_sensor_written_at"] = 1000.0
+
+    with patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()):
+        await BetterThermostat.async_set_devices_released(bt, True)
+
+    assert [trv.extra for trv in bt.real_trvs.values()] == [{}, {}]
 
 
 @pytest.mark.asyncio
