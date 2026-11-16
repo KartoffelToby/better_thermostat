@@ -15,6 +15,7 @@ hardware:
 import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -239,6 +240,56 @@ class TestZWA021HvacOverride:
     """The manufacturer-specific mode is engaged only for direct valve control."""
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("valve_percent", [0, 50, 100])
+    async def test_mode_change_reasserts_cached_valve_position(self, valve_percent):
+        """A mode change is followed by the last commanded valve position."""
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        mock_self.hass.states.get.return_value = State("climate.trv1", HVACMode.OFF)
+        mock_self.real_trvs["climate.trv1"].last_valve_percent = valve_percent
+
+        assert await quirk.override_set_hvac_mode(mock_self, "climate.trv1", "heat")
+
+        calls = mock_self.hass.services.async_call.await_args_list
+        assert [call.args[2]["property"] for call in calls] == ["mode", "targetValue"]
+        assert calls[1].args[2]["value"] == round(valve_percent / 100 * 99)
+
+    @pytest.mark.asyncio
+    async def test_failed_reassertion_is_retried_in_valve_mode(self):
+        """A refused valve write remains pending after the mode changes."""
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        mock_self.hass.states.get.return_value = State("climate.trv1", HVACMode.OFF)
+        mock_self.real_trvs["climate.trv1"].last_valve_percent = 50
+        mock_self.hass.services.async_call = AsyncMock(
+            side_effect=[None, HomeAssistantError("device unavailable"), None]
+        )
+
+        with pytest.raises(HomeAssistantError):
+            await quirk.override_set_hvac_mode(mock_self, "climate.trv1", "heat")
+        mock_self.hass.states.get.return_value = State("climate.trv1", "unknown")
+        assert await quirk.override_set_hvac_mode(mock_self, "climate.trv1", "heat")
+
+        calls = mock_self.hass.services.async_call.await_args_list
+        assert [call.args[2]["property"] for call in calls] == [
+            "mode",
+            "targetValue",
+            "targetValue",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_pause_during_mode_change_does_not_restore_open_valve(self):
+        """A pause arriving during the mode write blocks a stale opening."""
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        mock_self.hass.states.get.return_value = State("climate.trv1", HVACMode.OFF)
+        mock_self.real_trvs["climate.trv1"].last_valve_percent = 50
+
+        async def pause_during_mode(*args, **kwargs):
+            mock_self.regulation_paused = True
+
+        mock_self.hass.services.async_call = AsyncMock(side_effect=pause_during_mode)
+        assert await quirk.override_set_hvac_mode(mock_self, "climate.trv1", "heat")
+        mock_self.hass.services.async_call.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_declines_when_not_direct_valve(self):
         """Non valve-based calibration falls through to the standard path."""
         mock_self = _make_self(calibration=CalibrationOutput.TARGET_TEMP_BASED)
@@ -299,6 +350,82 @@ class TestZWA021Passthroughs:
 
 class TestZWA021SetValve:
     """The valve is driven via the Multilevel Switch command class (0x26)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("reported_mode", ["off", "heat", "unknown"])
+    async def test_opening_after_restart_engages_mode_before_valve(self, reported_mode):
+        """A fresh BT cache cannot assume a Spirit is already in valve mode."""
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        mock_self.hass.states.get.return_value = State("climate.trv1", reported_mode)
+
+        assert await quirk.override_set_valve(mock_self, "climate.trv1", 50)
+
+        calls = mock_self.hass.services.async_call.await_args_list
+        assert [call.args[2]["property"] for call in calls] == ["mode", "targetValue"]
+
+    @pytest.mark.asyncio
+    async def test_opening_after_off_enters_valve_mode_first(self):
+        """A Spirit must enter manufacturer mode before opening its valve."""
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        mock_self.hass.states.get.return_value = State("climate.trv1", HVACMode.OFF)
+        in_valve_mode = False
+        accepted = []
+
+        async def service_call(domain, service, payload, **kwargs):
+            nonlocal in_valve_mode
+            if payload["property"] == "mode":
+                in_valve_mode = True
+            elif payload["property"] == "targetValue" and in_valve_mode:
+                accepted.append(payload["value"])
+
+        mock_self.hass.services.async_call = AsyncMock(side_effect=service_call)
+        assert await quirk.override_set_valve(mock_self, "climate.trv1", 50)
+        assert accepted == [50]
+        calls = mock_self.hass.services.async_call.await_args_list
+        assert [call.args[2]["property"] for call in calls] == ["mode", "targetValue"]
+
+    @pytest.mark.asyncio
+    async def test_refused_valve_mode_does_not_send_opening(self):
+        """An unsuccessful mode request leaves the opening for a later retry."""
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        mock_self.hass.states.get.return_value = State("climate.trv1", HVACMode.OFF)
+        mock_self.hass.services.async_call = AsyncMock(
+            side_effect=HomeAssistantError("device unavailable")
+        )
+
+        assert not await quirk.override_set_valve(mock_self, "climate.trv1", 50)
+        mock_self.hass.services.async_call.assert_awaited_once()
+        assert mock_self.hass.services.async_call.await_args is not None
+        assert (
+            mock_self.hass.services.async_call.await_args.args[2]["property"] == "mode"
+        )
+
+    @pytest.mark.asyncio
+    async def test_pause_during_mode_change_blocks_new_valve_opening(self):
+        """A new pause wins over an opening waiting on the mode write."""
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        mock_self.hass.states.get.return_value = State("climate.trv1", HVACMode.OFF)
+
+        async def pause_during_mode(*args, **kwargs):
+            mock_self.regulation_paused = True
+
+        mock_self.hass.services.async_call = AsyncMock(side_effect=pause_during_mode)
+        assert not await quirk.override_set_valve(mock_self, "climate.trv1", 50)
+        mock_self.hass.services.async_call.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_closing_while_off_does_not_enable_valve_mode(self):
+        """A 0% command must not switch an off Spirit back on."""
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        mock_self.hass.states.get.return_value = State("climate.trv1", HVACMode.OFF)
+
+        assert await quirk.override_set_valve(mock_self, "climate.trv1", 0)
+        mock_self.hass.services.async_call.assert_awaited_once()
+        assert mock_self.hass.services.async_call.await_args is not None
+        assert (
+            mock_self.hass.services.async_call.await_args.args[2]["property"]
+            == "targetValue"
+        )
 
     @pytest.mark.asyncio
     async def test_declines_when_not_direct_valve(self):

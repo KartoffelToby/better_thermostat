@@ -25,6 +25,7 @@ from custom_components.better_thermostat.model_fixes.types import (
     ModelFixHost,
     ModelQuirks,
 )
+
 _SASWELL = import_module(
     "custom_components.better_thermostat.model_fixes.SEA801-Zigbee_SEA802-Zigbee"
 )

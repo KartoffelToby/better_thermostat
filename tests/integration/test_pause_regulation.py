@@ -1,13 +1,17 @@
 """The optional regulation interlock through Home Assistant."""
 
 from dataclasses import replace
+from unittest.mock import patch
 
 from homeassistant.components.climate import HVACAction, HVACMode
 from homeassistant.core import Context
 import pytest
 
+from custom_components.better_thermostat.utils.const import CalibrationMode
+
 from .conftest import (
     BT_ENTITY,
+    WRITE_BUDGET,
     build_devices,
     make_entry,
     profile_id,
@@ -16,10 +20,78 @@ from .conftest import (
     wait_for,
     wait_for_startup,
 )
-from .device_profiles import GENERIC_HEAT_TRV
+from .device_profiles import GENERIC_HEAT_TRV, VALVE_TRV
 
 PAUSE_SENSOR = "input_boolean.regulation_pause"
 NO_OFF_TRV = replace(GENERIC_HEAT_TRV, name="pause_no_off", hvac_modes=(HVACMode.HEAT,))
+
+
+@pytest.mark.parametrize(
+    "fake_trv",
+    [
+        replace(VALVE_TRV, name=f"pause_{mode.value}", calibration_mode=mode.value)
+        for mode in (
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.MPC_V2_CALIBRATION,
+        )
+    ],
+    indirect=True,
+    ids=profile_id,
+)
+async def test_pause_resume_reopens_direct_valve(hass, fake_trv):
+    """The valve resumes heating when the pause clears in a cold room."""
+    set_room_sensor(hass, 17.0)
+    hass.states.async_set(PAUSE_SENSOR, "off")
+    entry = make_entry(fake_trv.profile, pause_sensor_entity_id=PAUSE_SENSOR)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    valve = fake_trv.valve_number
+    assert valve is not None
+    with patch(WRITE_BUDGET, 0.0):
+        await bt.async_set_hvac_mode(HVACMode.HEAT)
+        await bt.async_set_temperature(temperature=19.0)
+        assert await wait_for(hass, lambda: valve.native_value > 0)
+        hass.states.async_set(PAUSE_SENSOR, "on")
+        assert await wait_for(hass, lambda: valve.native_value == 0)
+        assert await wait_for(hass, lambda: not bt.ignore_states)
+        hass.states.async_set(PAUSE_SENSOR, "off")
+        assert await wait_for(hass, lambda: valve.native_value > 0), (
+            valve.set_value_calls,
+            bt.real_trvs[fake_trv.entity_id].calibration_balance,
+        )
+
+
+@pytest.mark.parametrize("fake_trv", [VALVE_TRV], indirect=True, ids=profile_id)
+@pytest.mark.parametrize("restart_while_paused", [False, True])
+async def test_direct_valve_recovers_after_reload(hass, fake_trv, restart_while_paused):
+    """Reload keeps a pause closed and resumes heating after the signal clears."""
+    set_room_sensor(hass, 17.0)
+    hass.states.async_set(PAUSE_SENSOR, "off")
+    entry = make_entry(fake_trv.profile, pause_sensor_entity_id=PAUSE_SENSOR)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    valve = fake_trv.valve_number
+    assert valve is not None
+    with patch(WRITE_BUDGET, 0.0):
+        await bt.async_set_hvac_mode(HVACMode.HEAT)
+        await bt.async_set_temperature(temperature=19.0)
+        assert await wait_for(hass, lambda: valve.native_value > 0)
+        hass.states.async_set(PAUSE_SENSOR, "on")
+        assert await wait_for(hass, lambda: valve.native_value == 0)
+        assert await wait_for(hass, lambda: not bt.ignore_states)
+        if not restart_while_paused:
+            hass.states.async_set(PAUSE_SENSOR, "off")
+            assert await wait_for(hass, lambda: valve.native_value > 0)
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        bt = await wait_for_startup(hass, entry)
+        if restart_while_paused:
+            assert bt.regulation_paused
+            assert valve.native_value == 0
+            hass.states.async_set(PAUSE_SENSOR, "off")
+        assert await wait_for(hass, lambda: valve.native_value > 0)
 
 
 @pytest.mark.parametrize("fake_trv", [NO_OFF_TRV], indirect=True, ids=profile_id)
