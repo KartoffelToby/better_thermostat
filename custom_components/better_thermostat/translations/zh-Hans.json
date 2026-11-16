@@ -26,7 +26,8 @@
           "target_temp_max": "目标最高温度",
           "target_temp_step": "目标温度步长",
           "presets": "启用的预设",
-          "distribute_valve_by_trv_temperature": "根据各 TRV 自身温度分配阀门开度"
+          "distribute_valve_by_trv_temperature": "根据各 TRV 自身温度分配阀门开度",
+          "pause_sensor": "调节暂停传感器"
         },
         "data_description": {
           "name": "此温控器及其在 Home Assistant 中设备的名称。",
@@ -50,7 +51,8 @@
           "target_temp_max": "可设置的最高目标温度。自动会采用设备报告的范围。",
           "target_temp_step": "每次调整目标温度的变化量。自动会采用温控器报告的最粗步长。",
           "presets": "选择你希望此温控器可用的预设。",
-          "distribute_valve_by_trv_temperature": "仅适用于 MPC 或 MPC v2 校准模式下有两个或更多 TRV 的情况。关闭：每个 TRV 获得相同阀门开度。开启：比房间最暖 TRV 读数更低的 TRV 会开得更大，每低 1 °C（1.8 °F）增加 8%（4.4%）。比较的是 TRV 自身读数，因此 Sonoff TRVZB 或 TRV-ZBT 需要选择其自身传感器并开启“保留 TRV 的传感器选择”。通过偏移校准的 TRV 会获得房间的阀门开度。"
+          "distribute_valve_by_trv_temperature": "仅适用于 MPC 或 MPC v2 校准模式下有两个或更多 TRV 的情况。关闭：每个 TRV 获得相同阀门开度。开启：比房间最暖 TRV 读数更低的 TRV 会开得更大，每低 1 °C（1.8 °F）增加 8%（4.4%）。比较的是 TRV 自身读数，因此 Sonoff TRVZB 或 TRV-ZBT 需要选择其自身传感器并开启“保留 TRV 的传感器选择”。通过偏移校准的 TRV 会获得房间的阀门开度。",
+          "pause_sensor": "可选。开启时暂停供暖和制冷；关闭、缺失、未知或不可用时恢复调节。"
         }
       },
       "advanced": {
@@ -133,7 +135,8 @@
           "target_temp_step": "目标温度步长",
           "presets": "启用的预设",
           "cooler": "制冷设备（可选）",
-          "distribute_valve_by_trv_temperature": "根据各 TRV 自身温度分配阀门开度"
+          "distribute_valve_by_trv_temperature": "根据各 TRV 自身温度分配阀门开度",
+          "pause_sensor": "调节暂停传感器"
         },
         "data_description": {
           "name": "此温控器及其在 Home Assistant 中设备的名称。",
@@ -157,7 +160,8 @@
           "target_temp_step": "每次调整目标温度的变化量。自动会采用温控器报告的最粗步长。",
           "presets": "选择你希望此温控器可用的预设。",
           "cooler": "可选。空调或其他 climate 实体，与温控器一起为此房间制冷。",
-          "distribute_valve_by_trv_temperature": "仅适用于 MPC 或 MPC v2 校准模式下有两个或更多 TRV 的情况。关闭：每个 TRV 获得相同阀门开度。开启：比房间最暖 TRV 读数更低的 TRV 会开得更大，每低 1 °C（1.8 °F）增加 8%（4.4%）。比较的是 TRV 自身读数，因此 Sonoff TRVZB 或 TRV-ZBT 需要选择其自身传感器并开启“保留 TRV 的传感器选择”。通过偏移校准的 TRV 会获得房间的阀门开度。"
+          "distribute_valve_by_trv_temperature": "仅适用于 MPC 或 MPC v2 校准模式下有两个或更多 TRV 的情况。关闭：每个 TRV 获得相同阀门开度。开启：比房间最暖 TRV 读数更低的 TRV 会开得更大，每低 1 °C（1.8 °F）增加 8%（4.4%）。比较的是 TRV 自身读数，因此 Sonoff TRVZB 或 TRV-ZBT 需要选择其自身传感器并开启“保留 TRV 的传感器选择”。通过偏移校准的 TRV 会获得房间的阀门开度。",
+          "pause_sensor": "可选。开启时暂停供暖和制冷；关闭、缺失、未知或不可用时恢复调节。"
         }
       },
       "advanced": {
@@ -432,7 +436,8 @@
               "hvac_off": "温控器关闭",
               "window": "窗户打开",
               "door": "门打开",
-              "no_call_for_heat": "无供暖请求"
+              "no_call_for_heat": "无供暖请求",
+              "regulation_paused": "调节已暂停"
             }
           },
           "active_overrides": {
@@ -540,6 +545,9 @@
       },
       "tolerance": {
         "name": "容差"
+      },
+      "target_offset": {
+        "name": "目标温度偏移"
       }
     },
     "switch": {
@@ -670,6 +678,9 @@
     },
     "valve_maintenance_failed": {
       "message": "{device_name} 上的阀门维护失败。日志中有详细信息。"
+    },
+    "valve_restore_failed": {
+      "message": "恢复 {device_name} 上的阀门位置失败。日志中有详细信息。"
     },
     "pid_state_not_ready": {
       "message": "{device_name} 尚未加载其学习状态。请在其启动后重试。"

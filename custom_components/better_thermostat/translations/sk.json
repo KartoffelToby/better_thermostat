@@ -26,7 +26,8 @@
           "target_temp_max": "Maximálna cieľová teplota",
           "target_temp_step": "Krok cieľovej teploty",
           "presets": "Povolené predvoľby",
-          "distribute_valve_by_trv_temperature": "Rozdeliť otvorenie ventilu podľa vlastnej teploty každého TRV"
+          "distribute_valve_by_trv_temperature": "Rozdeliť otvorenie ventilu podľa vlastnej teploty každého TRV",
+          "pause_sensor": "Snímač pozastavenia regulácie"
         },
         "data_description": {
           "name": "Názov tohto termostatu a jeho zariadenia v Home Assistant.",
@@ -50,7 +51,8 @@
           "target_temp_max": "Najvyšší cieľ, ktorý môžete nastaviť. Auto preberá rozsah, ktorý hlásia zariadenia.",
           "target_temp_step": "O koľko sa cieľ zmení za jeden krok. Auto preberá najhrubší krok, ktorý hlásia termostaty.",
           "presets": "Vyberte predvoľby, ktoré chcete mať k dispozícii pre tento termostat.",
-          "distribute_valve_by_trv_temperature": "Len pre dva alebo viac TRV v režime kalibrácie MPC alebo MPC v2. Vypnuté: každý TRV dostane rovnaké otvorenie ventilu. Zapnuté: TRV, ktorý nameria nižšiu teplotu ako najteplejší TRV v miestnosti, sa otvorí viac, o 8 % na každý °C (4,4 % na °F) rozdielu. Porovnávajú sa vlastné merania TRV, preto Sonoff TRVZB alebo TRV-ZBT musí mať zvolený vlastný snímač a zapnutú možnosť „Zachovať výber snímača TRV“. TRV kalibrovaný cez offset dostane otvorenie ventilu miestnosti."
+          "distribute_valve_by_trv_temperature": "Len pre dva alebo viac TRV v režime kalibrácie MPC alebo MPC v2. Vypnuté: každý TRV dostane rovnaké otvorenie ventilu. Zapnuté: TRV, ktorý nameria nižšiu teplotu ako najteplejší TRV v miestnosti, sa otvorí viac, o 8 % na každý °C (4,4 % na °F) rozdielu. Porovnávajú sa vlastné merania TRV, preto Sonoff TRVZB alebo TRV-ZBT musí mať zvolený vlastný snímač a zapnutú možnosť „Zachovať výber snímača TRV“. TRV kalibrovaný cez offset dostane otvorenie ventilu miestnosti.",
+          "pause_sensor": "Voliteľné. Zapnutý stav pozastaví kúrenie a chladenie; vypnutý, chýbajúci, neznámy alebo nedostupný stav obnoví reguláciu."
         }
       },
       "advanced": {
@@ -132,7 +134,8 @@
           "target_temp_step": "Krok cieľovej teploty",
           "presets": "Enabled Predvoľby",
           "cooler": "Chladiace zariadenie (voliteľné)",
-          "distribute_valve_by_trv_temperature": "Rozdeliť otvorenie ventilu podľa vlastnej teploty každého TRV"
+          "distribute_valve_by_trv_temperature": "Rozdeliť otvorenie ventilu podľa vlastnej teploty každého TRV",
+          "pause_sensor": "Snímač pozastavenia regulácie"
         },
         "data_description": {
           "name": "Názov tohto termostatu a jeho zariadenia v Home Assistant.",
@@ -156,7 +159,8 @@
           "target_temp_step": "O koľko sa cieľ zmení za jeden krok. Auto preberá najhrubší krok, ktorý hlásia termostaty.",
           "presets": "Vyberte predvoľby, ktoré chcete mať k dispozícii pre tento termostat.",
           "cooler": "Voliteľné. Klimatizácia alebo iná klimatizačná entita, ktorá chladí túto miestnosť spolu s termostatmi.",
-          "distribute_valve_by_trv_temperature": "Len pre dva alebo viac TRV v režime kalibrácie MPC alebo MPC v2. Vypnuté: každý TRV dostane rovnaké otvorenie ventilu. Zapnuté: TRV, ktorý nameria nižšiu teplotu ako najteplejší TRV v miestnosti, sa otvorí viac, o 8 % na každý °C (4,4 % na °F) rozdielu. Porovnávajú sa vlastné merania TRV, preto Sonoff TRVZB alebo TRV-ZBT musí mať zvolený vlastný snímač a zapnutú možnosť „Zachovať výber snímača TRV“. TRV kalibrovaný cez offset dostane otvorenie ventilu miestnosti."
+          "distribute_valve_by_trv_temperature": "Len pre dva alebo viac TRV v režime kalibrácie MPC alebo MPC v2. Vypnuté: každý TRV dostane rovnaké otvorenie ventilu. Zapnuté: TRV, ktorý nameria nižšiu teplotu ako najteplejší TRV v miestnosti, sa otvorí viac, o 8 % na každý °C (4,4 % na °F) rozdielu. Porovnávajú sa vlastné merania TRV, preto Sonoff TRVZB alebo TRV-ZBT musí mať zvolený vlastný snímač a zapnutú možnosť „Zachovať výber snímača TRV“. TRV kalibrovaný cez offset dostane otvorenie ventilu miestnosti.",
+          "pause_sensor": "Voliteľné. Zapnutý stav pozastaví kúrenie a chladenie; vypnutý, chýbajúci, neznámy alebo nedostupný stav obnoví reguláciu."
         }
       },
       "advanced": {
@@ -426,7 +430,8 @@
               "hvac_off": "Termostat vypnutý",
               "window": "Okno otvorené",
               "door": "Dvere otvorené",
-              "no_call_for_heat": "Žiadna požiadavka na teplo"
+              "no_call_for_heat": "Žiadna požiadavka na teplo",
+              "regulation_paused": "Regulácia pozastavená"
             }
           },
           "active_overrides": {
@@ -534,6 +539,9 @@
       },
       "tolerance": {
         "name": "Tolerancia"
+      },
+      "target_offset": {
+        "name": "Posun cieľovej teploty"
       }
     },
     "switch": {
@@ -664,6 +672,9 @@
     },
     "valve_maintenance_failed": {
       "message": "Údržba ventilov na {device_name} zlyhala. Podrobnosti sú v logu."
+    },
+    "valve_restore_failed": {
+      "message": "Obnovenie polohy ventilu na {device_name} zlyhalo. Podrobnosti sú v logu."
     },
     "pid_state_not_ready": {
       "message": "{device_name} ešte nenačítal naučený stav. Skúste to znova, keď sa spustí."

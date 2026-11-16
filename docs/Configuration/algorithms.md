@@ -6,6 +6,14 @@ slug: calibration_algorithms
 
 When configuring a radiator valve in Better Thermostat (Screen 2), you make **two separate choices** whose names sound similar:
 
+The **Target Offset** number shifts the heating target used internally without
+changing the displayed target or stored presets. For example, a target of
+19 °C with an offset of +0.5 °C regulates toward 19.5 °C. The setting restores
+after a restart and accepts differences from -10 to +10 °C (or -18 to +18 °F).
+The effective target remains subject to each device's supported range. In a
+room with cooling, increasing the offset can also raise the cooling target to
+keep the channels ordered.
+
 1. **`Calibration mode` (The Control Brain):** *How much heat does the room need right now?* (8 algorithms to choose from)
 2. **`Calibration type` (The Hardware Channel):** *How should Better Thermostat transmit that heat demand to your specific TRV?* (3 hardware methods)
 

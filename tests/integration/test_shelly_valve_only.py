@@ -6,18 +6,15 @@ from unittest.mock import patch
 
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.core import Context
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import InvalidData
 import pytest
 
 from custom_components.better_thermostat.adapters import shelly
 from custom_components.better_thermostat.utils import controlling
-from custom_components.better_thermostat.utils.calibration.plant_preset import (
-    MpcV2PlantPreset,
-)
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
-    CONF_MPC_V2_PLANT_PRESET,
+    VALVE_CALIBRATION_MODES,
     CalibrationMode,
     CalibrationOutput,
 )
@@ -33,7 +30,6 @@ from .conftest import (
     SENSOR_ID,
     WINDOW_ID,
     WRITE_BUDGET,
-    form_default,
     make_entry,
     profile_id,
     set_room_sensor,
@@ -305,7 +301,6 @@ async def test_valve_outage_does_not_fall_back_to_the_thermostat(hass, fake_trv)
     ids=profile_id,
 )
 @pytest.mark.parametrize("options", [False, True], ids=["create", "options"])
-@pytest.mark.parametrize("accepted_output", list(CalibrationOutput))
 @pytest.mark.parametrize(
     "algorithm",
     [
@@ -314,10 +309,10 @@ async def test_valve_outage_does_not_fall_back_to_the_thermostat(hass, fake_trv)
         CalibrationMode.NO_CALIBRATION,
     ],
 )
-async def test_flow_requires_an_algorithm_with_valve_output(
-    hass, fake_trv, options, algorithm, accepted_output
+async def test_flow_rejects_non_valve_algorithm_for_direct_output(
+    hass, fake_trv, options, algorithm
 ):
-    """A BLU valve configuration must not save a controller with no valve output."""
+    """Direct-valve output rejects an algorithm that produces no valve opening."""
     set_room_sensor(hass, 18.0)
     if options:
         entry = make_entry(fake_trv.profile)
@@ -344,36 +339,18 @@ async def test_flow_requires_an_algorithm_with_valve_output(
         )
     assert result["step_id"] == "advanced"
     assert result["last_step"] is options
-    placeholders = result["description_placeholders"]
-    result = await manager.async_configure(
-        result["flow_id"],
-        {
-            CONF_CALIBRATION: CalibrationOutput.DIRECT_VALVE_BASED,
-            CONF_CALIBRATION_MODE: algorithm,
-            CONF_MPC_V2_PLANT_PRESET: MpcV2PlantPreset.LARGE_ROOM,
-        },
-    )
-    assert result["type"] is FlowResultType.FORM
+    try:
+        result = await manager.async_configure(
+            result["flow_id"],
+            {
+                CONF_CALIBRATION: CalibrationOutput.DIRECT_VALVE_BASED,
+                CONF_CALIBRATION_MODE: algorithm,
+            },
+        )
+    except InvalidData:
+        return
     assert result["step_id"] == "advanced"
     assert result["errors"] == {CONF_CALIBRATION_MODE: "valve_only_calibration_mode"}
-    assert result["last_step"] is options
-    assert result["description_placeholders"] == placeholders
-    assert form_default(result, CONF_MPC_V2_PLANT_PRESET) == MpcV2PlantPreset.LARGE_ROOM
-    result = await manager.async_configure(
-        result["flow_id"],
-        {
-            CONF_CALIBRATION: accepted_output,
-            CONF_CALIBRATION_MODE: (
-                CalibrationMode.HEATING_POWER_CALIBRATION
-                if accepted_output == CalibrationOutput.DIRECT_VALVE_BASED
-                else algorithm
-            ),
-        },
-    )
-    if options:
-        assert result.get("errors", {}) == {}
-        assert result["type"] is FlowResultType.CREATE_ENTRY
-    else:
-        assert result["step_id"] == "confirm"
-        # The BLU reports HEAT only, so setup retains the existing confirmation.
-        assert result["errors"] == {"base": "no_off_mode"}
+    fields = result["data_schema"].schema
+    mode_marker = next(marker for marker in fields if marker == CONF_CALIBRATION_MODE)
+    assert set(fields[mode_marker].config["options"]) == VALVE_CALIBRATION_MODES

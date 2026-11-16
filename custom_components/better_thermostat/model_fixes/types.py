@@ -55,6 +55,9 @@ class QuirkScratchpad(TypedDict, total=False):
     _zwa021_valve_mode_engaged: bool
     """Whether the ZWA021 manufacturer-specific valve mode went through."""
 
+    _zwa021_valve_restore_pending: bool
+    """Whether the last valve position still needs writing after a mode change."""
+
     _zwa021_external_temperature_last_sent: float
     """Last room temperature reported to the ZWA021, in °C."""
 

@@ -300,6 +300,8 @@ STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
     "task_manager": TaskManager,
     "bt_target_temperature_step": lambda: None,
     "availability_guard_entity_id": lambda: None,
+    "regulation_paused": lambda: False,
+    "pause_sensor_entity_id": lambda: None,
     "_unique_id": lambda: None,
 }
 
@@ -445,6 +447,8 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.window_open = False
+    bt.heat_target_temperature = 21.0
+    bt.target_offset = 0.0
     bt.heating_power_normalized = None
     bt.call_for_heat = True
     bt._current_humidity = None

@@ -125,6 +125,24 @@ async def test_no_control_kick_when_off(bt):
 
 
 @pytest.mark.asyncio
+async def test_a_run_exercises_valves_while_regulation_is_paused(bt):
+    """The pause interlock does not suppress explicit valve maintenance."""
+    bt.regulation_paused = True
+    bt._temperature_lock = asyncio.Lock()
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", _exercise_every_channel()),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+        patch(f"{_CLIMATE}.adapter_set_valve", AsyncMock(return_value=True)) as valve,
+        patch(f"{_CLIMATE}.adapter_set_temperature", AsyncMock()) as setpoint,
+        patch(f"{_CLIMATE}.adapter_set_hvac_mode", AsyncMock()) as mode,
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+
+    assert (valve.await_count, setpoint.await_count, mode.await_count) == (1, 1, 1)
+
+
+@pytest.mark.asyncio
 async def test_deferred_control_kicks_even_when_off(bt):
     """A control request deferred during maintenance is honored, even in OFF."""
     bt.bt_hvac_mode = HVACMode.OFF

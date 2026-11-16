@@ -25,7 +25,7 @@ from custom_components.better_thermostat.model_fixes.types import (
 )
 
 from ..adapters.base import holds_reserved_value
-from ..utils.const import CalibrationMode, CalibrationOutput
+from ..utils.const import DOMAIN, CalibrationMode, CalibrationOutput
 from ..utils.helpers import (
     configured_calibration_mode,
     configured_calibration_output,
@@ -58,6 +58,7 @@ _VALVE_MAX = 99
 # Key in the TRV record's ``extra`` mapping: set once the valve mode was
 # written and went through.
 _VALVE_MODE_ENGAGED = "_zwa021_valve_mode_engaged"
+_VALVE_RESTORE_PENDING = "_zwa021_valve_restore_pending"
 _EXTERNAL_TEMPERATURE_LAST_SENT = "_zwa021_external_temperature_last_sent"
 _EXTERNAL_TEMPERATURE_SENT_AT = "_zwa021_external_temperature_sent_at"
 # Offset value with which the device regulates on a reported air temperature.
@@ -225,6 +226,13 @@ async def override_set_hvac_mode(
         # Let the standard off path close the device / drive the valve to 0.
         return False
 
+    return await _engage_valve_mode(self, entity_id, reassert_position=True)
+
+
+async def _engage_valve_mode(
+    self: ModelFixHost, entity_id: str, *, reassert_position: bool
+) -> bool:
+    """Engage valve mode, optionally restoring the last commanded position."""
     # The climate entity reads ``unknown`` for as long as the device stays in
     # the manufacturer-specific mode. Once this quirk engaged the mode, that
     # reading says it still holds, and writing it again would only cost the
@@ -237,6 +245,8 @@ async def override_set_hvac_mode(
         and state is not None
         and state.state == STATE_UNKNOWN
     ):
+        if reassert_position and extra.get(_VALVE_RESTORE_PENDING):
+            await _restore_valve_position(self, entity_id)
         return True
     extra.pop(_VALVE_MODE_ENGAGED, None)
 
@@ -271,7 +281,30 @@ async def override_set_hvac_mode(
         )
         return False
     extra[_VALVE_MODE_ENGAGED] = True
+    if reassert_position:
+        extra[_VALVE_RESTORE_PENDING] = True
+        await _restore_valve_position(self, entity_id)
+    else:
+        extra.pop(_VALVE_RESTORE_PENDING, None)
     return True
+
+
+async def _restore_valve_position(self: ModelFixHost, entity_id: str) -> None:
+    """Reassert the last valve command and retain failures for a retry."""
+    extra = self.real_trvs[entity_id].extra
+    last_percent = self.real_trvs[entity_id].last_valve_percent
+    if self.devices_released or entity_id in self.released_trvs:
+        return
+    if last_percent is not None and not (
+        last_percent > 0 and getattr(self, "regulation_paused", False)
+    ):
+        if not await _write_valve_position(self, entity_id, last_percent):
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="valve_restore_failed",
+                translation_placeholders={"device_name": self.device_name},
+            )
+    extra.pop(_VALVE_RESTORE_PENDING, None)
 
 
 async def override_set_temperature(
@@ -292,9 +325,34 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
     """
     if not _is_direct_valve(self, entity_id):
         return False
+    state = self.hass.states.get(entity_id)
+    if (
+        percent > 0
+        and state is not None
+        and isinstance(state.state, str)
+        and not await _engage_valve_mode(self, entity_id, reassert_position=False)
+    ):
+        return False
+
+    if percent > 0 and (
+        (
+            getattr(self, "regulation_paused", False)
+            and not getattr(self, "in_maintenance", False)
+        )
+        or self.devices_released
+        or entity_id in self.released_trvs
+    ):
+        return False
+    return await _write_valve_position(self, entity_id, percent)
+
+
+async def _write_valve_position(
+    self: ModelFixHost, entity_id: str, percent: float
+) -> bool:
+    """Send a valve position using the Spirit's multilevel switch."""
     try:
         value = round(min(max(float(percent), 0.0), 100.0) / 100.0 * _VALVE_MAX)
-    except TypeError, ValueError:
+    except TypeError, ValueError, OverflowError:
         return False
 
     _LOGGER.debug(

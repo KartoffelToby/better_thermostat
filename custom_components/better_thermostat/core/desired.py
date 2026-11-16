@@ -26,6 +26,7 @@ class Suppression(StrEnum):
     WINDOW = "window"
     DOOR = "door"
     NO_CALL_FOR_HEAT = "no_call_for_heat"
+    REGULATION_PAUSED = "regulation_paused"
 
 
 class HeatingBlock(StrEnum):
@@ -43,6 +44,7 @@ class HeatingBlock(StrEnum):
     WINDOW = "window"
     DOOR = "door"
     NO_CALL_FOR_HEAT = "no_call_for_heat"
+    REGULATION_PAUSED = "regulation_paused"
 
 
 # The block each suppression on a TRV intent stands for. A suppression and
@@ -53,6 +55,7 @@ SUPPRESSION_BLOCKS: Final[Mapping[Suppression, HeatingBlock]] = MappingProxyType
         Suppression.WINDOW: HeatingBlock.WINDOW,
         Suppression.DOOR: HeatingBlock.DOOR,
         Suppression.NO_CALL_FOR_HEAT: HeatingBlock.NO_CALL_FOR_HEAT,
+        Suppression.REGULATION_PAUSED: HeatingBlock.REGULATION_PAUSED,
     }
 )
 

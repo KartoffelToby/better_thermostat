@@ -70,6 +70,7 @@ ENTITY_TRANSLATION_KEYS = {
         "pid_kd_no_trv",
         "valve_max_opening",
         "valve_max_opening_no_trv",
+        "target_offset",
     },
     "switch": {
         "release_devices",

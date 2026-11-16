@@ -1468,6 +1468,45 @@ class StateManager:
 
     # -- State access --------------------------------------------------------
 
+    def suspend_regulation(self) -> None:
+        """Discard interrupted observations while keeping learned parameters."""
+        for state in self._state.pid.values():
+            state.pid_last_time = 0.0
+            state.pid_last_meas = None
+            state.pid_last_error = None
+            state.previous_abs_error = None
+            state.last_abs_error = None
+            state.last_delta_sign = None
+            state.last_error_sign = None
+            state.ema_slope = None
+        for state in self._state.mpc.values():
+            state.last_time = 0.0
+            state.last_update_ts = 0.0
+            state.last_learn_time = None
+            state.last_learn_temperature = None
+            state.last_residual_time = None
+            state.last_integration_ts = 0.0
+            state.u_integral = 0.0
+            state.time_integral = 0.0
+            state.last_trv_temperature = None
+            state.last_room_temperature = None
+            state.virtual_temperature = None
+            state.last_sensor_temperature = None
+            state.ema_slope = None
+            state.recent_errors.clear()
+        for state in self._state.tpi.values():
+            state.last_update_ts = 0.0
+            state.last_percent = None
+        for state in self._mpc_v2_live.values():
+            if state.controller is not None:
+                state.controller.mark_paused()
+        for runtime in self._mpc_v2_reid_live.values():
+            if runtime.buffer.samples:
+                runtime.buffer.samples[-1] = replace(
+                    runtime.buffer.samples[-1], learning_paused=True
+                )
+        self._dirty = True
+
     def get_mpc(self, key: str) -> MpcState:
         """Get or create MPC state for a key."""
         if key not in self._state.mpc:

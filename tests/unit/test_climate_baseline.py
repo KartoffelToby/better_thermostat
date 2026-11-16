@@ -304,6 +304,23 @@ class TestCalculateHeatingPower:
         return await BetterThermostat.calculate_heating_power(bt)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("target_offset", [-1.0, 0.0, 1.0])
+    async def test_learning_uses_the_regulation_target(self, mock_bt, target_offset):
+        """Heating learning follows the offset without changing the user target."""
+        mock_bt.target_offset = target_offset
+        mock_bt._heating_tracker.update = MagicMock(
+            wraps=mock_bt._heating_tracker.update
+        )
+
+        await self._call(mock_bt)
+
+        assert (
+            mock_bt._heating_tracker.update.call_args.kwargs["heat_target_temperature"]
+            == 22.0 + target_offset
+        )
+        assert mock_bt.heat_target_temperature == 22.0
+
+    @pytest.mark.asyncio
     async def test_heating_start_transition(self, mock_bt):
         """Transition to HEATING sets start_temperature and start_timestamp."""
         mock_bt.room_temperature = 20.0
@@ -2174,6 +2191,20 @@ class TestChannelRanges:
         BetterThermostat._enforce_cool_above_heat(cooled_bt)
 
         assert cooled_bt.cool_target_temperature == 30.5
+
+    def test_cooling_is_ordered_above_the_effective_heating_target(self, cooled_bt):
+        """An offset heating target cannot overlap the cooling target."""
+        cooled_bt.hvac_mode = HVACMode.HEAT_COOL
+        cooled_bt.heat_target_temperature = 20.0
+        cooled_bt.target_offset = 2.0
+        cooled_bt.cool_target_temperature = 21.0
+        cooled_bt.bt_target_temperature_step = 0.5
+
+        BetterThermostat._enforce_cool_above_heat(cooled_bt)
+
+        assert cooled_bt.heat_target_temperature == 20.0
+        assert cooled_bt.cool_target_temperature == 22.5
+        assert BetterThermostat._clamp_inbound_cool_target(cooled_bt, 21.0) == 22.5
 
     def test_the_inbound_cooling_floor_is_capped_by_the_cooler_maximum(self, cooled_bt):
         """A cooler report is raised above the heating target up to the cooler's max."""

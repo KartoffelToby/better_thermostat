@@ -26,7 +26,8 @@
           "target_temp_max": "Mål maksimum temperatur",
           "target_temp_step": "Trin for måltemperatur",
           "presets": "Aktiverede forudindstillinger",
-          "distribute_valve_by_trv_temperature": "Fordel ventilåbningen efter hver TRV's egen temperatur"
+          "distribute_valve_by_trv_temperature": "Fordel ventilåbningen efter hver TRV's egen temperatur",
+          "pause_sensor": "Sensor til reguleringspause"
         },
         "data_description": {
           "name": "Navnet på denne termostat og dens enhed i Home Assistant.",
@@ -50,7 +51,8 @@
           "target_temp_max": "Det højeste mål, du kan indstille. Auto bruger det område, dine enheder melder.",
           "target_temp_step": "Hvor meget målet ændres pr. trin. Auto bruger det groveste trin, dine termostater melder.",
           "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat.",
-          "distribute_valve_by_trv_temperature": "Kun for to eller flere TRV'er med kalibreringstilstanden MPC eller MPC v2. Fra: alle TRV'er får samme ventilåbning. Til: en TRV, der måler koldere end den varmeste TRV i rummet, åbner mere, med 8 % pr. °C (4,4 % pr. °F) forskel. TRV'ernes egne målinger sammenlignes, så en Sonoff TRVZB eller TRV-ZBT skal have sin egen sensor valgt og »Behold TRV'ens sensorvalg« slået til. En TRV, der kalibreres via sin offset, får rummets ventilåbning."
+          "distribute_valve_by_trv_temperature": "Kun for to eller flere TRV'er med kalibreringstilstanden MPC eller MPC v2. Fra: alle TRV'er får samme ventilåbning. Til: en TRV, der måler koldere end den varmeste TRV i rummet, åbner mere, med 8 % pr. °C (4,4 % pr. °F) forskel. TRV'ernes egne målinger sammenlignes, så en Sonoff TRVZB eller TRV-ZBT skal have sin egen sensor valgt og »Behold TRV'ens sensorvalg« slået til. En TRV, der kalibreres via sin offset, får rummets ventilåbning.",
+          "pause_sensor": "Valgfrit. Tændt pauser varme og køling; slukket, manglende, ukendt eller utilgængelig genoptager reguleringen."
         }
       },
       "advanced": {
@@ -132,7 +134,8 @@
           "target_temp_step": "Trin for måltemperatur",
           "presets": "Aktiverede forudindstillinger",
           "cooler": "Køleenhed (valgfri)",
-          "distribute_valve_by_trv_temperature": "Fordel ventilåbningen efter hver TRV's egen temperatur"
+          "distribute_valve_by_trv_temperature": "Fordel ventilåbningen efter hver TRV's egen temperatur",
+          "pause_sensor": "Sensor til reguleringspause"
         },
         "data_description": {
           "name": "Navnet på denne termostat og dens enhed i Home Assistant.",
@@ -156,7 +159,8 @@
           "target_temp_step": "Hvor meget målet ændres pr. trin. Auto bruger det groveste trin, dine termostater melder.",
           "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat.",
           "cooler": "Valgfri. Et klimaanlæg eller en anden klimaenhed, der køler rummet sammen med termostaterne.",
-          "distribute_valve_by_trv_temperature": "Kun for to eller flere TRV'er med kalibreringstilstanden MPC eller MPC v2. Fra: alle TRV'er får samme ventilåbning. Til: en TRV, der måler koldere end den varmeste TRV i rummet, åbner mere, med 8 % pr. °C (4,4 % pr. °F) forskel. TRV'ernes egne målinger sammenlignes, så en Sonoff TRVZB eller TRV-ZBT skal have sin egen sensor valgt og »Behold TRV'ens sensorvalg« slået til. En TRV, der kalibreres via sin offset, får rummets ventilåbning."
+          "distribute_valve_by_trv_temperature": "Kun for to eller flere TRV'er med kalibreringstilstanden MPC eller MPC v2. Fra: alle TRV'er får samme ventilåbning. Til: en TRV, der måler koldere end den varmeste TRV i rummet, åbner mere, med 8 % pr. °C (4,4 % pr. °F) forskel. TRV'ernes egne målinger sammenlignes, så en Sonoff TRVZB eller TRV-ZBT skal have sin egen sensor valgt og »Behold TRV'ens sensorvalg« slået til. En TRV, der kalibreres via sin offset, får rummets ventilåbning.",
+          "pause_sensor": "Valgfrit. Tændt pauser varme og køling; slukket, manglende, ukendt eller utilgængelig genoptager reguleringen."
         }
       },
       "advanced": {
@@ -426,7 +430,8 @@
               "hvac_off": "Termostat slukket",
               "window": "Vindue åbent",
               "door": "Dør åben",
-              "no_call_for_heat": "Intet varmebehov"
+              "no_call_for_heat": "Intet varmebehov",
+              "regulation_paused": "Regulering sat på pause"
             }
           },
           "active_overrides": {
@@ -534,6 +539,9 @@
       },
       "tolerance": {
         "name": "Tolerance"
+      },
+      "target_offset": {
+        "name": "Måltemperaturforskydning"
       }
     },
     "switch": {
@@ -664,6 +672,9 @@
     },
     "valve_maintenance_failed": {
       "message": "Ventilvedligeholdelse på {device_name} mislykkedes. Loggen har detaljerne."
+    },
+    "valve_restore_failed": {
+      "message": "Gendannelse af ventilpositionen på {device_name} mislykkedes. Loggen har detaljerne."
     },
     "pid_state_not_ready": {
       "message": "{device_name} har endnu ikke indlæst sin lærte tilstand. Prøv igen, når den er startet."

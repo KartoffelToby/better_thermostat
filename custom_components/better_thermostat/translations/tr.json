@@ -26,7 +26,8 @@
           "target_temp_max": "Maksimum hedef sıcaklık",
           "target_temp_step": "Hedef sıcaklık adımı",
           "presets": "Etkin ön ayarlar",
-          "distribute_valve_by_trv_temperature": "Vana açıklığını her TRV'nin kendi sıcaklığına göre dağıt"
+          "distribute_valve_by_trv_temperature": "Vana açıklığını her TRV'nin kendi sıcaklığına göre dağıt",
+          "pause_sensor": "Düzenleme duraklatma sensörü"
         },
         "data_description": {
           "name": "Bu termostatın ve cihazının Home Assistant'taki adı.",
@@ -50,7 +51,8 @@
           "target_temp_max": "Ayarlayabileceğiniz en yüksek hedef. Auto, cihazlarınızın bildirdiği aralığı kullanır.",
           "target_temp_step": "Hedefin her adımda ne kadar değiştiği. Auto, termostatlarınızın bildirdiği en kaba adımı kullanır.",
           "presets": "Bu termostat için kullanılabilir olmasını istediğiniz ön ayarları seçin.",
-          "distribute_valve_by_trv_temperature": "Yalnızca MPC veya MPC v2 kalibrasyon modundaki iki veya daha fazla TRV için. Kapalı: her TRV aynı vana açıklığını alır. Açık: odadaki en sıcak TRV'den daha soğuk ölçen bir TRV, farkın her °C'si için %8 (her °F için %4,4) daha fazla açılır. TRV'lerin kendi ölçümleri karşılaştırılır; bu yüzden bir Sonoff TRVZB veya TRV-ZBT'de kendi sensörü seçili ve \"TRV'nin sensör seçimini koru\" seçeneği açık olmalıdır. Ofset üzerinden kalibre edilen bir TRV odanın vana açıklığını alır."
+          "distribute_valve_by_trv_temperature": "Yalnızca MPC veya MPC v2 kalibrasyon modundaki iki veya daha fazla TRV için. Kapalı: her TRV aynı vana açıklığını alır. Açık: odadaki en sıcak TRV'den daha soğuk ölçen bir TRV, farkın her °C'si için %8 (her °F için %4,4) daha fazla açılır. TRV'lerin kendi ölçümleri karşılaştırılır; bu yüzden bir Sonoff TRVZB veya TRV-ZBT'de kendi sensörü seçili ve \"TRV'nin sensör seçimini koru\" seçeneği açık olmalıdır. Ofset üzerinden kalibre edilen bir TRV odanın vana açıklığını alır.",
+          "pause_sensor": "İsteğe bağlı. Açık durumu ısıtma ve soğutmayı duraklatır; kapalı, eksik, bilinmeyen veya kullanılamıyor durumu düzenlemeyi sürdürür."
         }
       },
       "advanced": {
@@ -132,7 +134,8 @@
           "target_temp_step": "Hedef sıcaklık adımı",
           "presets": "Etkin ön ayarlar",
           "cooler": "Soğutma cihazı (isteğe bağlı)",
-          "distribute_valve_by_trv_temperature": "Vana açıklığını her TRV'nin kendi sıcaklığına göre dağıt"
+          "distribute_valve_by_trv_temperature": "Vana açıklığını her TRV'nin kendi sıcaklığına göre dağıt",
+          "pause_sensor": "Düzenleme duraklatma sensörü"
         },
         "data_description": {
           "name": "Bu termostatın ve cihazının Home Assistant'taki adı.",
@@ -156,7 +159,8 @@
           "target_temp_step": "Hedefin her adımda ne kadar değiştiği. Auto, termostatlarınızın bildirdiği en kaba adımı kullanır.",
           "presets": "Bu termostat için kullanılabilir olmasını istediğiniz ön ayarları seçin.",
           "cooler": "İsteğe bağlı. Termostatlarla birlikte bu odayı soğutan bir klima veya başka bir iklim varlığı.",
-          "distribute_valve_by_trv_temperature": "Yalnızca MPC veya MPC v2 kalibrasyon modundaki iki veya daha fazla TRV için. Kapalı: her TRV aynı vana açıklığını alır. Açık: odadaki en sıcak TRV'den daha soğuk ölçen bir TRV, farkın her °C'si için %8 (her °F için %4,4) daha fazla açılır. TRV'lerin kendi ölçümleri karşılaştırılır; bu yüzden bir Sonoff TRVZB veya TRV-ZBT'de kendi sensörü seçili ve \"TRV'nin sensör seçimini koru\" seçeneği açık olmalıdır. Ofset üzerinden kalibre edilen bir TRV odanın vana açıklığını alır."
+          "distribute_valve_by_trv_temperature": "Yalnızca MPC veya MPC v2 kalibrasyon modundaki iki veya daha fazla TRV için. Kapalı: her TRV aynı vana açıklığını alır. Açık: odadaki en sıcak TRV'den daha soğuk ölçen bir TRV, farkın her °C'si için %8 (her °F için %4,4) daha fazla açılır. TRV'lerin kendi ölçümleri karşılaştırılır; bu yüzden bir Sonoff TRVZB veya TRV-ZBT'de kendi sensörü seçili ve \"TRV'nin sensör seçimini koru\" seçeneği açık olmalıdır. Ofset üzerinden kalibre edilen bir TRV odanın vana açıklığını alır.",
+          "pause_sensor": "İsteğe bağlı. Açık durumu ısıtma ve soğutmayı duraklatır; kapalı, eksik, bilinmeyen veya kullanılamıyor durumu düzenlemeyi sürdürür."
         }
       },
       "advanced": {
@@ -426,7 +430,8 @@
               "hvac_off": "Termostat kapalı",
               "window": "Pencere açık",
               "door": "Kapı açık",
-              "no_call_for_heat": "Isı talebi yok"
+              "no_call_for_heat": "Isı talebi yok",
+              "regulation_paused": "Düzenleme duraklatıldı"
             }
           },
           "active_overrides": {
@@ -534,6 +539,9 @@
       },
       "tolerance": {
         "name": "Tolerans"
+      },
+      "target_offset": {
+        "name": "Hedef sıcaklık ofseti"
       }
     },
     "switch": {
@@ -664,6 +672,9 @@
     },
     "valve_maintenance_failed": {
       "message": "{device_name} üzerinde vana bakımı başarısız oldu. Ayrıntılar günlükte."
+    },
+    "valve_restore_failed": {
+      "message": "{device_name} üzerindeki vana konumu geri yüklenemedi. Ayrıntılar günlükte."
     },
     "pid_state_not_ready": {
       "message": "{device_name} öğrenilmiş durumunu henüz yüklemedi. Başladıktan sonra tekrar deneyin."

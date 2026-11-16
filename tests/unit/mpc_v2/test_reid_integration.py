@@ -170,6 +170,7 @@ def _make_bt(preset: StoredChoice = MpcV2PlantPreset.AUTO) -> Any:
         heat_target_temperature=21.0,
         room_temperature=19.5,
         learning_held=False,
+        learning_pause_changes=0,
         tolerance=0.0,
         window_open=False,
         contact_open=False,
@@ -1199,4 +1200,23 @@ def test_a_fit_finishing_while_learning_is_held_is_discarded(monkeypatch) -> Non
 
     assert bt.state_mgr.get_mpc_v2_reid(key) is None
     bt.schedule_save_state.assert_not_called()
+    assert runtime.fit_inflight is False
+
+
+def test_a_release_counter_change_alone_does_not_discard_a_fit(monkeypatch) -> None:
+    """An unrelated release transition does not invalidate a finished fit."""
+    from custom_components.better_thermostat import calibration as cal
+
+    pending = _PendingFuture(_accepted_outcome())
+    bt = _make_bt()
+    bt.hass = SimpleNamespace(
+        async_add_executor_job=lambda func, *args: pending, config=_METRIC_CONFIG
+    )
+    key, runtime = _due_fit(bt)
+
+    cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
+    bt.learning_pause_changes += 1
+    pending.resolve()
+
+    assert bt.state_mgr.get_mpc_v2_reid(key) is not None
     assert runtime.fit_inflight is False

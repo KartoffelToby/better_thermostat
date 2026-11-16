@@ -307,6 +307,8 @@ class Trv:
     calibration_write_generation: int = 0
     last_valve_percent: float | None = None
     last_valve_method: ValveMethod | None = None
+    pause_valve_restore_percent: float | None = None
+    pause_valve_restore_captured: bool = False
     # Monotonic time at which a channel last took a valve position a control
     # cycle wrote; None before the first one did. A refused write leaves it
     # alone.

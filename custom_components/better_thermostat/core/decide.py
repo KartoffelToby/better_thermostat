@@ -269,6 +269,16 @@ def decide(
             state,
         )
 
+    if snapshot.regulation_paused:
+        return (
+            DesiredState(
+                call_for_heat=False,
+                trvs=_with_mode(addressed, HvacMode.OFF, Suppression.REGULATION_PAUSED),
+                heating_blocked_by=HeatingBlock.REGULATION_PAUSED,
+            ),
+            state,
+        )
+
     if state.window_detection and (
         state.window.effective_open or state.door.effective_open
     ):

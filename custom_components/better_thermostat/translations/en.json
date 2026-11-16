@@ -26,7 +26,8 @@
           "target_temp_max": "Target maximum temperature",
           "target_temp_step": "Target temperature step",
           "presets": "Enabled Presets",
-          "distribute_valve_by_trv_temperature": "Split the valve opening by each TRV's own temperature"
+          "distribute_valve_by_trv_temperature": "Split the valve opening by each TRV's own temperature",
+          "pause_sensor": "Pause regulation sensor"
         },
         "data_description": {
           "name": "The name of this thermostat and its device in Home Assistant.",
@@ -50,7 +51,8 @@
           "target_temp_max": "The highest target you can set. Auto takes the range your devices report.",
           "target_temp_step": "How far the target moves per step. Auto takes the coarsest step your thermostats report.",
           "presets": "Select the presets you want to be available for this thermostat.",
-          "distribute_valve_by_trv_temperature": "Only for two or more TRVs on the MPC or MPC v2 calibration mode. Off: every TRV gets the same valve opening. On: a TRV that reads colder than the warmest TRV of the room opens further, by 8 % per °C (4.4 % per °F) of difference. The TRVs' own readings are compared, so a Sonoff TRVZB or TRV-ZBT needs its own sensor selected and 'Keep the TRV's sensor selection' on. A TRV calibrated through its offset gets the room's valve opening."
+          "distribute_valve_by_trv_temperature": "Only for two or more TRVs on the MPC or MPC v2 calibration mode. Off: every TRV gets the same valve opening. On: a TRV that reads colder than the warmest TRV of the room opens further, by 8 % per °C (4.4 % per °F) of difference. The TRVs' own readings are compared, so a Sonoff TRVZB or TRV-ZBT needs its own sensor selected and 'Keep the TRV's sensor selection' on. A TRV calibrated through its offset gets the room's valve opening.",
+          "pause_sensor": "Optional. On pauses heating and cooling; off, missing, unknown or unavailable resumes regulation."
         }
       },
       "advanced": {
@@ -133,7 +135,8 @@
           "target_temp_step": "Target temperature step",
           "presets": "Enabled Presets",
           "cooler": "The cooling device (optional)",
-          "distribute_valve_by_trv_temperature": "Split the valve opening by each TRV's own temperature"
+          "distribute_valve_by_trv_temperature": "Split the valve opening by each TRV's own temperature",
+          "pause_sensor": "Pause regulation sensor"
         },
         "data_description": {
           "name": "The name of this thermostat and its device in Home Assistant.",
@@ -157,7 +160,8 @@
           "target_temp_step": "How far the target moves per step. Auto takes the coarsest step your thermostats report.",
           "presets": "Select the presets you want to be available for this thermostat.",
           "cooler": "Optional. An air conditioner or another climate entity that cools this room alongside the thermostats.",
-          "distribute_valve_by_trv_temperature": "Only for two or more TRVs on the MPC or MPC v2 calibration mode. Off: every TRV gets the same valve opening. On: a TRV that reads colder than the warmest TRV of the room opens further, by 8 % per °C (4.4 % per °F) of difference. The TRVs' own readings are compared, so a Sonoff TRVZB or TRV-ZBT needs its own sensor selected and 'Keep the TRV's sensor selection' on. A TRV calibrated through its offset gets the room's valve opening."
+          "distribute_valve_by_trv_temperature": "Only for two or more TRVs on the MPC or MPC v2 calibration mode. Off: every TRV gets the same valve opening. On: a TRV that reads colder than the warmest TRV of the room opens further, by 8 % per °C (4.4 % per °F) of difference. The TRVs' own readings are compared, so a Sonoff TRVZB or TRV-ZBT needs its own sensor selected and 'Keep the TRV's sensor selection' on. A TRV calibrated through its offset gets the room's valve opening.",
+          "pause_sensor": "Optional. On pauses heating and cooling; off, missing, unknown or unavailable resumes regulation."
         }
       },
       "advanced": {
@@ -432,7 +436,8 @@
               "hvac_off": "Thermostat off",
               "window": "Window open",
               "door": "Door open",
-              "no_call_for_heat": "No call for heat"
+              "no_call_for_heat": "No call for heat",
+              "regulation_paused": "Regulation paused"
             }
           },
           "active_overrides": {
@@ -540,6 +545,9 @@
       },
       "tolerance": {
         "name": "Tolerance"
+      },
+      "target_offset": {
+        "name": "Target Offset"
       }
     },
     "switch": {
@@ -670,6 +678,9 @@
     },
     "valve_maintenance_failed": {
       "message": "Valve maintenance on {device_name} failed. The log has the details."
+    },
+    "valve_restore_failed": {
+      "message": "Restoring the valve position on {device_name} failed. The log has the details."
     },
     "pid_state_not_ready": {
       "message": "{device_name} has not loaded its learned state yet. Try again once it has started."

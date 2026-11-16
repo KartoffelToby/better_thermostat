@@ -327,6 +327,7 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
             else data["temp_slope"]
         ),
         call_for_heat=_bool_of(data["call_for_heat"]),
+        regulation_paused=_bool_of(data.get("regulation_paused", False)),
         window_open=_bool_or_none(data.get("window_open")),
         preset_mode=parse_preset(_str_or_none(data["preset_mode"])),
         # An export from before the room could release its devices carries

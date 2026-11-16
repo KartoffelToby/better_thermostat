@@ -821,6 +821,7 @@ def make_entry(
     with_outdoor_sensor: bool = False,
     off_temperature: int = 5,
     availability_guard_entity_id: str | None = None,
+    pause_sensor_entity_id: str | None = None,
     availability_guard_grace_seconds: int = DEFAULT_AVAILABILITY_GUARD_GRACE_SECONDS,
     distribute_valve_by_trv_temperature: bool = False,
     keep_sensor_selection: bool = False,
@@ -889,6 +890,7 @@ def make_entry(
         "tolerance": 0.3,
         "off_temperature": off_temperature,
         "availability_guard": availability_guard_entity_id,
+        "pause_sensor": pause_sensor_entity_id,
         "availability_guard_grace_seconds": availability_guard_grace_seconds,
         "distribute_valve_by_trv_temperature": distribute_valve_by_trv_temperature,
     }
