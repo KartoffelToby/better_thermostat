@@ -93,6 +93,7 @@ from custom_components.better_thermostat.utils.helpers import (
     heating_power_valve_position,
     normalize_step,
     published_setpoint_grid,
+    regulation_target,
     round_by_step,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidData
@@ -482,7 +483,7 @@ def _compute_mpc_balance(
         mpc_output, mpc_state = compute_mpc(
             MpcInput(
                 key=mpc_key,
-                target_temperature=self.heat_target_temperature,
+                target_temperature=regulation_target(self),
                 room_temperature=mpc_room_temperature,
                 room_temperature_filtered=mpc_room_temperature_filtered,
                 trv_temperature=trv_state.current_temperature,
@@ -928,7 +929,7 @@ def _compute_mpc_v2_balance(
             mpc_output, mpc_v2_state = compute_mpc_v2(
                 MpcV2Input(
                     key=mpc_key,
-                    target_temperature=self.heat_target_temperature,
+                    target_temperature=regulation_target(self),
                     room_temperature=mpc_room_temperature,
                     trv_temperature=trv_state.current_temperature,
                     window_open=self.contact_open,
@@ -1037,7 +1038,7 @@ def _compute_tpi_balance(
             TpiInput(
                 key=key,
                 room_temperature=_room_temperature,
-                target_temperature=self.heat_target_temperature,
+                target_temperature=regulation_target(self),
                 outdoor_temperature=_get_current_outdoor_temperature(self),
                 window_open=self.contact_open,
                 heating_allowed=True,
@@ -1134,7 +1135,7 @@ def _compute_pid_balance(
     if self.learning_held:
         # The gains in use stay as they are; no bucket takes any.
         params = replace(params, auto_tune=False)
-    cycle = pid_cycle_state(loop, params, self.heat_target_temperature)
+    cycle = pid_cycle_state(loop, params, regulation_target(self))
 
     _LOGGER.debug(
         "better_thermostat %s: Running PID calibration for %s",
@@ -1145,7 +1146,7 @@ def _compute_pid_balance(
     try:
         percent, debug, cycle = compute_pid(
             params,
-            self.heat_target_temperature,
+            regulation_target(self),
             _pid_room_temperature,
             trv_state.current_temperature,
             self.temperature_slope,
@@ -1348,7 +1349,7 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
     )
 
     _cur_external_temperature = effective_room_temperature(self)
-    _cur_target_temperature = self.heat_target_temperature
+    _cur_target_temperature = regulation_target(self)
 
     if traits.uses_tolerance_band:
         # Add tolerance check – use asymmetric band [target - tol, target]
@@ -1591,7 +1592,7 @@ def calculate_calibration_setpoint(
     )
 
     _cur_external_temperature = effective_room_temperature(self)
-    _cur_target_temperature = self.heat_target_temperature
+    _cur_target_temperature = regulation_target(self)
 
     _cur_trv_temperature_raw = self.real_trvs[entity_id].current_temperature
     _cur_trv_temperature = _convert_to_float(_cur_trv_temperature_raw)

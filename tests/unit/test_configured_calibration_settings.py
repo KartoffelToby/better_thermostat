@@ -153,6 +153,24 @@ def test_no_calibration_sends_the_room_target_however_it_is_spelled(stored_mode)
     assert payload["temperature"] == 21.0
 
 
+@pytest.mark.parametrize("target_offset", [-0.5, 0.5])
+def test_no_calibration_sends_the_offset_target(target_offset):
+    """The TRV receives the regulation target without changing the user target."""
+    bt = _outbound_bt(
+        {
+            CONF_CALIBRATION: CalibrationOutput.TARGET_TEMP_BASED.value,
+            CONF_CALIBRATION_MODE: CalibrationMode.NO_CALIBRATION.value,
+        }
+    )
+    bt.target_offset = target_offset
+
+    payload = convert_outbound_states(bt, "climate.trv", HVACMode.HEAT)
+
+    assert payload is not None
+    assert payload["temperature"] == 21.0 + target_offset
+    assert bt.heat_target_temperature == 21.0
+
+
 @pytest.mark.parametrize("stored_type", [_MISSING, None, "a type from another version"])
 def test_no_known_calibration_type_sends_the_room_target(stored_type):
     """A setting that selects no calibration type writes the plain room target."""

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 import logging
+import math
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from homeassistant.components.climate.const import HVACMode
@@ -60,6 +61,7 @@ from custom_components.better_thermostat.utils.helpers import (
     published_in_whole_fahrenheit,
     read_bound_celsius,
     read_setpoint_celsius,
+    regulation_target,
     resolve_inbound_setpoint,
     resolve_state_change_event,
     room_mode_intent,
@@ -879,6 +881,9 @@ async def trigger_trv_change(
     # either channel wrote: the cooling channel's own write is no more a user
     # press than the heating channel's is.
     _cooling_owns = cooling_owns_dual_role_report(self, entity_id, _org_trv_state.state)
+    target_offset = getattr(self, "target_offset", 0.0)
+    if not isinstance(target_offset, (int, float)) or not math.isfinite(target_offset):
+        target_offset = 0.0
     if entity_id == dual_role_entity_id(self):
         _known_values = (
             trv.commanded_setpoint,
@@ -901,6 +906,7 @@ async def trigger_trv_change(
         log_source="trigger_trv_change()",
         # A report the cooling channel owns is bounded by the cooling range.
         cooling=_cooling_owns,
+        echo_offset=(0.0 if _cooling_owns else target_offset),
     )
     # Only the reported value counts here: a turn beyond BT's range that the
     # clamp brings onto a neighbour's write is still a turn.
@@ -958,7 +964,17 @@ async def trigger_trv_change(
                 _raw_heating_setpoint, trv.confirmed_write_id
             )
         if _accept_user_setpoint:
-            if _setpoint.clamped:
+            _reported_display_target = _raw_heating_setpoint - target_offset
+            _bounded_heating_setpoint = (
+                self._bound_target_to_range(_reported_display_target)
+                if target_offset and not _cooling_owns
+                else _new_heating_setpoint
+            )
+            if (
+                _setpoint.clamped
+                if _cooling_owns or not target_offset
+                else _bounded_heating_setpoint != _reported_display_target
+            ):
                 _LOGGER.warning(
                     "better_thermostat %s: New TRV %s setpoint outside of range, overwriting it",
                     self.device_name,
@@ -1009,9 +1025,17 @@ async def trigger_trv_change(
                 # it, so a knob turn on a radiator valve cannot move the
                 # cooler's target.
                 _adopted_heating_setpoint = self._clamp_inbound_heat_target(
-                    _new_heating_setpoint
+                    _bounded_heating_setpoint
                 )
-                if _adopted_heating_setpoint != _new_heating_setpoint:
+                if (
+                    self.cool_target_temperature is not None
+                    and abs(
+                        _adopted_heating_setpoint
+                        + target_offset
+                        - _raw_heating_setpoint
+                    )
+                    > 1e-9
+                ):
                     # A user turning the knob up step by step would collect one
                     # warning per press, so yielding to the cooling target is an
                     # INFO: the range clamp above and the ordering fallback below
@@ -1021,9 +1045,9 @@ async def trigger_trv_change(
                         "clear the cooling target %.2f, keeping %.2f",
                         self.device_name,
                         entity_id,
-                        _new_heating_setpoint,
+                        _raw_heating_setpoint,
                         self.cool_target_temperature,
-                        _adopted_heating_setpoint,
+                        _adopted_heating_setpoint + target_offset,
                     )
                 _LOGGER.debug(
                     "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
@@ -1182,18 +1206,18 @@ def convert_outbound_states(
         if defers_to_bound_sensor(self.hass, entity_id):
             # The TRV controls the room on the sensor bound to it, so any
             # calibration would work against its own control.
-            _new_heating_setpoint = self.heat_target_temperature
+            _new_heating_setpoint = regulation_target(self)
 
         elif _calibration_output == CalibrationOutput.LOCAL_BASED:
             _new_local_calibration = calculate_calibration_local(self, entity_id)
-            _new_heating_setpoint = self.heat_target_temperature
+            _new_heating_setpoint = regulation_target(self)
 
         elif _calibration_output in (
             CalibrationOutput.TARGET_TEMP_BASED,
             CalibrationOutput.DIRECT_VALVE_BASED,
         ):
             if _calibration_mode == CalibrationMode.NO_CALIBRATION:
-                _new_heating_setpoint = self.heat_target_temperature
+                _new_heating_setpoint = regulation_target(self)
             else:
                 _new_heating_setpoint = calculate_calibration_setpoint(self, entity_id)
             _new_local_calibration = None
@@ -1207,7 +1231,7 @@ def convert_outbound_states(
                 self.device_name,
                 advanced.get(CONF_CALIBRATION),
             )
-            _new_heating_setpoint = self.heat_target_temperature
+            _new_heating_setpoint = regulation_target(self)
             _new_local_calibration = None
 
         # System mode handling - applies to ALL calibration modes including fallback

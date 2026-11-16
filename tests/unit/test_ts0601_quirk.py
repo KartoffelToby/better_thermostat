@@ -95,6 +95,16 @@ class TestASaswellHeadIsLifted:
 
         assert answer == pytest.approx(-0.5)
 
+    def test_the_lift_uses_the_effective_target(self):
+        """The Saswell adjustment follows the internal target offset."""
+        host = _host(room=21.0, target=21.0)
+        host.target_offset = 1.0
+        er_patch, dr_patch = _registries(SASWELL_HEADS[0])
+        with er_patch, dr_patch:
+            answer = TS0601.fix_local_calibration(host, ENTITY_ID, -1.0)
+
+        assert answer == -1.0
+
 
 class TestEveryOtherTs0601PassesThrough:
     """A TS0601 the lift was not written for keeps its calibration."""

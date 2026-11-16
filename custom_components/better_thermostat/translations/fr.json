@@ -534,6 +534,9 @@
       },
       "tolerance": {
         "name": "Tolérance"
+      },
+      "target_offset": {
+        "name": "Décalage de la température cible"
       }
     },
     "switch": {

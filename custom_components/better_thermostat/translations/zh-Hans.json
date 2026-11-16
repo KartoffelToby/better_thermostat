@@ -540,6 +540,9 @@
       },
       "tolerance": {
         "name": "容差"
+      },
+      "target_offset": {
+        "name": "目标温度偏移"
       }
     },
     "switch": {

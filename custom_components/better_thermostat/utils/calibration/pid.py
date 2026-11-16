@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Final, Literal, Protocol, TypedDict
 
 from ...core.calibrator import CalibratorHealth
 from ...core.watchdog import CONTROL_TICK_S
+from ..helpers import regulation_target
 from .state_key import StateKey, bucket_tag_of, round_to_bucket
 
 if TYPE_CHECKING:
@@ -816,9 +817,7 @@ def build_bucket_key(bt: BetterThermostat, segment: str) -> str:
         The stored form of the key.
     """
     return str(
-        StateKey(
-            resolve_unique_id(bt), segment, bucket_tag_of(bt.heat_target_temperature)
-        )
+        StateKey(resolve_unique_id(bt), segment, bucket_tag_of(regulation_target(bt)))
     )
 
 
