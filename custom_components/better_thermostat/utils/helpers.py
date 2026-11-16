@@ -98,6 +98,8 @@ def regulation_target(self: _RegulationTargetHost) -> float:
     target_offset = getattr(self, "target_offset", 0.0)
     if not isinstance(target_offset, (int, float)) or not math.isfinite(target_offset):
         target_offset = 0.0
+    if target_offset == 0.0:
+        return self.heat_target_temperature
     target = self.heat_target_temperature + target_offset
     if not math.isfinite(target):
         return target

@@ -679,6 +679,9 @@
     "valve_maintenance_failed": {
       "message": "Valve maintenance on {device_name} failed. The log has the details."
     },
+    "valve_restore_failed": {
+      "message": "Restoring the valve position on {device_name} failed. The log has the details."
+    },
     "pid_state_not_ready": {
       "message": "{device_name} has not loaded its learned state yet. Try again once it has started."
     },

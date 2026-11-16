@@ -673,6 +673,9 @@
     "valve_maintenance_failed": {
       "message": "Ventilvedligeholdelse på {device_name} mislykkedes. Loggen har detaljerne."
     },
+    "valve_restore_failed": {
+      "message": "Gendannelse af ventilpositionen på {device_name} mislykkedes. Loggen har detaljerne."
+    },
     "pid_state_not_ready": {
       "message": "{device_name} har endnu ikke indlæst sin lærte tilstand. Prøv igen, når den er startet."
     },

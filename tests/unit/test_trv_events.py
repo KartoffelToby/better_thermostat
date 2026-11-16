@@ -2796,7 +2796,13 @@ class TestTargetTempAdoption:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("reported", "target_offset", "cool_target", "expected", "range_warning"),
+        (
+            "reported",
+            "target_offset",
+            "cool_target_temperature",
+            "expected",
+            "range_warning",
+        ),
         [
             (31.0, 2.0, None, 29.0, False),
             (4.0, -2.0, None, 6.0, False),
@@ -2812,7 +2818,7 @@ class TestTargetTempAdoption:
         caplog,
         reported,
         target_offset,
-        cool_target,
+        cool_target_temperature,
         expected,
         range_warning,
     ):
@@ -2821,9 +2827,9 @@ class TestTargetTempAdoption:
         mock_bt._bound_target_to_range = lambda value: (
             BetterThermostat._bound_target_to_range(mock_bt, value)
         )
-        if cool_target is not None:
+        if cool_target_temperature is not None:
             mock_bt.cooler_entity_id = "climate.cooler"
-            mock_bt.cool_target_temperature = cool_target
+            mock_bt.cool_target_temperature = cool_target_temperature
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
         )
@@ -2842,8 +2848,8 @@ class TestTargetTempAdoption:
 
         assert mock_bt.heat_target_temperature == expected
         assert ("setpoint outside of range" in caplog.text) is range_warning
-        if cool_target is not None:
-            assert mock_bt.cool_target_temperature == cool_target
+        if cool_target_temperature is not None:
+            assert mock_bt.cool_target_temperature == cool_target_temperature
 
     @pytest.mark.asyncio
     async def test_knob_turn_uses_effective_offset_at_room_maximum(self, mock_bt):

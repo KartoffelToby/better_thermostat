@@ -33,15 +33,15 @@ def thermostat():
 
 
 @pytest.mark.parametrize(
-    ("target", "offset", "expected"),
+    ("target", "calibration_offset", "expected"),
     [(5.0, -10.0, 5.0), (24.0, 10.0, 24.0), (20.0, -1.0, 19.0)],
 )
 def test_regulation_target_clamps_offset_to_room_range(
-    thermostat, target, offset, expected
+    thermostat, target, calibration_offset, expected
 ):
     """An offset cannot move regulation outside the heating range."""
     thermostat.heat_target_temperature = target
-    thermostat.target_offset = offset
+    thermostat.target_offset = calibration_offset
 
     assert regulation_target(thermostat) == pytest.approx(expected)
 

@@ -673,6 +673,9 @@
     "valve_maintenance_failed": {
       "message": "{device_name} üzerinde vana bakımı başarısız oldu. Ayrıntılar günlükte."
     },
+    "valve_restore_failed": {
+      "message": "{device_name} üzerindeki vana konumu geri yüklenemedi. Ayrıntılar günlükte."
+    },
     "pid_state_not_ready": {
       "message": "{device_name} öğrenilmiş durumunu henüz yüklemedi. Başladıktan sonra tekrar deneyin."
     },

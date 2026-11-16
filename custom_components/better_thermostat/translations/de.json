@@ -673,6 +673,9 @@
     "valve_maintenance_failed": {
       "message": "Die Ventilwartung auf {device_name} ist fehlgeschlagen. Details stehen im Log."
     },
+    "valve_restore_failed": {
+      "message": "Die Wiederherstellung der Ventilposition auf {device_name} ist fehlgeschlagen. Details stehen im Log."
+    },
     "pid_state_not_ready": {
       "message": "{device_name} hat seinen gelernten Zustand noch nicht geladen. Versuche es erneut, sobald es gestartet ist."
     },

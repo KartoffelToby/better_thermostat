@@ -673,6 +673,9 @@
     "valve_maintenance_failed": {
       "message": "Konserwacja zaworów na {device_name} nie powiodła się. Szczegóły są w logu."
     },
+    "valve_restore_failed": {
+      "message": "Przywrócenie pozycji zaworu na {device_name} nie powiodło się. Szczegóły są w logu."
+    },
     "pid_state_not_ready": {
       "message": "{device_name} nie wczytał jeszcze wyuczonego stanu. Spróbuj ponownie po jego uruchomieniu."
     },

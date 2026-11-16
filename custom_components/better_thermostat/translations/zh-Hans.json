@@ -679,6 +679,9 @@
     "valve_maintenance_failed": {
       "message": "{device_name} 上的阀门维护失败。日志中有详细信息。"
     },
+    "valve_restore_failed": {
+      "message": "恢复 {device_name} 上的阀门位置失败。日志中有详细信息。"
+    },
     "pid_state_not_ready": {
       "message": "{device_name} 尚未加载其学习状态。请在其启动后重试。"
     },

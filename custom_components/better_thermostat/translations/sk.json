@@ -673,6 +673,9 @@
     "valve_maintenance_failed": {
       "message": "Údržba ventilov na {device_name} zlyhala. Podrobnosti sú v logu."
     },
+    "valve_restore_failed": {
+      "message": "Obnovenie polohy ventilu na {device_name} zlyhalo. Podrobnosti sú v logu."
+    },
     "pid_state_not_ready": {
       "message": "{device_name} ešte nenačítal naučený stav. Skúste to znova, keď sa spustí."
     },

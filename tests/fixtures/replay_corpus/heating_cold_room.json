@@ -35,6 +35,7 @@
     "now_monotonic": 1000.0,
     "outdoor_temperature": null,
     "preset_mode": null,
+    "regulation_paused": false,
     "room_temperature": 18.0,
     "room_temperature_filtered": null,
     "solar_intensity": 0.0,

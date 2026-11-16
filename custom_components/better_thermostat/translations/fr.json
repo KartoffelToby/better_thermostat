@@ -673,6 +673,9 @@
     "valve_maintenance_failed": {
       "message": "La maintenance des vannes sur {device_name} a échoué. Le journal contient les détails."
     },
+    "valve_restore_failed": {
+      "message": "La restauration de la position de la vanne sur {device_name} a échoué. Le journal contient les détails."
+    },
     "pid_state_not_ready": {
       "message": "{device_name} n'a pas encore chargé son état appris. Réessayez une fois qu'il a démarré."
     },

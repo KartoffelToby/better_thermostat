@@ -673,6 +673,9 @@
     "valve_maintenance_failed": {
       "message": "Обслуживание клапанов на {device_name} не удалось. Подробности в журнале."
     },
+    "valve_restore_failed": {
+      "message": "Не удалось восстановить положение клапана на {device_name}. Подробности в журнале."
+    },
     "pid_state_not_ready": {
       "message": "{device_name} ещё не загрузил обученное состояние. Повторите попытку после его запуска."
     },

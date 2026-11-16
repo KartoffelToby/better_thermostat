@@ -25,7 +25,7 @@ from custom_components.better_thermostat.model_fixes.types import (
 )
 
 from ..adapters.base import holds_reserved_value
-from ..utils.const import CalibrationMode, CalibrationOutput
+from ..utils.const import DOMAIN, CalibrationMode, CalibrationOutput
 from ..utils.helpers import (
     configured_calibration_mode,
     configured_calibration_output,
@@ -300,7 +300,9 @@ async def _restore_valve_position(self: ModelFixHost, entity_id: str) -> None:
     ):
         if not await _write_valve_position(self, entity_id, last_percent):
             raise HomeAssistantError(
-                f"ZWA021 could not restore the valve position for {entity_id}"
+                translation_domain=DOMAIN,
+                translation_key="valve_restore_failed",
+                translation_placeholders={"device_name": self.device_name},
             )
     extra.pop(_VALVE_RESTORE_PENDING, None)
 
