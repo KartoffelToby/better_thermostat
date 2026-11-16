@@ -41,7 +41,9 @@ if TYPE_CHECKING:
 class QuirkScratchpad(TypedDict, total=False):
     """Write state the quirk modules keep on a TRV record.
 
-    Each key belongs to the one quirk module that reads and writes it.
+    Each key belongs to the one quirk module that reads and writes it. The
+    record of what went out as the room temperature is forgotten when the TRV
+    is released, see ``Trv.forget_external_temperature_writes``.
     """
 
     _trvzb_valve_bump_seq: int

@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 
 
 # A TRV write channel with its own write budget.
-type WriteChannel = Literal["setpoint", "offset", "valve"]
+type WriteChannel = Literal["setpoint", "offset", "valve", "mode"]
 
 # How many unconfirmed writes one TRV keeps as values a report may echo. The
 # confirmed setpoint is held separately and is not counted against this bound,
@@ -228,6 +228,11 @@ class Trv:
     # confirms is read as an echo as well; that is the price of telling a
     # held write from a press.
     pending_setpoints: list[PendingSetpoint] = field(default_factory=list)
+    # A setpoint in °C BT wrote to another TRV of the room that a system keeping
+    # one setpoint per room copied onto this device. The device holds it until
+    # it reports another setpoint, so each report of it until then is BT's
+    # write as well, after the other TRV's records have moved on from it.
+    copied_setpoint: float | None = None
     # The id the last setpoint write went out under. Each write's watchdog
     # holds the id of its own write, so the confirmation retires that command
     # and the ones before it, never a write made while the wait ran, and a
@@ -247,6 +252,11 @@ class Trv:
     # errors and carries a repair issue.
     setpoint_unapplied_reported: bool = False
     last_hvac_mode: str | None = None
+    # The mode the last mode write sent, until the device is seen holding
+    # it. Writing that mode again waits for the mode channel's write budget;
+    # a different mode, or one the device took and left again, goes out at
+    # once.
+    last_hvac_mode_sent: str | None = None
     # A mode command still on the wire that the room took back before the
     # device confirmed it. The device already held the mode the room wanted
     # again, so no newer command went out to replace it, and a slow device
@@ -304,6 +314,9 @@ class Trv:
     # cycle wrote; None before the first one did. A refused write leaves it
     # alone.
     last_valve_written_monotonic: float | None = None
+    # Valve writes the device refused in a row since a channel last took one.
+    # Each further attempt of such a run waits longer than the one before.
+    refused_valve_writes: int = 0
     # Whether a close was written since the device last reported its valve
     # position. A report of an open valve is answered with one close; the
     # next close waits for the next report.
@@ -362,6 +375,24 @@ class Trv:
     def report_unread(self) -> bool:
         """Whether a report held off by a control cycle is still to be read."""
         return self.unread_report is not None
+
+    def forget_external_temperature_writes(self) -> None:
+        """Forget what the quirks last sent the device as the room temperature.
+
+        Another controller may send the device a temperature of its own once
+        the device is the user's, so a value sent before says nothing about
+        what the device regulates on when it comes back. The next room
+        temperature goes out whether or not it moved.
+        """
+        for key in (
+            "_zwa021_external_temperature_last_sent",
+            "_zwa021_external_temperature_sent_at",
+            "_danfoss_external_sensor_celsius",
+            "_danfoss_external_sensor_written_at",
+            "_shelly_blu_external_temperature_celsius",
+            "_shelly_blu_external_temperature_written_at",
+        ):
+            self.extra.pop(key, None)
 
     def consume_accept_next_internal_temperature(self) -> bool:
         """Return and clear the one-shot accept-next-internal-temperature flag.

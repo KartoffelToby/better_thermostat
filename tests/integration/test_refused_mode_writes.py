@@ -21,6 +21,7 @@ from custom_components.better_thermostat.utils.const import CalibrationMode
 
 from .conftest import (
     BT_ENTITY,
+    WRITE_BUDGET,
     make_entry,
     profile_id,
     set_room_sensor,
@@ -37,6 +38,18 @@ RECONCILED_ONLY_TRV = replace(
     name=f"{GENERIC_HEAT_TRV.name}_no_control_tick",
     calibration_mode=CalibrationMode.HEATING_POWER_CALIBRATION.value,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_write_budget():
+    """Let a mode written again go out without waiting out its write budget.
+
+    The minutes these tests move on are Home Assistant's timers; the
+    thermostat's monotonic clock stays where it is, so the budget of a mode
+    written again would be waited out in wall-clock time.
+    """
+    with patch(WRITE_BUDGET, 0.0):
+        yield
 
 
 async def _settle(hass, rounds=50):

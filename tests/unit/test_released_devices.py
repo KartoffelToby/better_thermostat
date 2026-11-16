@@ -6,7 +6,7 @@ taking them back resumes control with one cycle.
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.components.climate.const import HVACAction
+from homeassistant.components.climate.const import HVACAction, HVACMode
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -14,6 +14,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.switch import (
     BetterThermostatReleaseDevicesSwitch,
 )
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerTracker,
     HeatLossTracker,
@@ -28,6 +29,7 @@ def _learning_room(*, released: bool) -> ThermostatStandIn:
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.devices_released = released
+    bt.real_trvs = dict[str, Trv]()
     bt.room_temperature = 20.0
     bt.heat_target_temperature = 21.0
     bt.contact_open = False
@@ -46,6 +48,7 @@ def _releasable_room() -> ThermostatStandIn:
     bt._initialize_arrived_trvs = AsyncMock()
     bt._external_temperature_keepalive = AsyncMock()
     bt.control_queue_task = MagicMock()
+    bt.real_trvs = dict[str, Trv]()
     return bt
 
 
@@ -88,6 +91,24 @@ async def test_releasing_gives_up_the_stretches_the_learners_follow():
 
 
 @pytest.mark.asyncio
+async def test_releasing_forgets_the_room_temperature_sent_to_every_trv():
+    """The take-back sends the room temperature even where it did not move."""
+    bt = _releasable_room()
+    bt.real_trvs = {
+        entity_id: trv_record(entity_id=entity_id)
+        for entity_id in ("climate.one", "climate.two")
+    }
+    for trv in bt.real_trvs.values():
+        trv.extra["_danfoss_external_sensor_celsius"] = 21.0
+        trv.extra["_danfoss_external_sensor_written_at"] = 1000.0
+
+    with patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()):
+        await BetterThermostat.async_set_devices_released(bt, True)
+
+    assert [trv.extra for trv in bt.real_trvs.values()] == [{}, {}]
+
+
+@pytest.mark.asyncio
 async def test_taking_the_devices_back_resumes_with_one_cycle():
     """The devices are taken back with one control cycle and nothing else.
 
@@ -109,6 +130,32 @@ async def test_taking_the_devices_back_resumes_with_one_cycle():
     critical.assert_awaited_once_with(bt)
     bt.control_queue_task.put_nowait.assert_called_once_with(bt)
     bt._heating_tracker.abort_cycle.assert_not_called()
+
+
+@pytest.mark.parametrize("released", [True, False], ids=["release", "take_back"])
+@pytest.mark.asyncio
+async def test_a_release_change_sends_every_mode_as_a_new_one(released):
+    """A mode sent before the change is no repeat for the cycle after it.
+
+    A repeat waits for the mode channel's write budget, which on a
+    HomematicIP head lasts ten minutes.
+    """
+    bt = _releasable_room()
+    bt.devices_released = not released
+    bt.real_trvs = {
+        entity_id: trv_record(entity_id=entity_id)
+        for entity_id in ("climate.trv_a", "climate.trv_b")
+    }
+    for trv in bt.real_trvs.values():
+        trv.last_hvac_mode_sent = HVACMode.HEAT
+
+    with (
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+        patch(f"{_CLIMATE}.publish_kernel_verdict"),
+    ):
+        await BetterThermostat.async_set_devices_released(bt, released)
+
+    assert [trv.last_hvac_mode_sent for trv in bt.real_trvs.values()] == [None, None]
 
 
 @pytest.mark.parametrize("released", [True, False])

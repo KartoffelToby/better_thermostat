@@ -5572,6 +5572,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if released == self.devices_released:
             return
         self.devices_released = released
+        # What the TRVs were sent before the release is no repeat for the
+        # cycle that takes them back.
+        for trv in self.real_trvs.values():
+            trv.last_hvac_mode_sent = None
         self.learning_pause_changes += 1
         _LOGGER.info(
             "better_thermostat %s: devices %s",
@@ -5582,6 +5586,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.learning_held = True
             self._heating_tracker.abort_cycle()
             self._loss_tracker.abort_cycle()
+            for trv in self.real_trvs.values():
+                trv.forget_external_temperature_writes()
         await check_critical_entities(self)
         publish_kernel_verdict(self)
         self.async_write_ha_state()
@@ -5624,6 +5630,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.released_trvs.add(entity_id)
         else:
             self.released_trvs.discard(entity_id)
+        # What the TRV was sent before its release is no repeat for the
+        # cycle that takes it back.
+        self.real_trvs[entity_id].last_hvac_mode_sent = None
         self.learning_pause_changes += 1
         _LOGGER.info(
             "better_thermostat %s: TRV %s %s",
@@ -5635,6 +5644,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.learning_held = True
             self._heating_tracker.abort_cycle()
             self._loss_tracker.abort_cycle()
+            self.real_trvs[entity_id].forget_external_temperature_writes()
         self._refresh_temperature_range()
         await check_critical_entities(self)
         publish_kernel_verdict(self)

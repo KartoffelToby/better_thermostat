@@ -75,6 +75,8 @@ async def test_a_setpoint_copied_from_the_other_head_leaves_the_room_target(
     await hass.async_block_till_done()
     assert leader.set_temperature_calls
     assert bt.heat_target_temperature == 21.0
+    own_setpoint = follower.set_temperature_calls[-1]
+    assert follower.target_temperature != own_setpoint
 
     writes_before = len(follower.set_temperature_calls)
     request_control_cycle(bt)
@@ -82,4 +84,5 @@ async def test_a_setpoint_copied_from_the_other_head_leaves_the_room_target(
         hass, lambda: len(follower.set_temperature_calls) > writes_before
     )
     await hass.async_block_till_done()
+    assert follower.set_temperature_calls[-1] == own_setpoint
     assert bt.heat_target_temperature == 21.0
