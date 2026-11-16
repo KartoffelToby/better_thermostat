@@ -5614,6 +5614,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.released_trvs.add(entity_id)
         else:
             self.released_trvs.discard(entity_id)
+        # What the TRV was sent before its release is no repeat for the
+        # cycle that takes it back.
+        self.real_trvs[entity_id].last_hvac_mode_sent = None
         self.learning_pause_changes += 1
         _LOGGER.info(
             "better_thermostat %s: TRV %s %s",

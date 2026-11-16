@@ -521,6 +521,11 @@ async def trigger_trv_change(
             entity_id,
         )
         return
+    # A device seen holding the mode last sent to it has taken that write, so
+    # it leaving the mode again is a new divergence: the write that answers it
+    # is no repeat of a write the device did not take.
+    if _org_trv_state.state == trv.last_hvac_mode_sent:
+        trv.last_hvac_mode_sent = None
     # The offered mode list changes at runtime on devices whose
     # heating/cooling changeover is driven centrally, so every mode is judged
     # against the list reported with it rather than the startup snapshot: a
