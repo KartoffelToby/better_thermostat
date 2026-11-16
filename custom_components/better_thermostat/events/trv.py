@@ -239,6 +239,45 @@ def sibling_setpoint_writes(self: BetterThermostat, entity_id: str) -> list[floa
     return values
 
 
+def _note_copied_setpoint(
+    self: BetterThermostat, trv: Trv, entity_id: str, reported: float
+) -> bool:
+    """Record whether a TRV's reported setpoint is a copy of a neighbour's write.
+
+    A system that keeps one setpoint per room copies a value BT wrote to one
+    of the room's other TRVs onto this one, and the device reports it as it
+    got it. The device holds the copy until it reports another setpoint, so
+    a later report of it is BT's write even once the neighbour has moved on;
+    a report of any other value ends the copy.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The thermostat whose TRVs are compared.
+    trv : Trv
+        The TRV that reported; its copy is updated.
+    entity_id : str
+        The TRV's entity id.
+    reported : float
+        The setpoint the TRV reported, in °C, before any range clamp.
+
+    Returns
+    -------
+    bool
+        Whether the reported setpoint is a neighbour's write or the copy the
+        TRV already held.
+    """
+    window = setpoint_echo_window(
+        normalize_step(trv.target_temp_step or self.bt_target_temperature_step)
+    )
+    copied = any(
+        value is not None and abs(reported - value) < window
+        for value in (*sibling_setpoint_writes(self, entity_id), trv.copied_setpoint)
+    )
+    trv.copied_setpoint = reported if copied else None
+    return copied
+
+
 def reports_written_setpoint(
     self: BetterThermostat, entity_id: str, trv: Trv, state: State | None
 ) -> bool | None:
@@ -565,6 +604,11 @@ async def trigger_trv_change(
     if event.context == self.context and _reports_only_own_writes(
         self, trv, entity_id, old_state, new_state
     ):
+        _own_report_setpoint = read_setpoint_celsius(
+            self, new_state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
+        )
+        if _own_report_setpoint is not None:
+            _note_copied_setpoint(self, trv, entity_id, _own_report_setpoint)
         if _range_changed and request_cycle:
             self.async_write_ha_state()
             request_control_cycle(self)
@@ -853,24 +897,14 @@ async def trigger_trv_change(
         # A report the cooling channel owns is bounded by the cooling range.
         cooling=_cooling_owns,
     )
-    # A system that keeps one setpoint per room copies a value BT wrote to
-    # one of the room's other TRVs onto this one, and the device reports it
-    # as it got it. Only the reported value counts here: a turn beyond BT's
-    # range that the clamp brings onto a neighbour's write is still a turn.
-    # The device holds the copy until it reports another setpoint, so a later
-    # report of it is BT's write even once the neighbour has moved on.
-    if _setpoint is not None:
-        _copied = any(
-            value is not None
-            and abs(_setpoint.raw - value) < setpoint_echo_window(_step)
-            for value in (
-                *sibling_setpoint_writes(self, entity_id),
-                trv.copied_setpoint,
-            )
-        )
-        trv.copied_setpoint = _setpoint.raw if _copied else None
-        if _copied and not _setpoint.is_echo:
-            _setpoint = _setpoint._replace(is_echo=True)
+    # Only the reported value counts here: a turn beyond BT's range that the
+    # clamp brings onto a neighbour's write is still a turn.
+    if (
+        _setpoint is not None
+        and _note_copied_setpoint(self, trv, entity_id, _setpoint.raw)
+        and not _setpoint.is_echo
+    ):
+        _setpoint = _setpoint._replace(is_echo=True)
     _is_no_off_device = advanced_flag(advanced, CONF_NO_OFF_SYSTEM_MODE)
     # An AUTO the mode decoding ignores says nothing about the room, so the
     # setpoint it carries, typically the device's own schedule, is not adopted
