@@ -2230,6 +2230,58 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == 23.0
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("held_setpoint", "expected_target"),
+        [
+            pytest.param(22.0, 25.0, id="held_report_of_another_value_ends_the_copy"),
+            pytest.param(25.0, 19.0, id="held_report_of_the_copy_keeps_it"),
+        ],
+    )
+    async def test_a_report_held_off_by_a_cycle_counts_for_the_copy(
+        self, mock_bt, held_setpoint, expected_target
+    ):
+        """A report a control cycle holds off updates the copy all the same.
+
+        This TRV reports the peer's 25.0, then a report a cycle holds off,
+        and the peer moves on to 26.0. After a held 22.0 the device no longer
+        holds the copy, so 25.0 is a turn back to it. After a held 25.0 it
+        still does, so 25.0 is no press.
+        """
+        peer = _room_with_a_copying_peer(mock_bt)
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 22.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.0},
+        )
+        held_state = _make_state(
+            attributes={"temperature": held_setpoint, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = held_state
+        mock_bt.ignore_states = True
+        await trigger_trv_change(
+            mock_bt,
+            _make_event(
+                mock_bt,
+                new_state=held_state,
+                old_state=_make_state(
+                    attributes={"temperature": 25.0, "current_temperature": 18.0}
+                ),
+            ),
+        )
+        mock_bt.ignore_states = False
+        peer.commanded_setpoint = 26.0
+        peer.remember_setpoint_confirmed(26.0, peer.remember_setpoint_written(26.0))
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": held_setpoint, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.5},
+        )
+
+        assert mock_bt.heat_target_temperature == expected_target
+
+    @pytest.mark.asyncio
     async def test_a_report_without_a_setpoint_leaves_the_copy(self, mock_bt):
         """A report under BT's context that carries no setpoint ends no copy.
 

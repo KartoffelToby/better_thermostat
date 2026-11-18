@@ -278,6 +278,17 @@ def _note_copied_setpoint(
     return copied
 
 
+def _note_copied_report(
+    self: BetterThermostat, trv: Trv, entity_id: str, state: State
+) -> None:
+    """Update a TRV's copy from a report the handler reads no further."""
+    reported = read_setpoint_celsius(
+        self, state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
+    )
+    if reported is not None:
+        _note_copied_setpoint(self, trv, entity_id, reported)
+
+
 def reports_written_setpoint(
     self: BetterThermostat, entity_id: str, trv: Trv, state: State | None
 ) -> bool | None:
@@ -609,11 +620,7 @@ async def trigger_trv_change(
     if event.context == self.context and _reports_only_own_writes(
         self, trv, entity_id, old_state, new_state
     ):
-        _own_report_setpoint = read_setpoint_celsius(
-            self, new_state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
-        )
-        if _own_report_setpoint is not None:
-            _note_copied_setpoint(self, trv, entity_id, _own_report_setpoint)
+        _note_copied_report(self, trv, entity_id, new_state)
         if _range_changed and request_cycle:
             self.async_write_ha_state()
             request_control_cycle(self)
@@ -758,6 +765,7 @@ async def trigger_trv_change(
         _read_internal_temperature_later(self, trv, entity_id, _time_diff)
 
     if self.ignore_states:
+        _note_copied_report(self, trv, entity_id, new_state)
         _hold_report(self, trv, old_state, new_state)
         if _main_change or _range_changed:
             trv.temperature_moved_while_held = True
