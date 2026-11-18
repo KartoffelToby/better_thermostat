@@ -223,16 +223,10 @@ class TestTheSetter:
         assert (trv.held_turn is not None) is still_held
         assert trv.temperature_moved_while_held is still_held
 
-    @pytest.mark.parametrize(
-        ("released_when_reported", "read"),
-        [
-            pytest.param(True, False, id="sent_while_released"),
-            pytest.param(False, True, id="sent_after_the_take_back"),
-        ],
-    )
+    @pytest.mark.parametrize("released_when_reported", [True, False])
     @pytest.mark.asyncio
     async def test_a_report_is_judged_by_who_held_the_trv_when_it_was_sent(
-        self, released_when_reported, read
+        self, released_when_reported
     ):
         """A report overtaken by the take-back stays the user's."""
         bt = _room()
@@ -253,11 +247,13 @@ class TestTheSetter:
             patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
             patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
             patch(f"{_CLIMATE}.publish_when_availability_changed"),
-            patch(f"{_CLIMATE}.trigger_trv_change", MagicMock()),
+            patch(f"{_CLIMATE}.trigger_trv_change", MagicMock()) as read,
         ):
             await BetterThermostat._trigger_trv_change(bt, event)
 
-        assert bt._spawn_owned.called is read
+        read.assert_called_once_with(
+            bt, event, sent_while_released=released_when_reported
+        )
 
     @pytest.mark.parametrize(
         ("released", "entity_id"),

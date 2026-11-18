@@ -2138,7 +2138,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
     async def _trigger_trv_change(self, event: Event[EventStateChangedData]) -> None:
         # A take-back can overtake the report on its way to the handler, which
-        # then no longer sees that the report was the user's.
+        # then has to be told that the report was the user's.
         reporting_entity_id = event.data.get("entity_id")
         sent_while_released = device_released(self, reporting_entity_id)
         # A report from a TRV startup went ahead without is the sign it is
@@ -2147,8 +2147,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
         publish_when_availability_changed(self)
-        if sent_while_released and not device_released(self, reporting_entity_id):
-            return
         if self.in_maintenance:
             _LOGGER.debug(
                 "better_thermostat %s: TRV change skipped (valve maintenance running)",
@@ -2169,7 +2167,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             return
 
         self._spawn_owned(
-            trigger_trv_change(self, event),
+            trigger_trv_change(self, event, sent_while_released=sent_while_released),
             name=f"bt_trigger_trv_change_{self.device_name}",
         )
 
