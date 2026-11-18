@@ -182,6 +182,18 @@ class TestTheSetter:
 
         assert bt.real_trvs[RELEASED].last_hvac_mode_sent is None
 
+    @pytest.mark.parametrize("released", [True, False])
+    @pytest.mark.asyncio
+    async def test_a_neighbours_copy_does_not_outlast_the_hand_over(self, released):
+        """The first turn after the take-back is judged on its own."""
+        bt = _room()
+        bt.released_trvs = set() if released else {RELEASED}
+        bt.real_trvs[RELEASED].copied_setpoint = 25.0
+
+        await _set_released(bt, RELEASED, released)
+
+        assert bt.real_trvs[RELEASED].copied_setpoint is None
+
     @pytest.mark.parametrize(
         ("released", "entity_id"),
         [(True, RELEASED), (False, CONTROLLED), (True, "climate.not_in_this_room")],

@@ -2407,6 +2407,42 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == 23.0
 
     @pytest.mark.asyncio
+    async def test_a_turn_read_late_is_no_copy_of_a_write_that_followed_it(
+        self, mock_bt
+    ):
+        """A turn stays a turn when BT writes the neighbour the same value later.
+
+        A cycle holds off a turn to 25.0 while the peer holds 24.0. BT then
+        writes the peer 25.0, this TRV repeats 25.0 and switches off, which
+        hides the turn at the end of the cycle. The turn becomes the room
+        target.
+        """
+        peer = _room_with_a_copying_peer(mock_bt)
+        peer.commanded_setpoint = 24.0
+        at_turn = _make_state(attributes={"temperature": 25.0})
+        repeated = _make_state(
+            attributes={"temperature": 25.0, "current_temperature": 18.5}
+        )
+        switched_off = _make_state(HVACMode.OFF, attributes={"temperature": 25.0})
+        mock_bt.ignore_states = True
+
+        async def _hold(old_state, new_state):
+            mock_bt.hass.states.get.return_value = new_state
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=new_state, old_state=old_state)
+            )
+
+        await _hold(_make_state(attributes={"temperature": 22.0}), at_turn)
+        peer.commanded_setpoint = 25.0
+        await _hold(at_turn, repeated)
+        await _hold(repeated, switched_off)
+        mock_bt.ignore_states = False
+
+        await read_reports_held_during_cycle(mock_bt)
+
+        assert mock_bt.heat_target_temperature == 25.0
+
+    @pytest.mark.asyncio
     async def test_a_report_without_a_setpoint_leaves_the_copy(self, mock_bt):
         """A report under BT's context that carries no setpoint ends no copy.
 

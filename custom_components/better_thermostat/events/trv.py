@@ -247,19 +247,6 @@ def sibling_setpoint_writes(self: BetterThermostat, entity_id: str) -> list[floa
     return values
 
 
-def _reports_copied_setpoint(
-    self: BetterThermostat, trv: Trv, entity_id: str, reported: float
-) -> bool:
-    """Return whether a setpoint is a neighbour's write or the TRV's copy of one."""
-    window = setpoint_echo_window(
-        normalize_step(trv.target_temp_step or self.bt_target_temperature_step)
-    )
-    return any(
-        value is not None and abs(reported - value) < window
-        for value in (*sibling_setpoint_writes(self, entity_id), trv.copied_setpoint)
-    )
-
-
 def _note_copied_setpoint(
     self: BetterThermostat, trv: Trv, entity_id: str, reported: float
 ) -> bool:
@@ -288,7 +275,13 @@ def _note_copied_setpoint(
         Whether the reported setpoint is a neighbour's write or the copy the
         TRV already held.
     """
-    copied = _reports_copied_setpoint(self, trv, entity_id, reported)
+    window = setpoint_echo_window(
+        normalize_step(trv.target_temp_step or self.bt_target_temperature_step)
+    )
+    copied = any(
+        value is not None and abs(reported - value) < window
+        for value in (*sibling_setpoint_writes(self, entity_id), trv.copied_setpoint)
+    )
     trv.copied_setpoint = reported if copied else None
     return copied
 
@@ -570,8 +563,9 @@ async def trigger_trv_change(
     control cycle for it, for a caller that decides that itself.
     ``prior_hvac_mode`` is the mode the device was cached in before the
     report, for a caller whose cache has moved since; without it the cache
-    is that mode. ``earlier_turn`` reads a turn from before the reports the
-    TRV's copy already follows, so the turn leaves that copy as it is.
+    is that mode. ``earlier_turn`` reads a turn a control cycle held off. It
+    was no copy when it arrived and the TRV's copy follows the reports after
+    it, so the two are not compared.
     """
     if self.startup_running:
         return
@@ -948,11 +942,8 @@ async def trigger_trv_change(
     # clamp brings onto a neighbour's write is still a turn.
     if (
         _setpoint is not None
-        and (
-            _reports_copied_setpoint(self, trv, entity_id, _setpoint.raw)
-            if earlier_turn
-            else _note_copied_setpoint(self, trv, entity_id, _setpoint.raw)
-        )
+        and not earlier_turn
+        and _note_copied_setpoint(self, trv, entity_id, _setpoint.raw)
         and not _setpoint.is_echo
     ):
         _setpoint = _setpoint._replace(is_echo=True)

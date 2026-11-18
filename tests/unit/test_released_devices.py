@@ -148,6 +148,7 @@ async def test_a_release_change_sends_every_mode_as_a_new_one(released):
     }
     for trv in bt.real_trvs.values():
         trv.last_hvac_mode_sent = HVACMode.HEAT
+        trv.copied_setpoint = 25.0
 
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
@@ -156,6 +157,7 @@ async def test_a_release_change_sends_every_mode_as_a_new_one(released):
         await BetterThermostat.async_set_devices_released(bt, released)
 
     assert [trv.last_hvac_mode_sent for trv in bt.real_trvs.values()] == [None, None]
+    assert [trv.copied_setpoint for trv in bt.real_trvs.values()] == [None, None]
 
 
 @pytest.mark.parametrize("released", [True, False])
