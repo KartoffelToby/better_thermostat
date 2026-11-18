@@ -22,8 +22,9 @@ So the quirk keeps the selector in line with the thermostat's control mode:
 
 A room sensor on the TRV's own device is the exception. On ``external`` the
 device reports the input as its temperature, so that sensor would read back
-the value written from it and stop following the room. Such a TRV stays on
-``internal`` on every rung, and its input is not written.
+the value written from it and stop following the room. The input of such a
+TRV is not written, and a selector Better Thermostat manages stays on
+``internal`` on every rung.
 
 The selector is brought in line before every write of the input, whenever
 the thermostat entity changes state, which it does when the ladder commits
@@ -32,7 +33,8 @@ hand or by another automation is put back. A selector already in line is
 left alone. When the selector goes back to ``external`` outside a write, the
 room temperature is written into the input with it. A TRV whose
 ``keep_sensor_selection`` option is on keeps the option the user picked; its
-input is written all the same.
+input is written all the same, unless the room sensor is on the TRV's own
+device.
 
 Everything else stays as the default quirks have it.
 """
