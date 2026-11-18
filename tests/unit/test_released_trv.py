@@ -224,6 +224,42 @@ class TestTheSetter:
         assert trv.temperature_moved_while_held is still_held
 
     @pytest.mark.parametrize(
+        ("released_when_reported", "read"),
+        [
+            pytest.param(True, False, id="sent_while_released"),
+            pytest.param(False, True, id="sent_after_the_take_back"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_report_is_judged_by_who_held_the_trv_when_it_was_sent(
+        self, released_when_reported, read
+    ):
+        """A report overtaken by the take-back stays the user's."""
+        bt = _room()
+        bt.released_trvs = {RELEASED} if released_when_reported else set()
+        bt.in_maintenance = False
+        bt._async_unsub_state_changed = MagicMock()
+        bt._spawn_owned = MagicMock()
+        bt.async_set_context = MagicMock()
+
+        async def _taken_back_meanwhile():
+            bt.released_trvs.discard(RELEASED)
+
+        bt._initialize_arrived_trvs = AsyncMock(side_effect=_taken_back_meanwhile)
+        event = MagicMock()
+        event.data = {"entity_id": RELEASED, "new_state": State(RELEASED, "heat")}
+
+        with (
+            patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+            patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.publish_when_availability_changed"),
+            patch(f"{_CLIMATE}.trigger_trv_change", MagicMock()),
+        ):
+            await BetterThermostat._trigger_trv_change(bt, event)
+
+        assert bt._spawn_owned.called is read
+
+    @pytest.mark.parametrize(
         ("released", "entity_id"),
         [(True, RELEASED), (False, CONTROLLED), (True, "climate.not_in_this_room")],
         ids=["already_released", "already_controlled", "unknown_trv"],
