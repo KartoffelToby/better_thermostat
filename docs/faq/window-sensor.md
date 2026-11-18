@@ -8,6 +8,10 @@ When the configured window sensor reports **open**, Better Thermostat
 turns the heating off; when it reports **closed**, heating resumes. TRVs
 that cannot be switched off receive their minimum temperature instead.
 
+With a window or door sensor configured, Better Thermostat turns off the
+window detection built into the TRV when it starts. Without either sensor,
+the TRV's own window detection stays as you set it.
+
 ## Changing the target while the window is open
 
 A target you set in Home Assistant while the window is open is kept. A

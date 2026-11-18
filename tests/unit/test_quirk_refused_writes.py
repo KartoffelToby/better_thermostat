@@ -73,6 +73,8 @@ def _host(state=None, model=GENERIC_MODEL, advanced=None):
     host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
+    host.window_sensor_entity_id = None
+    host.door_sensor_entity_id = None
     host.in_maintenance = False
     host.hass = MagicMock()
     host.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS

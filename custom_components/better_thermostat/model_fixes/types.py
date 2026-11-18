@@ -210,6 +210,16 @@ class ModelFixHost(Protocol):
         ...
 
     @property
+    def window_sensor_entity_id(self) -> str | None:
+        """Entity id of the window sensor, if one is configured."""
+        ...
+
+    @property
+    def door_sensor_entity_id(self) -> str | None:
+        """Entity id of the door sensor, if one is configured."""
+        ...
+
+    @property
     def real_trvs(self) -> Mapping[str, ModelFixTrv]:
         """Per-TRV records, keyed by climate entity id."""
         ...

@@ -10,9 +10,10 @@ halves are tested apart because they promise different things:
   them for the whole install base;
 * ``initial_tweak`` promises to put a freshly adopted device into a
   known state: calibration back to zero, child lock following the
-  configuration, and the device's own window and away detection off,
-  because Better Thermostat does both itself. Each of those is optional,
-  independent, and must not take the others down when it fails.
+  configuration, the device's own away detection off, and its window
+  detection off once Better Thermostat watches a window or door sensor
+  itself. Each of those is optional, independent, and must not take the
+  others down when it fails.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -44,6 +45,8 @@ CHILD_LOCK_SWITCH = "switch.trv_child_lock"
 CHILD_LOCK_LOCK = "lock.trv_child_lock"
 WINDOW_SWITCH = "switch.trv_window_detection"
 AWAY_SWITCH = "switch.trv_away_mode"
+WINDOW_SENSOR = "binary_sensor.window"
+DOOR_SENSOR = "binary_sensor.door"
 
 # Which of ``initial_tweak``'s four lookups a keyword list belongs to.
 _LOOKUP_BY_KEYWORD = {
@@ -54,7 +57,12 @@ _LOOKUP_BY_KEYWORD = {
 }
 
 
-def _thermostat(child_lock: bool | None = None, states=None):
+def _thermostat(
+    child_lock: bool | None = None,
+    states=None,
+    window_sensor: str | None = WINDOW_SENSOR,
+    door_sensor: str | None = None,
+):
     """Build a thermostat whose service calls are recorded, not executed.
 
     Parameters
@@ -65,6 +73,10 @@ def _thermostat(child_lock: bool | None = None, states=None):
     states : dict or None
         Current state string per entity ID; an entity left out of it
         reads as unknown to Home Assistant.
+    window_sensor : str or None
+        The window sensor Better Thermostat watches, if any.
+    door_sensor : str or None
+        The door sensor Better Thermostat watches, if any.
 
     Returns
     -------
@@ -75,6 +87,8 @@ def _thermostat(child_lock: bool | None = None, states=None):
     thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
     thermostat.context = None
+    thermostat.window_sensor_entity_id = window_sensor
+    thermostat.door_sensor_entity_id = door_sensor
     thermostat.hass = MagicMock()
     thermostat.hass.services.async_call = AsyncMock()
     thermostat.hass.states.get = lambda requested: (
@@ -499,6 +513,58 @@ class TestTheDeviceStopsDetectingOnItsOwn:
         )
 
         await _run_tweak(thermostat, away=AWAY_SWITCH)
+
+        assert _calls(thermostat) == [
+            ("switch", "turn_off", {"entity_id": AWAY_SWITCH})
+        ]
+
+
+class TestTheWindowDetectionFollowsTheConfiguredSensors:
+    """The device's window detection only gives way to a sensor BT watches."""
+
+    @pytest.mark.parametrize(
+        ("window_sensor", "door_sensor"),
+        [(WINDOW_SENSOR, None), (None, DOOR_SENSOR), (WINDOW_SENSOR, DOOR_SENSOR)],
+        ids=["window", "door", "both"],
+    )
+    @pytest.mark.asyncio
+    async def test_a_watched_sensor_takes_over_from_the_device(
+        self, window_sensor, door_sensor
+    ):
+        """Better Thermostat reacts to the opening, so the device need not."""
+        thermostat = _thermostat(
+            states={WINDOW_SWITCH: STATE_ON},
+            window_sensor=window_sensor,
+            door_sensor=door_sensor,
+        )
+
+        await _run_tweak(thermostat, window=WINDOW_SWITCH)
+
+        assert _calls(thermostat) == [
+            ("switch", "turn_off", {"entity_id": WINDOW_SWITCH})
+        ]
+
+    @pytest.mark.asyncio
+    async def test_without_a_sensor_the_device_keeps_its_detection(self):
+        """Nothing else in the room would notice an open window."""
+        thermostat = _thermostat(
+            states={WINDOW_SWITCH: STATE_ON}, window_sensor=None, door_sensor=None
+        )
+
+        await _run_tweak(thermostat, window=WINDOW_SWITCH)
+
+        assert _calls(thermostat) == []
+
+    @pytest.mark.asyncio
+    async def test_without_a_sensor_the_away_detection_still_goes_off(self):
+        """Only the window step depends on the configured sensors."""
+        thermostat = _thermostat(
+            states={WINDOW_SWITCH: STATE_ON, AWAY_SWITCH: STATE_ON},
+            window_sensor=None,
+            door_sensor=None,
+        )
+
+        await _run_tweak(thermostat, window=WINDOW_SWITCH, away=AWAY_SWITCH)
 
         assert _calls(thermostat) == [
             ("switch", "turn_off", {"entity_id": AWAY_SWITCH})
