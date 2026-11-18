@@ -199,7 +199,7 @@ def test_the_split_writes_whole_percent():
 
 
 def test_a_closed_group_stays_closed_under_the_split():
-    """A colder reading never opens a valve the controller closed."""
+    """A valve the controller closed stays closed on a colder reading."""
     facade = _facade(_case(), [19.0, 21.0], [30.0, 30.0])
 
     assert facade.valve_percents(0.0) == [0.0, 0.0]
