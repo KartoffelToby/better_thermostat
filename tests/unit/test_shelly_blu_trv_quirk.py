@@ -493,6 +493,23 @@ class TestTheValueIsKeptCurrent:
         return await blu_trv.maybe_set_external_temperature(mock_self, ENTITY, room)
 
     @pytest.mark.asyncio
+    async def test_a_release_during_the_write_still_lets_the_value_go_out_again(
+        self, monkeypatch
+    ):
+        """A write under way when the TRV is released leaves no record behind."""
+        mock_self = _make_self(monkeypatch)
+        send = mock_self.hass.services.async_call
+        trv = mock_self.real_trvs[ENTITY]
+        send.side_effect = lambda *_args, **_kwargs: (
+            trv.forget_external_temperature_writes() if send.await_count == 1 else None
+        )
+
+        assert await blu_trv.maybe_set_external_temperature(mock_self, ENTITY, 20.1)
+        _number_holds(mock_self, 20.1)
+        assert await blu_trv.maybe_set_external_temperature(mock_self, ENTITY, 20.1)
+        assert _written_values(mock_self) == [20.1, 20.1]
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("room", [20.1, 20.14, 20.06])
     async def test_an_unchanged_value_offered_again_soon_is_not_written(
         self, monkeypatch, room

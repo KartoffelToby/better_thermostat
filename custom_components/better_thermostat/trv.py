@@ -230,6 +230,10 @@ class Trv:
     # it reports another setpoint, so each report of it until then is BT's
     # write as well, after the other TRV's records have moved on from it.
     copied_setpoint: float | None = None
+    # How often the record of the room temperature sent to the device was
+    # dropped. A quirk compares it across its write: a write that outlasted a
+    # drop records nothing, so the next room temperature still goes out.
+    external_temperature_writes_forgotten: int = 0
     # The id the last setpoint write went out under. Each write's watchdog
     # holds the id of its own write, so the confirmation retires that command
     # and the ones before it, never a write made while the wait ran, and a
@@ -379,8 +383,10 @@ class Trv:
         Another controller may send the device a temperature of its own once
         the device is the user's, so a value sent before says nothing about
         what the device regulates on when it comes back. The next room
-        temperature goes out whether or not it moved.
+        temperature goes out whether or not it moved, and a write still on
+        the wire leaves no record of itself.
         """
+        self.external_temperature_writes_forgotten += 1
         for key in (
             "_zwa021_external_temperature_last_sent",
             "_zwa021_external_temperature_sent_at",

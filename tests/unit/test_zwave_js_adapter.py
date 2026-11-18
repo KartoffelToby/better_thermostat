@@ -132,6 +132,24 @@ class TestZWA021ExternalTemperature:
         assert send.await_count == 2
 
     @pytest.mark.asyncio
+    async def test_a_release_during_the_report_still_lets_the_value_go_out_again(self):
+        """A report under way when the TRV is released leaves no record behind."""
+        mock_self = _make_external_temperature_self()
+        send = mock_self.hass.services.async_call
+        trv = mock_self.real_trvs["climate.trv1"]
+        send.side_effect = lambda *_args, **_kwargs: (
+            trv.forget_external_temperature_writes() if send.await_count == 1 else None
+        )
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        assert send.await_count == 2
+
+    @pytest.mark.asyncio
     async def test_a_failed_report_is_sent_again_on_the_next_reading(self):
         mock_self = _make_external_temperature_self()
         send = mock_self.hass.services.async_call
