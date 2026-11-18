@@ -20,6 +20,11 @@ So the quirk keeps the selector in line with the thermostat's control mode:
   reports its real reading for the core to control on; under ``HOLD`` the
   input it would read has gone stale as well.
 
+A room sensor on the TRV's own device is the exception. On ``external`` the
+device reports the input as its temperature, so that sensor would read back
+the value written from it and stop following the room. Such a TRV stays on
+``internal`` on every rung, and its input is not written.
+
 The selector is brought in line before every write of the input, whenever
 the thermostat entity changes state, which it does when the ladder commits
 a new rung, and whenever the selector itself changes, so an option set by
@@ -241,14 +246,30 @@ async def _select_sensor(
     return True
 
 
-def _wanted_option(self: ModelFixHost) -> str:
-    """Return the selector option the thermostat's control mode calls for.
+def _room_sensor_on_trv(self: ModelFixHost, entity_id: str) -> bool:
+    """Return whether the room sensor is an entity of the TRV's own device."""
+    entity_registry = er.async_get(self.hass)
+    trv = entity_registry.async_get(entity_id)
+    room_sensor = entity_registry.async_get(self.sensor_entity_id)
+    return (
+        trv is not None
+        and room_sensor is not None
+        and room_sensor.device_id is not None
+        and room_sensor.device_id == trv.device_id
+    )
 
-    ``external`` while Better Thermostat controls on the room sensor,
-    ``internal`` on every rung below. ``HOLD`` is no exception: it follows
-    ``SENSOR_FALLBACK`` once the TRV temperature is gone too, and the input
-    the device would read has gone stale with the room sensor.
+
+def _wanted_option(self: ModelFixHost, entity_id: str) -> str:
+    """Return the selector option the TRV's room sensor and control mode call for.
+
+    ``external`` while Better Thermostat controls on a room sensor of another
+    device, ``internal`` on every rung below. ``HOLD`` is no exception: it
+    follows ``SENSOR_FALLBACK`` once the TRV temperature is gone too, and the
+    input the device would read has gone stale with the room sensor. A room
+    sensor on the TRV's own device calls for ``internal`` on every rung.
     """
+    if _room_sensor_on_trv(self, entity_id):
+        return _INTERNAL_SENSOR_OPTION
     if self.kernel_state.control_mode.mode == ControlMode.OPTIMAL:
         return _EXTERNAL_SENSOR_OPTION
     return _INTERNAL_SENSOR_OPTION
@@ -297,7 +318,7 @@ async def _keep_selector_now(self: ModelFixHost, entity_id: str) -> str | None:
         )
         return None
     mode = self.kernel_state.control_mode.mode
-    wanted = _wanted_option(self)
+    wanted = _wanted_option(self, entity_id)
     state = self.hass.states.get(selector)
     current = state.state if state is not None else None
     pending = _PENDING_SWITCHES.get(entity_id)
@@ -352,7 +373,16 @@ async def _keep_selector_now(self: ModelFixHost, entity_id: str) -> str | None:
     level = (
         logging.DEBUG if pending is not None and pending[0] == wanted else logging.INFO
     )
-    if wanted == _INTERNAL_SENSOR_OPTION:
+    if _room_sensor_on_trv(self, entity_id):
+        _LOGGER.log(
+            level,
+            "better_thermostat %s: room sensor %s belongs to SRTS-A01 %s, which "
+            "regulates on its own sensor",
+            self.device_name,
+            self.sensor_entity_id,
+            entity_id,
+        )
+    elif wanted == _INTERNAL_SENSOR_OPTION:
         _LOGGER.log(
             level,
             "better_thermostat %s: control mode '%s' leaves the room sensor, "
@@ -526,7 +556,7 @@ def _watch_selector(self: ModelFixHost, entity_id: str) -> None:
         selected = self.hass.states.get(selector)
         if (
             selected is not None
-            and selected.state == _wanted_option(self)
+            and selected.state == _wanted_option(self, entity_id)
             and entity_id not in _PENDING_SWITCHES
         ):
             # The thermostat writes its state with every new reading; one
@@ -630,7 +660,8 @@ async def maybe_set_external_temperature(
     with the control mode first, because a device regulating on its own
     sensor never reads the input and may discard a value written to it.
     Under ``SENSOR_FALLBACK`` it stays on ``internal`` and the value is
-    written all the same, ready for the return to ``OPTIMAL``.
+    written all the same, ready for the return to ``OPTIMAL``. A room sensor
+    on the TRV's own device is not mirrored at all.
 
     Parameters
     ----------
@@ -646,8 +677,8 @@ async def maybe_set_external_temperature(
     -------
     bool
         True when the input was written, False when the device names no
-        such input, the value is not a number, or the device refused the
-        write.
+        such input, the room sensor belongs to the TRV, the value is not a
+        number, or the device refused the write.
     """
     try:
         target = _input_number(self, entity_id)
@@ -671,6 +702,15 @@ async def maybe_set_external_temperature(
         # the value written here can still be dropped; the watch writes the
         # room temperature again once the device confirms the switch.
         await _keep_selector(self, entity_id)
+
+        if _room_sensor_on_trv(self, entity_id):
+            _LOGGER.debug(
+                "better_thermostat %s: SRTS-A01 external temperature not mirrored: room sensor %s belongs to %s",
+                self.device_name,
+                self.sensor_entity_id,
+                entity_id,
+            )
+            return False
 
         await _write_input(self, entity_id, target, celsius)
         return True

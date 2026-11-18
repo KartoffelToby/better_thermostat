@@ -31,6 +31,8 @@ BT = "climate.living_room"
 TRV = "climate.trv1"
 INPUT = "number.trv1_external_temperature_input"
 SELECTOR = "select.trv1_sensor"
+ROOM_SENSOR = "sensor.living_room_temperature"
+OWN_SENSOR = "sensor.trv1_temperature"
 
 
 def _entry(entity_id, *, translation_key=None, device_id="dev1"):
@@ -52,12 +54,14 @@ def _make_self(
     entries=None,
     mode=ControlMode.OPTIMAL,
     room=21.0,
+    room_sensor=ROOM_SENSOR,
 ):
     """A BT stand-in whose SRTS-A01 carries the input and the sensor selector.
 
     ``selected`` is what the selector reports; ``None`` stands for a selector
     that publishes no state. ``mode`` is the rung the thermostat's ladder
-    stands on, and ``room`` the room temperature it controls on.
+    stands on, ``room`` the room temperature it controls on, and
+    ``room_sensor`` the entity that temperature comes from.
     """
     mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
@@ -68,6 +72,7 @@ def _make_self(
     mock_self.real_trvs = {TRV: make_trv(TRV)}
     mock_self.entity_id = BT
     mock_self.room_temperature = room
+    mock_self.sensor_entity_id = room_sensor
     mock_self.kernel_state = make_state(control_mode=ControlModeState(mode=mode))
     registry = make_entity_registry(
         *(
@@ -980,3 +985,106 @@ class TestTheUserKeepsTheSensorSelection:
         await _step(mock_self, ControlMode.SENSOR_FALLBACK)
 
         assert _payloads(mock_self) == expected
+
+
+def _on_its_own_sensor(monkeypatch, *, selected, mode=ControlMode.OPTIMAL):
+    """A stand-in whose room sensor is the temperature entity of the TRV itself."""
+    return _make_self(
+        monkeypatch,
+        selected=selected,
+        mode=mode,
+        room_sensor=OWN_SENSOR,
+        entries=[
+            _entry(TRV),
+            _entry(INPUT, translation_key="external_temperature_input"),
+            _entry(SELECTOR, translation_key="sensor"),
+            _entry(OWN_SENSOR),
+        ],
+    )
+
+
+class TestTheRoomSensorIsTheTrvItself:
+    """A TRV's own reading never goes back into the TRV.
+
+    On ``external`` the device reports the value written into its input as
+    its own temperature, so mirroring that reading freezes it at the value of
+    the first write.
+    """
+
+    async def test_a_selector_on_external_is_moved_back_and_nothing_is_written(
+        self, monkeypatch
+    ):
+        """The write is declined and the device regulates on its own sensor."""
+        mock_self = _on_its_own_sensor(monkeypatch, selected="external")
+
+        assert await quirk.maybe_set_external_temperature(mock_self, TRV, 21.0) is False
+
+        assert _payloads(mock_self) == [_to_internal()]
+
+    async def test_a_selector_on_internal_is_left_alone(self, monkeypatch):
+        """Under normal control the selector stays on the device's own sensor."""
+        mock_self = _on_its_own_sensor(monkeypatch, selected="internal")
+
+        assert await quirk.maybe_set_external_temperature(mock_self, TRV, 21.0) is False
+
+        assert _payloads(mock_self) == []
+
+    async def test_an_option_changed_by_hand_is_put_back_on_internal(self, monkeypatch):
+        """The watch holds the device on the option its own reading calls for."""
+        mock_self = _on_its_own_sensor(monkeypatch, selected="internal")
+        quirk._watch_selector(mock_self, TRV)
+
+        await _change(mock_self, _selector("external"))
+
+        assert _payloads(mock_self) == [_to_internal()]
+
+    async def test_the_return_to_optimal_does_not_switch_to_external(self, monkeypatch):
+        """Recovering from a fallback changes nothing about whose reading it is."""
+        mock_self = _on_its_own_sensor(
+            monkeypatch, selected="internal", mode=ControlMode.SENSOR_FALLBACK
+        )
+        quirk._watch_selector(mock_self, TRV)
+
+        await _step(mock_self, ControlMode.OPTIMAL)
+
+        assert _payloads(mock_self) == []
+
+    async def test_a_kept_selection_stays_and_is_not_written(self, monkeypatch):
+        """The user's option stands, and the reading still stays out of the input."""
+        mock_self = _on_its_own_sensor(monkeypatch, selected="external")
+        _keep_selection(mock_self, True)
+
+        assert await quirk.maybe_set_external_temperature(mock_self, TRV, 21.0) is False
+
+        assert _payloads(mock_self) == []
+
+    async def test_a_released_device_is_not_touched(self, monkeypatch):
+        """A device handed to the user gets no selector write either."""
+        mock_self = _on_its_own_sensor(monkeypatch, selected="external")
+        mock_self.devices_released = True
+
+        assert await quirk.maybe_set_external_temperature(mock_self, TRV, 21.0) is False
+
+        assert _payloads(mock_self) == []
+
+    @pytest.mark.parametrize(
+        "sensor_device", ["dev2", None], ids=["other_device", "no_device"]
+    )
+    async def test_a_room_sensor_elsewhere_is_still_mirrored(
+        self, monkeypatch, sensor_device
+    ):
+        """Only an entity of the TRV's own device is held back."""
+        mock_self = _make_self(
+            monkeypatch,
+            selected="internal",
+            entries=[
+                _entry(TRV),
+                _entry(INPUT, translation_key="external_temperature_input"),
+                _entry(SELECTOR, translation_key="sensor"),
+                _entry(ROOM_SENSOR, device_id=sensor_device),
+            ],
+        )
+
+        assert await quirk.maybe_set_external_temperature(mock_self, TRV, 21.0)
+
+        assert _payloads(mock_self) == [_to_external(), _write(21.0)]
