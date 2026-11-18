@@ -14,6 +14,7 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.switch import BetterThermostatReleaseTrvSwitch
+from custom_components.better_thermostat.trv import UnreadReport
 from custom_components.better_thermostat.utils.const import ATTR_STATE_RELEASED_TRVS
 from custom_components.better_thermostat.utils.helpers import (
     device_released,
@@ -193,6 +194,34 @@ class TestTheSetter:
         await _set_released(bt, RELEASED, released)
 
         assert bt.real_trvs[RELEASED].copied_setpoint is None
+
+    @pytest.mark.parametrize(
+        ("released", "still_held"),
+        [
+            pytest.param(True, True, id="release"),
+            pytest.param(False, False, id="take_back"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_reports_held_while_released_end_with_the_take_back(
+        self, released, still_held
+    ):
+        """Nothing a cycle held off while the TRV was the user's reaches the room."""
+        bt = _room()
+        bt.released_trvs = set() if released else {RELEASED}
+        trv = bt.real_trvs[RELEASED]
+        before, turned = State(RELEASED, "heat"), State(RELEASED, "heat")
+        trv.unread_report = UnreadReport(
+            state_before=before, hvac_mode_before=HVACMode.HEAT
+        )
+        trv.held_turn = (before, turned)
+        trv.temperature_moved_while_held = True
+
+        await _set_released(bt, RELEASED, released)
+
+        assert trv.report_unread is still_held
+        assert (trv.held_turn is not None) is still_held
+        assert trv.temperature_moved_while_held is still_held
 
     @pytest.mark.parametrize(
         ("released", "entity_id"),

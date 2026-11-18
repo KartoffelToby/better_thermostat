@@ -7,6 +7,7 @@ taking them back resumes control with one cycle.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -14,7 +15,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.switch import (
     BetterThermostatReleaseDevicesSwitch,
 )
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import Trv, UnreadReport
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerTracker,
     HeatLossTracker,
@@ -158,6 +159,34 @@ async def test_a_release_change_sends_every_mode_as_a_new_one(released):
 
     assert [trv.last_hvac_mode_sent for trv in bt.real_trvs.values()] == [None, None]
     assert [trv.copied_setpoint for trv in bt.real_trvs.values()] == [None, None]
+
+
+@pytest.mark.parametrize(
+    ("released", "still_held"),
+    [
+        pytest.param(True, True, id="release"),
+        pytest.param(False, False, id="take_back"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_reports_held_while_released_end_with_the_take_back(released, still_held):
+    """Nothing a cycle held off while the room was the user's reaches the room."""
+    bt = _releasable_room()
+    bt.devices_released = not released
+    trv = trv_record(entity_id="climate.trv_a")
+    bt.real_trvs = {"climate.trv_a": trv}
+    trv.unread_report = UnreadReport(
+        state_before=State("climate.trv_a", HVACMode.HEAT),
+        hvac_mode_before=HVACMode.HEAT,
+    )
+
+    with (
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+        patch(f"{_CLIMATE}.publish_kernel_verdict"),
+    ):
+        await BetterThermostat.async_set_devices_released(bt, released)
+
+    assert trv.report_unread is still_held
 
 
 @pytest.mark.parametrize("released", [True, False])

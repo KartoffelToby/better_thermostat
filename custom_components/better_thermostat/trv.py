@@ -377,6 +377,16 @@ class Trv:
         """Whether a report held off by a control cycle is still to be read."""
         return self.unread_report is not None
 
+    def forget_held_reports(self) -> None:
+        """Forget the reports a control cycle held off for its end to read.
+
+        They were sent while the device was the user's, and nothing it held
+        then becomes the room's once it is taken back.
+        """
+        self.unread_report = None
+        self.held_turn = None
+        self.temperature_moved_while_held = False
+
     def forget_external_temperature_writes(self) -> None:
         """Forget what the quirks last sent the device as the room temperature.
 
