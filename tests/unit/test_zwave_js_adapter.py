@@ -157,7 +157,7 @@ class TestZWA021ExternalTemperature:
     async def test_a_report_under_way_does_not_hold_up_the_release_or_the_next_report(
         self,
     ):
-        """Release and take-back around a report the device has not answered."""
+        """Release and take-back around a keepalive the device has not answered."""
         mock_self = _make_external_temperature_self()
         entity_id = "climate.trv1"
         answered = asyncio.Event()
@@ -169,34 +169,50 @@ class TestZWA021ExternalTemperature:
 
         send = mock_self.hass.services.async_call
         send.side_effect = _report
+        mock_self.real_trvs[entity_id].model_quirks = quirk
         mock_self.startup_running = False
+        mock_self.room_temperature = 21.0
+        mock_self._temperature_filter_lock = None
         mock_self._heating_tracker = MagicMock()
         mock_self._loss_tracker = MagicMock()
         mock_self._initialize_arrived_trvs = AsyncMock()
         mock_self.control_queue_task = MagicMock()
 
-        async def _keepalive():
-            await quirk.maybe_set_external_temperature(mock_self, entity_id, 21.0)
+        def _keepalive():
+            return BetterThermostat._external_temperature_keepalive(mock_self)
 
         mock_self._external_temperature_keepalive = _keepalive
-        report = asyncio.create_task(
-            quirk.maybe_set_external_temperature(mock_self, entity_id, 21.0)
-        )
-        await started.wait()
-
         with (
+            patch(f"{_CLIMATE}._room_sensor_reads", return_value=True),
             patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
             patch(f"{_CLIMATE}.publish_kernel_verdict"),
         ):
-            await asyncio.wait_for(
-                BetterThermostat.async_set_trv_released(mock_self, entity_id, True), 1
-            )
-            assert not report.done()
-            answered.set()
-            assert await report
-            await BetterThermostat.async_set_trv_released(mock_self, entity_id, False)
+            report = asyncio.create_task(_keepalive())
+            reached = asyncio.create_task(started.wait())
+            try:
+                await asyncio.wait(
+                    {report, reached}, timeout=1, return_when=asyncio.FIRST_COMPLETED
+                )
+                assert started.is_set(), report
+                await asyncio.wait_for(
+                    BetterThermostat.async_set_trv_released(mock_self, entity_id, True),
+                    1,
+                )
+                assert not report.done()
+                answered.set()
+                await report
+                await BetterThermostat.async_set_trv_released(
+                    mock_self, entity_id, False
+                )
+            finally:
+                for task in (report, reached):
+                    task.cancel()
+                await asyncio.gather(report, reached, return_exceptions=True)
 
-        assert send.await_count == 2
+        assert [call.args[2]["parameters"] for call in send.await_args_list] == [
+            [1, 0, 21.0],
+            [1, 0, 21.0],
+        ]
 
     @pytest.mark.asyncio
     async def test_a_failed_report_is_sent_again_on_the_next_reading(self):

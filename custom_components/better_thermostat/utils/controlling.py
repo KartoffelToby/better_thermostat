@@ -1595,6 +1595,7 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
                     mode_settled=True,
                     request_cycle=False,
                     prior_hvac_mode=turned_from.state,
+                    earlier_turn=True,
                 )
             await trigger_trv_change(
                 self,

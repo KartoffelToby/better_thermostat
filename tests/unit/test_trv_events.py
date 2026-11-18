@@ -13,7 +13,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import STATE_UNAVAILABLE, UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 from homeassistant.util.async_ import create_eager_task
@@ -2365,6 +2365,46 @@ class TestTargetTempAdoption:
         await read_reports_held_during_cycle(mock_bt)
 
         assert mock_bt.heat_target_temperature == 19.0
+
+    @pytest.mark.asyncio
+    async def test_a_turn_read_late_leaves_the_copy_the_device_holds_since(
+        self, mock_bt
+    ):
+        """A turn the end of a cycle reads late does not end a later copy.
+
+        A cycle holds off a turn to 23.0, the peer's 25.0 arriving on this
+        TRV, and the device dropping out and returning with 25.0. The peer
+        moves on to 26.0 before the cycle ends. The turn becomes the room
+        target, and the device repeating 25.0 afterwards is no press.
+        """
+        peer = _room_with_a_copying_peer(mock_bt)
+        gone = _make_state(STATE_UNAVAILABLE, attributes={"temperature": None})
+        at_turn = _make_state(attributes={"temperature": 23.0})
+        at_copy = _make_state(attributes={"temperature": 25.0})
+        mock_bt.hass.states.get.return_value = at_copy
+        mock_bt.ignore_states = True
+        for old_state, new_state in (
+            (_make_state(attributes={"temperature": 22.0}), at_turn),
+            (at_turn, at_copy),
+            (at_copy, gone),
+            (gone, at_copy),
+        ):
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=new_state, old_state=old_state)
+            )
+        mock_bt.ignore_states = False
+        peer.commanded_setpoint = 26.0
+        peer.remember_setpoint_confirmed(26.0, peer.remember_setpoint_written(26.0))
+
+        await read_reports_held_during_cycle(mock_bt)
+        assert mock_bt.heat_target_temperature == 23.0
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 25.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.5},
+        )
+        assert mock_bt.heat_target_temperature == 23.0
 
     @pytest.mark.asyncio
     async def test_a_report_without_a_setpoint_leaves_the_copy(self, mock_bt):
