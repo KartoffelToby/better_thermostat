@@ -234,12 +234,55 @@ scored lower than the even split on `multi-asymmetric` and
 `multi-heterogeneous` for MPC v1, MPC v2 and TPI, and the same on
 `multi-symmetric`.
 BT still offers that split as the opt-in group option *Split the valve
-opening by each TRV's own temperature*; this benchmark does not run it,
-since a single room node cannot show the case it is meant for.
+opening by each TRV's own temperature*. `--multi-trv` does not run it,
+since a single room node cannot show the case it is meant for; the
+[valve split sweep](#valve-split-sweep-multi_zone_runner) does.
 
 This is the closer-to-reality benchmark for **multi-radiator rooms**
 (living rooms, larger kitchens) — common in residential setups. For
 single-radiator rooms the single-TRV matrix is the relevant one.
+
+### Valve split sweep (`multi_zone_runner`)
+
+```sh
+uv run python -m tests.benchmark.multi_zone_runner --rooms 1500
+```
+
+Each radiator heats an air zone of its own, and the two zones exchange
+heat. The sweep draws rooms by Latin hypercube sampling and runs each one
+with the even command and with the production split, under MPC v1 and
+MPC v2 and four scenarios. It varies what is unknown for a real room: the
+zones' share of the heat loss, the air exchange between them, radiator
+size, how much of its radiator a TRV reads, how wrong the cold zone's TRV
+reads, how often a TRV reports, sticky valves and where the room sensor
+hangs. The room, not the run, is the sample behind each interval.
+
+The table shows 1,500 rooms at seed 0, for the rooms whose cold-zone TRV
+reads within 0.25 K. The change is the split minus the even command, in
+the mean excess beyond 0.5 K around the setpoint in the zone that suffers
+most, away from setpoint changes. A negative change is an improvement.
+
+| Zone spread, even command | Rooms | Change (K) | 95 % interval (K) | Rooms improved | Valve travel |
+| ------------------------- | ----: | ---------: | ----------------- | -------------: | -----------: |
+| 0.0–0.2 K                 |   120 |     +0.059 | +0.049 to +0.069  |            5 % |       +22 % |
+| 0.2–0.4 K                 |    67 |     +0.057 | +0.039 to +0.078  |           13 % |       +24 % |
+| 0.4–0.6 K                 |    44 |     +0.037 | +0.016 to +0.059  |           30 % |       +25 % |
+| 0.6–0.8 K                 |    25 |     +0.001 | −0.030 to +0.035  |           44 % |       +25 % |
+| 0.8–1.0 K                 |    19 |     −0.052 | −0.113 to +0.002  |           68 % |       +22 % |
+| 1.0–1.5 K                 |    32 |     −0.108 | −0.150 to −0.065  |           81 % |       +24 % |
+| 1.5–2.5 K                 |    37 |     −0.313 | −0.382 to −0.243  |           97 % |       +29 % |
+| above 2.5 K               |    31 |     −0.886 | −1.021 to −0.757  |          100 % |       +36 % |
+
+The split costs comfort below about 0.6 K and helps from about 1 K. In
+the hours after a setpoint change it helps only from about 1.5 K. Heat
+delivered rises by 0.3 to 1.6 %. A cold-zone TRV that reads too warm hides
+part of the difference from the split, so its benefit starts later.
+Sticky valves and the TRV report interval leave the comfort result about
+where it is.
+
+The rooms are synthetic, have two zones and are not fitted to a measured
+room. Read the table as where the split can pay off. Whether a real room
+gets there takes a reference sensor in each part of the room.
 
 ### Known flow temperature (`mpc_v2+flow_temperature`)
 
@@ -308,9 +351,9 @@ Thermostat passes it to MPC v2 when the TRV's climate entity carries a
   room to save energy, read `delivered_heat_K` and the comfort column
   separately and weigh them yourself.
 * **The scenario library doesn't cover everything.** Notable
-  omissions: multi-zone thermal coupling, occupancy schedules,
-  photovoltaic-driven setpoint shifts, HVAC topologies beyond
-  radiator + boiler / heat pump.
+  omissions: multi-zone thermal coupling outside the valve split sweep,
+  occupancy schedules, photovoltaic-driven setpoint shifts, HVAC
+  topologies beyond radiator + boiler / heat pump.
 * **Indirect-TRV presets are heuristic.** Vendor params reflect
   user-reported behaviour, not bench measurements. The wrapper itself
   is approximate (it ignores actual firmware quirks like Sonoff's
@@ -378,6 +421,7 @@ Schedule shape generators (`step`, `ramp`, `pulse`, `piecewise_step`,
 tests/benchmark/
 ├── plant.py              RC2 / RC3 thermal plant + plant profiles
 ├── multi_trv_plant.py    N parallel radiators sharing one room
+├── multi_zone_plant.py   One radiator per air zone, zones exchanging heat
 ├── sensor.py             Room sensor (lag, resolution, reporting, faults) + TRV sensor
 ├── input_stage.py        BT's acceptance gate, EMA and slope of the room temperature
 ├── actuator.py           Linear / threshold / quadratic / equal-percentage flow
@@ -390,6 +434,7 @@ tests/benchmark/
 ├── adapters/             Controller adapters
 ├── runner.py             CLI entry point
 ├── multi_trv_runner.py   Drives the multi-TRV plant
+├── multi_zone_runner.py  Sweeps the valve split over multi-zone rooms
 ├── plant_fit/            Plant-fit demo + synthetic dataset generator
 └── tests/                Unit tests
 ```
