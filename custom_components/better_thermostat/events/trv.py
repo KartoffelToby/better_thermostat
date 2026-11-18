@@ -143,7 +143,12 @@ def accepts_user_setpoint(
 
 
 def _hold_report(
-    self: BetterThermostat, trv: Trv, old_state: State, new_state: State
+    self: BetterThermostat,
+    trv: Trv,
+    old_state: State,
+    new_state: State,
+    *,
+    copied: bool = False,
 ) -> None:
     """Park a report that arrives while a control cycle holds the handler off.
 
@@ -163,7 +168,9 @@ def _hold_report(
     has cached the device as on by then, and reads the move as a press.
     Any report that moves the setpoint of a device that is on is kept as
     the held turn, for the end of the cycle to read when a later report
-    switches the device off or brings it back.
+    switches the device off or brings it back. A report ``copied`` from a
+    neighbour's write is no turn, and the end of the cycle could no longer
+    tell once the neighbour has moved on.
     """
     unread = trv.unread_report
     previous_setpoint = _held_setpoint(self, old_state)
@@ -190,7 +197,8 @@ def _hold_report(
     if pressed_after_switch_on:
         unread = UnreadReport(state_before=old_state, hvac_mode_before=old_state.state)
     if (
-        _reports_on(old_state)
+        not copied
+        and _reports_on(old_state)
         and _reports_on(new_state)
         and previous_setpoint is not None
         and _held_setpoint(self, new_state) not in (None, previous_setpoint)
@@ -280,13 +288,25 @@ def _note_copied_setpoint(
 
 def _note_copied_report(
     self: BetterThermostat, trv: Trv, entity_id: str, state: State
-) -> None:
-    """Update a TRV's copy from a report the handler reads no further."""
+) -> bool:
+    """Update a TRV's copy from a report the handler reads no further.
+
+    A report that says the device is gone says nothing about what it holds,
+    whatever setpoint it still names.
+
+    Returns
+    -------
+    bool
+        Whether the report carries a neighbour's write or the TRV's copy.
+    """
+    if trv_report_is_unreadable(self, entity_id, state):
+        return False
     reported = read_setpoint_celsius(
         self, state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
     )
-    if reported is not None:
-        _note_copied_setpoint(self, trv, entity_id, reported)
+    if reported is None:
+        return False
+    return _note_copied_setpoint(self, trv, entity_id, reported)
 
 
 def reports_written_setpoint(
@@ -765,8 +785,13 @@ async def trigger_trv_change(
         _read_internal_temperature_later(self, trv, entity_id, _time_diff)
 
     if self.ignore_states:
-        _note_copied_report(self, trv, entity_id, new_state)
-        _hold_report(self, trv, old_state, new_state)
+        _hold_report(
+            self,
+            trv,
+            old_state,
+            new_state,
+            copied=_note_copied_report(self, trv, entity_id, new_state),
+        )
         if _main_change or _range_changed:
             trv.temperature_moved_while_held = True
         return

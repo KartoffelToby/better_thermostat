@@ -12,6 +12,7 @@ hardware:
    no calibration and no direct valve control.
 """
 
+import asyncio
 import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,6 +25,7 @@ from custom_components.better_thermostat import config_flow
 from custom_components.better_thermostat.adapters import valve_entity
 from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.adapters.conformance import ECOSYSTEM_ADAPTERS
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils import helpers
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -35,6 +37,8 @@ from tests.factories import (
     make_registry_entry,
     trv_record,
 )
+
+_CLIMATE = "custom_components.better_thermostat.climate"
 
 quirk = importlib.import_module(
     "custom_components.better_thermostat.model_fixes.ZWA021"
@@ -147,6 +151,51 @@ class TestZWA021ExternalTemperature:
         assert await quirk.maybe_set_external_temperature(
             mock_self, "climate.trv1", 21.0
         )
+        assert send.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_report_under_way_does_not_hold_up_the_release_or_the_next_report(
+        self,
+    ):
+        """Release and take-back around a report the device has not answered."""
+        mock_self = _make_external_temperature_self()
+        entity_id = "climate.trv1"
+        answered = asyncio.Event()
+        started = asyncio.Event()
+
+        async def _report(*_args, **_kwargs):
+            started.set()
+            await answered.wait()
+
+        send = mock_self.hass.services.async_call
+        send.side_effect = _report
+        mock_self.startup_running = False
+        mock_self._heating_tracker = MagicMock()
+        mock_self._loss_tracker = MagicMock()
+        mock_self._initialize_arrived_trvs = AsyncMock()
+        mock_self.control_queue_task = MagicMock()
+
+        async def _keepalive():
+            await quirk.maybe_set_external_temperature(mock_self, entity_id, 21.0)
+
+        mock_self._external_temperature_keepalive = _keepalive
+        report = asyncio.create_task(
+            quirk.maybe_set_external_temperature(mock_self, entity_id, 21.0)
+        )
+        await started.wait()
+
+        with (
+            patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.publish_kernel_verdict"),
+        ):
+            await asyncio.wait_for(
+                BetterThermostat.async_set_trv_released(mock_self, entity_id, True), 1
+            )
+            assert not report.done()
+            answered.set()
+            assert await report
+            await BetterThermostat.async_set_trv_released(mock_self, entity_id, False)
+
         assert send.await_count == 2
 
     @pytest.mark.asyncio

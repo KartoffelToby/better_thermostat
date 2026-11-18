@@ -125,6 +125,7 @@ class TestCheckSystemMode:
         mock_self, _ = self._mock_self(
             live_state=live_state, last_hvac_mode=HVACMode.HEAT
         )
+        mock_self.hass.states.get.return_value = State("climate.trv1", live_state)
         mock_self.real_trvs["climate.trv1"].last_hvac_mode_sent = HVACMode.HEAT
 
         await check_system_mode(mock_self, "climate.trv1")
