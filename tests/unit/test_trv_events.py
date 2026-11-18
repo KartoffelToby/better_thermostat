@@ -2443,51 +2443,6 @@ class TestTargetTempAdoption:
         assert mock_bt.heat_target_temperature == 25.0
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("cycle_running", [False, True])
-    @pytest.mark.parametrize("cached_mode", [HVACMode.OFF, HVACMode.HEAT])
-    async def test_a_report_overtaken_by_the_take_back_only_updates_the_device_record(
-        self, mock_bt, cycle_running, cached_mode
-    ):
-        """A report the user's TRV sent is no press, and the next turn is one.
-
-        The TRV reports heat at 25.0 and a maximum of 26.0 while released,
-        and the take-back overtakes the report. The room
-        target stays 19.0, the mode and the range are kept, and a turn to
-        23.0 afterwards is adopted.
-        """
-        trv = mock_bt.real_trvs[ENTITY_ID]
-        trv.hvac_mode = cached_mode
-        reported = _make_state(
-            attributes={"temperature": 25.0, "min_temp": 5.0, "max_temp": 26.0}
-        )
-        mock_bt.hass.states.get.return_value = reported
-        mock_bt.hass.states.get.side_effect = None
-        mock_bt.ignore_states = cycle_running
-
-        await trigger_trv_change(
-            mock_bt,
-            _make_event(
-                mock_bt,
-                new_state=reported,
-                old_state=_make_state(cached_mode, attributes={"temperature": 19.0}),
-            ),
-            sent_while_released=True,
-        )
-        mock_bt.ignore_states = False
-
-        assert mock_bt.heat_target_temperature == 19.0
-        assert trv.hvac_mode == HVACMode.HEAT
-        assert trv.max_temp == 26.0
-        assert trv.report_unread is False
-
-        await _report_setpoint(
-            mock_bt,
-            {"temperature": 25.0, "current_temperature": 18.0},
-            {"temperature": 23.0, "current_temperature": 18.0},
-        )
-        assert mock_bt.heat_target_temperature == 23.0
-
-    @pytest.mark.asyncio
     async def test_a_report_without_a_setpoint_leaves_the_copy(self, mock_bt):
         """A report under BT's context that carries no setpoint ends no copy.
 

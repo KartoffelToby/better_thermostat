@@ -554,7 +554,6 @@ async def trigger_trv_change(
     request_cycle: bool = True,
     prior_hvac_mode: str | None = None,
     earlier_turn: bool = False,
-    sent_while_released: bool = False,
 ) -> None:
     """Trigger a change in the trv state.
 
@@ -566,9 +565,7 @@ async def trigger_trv_change(
     report, for a caller whose cache has moved since; without it the cache
     is that mode. ``earlier_turn`` reads a turn a control cycle held off. It
     was no copy when it arrived and the TRV's copy follows the reports after
-    it, so the two are not compared. ``sent_while_released`` reads a report
-    the device sent while it was the user's, also when it has been taken back
-    since: its mode and range are kept, and nothing else of it is the room's.
+    it, so the two are not compared.
     """
     if self.startup_running:
         return
@@ -790,7 +787,7 @@ async def trigger_trv_change(
         # the interval is over.
         _read_internal_temperature_later(self, trv, entity_id, _time_diff)
 
-    if self.ignore_states and not sent_while_released:
+    if self.ignore_states:
         _hold_report(
             self,
             trv,
@@ -830,7 +827,7 @@ async def trigger_trv_change(
         )
         trv.valve_report_answered = False
 
-    if sent_while_released or device_released(self, entity_id):
+    if device_released(self, entity_id):
         # The user drives the device. Its mode is cached as it reports it, so
         # that once the device is taken back its next report reads as no
         # change rather than as a press, and nothing it reports becomes the

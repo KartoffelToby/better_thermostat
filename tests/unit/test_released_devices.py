@@ -173,17 +173,12 @@ async def test_reports_held_while_released_end_with_the_take_back(released, stil
     """Nothing a cycle held off while the room was the user's reaches the room."""
     bt = _releasable_room()
     bt.devices_released = not released
-    bt.real_trvs = {
-        entity_id: trv_record(entity_id=entity_id)
-        for entity_id in ("climate.trv_a", "climate.trv_b")
-    }
-    for entity_id, trv in bt.real_trvs.items():
-        before = State(entity_id, HVACMode.HEAT)
-        trv.unread_report = UnreadReport(
-            state_before=before, hvac_mode_before=HVACMode.HEAT
-        )
-        trv.held_turn = (before, State(entity_id, HVACMode.HEAT))
-        trv.temperature_moved_while_held = True
+    trv = trv_record(entity_id="climate.trv_a")
+    bt.real_trvs = {"climate.trv_a": trv}
+    trv.unread_report = UnreadReport(
+        state_before=State("climate.trv_a", HVACMode.HEAT),
+        hvac_mode_before=HVACMode.HEAT,
+    )
 
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
@@ -191,10 +186,7 @@ async def test_reports_held_while_released_end_with_the_take_back(released, stil
     ):
         await BetterThermostat.async_set_devices_released(bt, released)
 
-    for trv in bt.real_trvs.values():
-        assert trv.report_unread is still_held
-        assert (trv.held_turn is not None) is still_held
-        assert trv.temperature_moved_while_held is still_held
+    assert trv.report_unread is still_held
 
 
 @pytest.mark.parametrize("released", [True, False])

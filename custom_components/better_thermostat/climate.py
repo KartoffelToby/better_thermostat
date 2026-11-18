@@ -2137,10 +2137,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event: Event[EventStateChangedData]) -> None:
-        # A take-back can overtake the report on its way to the handler, which
-        # then has to be told that the report was the user's.
-        reporting_entity_id = event.data.get("entity_id")
-        sent_while_released = device_released(self, reporting_entity_id)
         # A report from a TRV startup went ahead without is the sign it is
         # back; it is initialised before the report is read.
         await self._initialize_arrived_trvs()
@@ -2162,12 +2158,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # A TRV still awaiting its initialisation has nothing its report could
         # be compared against: no mode, no setpoint, no bounds. Its report is
         # read once the initialisation has completed.
-        reporting_trv = self.real_trvs.get(reporting_entity_id)
+        reporting_trv = self.real_trvs.get(event.data.get("entity_id"))
         if reporting_trv is not None and reporting_trv.awaiting_initialization:
             return
 
         self._spawn_owned(
-            trigger_trv_change(self, event, sent_while_released=sent_while_released),
+            trigger_trv_change(self, event),
             name=f"bt_trigger_trv_change_{self.device_name}",
         )
 
