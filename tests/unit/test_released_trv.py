@@ -90,6 +90,8 @@ def _room() -> ThermostatStandIn:
     bt._initialize_arrived_trvs = AsyncMock()
     bt._external_temperature_keepalive = AsyncMock()
     bt.control_queue_task = MagicMock()
+    bt.hass = MagicMock()
+    bt.hass.states.get.return_value = None
     return bt
 
 
@@ -222,6 +224,81 @@ class TestTheSetter:
         assert trv.report_unread is still_held
         assert (trv.held_turn is not None) is still_held
         assert trv.temperature_moved_while_held is still_held
+
+    @pytest.mark.parametrize("released", [True, False], ids=["release", "take_back"])
+    @pytest.mark.asyncio
+    async def test_the_hand_over_is_counted_for_that_trv_alone(self, released):
+        """A report on its way is read against the count it arrived under."""
+        bt = _room()
+        bt.released_trvs = set() if released else {RELEASED}
+
+        await _set_released(bt, RELEASED, released)
+
+        assert bt.real_trvs[RELEASED].handovers == 1
+        assert bt.real_trvs[CONTROLLED].handovers == 0
+
+    @pytest.mark.asyncio
+    async def test_the_take_back_reads_what_the_trv_holds(self):
+        """The TRV's mode, range and setpoint are read from its state.
+
+        The setpoint the user left on it is its copy, so a report repeating
+        it is no press.
+        """
+        bt = _room()
+        bt.released_trvs = {RELEASED}
+        bt.hass.states.get.return_value = State(
+            RELEASED, HVACMode.HEAT, {"temperature": 25.0, "max_temp": 28.0}
+        )
+        trv = bt.real_trvs[RELEASED]
+        trv.hvac_mode = HVACMode.OFF
+
+        await _set_released(bt, RELEASED, False)
+
+        assert trv.hvac_mode == HVACMode.HEAT
+        assert trv.copied_setpoint == 25.0
+        assert trv.heating_range == (None, 28.0)
+
+    @pytest.mark.parametrize(
+        ("released_when_reported", "handovers"),
+        [
+            pytest.param(True, 0, id="sent_while_released"),
+            pytest.param(False, 1, id="sent_after_the_take_back"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_report_carries_the_count_it_arrived_under(
+        self, released_when_reported, handovers
+    ):
+        """A take-back while the listener waits leaves the report its count."""
+        bt = _room()
+        bt.in_maintenance = False
+        bt._async_unsub_state_changed = MagicMock()
+        bt._spawn_owned = MagicMock()
+        bt.async_set_context = MagicMock()
+        trv = bt.real_trvs[RELEASED]
+        if released_when_reported:
+            bt.released_trvs = {RELEASED}
+        else:
+            trv.handovers = 1
+
+        async def _taken_back_meanwhile():
+            if RELEASED in bt.released_trvs:
+                bt.released_trvs.discard(RELEASED)
+                trv.handovers += 1
+
+        bt._initialize_arrived_trvs = AsyncMock(side_effect=_taken_back_meanwhile)
+        event = MagicMock()
+        event.data = {"entity_id": RELEASED, "new_state": State(RELEASED, "heat")}
+
+        with (
+            patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+            patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.publish_when_availability_changed"),
+            patch(f"{_CLIMATE}.trigger_trv_change", MagicMock()) as read,
+        ):
+            await BetterThermostat._trigger_trv_change(bt, event)
+
+        read.assert_called_once_with(bt, event, handovers=handovers)
 
     @pytest.mark.parametrize(
         ("released", "entity_id"),

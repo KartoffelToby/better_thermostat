@@ -5892,3 +5892,258 @@ class TestReportedRange:
         report = State(ENTITY_ID, HVACMode.HEAT, {"min_temp": 4.0})
 
         assert _heating_bounds(mock_bt, [report]) == ([4.0], [25.0])
+
+
+async def _hand_over(bt, scope: str, released: bool) -> None:
+    """Release ``ENTITY_ID`` the way ``scope`` names, or take it back."""
+    bt.learning_pause_changes = 0
+    bt._heating_tracker = MagicMock()
+    bt._loss_tracker = MagicMock()
+    bt._initialize_arrived_trvs = AsyncMock()
+    bt._external_temperature_keepalive = AsyncMock()
+    with (
+        patch(
+            "custom_components.better_thermostat.climate.check_critical_entities",
+            AsyncMock(),
+        ),
+        patch("custom_components.better_thermostat.climate.publish_kernel_verdict"),
+    ):
+        if scope == "room":
+            await BetterThermostat.async_set_devices_released(bt, released)
+        else:
+            await BetterThermostat.async_set_trv_released(bt, ENTITY_ID, released)
+
+
+class TestReportsCrossingAHandover:
+    """A report that crosses a release or a take-back is not the TRV's.
+
+    The user drives a released TRV from 19.0 to 25.0 and on to 23.0, which is
+    the state Home Assistant holds when the TRV is taken back. The report of
+    the first turn is still on its way to the handler then. Home Assistant
+    holds a state before it hands the report on, so the state it holds is the
+    newer one.
+    """
+
+    @staticmethod
+    def _live(bt, setpoint=23.0, **attributes):
+        state = _make_state(attributes={"temperature": setpoint, **attributes})
+        bt.hass.states.get.return_value = state
+        return state
+
+    @staticmethod
+    def _turn_to_25(bt, **attributes):
+        return _make_event(
+            bt,
+            new_state=_make_state(attributes={"temperature": 25.0, **attributes}),
+            old_state=_make_state(attributes={"temperature": 19.0}),
+        )
+
+    async def _released_with_a_report_on_its_way(self, bt, scope, **attributes):
+        """Release the TRV, then return the report on its way and its count."""
+        await _hand_over(bt, scope, True)
+        event = self._turn_to_25(bt, **attributes)
+        return event, bt.real_trvs[ENTITY_ID].handovers
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_a_turn_sent_while_released_is_not_the_rooms_target(
+        self, mock_bt, scope
+    ):
+        """The overtaken turn to 25.0 does not become the room's target."""
+        event, arrived = await self._released_with_a_report_on_its_way(mock_bt, scope)
+        self._live(mock_bt)
+        await _hand_over(mock_bt, scope, False)
+
+        await trigger_trv_change(mock_bt, event, handovers=arrived)
+
+        assert mock_bt.heat_target_temperature == 19.0
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_a_report_repeating_the_users_setpoint_is_no_turn(
+        self, mock_bt, scope
+    ):
+        """The setpoint the TRV holds at the take-back is not read as a press.
+
+        The report after the take-back carries only a new internal
+        temperature, and the TRV still holds the user's 25.0 until the
+        room's next cycle writes over it.
+        """
+        await _hand_over(mock_bt, scope, True)
+        self._live(mock_bt, 25.0)
+        await _hand_over(mock_bt, scope, False)
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 25.0, "current_temperature": 18.0},
+            {"temperature": 25.0, "current_temperature": 18.5},
+        )
+
+        assert mock_bt.heat_target_temperature == 19.0
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_a_turn_after_the_take_back_is_the_rooms_target(self, mock_bt, scope):
+        """The counterpart: a turn away from the held setpoint is a press."""
+        await _hand_over(mock_bt, scope, True)
+        self._live(mock_bt, 25.0)
+        await _hand_over(mock_bt, scope, False)
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 25.0, "current_temperature": 18.0},
+            {"temperature": 22.0, "current_temperature": 18.0},
+        )
+
+        assert mock_bt.heat_target_temperature == 22.0
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_the_overtaken_report_leaves_the_newer_range(self, mock_bt, scope):
+        """The range of the overtaken report does not replace the newer one."""
+        event, arrived = await self._released_with_a_report_on_its_way(
+            mock_bt, scope, max_temp=26.0
+        )
+        self._live(mock_bt, max_temp=28.0)
+        await _hand_over(mock_bt, scope, False)
+
+        await trigger_trv_change(mock_bt, event, handovers=arrived)
+
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        assert trv.max_temp == 28.0
+        assert trv.heating_range == (None, 28.0)
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_the_take_back_reads_the_range_and_mode_the_trv_holds(
+        self, mock_bt, scope
+    ):
+        """The take-back caches what the TRV holds, before any report arrives.
+
+        The room is off and so was the TRV before its release; the user
+        switched it on. Its next report then reads as no change and switches
+        the room on no more than its range moves the room's.
+        """
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.hvac_mode = HVACMode.OFF
+        await _hand_over(mock_bt, scope, True)
+        self._live(mock_bt, max_temp=28.0)
+
+        await _hand_over(mock_bt, scope, False)
+
+        assert trv.hvac_mode == HVACMode.HEAT
+        assert trv.max_temp == 28.0
+        assert trv.heating_range == (None, 28.0)
+
+        await _report_setpoint(
+            mock_bt,
+            {"temperature": 23.0, "max_temp": 28.0},
+            {"temperature": 23.0, "max_temp": 28.0, "current_temperature": 18.5},
+        )
+
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_the_overtaken_report_leaves_a_mode_sent_since_unconfirmed(
+        self, mock_bt, scope
+    ):
+        """A mode written after the take-back still waits for its budget.
+
+        The user switched the TRV off and on again while it was released, and
+        the report of the switch off is on its way. The cycle after the
+        take-back sends off; the overtaken report does not count as the TRV
+        holding it.
+        """
+        await _hand_over(mock_bt, scope, True)
+        event = _make_event(
+            mock_bt, new_state=_make_state(HVACMode.OFF), old_state=_make_state()
+        )
+        arrived = mock_bt.real_trvs[ENTITY_ID].handovers
+        self._live(mock_bt)
+        await _hand_over(mock_bt, scope, False)
+        mock_bt.real_trvs[ENTITY_ID].last_hvac_mode_sent = HVACMode.OFF
+
+        await trigger_trv_change(mock_bt, event, handovers=arrived)
+
+        assert mock_bt.real_trvs[ENTITY_ID].last_hvac_mode_sent == HVACMode.OFF
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_the_overtaken_report_gives_way_to_what_the_trv_holds(
+        self, mock_bt, scope
+    ):
+        """Nothing the report would have told the room is lost.
+
+        The internal temperature the TRV reports by then is read from the
+        state Home Assistant holds.
+        """
+        event, arrived = await self._released_with_a_report_on_its_way(mock_bt, scope)
+        self._live(mock_bt, current_temperature=20.5)
+        await _hand_over(mock_bt, scope, False)
+
+        await trigger_trv_change(mock_bt, event, handovers=arrived)
+
+        assert mock_bt.real_trvs[ENTITY_ID].current_temperature == 20.5
+
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_a_report_held_by_a_cycle_is_held_as_the_trv_holds_it(
+        self, mock_bt, scope
+    ):
+        """A cycle running at the take-back holds no turn of the user's.
+
+        The end of the cycle reads the state the TRV holds, not the turn.
+        """
+        event, arrived = await self._released_with_a_report_on_its_way(mock_bt, scope)
+        self._live(mock_bt)
+        await _hand_over(mock_bt, scope, False)
+        mock_bt.ignore_states = True
+
+        await trigger_trv_change(mock_bt, event, handovers=arrived)
+        mock_bt.ignore_states = False
+
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        assert trv.held_turn is None
+        unread = trv.unread_report
+        assert unread is not None
+        assert unread.state_before is mock_bt.hass.states.get.return_value
+
+        await read_reports_held_during_cycle(mock_bt)
+
+        assert mock_bt.heat_target_temperature == 19.0
+
+    @pytest.mark.parametrize("removed", [False, True], ids=["held", "removed"])
+    @pytest.mark.parametrize("scope", RELEASE_SCOPES)
+    @pytest.mark.asyncio
+    async def test_a_take_back_while_the_report_is_read_ends_its_reading(
+        self, mock_bt, scope, removed
+    ):
+        """The take-back can come while the handler waits on the TRV's offset.
+
+        The report was sent while the TRV was released; the rest of it is
+        not read as the TRV's once it is taken back, and a TRV whose state
+        is gone by then has nothing to read in its place.
+        """
+        await _hand_over(mock_bt, scope, True)
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.calibration_received = False
+        trv.calibration = CalibrationOutput.LOCAL_BASED
+        event = self._turn_to_25(mock_bt, current_temperature=20.0)
+        self._live(mock_bt, current_temperature=20.0)
+
+        async def taken_back_meanwhile(_bt, _entity_id):
+            await _hand_over(mock_bt, scope, False)
+            if removed:
+                mock_bt.hass.states.get.return_value = None
+            return 0.0
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.get_calibration_offset",
+            autospec=True,
+            side_effect=taken_back_meanwhile,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.heat_target_temperature == 19.0
