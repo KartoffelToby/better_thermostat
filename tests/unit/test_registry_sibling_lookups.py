@@ -342,6 +342,8 @@ def _host(registry: Any, lookup: Lookup, candidate: str) -> MagicMock:
     host.unique_id = "bt_test"
     host.model = None
     host.context = None
+    host.window_sensor_entity_id = None
+    host.door_sensor_entity_id = None
     host.sensor_entity_id = "sensor.room_temperature"
     host.hass.states.get = _state
     host.hass.services.async_call = AsyncMock(return_value=None)
@@ -557,6 +559,8 @@ def _runtime_host(helper: Any) -> MagicMock:
     host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
+    host.window_sensor_entity_id = None
+    host.door_sensor_entity_id = None
     host.hass.services.async_call = AsyncMock(return_value=None)
     host.hass.states.get = lambda entity_id: State(
         entity_id, "0", {"min": 0, "max": 100, "step": 1}

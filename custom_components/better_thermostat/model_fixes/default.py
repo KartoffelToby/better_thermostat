@@ -203,10 +203,17 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
         # 3. Away / Window detection -> Off
         if device_released(self, entity_id):
             return
-        # Window detection disable the interal trv window detection, its handled by better_thermostat
-        win_entity = find_entity(
-            ["switch"],
-            ["window_detection", "window_open", "window open", "open_window"],
+        # The TRV's own window detection gives way to a window or door sensor
+        # Better Thermostat watches. Without one it is the only detection the
+        # room has, and it stays as the user set it.
+        win_entity = (
+            find_entity(
+                ["switch"],
+                ["window_detection", "window_open", "window open", "open_window"],
+            )
+            if self.window_sensor_entity_id is not None
+            or self.door_sensor_entity_id is not None
+            else None
         )
         if win_entity:
             try:

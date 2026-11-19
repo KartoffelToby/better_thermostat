@@ -159,6 +159,8 @@ def _offset_host(remote_sensing: str, calibration_state: str) -> ThermostatStand
     host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
+    host.window_sensor_entity_id = None
+    host.door_sensor_entity_id = None
     host.hass.services.async_call = AsyncMock(return_value=None)
     states = {
         REMOTE_SENSING_ID: State(REMOTE_SENSING_ID, remote_sensing),

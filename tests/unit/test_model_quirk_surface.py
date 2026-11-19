@@ -120,6 +120,8 @@ def _host():
     host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
+    host.window_sensor_entity_id = None
+    host.door_sensor_entity_id = None
     host.room_temperature = 19.5
     host.heat_target_temperature = 21.0
     host.in_maintenance = False
