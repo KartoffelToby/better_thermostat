@@ -635,10 +635,10 @@ async def trigger_trv_change(
     it, so the two are not compared.
 
     ``handovers`` is the TRV's handover count when the report arrived; without
-    it the count is read here. A report the TRV was released or taken back
-    since was sent by a device someone else held, and nothing of it is read:
-    the state Home Assistant holds is read in its place, as a report that
-    changes nothing.
+    it the count is read here. A report that crossed a release or a take-back
+    of the TRV was sent by a device someone else held, and nothing of it is
+    read: the state Home Assistant holds is read in its place, as a report
+    that changes nothing.
     """
     if self.startup_running:
         return
