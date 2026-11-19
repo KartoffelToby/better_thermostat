@@ -50,6 +50,8 @@ def _releasable_room() -> ThermostatStandIn:
     bt._external_temperature_keepalive = AsyncMock()
     bt.control_queue_task = MagicMock()
     bt.real_trvs = dict[str, Trv]()
+    bt.hass = MagicMock()
+    bt.hass.states.get.return_value = None
     return bt
 
 
@@ -159,6 +161,71 @@ async def test_a_release_change_sends_every_mode_as_a_new_one(released):
 
     assert [trv.last_hvac_mode_sent for trv in bt.real_trvs.values()] == [None, None]
     assert [trv.copied_setpoint for trv in bt.real_trvs.values()] == [None, None]
+
+
+@pytest.mark.parametrize("released", [True, False], ids=["release", "take_back"])
+@pytest.mark.asyncio
+async def test_the_hand_over_is_counted_for_every_trv(released):
+    """A report on its way is read against the count it arrived under."""
+    bt = _releasable_room()
+    bt.devices_released = not released
+    bt.real_trvs = {
+        entity_id: trv_record(entity_id=entity_id)
+        for entity_id in ("climate.trv_a", "climate.trv_b")
+    }
+
+    with (
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+        patch(f"{_CLIMATE}.publish_kernel_verdict"),
+    ):
+        await BetterThermostat.async_set_devices_released(bt, released)
+
+    assert [trv.handovers for trv in bt.real_trvs.values()] == [1, 1]
+
+
+@pytest.mark.parametrize(
+    ("max_temp", "refreshed"),
+    [pytest.param(28.0, True, id="range_moved"), pytest.param(30.0, False, id="same")],
+)
+@pytest.mark.asyncio
+async def test_the_take_back_bounds_the_room_by_the_ranges_the_trvs_hold(
+    max_temp, refreshed
+):
+    """A range a TRV took on while released bounds the room once it is back.
+
+    Each TRV's mode, range and setpoint are read from its state; a TRV
+    released on its own stays the user's and is not read.
+    """
+    bt = _releasable_room()
+    bt.devices_released = True
+    bt.released_trvs = {"climate.trv_b"}
+    bt._refresh_heating_range = MagicMock()
+    bt.real_trvs = {
+        entity_id: trv_record(
+            entity_id=entity_id,
+            hvac_mode=HVACMode.OFF,
+            max_temp=30.0,
+            heating_range=(None, 30.0),
+        )
+        for entity_id in ("climate.trv_a", "climate.trv_b")
+    }
+    bt.hass.states.get.side_effect = lambda entity_id: State(
+        entity_id, HVACMode.HEAT, {"temperature": 25.0, "max_temp": max_temp}
+    )
+
+    with (
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+        patch(f"{_CLIMATE}.publish_kernel_verdict"),
+    ):
+        await BetterThermostat.async_set_devices_released(bt, False)
+
+    taken_back, still_released = bt.real_trvs.values()
+    assert (taken_back.hvac_mode, taken_back.copied_setpoint) == (HVACMode.HEAT, 25.0)
+    assert (still_released.hvac_mode, still_released.copied_setpoint) == (
+        HVACMode.OFF,
+        None,
+    )
+    assert bt._refresh_heating_range.called is refreshed
 
 
 @pytest.mark.parametrize(
