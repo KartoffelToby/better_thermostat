@@ -213,6 +213,13 @@ class TestTrvReportedBuilding:
         snapshot = build_snapshot(bt)
         assert snapshot.trvs["climate.trv"].available is False
 
+    def test_a_thermostat_outside_home_assistant_has_no_trv_available(self):
+        """Without Home Assistant there is no state to read a TRV from."""
+        bt = _make_bt()
+        bt.hass = None
+        snapshot = build_snapshot(bt)
+        assert snapshot.trvs["climate.trv"].available is False
+
     def test_unknown_state_marks_trv_unavailable(self):
         """An entity saying nothing leaves its device unaccounted for."""
         bt = _make_bt()
