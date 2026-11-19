@@ -225,11 +225,19 @@ class Trv:
     # confirms is read as an echo as well; that is the price of telling a
     # held write from a press.
     pending_setpoints: list[PendingSetpoint] = field(default_factory=list)
-    # A setpoint in °C BT wrote to another TRV of the room that a system keeping
-    # one setpoint per room copied onto this device. The device holds it until
-    # it reports another setpoint, so each report of it until then is BT's
-    # write as well, after the other TRV's records have moved on from it.
+    # A setpoint in °C the device holds that no press at it put there: one BT
+    # wrote to another TRV of the room that a system keeping one setpoint per
+    # room copied onto this device, or the one the device held when it was
+    # taken back from the user. The device holds it until it reports another
+    # setpoint, so each report of it until then is no press, after the other
+    # TRV's records have moved on from it and before the room's next control
+    # cycle has written over it.
     copied_setpoint: float | None = None
+    # How often the TRV was released to the user or taken back, by itself or
+    # with the room's devices. A report is read against the count it arrived
+    # under: one that crossed a release or a take-back on its way to the
+    # handler was sent by a device someone else held.
+    handovers: int = 0
     # How often the record of the room temperature sent to the device was
     # dropped. A quirk compares it across its write: a write that outlasted a
     # drop records nothing, so the next room temperature still goes out.

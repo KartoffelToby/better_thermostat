@@ -75,12 +75,23 @@ def _make_releasable(bt: Any) -> Any:
 
 
 async def _set_released(bt: Any, released: bool, scope: str = "room") -> None:
-    """Release or take back the room's devices, or its one TRV on its own."""
-    with patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()):
-        if scope == "room":
-            await BetterThermostat.async_set_devices_released(bt, released)
-        else:
-            await BetterThermostat.async_set_trv_released(bt, ENTITY_ID, released)
+    """Release or take back the room's devices, or its one TRV on its own.
+
+    The take-back reads each TRV's state, which a room without Home
+    Assistant has none of.
+    """
+    hass = bt.hass
+    if hass is None:
+        bt.hass = MagicMock()
+        bt.hass.states.get.return_value = None
+    try:
+        with patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()):
+            if scope == "room":
+                await BetterThermostat.async_set_devices_released(bt, released)
+            else:
+                await BetterThermostat.async_set_trv_released(bt, ENTITY_ID, released)
+    finally:
+        bt.hass = hass
 
 
 def _set_paused(bt: Any, paused: bool) -> None:

@@ -121,7 +121,7 @@ from .events.temperature import (
     temperature_filter_lock,
     trigger_temperature_change,
 )
-from .events.trv import trigger_trv_change
+from .events.trv import hand_over_trv, trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import (
     highest_applied_calibration_offset,
@@ -2137,6 +2137,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event: Event[EventStateChangedData]) -> None:
+        # The TRV can be released or taken back while the report waits here,
+        # so the report carries the handover count it arrived under.
+        arrived_for = self.real_trvs.get(event.data.get("entity_id"))
+        handovers = None if arrived_for is None else arrived_for.handovers
         # A report from a TRV startup went ahead without is the sign it is
         # back; it is initialised before the report is read.
         await self._initialize_arrived_trvs()
@@ -2163,7 +2167,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             return
 
         self._spawn_owned(
-            trigger_trv_change(self, event),
+            trigger_trv_change(self, event, handovers=handovers),
             name=f"bt_trigger_trv_change_{self.device_name}",
         )
 
@@ -5562,12 +5566,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         if released == self.devices_released:
             return
         self.devices_released = released
-        # What the TRVs were sent before the release is no repeat for the
-        # cycle that takes them back, and a neighbour's setpoint they copied
-        # says nothing about a turn after it.
-        for trv in self.real_trvs.values():
-            trv.last_hvac_mode_sent = None
-            trv.copied_setpoint = None
+        heating_range_moved = False
+        for entity_id, trv in self.real_trvs.items():
+            heating_range_moved = (
+                hand_over_trv(self, entity_id, trv) or heating_range_moved
+            )
+        if heating_range_moved:
+            self._refresh_heating_range()
         self.learning_pause_changes += 1
         _LOGGER.info(
             "better_thermostat %s: devices %s",
@@ -5625,11 +5630,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.released_trvs.add(entity_id)
         else:
             self.released_trvs.discard(entity_id)
-        # What the TRV was sent before its release is no repeat for the
-        # cycle that takes it back, and a neighbour's setpoint it copied says
-        # nothing about a turn after it.
-        self.real_trvs[entity_id].last_hvac_mode_sent = None
-        self.real_trvs[entity_id].copied_setpoint = None
+        hand_over_trv(self, entity_id, self.real_trvs[entity_id])
         self.learning_pause_changes += 1
         _LOGGER.info(
             "better_thermostat %s: TRV %s %s",

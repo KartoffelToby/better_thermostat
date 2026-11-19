@@ -13,8 +13,8 @@ import logging
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import State, callback
+from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import Context, Event, EventStateChangedData, State, callback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
@@ -70,8 +70,6 @@ from custom_components.better_thermostat.utils.hvac_action import parse_hvac_act
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 if TYPE_CHECKING:
-    from homeassistant.core import Event, EventStateChangedData
-
     from custom_components.better_thermostat.climate import BetterThermostat
     from custom_components.better_thermostat.trv import Trv
 
@@ -451,6 +449,71 @@ def _adopt_reported_range(
     return True
 
 
+def hand_over_trv(self: BetterThermostat, entity_id: str, trv: Trv) -> bool:
+    """Settle a TRV's record for a release or a take-back that just happened.
+
+    A report still on its way to the handler was sent by whoever held the
+    TRV before, so the handover is counted and such a report is not read as
+    the TRV's. What the TRV was sent before is no repeat for the cycle that
+    takes it back, and a neighbour's setpoint it copied says nothing about a
+    turn after it.
+
+    A TRV that is no longer released is read from the state Home Assistant
+    holds. Home Assistant sets a state before it hands its report to the
+    listeners, so that state is at least as new as any report still on its
+    way. Its mode is cached as it reports it and its heating range is read as
+    a report's, so the next report reads as no change. Its setpoint was set
+    while the device was the user's and is kept as the TRV's copy: a report
+    that repeats it is no press, and the room's next control cycle writes the
+    room's setpoint over it. A state that says the device is gone says
+    nothing about what it holds, and a TRV still awaiting its initialisation
+    reads the device's state itself.
+
+    Returns
+    -------
+    bool
+        True when that read moved the TRV's heating range or the bounds it
+        is driven in.
+    """
+    trv.handovers += 1
+    trv.last_hvac_mode_sent = None
+    trv.copied_setpoint = None
+    if device_released(self, entity_id) or trv.awaiting_initialization:
+        return False
+    state = self.hass.states.get(entity_id)
+    if state is None or trv_report_is_unreadable(self, entity_id, state):
+        return False
+    adopt_reported_hvac_modes(trv, state.attributes.get("hvac_modes"))
+    trv.hvac_mode = state.state
+    trv.copied_setpoint = read_setpoint_celsius(
+        self, state, TRV_SETPOINT_KEYS, "hand_over_trv()"
+    )
+    heating_range_before = trv.heating_range
+    return (
+        _adopt_reported_range(self, entity_id, trv, state)
+        or trv.heating_range != heating_range_before
+    )
+
+
+def _crossed_handover(trv: Trv, handovers: int) -> bool:
+    """Return whether the TRV was released or taken back since ``handovers``."""
+    return trv.handovers != handovers
+
+
+def _report_of_held_state(entity_id: str, state: State) -> Event[EventStateChangedData]:
+    """Build a report of the state Home Assistant holds that changes nothing.
+
+    It stands in for a report that crossed a release or a take-back: the
+    state it repeats is at least as new as that report, and the change that
+    report carried was made by whoever held the device before.
+    """
+    return Event(
+        EVENT_STATE_CHANGED,
+        EventStateChangedData(entity_id=entity_id, old_state=state, new_state=state),
+        context=Context(),
+    )
+
+
 def _read_internal_temperature_later(
     self: BetterThermostat, trv: Trv, entity_id: str, interval_seconds: float
 ) -> None:
@@ -554,6 +617,7 @@ async def trigger_trv_change(
     request_cycle: bool = True,
     prior_hvac_mode: str | None = None,
     earlier_turn: bool = False,
+    handovers: int | None = None,
 ) -> None:
     """Trigger a change in the trv state.
 
@@ -566,6 +630,12 @@ async def trigger_trv_change(
     is that mode. ``earlier_turn`` reads a turn a control cycle held off. It
     was no copy when it arrived and the TRV's copy follows the reports after
     it, so the two are not compared.
+
+    ``handovers`` is the TRV's handover count when the report arrived; without
+    it the count is read here. A report the TRV was released or taken back
+    since was sent by a device someone else held, and nothing of it is read:
+    the state Home Assistant holds is read in its place, as a report that
+    changes nothing.
     """
     if self.startup_running:
         return
@@ -595,6 +665,12 @@ async def trigger_trv_change(
             entity_id,
         )
         return
+    if handovers is None:
+        handovers = trv.handovers
+    elif _crossed_handover(trv, handovers):
+        return await _read_held_state_instead(
+            self, entity_id, trv, _org_trv_state, mode_settled, request_cycle
+        )
     # A device seen holding the mode last sent to it has taken that write, so
     # it leaving the mode again is a new divergence: the write that answers it
     # is no repeat of a write the device did not take.
@@ -773,6 +849,15 @@ async def trigger_trv_change(
             _main_change = False
             if trv.calibration is CalibrationOutput.LOCAL_BASED:
                 trv.last_calibration = await get_calibration_offset(self, entity_id)
+                if _crossed_handover(trv, handovers):
+                    return await _read_held_state_instead(
+                        self,
+                        entity_id,
+                        trv,
+                        self.hass.states.get(entity_id),
+                        mode_settled,
+                        request_cycle,
+                    )
 
         # Under SENSOR_FALLBACK the TRV readings are the room temperature,
         # so a new one is controlled on even when it confirms an offset write.
@@ -1170,6 +1255,32 @@ async def trigger_trv_change(
 
     self.async_write_ha_state()
     return
+
+
+async def _read_held_state_instead(
+    self: BetterThermostat,
+    entity_id: str,
+    trv: Trv,
+    state: State | None,
+    mode_settled: bool,
+    request_cycle: bool,
+) -> None:
+    """Read the state Home Assistant holds in place of a report that crossed a handover."""
+    _LOGGER.debug(
+        "better_thermostat %s: TRV %s was released or taken back while its "
+        "report was on its way; reading its current state instead",
+        self.device_name,
+        entity_id,
+    )
+    if state is None:
+        return
+    await trigger_trv_change(
+        self,
+        _report_of_held_state(entity_id, state),
+        mode_settled=mode_settled,
+        request_cycle=request_cycle,
+        handovers=trv.handovers,
+    )
 
 
 def convert_inbound_states(
