@@ -500,12 +500,15 @@ def _crossed_handover(trv: Trv, handovers: int) -> bool:
     return trv.handovers != handovers
 
 
-def _report_of_held_state(entity_id: str, state: State) -> Event[EventStateChangedData]:
+def _report_of_held_state(
+    entity_id: str, state: State | None
+) -> Event[EventStateChangedData]:
     """Build a report of the state Home Assistant holds that changes nothing.
 
     It stands in for a report that crossed a release or a take-back: the
     state it repeats is at least as new as that report, and the change that
-    report carried was made by whoever held the device before.
+    report carried was made by whoever held the device before. A TRV whose
+    state is gone gives a report the handler reads nothing of.
     """
     return Event(
         EVENT_STATE_CHANGED,
@@ -1272,8 +1275,6 @@ async def _read_held_state_instead(
         self.device_name,
         entity_id,
     )
-    if state is None:
-        return
     await trigger_trv_change(
         self,
         _report_of_held_state(entity_id, state),
