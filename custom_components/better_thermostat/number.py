@@ -230,6 +230,8 @@ async def async_setup_entry(
     if bt_climate.outdoor_sensor_entity_id or bt_climate.weather_entity_id:
         numbers.append(BetterThermostatOffTemperatureNumber(bt_climate, entry, unit))
     numbers.append(BetterThermostatToleranceNumber(bt_climate, entry, unit))
+    if has_heater:
+        numbers.append(BetterThermostatTargetOffsetNumber(bt_climate, unit))
 
     # Track created number entities for cleanup
     tracked = entry.runtime_data.tracked_entities
@@ -252,6 +254,113 @@ async def async_setup_entry(
     )
     async_normalize_bt_entity_ids(hass, entry, Platform.NUMBER)
     async_add_entities(numbers)
+
+
+class BetterThermostatTargetOffsetNumber(
+    FollowsThermostat, NumberEntity, RestoreEntity
+):
+    """The temperature difference applied to the internal heating target."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "target_offset"
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_step = 0.1
+
+    def __init__(self, bt_climate: BetterThermostat, unit: UnitOfTemperature) -> None:
+        """Initialize the offset number in the system temperature unit."""
+        self._bt_climate = bt_climate
+        self._attr_unique_id = f"{bt_climate.unique_id}_target_offset"
+        self._attr_native_unit_of_measurement = unit
+        self._per_kelvin = 1.8 if unit == UnitOfTemperature.FAHRENHEIT else 1.0
+        self._attr_native_min_value = -10.0 * self._per_kelvin
+        self._attr_native_max_value = 10.0 * self._per_kelvin
+
+    @property
+    @override
+    def device_class(self) -> NumberDeviceClass:
+        """Return the temperature difference device class."""
+        return NumberDeviceClass.TEMPERATURE_DELTA
+
+    @property
+    @override
+    def device_info(self) -> DeviceInfo:
+        """Return the thermostat's device information."""
+        return self._bt_climate.device_info
+
+    @property
+    @override
+    def native_value(self) -> float:
+        """Return the offset in the system temperature unit."""
+        return round(self._bt_climate.target_offset * self._per_kelvin, 2)
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Restore the last valid offset and request a control cycle."""
+        await super().async_added_to_hass()
+        self._follow_thermostat()
+        last_state = await self.async_get_last_state()
+        if last_state is None:
+            return
+        try:
+            value = float(last_state.state)
+        except TypeError, ValueError:
+            return
+        if (
+            last_state.attributes.get("unit_of_measurement")
+            == UnitOfTemperature.FAHRENHEIT
+        ):
+            value /= 1.8
+        self._apply_offset(value)
+
+    @override
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the offset and request a new control cycle."""
+        self._apply_offset(value / self._per_kelvin)
+
+    def _apply_offset(self, value: float) -> None:
+        """Apply a finite, in-range offset in kelvin."""
+        if not _is_usable_setting(self._bt_climate, value, "target offset"):
+            return
+        if not -10.0 <= value <= 10.0:
+            return
+        if self._bt_climate.target_offset == value:
+            return
+        if self._bt_climate.cooler_entity_id is not None:
+            rollback = self._bt_climate._offset_ordered_cool_target
+            if rollback is not None:
+                original, adjusted = rollback
+                if self._bt_climate.cool_target_temperature == adjusted:
+                    self._bt_climate.cool_target_temperature = (
+                        self._bt_climate._bound_cool_target_to_range(original)
+                    )
+                else:
+                    self._bt_climate._offset_ordered_cool_target = None
+        cool_target_before_ordering = (
+            self._bt_climate.cool_target_temperature
+            if self._bt_climate.cooler_entity_id is not None
+            else None
+        )
+        self._bt_climate.target_offset = value
+        if self._bt_climate.cooler_entity_id is not None:
+            self._bt_climate._enforce_cool_above_heat(regardless_of_hvac_mode=True)
+            cool_target_after_ordering = self._bt_climate.cool_target_temperature
+            if (
+                cool_target_before_ordering is not None
+                and cool_target_after_ordering is not None
+                and cool_target_after_ordering > cool_target_before_ordering
+            ):
+                self._bt_climate._offset_ordered_cool_target = (
+                    cool_target_before_ordering,
+                    cool_target_after_ordering,
+                )
+        if (
+            not self._bt_climate.startup_running
+            and self._bt_climate.bt_hvac_mode != HVACMode.OFF
+        ):
+            request_control_cycle(self._bt_climate)
+        self.async_write_ha_state()
+        self._bt_climate.async_write_ha_state()
 
 
 class BetterThermostatPresetNumber(FollowsThermostat, NumberEntity, RestoreEntity):

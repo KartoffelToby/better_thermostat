@@ -26,7 +26,10 @@ import pytest
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.helpers import InboundSetpoint
+from custom_components.better_thermostat.utils.helpers import (
+    InboundSetpoint,
+    regulation_target,
+)
 from custom_components.better_thermostat.utils.hvac_action import ToleranceHysteresis
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingPowerTracker,
@@ -302,6 +305,23 @@ class TestCalculateHeatingPower:
 
     async def _call(self, bt):
         return await BetterThermostat.calculate_heating_power(bt)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("target_offset", [-1.0, 0.0, 1.0])
+    async def test_learning_uses_the_regulation_target(self, mock_bt, target_offset):
+        """Heating learning follows the offset without changing the user target."""
+        mock_bt.target_offset = target_offset
+        mock_bt._heating_tracker.update = MagicMock(
+            wraps=mock_bt._heating_tracker.update
+        )
+
+        await self._call(mock_bt)
+
+        assert (
+            mock_bt._heating_tracker.update.call_args.kwargs["heat_target_temperature"]
+            == 22.0 + target_offset
+        )
+        assert mock_bt.heat_target_temperature == 22.0
 
     @pytest.mark.asyncio
     async def test_heating_start_transition(self, mock_bt):
@@ -1713,6 +1733,21 @@ class TestEnforceHeatBelowCool:
         self._call(mock_bt)
         assert mock_bt.heat_target_temperature == 21.5
 
+    def test_maximum_heat_target_accounts_for_offset_when_yielding(self, mock_bt):
+        """A capped offset still lowers the base target enough to clear cooling."""
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_max_temp = 30.0
+        mock_bt.heat_target_temperature = 30.0
+        mock_bt.target_offset = 2.0
+        mock_bt.cool_target_temperature = 30.0
+        mock_bt.bt_target_temperature_step = 0.5
+
+        self._call(mock_bt)
+
+        assert mock_bt.heat_target_temperature == 27.5
+        assert regulation_target(mock_bt) == 29.5
+        assert regulation_target(mock_bt) < mock_bt.cool_target_temperature
+
     def test_step_falls_back_to_half_degree(self, mock_bt):
         """A missing/zero step falls back to 0.5."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
@@ -2026,6 +2061,39 @@ class TestClampInboundHeatTarget:
         mock_bt.bt_target_temperature_step = 0.5
         assert self._call(mock_bt, 22.0) == 21.5
 
+    def test_inbound_ceiling_uses_configured_offset_at_heat_maximum(self, mock_bt):
+        """A knob turn cannot remain over cooling after the old offset was capped."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.bt_max_temp = 30.0
+        mock_bt.heat_target_temperature = 30.0
+        mock_bt.target_offset = 2.0
+        mock_bt.cool_target_temperature = 30.0
+        mock_bt.bt_target_temperature_step = 0.5
+
+        assert self._call(mock_bt, 30.0) == 27.5
+
+    def test_candidate_effective_target_below_cooling_is_preserved(self, mock_bt):
+        """Keep a candidate whose bounded regulation target already clears cool."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.bt_max_temp = 30.0
+        mock_bt.heat_target_temperature = 30.0
+        mock_bt.target_offset = 2.0
+        mock_bt.cool_target_temperature = 31.0
+        mock_bt.bt_target_temperature_step = 0.5
+
+        assert self._call(mock_bt, 29.5) == 29.5
+
+    def test_inbound_ceiling_never_exceeds_heat_maximum(self, mock_bt):
+        """A derived ceiling above the heating range is capped at its maximum."""
+        mock_bt.cooler_entity_id = "climate.ac"
+        mock_bt.bt_max_temp = 30.0
+        mock_bt.heat_target_temperature = 30.0
+        mock_bt.target_offset = 0.0
+        mock_bt.cool_target_temperature = 35.0
+        mock_bt.bt_target_temperature_step = 0.5
+
+        assert self._call(mock_bt, 32.0) == 30.0
+
     def test_step_falls_back_to_half_degree(self, mock_bt):
         """A missing/zero step falls back to 0.5."""
         mock_bt.cooler_entity_id = "climate.ac"
@@ -2174,6 +2242,20 @@ class TestChannelRanges:
         BetterThermostat._enforce_cool_above_heat(cooled_bt)
 
         assert cooled_bt.cool_target_temperature == 30.5
+
+    def test_cooling_is_ordered_above_the_effective_heating_target(self, cooled_bt):
+        """An offset heating target cannot overlap the cooling target."""
+        cooled_bt.hvac_mode = HVACMode.HEAT_COOL
+        cooled_bt.heat_target_temperature = 20.0
+        cooled_bt.target_offset = 2.0
+        cooled_bt.cool_target_temperature = 21.0
+        cooled_bt.bt_target_temperature_step = 0.5
+
+        BetterThermostat._enforce_cool_above_heat(cooled_bt)
+
+        assert cooled_bt.heat_target_temperature == 20.0
+        assert cooled_bt.cool_target_temperature == 22.5
+        assert BetterThermostat._clamp_inbound_cool_target(cooled_bt, 21.0) == 22.5
 
     def test_the_inbound_cooling_floor_is_capped_by_the_cooler_maximum(self, cooled_bt):
         """A cooler report is raised above the heating target up to the cooler's max."""

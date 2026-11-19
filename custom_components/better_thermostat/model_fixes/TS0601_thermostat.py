@@ -12,6 +12,7 @@ from custom_components.better_thermostat.model_fixes.types import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
+    regulation_target,
     state_temperature_unit,
 )
 
@@ -39,7 +40,7 @@ def fix_local_calibration(
         The adjusted local calibration offset.
     """
     _cur_external_temperature = self.room_temperature
-    _heat_target_temperature = self.heat_target_temperature
+    _heat_target_temperature = regulation_target(self)
 
     if _cur_external_temperature is None:
         return calibration_offset

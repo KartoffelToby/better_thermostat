@@ -84,6 +84,45 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+class _RegulationTargetHost(Protocol):
+    """The heating target read by regulation and device quirks."""
+
+    @property
+    def heat_target_temperature(self) -> float:
+        """Return the unshifted heating target."""
+        ...
+
+
+def regulation_target(
+    self: _RegulationTargetHost, *, heat_target_temperature: float | None = None
+) -> float:
+    """Return an offset heating target clamped to Better Thermostat's range.
+
+    ``heat_target_temperature`` lets target-ordering code validate a candidate
+    base target with exactly the same offset and bounds used by regulation.
+    """
+    base_target = (
+        self.heat_target_temperature
+        if heat_target_temperature is None
+        else heat_target_temperature
+    )
+    target_offset = getattr(self, "target_offset", 0.0)
+    if not isinstance(target_offset, (int, float)) or not math.isfinite(target_offset):
+        target_offset = 0.0
+    if target_offset == 0.0:
+        return base_target
+    target = base_target + target_offset
+    if not math.isfinite(target):
+        return target
+    lower = getattr(self, "bt_min_temp", None)
+    upper = getattr(self, "bt_max_temp", None)
+    if not isinstance(lower, (int, float)) or not math.isfinite(lower):
+        lower = CLIMATE_DEFAULT_MIN_TEMP
+    if not isinstance(upper, (int, float)) or not math.isfinite(upper):
+        upper = CLIMATE_DEFAULT_MAX_TEMP
+    return min(max(target, lower), upper)
+
+
 class _CalibrationConfiguredTrv(Protocol):
     """The per-TRV record a calibration-mode question reads."""
 
@@ -1320,7 +1359,9 @@ def heating_power_valve_position(
     | 0.4       | 0.3232  | 0.6227  | 1.0000   |
     | 0.5       | 0.3992  | 0.7691  | 1.0000   |
     """
-    target_temperature = self.heat_target_temperature
+    target_temperature = (
+        regulation_target(self) if self.heat_target_temperature is not None else None
+    )
     if room_temperature is None or target_temperature is None:
         _LOGGER.debug(
             "better_thermostat %s: %s / heating_power_valve_position - no room "
@@ -1962,6 +2003,7 @@ def resolve_inbound_setpoint(
     step: float,
     log_source: str,
     cooling: bool = False,
+    echo_offset: float = 0.0,
 ) -> InboundSetpoint | None:
     """Prepare a setpoint reported by a controlled device for adoption.
 
@@ -2002,6 +2044,9 @@ def resolve_inbound_setpoint(
     cooling : bool
             whether the setpoint is adopted into the cooling channel, which
             bounds it by the cooling range instead of the heating one
+    echo_offset : float
+            Offset between the reported setpoint and the displayed heating
+            target, used to compare bounded reports with device writes.
 
     Returns
     -------
@@ -2031,9 +2076,15 @@ def resolve_inbound_setpoint(
         clamped = True
 
     echo_window = setpoint_echo_window(step)
+    echo_value = raw - echo_offset
+    if lower is not None and echo_value < lower:
+        echo_value = lower
+    if upper is not None and upper < echo_value:
+        echo_value = upper
+    echo_value += echo_offset
     is_echo = any(
         isinstance(known, (int, float))
-        and (abs(raw - known) < echo_window or abs(value - known) < echo_window)
+        and (abs(raw - known) < echo_window or abs(echo_value - known) < echo_window)
         for known in known_values
     )
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
