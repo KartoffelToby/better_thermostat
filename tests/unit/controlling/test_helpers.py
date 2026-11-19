@@ -111,6 +111,28 @@ class TestCheckSystemMode:
         assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("live_state", "still_sent"),
+        [
+            pytest.param(HVACMode.HEAT, None, id="device_holds_the_mode_sent"),
+            pytest.param(STATE_UNAVAILABLE, HVACMode.HEAT, id="device_is_gone"),
+        ],
+    )
+    async def test_a_confirmed_mode_is_no_longer_on_record_as_sent(
+        self, live_state, still_sent
+    ):
+        """A device the watchdog sees holding the mode sent has taken that write."""
+        mock_self, _ = self._mock_self(
+            live_state=live_state, last_hvac_mode=HVACMode.HEAT
+        )
+        mock_self.hass.states.get.return_value = State("climate.trv1", live_state)
+        mock_self.real_trvs["climate.trv1"].last_hvac_mode_sent = HVACMode.HEAT
+
+        await check_system_mode(mock_self, "climate.trv1")
+
+        assert mock_self.real_trvs["climate.trv1"].last_hvac_mode_sent == still_sent
+
+    @pytest.mark.asyncio
     async def test_confirms_via_live_state_with_stale_cache(self):
         """The live state confirms the write even when the internal cache is stale.
 

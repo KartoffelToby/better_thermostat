@@ -1595,6 +1595,7 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
                     mode_settled=True,
                     request_cycle=False,
                     prior_hvac_mode=turned_from.state,
+                    earlier_turn=True,
                 )
             await trigger_trv_change(
                 self,
@@ -3625,6 +3626,10 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
         if _trv_state.state == trv.last_hvac_mode or (
             _trv_state.state == STATE_UNKNOWN and state_unknown_as_available
         ):
+            # A device seen holding the mode last sent has taken it, also
+            # when its report did not reach the inbound handler.
+            if _trv_state.state == trv.last_hvac_mode_sent:
+                trv.last_hvac_mode_sent = None
             _timeout = 0
             break
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:

@@ -5563,9 +5563,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             return
         self.devices_released = released
         # What the TRVs were sent before the release is no repeat for the
-        # cycle that takes them back.
+        # cycle that takes them back, and a neighbour's setpoint they copied
+        # says nothing about a turn after it.
         for trv in self.real_trvs.values():
             trv.last_hvac_mode_sent = None
+            trv.copied_setpoint = None
         self.learning_pause_changes += 1
         _LOGGER.info(
             "better_thermostat %s: devices %s",
@@ -5578,6 +5580,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self._loss_tracker.abort_cycle()
             for trv in self.real_trvs.values():
                 trv.forget_external_temperature_writes()
+        else:
+            for trv in self.real_trvs.values():
+                trv.forget_held_reports()
         await check_critical_entities(self)
         publish_kernel_verdict(self)
         self.async_write_ha_state()
@@ -5621,8 +5626,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         else:
             self.released_trvs.discard(entity_id)
         # What the TRV was sent before its release is no repeat for the
-        # cycle that takes it back.
+        # cycle that takes it back, and a neighbour's setpoint it copied says
+        # nothing about a turn after it.
         self.real_trvs[entity_id].last_hvac_mode_sent = None
+        self.real_trvs[entity_id].copied_setpoint = None
         self.learning_pause_changes += 1
         _LOGGER.info(
             "better_thermostat %s: TRV %s %s",
@@ -5635,6 +5642,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self._heating_tracker.abort_cycle()
             self._loss_tracker.abort_cycle()
             self.real_trvs[entity_id].forget_external_temperature_writes()
+        else:
+            self.real_trvs[entity_id].forget_held_reports()
         self._refresh_temperature_range()
         await check_critical_entities(self)
         publish_kernel_verdict(self)

@@ -143,7 +143,12 @@ def accepts_user_setpoint(
 
 
 def _hold_report(
-    self: BetterThermostat, trv: Trv, old_state: State, new_state: State
+    self: BetterThermostat,
+    trv: Trv,
+    old_state: State,
+    new_state: State,
+    *,
+    copied: bool = False,
 ) -> None:
     """Park a report that arrives while a control cycle holds the handler off.
 
@@ -163,7 +168,9 @@ def _hold_report(
     has cached the device as on by then, and reads the move as a press.
     Any report that moves the setpoint of a device that is on is kept as
     the held turn, for the end of the cycle to read when a later report
-    switches the device off or brings it back.
+    switches the device off or brings it back. A report ``copied`` from a
+    neighbour's write is no turn, and the end of the cycle could no longer
+    tell once the neighbour has moved on.
     """
     unread = trv.unread_report
     previous_setpoint = _held_setpoint(self, old_state)
@@ -190,7 +197,8 @@ def _hold_report(
     if pressed_after_switch_on:
         unread = UnreadReport(state_before=old_state, hvac_mode_before=old_state.state)
     if (
-        _reports_on(old_state)
+        not copied
+        and _reports_on(old_state)
         and _reports_on(new_state)
         and previous_setpoint is not None
         and _held_setpoint(self, new_state) not in (None, previous_setpoint)
@@ -276,6 +284,29 @@ def _note_copied_setpoint(
     )
     trv.copied_setpoint = reported if copied else None
     return copied
+
+
+def _note_copied_report(
+    self: BetterThermostat, trv: Trv, entity_id: str, state: State
+) -> bool:
+    """Update a TRV's copy from a report the handler reads no further.
+
+    A report that says the device is gone says nothing about what it holds,
+    whatever setpoint it still names.
+
+    Returns
+    -------
+    bool
+        Whether the report carries a neighbour's write or the TRV's copy.
+    """
+    if trv_report_is_unreadable(self, entity_id, state):
+        return False
+    reported = read_setpoint_celsius(
+        self, state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
+    )
+    if reported is None:
+        return False
+    return _note_copied_setpoint(self, trv, entity_id, reported)
 
 
 def reports_written_setpoint(
@@ -522,6 +553,7 @@ async def trigger_trv_change(
     mode_settled: bool = False,
     request_cycle: bool = True,
     prior_hvac_mode: str | None = None,
+    earlier_turn: bool = False,
 ) -> None:
     """Trigger a change in the trv state.
 
@@ -531,7 +563,9 @@ async def trigger_trv_change(
     control cycle for it, for a caller that decides that itself.
     ``prior_hvac_mode`` is the mode the device was cached in before the
     report, for a caller whose cache has moved since; without it the cache
-    is that mode.
+    is that mode. ``earlier_turn`` reads a turn a control cycle held off. It
+    was no copy when it arrived and the TRV's copy follows the reports after
+    it, so the two are not compared.
     """
     if self.startup_running:
         return
@@ -609,11 +643,7 @@ async def trigger_trv_change(
     if event.context == self.context and _reports_only_own_writes(
         self, trv, entity_id, old_state, new_state
     ):
-        _own_report_setpoint = read_setpoint_celsius(
-            self, new_state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
-        )
-        if _own_report_setpoint is not None:
-            _note_copied_setpoint(self, trv, entity_id, _own_report_setpoint)
+        _note_copied_report(self, trv, entity_id, new_state)
         if _range_changed and request_cycle:
             self.async_write_ha_state()
             request_control_cycle(self)
@@ -758,7 +788,13 @@ async def trigger_trv_change(
         _read_internal_temperature_later(self, trv, entity_id, _time_diff)
 
     if self.ignore_states:
-        _hold_report(self, trv, old_state, new_state)
+        _hold_report(
+            self,
+            trv,
+            old_state,
+            new_state,
+            copied=_note_copied_report(self, trv, entity_id, new_state),
+        )
         if _main_change or _range_changed:
             trv.temperature_moved_while_held = True
         return
@@ -906,6 +942,7 @@ async def trigger_trv_change(
     # clamp brings onto a neighbour's write is still a turn.
     if (
         _setpoint is not None
+        and not earlier_turn
         and _note_copied_setpoint(self, trv, entity_id, _setpoint.raw)
         and not _setpoint.is_echo
     ):

@@ -12,6 +12,7 @@ hardware:
    no calibration and no direct valve control.
 """
 
+import asyncio
 import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,6 +25,7 @@ from custom_components.better_thermostat import config_flow
 from custom_components.better_thermostat.adapters import valve_entity
 from custom_components.better_thermostat.adapters.base import DeviceChannels
 from custom_components.better_thermostat.adapters.conformance import ECOSYSTEM_ADAPTERS
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils import helpers
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -35,6 +37,8 @@ from tests.factories import (
     make_registry_entry,
     trv_record,
 )
+
+_CLIMATE = "custom_components.better_thermostat.climate"
 
 quirk = importlib.import_module(
     "custom_components.better_thermostat.model_fixes.ZWA021"
@@ -130,6 +134,85 @@ class TestZWA021ExternalTemperature:
             mock_self, "climate.trv1", 21.0
         )
         assert send.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_release_during_the_report_still_lets_the_value_go_out_again(self):
+        """A report under way when the TRV is released leaves no record behind."""
+        mock_self = _make_external_temperature_self()
+        send = mock_self.hass.services.async_call
+        trv = mock_self.real_trvs["climate.trv1"]
+        send.side_effect = lambda *_args, **_kwargs: (
+            trv.forget_external_temperature_writes() if send.await_count == 1 else None
+        )
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.0
+        )
+        assert send.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_report_under_way_does_not_hold_up_the_release_or_the_next_report(
+        self,
+    ):
+        """Release and take-back around a keepalive the device has not answered."""
+        mock_self = _make_external_temperature_self()
+        entity_id = "climate.trv1"
+        answered = asyncio.Event()
+        started = asyncio.Event()
+
+        async def _report(*_args, **_kwargs):
+            started.set()
+            await answered.wait()
+
+        send = mock_self.hass.services.async_call
+        send.side_effect = _report
+        mock_self.real_trvs[entity_id].model_quirks = quirk
+        mock_self.startup_running = False
+        mock_self.room_temperature = 21.0
+        mock_self._temperature_filter_lock = None
+        mock_self._heating_tracker = MagicMock()
+        mock_self._loss_tracker = MagicMock()
+        mock_self._initialize_arrived_trvs = AsyncMock()
+        mock_self.control_queue_task = MagicMock()
+
+        def _keepalive():
+            return BetterThermostat._external_temperature_keepalive(mock_self)
+
+        mock_self._external_temperature_keepalive = _keepalive
+        with (
+            patch(f"{_CLIMATE}._room_sensor_reads", return_value=True),
+            patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.publish_kernel_verdict"),
+        ):
+            report = asyncio.create_task(_keepalive())
+            reached = asyncio.create_task(started.wait())
+            try:
+                await asyncio.wait(
+                    {report, reached}, timeout=1, return_when=asyncio.FIRST_COMPLETED
+                )
+                assert started.is_set(), report
+                await asyncio.wait_for(
+                    BetterThermostat.async_set_trv_released(mock_self, entity_id, True),
+                    1,
+                )
+                assert not report.done()
+                answered.set()
+                await report
+                await BetterThermostat.async_set_trv_released(
+                    mock_self, entity_id, False
+                )
+            finally:
+                for task in (report, reached):
+                    task.cancel()
+                await asyncio.gather(report, reached, return_exceptions=True)
+
+        assert [call.args[2]["parameters"] for call in send.await_args_list] == [
+            [1, 0, 21.0],
+            [1, 0, 21.0],
+        ]
 
     @pytest.mark.asyncio
     async def test_a_failed_report_is_sent_again_on_the_next_reading(self):

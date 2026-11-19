@@ -149,6 +149,7 @@ async def maybe_set_external_temperature(
         not a finite number, or the report failed.
     """
     trv = self.real_trvs[entity_id]
+    forgotten_before = trv.external_temperature_writes_forgotten
     if trv.integration != _ZWAVE_JS_DOMAIN or _is_direct_valve(self, entity_id):
         return False
     if configured_calibration_mode(trv.advanced) is not CalibrationMode.NO_CALIBRATION:
@@ -197,8 +198,9 @@ async def maybe_set_external_temperature(
             ex,
         )
         return False
-    trv.extra[_EXTERNAL_TEMPERATURE_LAST_SENT] = report_temperature
-    trv.extra[_EXTERNAL_TEMPERATURE_SENT_AT] = now
+    if trv.external_temperature_writes_forgotten == forgotten_before:
+        trv.extra[_EXTERNAL_TEMPERATURE_LAST_SENT] = report_temperature
+        trv.extra[_EXTERNAL_TEMPERATURE_SENT_AT] = now
     _LOGGER.debug(
         "better_thermostat %s: sent ZWA021 external air temperature %.2f °C to %s",
         self.device_name,
